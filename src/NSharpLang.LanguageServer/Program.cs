@@ -119,43 +119,12 @@ class Program
 
                                     foreach (var error in publication.CompilerDiagnostics)
                                     {
-                                        var line = Math.Max(0, error.Line - 1);
-                                        var column = Math.Max(0, error.Column - 1);
-                                        var length = Math.Max(1, error.Length);
-
-                                        diagnostics.Add(new LspDiagnostic
-                                        {
-                                            Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-                                                line, column, line, column + length),
-                                            Severity = error.Severity == NSharpLang.Compiler.ErrorSeverity.Warning
-                                                ? OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning
-                                                : OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Error,
-                                            Code = error.DiagnosticId,
-                                            Source = "N#",
-                                            Message = error.FormatForTooling(includeCode: true, includeLocation: false)
-                                        });
+                                        diagnostics.Add(LspDiagnosticConverter.FromCompilerError(error));
                                     }
 
                                     foreach (var linterDiag in publication.LinterDiagnostics)
                                     {
-                                        var line = Math.Max(0, linterDiag.Location.Line - 1);
-                                        var column = Math.Max(0, linterDiag.Location.Column - 1);
-
-                                        diagnostics.Add(new LspDiagnostic
-                                        {
-                                            Range = new OmniSharp.Extensions.LanguageServer.Protocol.Models.Range(
-                                                line, column, line, column + 1),
-                                            Severity = linterDiag.Severity switch
-                                            {
-                                                NSharpLang.Compiler.DiagnosticSeverity.Error => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Error,
-                                                NSharpLang.Compiler.DiagnosticSeverity.Warning => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning,
-                                                NSharpLang.Compiler.DiagnosticSeverity.Info => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Information,
-                                                _ => OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning
-                                            },
-                                            Code = linterDiag.Code,
-                                            Source = "N#",
-                                            Message = linterDiag.Message
-                                        });
+                                        diagnostics.Add(LspDiagnosticConverter.FromLinterDiagnostic(linterDiag));
                                     }
 
                                     server.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams

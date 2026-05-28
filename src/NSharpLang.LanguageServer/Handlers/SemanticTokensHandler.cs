@@ -471,7 +471,7 @@ public class SemanticTokensHandler : SemanticTokensHandlerBase
                 ? token.Column + expressionColumn - 1
                 : token.Column;
 
-            destination.Add(new Token(token.Type, token.Value, line, column, fileName));
+            destination.Add(new Token(token.Type, token.Value, line, column, fileName, token.IsTerminated));
         }
     }
 

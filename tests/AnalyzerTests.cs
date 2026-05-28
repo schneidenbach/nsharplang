@@ -244,6 +244,32 @@ func main(): int {
     }
 
     [Fact]
+    public void BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember()
+    {
+        const string source = """
+func Main() {
+    print "asdf".ToUpper()
+    print "asdf".Length
+    print "asdf".ToUp()
+}
+""";
+
+        var lexer = new Lexer(source, "Program.nl");
+        var parser = new Parser(lexer.Tokenize(), "Program.nl", source);
+        var parseResult = parser.ParseCompilationUnit();
+        using var analyzer = new Analyzer();
+
+        var result = analyzer.Analyze(parseResult.CompilationUnit!, "/tmp/Program.nl", projectRoot: null, source);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.UndefinedMember &&
+                     error.Message.Contains("ToUp"));
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(18, diagnostic.Column);
+        Assert.Equal("ToUp".Length, diagnostic.Length);
+    }
+
+    [Fact]
     public void FunctionDeclaration_Valid()
     {
         AssertNoErrors(@"
@@ -4173,7 +4199,35 @@ func Hello(): string {
                 p := new Processor()
                 p.Process(true)
             }
-        ", "None of the overloads");
+        ", "No overload of 'Process' accepts");
+    }
+
+    [Fact]
+    public void OverloadResolution_NoMatchingOverload_UsesCallableNameSpanAndRichContext()
+    {
+        const string source = """
+class Processor {
+    func Process(x: int): int { return x }
+    func Process(x: string): string { return x }
+}
+
+func Main() {
+    p := new Processor()
+    p.Process(true)
+}
+""";
+
+        var result = AnalyzeWithSource(source);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Code == ErrorCode.NoMatchingOverload);
+        Assert.Equal(8, diagnostic.Line);
+        Assert.Equal(7, diagnostic.Column);
+        Assert.Equal("Process".Length, diagnostic.Length);
+        Assert.Equal("    p.Process(true)", diagnostic.SourceSnippet);
+        Assert.Contains("I cannot find an overload of `Process`", diagnostic.HumanExplanation);
+        Assert.Contains("Process(x: int): int", diagnostic.ContextualHint);
+        Assert.Contains("Process(x: string): string", diagnostic.ContextualHint);
     }
 
     [Fact]
@@ -4601,7 +4655,7 @@ func Hello(): string {
             func Main() {
                 Process(true)
             }
-        ", "None of the overloads");
+        ", "No overload of 'Process' accepts");
     }
 
     [Fact]
@@ -4626,7 +4680,7 @@ func Hello(): string {
             func Main() {
                 5.Format(true)
             }
-        ", "None of the overloads");
+        ", "No overload of 'Format' accepts");
     }
 
     // ================================================================
@@ -7463,11 +7517,18 @@ func Hello(): string {
     [Fact]
     public void DefaultExpression_NoTypeContext_ReportsError()
     {
-        AssertHasError(@"
+        var result = Analyze("""
             func Main() {
                 x := default
             }
-        ", "can't figure out what type 'default' should be");
+            """);
+
+        var diagnostic = Assert.Single(result.Errors,
+            error => error.Message.Contains("can't figure out what type 'default' should be"));
+        Assert.Equal(ErrorCode.CannotInferType, diagnostic.Code);
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal("default".Length, diagnostic.Length);
     }
 
     [Fact]

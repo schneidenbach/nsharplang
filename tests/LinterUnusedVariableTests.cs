@@ -34,10 +34,9 @@ public class LinterUnusedVariableTests
         var unusedDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
         Assert.NotNull(unusedDiag);
 
-        // Column should point to "unused" (after "let ")
-        // "let unused" -> 'unused' starts at column 18 (after "func main() { let ")
-        Assert.True(unusedDiag.Location.Column >= 18,
-            $"Expected column >= 18 (at variable name), but got {unusedDiag.Location.Column}");
+        Assert.Equal(1, unusedDiag.Location.Line);
+        Assert.Equal(19, unusedDiag.Location.Column);
+        Assert.Equal("unused".Length, unusedDiag.Length);
     }
 
     [Fact]
@@ -50,9 +49,27 @@ public class LinterUnusedVariableTests
         var unusedDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
         Assert.NotNull(unusedDiag);
 
-        // "unused :=" -> 'unused' starts at column 15.
-        Assert.True(unusedDiag.Location.Column >= 15,
-            $"Expected column >= 15 (at variable name), but got {unusedDiag.Location.Column}");
+        Assert.Equal(1, unusedDiag.Location.Line);
+        Assert.Equal(15, unusedDiag.Location.Column);
+        Assert.Equal("unused".Length, unusedDiag.Length);
+    }
+
+    [Fact]
+    public void UnusedVariable_ShorthandDeclaration_DiagnosticPointsToVariableName()
+    {
+        var source = """
+func main() {
+    asdf := "meow"
+}
+""";
+
+        var diagnostics = Lint(source);
+
+        var unusedDiag = diagnostics.FirstOrDefault(d => d.Code == "NL001");
+        Assert.NotNull(unusedDiag);
+        Assert.Equal(2, unusedDiag.Location.Line);
+        Assert.Equal(5, unusedDiag.Location.Column);
+        Assert.Equal("asdf".Length, unusedDiag.Length);
     }
 
     #endregion

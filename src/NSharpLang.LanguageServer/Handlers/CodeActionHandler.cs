@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -144,7 +145,8 @@ public class CodeActionHandler : CodeActionHandlerBase
             compilerError.Message,
             new Compiler.Location(compilerError.Line, compilerError.Column, compilerError.FileName),
             compilerError.Severity == ErrorSeverity.Error ? Compiler.DiagnosticSeverity.Error : Compiler.DiagnosticSeverity.Warning,
-            compilerError.Suggestion ?? compilerError.ContextualHint);
+            compilerError.Suggestion ?? compilerError.ContextualHint,
+            Math.Max(compilerError.Length, 1));
     }
 
     private LspCodeAction ConvertToLspCodeAction(

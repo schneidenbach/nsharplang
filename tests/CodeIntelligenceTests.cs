@@ -487,7 +487,7 @@ public class CodeIntelligenceOutputTests
                 "Expected int but got string",
                 "Use int.Parse",
                 "Check your types",
-                "int", "string", "https://docs.nsharp.dev/errors/NL202")
+                "int", "string", "https://docs.n-sharp.dev/errors/NL202")
         };
 
         var text = OutputFormatter.DiagnosticsToText(diagnostics);
@@ -518,7 +518,7 @@ public class CodeIntelligenceOutputTests
         Assert.Contains("Suggestion: Use int.Parse", text);
 
         // Docs URL
-        Assert.Contains("See: https://docs.nsharp.dev/errors/NL202", text);
+        Assert.Contains("See: https://docs.n-sharp.dev/errors/NL202", text);
 
         // Summary
         Assert.Contains("1 error", text);

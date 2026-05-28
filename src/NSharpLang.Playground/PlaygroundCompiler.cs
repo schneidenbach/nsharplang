@@ -447,6 +447,7 @@ public sealed class PlaygroundCompiler
         var semanticModels = new Dictionary<string, SemanticModel>(StringComparer.OrdinalIgnoreCase);
         var allErrors = new List<CompilerError>();
         var sourceTexts = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var fileNamesByPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var diagnostics = new List<PlaygroundDiagnostic>();
         var linter = new Linter();
 
@@ -454,6 +455,7 @@ public sealed class PlaygroundCompiler
         {
             var path = Path.GetFullPath(Path.Combine(root, file.Name));
             sourceTexts[path] = file.Code;
+            fileNamesByPath[path] = file.Name;
 
             try
             {
@@ -472,30 +474,6 @@ public sealed class PlaygroundCompiler
                 diagnostics.AddRange(linter
                     .Lint(parseResult.CompilationUnit, file.Name, file.Code)
                     .Select(ToPlaygroundDiagnostic));
-
-                try
-                {
-                    using var analyzer = new Analyzer();
-                    var analysis = analyzer.Analyze(parseResult.CompilationUnit, path, projectRoot: null, file.Code);
-                    allErrors.AddRange(analysis.Errors);
-                    diagnostics.AddRange(analysis.Errors.Select(error => ToPlaygroundDiagnostic(error, file.Code, file.Name)));
-                    semanticModels[path] = analysis.SemanticModel;
-                }
-                catch (Exception ex)
-                {
-                    diagnostics.Add(new PlaygroundDiagnostic(
-                        Code: "PG904",
-                        Severity: "warning",
-                        Message: $"Semantic analysis was incomplete for {file.Name}: {ex.Message}",
-                        File: file.Name,
-                        Line: 1,
-                        Column: 1,
-                        Length: 1,
-                        SourceSnippet: null,
-                        Explanation: "The fallback analyzer could not fully process this file in the browser.",
-                        Suggestion: "Try simplifying the sample or use the local nlc toolchain for project-level analysis.",
-                        Hint: null));
-                }
             }
             catch (Exception ex)
             {
@@ -514,6 +492,43 @@ public sealed class PlaygroundCompiler
             }
         }
 
+        var projectSymbols = BuildFallbackProjectSymbolTable(compilationUnits, sourceTexts);
+        foreach (var (path, compilationUnit) in compilationUnits)
+        {
+            var fileName = fileNamesByPath.TryGetValue(path, out var storedFileName)
+                ? storedFileName
+                : NormalizeFileName(path);
+            var source = sourceTexts.TryGetValue(path, out var storedSource)
+                ? storedSource
+                : string.Empty;
+
+            try
+            {
+                using var analyzer = new Analyzer();
+                analyzer.SetProjectSourceTexts(sourceTexts);
+                analyzer.SetProjectSymbols(projectSymbols);
+                var analysis = analyzer.Analyze(compilationUnit, path, root, source);
+                allErrors.AddRange(analysis.Errors);
+                diagnostics.AddRange(analysis.Errors.Select(error => ToPlaygroundDiagnostic(error, source, fileName)));
+                semanticModels[path] = analysis.SemanticModel;
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add(new PlaygroundDiagnostic(
+                    Code: "PG904",
+                    Severity: "warning",
+                    Message: $"Semantic analysis was incomplete for {fileName}: {ex.Message}",
+                    File: fileName,
+                    Line: 1,
+                    Column: 1,
+                    Length: 1,
+                    SourceSnippet: null,
+                    Explanation: "The fallback analyzer could not fully process this file in the browser.",
+                    Suggestion: "Try simplifying the sample or use the local nlc toolchain for project-level analysis.",
+                    Hint: null));
+            }
+        }
+
         var snapshot = new ProjectSnapshot(
             root,
             compilationUnits,
@@ -525,6 +540,30 @@ public sealed class PlaygroundCompiler
             sourceTexts: sourceTexts);
 
         return new ProjectAnalysis(snapshot, diagnostics);
+    }
+
+    private static Dictionary<string, List<ProjectSymbolInfo>> BuildFallbackProjectSymbolTable(
+        IReadOnlyDictionary<string, CompilationUnit> compilationUnits,
+        IReadOnlyDictionary<string, string> sourceTexts)
+    {
+        var symbols = new Dictionary<string, List<ProjectSymbolInfo>>(StringComparer.Ordinal);
+
+        foreach (var (path, unit) in compilationUnits)
+        {
+            var sourceText = sourceTexts.TryGetValue(path, out var text) ? text : null;
+            foreach (var symbol in Analyzer.ExtractProjectSymbols(unit, path, sourceText))
+            {
+                if (!symbols.TryGetValue(symbol.Name, out var list))
+                {
+                    list = new List<ProjectSymbolInfo>();
+                    symbols[symbol.Name] = list;
+                }
+
+                list.Add(symbol);
+            }
+        }
+
+        return symbols;
     }
 
     private static void AddLintDiagnostics(ProjectSnapshot snapshot, List<PlaygroundDiagnostic> diagnostics)
@@ -789,7 +828,7 @@ public sealed class PlaygroundCompiler
             File: NormalizeFileName(diagnostic.Location.FilePath ?? DefaultFileName),
             Line: Math.Max(diagnostic.Location.Line, 1),
             Column: Math.Max(diagnostic.Location.Column, 1),
-            Length: 1,
+            Length: Math.Max(diagnostic.Length, 1),
             SourceSnippet: null,
             Explanation: null,
             Suggestion: diagnostic.Suggestion,

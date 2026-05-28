@@ -20,6 +20,16 @@ public class LinterTests
         return linter.Lint(result.CompilationUnit!, "test.nl");
     }
 
+    private List<Diagnostic> LintWithSource(string source)
+    {
+        var lexer = new Lexer(source, "test.nl");
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, "test.nl", source);
+        var result = parser.ParseCompilationUnit();
+        var linter = new Linter();
+        return linter.Lint(result.CompilationUnit!, "test.nl", source);
+    }
+
     private void AssertNoDiagnostics(List<Diagnostic> diagnostics)
     {
         Assert.Empty(diagnostics);
@@ -50,6 +60,30 @@ func main() {
         var diagnostics = Lint(source);
 
         Assert.DoesNotContain(diagnostics, d => d.Code == "NL001");
+    }
+
+    [Fact]
+    public void NL012_UsesParameterSpan()
+    {
+        var source = "func greet(unusedName: string) { print \"hi\" }";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, d => d.Code == "NL012");
+        Assert.Equal(1, diagnostic.Location.Line);
+        Assert.Equal(12, diagnostic.Location.Column);
+        Assert.Equal("unusedName".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void NL004_UsesFunctionNameSpan()
+    {
+        var source = "async func LoadData(): void { print \"hi\" }";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, d => d.Code == "NL004");
+        Assert.Equal(1, diagnostic.Location.Line);
+        Assert.Equal(12, diagnostic.Location.Column);
+        Assert.Equal("LoadData".Length, diagnostic.Length);
     }
 
     [Fact]
@@ -559,6 +593,26 @@ func main() {
     }
 
     [Fact]
+    public void NL011_EmptyCatch_UsesCatchKeywordSpan()
+    {
+        var source = """
+func main() {
+    try {
+        print "x"
+    } catch {
+    }
+}
+""";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Code == "NL011");
+        Assert.Equal(4, diagnostic.Location.Line);
+        Assert.Equal(7, diagnostic.Location.Column);
+        Assert.Equal("catch".Length, diagnostic.Length);
+        Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Code == "NL019");
+    }
+
+    [Fact]
     public void NL011_EmptyCatch_NoWarnOnCatchWithStatements()
     {
         var source = @"
@@ -698,6 +752,58 @@ func main() {
 }";
         var diagnostics = Lint(source);
         Assert.Contains(diagnostics, d => d.Code == "NL019");
+    }
+
+    [Fact]
+    public void NL019_EmptyBlock_UsesOwnerKeywordSpan()
+    {
+        var source = """
+func main() {
+    if true { }
+}
+""";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Code == "NL019");
+        Assert.Equal(2, diagnostic.Location.Line);
+        Assert.Equal(5, diagnostic.Location.Column);
+        Assert.Equal("if".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void NL019_EmptyElseBlock_UsesElseKeywordSpan()
+    {
+        var source = """
+func main() {
+    if true {
+        print "x"
+    } else {
+    }
+}
+""";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Code == "NL019");
+        Assert.Equal(4, diagnostic.Location.Line);
+        Assert.Equal(7, diagnostic.Location.Column);
+        Assert.Equal("else".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void NL019_EmptyAssertThrowsBlock_UsesThrowsKeywordSpan()
+    {
+        var source = """
+func main() {
+    assert throws InvalidOperationException {
+    }
+}
+""";
+        var diagnostics = LintWithSource(source);
+
+        var diagnostic = Assert.Single(diagnostics, diagnostic => diagnostic.Code == "NL019");
+        Assert.Equal(2, diagnostic.Location.Line);
+        Assert.Equal(12, diagnostic.Location.Column);
+        Assert.Equal("throws".Length, diagnostic.Length);
     }
 
     #endregion

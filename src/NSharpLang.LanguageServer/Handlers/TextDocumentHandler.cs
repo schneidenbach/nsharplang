@@ -11,11 +11,7 @@ using OmniSharp.Extensions.LanguageServer.Protocol.Client.Capabilities;
 using OmniSharp.Extensions.LanguageServer.Protocol.Document;
 using OmniSharp.Extensions.LanguageServer.Protocol.Models;
 using OmniSharp.Extensions.LanguageServer.Protocol.Server;
-using LspRange = OmniSharp.Extensions.LanguageServer.Protocol.Models.Range;
 using LspDiagnostic = OmniSharp.Extensions.LanguageServer.Protocol.Models.Diagnostic;
-using LspDiagnosticSeverity = OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity;
-using CompilerDiagnostic = NSharpLang.Compiler.Diagnostic;
-using DiagnosticSeverity = NSharpLang.Compiler.DiagnosticSeverity;
 
 namespace NSharpLang.LanguageServer.Handlers;
 
@@ -27,7 +23,6 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
     private readonly DocumentManager _documentManager;
     private readonly ILanguageServerFacade _languageServer;
     private readonly ILogger<TextDocumentHandler> _logger;
-    private string? _currentDiagnosticUri; // Set during PublishDiagnostics for token length lookup
 
     public TextDocumentHandler(
         DocumentManager documentManager,
@@ -131,12 +126,10 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         var publications = _documentManager.GetDiagnosticsToPublish(uri);
         foreach (var publication in publications)
         {
-            _currentDiagnosticUri = publication.Uri;
-
             var allDiagnostics = new List<LspDiagnostic>();
 
             allDiagnostics.AddRange(publication.CompilerDiagnostics.Select(ConvertCompilerErrorToDiagnostic));
-            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(ConvertLinterDiagnosticToDiagnostic));
+            allDiagnostics.AddRange(publication.LinterDiagnostics.Select(LspDiagnosticConverter.FromLinterDiagnostic));
 
             _languageServer.TextDocument.PublishDiagnostics(new PublishDiagnosticsParams
             {
@@ -148,92 +141,6 @@ public class TextDocumentHandler : TextDocumentSyncHandlerBase
         }
     }
 
-    private LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
-    {
-        // Convert compiler error to LSP diagnostic
-        var line = Math.Max(0, error.Line - 1); // LSP is 0-indexed
-        var column = Math.Max(0, error.Column - 1);
-
-        var length = GetTokenLengthAtPosition(error, line, column);
-
-        return new LspDiagnostic
-        {
-            Range = new LspRange(line, column, line, column + length),
-            Severity = error.Severity == ErrorSeverity.Warning ? LspDiagnosticSeverity.Warning : LspDiagnosticSeverity.Error,
-            Code = error.DiagnosticId,
-            Source = "N#",
-            Message = error.FormatForTooling(includeCode: true, includeLocation: false)
-        };
-    }
-
-    private int GetTokenLengthAtPosition(CompilerError error, int line0, int column0)
-    {
-        var length = Math.Max(1, error.Length);
-
-        var uri = _currentDiagnosticUri;
-        if (uri != null)
-        {
-            var doc = _documentManager.GetDocument(uri);
-            if (doc?.Text != null)
-            {
-                var lines = doc.Text.Split('\n');
-                if (line0 < lines.Length)
-                {
-                    var lineText = lines[line0];
-                    if (column0 < lineText.Length)
-                    {
-                        // Find the end of the current token (identifier or keyword)
-                        int end = column0;
-                        while (end < lineText.Length && (char.IsLetterOrDigit(lineText[end]) || lineText[end] == '_'))
-                            end++;
-                        if (end > column0)
-                            length = Math.Max(length, end - column0);
-                    }
-                }
-            }
-        }
-
-        return length;
-    }
-
-    private LspDiagnostic ConvertLinterDiagnosticToDiagnostic(CompilerDiagnostic diagnostic)
-    {
-        // Convert linter diagnostic to LSP diagnostic
-        var line = Math.Max(0, diagnostic.Location.Line - 1); // LSP is 0-indexed
-        var column = Math.Max(0, diagnostic.Location.Column - 1); // LSP columns are also 0-indexed
-
-        var severity = diagnostic.Severity switch
-        {
-            DiagnosticSeverity.Error => LspDiagnosticSeverity.Error,
-            DiagnosticSeverity.Warning => LspDiagnosticSeverity.Warning,
-            DiagnosticSeverity.Info => LspDiagnosticSeverity.Information,
-            _ => LspDiagnosticSeverity.Warning
-        };
-
-        var length = 1;
-        if (_currentDiagnosticUri != null)
-        {
-            var doc = _documentManager.GetDocument(_currentDiagnosticUri);
-            if (doc?.Text != null)
-            {
-                var lines = doc.Text.Split('\n');
-                if (line < lines.Length && column < lines[line].Length)
-                {
-                    int end = column;
-                    while (end < lines[line].Length && (char.IsLetterOrDigit(lines[line][end]) || lines[line][end] == '_'))
-                        end++;
-                    if (end > column) length = end - column;
-                }
-            }
-        }
-
-        return new LspDiagnostic
-        {
-            Range = new LspRange(line, column, line, column + length),
-            Severity = severity,
-            Code = diagnostic.Code,
-            Source = "N#",
-            Message = diagnostic.Message
-        };
-    }
+    private static LspDiagnostic ConvertCompilerErrorToDiagnostic(CompilerError error)
+        => LspDiagnosticConverter.FromCompilerError(error);
 }

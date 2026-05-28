@@ -246,7 +246,9 @@ public record UnionCasePattern(
 public record PropertyPattern(
     string Name,
     Pattern? Pattern,      // Nested pattern (literal, identifier, or nested properties)
-    string? BindingName);  // Variable binding (if Pattern is null)
+    string? BindingName,   // Variable binding (if Pattern is null)
+    int Line = 0,
+    int Column = 0);
 
 // Relational pattern (< value, >= value, etc.)
 public record RelationalPattern(

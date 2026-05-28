@@ -29,7 +29,8 @@ public record Diagnostic(
     string Message,
     Location Location,
     DiagnosticSeverity Severity,
-    string? Suggestion = null);
+    string? Suggestion = null,
+    int Length = 1);
 
 /// <summary>
 /// Linter configuration from .editorconfig
@@ -168,6 +169,13 @@ public class Linter
         visitor.Visit(ast);
         return visitor.Diagnostics;
     }
+
+    internal static string[] NormalizeSourceLines(string? sourceText)
+        => string.IsNullOrEmpty(sourceText)
+            ? Array.Empty<string>()
+            : sourceText.Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n')
+                .Split('\n');
 }
 
 /// <summary>
@@ -178,6 +186,7 @@ internal class LintVisitor
     private readonly string? _filePath;
     private readonly LinterConfig _config;
     private readonly Dictionary<int, HashSet<string>> _suppressedDiagnosticsByLine;
+    private readonly string[] _sourceLines;
     private readonly List<Diagnostic> _diagnostics = new();
     private Dictionary<string, (int Line, int Column, bool Used)> _declaredVariables = new();
     private readonly HashSet<string> _usedVariables = new();
@@ -191,7 +200,7 @@ internal class LintVisitor
     private const int MAX_RECURSION_DEPTH = 100; // Lowered to detect infinite loops faster
 
     // NL010: Track imports and identifiers used in code for unused-import detection
-    private readonly List<(string Namespace, int Line, int Column, bool IsFile, string? FilePath)> _allImports = new();
+    private readonly List<(string Namespace, int Line, int Column, int Length, bool IsFile, string? FilePath)> _allImports = new();
     private readonly HashSet<string> _allCodeIdentifiers = new();
     private readonly HashSet<string> _allMemberAccessNames = new();
     private readonly Stack<HashSet<string>> _typeMemberNameScopes = new();
@@ -217,6 +226,7 @@ internal class LintVisitor
         _filePath = filePath;
         _config = config ?? LinterConfig.Default();
         _suppressedDiagnosticsByLine = BuildSuppressions(filePath, sourceText);
+        _sourceLines = Linter.NormalizeSourceLines(sourceText);
     }
 
     public void Visit(CompilationUnit unit)
@@ -225,7 +235,7 @@ internal class LintVisitor
         foreach (var import in unit.Imports)
         {
             _importedNamespaces.Add(import.Namespace);
-            _allImports.Add((import.Namespace, import.Line, import.Column, false, null));
+            _allImports.Add((import.Namespace, import.Line, import.Column, 0, false, null));
         }
 
         foreach (var fileImport in unit.FileImports.OfType<FileImport>())
@@ -234,7 +244,7 @@ internal class LintVisitor
             if (!string.IsNullOrWhiteSpace(importedSymbol))
             {
                 _importedFileSymbols.Add(importedSymbol!);
-                _allImports.Add((importedSymbol!, fileImport.Line, fileImport.Column, true, fileImport.Path));
+                _allImports.Add((importedSymbol!, fileImport.Line, fileImport.DiagnosticColumn, fileImport.DiagnosticLength, true, fileImport.Path));
             }
         }
 
@@ -289,12 +299,13 @@ internal class LintVisitor
                     $"Variable '{varName}' is declared but never read",
                     new Location(line, column, _filePath),
                     _config.GetSeverity("NL001"),
-                    $"If this is intentional, prefix it with '_' to indicate it's unused: '_{varName}'");
+                    $"If this is intentional, prefix it with '_' to indicate it's unused: '_{varName}'",
+                    varName.Length);
             }
         }
     }
 
-    private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null)
+    private void AddDiagnostic(string code, string message, Location location, DiagnosticSeverity severity, string? suggestion = null, int length = 0)
     {
         if (!_config.IsRuleEnabled(code))
             return;
@@ -302,7 +313,99 @@ internal class LintVisitor
         if (IsSuppressed(code, location.Line))
             return;
 
-        _diagnostics.Add(new Diagnostic(code, message, location, severity, suggestion));
+        var sourceLine = SourceLine(location.Line);
+        var span = DiagnosticSpanResolver.Resolve(sourceLine, location.Column, length);
+        var diagnosticLocation = span.Column == location.Column
+            ? location
+            : location with { Column = span.Column };
+
+        _diagnostics.Add(new Diagnostic(code, message, diagnosticLocation, severity, suggestion, span.Length));
+    }
+
+    private string SourceLine(int oneBasedLine)
+        => oneBasedLine > 0 && oneBasedLine <= _sourceLines.Length
+            ? _sourceLines[oneBasedLine - 1]
+            : string.Empty;
+
+    private (Location Location, int Length) GetBlockOwnerDiagnosticSpan(BlockStatement block)
+    {
+        var sourceLine = SourceLine(block.Line);
+        if (string.IsNullOrEmpty(sourceLine))
+            return (new Location(block.Line, block.Column, _filePath), 1);
+
+        var searchEnd = block.Column > 0
+            ? Math.Clamp(block.Column - 1, 0, sourceLine.Length)
+            : sourceLine.Length;
+        var prefix = sourceLine[..searchEnd];
+
+        var bestColumn = 0;
+        var bestKeyword = string.Empty;
+        foreach (var keyword in BlockOwnerKeywords)
+        {
+            var column = FindKeywordColumn(prefix, keyword);
+            if (column > bestColumn)
+            {
+                bestColumn = column;
+                bestKeyword = keyword;
+            }
+        }
+
+        return bestColumn > 0
+            ? (new Location(block.Line, bestColumn, _filePath), bestKeyword.Length)
+            : (new Location(block.Line, block.Column, _filePath), 1);
+    }
+
+    private static readonly string[] BlockOwnerKeywords =
+    [
+        "foreach",
+        "finally",
+        "throws",
+        "catch",
+        "while",
+        "switch",
+        "assert",
+        "using",
+        "lock",
+        "else",
+        "func",
+        "test",
+        "try",
+        "for",
+        "if"
+    ];
+
+    private static int FindKeywordColumn(string text, string keyword)
+    {
+        var searchIndex = text.Length;
+        while (searchIndex > 0)
+        {
+            var index = text.LastIndexOf(keyword, searchIndex - 1, StringComparison.Ordinal);
+            if (index < 0)
+                return 0;
+
+            var beforeIsIdentifier = index > 0 && IsIdentifierPart(text[index - 1]);
+            var afterIndex = index + keyword.Length;
+            var afterIsIdentifier = afterIndex < text.Length && IsIdentifierPart(text[afterIndex]);
+            if (!beforeIsIdentifier && !afterIsIdentifier)
+                return index + 1;
+
+            searchIndex = index;
+        }
+
+        return 0;
+    }
+
+    private static bool IsIdentifierPart(char ch)
+        => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private int FindTokenColumn(int oneBasedLine, string token, int fallbackColumn)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+            return fallbackColumn;
+
+        var sourceLine = SourceLine(oneBasedLine);
+        var index = sourceLine.IndexOf(token, StringComparison.Ordinal);
+        return index >= 0 ? index + 1 : fallbackColumn;
     }
 
     private bool IsSuppressed(string code, int line)
@@ -513,9 +616,11 @@ internal class LintVisitor
             // Add parameters to scope; track for NL012
             foreach (var param in func.Parameters)
             {
-                DeclareVariable(param.Name, func.Line, func.Column);
+                var paramLine = param.Line > 0 ? param.Line : func.Line;
+                var paramColumn = param.Column > 0 ? param.Column : func.Column;
+                DeclareVariable(param.Name, paramLine, paramColumn);
                 MarkVariableUsed(param.Name); // Parameters exempt from NL001
-                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
+                _currentFunctionParams.Add((param.Name, paramLine, paramColumn));
             }
 
             VisitStatement(func.Body);
@@ -533,9 +638,11 @@ internal class LintVisitor
             PushScope();
             foreach (var param in func.Parameters)
             {
-                DeclareVariable(param.Name, func.Line, func.Column);
+                var paramLine = param.Line > 0 ? param.Line : func.Line;
+                var paramColumn = param.Column > 0 ? param.Column : func.Column;
+                DeclareVariable(param.Name, paramLine, paramColumn);
                 MarkVariableUsed(param.Name);
-                _currentFunctionParams.Add((param.Name, func.Line, func.Column));
+                _currentFunctionParams.Add((param.Name, paramLine, paramColumn));
             }
             VisitExpression(func.ExpressionBody);
 
@@ -561,7 +668,7 @@ internal class LintVisitor
                 AddDiagnostic(
                     "NL004",
                     $"Function '{func.Name}' is marked 'async' but never uses 'await' — it will run synchronously",
-                    new Location(func.Line, func.Column, _filePath),
+                    new Location(func.Line, FindTokenColumn(func.Line, func.Name, func.Column), _filePath),
                     _config.GetSeverity("NL004"),
                     $"Either add an 'await' expression inside '{func.Name}', or remove the 'async' modifier if this function doesn't need to be asynchronous");
             }
@@ -684,21 +791,18 @@ internal class LintVisitor
             case VariableDeclarationStatement varDecl:
                 // NL010: Track type references in variable declarations
                 TrackTypeReference(varDecl.Type);
-                // Calculate column of variable name, not the keyword
-                // For "let x = 1", if let starts at column 10, then x starts at column 14 (10 + "let" + space)
-                // For "const x = 1", if const starts at column 10, then x starts at column 16 (10 + "const" + space)
-                var keywordLength = varDecl.Kind switch
+                var initializerHasParserError = ContainsParserErrorPlaceholder(varDecl.Initializer);
+                // VariableDeclarationStatement stores the identifier location, including
+                // shorthand declarations like `name := value`.
+                var nameColumn = varDecl.Column;
+                if (!initializerHasParserError)
                 {
-                    VariableKind.Let => 3,  // "let" (also used for := shorthand)
-                    VariableKind.Const => 5,  // "const"
-                    VariableKind.Readonly => 8,  // "readonly"
-                    _ => 3
-                };
-                var nameColumn = varDecl.Column + keywordLength + 1; // +1 for space after keyword
-                // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)
-                CheckCamelCaseLocal(varDecl.Name, varDecl.Line, nameColumn);
-                DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
-                if (varDecl.Initializer != null)
+                    // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)
+                    CheckCamelCaseLocal(varDecl.Name, varDecl.Line, nameColumn);
+                    DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
+                }
+
+                if (varDecl.Initializer != null && !initializerHasParserError)
                 {
                     // NL014: Unnecessary type annotation — flag obvious literal-type matches
                     if (varDecl.Type != null && varDecl.Kind == VariableKind.Let)
@@ -711,7 +815,7 @@ internal class LintVisitor
                 // because the explicit annotation signals the developer is being deliberate
                 // and should use `const` when no reassignment occurs.
                 // Shorthand `:=` is too common to flag — it would be very noisy.
-                if (varDecl.Kind == VariableKind.Let && varDecl.Type != null)
+                if (!initializerHasParserError && varDecl.Kind == VariableKind.Let && varDecl.Type != null)
                     _letDeclarations[varDecl.Name] = (varDecl.Line, nameColumn, varDecl.Initializer != null, _inLambda);
                 break;
 
@@ -722,12 +826,14 @@ internal class LintVisitor
                 //  IS a containing scope already, which means we are inside at least one function.)
                 if (block.Statements.Count == 0 && _scopeStack.Count > 0)
                 {
+                    var (location, length) = GetBlockOwnerDiagnosticSpan(block);
                     AddDiagnostic(
                         "NL019",
                         "This block is empty — it doesn't do anything",
-                        new Location(block.Line, block.Column, _filePath),
+                        location,
                         _config.GetSeverity("NL019"),
-                        "Add code to the block, or remove it if it's not needed");
+                        "Add code to the block, or remove it if it's not needed",
+                        length);
                 }
 
                 PushScope();
@@ -816,15 +922,19 @@ internal class LintVisitor
                 VisitStatement(tryStmt.TryBlock);
                 foreach (var catchClause in tryStmt.CatchClauses)
                 {
+                    var catchBlockIsEmpty = catchClause.Block.Statements.Count == 0;
+
                     // NL011: Empty catch block
-                    if (catchClause.Block.Statements.Count == 0)
+                    if (catchBlockIsEmpty)
                     {
+                        var (location, length) = GetBlockOwnerDiagnosticSpan(catchClause.Block);
                         AddDiagnostic(
                             "NL011",
                             "This catch block is empty — exceptions will be silently swallowed",
-                            new Location(catchClause.Block.Line, catchClause.Block.Column, _filePath),
+                            location,
                             _config.GetSeverity("NL011"),
-                            "Log the error, handle it, or add a comment explaining why it's safe to ignore");
+                            "Log the error, handle it, or add a comment explaining why it's safe to ignore",
+                            length);
                     }
 
                     PushScope();
@@ -833,7 +943,8 @@ internal class LintVisitor
                         DeclareVariable(catchClause.VariableName, catchClause.Block.Line, catchClause.Block.Column);
                         MarkVariableUsed(catchClause.VariableName); // Exception variables are considered used
                     }
-                    VisitStatement(catchClause.Block);
+                    if (!catchBlockIsEmpty)
+                        VisitStatement(catchClause.Block);
                     PopScope();
                 }
                 if (tryStmt.FinallyBlock != null)
@@ -898,6 +1009,9 @@ internal class LintVisitor
                 break;
 
             case TupleDeconstructionStatement tupleDecl:
+                if (ContainsParserErrorPlaceholder(tupleDecl.Initializer))
+                    break;
+
                 foreach (var name in tupleDecl.Names)
                 {
                     if (name != "_") // Don't track discards
@@ -1261,6 +1375,61 @@ internal class LintVisitor
                 _config.GetSeverity("NL013"),
                 "Try $\"...{expr}...\" — string interpolation is easier to read and less error-prone");
         }
+    }
+
+    private static bool ContainsParserErrorPlaceholder(Expression? expression)
+    {
+        return expression switch
+        {
+            null => false,
+            IdentifierExpression { Name: "<error>" } => true,
+            MemberAccessExpression { MemberName: "<error>" } => true,
+            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
+                .OfType<InterpolatedStringHole>()
+                .Any(hole => ContainsParserErrorPlaceholder(hole.Expression)),
+            RangeExpression range => ContainsParserErrorPlaceholder(range.Start) ||
+                                     ContainsParserErrorPlaceholder(range.End),
+            MemberAccessExpression memberAccess => ContainsParserErrorPlaceholder(memberAccess.Object),
+            CallExpression call => ContainsParserErrorPlaceholder(call.Callee) ||
+                                   call.Arguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)),
+            BinaryExpression nestedBinary => ContainsParserErrorPlaceholder(nestedBinary.Left) ||
+                                             ContainsParserErrorPlaceholder(nestedBinary.Right),
+            AssignmentExpression assignment => ContainsParserErrorPlaceholder(assignment.Target) ||
+                                               ContainsParserErrorPlaceholder(assignment.Value),
+            LambdaExpression lambda => ContainsParserErrorPlaceholder(lambda.ExpressionBody),
+            UnaryExpression unary => ContainsParserErrorPlaceholder(unary.Operand),
+            MustExpression must => ContainsParserErrorPlaceholder(must.Expression),
+            ParenthesizedExpression parenthesized => ContainsParserErrorPlaceholder(parenthesized.Inner),
+            CheckedExpression checkedExpression => ContainsParserErrorPlaceholder(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => ContainsParserErrorPlaceholder(uncheckedExpression.Expression),
+            IndexAccessExpression indexAccess => ContainsParserErrorPlaceholder(indexAccess.Object) ||
+                                                 ContainsParserErrorPlaceholder(indexAccess.Index),
+            CastExpression cast => ContainsParserErrorPlaceholder(cast.Expression),
+            IsExpression isExpression => ContainsParserErrorPlaceholder(isExpression.Expression),
+            AwaitExpression awaitExpression => ContainsParserErrorPlaceholder(awaitExpression.Expression),
+            ThrowExpression throwExpression => ContainsParserErrorPlaceholder(throwExpression.Expression),
+            TernaryExpression ternary => ContainsParserErrorPlaceholder(ternary.Condition) ||
+                                         ContainsParserErrorPlaceholder(ternary.ThenExpression) ||
+                                         ContainsParserErrorPlaceholder(ternary.ElseExpression),
+            ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
+            TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
+            NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
+                                  ContainsParserErrorPlaceholder(@new.Initializer),
+            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
+                ContainsParserErrorPlaceholder(property.IndexExpression) ||
+                ContainsParserErrorPlaceholder(property.Value)),
+            WithExpression withExpression => ContainsParserErrorPlaceholder(withExpression.Target) ||
+                                             withExpression.Properties.Any(property =>
+                                                 ContainsParserErrorPlaceholder(property.IndexExpression) ||
+                                                 ContainsParserErrorPlaceholder(property.Value)),
+            SpreadExpression spread => ContainsParserErrorPlaceholder(spread.Expression),
+            MatchExpression match => ContainsParserErrorPlaceholder(match.Value) ||
+                                     match.Cases.Any(matchCase =>
+                                         ContainsParserErrorPlaceholder(matchCase.Guard) ||
+                                         ContainsParserErrorPlaceholder(matchCase.Expression)),
+            NameofExpression nameofExpression => ContainsParserErrorPlaceholder(nameofExpression.Target),
+            _ => false
+        };
     }
 
     private void DeclareVariable(string name, int line, int column)
@@ -1849,7 +2018,7 @@ internal class LintVisitor
         if (!_config.RuleSeverities.ContainsKey("NL010"))
             return;
 
-        foreach (var (ns, line, column, isFile, filePath) in _allImports)
+        foreach (var (ns, line, column, length, isFile, filePath) in _allImports)
         {
             bool used;
             if (isFile)
@@ -1885,13 +2054,14 @@ internal class LintVisitor
 
             if (!used)
             {
-                var label = isFile ? $"import \"{ns}\"" : $"import {ns}";
+                var label = isFile ? $"import \"{filePath ?? ns}\"" : $"import {ns}";
                 AddDiagnostic(
                     "NL010",
                     $"The import '{label}' is not used by any code in this file",
                     new Location(line, column, _filePath),
                     _config.GetSeverity("NL010"),
-                    $"Remove '{label}' to keep your imports clean");
+                    $"Remove '{label}' to keep your imports clean",
+                    length);
             }
         }
     }

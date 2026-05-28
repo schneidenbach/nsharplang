@@ -751,7 +751,7 @@ public class Lexer
             // Non-raw strings can't span lines; treat newline as an unterminated string and recover.
             if (IsAtLineBreak())
             {
-                return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+                return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: false);
             }
 
             if (isInterpolated)
@@ -763,7 +763,7 @@ public class Lexer
                         sb.Append('\\');
                         Advance();
                         if (IsAtEnd())
-                            return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+                            return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: false);
 
                         sb.Append(Peek());
                         Advance();
@@ -819,7 +819,7 @@ public class Lexer
                 sb.Append('\\');
                 Advance();
                 if (IsAtEnd())
-                    return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+                    return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: false);
 
                 sb.Append(Peek());
                 Advance();
@@ -832,7 +832,7 @@ public class Lexer
         }
 
         if (IsAtEnd())
-            return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+            return new Token(TokenType.StringLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: false);
 
         sb.Append('"');
         Advance(); // consume closing quote
@@ -848,7 +848,7 @@ public class Lexer
 
         if (IsAtEnd() || IsAtLineBreak())
         {
-            return new Token(TokenType.CharLiteral, sb.ToString(), startLine, startColumn, _fileName);
+            return new Token(TokenType.CharLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: false);
         }
 
         if (Peek() == '\\')
@@ -873,7 +873,7 @@ public class Lexer
             Advance();
         }
 
-        return new Token(TokenType.CharLiteral, sb.ToString(), startLine, startColumn, _fileName);
+        return new Token(TokenType.CharLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: sb[^1] == '\'');
     }
 
     private Token ReadTripleQuoteString(int startLine, int startColumn)
@@ -903,7 +903,7 @@ public class Lexer
             Advance();
         }
 
-        return new Token(TokenType.TripleQuoteStringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+        return new Token(TokenType.TripleQuoteStringLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: false);
     }
 
     private Token ReadInterpolatedRawString(int startLine, int startColumn)
@@ -936,7 +936,7 @@ public class Lexer
             Advance();
         }
 
-        return new Token(TokenType.InterpolatedRawStringLiteral, sb.ToString(), startLine, startColumn, _fileName);
+        return new Token(TokenType.InterpolatedRawStringLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: false);
     }
 
     private Token ReadSingleLineComment(int startLine, int startColumn)

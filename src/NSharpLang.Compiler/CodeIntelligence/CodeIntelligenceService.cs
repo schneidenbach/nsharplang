@@ -332,7 +332,7 @@ public class CodeIntelligenceService
             GetRelativePath(projectRoot, sourceFile),
             diagnostic.Location.Line,
             diagnostic.Location.Column,
-            1,
+            Math.Max(diagnostic.Length, 1),
             source != null ? ExtractSourceLine(source, diagnostic.Location.Line) : null,
             null,
             diagnostic.Suggestion,

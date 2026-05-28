@@ -16,6 +16,8 @@ public class Parser
     private bool _panicMode;
     private int? _currentRecoveryBoundaryColumn;
 
+    private readonly record struct DiagnosticSpan(int Line, int Column, int Length);
+
     public Parser(List<Token> tokens, string? fileName = null, string? sourceCode = null)
     {
         _tokens = tokens.Where(t => t.Type != TokenType.Newline).ToList();
@@ -188,7 +190,11 @@ public class Parser
                 alias = ConsumeIdentifier("Expected alias name after 'as'");
             }
 
-            return new FileImport(path, alias, line, column);
+            return new FileImport(path, alias, line, column)
+            {
+                PathColumn = pathToken.Column,
+                PathLength = Math.Max(1, pathToken.Value.Length)
+            };
         }
 
         // Namespace import: import System.Collections.Generic [as Alias]
@@ -401,7 +407,13 @@ public class Parser
         // Check for operator overloading: func operator +
         bool isOperatorOverload = false;
         string? operatorSymbol = null;
+        SourceSpan operatorKeywordSpan = SourceSpan.None;
+        SourceSpan operatorSymbolSpan = SourceSpan.None;
         string name;
+        string returnTypeDiagnosticName = "function";
+        int returnTypeDiagnosticLine = line;
+        int returnTypeDiagnosticColumn = column;
+        int returnTypeDiagnosticLength = Math.Max(1, Current.Value.Length);
 
         if (Check(TokenType.Implicit) || Check(TokenType.Explicit))
         {
@@ -416,7 +428,7 @@ public class Parser
         else
         {
             // Regular function or operator overload - starts with 'func'
-            Consume(TokenType.Func, "Expected 'func'");
+            var funcToken = Consume(TokenType.Func, "Expected 'func'");
 
             // Check for generator: func*
             if (Check(TokenType.Star))
@@ -443,15 +455,31 @@ public class Parser
             if (Check(TokenType.Operator))
             {
                 isOperatorOverload = true;
-                Advance(); // consume 'operator'
+                var operatorKeywordToken = Advance(); // consume 'operator'
+                operatorKeywordSpan = SpanFromTokens(operatorKeywordToken, operatorKeywordToken);
+                returnTypeDiagnosticName = "operator overload";
+                returnTypeDiagnosticLine = operatorKeywordToken.Line;
+                returnTypeDiagnosticColumn = operatorKeywordToken.Column;
+                returnTypeDiagnosticLength = Math.Max(1, operatorKeywordToken.Value.Length);
 
                 // Get the operator symbol
+                var operatorSymbolToken = Current;
                 operatorSymbol = ParseOperatorSymbol();
+                operatorSymbolSpan = SpanFromTokens(operatorSymbolToken, operatorSymbolToken);
                 name = "operator " + operatorSymbol; // For error reporting
             }
             else
             {
-                name = ConsumeIdentifier("Expected function name");
+                var nameLine = Current.Line;
+                var nameColumn = Current.Column;
+                name = ConsumeIdentifier("Expected function name", DiagnosticSpanFromToken(funcToken));
+                if (name != "<error>")
+                {
+                    returnTypeDiagnosticName = name;
+                    returnTypeDiagnosticLine = nameLine;
+                    returnTypeDiagnosticColumn = nameColumn;
+                    returnTypeDiagnosticLength = Math.Max(1, name.Length);
+                }
             }
         }
 
@@ -467,6 +495,8 @@ public class Parser
         }
 
         var parameters = ParseParameterList();
+
+        var parameterListEndToken = Previous;
 
         // For regular functions, return type comes AFTER parameters (with colon)
         if (!isConversionOperator &&
@@ -484,6 +514,15 @@ public class Parser
             }
             returnType = ParseTypeReference();
         }
+        else if (!isConversionOperator && IsLikelyMissingReturnTypeMarker(parameterListEndToken))
+        {
+            ReportMissingReturnTypeMarker(
+                returnTypeDiagnosticName,
+                returnTypeDiagnosticLine,
+                returnTypeDiagnosticColumn,
+                returnTypeDiagnosticLength);
+            returnType = ParseTypeReference();
+        }
 
         var constraints = ParseGenericConstraints();
 
@@ -497,10 +536,14 @@ public class Parser
         }
         else if (Check(TokenType.LeftBrace))
         {
-            body = ParseBlock();
+            body = ParseBlock(new DiagnosticSpan(returnTypeDiagnosticLine, returnTypeDiagnosticColumn, returnTypeDiagnosticLength));
         }
 
-        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column);
+        return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column)
+        {
+            OperatorKeywordSpan = operatorKeywordSpan,
+            OperatorSymbolSpan = operatorSymbolSpan
+        };
     }
 
     private TestDeclaration ParseTestDeclaration()
@@ -594,7 +637,7 @@ public class Parser
         }
 
         // Parse test body
-        var body = ParseBlock();
+        var body = ParseBlock(new DiagnosticSpan(line, column, Math.Max(1, "test".Length)));
 
         return new TestDeclaration(description, body, tableParameters, tableCases, skipReason, line, column);
     }
@@ -635,7 +678,7 @@ public class Parser
         var line = Current.Line;
         var column = Current.Column;
         Advance(); // consume 'setup'
-        var body = ParseBlock();
+        var body = ParseBlock(new DiagnosticSpan(line, column, Math.Max(1, "setup".Length)));
         return new SetupDeclaration(body, line, column);
     }
 
@@ -650,7 +693,7 @@ public class Parser
         var line = Current.Line;
         var column = Current.Column;
         Advance(); // consume 'teardown'
-        var body = ParseBlock();
+        var body = ParseBlock(new DiagnosticSpan(line, column, Math.Max(1, "teardown".Length)));
         return new TeardownDeclaration(body, line, column);
     }
 
@@ -659,11 +702,17 @@ public class Parser
         if (!Check(TokenType.Less))
             return null;
 
-        Advance();
+        var lessToken = Advance();
         var typeParams = new List<TypeParameter>();
 
         do
         {
+            if (Check(TokenType.Greater))
+            {
+                ReportMissingTypeParameterName(lessToken);
+                break;
+            }
+
             var name = ConsumeIdentifier("Expected type parameter name");
             typeParams.Add(new TypeParameter(name));
         } while (Match(TokenType.Comma));
@@ -676,11 +725,21 @@ public class Parser
     {
         Consume(TokenType.LeftParen, "Expected '('");
         var parameters = new List<Parameter>();
+        Token? lastParameterStartToken = null;
 
         if (!Check(TokenType.RightParen))
         {
             do
             {
+                if (Check(TokenType.RightParen) && Previous.Type == TokenType.Comma && lastParameterStartToken is not null)
+                {
+                    ReportMissingParameterAfterTrailingComma(DiagnosticSpanFromTokenRange(lastParameterStartToken, Previous));
+                    break;
+                }
+
+                if (IsParameterListRecoveryBoundary(Previous))
+                    break;
+
                 var attributes = ParseAttributes();
 
                 var modifier = ParameterModifier.None;
@@ -709,9 +768,10 @@ public class Parser
 
                 var paramLine = Current.Line;
                 var paramColumn = Current.Column;
-                var paramName = ConsumeIdentifier("Expected parameter name");
-                Consume(TokenType.Colon, "Expected ':' after parameter name");
-                var paramType = ParseTypeReference();
+                var paramStartToken = Current;
+                var paramName = ConsumeIdentifier("Expected parameter name", GetMissingParameterNameDiagnosticSpan());
+                ConsumeParameterColon(paramName, paramLine, paramColumn);
+                var paramType = ParseParameterTypeReference(paramName, paramLine, paramColumn);
 
                 Expression? defaultValue = null;
                 if (Check(TokenType.Assign))
@@ -722,12 +782,23 @@ public class Parser
 
                 parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier,
                     attributes.Count > 0 ? attributes : null, paramLine, paramColumn));
+
+                if (paramName != "<error>")
+                    lastParameterStartToken = paramStartToken;
             } while (Match(TokenType.Comma));
         }
 
         Consume(TokenType.RightParen, "Expected ')'");
         return parameters;
     }
+
+    private bool IsParameterListRecoveryBoundary(Token openingToken)
+        => IsAtEnd() ||
+           Check(TokenType.LeftBrace) ||
+           Check(TokenType.RightBrace) ||
+           Check(TokenType.Arrow) ||
+           (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater) ||
+           IsContinuationRecoveryBoundary(openingToken);
 
     private List<GenericConstraint>? ParseGenericConstraints()
     {
@@ -744,24 +815,28 @@ public class Parser
 
             var constraintTypes = new List<TypeReference>();
             var specialConstraints = SpecialConstraintKind.None;
+            Token? classConstraintToken = null;
+            Token? structConstraintToken = null;
+            Token? newConstraintStartToken = null;
+            Token? newConstraintEndToken = null;
 
             do
             {
                 if (Check(TokenType.Class))
                 {
-                    Advance();
+                    classConstraintToken = Advance();
                     specialConstraints |= SpecialConstraintKind.Class;
                 }
                 else if (Check(TokenType.Struct))
                 {
-                    Advance();
+                    structConstraintToken = Advance();
                     specialConstraints |= SpecialConstraintKind.Struct;
                 }
                 else if (Check(TokenType.New) && LookAhead(1).Type == TokenType.LeftParen)
                 {
-                    Advance(); // consume 'new'
+                    newConstraintStartToken = Advance(); // consume 'new'
                     Advance(); // consume '('
-                    Consume(TokenType.RightParen, "Expected ')' after 'new('");
+                    newConstraintEndToken = Consume(TokenType.RightParen, "Expected ')' after 'new('");
                     specialConstraints |= SpecialConstraintKind.New;
                 }
                 else
@@ -774,12 +849,14 @@ public class Parser
             if (specialConstraints.HasFlag(SpecialConstraintKind.Class) &&
                 specialConstraints.HasFlag(SpecialConstraintKind.Struct))
             {
+                var diagnosticToken = LaterToken(classConstraintToken, structConstraintToken);
                 ReportError(
                     ErrorCode.InvalidSyntax,
                     "Cannot have both 'class' and 'struct' constraints on the same type parameter — they are mutually exclusive",
-                    Current.Line,
-                    Current.Column,
-                    humanExplanation: "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time."
+                    diagnosticToken?.Line ?? Current.Line,
+                    diagnosticToken?.Column ?? Current.Column,
+                    humanExplanation: "A type parameter cannot be both a reference type (class) and a value type (struct) at the same time.",
+                    length: TokenLengthOrFallback(diagnosticToken)
                 );
             }
 
@@ -790,9 +867,10 @@ public class Parser
                 ReportError(
                     ErrorCode.InvalidSyntax,
                     "Cannot combine 'struct' and 'new()' constraints — 'struct' already implies a parameterless constructor",
-                    Current.Line,
-                    Current.Column,
-                    humanExplanation: "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in C#."
+                    newConstraintStartToken?.Line ?? Current.Line,
+                    newConstraintStartToken?.Column ?? Current.Column,
+                    humanExplanation: "The 'struct' constraint already requires a parameterless constructor, so 'new()' is redundant and not permitted in C#.",
+                    length: TokenSpanLengthOrFallback(newConstraintStartToken, newConstraintEndToken)
                 );
             }
 
@@ -806,9 +884,14 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Class, "Expected 'class'");
+        var classToken = Consume(TokenType.Class, "Expected 'class'");
 
-        var name = ConsumeIdentifier("Expected class name");
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
+        var name = ConsumeIdentifier("Expected class name", DiagnosticSpanFromToken(classToken));
+        var typeBodyDiagnosticSpan = name == "<error>"
+            ? new DiagnosticSpan(line, column, Math.Max(1, "class".Length))
+            : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
         var typeParams = ParseTypeParameters();
 
         // Parse optional primary constructor parameters (C# 12)
@@ -837,7 +920,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = ParseMemberList(line, column);
+        var members = ParseMemberList(typeBodyDiagnosticSpan);
 
         return new ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
@@ -846,9 +929,14 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Struct, "Expected 'struct'");
+        var structToken = Consume(TokenType.Struct, "Expected 'struct'");
 
-        var name = ConsumeIdentifier("Expected struct name");
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
+        var name = ConsumeIdentifier("Expected struct name", DiagnosticSpanFromToken(structToken));
+        var typeBodyDiagnosticSpan = name == "<error>"
+            ? new DiagnosticSpan(line, column, Math.Max(1, "struct".Length))
+            : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
         var typeParams = ParseTypeParameters();
 
         // Parse optional primary constructor parameters (C# 12)
@@ -869,7 +957,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = ParseMemberList(line, column);
+        var members = ParseMemberList(typeBodyDiagnosticSpan);
 
         return new StructDeclaration(name, typeParams, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
@@ -878,7 +966,7 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Record, "Expected 'record'");
+        var recordToken = Consume(TokenType.Record, "Expected 'record'");
 
         // Check for 'struct' keyword after 'record' (C# 10: record struct)
         bool isStruct = false;
@@ -888,7 +976,12 @@ public class Parser
             Advance();
         }
 
-        var name = ConsumeIdentifier("Expected record name");
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
+        var name = ConsumeIdentifier("Expected record name", DiagnosticSpanFromToken(recordToken));
+        var typeBodyDiagnosticSpan = name == "<error>"
+            ? new DiagnosticSpan(line, column, Math.Max(1, "record".Length))
+            : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
         var typeParams = ParseTypeParameters();
 
         // Parse optional primary constructor parameters (C# 12)
@@ -909,7 +1002,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = ParseMemberList(line, column);
+        var members = ParseMemberList(typeBodyDiagnosticSpan);
 
         return new RecordDeclaration(name, typeParams, interfaces, members, primaryCtorParams, isStruct, modifiers, attributes, line, column);
     }
@@ -926,8 +1019,13 @@ public class Parser
             Advance();
         }
 
-        Consume(TokenType.Interface, "Expected 'interface'");
-        var name = ConsumeIdentifier("Expected interface name");
+        var interfaceToken = Consume(TokenType.Interface, "Expected 'interface'");
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
+        var name = ConsumeIdentifier("Expected interface name", DiagnosticSpanFromToken(interfaceToken));
+        var typeBodyDiagnosticSpan = name == "<error>"
+            ? new DiagnosticSpan(line, column, Math.Max(1, isDuck ? "duck".Length : "interface".Length))
+            : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
         var typeParams = ParseTypeParameters();
 
         var baseInterfaces = new List<TypeReference>();
@@ -941,7 +1039,7 @@ public class Parser
         }
 
         Consume(TokenType.LeftBrace, "Expected '{'");
-        var members = ParseMemberList(line, column);
+        var members = ParseMemberList(typeBodyDiagnosticSpan);
 
         return new InterfaceDeclaration(name, typeParams, baseInterfaces, members, modifiers, isDuck, attributes, line, column);
     }
@@ -950,9 +1048,14 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Union, "Expected 'union'");
+        var unionToken = Consume(TokenType.Union, "Expected 'union'");
 
-        var name = ConsumeIdentifier("Expected union name");
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
+        var name = ConsumeIdentifier("Expected union name", DiagnosticSpanFromToken(unionToken));
+        var unionDiagnosticSpan = name == "<error>"
+            ? new DiagnosticSpan(line, column, Math.Max(1, "union".Length))
+            : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
 
         Consume(TokenType.LeftBrace, "Expected '{'");
         var cases = new List<UnionCase>();
@@ -998,6 +1101,18 @@ public class Parser
 
         if (Check(TokenType.RightBrace))
             Advance();
+        else if (IsAtEnd())
+        {
+            ReportError(
+                ErrorCode.MissingClosingBrace,
+                "Missing closing '}'",
+                unionDiagnosticSpan.Line,
+                unionDiagnosticSpan.Column,
+                humanExplanation: $"The union body that started on line {line} is missing its closing brace. I reached the end of the file without finding it.",
+                hint: "Add a '}' to close this union declaration.",
+                length: unionDiagnosticSpan.Length
+            );
+        }
 
         return new UnionDeclaration(name, cases, modifiers, attributes, line, column);
     }
@@ -1006,9 +1121,14 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Enum, "Expected 'enum'");
+        var enumToken = Consume(TokenType.Enum, "Expected 'enum'");
 
-        var name = ConsumeIdentifier("Expected enum name");
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
+        var name = ConsumeIdentifier("Expected enum name", DiagnosticSpanFromToken(enumToken));
+        var enumDiagnosticSpan = name == "<error>"
+            ? new DiagnosticSpan(line, column, Math.Max(1, "enum".Length))
+            : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
 
         // Parse optional `: type` annotation (e.g., `enum Status: string { ... }`)
         var enumType = EnumType.Int; // Default to int
@@ -1073,6 +1193,18 @@ public class Parser
 
         if (Check(TokenType.RightBrace))
             Advance();
+        else if (IsAtEnd())
+        {
+            ReportError(
+                ErrorCode.MissingClosingBrace,
+                "Missing closing '}'",
+                enumDiagnosticSpan.Line,
+                enumDiagnosticSpan.Column,
+                humanExplanation: $"The enum body that started on line {line} is missing its closing brace. I reached the end of the file without finding it.",
+                hint: "Add a '}' to close this enum declaration.",
+                length: enumDiagnosticSpan.Length
+            );
+        }
 
         return new EnumDeclaration(name, members, enumType, modifiers, attributes, line, column);
     }
@@ -1083,7 +1215,7 @@ public class Parser
         var column = Current.Column;
         Consume(TokenType.Type, "Expected 'type'");
 
-        var name = ConsumeIdentifier("Expected type alias name");
+        var name = ConsumeIdentifier("Expected type alias name", new DiagnosticSpan(line, column, Math.Max(1, "type".Length)));
         Consume(TokenType.Assign, "Expected '='");
 
         // Check for newtype keyword: type X = newtype Y
@@ -1102,10 +1234,10 @@ public class Parser
     /// <summary>
     /// Parse a list of member declarations inside a type body (class/struct/record/interface).
     /// Handles error recovery by synchronizing to the next member or closing brace.
-    /// Assumes the opening '{' has already been consumed. The openLine/openColumn parameters
-    /// indicate where the opening brace was for error reporting.
+    /// Assumes the opening '{' has already been consumed. The owner span points to the
+    /// declaration name/keyword that should carry a missing-brace diagnostic.
     /// </summary>
-    private List<Declaration> ParseMemberList(int openLine = 0, int openColumn = 0)
+    private List<Declaration> ParseMemberList(DiagnosticSpan? ownerSpan = null)
     {
         var members = new List<Declaration>();
 
@@ -1142,16 +1274,16 @@ public class Parser
         {
             Advance();
         }
-        else if (IsAtEnd() && openLine > 0)
+        else if (IsAtEnd() && ownerSpan is { } diagnosticSpan)
         {
             ReportError(
                 ErrorCode.MissingClosingBrace,
                 "Missing closing '}'",
-                openLine,
-                openColumn,
-                humanExplanation: $"The type body that started on line {openLine} is missing its closing brace. I reached the end of the file without finding it.",
+                diagnosticSpan.Line,
+                diagnosticSpan.Column,
+                humanExplanation: $"The type body that started on line {diagnosticSpan.Line} is missing its closing brace. I reached the end of the file without finding it.",
                 hint: "Add a '}' to close this type declaration.",
-                length: 1
+                length: diagnosticSpan.Length
             );
         }
 
@@ -1296,7 +1428,7 @@ public class Parser
             }
         }
 
-        var body = ParseBlock();
+        var body = ParseBlock(new DiagnosticSpan(line, column, Math.Max(1, "constructor".Length)));
 
         return new ConstructorDeclaration(parameters, body, initializer, modifiers, attributes, line, column);
     }
@@ -1318,7 +1450,7 @@ public class Parser
                 var paramLine = Current.Line;
                 var paramColumn = Current.Column;
                 var paramName = ConsumeIdentifier("Expected parameter name");
-                Consume(TokenType.Colon, "Expected ':'");
+                ConsumeParameterColon(paramName, paramLine, paramColumn);
                 var paramType = ParseTypeReference();
                 parameters.Add(new Parameter(paramName, paramType, null, false, Line: paramLine, Column: paramColumn));
             } while (Match(TokenType.Comma));
@@ -1335,15 +1467,18 @@ public class Parser
 
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
+            var accessorLine = Current.Line;
+            var accessorColumn = Current.Column;
             var accessor = ConsumeIdentifier("Expected 'get' or 'set'");
+            var accessorSpan = new DiagnosticSpan(accessorLine, accessorColumn, Math.Max(1, accessor.Length));
 
             if (accessor == "get")
             {
-                getBody = ParseBlock();
+                getBody = ParseBlock(accessorSpan);
             }
             else if (accessor == "set")
             {
-                setBody = ParseBlock();
+                setBody = ParseBlock(accessorSpan);
             }
             else
             {
@@ -1413,8 +1548,8 @@ public class Parser
         }
 
         // Otherwise, expect explicit type with :
-        Consume(TokenType.Colon, "Expected ':' or ':='");
-        type = ParseTypeReference();
+        var fieldColonToken = ConsumeFieldColon(name, line, column);
+        type = ParseFieldTypeReference(name, line, column, fieldColonToken);
 
         // Check for expression-bodied property: name: type => expr
         if (Check(TokenType.Arrow))
@@ -1436,16 +1571,19 @@ public class Parser
             {
                 if (Check(TokenType.Identifier))
                 {
+                    var accessorLine = Current.Line;
+                    var accessorColumn = Current.Column;
                     var accessor = Current.Value;
                     Advance();
+                    var accessorSpan = new DiagnosticSpan(accessorLine, accessorColumn, Math.Max(1, accessor.Length));
 
                     if (accessor == "get")
                     {
-                        getBody = ParseBlock();
+                        getBody = ParseBlock(accessorSpan);
                     }
                     else if (accessor == "set")
                     {
-                        setBody = ParseBlock();
+                        setBody = ParseBlock(accessorSpan);
                     }
                     else
                     {
@@ -1495,8 +1633,11 @@ public class Parser
         Expression? initializer = null;
         if (Check(TokenType.Assign))
         {
-            Advance();
-            initializer = ParseExpression();
+            var initializerToken = Advance();
+            initializer = ParseRequiredExpressionAfter(
+                initializerToken,
+                expectedDescription: "an initializer expression",
+                ownerDescription: "This field declaration");
         }
 
         return new FieldDeclaration(name, type, initializer, modifiers, propertyModifier, attributes, line, column);
@@ -1616,12 +1757,27 @@ public class Parser
 
         if (Check(TokenType.Less))
         {
-            Advance();
-            var typeArgs = new List<TypeReference> { ParseTypeReference() };
+            var lessToken = Advance();
+            var typeArgs = new List<TypeReference>();
 
-            while (Match(TokenType.Comma))
+            if (Check(TokenType.Greater))
+            {
+                ReportMissingGenericTypeArgument(typeNameToken, lessToken);
+            }
+            else
             {
                 typeArgs.Add(ParseTypeReference());
+
+                while (Match(TokenType.Comma))
+                {
+                    if (Check(TokenType.Greater))
+                    {
+                        ReportMissingGenericTypeArgument(typeNameToken, lessToken);
+                        break;
+                    }
+
+                    typeArgs.Add(ParseTypeReference());
+                }
             }
 
             var greater = ConsumeGreater("Expected '>'");
@@ -1818,11 +1974,12 @@ public class Parser
     // Track when we split >> into > >
     private int _splitGreaterDepth = 0;
 
-    private BlockStatement ParseBlock()
+    private BlockStatement ParseBlock(DiagnosticSpan? ownerSpan = null)
     {
         var line = Current.Line;
         var column = Current.Column;
         Consume(TokenType.LeftBrace, "Expected '{'");
+        var diagnosticSpan = ownerSpan ?? new DiagnosticSpan(line, column, 1);
 
         var statements = new List<Statement>();
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
@@ -1835,12 +1992,12 @@ public class Parser
                 ReportError(
                     ErrorCode.MissingClosingBrace,
                     "Missing closing '}'",
-                    line,
-                    column,
+                    diagnosticSpan.Line,
+                    diagnosticSpan.Column,
                     humanExplanation: $"The block that started on line {line} appears to be missing its closing brace. " +
                                      $"I found '{Current.Value}' on line {Current.Line}, which looks like a new declaration.",
                     hint: "Add a '}' before this declaration to close the previous block.",
-                    length: 1
+                    length: diagnosticSpan.Length
                 );
                 // Don't advance - let the outer loop parse this as a new declaration
                 break;
@@ -1882,19 +2039,25 @@ public class Parser
             ReportError(
                 ErrorCode.MissingClosingBrace,
                 "Missing closing '}'",
-                line,
-                column,
+                diagnosticSpan.Line,
+                diagnosticSpan.Column,
                 humanExplanation: $"The block that started on line {line} is missing its closing brace. I reached the end of the file without finding it.",
                 hint: "Add a '}' to close this block.",
-                length: 1
+                length: diagnosticSpan.Length
             );
         }
 
         return new BlockStatement(statements, line, column);
     }
 
-    private Statement ParseStatement()
+    private Statement ParseStatement(DiagnosticSpan? blockOwnerSpan = null)
     {
+        if (blockOwnerSpan is DiagnosticSpan ownerSpan && IsMissingStatementBodyBoundary())
+        {
+            ReportMissingStatementBody(ownerSpan);
+            return new EmptyStatement(ownerSpan.Line, ownerSpan.Column);
+        }
+
         // Optional statement terminator / empty statement
         if (Check(TokenType.Semicolon))
         {
@@ -1946,7 +2109,7 @@ public class Parser
         if (Check(TokenType.PreprocessorDirective))
             return ParsePreprocessorDirective();
         if (Check(TokenType.LeftBrace))
-            return ParseBlock();
+            return ParseBlock(blockOwnerSpan);
 
         // Local function (C# 7): [static] [async] func Name(...) { }
         if ((Check(TokenType.Static) || Check(TokenType.Async)) && LookAhead(1).Type == TokenType.Func)
@@ -1964,18 +2127,21 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Assert, "Expected 'assert'");
+        var assertToken = Consume(TokenType.Assert, "Expected 'assert'");
 
         // Check for assert throws ExceptionType { body }
         if (Current.Type == TokenType.Identifier && Current.Value == "throws")
         {
             Advance(); // consume 'throws'
             var exceptionType = ParseTypeReference();
-            var body = ParseBlock();
+            var body = ParseBlock(DiagnosticSpanFromToken(assertToken));
             return new AssertThrowsStatement(exceptionType, body, line, column);
         }
 
-        var condition = ParseExpression();
+        var condition = ParseRequiredExpressionAfter(
+            assertToken,
+            expectedDescription: "a condition expression",
+            ownerDescription: "This assert statement");
 
         // Check for optional message: assert condition, "message"
         Expression? message = null;
@@ -2037,11 +2203,14 @@ public class Parser
             }
         }
 
+        var nameLine = Current.Line;
+        var nameColumn = Current.Column;
         var name = ConsumeIdentifier("Expected function name");
         var typeParams = ParseTypeParameters();
         var parameters = ParseParameterList();
 
         TypeReference? returnType = null;
+        var parameterListEndToken = Previous;
         if (Check(TokenType.Colon) || (Check(TokenType.Minus) && LookAhead(1).Type == TokenType.Greater))
         {
             if (Check(TokenType.Colon))
@@ -2053,6 +2222,15 @@ public class Parser
                 Advance(); // consume '-'
                 Consume(TokenType.Greater, "Expected '>' after '-' in return type arrow");
             }
+            returnType = ParseTypeReference();
+        }
+        else if (IsLikelyMissingReturnTypeMarker(parameterListEndToken))
+        {
+            ReportMissingReturnTypeMarker(
+                name == "<error>" ? "local function" : name,
+                name == "<error>" ? line : nameLine,
+                name == "<error>" ? column : nameColumn,
+                name == "<error>" ? Math.Max(1, "func".Length) : Math.Max(1, name.Length));
             returnType = ParseTypeReference();
         }
 
@@ -2068,7 +2246,9 @@ public class Parser
         }
         else if (Check(TokenType.LeftBrace))
         {
-            body = ParseBlock();
+            body = ParseBlock(name == "<error>"
+                ? new DiagnosticSpan(line, column, Math.Max(1, "func".Length))
+                : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length)));
         }
         else
         {
@@ -2124,8 +2304,12 @@ public class Parser
         Expression? initializer = null;
         if (Check(TokenType.Assign) || Check(TokenType.ColonAssign))
         {
-            Advance();
-            initializer = ParseExpression();
+            var initializerToken = Advance();
+            initializer = ParseRequiredExpressionAfter(
+                initializerToken,
+                expectedDescription: "an initializer expression",
+                ownerDescription: "This variable declaration",
+                diagnosticSpan: new DiagnosticSpan(line, column, Math.Max(1, name.Length)));
         }
 
         return new VariableDeclarationStatement(name, type, initializer, kind, line, column);
@@ -2168,12 +2352,20 @@ public class Parser
             }
         }
 
+        Token initializerToken;
         if (Check(TokenType.ColonAssign) || Check(TokenType.Assign))
         {
-            Advance(); // consume := or =
+            initializerToken = Advance(); // consume := or =
+        }
+        else
+        {
+            initializerToken = Previous;
         }
 
-        var initializer = ParseExpression();
+        var initializer = ParseRequiredExpressionAfter(
+            initializerToken,
+            expectedDescription: "an initializer expression",
+            ownerDescription: "This tuple deconstruction");
 
         return new TupleDeconstructionStatement(names, initializer, kind, line, column);
     }
@@ -2182,16 +2374,19 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.If, "Expected 'if'");
+        var ifToken = Consume(TokenType.If, "Expected 'if'");
 
-        var condition = ParseExpression();
-        var thenStatement = ParseStatement();
+        var condition = ParseRequiredExpressionAfter(
+            ifToken,
+            expectedDescription: "a condition expression",
+            ownerDescription: "This if statement");
+        var thenStatement = ParseStatement(DiagnosticSpanFromToken(ifToken));
 
         Statement? elseStatement = null;
         if (Check(TokenType.Else))
         {
-            Advance();
-            elseStatement = ParseStatement();
+            var elseToken = Advance();
+            elseStatement = ParseStatement(DiagnosticSpanFromToken(elseToken));
         }
 
         return new IfStatement(condition, thenStatement, elseStatement, line, column);
@@ -2201,17 +2396,33 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.For, "Expected 'for'");
+        var forToken = Consume(TokenType.For, "Expected 'for'");
 
         // Check for foreach-style: for item in collection
         if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.In)
         {
             var varName = Advance().Value;
-            Consume(TokenType.In, "Expected 'in'");
-            var collection = ParseExpression();
-            var body = ParseStatement();
+            var inToken = Consume(TokenType.In, "Expected 'in'");
+            var collection = ParseRequiredExpressionAfter(
+                inToken,
+                expectedDescription: "a collection expression",
+                ownerDescription: "This for-in statement");
+            var body = ParseStatement(DiagnosticSpanFromToken(forToken));
             return new ForStatement(null, null, null,
                 new ForeachStatement(varName, collection, body, line, column), line, column);
+        }
+
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Identifier)
+        {
+            var variableToken = Advance();
+            var inToken = ReportMissingInKeywordAndRecover(forToken, variableToken, "This for-in statement");
+            var collection = ParseRequiredExpressionAfter(
+                inToken,
+                expectedDescription: "a collection expression",
+                ownerDescription: "This for-in statement");
+            var body = ParseStatement(DiagnosticSpanFromToken(forToken));
+            return new ForStatement(null, null, null,
+                new ForeachStatement(variableToken.Value, collection, body, line, column), line, column);
         }
 
         // C-style for loop
@@ -2232,16 +2443,17 @@ public class Parser
             else
             {
                 // This will handle both regular expressions and := shorthand declarations
-                var initLine = Current.Line;
-                var initCol = Current.Column;
                 var expr = ParseExpression();
 
                 // Check for := shorthand declaration
                 if (expr is IdentifierExpression ident && Check(TokenType.ColonAssign))
                 {
-                    Advance();
-                    var init = ParseExpression();
-                    initializer = new VariableDeclarationStatement(ident.Name, null, init, VariableKind.Let, initLine, initCol);
+                    var initializerToken = Advance();
+                    var init = ParseRequiredExpressionAfter(
+                        initializerToken,
+                        expectedDescription: "an initializer expression",
+                        ownerDescription: "This for-loop initializer");
+                    initializer = new VariableDeclarationStatement(ident.Name, null, init, VariableKind.Let, ident.Line, ident.Column);
                 }
                 else
                 {
@@ -2271,7 +2483,7 @@ public class Parser
             Consume(TokenType.RightParen, "Expected ')'");
         }
 
-        var forBody = ParseStatement();
+        var forBody = ParseStatement(DiagnosticSpanFromToken(forToken));
 
         return new ForStatement(initializer, condition, iterator, forBody, line, column);
     }
@@ -2280,21 +2492,27 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Foreach, "Expected 'foreach'");
+        var foreachToken = Consume(TokenType.Foreach, "Expected 'foreach'");
 
         // Allow optional parentheses: foreach (x in y) or foreach x in y
         var hasParens = Match(TokenType.LeftParen);
 
+        var variableToken = Current;
         var varName = ConsumeIdentifier("Expected variable name");
-        Consume(TokenType.In, "Expected 'in'");
-        var collection = ParseExpression();
+        var inToken = Check(TokenType.In)
+            ? Consume(TokenType.In, "Expected 'in'")
+            : ReportMissingInKeywordAndRecover(foreachToken, variableToken, "This foreach statement");
+        var collection = ParseRequiredExpressionAfter(
+            inToken,
+            expectedDescription: "a collection expression",
+            ownerDescription: "This foreach statement");
 
         if (hasParens)
         {
             Consume(TokenType.RightParen, "Expected ')' to match opening '('");
         }
 
-        var body = ParseStatement();
+        var body = ParseStatement(DiagnosticSpanFromToken(foreachToken));
 
         return new ForeachStatement(varName, collection, body, line, column);
     }
@@ -2304,21 +2522,27 @@ public class Parser
         var line = Current.Line;
         var column = Current.Column;
         Consume(TokenType.Await, "Expected 'await'");
-        Consume(TokenType.Foreach, "Expected 'foreach'");
+        var foreachToken = Consume(TokenType.Foreach, "Expected 'foreach'");
 
         // Allow optional parentheses: await foreach (x in y) or await foreach x in y
         var hasParens = Match(TokenType.LeftParen);
 
+        var variableToken = Current;
         var varName = ConsumeIdentifier("Expected variable name");
-        Consume(TokenType.In, "Expected 'in'");
-        var collection = ParseExpression();
+        var inToken = Check(TokenType.In)
+            ? Consume(TokenType.In, "Expected 'in'")
+            : ReportMissingInKeywordAndRecover(foreachToken, variableToken, "This await foreach statement");
+        var collection = ParseRequiredExpressionAfter(
+            inToken,
+            expectedDescription: "a collection expression",
+            ownerDescription: "This await foreach statement");
 
         if (hasParens)
         {
             Consume(TokenType.RightParen, "Expected ')' to match opening '('");
         }
 
-        var body = ParseStatement();
+        var body = ParseStatement(DiagnosticSpanFromToken(foreachToken));
 
         return new AwaitForEachStatement(varName, collection, body, line, column);
     }
@@ -2327,10 +2551,13 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.While, "Expected 'while'");
+        var whileToken = Consume(TokenType.While, "Expected 'while'");
 
-        var condition = ParseExpression();
-        var body = ParseStatement();
+        var condition = ParseRequiredExpressionAfter(
+            whileToken,
+            expectedDescription: "a condition expression",
+            ownerDescription: "This while statement");
+        var body = ParseStatement(DiagnosticSpanFromToken(whileToken));
 
         return new WhileStatement(condition, body, line, column);
     }
@@ -2391,13 +2618,16 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Yield, "Expected 'yield'");
+        var yieldToken = Consume(TokenType.Yield, "Expected 'yield'");
 
         // Check for "yield break" (no expression)
         Expression? value = null;
         if (!Check(TokenType.Break))
         {
-            value = ParseExpression();
+            value = ParseRequiredExpressionAfter(
+                yieldToken,
+                expectedDescription: "a value to yield",
+                ownerDescription: "This yield statement");
         }
         else
         {
@@ -2411,9 +2641,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Print, "Expected 'print'");
+        var printToken = Consume(TokenType.Print, "Expected 'print'");
 
-        var value = ParseExpression();
+        var value = ParseRequiredExpressionAfter(
+            printToken,
+            expectedDescription: "an expression to print",
+            ownerDescription: "This print statement");
         return new PrintStatement(value, line, column);
     }
 
@@ -2447,9 +2680,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Throw, "Expected 'throw'");
+        var throwToken = Consume(TokenType.Throw, "Expected 'throw'");
 
-        var expr = ParseExpression();
+        var expr = ParseRequiredExpressionAfter(
+            throwToken,
+            expectedDescription: "an exception expression",
+            ownerDescription: "This throw statement");
         return new ThrowStatement(expr, line, column);
     }
 
@@ -2457,14 +2693,14 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Try, "Expected 'try'");
+        var tryToken = Consume(TokenType.Try, "Expected 'try'");
 
-        var tryBlock = ParseBlock();
+        var tryBlock = ParseBlock(DiagnosticSpanFromToken(tryToken));
         var catchClauses = new List<CatchClause>();
 
         while (Check(TokenType.Catch))
         {
-            Advance();
+            var catchToken = Advance();
 
             TypeReference? exceptionType = null;
             string? varName = null;
@@ -2499,15 +2735,15 @@ public class Parser
                 exceptionType = ParseTypeReference();
             }
 
-            var catchBlock = ParseBlock();
+            var catchBlock = ParseBlock(DiagnosticSpanFromToken(catchToken));
             catchClauses.Add(new CatchClause(exceptionType, varName, catchBlock));
         }
 
         BlockStatement? finallyBlock = null;
         if (Check(TokenType.Finally))
         {
-            Advance();
-            finallyBlock = ParseBlock();
+            var finallyToken = Advance();
+            finallyBlock = ParseBlock(DiagnosticSpanFromToken(finallyToken));
         }
 
         return new TryStatement(tryBlock, catchClauses, finallyBlock, line, column);
@@ -2517,24 +2753,30 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Using, "Expected 'using'");
+        var usingToken = Consume(TokenType.Using, "Expected 'using'");
 
         // using varName := expr { ... } or using varName := expr (no block)
         if (Check(TokenType.Identifier) || Check(TokenType.Let))
         {
             VariableDeclarationStatement? decl = null;
+            Expression? invalidUsingExpression = null;
+            DiagnosticSpan? invalidUsingDeclarationSpan = null;
 
             if (Check(TokenType.Let))
             {
+                if (TryGetSingleLineDelimiterSpanAt(_position + 1, TokenType.LeftParen, TokenType.RightParen, out var tuplePatternSpan))
+                    invalidUsingDeclarationSpan = tuplePatternSpan;
+
                 var stmt = ParseVariableDeclaration(VariableKind.Let);
                 decl = stmt as VariableDeclarationStatement;
                 if (decl == null)
                 {
+                    var diagnosticSpan = invalidUsingDeclarationSpan ?? DiagnosticSpanFromToken(usingToken);
                     ReportError(
                         ErrorCode.InvalidSyntax,
                         "Using statement requires a variable declaration, not tuple deconstruction",
-                        Current.Line,
-                        Current.Column,
+                        diagnosticSpan.Line,
+                        diagnosticSpan.Column,
                         humanExplanation: "The 'using' statement can only work with single variable declarations, not tuple deconstruction.",
                         hint: "Use a single variable: using let resource := getResource() { ... }",
                         suggestions: new List<string> {
@@ -2542,36 +2784,46 @@ public class Parser
                             "Example: using let file := File.Open(path) { ... }",
                             "Note: The variable will be automatically disposed when the block ends"
                         },
-                        length: 1
+                        length: diagnosticSpan.Length
                     );
-                    // Create placeholder declaration
-                    decl = new VariableDeclarationStatement("<error>", null, null, VariableKind.Let, line, column);
+
+                    if (stmt is TupleDeconstructionStatement tupleDeconstruction)
+                        invalidUsingExpression = tupleDeconstruction.Initializer;
                 }
             }
             else
             {
                 var varName = ConsumeIdentifier("Expected variable name");
-                Consume(TokenType.ColonAssign, "Expected ':='");
-                var init = ParseExpression();
+                var initializerToken = Consume(TokenType.ColonAssign, "Expected ':='");
+                var init = ParseRequiredExpressionAfter(
+                    initializerToken,
+                    expectedDescription: "an initializer expression",
+                    ownerDescription: "This using declaration");
                 decl = new VariableDeclarationStatement(varName, null, init, VariableKind.Let, line, column);
             }
 
             Statement? body = null;
             if (Check(TokenType.LeftBrace))
             {
-                body = ParseBlock();
+                body = ParseBlock(DiagnosticSpanFromToken(usingToken));
             }
+
+            if (invalidUsingExpression != null)
+                return new UsingStatement(null, invalidUsingExpression, body, line, column);
 
             return new UsingStatement(decl, null, body, line, column);
         }
 
         // using (expr) or using expr
-        var expr = ParseExpression();
+        var expr = ParseRequiredExpressionAfter(
+            usingToken,
+            expectedDescription: "a resource expression",
+            ownerDescription: "This using statement");
         Statement? usingBody = null;
 
         if (Check(TokenType.LeftBrace))
         {
-            usingBody = ParseBlock();
+            usingBody = ParseBlock(DiagnosticSpanFromToken(usingToken));
         }
 
         return new UsingStatement(null, expr, usingBody, line, column);
@@ -2581,19 +2833,23 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Lock, "Expected 'lock'");
+        var lockToken = Consume(TokenType.Lock, "Expected 'lock'");
 
         // lock obj { ... } or lock (obj) { ... }
         var hasParens = Check(TokenType.LeftParen);
+        var expressionAnchor = lockToken;
         if (hasParens)
-            Consume(TokenType.LeftParen, "Expected '('");
+            expressionAnchor = Consume(TokenType.LeftParen, "Expected '('");
 
-        var lockObject = ParseExpression();
+        var lockObject = ParseRequiredExpressionAfter(
+            expressionAnchor,
+            expectedDescription: "an object expression",
+            ownerDescription: "This lock statement");
 
         if (hasParens)
             Consume(TokenType.RightParen, "Expected ')'");
 
-        var bodyStmt = ParseBlock() as BlockStatement;
+        var bodyStmt = ParseBlock(DiagnosticSpanFromToken(lockToken)) as BlockStatement;
         if (bodyStmt == null)
         {
             ReportError(
@@ -2619,9 +2875,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.Switch, "Expected 'switch'");
+        var switchToken = Consume(TokenType.Switch, "Expected 'switch'");
 
-        var value = ParseExpression();
+        var value = ParseRequiredExpressionAfter(
+            switchToken,
+            expectedDescription: "a value expression",
+            ownerDescription: "This switch statement");
         Consume(TokenType.LeftBrace, "Expected '{'");
 
         var cases = new List<SwitchCase>();
@@ -2631,6 +2890,7 @@ public class Parser
             Pattern? pattern = null;
             var caseLine = Current.Line;
             var caseColumn = Current.Column;
+            var caseDiagnosticSpan = new DiagnosticSpan(caseLine, caseColumn, Math.Max(1, Current.Value.Length));
 
             if (Check(TokenType.Case))
             {
@@ -2672,7 +2932,7 @@ public class Parser
             var statements = new List<Statement>();
             if (Check(TokenType.LeftBrace))
             {
-                var block = ParseBlock();
+                var block = ParseBlock(caseDiagnosticSpan);
                 statements.AddRange(block.Statements);
             }
             else
@@ -2683,7 +2943,23 @@ public class Parser
             cases.Add(new SwitchCase(pattern, statements, caseLine, caseColumn));
         }
 
-        Consume(TokenType.RightBrace, "Expected '}'");
+        if (Check(TokenType.RightBrace))
+        {
+            Advance();
+        }
+        else
+        {
+            var switchSpan = DiagnosticSpanFromToken(switchToken);
+            ReportError(
+                ErrorCode.MissingClosingBrace,
+                "Missing closing '}'",
+                switchSpan.Line,
+                switchSpan.Column,
+                humanExplanation: $"The switch body that started on line {line} is missing its closing brace. I reached the end of the file without finding it.",
+                hint: "Add a '}' to close this switch statement.",
+                length: switchSpan.Length
+            );
+        }
 
         return new SwitchStatement(value, cases, line, column);
     }
@@ -2892,6 +3168,7 @@ public class Parser
         while (!Check(TokenType.RightBrace) && !IsAtEnd())
         {
             var startPosition = _position;
+            var propToken = Current;
             var propName = ConsumeIdentifier("Expected property name");
 
             // Check for colon to distinguish pattern vs simple binding
@@ -2903,13 +3180,13 @@ public class Parser
             {
                 Advance(); // consume ':'
                 var pattern = ParsePattern();
-                props.Add(new PropertyPattern(propName, pattern, null));
+                props.Add(new PropertyPattern(propName, pattern, null, propToken.Line, propToken.Column));
             }
             else
             {
                 // Just property name, implicit binding: { value } -> bind property 'value' to variable 'value'
                 // BindingName is null, Analyzer will use Name as binding
-                props.Add(new PropertyPattern(propName, null, null));
+                props.Add(new PropertyPattern(propName, null, null, propToken.Line, propToken.Column));
             }
 
             if (!Check(TokenType.RightBrace))
@@ -2943,7 +3220,11 @@ public class Parser
             if (Check(TokenType.Assign))
             {
                 Advance(); // consume '='
-                var initializer = ParseExpression();
+                var initializer = ParseRequiredExpressionAfter(
+                    Previous,
+                    expectedDescription: "an initializer expression",
+                    ownerDescription: "This typed variable declaration",
+                    diagnosticSpan: new DiagnosticSpan(line, column, Math.Max(1, name.Length)));
                 return new VariableDeclarationStatement(name, typeRef, initializer, VariableKind.Let, line, column);
             }
 
@@ -2986,8 +3267,12 @@ public class Parser
                     names.Add(name);
                 } while (Match(TokenType.Comma));
 
-                Advance(); // consume := or =
-                var initializer = ParseExpression();
+                var initializerToken = Advance(); // consume := or =
+                var initializer = ParseRequiredExpressionAfter(
+                    initializerToken,
+                    expectedDescription: "an initializer expression",
+                    ownerDescription: "This tuple deconstruction",
+                    diagnosticSpan: new DiagnosticSpan(line, column, Math.Max(1, initializerToken.Column - column)));
                 return new TupleDeconstructionStatement(names, initializer, VariableKind.Let, line, column);
             }
         }
@@ -3039,9 +3324,13 @@ public class Parser
         // Check for := shorthand declaration
         if (expr is IdentifierExpression ident && Check(TokenType.ColonAssign))
         {
-            Advance();
-            var initializer = ParseExpression();
-            return new VariableDeclarationStatement(ident.Name, null, initializer, VariableKind.Let, line, column);
+            var initializerToken = Advance();
+            var initializer = ParseRequiredExpressionAfter(
+                initializerToken,
+                expectedDescription: "an initializer expression",
+                ownerDescription: "This shorthand variable declaration",
+                diagnosticSpan: DiagnosticSpanFromExpression(ident));
+            return new VariableDeclarationStatement(ident.Name, null, initializer, VariableKind.Let, ident.Line, ident.Column);
         }
 
         return new ExpressionStatement(expr, line, column);
@@ -3063,19 +3352,24 @@ public class Parser
         {
             var paramLine = Current.Line;
             var paramColumn = Current.Column;
-            var param = Advance().Value;
-            Advance(); // consume =>
+            var paramToken = Advance();
+            var param = paramToken.Value;
+            var arrowToken = Advance(); // consume =>
 
             if (Check(TokenType.LeftBrace))
             {
-                var body = ParseBlock();
+                var body = ParseBlock(new DiagnosticSpan(paramLine, paramColumn, Math.Max(1, param.Length)));
                 return new LambdaExpression(
                     new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false, Line: paramLine, Column: paramColumn) },
                     null, body, line, column);
             }
             else
             {
-                var exprBody = ParseExpression();
+                var exprBody = ParseRequiredExpressionAfter(
+                    arrowToken,
+                    expectedDescription: "a lambda body expression",
+                    ownerDescription: "This lambda expression",
+                    diagnosticSpan: DiagnosticSpanFromTokenRange(paramToken, arrowToken));
                 return new LambdaExpression(
                     new List<Parameter> { new Parameter(param, new SimpleTypeReference("var"), null, false, Line: paramLine, Column: paramColumn) },
                     exprBody, null, line, column);
@@ -3139,23 +3433,30 @@ public class Parser
             }
 
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseLambdaOrAssignmentExpression);
+            var right = ParseRightOperandOrMissing(
+                opToken,
+                ParseLambdaOrAssignmentExpression,
+                DiagnosticSpanFromExpression(expr));
             return new AssignmentExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
         return expr;
     }
 
-    private Expression ParseRightOperandOrMissing(Token operatorToken, Func<Expression> parseOperand)
+    private Expression ParseRightOperandOrMissing(
+        Token operatorToken,
+        Func<Expression> parseOperand,
+        DiagnosticSpan? diagnosticSpan = null)
     {
         if (!IsMissingOperandBoundary(operatorToken))
             return parseOperand();
 
+        var span = diagnosticSpan ?? DiagnosticSpanFromToken(operatorToken);
         ReportError(
             ErrorCode.ExpectedToken,
             $"Expected expression after '{operatorToken.Value}'",
-            operatorToken.Line,
-            operatorToken.Column,
+            span.Line,
+            span.Column,
             humanExplanation: $"The '{operatorToken.Value}' operator needs an expression on its right side.",
             hint: "Finish the expression after the operator, or remove the operator if the expression is already complete.",
             suggestions: new List<string>
@@ -3163,11 +3464,242 @@ public class Parser
                 $"Add an expression after '{operatorToken.Value}'",
                 $"Remove the trailing '{operatorToken.Value}'"
             },
-            length: Math.Max(1, operatorToken.Value.Length)
+            length: span.Length
         );
 
         var column = operatorToken.Column + Math.Max(1, operatorToken.Value.Length);
         return new IdentifierExpression("<error>", operatorToken.Line, column);
+    }
+
+    private Expression ParseBinaryRightOperandOrMissing(
+        Token operatorToken,
+        Expression leftExpression,
+        Func<Expression> parseOperand)
+    {
+        return ParseRightOperandOrMissing(
+            operatorToken,
+            parseOperand,
+            DiagnosticSpanFromExpressionThroughToken(leftExpression, operatorToken));
+    }
+
+    private Expression ParseUnaryOperandOrMissing(
+        Token operatorToken,
+        string expectedDescription,
+        string ownerDescription)
+    {
+        if (!IsMissingRequiredExpressionBoundary(operatorToken))
+            return ParseUnaryExpression();
+
+        var span = DiagnosticSpanFromToken(operatorToken);
+        var markerColumn = operatorToken.Column + Math.Max(1, operatorToken.Value.Length);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected {expectedDescription} after '{operatorToken.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: $"{ownerDescription} needs {expectedDescription} after '{operatorToken.Value}'.",
+            hint: $"Add {expectedDescription} after '{operatorToken.Value}', or remove '{operatorToken.Value}'.",
+            suggestions: new List<string>
+            {
+                $"Add {expectedDescription} after '{operatorToken.Value}'",
+                $"Remove '{operatorToken.Value}' until the expression is ready"
+            },
+            length: span.Length);
+
+        return new IdentifierExpression("<error>", operatorToken.Line, markerColumn);
+    }
+
+    private Expression ParseInvalidPrefixPlusExpression()
+    {
+        var plusToken = Advance();
+        var span = Current.Line == plusToken.Line && !IsExpressionTerminator(Current.Type)
+            ? DiagnosticSpanFromTokenRange(plusToken, Current)
+            : DiagnosticSpanFromToken(plusToken);
+
+        ReportError(
+            ErrorCode.InvalidSyntax,
+            "Prefix '+' is not supported",
+            span.Line,
+            span.Column,
+            humanExplanation: "A leading '+' does not change the value in N#, so it is not part of the expression grammar.",
+            hint: "Remove the leading '+'. Numeric literals and variables are already positive unless you subtract or negate them.",
+            suggestions: new List<string>
+            {
+                "Remove the leading '+'"
+            },
+            length: span.Length);
+
+        if (!IsMissingOperandBoundary(plusToken) && CanStartExpression(Current.Type))
+            ParseUnaryExpression();
+
+        return new IdentifierExpression("<error>", plusToken.Line, plusToken.Column);
+    }
+
+    private static DiagnosticSpan DiagnosticSpanFromExpressionThroughToken(Expression expression, Token endToken)
+    {
+        var startSpan = DiagnosticSpanFromExpression(expression);
+        if (startSpan.Line != endToken.Line)
+            return DiagnosticSpanFromToken(endToken);
+
+        var endColumn = endToken.Column + TokenLengthOrFallback(endToken);
+        return new DiagnosticSpan(
+            startSpan.Line,
+            startSpan.Column,
+            Math.Max(startSpan.Length, endColumn - startSpan.Column));
+    }
+
+    private Expression ParseRequiredExpressionAfter(
+        Token anchorToken,
+        string expectedDescription,
+        string ownerDescription,
+        DiagnosticSpan? diagnosticSpan = null)
+    {
+        if (!IsMissingRequiredExpressionBoundary(anchorToken))
+            return ParseExpression();
+
+        var markerColumn = anchorToken.Column + Math.Max(1, anchorToken.Value.Length);
+        var underlineAnchor = ShouldUnderlineAnchorForMissingRequiredExpression(anchorToken);
+        var fallbackSpan = underlineAnchor
+            ? DiagnosticSpanFromToken(anchorToken)
+            : new DiagnosticSpan(anchorToken.Line, markerColumn, 1);
+        var span = diagnosticSpan ?? fallbackSpan;
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected {expectedDescription} after '{anchorToken.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: $"{ownerDescription} needs {expectedDescription} after '{anchorToken.Value}'.",
+            hint: "Finish the expression before starting the next statement.",
+            suggestions: new List<string>
+            {
+                $"Add {expectedDescription} after '{anchorToken.Value}'",
+                $"Remove '{anchorToken.Value}' until the expression is ready"
+            },
+            length: span.Length);
+
+        return new IdentifierExpression("<error>", anchorToken.Line, markerColumn);
+    }
+
+    private static bool ShouldUnderlineAnchorForMissingRequiredExpression(Token anchorToken)
+    {
+        return anchorToken.Type switch
+        {
+            TokenType.If or
+            TokenType.While or
+            TokenType.Foreach or
+            TokenType.Switch or
+            TokenType.Print or
+            TokenType.Throw or
+            TokenType.Yield or
+            TokenType.Assert or
+            TokenType.Using or
+            TokenType.Lock or
+            TokenType.In or
+            TokenType.Assign or
+            TokenType.ColonAssign => true,
+            _ => false
+        };
+    }
+
+    private Token ReportMissingInKeywordAndRecover(Token loopKeywordToken, Token variableToken, string ownerDescription)
+    {
+        var expected = TokenTypeToString(TokenType.In);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected '{expected}' between the loop variable and collection",
+            loopKeywordToken.Line,
+            loopKeywordToken.Column,
+            humanExplanation: $"{ownerDescription} needs the '{expected}' keyword between the loop variable and the collection.",
+            hint: $"Write `{loopKeywordToken.Value} {variableToken.Value} {expected} ...`.",
+            suggestions: new List<string>
+            {
+                $"Add '{expected}' after '{variableToken.Value}'"
+            },
+            length: Math.Max(1, loopKeywordToken.Value.Length));
+
+        var recoveredColumn = variableToken.Column + Math.Max(1, variableToken.Value.Length) + 1;
+        return new Token(TokenType.In, expected, variableToken.Line, recoveredColumn, variableToken.FileName);
+    }
+
+    private bool IsMissingRequiredExpressionBoundary(Token anchorToken)
+    {
+        if (IsMissingOperandBoundary(anchorToken))
+            return true;
+
+        if (Current.Line > anchorToken.Line && LooksLikeStatementStartAfterRequiredExpression())
+            return true;
+
+        return Current.Line == anchorToken.Line &&
+               (Check(TokenType.LeftBrace) ||
+                Check(TokenType.RightBrace) ||
+                Check(TokenType.RightParen) ||
+                Check(TokenType.RightBracket) ||
+                Check(TokenType.Colon) ||
+                Check(TokenType.Comma) ||
+                Check(TokenType.Semicolon));
+    }
+
+    private bool LooksLikeStatementStartAfterRequiredExpression()
+    {
+        if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.ColonAssign)
+            return true;
+
+        if (Check(TokenType.Identifier) &&
+            LookAhead(1).Type == TokenType.Colon &&
+            LookAhead(2).Type == TokenType.Identifier)
+        {
+            return true;
+        }
+
+        return StartsTupleDeconstructionAtCurrentPosition();
+    }
+
+    private bool IsMissingStatementBodyBoundary()
+    {
+        return Check(TokenType.RightBrace) ||
+               Check(TokenType.Else) ||
+               IsAtEnd();
+    }
+
+    private void ReportMissingStatementBody(DiagnosticSpan ownerSpan)
+    {
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected statement body. Got '{Current.Value}'",
+            ownerSpan.Line,
+            ownerSpan.Column,
+            humanExplanation: "This control-flow keyword needs a statement or block after its condition.",
+            hint: "Add a block like `{ ... }`, or add a single statement after the keyword.",
+            suggestions: new List<string>
+            {
+                "Add a block body",
+                "Add a statement body"
+            },
+            length: ownerSpan.Length);
+    }
+
+    private bool StartsTupleDeconstructionAtCurrentPosition()
+    {
+        if (!Check(TokenType.Identifier) || LookAhead(1).Type != TokenType.Comma)
+            return false;
+
+        var pos = 1;
+        while (_position + pos < _tokens.Count)
+        {
+            var token = _tokens[_position + pos];
+            if (token.Line != Current.Line)
+                return false;
+
+            if (token.Type == TokenType.ColonAssign || token.Type == TokenType.Assign)
+                return true;
+
+            if (token.Type != TokenType.Identifier && token.Type != TokenType.Comma)
+                return false;
+
+            pos++;
+        }
+
+        return false;
     }
 
     private Expression ParseTernaryExpression()
@@ -3177,9 +3709,17 @@ public class Parser
         if (Check(TokenType.Question))
         {
             var questionToken = Advance();
-            var thenExpr = ParseExpression();
-            Consume(TokenType.Colon, "Expected ':' in ternary expression");
-            var elseExpr = ParseExpression();
+            var thenExpr = ParseRequiredExpressionAfter(
+                questionToken,
+                expectedDescription: "a then expression",
+                ownerDescription: "This ternary expression",
+                diagnosticSpan: DiagnosticSpanFromExpressionThroughToken(expr, questionToken));
+            var colonToken = Consume(TokenType.Colon, "Expected ':' in ternary expression");
+            var elseExpr = ParseRequiredExpressionAfter(
+                colonToken,
+                expectedDescription: "an else expression",
+                ownerDescription: "This ternary expression",
+                diagnosticSpan: DiagnosticSpanFromExpressionThroughToken(expr, colonToken));
             return new TernaryExpression(expr, thenExpr, elseExpr, questionToken.Line, questionToken.Column);
         }
 
@@ -3193,7 +3733,7 @@ public class Parser
         while (Check(TokenType.QuestionQuestion))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseLogicalOrExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseLogicalOrExpression);
             expr = new BinaryExpression(expr, BinaryOperator.NullCoalesce, right, opToken.Line, opToken.Column);
         }
 
@@ -3207,7 +3747,7 @@ public class Parser
         while (Check(TokenType.Or))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseLogicalAndExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseLogicalAndExpression);
             expr = new BinaryExpression(expr, BinaryOperator.Or, right, opToken.Line, opToken.Column);
         }
 
@@ -3221,7 +3761,7 @@ public class Parser
         while (Check(TokenType.And))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseOrExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseBitwiseOrExpression);
             expr = new BinaryExpression(expr, BinaryOperator.And, right, opToken.Line, opToken.Column);
         }
 
@@ -3235,7 +3775,7 @@ public class Parser
         while (Check(TokenType.BitwiseOr))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseXorExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseBitwiseXorExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseOr, right, opToken.Line, opToken.Column);
         }
 
@@ -3249,7 +3789,7 @@ public class Parser
         while (Check(TokenType.BitwiseXor))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseBitwiseAndExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseBitwiseAndExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseXor, right, opToken.Line, opToken.Column);
         }
 
@@ -3263,7 +3803,7 @@ public class Parser
         while (Check(TokenType.BitwiseAnd))
         {
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseEqualityExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseEqualityExpression);
             expr = new BinaryExpression(expr, BinaryOperator.BitwiseAnd, right, opToken.Line, opToken.Column);
         }
 
@@ -3278,7 +3818,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.Equal ? BinaryOperator.Equal : BinaryOperator.NotEqual;
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseRelationalExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseRelationalExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3350,7 +3890,7 @@ public class Parser
                 }
 
                 var opToken = Advance();
-                var right = ParseRightOperandOrMissing(opToken, ParseShiftExpression);
+                var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseShiftExpression);
                 expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
             }
         }
@@ -3366,7 +3906,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.LeftShift ? BinaryOperator.LeftShift : BinaryOperator.RightShift;
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseAdditiveExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseAdditiveExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3381,7 +3921,7 @@ public class Parser
         {
             var op = Current.Type == TokenType.Plus ? BinaryOperator.Add : BinaryOperator.Subtract;
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseMultiplicativeExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseMultiplicativeExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3426,7 +3966,7 @@ public class Parser
             }
 
             var opToken = Advance();
-            var right = ParseRightOperandOrMissing(opToken, ParseRangeExpression);
+            var right = ParseBinaryRightOperandOrMissing(opToken, expr, ParseRangeExpression);
             expr = new BinaryExpression(expr, op, right, opToken.Line, opToken.Column);
         }
 
@@ -3471,6 +4011,11 @@ public class Parser
 
     private Expression ParseUnaryExpression()
     {
+        if (Check(TokenType.Plus))
+        {
+            return ParseInvalidPrefixPlusExpression();
+        }
+
         if (Check(TokenType.Not) || Check(TokenType.Minus) || Check(TokenType.BitwiseNot) ||
             Check(TokenType.Increment) || Check(TokenType.Decrement) || Check(TokenType.BitwiseXor))
         {
@@ -3523,21 +4068,30 @@ public class Parser
         if (Check(TokenType.Await))
         {
             var awaitToken = Advance();
-            var expr = ParseUnaryExpression();
+            var expr = ParseUnaryOperandOrMissing(
+                awaitToken,
+                expectedDescription: "an expression to await",
+                ownerDescription: "This await expression");
             return new AwaitExpression(expr, awaitToken.Line, awaitToken.Column);
         }
 
         if (Check(TokenType.Must))
         {
             var mustToken = Advance();
-            var expr = ParseUnaryExpression();
+            var expr = ParseUnaryOperandOrMissing(
+                mustToken,
+                expectedDescription: "a nullable expression to unwrap",
+                ownerDescription: "This must expression");
             return new MustExpression(expr, mustToken.Line, mustToken.Column);
         }
 
         if (Check(TokenType.Throw))
         {
             var throwToken = Advance();
-            var expr = ParseUnaryExpression();
+            var expr = ParseUnaryOperandOrMissing(
+                throwToken,
+                expectedDescription: "an exception expression to throw",
+                ownerDescription: "This throw expression");
             return new ThrowExpression(expr, throwToken.Line, throwToken.Column);
         }
 
@@ -3556,29 +4110,14 @@ public class Parser
                 var dotToken = Advance();
                 string memberName;
 
-                // If the dot is the last token on the line, the next token may be on a new line
-                // (e.g. "x.\n y"), which should be treated as an incomplete member access.
-                if (Current.Line != dotToken.Line)
+                if (Current.Line == dotToken.Line && Check(TokenType.Identifier))
                 {
-                    ReportError(
-                        ErrorCode.ExpectedToken,
-                        $"Expected member name. Got '{Current.Value}'",
-                        dotToken.Line,
-                        dotToken.Column,
-                        humanExplanation: "I see a dot (.) operator but no member name after it.",
-                        hint: "After a dot, I need to see a property or method name.",
-                        suggestions: new List<string> {
-                            "Check if you forgot to finish this line",
-                            "Common members: Length, Count, ToString(), GetHashCode()",
-                            "If this is end of statement, remove the trailing dot"
-                        },
-                        length: dotToken.Value.Length
-                    );
-                    memberName = "<error>";
+                    memberName = Advance().Value;
                 }
                 else
                 {
-                    memberName = ConsumeIdentifier("Expected member name");
+                    ReportMissingMemberNameAfterDot(dotToken, expr);
+                    memberName = "<error>";
                 }
                 expr = new MemberAccessExpression(expr, memberName, isNullConditional, dotToken.Line, dotToken.Column);
             }
@@ -3678,6 +4217,9 @@ public class Parser
         {
             do
             {
+                if (IsArgumentListRecoveryBoundary(Previous))
+                    break;
+
                 var modifier = ArgumentModifier.None;
 
                 // Check for ref/out modifier
@@ -3743,10 +4285,26 @@ public class Parser
         return args;
     }
 
+    private bool IsArgumentListRecoveryBoundary()
+        => IsAtEnd() ||
+           Check(TokenType.LeftBrace) ||
+           Check(TokenType.RightBrace) ||
+           Check(TokenType.RightBracket) ||
+           Check(TokenType.Semicolon);
+
+    private bool IsArgumentListRecoveryBoundary(Token openingToken)
+        => IsArgumentListRecoveryBoundary() ||
+           IsContinuationRecoveryBoundary(openingToken);
+
     private Expression ParsePrimaryExpression()
     {
         var line = Current.Line;
         var column = Current.Column;
+
+        if (Check(TokenType.Dot) || Check(TokenType.QuestionDot))
+        {
+            return ParseLeadingMemberAccessWithoutReceiver();
+        }
 
         // Literals
         if (Check(TokenType.IntLiteral))
@@ -3756,11 +4314,16 @@ public class Parser
             return new FloatLiteralExpression(Advance().Value, line, column);
 
         if (Check(TokenType.CharLiteral))
-            return new CharLiteralExpression(Advance().Value, line, column);
+        {
+            var token = Advance();
+            ReportMalformedCharLiteralIfNeeded(token);
+            return new CharLiteralExpression(token.Value, line, column);
+        }
 
         if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral))
         {
             var token = Advance();
+            ReportMalformedStringLiteralIfNeeded(token);
             if (token.Type == TokenType.StringLiteral && token.Value.StartsWith("$\""))
                 return ParseInterpolatedString(token, line, column);
             if (token.Type == TokenType.InterpolatedRawStringLiteral)
@@ -3925,6 +4488,137 @@ public class Parser
 
         // Return error placeholder
         return new IdentifierExpression("<error>", line, column);
+    }
+
+    private void ReportMalformedStringLiteralIfNeeded(Token token)
+    {
+        if (token.Type == TokenType.TripleQuoteStringLiteral)
+        {
+            ReportMalformedRawStringLiteralIfNeeded(
+                token,
+                "Unterminated triple-quoted string literal",
+                "This triple-quoted string starts with `\"\"\"` but reaches the end of the file before the closing triple quote.",
+                "Add the closing triple quote `\"\"\"` before the end of the file.",
+                markerLength: 3);
+            return;
+        }
+
+        if (token.Type == TokenType.InterpolatedRawStringLiteral)
+        {
+            ReportMalformedRawStringLiteralIfNeeded(
+                token,
+                "Unterminated interpolated raw string literal",
+                "This interpolated raw string starts with `$\"\"\"` but reaches the end of the file before the closing triple quote.",
+                "Add the closing triple quote `\"\"\"` before the end of the file.",
+                markerLength: 4);
+            return;
+        }
+
+        if (token.Type != TokenType.StringLiteral || (token.IsTerminated && IsCompleteStringLiteral(token.Value)))
+            return;
+
+        var isInterpolated = token.Value.StartsWith("$\"", StringComparison.Ordinal);
+        ReportError(
+            ErrorCode.InvalidLiteral,
+            isInterpolated ? "Unterminated interpolated string literal" : "Unterminated string literal",
+            token.Line,
+            token.Column,
+            humanExplanation: isInterpolated
+                ? "This interpolated string starts with `$\"` but reaches the end of the line before a closing quote."
+                : "This string starts with a quote but reaches the end of the line before a closing quote.",
+            hint: "Add the closing quote on this line, or use a triple-quoted string for multi-line text.",
+            suggestions: new List<string>
+            {
+                "Add a closing quote",
+                "Use triple quotes for multi-line strings"
+            },
+            length: Math.Max(1, token.Value.Length)
+        );
+    }
+
+    private void ReportMalformedRawStringLiteralIfNeeded(
+        Token token,
+        string message,
+        string humanExplanation,
+        string hint,
+        int markerLength)
+    {
+        if (token.IsTerminated)
+            return;
+
+        ReportError(
+            ErrorCode.InvalidLiteral,
+            message,
+            token.Line,
+            token.Column,
+            humanExplanation: humanExplanation,
+            hint: hint,
+            suggestions: new List<string>
+            {
+                "Add the closing triple quote",
+                "Check where the raw string should end"
+            },
+            length: markerLength
+        );
+    }
+
+    private static bool IsCompleteStringLiteral(string value)
+    {
+        if (value.StartsWith("$\"", StringComparison.Ordinal))
+            return HasUnescapedClosingQuote(value, openingQuoteIndex: 1);
+
+        if (value.StartsWith('"'))
+            return HasUnescapedClosingQuote(value, openingQuoteIndex: 0);
+
+        return true;
+    }
+
+    private static bool HasUnescapedClosingQuote(string value, int openingQuoteIndex)
+    {
+        if (value.Length <= openingQuoteIndex + 1 || value[^1] != '"')
+            return false;
+
+        var backslashCount = 0;
+        for (var i = value.Length - 2; i > openingQuoteIndex && value[i] == '\\'; i--)
+            backslashCount++;
+
+        return backslashCount % 2 == 0;
+    }
+
+    private void ReportMalformedCharLiteralIfNeeded(Token token)
+    {
+        if (IsCompleteCharLiteral(token.Value))
+            return;
+
+        var isEmpty = token.Value == "''";
+        ReportError(
+            ErrorCode.InvalidLiteral,
+            isEmpty ? "Empty character literal" : "Unterminated character literal",
+            token.Line,
+            token.Column,
+            humanExplanation: isEmpty
+                ? "A character literal needs exactly one character between the quotes."
+                : "This character literal starts with a quote but does not have a closing quote.",
+            hint: "Write a single character like `'a'`, or use a string literal like \"a\" when you need text.",
+            suggestions: new List<string>
+            {
+                "Add the closing quote",
+                "Use double quotes for a string"
+            },
+            length: Math.Max(1, token.Value.Length)
+        );
+    }
+
+    private static bool IsCompleteCharLiteral(string value)
+    {
+        if (value.Length < 3 || value[0] != '\'' || value[^1] != '\'')
+            return false;
+
+        var bodyLength = value.Length - 2;
+        if (bodyLength == 1)
+            return true;
+
+        return bodyLength == 2 && value[1] == '\\';
     }
 
     private InterpolatedStringExpression ParseInterpolatedString(Token token, int line, int column, bool isRaw = false)
@@ -4131,7 +4825,7 @@ public class Parser
                         var tok = subTokens[t];
                         int adjustedLine = tok.Line + exprStartLine - 1;
                         int adjustedColumn = tok.Line == 1 ? tok.Column + exprStartCol - 1 : tok.Column;
-                        subTokens[t] = new Token(tok.Type, tok.Value, adjustedLine, adjustedColumn, tok.FileName);
+                        subTokens[t] = new Token(tok.Type, tok.Value, adjustedLine, adjustedColumn, tok.FileName, tok.IsTerminated);
                     }
 
                     var subParser = new Parser(subTokens, _fileName);
@@ -4259,7 +4953,7 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.New, "Expected 'new'");
+        var newToken = Consume(TokenType.New, "Expected 'new'");
 
         // Target-typed new (C# 9): new() or new { ... }
         // Check if next token is '(' or '{' without a type
@@ -4280,7 +4974,7 @@ public class Parser
         else
         {
             // Traditional new: new TypeName() or new TypeName { ... }
-            type = ParseTypeReference();
+            type = ParseNewTypeReference(newToken);
 
             if (Check(TokenType.LeftParen))
             {
@@ -4321,29 +5015,41 @@ public class Parser
                 else
                 {
                     // Regular property initializer
+                    var propNameToken = Current;
                     var propName = ConsumeIdentifier("Expected property name");
+                    Expression propValue;
                     if (Check(TokenType.Assign))
                     {
                         ReportError(
                             ErrorCode.InvalidSyntax,
                             $"Object initializer member '{propName}' uses '='; N# uses ':'",
-                            Current.Line,
-                            Current.Column,
+                            propNameToken.Line,
+                            propNameToken.Column,
                             humanExplanation: "Object initializer members in N# use a colon between the member name and value. The equals sign is C# initializer syntax.",
                             hint: $"Write '{propName}: value' instead of '{propName} = value'.",
                             suggestions: new List<string>
                             {
                                 $"Change '{propName} = ...' to '{propName}: ...'"
                             },
-                            length: Current.Value.Length
+                            length: TokenLengthOrFallback(propNameToken)
                         );
-                        Advance();
+                        var separatorToken = Advance();
+                        propValue = ParseObjectInitializerMemberValue(propNameToken, propName, separatorToken);
+                    }
+                    else if (Check(TokenType.Colon))
+                    {
+                        var separatorToken = Advance();
+                        propValue = ParseObjectInitializerMemberValue(propNameToken, propName, separatorToken);
                     }
                     else
                     {
-                        Consume(TokenType.Colon, "Expected ':'");
+                        ReportMissingObjectInitializerColon(propNameToken, propName);
+                        propValue = new IdentifierExpression(
+                            "<error>",
+                            propNameToken.Line,
+                            propNameToken.Column + TokenLengthOrFallback(propNameToken));
                     }
-                    var propValue = ParseExpression();
+
                     props.Add(new PropertyInitializer(propName, null, propValue));
                 }
 
@@ -4359,6 +5065,29 @@ public class Parser
         }
 
         return new NewExpression(type, args, initializer, line, column);
+    }
+
+    private Expression ParseObjectInitializerMemberValue(Token propertyToken, string propertyName, Token separatorToken)
+    {
+        if (!IsMissingRequiredExpressionBoundary(separatorToken))
+            return ParseExpression();
+
+        var propertyLength = TokenLengthOrFallback(propertyToken);
+        var markerColumn = separatorToken.Column + Math.Max(1, separatorToken.Value.Length);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected a value for object initializer member '{propertyName}'",
+            propertyToken.Line,
+            propertyToken.Column,
+            humanExplanation: $"Object initializer member '{propertyName}' needs a value after ':'.",
+            hint: $"Write '{propertyName}: value'.",
+            suggestions: new List<string>
+            {
+                $"Add a value after '{propertyName}:'"
+            },
+            length: propertyLength);
+
+        return new IdentifierExpression("<error>", separatorToken.Line, markerColumn);
     }
 
     private Expression ParseMatchExpression()
@@ -4434,6 +5163,15 @@ public class Parser
             return new TupleExpression(new List<TupleElement>(), line, column);
         }
 
+        if (IsArgumentListRecoveryBoundary(Previous))
+        {
+            var recoveredToken = Consume(TokenType.RightParen, "Expected ')'");
+            return new ParenthesizedExpression(
+                new IdentifierExpression("<error>", recoveredToken.Line, recoveredToken.Column),
+                line,
+                column);
+        }
+
         // Single element or tuple
         var firstExpr = ParseExpression();
 
@@ -4482,7 +5220,7 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
-        Consume(TokenType.LeftParen, "Expected '('");
+        var leftParenToken = Consume(TokenType.LeftParen, "Expected '('");
 
         var parameters = new List<Parameter>();
 
@@ -4498,16 +5236,23 @@ public class Parser
         }
 
         Consume(TokenType.RightParen, "Expected ')'");
-        Consume(TokenType.Arrow, "Expected '=>'");
+        var arrowToken = Consume(TokenType.Arrow, "Expected '=>'");
 
         if (Check(TokenType.LeftBrace))
         {
-            var body = ParseBlock();
+            var lambdaSpan = parameters.Count > 0 && parameters[0].Name != "<error>"
+                ? new DiagnosticSpan(parameters[0].Line, parameters[0].Column, Math.Max(1, parameters[0].Name.Length))
+                : new DiagnosticSpan(line, column, 1);
+            var body = ParseBlock(lambdaSpan);
             return new LambdaExpression(parameters, null, body, line, column);
         }
         else
         {
-            var exprBody = ParseExpression();
+            var exprBody = ParseRequiredExpressionAfter(
+                arrowToken,
+                expectedDescription: "a lambda body expression",
+                ownerDescription: "This lambda expression",
+                diagnosticSpan: DiagnosticSpanFromTokenRange(leftParenToken, arrowToken));
             return new LambdaExpression(parameters, exprBody, null, line, column);
         }
     }
@@ -4883,6 +5628,131 @@ public class Parser
             end.Column + Math.Max(1, end.Value.Length));
     }
 
+    private static int TokenLengthOrFallback(Token? token)
+        => token is null ? 1 : Math.Max(1, token.Value.Length);
+
+    private static int TokenSpanLengthOrFallback(Token? start, Token? end)
+    {
+        if (start is null)
+            return 1;
+
+        if (end is null || end.Line != start.Line)
+            return TokenLengthOrFallback(start);
+
+        return Math.Max(1, end.Column + TokenLengthOrFallback(end) - start.Column);
+    }
+
+    private static DiagnosticSpan DiagnosticSpanFromToken(Token token)
+        => new(token.Line, token.Column, TokenLengthOrFallback(token));
+
+    private static DiagnosticSpan DiagnosticSpanFromTokenRange(Token start, Token end)
+        => new(start.Line, start.Column, TokenSpanLengthOrFallback(start, end));
+
+    private static DiagnosticSpan DiagnosticSpanFromExpression(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression { Name: var name } identifier when IsVisibleName(name) =>
+                new DiagnosticSpan(identifier.Line, identifier.Column, Math.Max(1, name.Length)),
+            ThisExpression thisExpression =>
+                new DiagnosticSpan(thisExpression.Line, thisExpression.Column, "this".Length),
+            BaseExpression baseExpression =>
+                new DiagnosticSpan(baseExpression.Line, baseExpression.Column, "base".Length),
+            DefaultExpression defaultExpression =>
+                new DiagnosticSpan(defaultExpression.Line, defaultExpression.Column, "default".Length),
+            BoolLiteralExpression boolLiteral =>
+                new DiagnosticSpan(boolLiteral.Line, boolLiteral.Column, boolLiteral.Value ? 4 : 5),
+            NullLiteralExpression nullLiteral =>
+                new DiagnosticSpan(nullLiteral.Line, nullLiteral.Column, "null".Length),
+            IntLiteralExpression intLiteral =>
+                new DiagnosticSpan(intLiteral.Line, intLiteral.Column, Math.Max(1, intLiteral.Value.Length)),
+            FloatLiteralExpression floatLiteral =>
+                new DiagnosticSpan(floatLiteral.Line, floatLiteral.Column, Math.Max(1, floatLiteral.Value.Length)),
+            StringLiteralExpression stringLiteral =>
+                new DiagnosticSpan(stringLiteral.Line, stringLiteral.Column, Math.Max(1, stringLiteral.Value.Length)),
+            CharLiteralExpression charLiteral =>
+                new DiagnosticSpan(charLiteral.Line, charLiteral.Column, Math.Max(1, charLiteral.Value.Length)),
+            MemberAccessExpression { MemberName: var memberName } memberAccess when IsVisibleName(memberName) =>
+                new DiagnosticSpan(
+                    memberAccess.Line,
+                    memberAccess.Column + (memberAccess.IsNullConditional ? 2 : 1),
+                    Math.Max(1, memberName.Length)),
+            CallExpression callExpression =>
+                DiagnosticSpanFromExpression(callExpression.Callee),
+            IndexAccessExpression indexAccess =>
+                DiagnosticSpanFromExpression(indexAccess.Object),
+            ParenthesizedExpression parenthesized =>
+                DiagnosticSpanFromExpression(parenthesized.Inner),
+            AwaitExpression awaitExpression =>
+                new DiagnosticSpan(awaitExpression.Line, awaitExpression.Column, "await".Length),
+            MustExpression mustExpression =>
+                new DiagnosticSpan(mustExpression.Line, mustExpression.Column, "must".Length),
+            ThrowExpression throwExpression =>
+                new DiagnosticSpan(throwExpression.Line, throwExpression.Column, "throw".Length),
+            NewExpression newExpression =>
+                new DiagnosticSpan(newExpression.Line, newExpression.Column, "new".Length),
+            _ =>
+                new DiagnosticSpan(expression.Line, expression.Column, 1)
+        };
+    }
+
+    private static bool IsVisibleName(string? name)
+        => !string.IsNullOrWhiteSpace(name) && name != "<error>";
+
+    private bool TryGetSingleLineDelimiterSpanAt(int openingIndex, TokenType openingType, TokenType closingType, out DiagnosticSpan span)
+    {
+        span = default;
+
+        if (openingIndex < 0 || openingIndex >= _tokens.Count)
+            return false;
+
+        var openingToken = _tokens[openingIndex];
+        if (openingToken.Type != openingType)
+            return false;
+
+        var depth = 0;
+        for (var index = openingIndex; index < _tokens.Count; index++)
+        {
+            var token = _tokens[index];
+            if (token.Type == TokenType.Eof || token.Line != openingToken.Line)
+                break;
+
+            if (token.Type == openingType)
+            {
+                depth++;
+                continue;
+            }
+
+            if (token.Type != closingType)
+                continue;
+
+            depth--;
+            if (depth == 0)
+            {
+                span = new DiagnosticSpan(
+                    openingToken.Line,
+                    openingToken.Column,
+                    TokenSpanLengthOrFallback(openingToken, token));
+                return true;
+            }
+        }
+
+        span = DiagnosticSpanFromToken(openingToken);
+        return true;
+    }
+
+    private static Token? LaterToken(Token? left, Token? right)
+    {
+        if (left is null)
+            return right;
+        if (right is null)
+            return left;
+
+        return right.Line > left.Line || (right.Line == left.Line && right.Column >= left.Column)
+            ? right
+            : left;
+    }
+
     private bool Check(TokenType type)
     {
         // Handle split >> token
@@ -4913,6 +5783,9 @@ public class Parser
     {
         if (!Check(type))
         {
+            if (TryReportMissingClosingDelimiter(type, out var recoveredToken))
+                return recoveredToken;
+
             var expected = TokenTypeToString(type);
             ReportError(
                 ErrorCode.ExpectedToken,
@@ -4926,6 +5799,229 @@ public class Parser
             return Current; // Don't advance
         }
         return Advance();
+    }
+
+    private bool TryReportMissingClosingDelimiter(TokenType type, out Token recoveredToken)
+    {
+        recoveredToken = Current;
+
+        var (code, expected, opening, hint) = type switch
+        {
+            TokenType.RightParen => (
+                ErrorCode.MissingClosingParen,
+                ")",
+                "(",
+                "Every opening parenthesis '(' needs a matching closing parenthesis ')'."),
+            TokenType.RightBracket => (
+                ErrorCode.MissingClosingBracket,
+                "]",
+                "[",
+                "Every opening bracket '[' needs a matching closing bracket ']'."),
+            _ => default
+        };
+
+        if (code == default)
+            return false;
+
+        var previous = Previous;
+        if (previous.Type == TokenType.Eof)
+            return false;
+
+        var sameLineBoundary = Current.Type != TokenType.Eof &&
+                               Current.Line == previous.Line &&
+                               IsSameLineMissingClosingDelimiterBoundary(type);
+
+        if (Current.Type != TokenType.Eof && Current.Line <= previous.Line && !sameLineBoundary)
+            return false;
+
+        var previousLength = Math.Max(1, previous.Value.Length);
+        var insertionLine = sameLineBoundary ? Current.Line : previous.Line;
+        var insertionColumn = sameLineBoundary ? Current.Column : previous.Column + previousLength;
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+            GetMissingClosingDelimiterDiagnosticSpan(type, previous, sameLineBoundary);
+        var found = sameLineBoundary ? Current.Value : null;
+
+        ReportError(
+            code,
+            $"Missing closing '{expected}'",
+            diagnosticLine,
+            diagnosticColumn,
+            humanExplanation: found is null
+                ? $"I reached the next line while looking for the closing '{expected}' that matches an earlier '{opening}'."
+                : $"I found '{found}' while looking for the closing '{expected}' that matches an earlier '{opening}'.",
+            hint: hint,
+            suggestions: new List<string>
+            {
+                found is null ? $"Add '{expected}' before starting the next line" : $"Add '{expected}' before '{found}'",
+                $"Check the matching '{opening}' in this expression"
+            },
+            length: diagnosticLength
+        );
+
+        recoveredToken = new Token(type, expected, insertionLine, insertionColumn, previous.FileName);
+        return true;
+    }
+
+    private (int Line, int Column, int Length) GetMissingClosingDelimiterDiagnosticSpan(
+        TokenType expectedClosingType,
+        Token previous,
+        bool sameLineBoundary)
+    {
+        if (sameLineBoundary)
+            return (Current.Line, Current.Column, Math.Max(1, Current.Value.Length));
+
+        if (expectedClosingType == TokenType.RightParen &&
+            TryFindUnmatchedOpeningDelimiter(TokenType.LeftParen, TokenType.RightParen, previous, out var openingToken))
+        {
+            if (TryGetDelimiterOwnerSpan(openingToken, out var ownerSpan))
+                return ownerSpan;
+
+            return (openingToken.Line, openingToken.Column, Math.Max(1, openingToken.Value.Length));
+        }
+
+        if (expectedClosingType == TokenType.RightBracket &&
+            TryFindUnmatchedOpeningDelimiter(TokenType.LeftBracket, TokenType.RightBracket, previous, out var bracketToken))
+        {
+            if (TryGetDelimiterOwnerSpan(bracketToken, out var ownerSpan))
+                return ownerSpan;
+
+            return (bracketToken.Line, bracketToken.Column, Math.Max(1, bracketToken.Value.Length));
+        }
+
+        var fallbackLength = Math.Max(1, previous.Value.Length);
+        return (previous.Line, previous.Column + fallbackLength, 1);
+    }
+
+    private bool TryFindUnmatchedOpeningDelimiter(
+        TokenType openingType,
+        TokenType closingType,
+        Token previous,
+        out Token openingToken)
+    {
+        var depth = 0;
+        var previousEndColumn = previous.Column + Math.Max(1, previous.Value.Length);
+
+        for (var index = Math.Min(_position - 1, _tokens.Count - 1); index >= 0; index--)
+        {
+            var token = _tokens[index];
+            if (token.Type == TokenType.Eof)
+                continue;
+
+            if (token.Line > previous.Line ||
+                (token.Line == previous.Line && token.Column > previousEndColumn))
+            {
+                continue;
+            }
+
+            if (token.Type == closingType)
+            {
+                depth++;
+                continue;
+            }
+
+            if (token.Type != openingType)
+                continue;
+
+            if (depth == 0)
+            {
+                openingToken = token;
+                return true;
+            }
+
+            depth--;
+        }
+
+        openingToken = previous;
+        return false;
+    }
+
+    private bool TryGetDelimiterOwnerSpan(Token openingToken, out (int Line, int Column, int Length) span)
+    {
+        var tokenIndex = _tokens.FindIndex(token =>
+            token.Line == openingToken.Line &&
+            token.Column == openingToken.Column &&
+            token.Type == openingToken.Type &&
+            token.Value == openingToken.Value);
+
+        if (tokenIndex > 0)
+        {
+            var owner = _tokens[tokenIndex - 1];
+            if (owner.Line == openingToken.Line && IsVisibleDelimiterOwner(owner))
+            {
+                span = (owner.Line, owner.Column, Math.Max(1, owner.Value.Length));
+                return true;
+            }
+
+            if (owner.Line == openingToken.Line &&
+                IsAssignmentAnchor(owner) &&
+                TryGetPreviousTokenOnLine(tokenIndex - 1, owner.Line, out var assignedName) &&
+                IsVisibleDelimiterOwner(assignedName))
+            {
+                span = (assignedName.Line, assignedName.Column, Math.Max(1, assignedName.Value.Length));
+                return true;
+            }
+        }
+
+        span = default;
+        return false;
+    }
+
+    private static bool IsVisibleDelimiterOwner(Token token)
+        => token.Type == TokenType.Identifier ||
+           token.Type is TokenType.Print or
+               TokenType.If or
+               TokenType.Case or
+               TokenType.Default or
+               TokenType.While or
+               TokenType.For or
+               TokenType.Foreach or
+               TokenType.Switch or
+               TokenType.Lock or
+               TokenType.Using or
+               TokenType.Assert or
+               TokenType.Return or
+               TokenType.Yield or
+               TokenType.Throw or
+               TokenType.Func or
+               TokenType.Test;
+
+    private static bool IsAssignmentAnchor(Token token)
+        => token.Type is TokenType.Assign or TokenType.ColonAssign;
+
+    private bool TryGetPreviousTokenOnLine(int beforeIndex, int line, out Token token)
+    {
+        for (var index = beforeIndex - 1; index >= 0; index--)
+        {
+            var candidate = _tokens[index];
+            if (candidate.Type == TokenType.Eof)
+                continue;
+
+            if (candidate.Line != line)
+                break;
+
+            token = candidate;
+            return true;
+        }
+
+        token = default!;
+        return false;
+    }
+
+    private bool IsSameLineMissingClosingDelimiterBoundary(TokenType type)
+    {
+        return type switch
+        {
+            TokenType.RightParen => Check(TokenType.LeftBrace) ||
+                                    Check(TokenType.RightBrace) ||
+                                    Check(TokenType.RightBracket) ||
+                                    Check(TokenType.Colon) ||
+                                    Check(TokenType.Arrow) ||
+                                    Check(TokenType.Semicolon),
+            TokenType.RightBracket => Check(TokenType.RightBrace) ||
+                                      Check(TokenType.RightParen) ||
+                                      Check(TokenType.Semicolon),
+            _ => false
+        };
     }
 
     private string TokenTypeToString(TokenType type)
@@ -4959,6 +6055,332 @@ public class Parser
         };
     }
 
+    private void ReportMissingMemberNameAfterDot(Token dotToken, Expression receiver)
+    {
+        var operatorText = dotToken.Value;
+        var operatorDescription = operatorText == "."
+            ? "dot (.)"
+            : $"null-conditional member access ({operatorText})";
+        var receiverSpan = DiagnosticSpanFromExpression(receiver);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected member name. Got '{Current.Value}'",
+            receiverSpan.Line,
+            receiverSpan.Column,
+            humanExplanation: $"I see a {operatorDescription} operator but no member name after it.",
+            hint: $"After {operatorDescription}, I need to see a property or method name.",
+            suggestions: new List<string> {
+                "Check if you forgot to finish this line",
+                "Common members: Length, Count, ToString(), GetHashCode()",
+                $"If this is end of statement, remove the trailing '{operatorText}'"
+            },
+            length: receiverSpan.Length);
+    }
+
+    private Expression ParseLeadingMemberAccessWithoutReceiver()
+    {
+        var dotToken = Advance();
+        var operatorText = dotToken.Value;
+        var operatorDescription = operatorText == "."
+            ? "dot (.)"
+            : $"null-conditional member access ({operatorText})";
+        var span = DiagnosticSpanFromToken(dotToken);
+
+        if (Current.Line == dotToken.Line && Check(TokenType.Identifier))
+        {
+            var memberToken = Advance();
+            span = DiagnosticSpanFromTokenRange(dotToken, memberToken);
+        }
+
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected expression before '{operatorText}'",
+            span.Line,
+            span.Column,
+            humanExplanation: $"I see a {operatorDescription} operator, but there is no receiver expression before it.",
+            hint: $"Put an expression before '{operatorText}', or remove the member access.",
+            suggestions: new List<string>
+            {
+                $"Add a receiver before '{operatorText}'",
+                "Remove the member access until the receiver is known"
+            },
+            length: span.Length);
+
+        return new IdentifierExpression("<error>", dotToken.Line, dotToken.Column);
+    }
+
+    private void ReportMissingTypeParameterName(Token lessToken)
+    {
+        var span = DiagnosticSpanFromTokenRange(lessToken, Current);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected type parameter name. Got '{Current.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: "Generic parameter lists need a type parameter name after each comma.",
+            hint: "Write generic parameters as `<T>` or `<T, U>`.",
+            suggestions: new List<string>
+            {
+                "Add a type parameter name",
+                "Remove the trailing comma if the list is complete"
+            },
+            length: span.Length);
+    }
+
+    private void ReportMissingGenericTypeArgument(Token typeNameToken, Token lessToken)
+    {
+        var span = DiagnosticSpanFromTokenRange(typeNameToken, Current);
+        var typeName = typeNameToken.Value;
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected type name. Got '{Current.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: $"Generic type '{typeName}' needs a type argument between '{lessToken.Value}' and '>'.",
+            hint: $"Write this type as `{typeName}<T>` or remove the generic argument list.",
+            suggestions: new List<string>
+            {
+                "Add a type argument",
+                "Remove the empty generic argument list"
+            },
+            length: span.Length);
+    }
+
+    private DiagnosticSpan? GetMissingParameterNameDiagnosticSpan()
+    {
+        if (!Check(TokenType.Colon))
+            return null;
+
+        var next = LookAhead(1);
+        return IsTypeReferenceStart(next.Type)
+            ? DiagnosticSpanFromToken(next)
+            : null;
+    }
+
+    private void ReportMissingParameterAfterTrailingComma(DiagnosticSpan span)
+    {
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected parameter name. Got '{Current.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: "Parameter lists need another parameter after a comma.",
+            hint: "Add the missing parameter after the comma, or remove the trailing comma.",
+            suggestions: new List<string>
+            {
+                "Add a parameter after the comma",
+                "Remove the trailing comma"
+            },
+            length: span.Length);
+    }
+
+    private TypeReference ParseParameterTypeReference(string parameterName, int parameterLine, int parameterColumn)
+    {
+        if (!IsTypeTerminator(Current.Type))
+            return ParseTypeReference();
+
+        var span = IsVisibleName(parameterName) && parameterLine > 0 && parameterColumn > 0
+            ? new DiagnosticSpan(parameterLine, parameterColumn, Math.Max(1, parameterName.Length))
+            : DiagnosticSpanFromToken(Current);
+
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected type name. Got '{Current.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: IsVisibleName(parameterName)
+                ? $"Parameter '{parameterName}' needs a type after ':'."
+                : "This parameter needs a type after ':'.",
+            hint: IsVisibleName(parameterName)
+                ? $"Write this parameter as `{parameterName}: Type`."
+                : "Write parameters as `name: Type`.",
+            suggestions: new List<string>
+            {
+                "Add a parameter type after ':'"
+            },
+            length: span.Length);
+
+        return new SimpleTypeReference("<error>", span.Line, span.Column)
+        {
+            Span = SourceSpan.FromStartAndLength(span.Line, span.Column, span.Length)
+        };
+    }
+
+    private TypeReference ParseFieldTypeReference(
+        string fieldName,
+        int fieldLine,
+        int fieldColumn,
+        Token fieldColonToken)
+    {
+        if (!IsTypeTerminator(Current.Type) && !LooksLikeNextFieldAfterMissingType(fieldColonToken))
+            return ParseTypeReference();
+
+        var span = IsVisibleName(fieldName) && fieldLine > 0 && fieldColumn > 0
+            ? new DiagnosticSpan(fieldLine, fieldColumn, Math.Max(1, fieldName.Length))
+            : DiagnosticSpanFromToken(Current);
+
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected type name. Got '{Current.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: IsVisibleName(fieldName)
+                ? $"Field '{fieldName}' needs a type after ':'."
+                : "This field needs a type after ':'.",
+            hint: IsVisibleName(fieldName)
+                ? $"Write this field as `{fieldName}: Type`."
+                : "Write fields as `Name: Type`.",
+            suggestions: new List<string>
+            {
+                "Add a field type after ':'"
+            },
+            length: span.Length);
+
+        return new SimpleTypeReference("<error>", span.Line, span.Column)
+        {
+            Span = SourceSpan.FromStartAndLength(span.Line, span.Column, span.Length)
+        };
+    }
+
+    private bool LooksLikeNextFieldAfterMissingType(Token fieldColonToken)
+    {
+        return Current.Line > fieldColonToken.Line &&
+               Check(TokenType.Identifier) &&
+               LookAhead(1).Type is TokenType.Colon or TokenType.ColonAssign;
+    }
+
+    private TypeReference ParseNewTypeReference(Token newToken)
+    {
+        if (!IsTypeTerminator(Current.Type))
+            return ParseTypeReference();
+
+        var span = DiagnosticSpanFromToken(newToken);
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected type name. Got '{Current.Value}'",
+            span.Line,
+            span.Column,
+            humanExplanation: "The `new` expression needs a type name, `()`, or an initializer after it.",
+            hint: "Write `new TypeName(...)`, `new()`, or `new { Name: value }`.",
+            suggestions: new List<string>
+            {
+                "Add a type name after `new`",
+                "Use `new()` for target-typed construction"
+            },
+            length: span.Length);
+
+        return new SimpleTypeReference("<error>", span.Line, span.Column)
+        {
+            Span = SourceSpan.FromStartAndLength(span.Line, span.Column, span.Length)
+        };
+    }
+
+    private void ReportMissingObjectInitializerColon(Token propertyToken, string propertyName)
+    {
+        var span = IsVisibleName(propertyName)
+            ? DiagnosticSpanFromToken(propertyToken)
+            : DiagnosticSpanFromToken(Current);
+
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected ':' after object initializer member '{propertyName}'",
+            span.Line,
+            span.Column,
+            humanExplanation: $"Object initializer member '{propertyName}' needs ':' before its value.",
+            hint: $"Write '{propertyName}: value'.",
+            suggestions: new List<string>
+            {
+                $"Add ':' after '{propertyName}'"
+            },
+            length: span.Length);
+    }
+
+    private Token ConsumeParameterColon(string parameterName, int parameterLine, int parameterColumn)
+    {
+        if (Check(TokenType.Colon))
+            return Advance();
+
+        if (parameterName == "<error>" || parameterLine <= 0 || parameterColumn <= 0)
+            return Consume(TokenType.Colon, "Expected ':' after parameter name");
+
+        var nameLength = Math.Max(1, parameterName.Length);
+        var insertionColumn = parameterColumn + nameLength;
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected ':' after parameter name. Got '{Current.Value}'",
+            parameterLine,
+            parameterColumn,
+            humanExplanation: $"Parameter '{parameterName}' needs a ':' before its type.",
+            hint: $"Write this parameter as `{parameterName}: Type`.",
+            suggestions: new List<string>
+            {
+                $"Add ':' after '{parameterName}'"
+            },
+            length: nameLength);
+
+        return new Token(TokenType.Colon, ":", parameterLine, insertionColumn, Current.FileName);
+    }
+
+    private Token ConsumeFieldColon(string fieldName, int fieldLine, int fieldColumn)
+    {
+        if (Check(TokenType.Colon))
+            return Advance();
+
+        if (fieldName == "<error>" || fieldLine <= 0 || fieldColumn <= 0)
+            return Consume(TokenType.Colon, "Expected ':' or ':='");
+
+        var nameLength = Math.Max(1, fieldName.Length);
+        var insertionColumn = fieldColumn + nameLength;
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected ':' or ':=' after field name. Got '{Current.Value}'",
+            fieldLine,
+            fieldColumn,
+            humanExplanation: $"Field '{fieldName}' needs a ':' before its type, or ':=' before an inferred initializer.",
+            hint: $"Write this field as `{fieldName}: Type` or `{fieldName} := value`.",
+            suggestions: new List<string>
+            {
+                $"Add ':' after '{fieldName}'",
+                $"Use ':=' after '{fieldName}' if the type should be inferred"
+            },
+            length: nameLength);
+
+        return new Token(TokenType.Colon, ":", fieldLine, insertionColumn, Current.FileName);
+    }
+
+    private bool IsLikelyMissingReturnTypeMarker(Token parameterListEndToken)
+    {
+        return parameterListEndToken.Type == TokenType.RightParen &&
+               Current.Line == parameterListEndToken.Line &&
+               IsTypeReferenceStart(Current.Type);
+    }
+
+    private static bool IsTypeReferenceStart(TokenType type)
+    {
+        return type is TokenType.Identifier or TokenType.LeftParen;
+    }
+
+    private void ReportMissingReturnTypeMarker(
+        string declarationName,
+        int declarationLine,
+        int declarationColumn,
+        int declarationLength)
+    {
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected ':' before return type. Got '{Current.Value}'",
+            declarationLine,
+            declarationColumn,
+            humanExplanation: $"Function '{declarationName}' needs a ':' before its return type.",
+            hint: "Write the return type as `func name(...): Type { ... }`.",
+            suggestions: new List<string>
+            {
+                $"Add ':' before '{Current.Value}'",
+                "Remove the return type if this function does not return a value"
+            },
+            length: Math.Max(1, declarationLength));
+    }
+
     private bool EnsureProgress(int startPosition)
     {
         if (_position == startPosition && !IsAtEnd())
@@ -4970,7 +6392,7 @@ public class Parser
         return false;
     }
 
-    private string ConsumeIdentifier(string message)
+    private string ConsumeIdentifier(string message, DiagnosticSpan? diagnosticSpan = null)
     {
         if (!Check(TokenType.Identifier))
         {
@@ -4978,11 +6400,12 @@ public class Parser
             var previous = _position > 0 ? _tokens[_position - 1] : _tokens[0];
             var isDotAccess = previous.Type == TokenType.Dot || previous.Type == TokenType.QuestionDot;
 
+            var span = diagnosticSpan ?? DiagnosticSpanFromToken(Current);
             ReportError(
                 ErrorCode.ExpectedToken,
                 $"{message}. Got '{Current.Value}'",
-                Current.Line,
-                Current.Column,
+                span.Line,
+                span.Column,
                 humanExplanation: isDotAccess
                     ? $"I see a dot (.) operator but no member name after it. I found '{Current.Value}' instead."
                     : $"I was expecting an identifier here, but I found '{Current.Value}' instead.",
@@ -4996,7 +6419,7 @@ public class Parser
                         "If this is end of statement, remove the trailing dot"
                     }
                     : null,
-                length: Current.Value.Length
+                length: span.Length
             );
 
             return "<error>"; // Return placeholder
@@ -5015,7 +6438,7 @@ public class Parser
         string? humanExplanation = null,
         string? hint = null,
         List<string>? suggestions = null,
-        int length = 1)
+        int length = 0)
     {
         // In panic mode, suppress cascading errors until we synchronize
         if (_panicMode)
@@ -5042,7 +6465,7 @@ public class Parser
                 HumanExplanation = humanExplanation,
                 ContextualHint = hint,
                 Suggestions = suggestions,
-                DocsUrl = $"https://docs.nsharp.dev/errors/NL{(int)code:D3}"
+                DocsUrl = $"https://docs.n-sharp.dev/errors/NL{(int)code:D3}"
             };
         }
 
@@ -5121,6 +6544,22 @@ public class Parser
             return true;
 
         if (Current.Line <= operatorToken.Line)
+            return false;
+
+        if (IsStatementStartKeyword(Current.Type) ||
+            IsDeclarationKeyword(Current.Type) ||
+            IsModifierKeyword(Current.Type))
+        {
+            return true;
+        }
+
+        return _currentRecoveryBoundaryColumn.HasValue &&
+               Current.Column <= _currentRecoveryBoundaryColumn.Value;
+    }
+
+    private bool IsContinuationRecoveryBoundary(Token openingToken)
+    {
+        if (Current.Line <= openingToken.Line)
             return false;
 
         if (IsStatementStartKeyword(Current.Type) ||

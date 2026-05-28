@@ -251,8 +251,14 @@ public class MultiFileCompiler
                     graph[sourceFile] = edges;
                 }
 
-                _resolvedFileImportDiagnosticKeys.Add(BuildFileImportDiagnosticKey(sourceFile, fileImport.Line, fileImport.Column));
-                edges.Add(new ImportEdge(sourceFile, resolvedPath, fileImport.Path, fileImport.Line, fileImport.Column));
+                _resolvedFileImportDiagnosticKeys.Add(BuildFileImportDiagnosticKey(sourceFile, fileImport.Line, fileImport.DiagnosticColumn));
+                edges.Add(new ImportEdge(
+                    sourceFile,
+                    resolvedPath,
+                    fileImport.Path,
+                    fileImport.Line,
+                    fileImport.DiagnosticColumn,
+                    fileImport.DiagnosticLength));
             }
         }
 
@@ -356,7 +362,7 @@ public class MultiFileCompiler
         {
             FileName = edge.SourceFile,
             SourceSnippet = sourceSnippet,
-            Length = Math.Max(1, edge.ImportPath.Length),
+            Length = Math.Max(1, edge.Length),
             HumanExplanation = $"File imports form a cycle: {displayPath}",
             ContextualHint =
                 "Circular imports are not allowed because they make symbol resolution order ambiguous.\n" +
@@ -457,7 +463,7 @@ public class MultiFileCompiler
         Visited,
     }
 
-    private sealed record ImportEdge(string SourceFile, string TargetFile, string ImportPath, int Line, int Column);
+    private sealed record ImportEdge(string SourceFile, string TargetFile, string ImportPath, int Line, int Column, int Length);
 
     /// <summary>
     /// Pass 2: Analyze all files with complete symbol table

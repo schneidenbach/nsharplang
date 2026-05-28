@@ -18,11 +18,100 @@ public class Analyzer : IDisposable
 {
     private sealed record FlowNarrowing(string Path, TypeInfo? NarrowedType, NullState? NullState);
 
+    private static readonly HashSet<string> BuiltInObjectMembers = new(StringComparer.Ordinal)
+    {
+        "ToString",
+        "Equals",
+        "GetHashCode",
+        "GetType"
+    };
+
+    private static readonly HashSet<string> BuiltInStringInstanceMembers = new(StringComparer.Ordinal)
+    {
+        "Length",
+        "Chars",
+        "CompareTo",
+        "Contains",
+        "EndsWith",
+        "Equals",
+        "IndexOf",
+        "LastIndexOf",
+        "Replace",
+        "Split",
+        "StartsWith",
+        "Substring",
+        "ToCharArray",
+        "ToLower",
+        "ToLowerInvariant",
+        "ToUpper",
+        "ToUpperInvariant",
+        "Trim",
+        "TrimEnd",
+        "TrimStart"
+    };
+
+    private static readonly HashSet<string> BuiltInStringStaticMembers = new(StringComparer.Ordinal)
+    {
+        "Compare",
+        "Concat",
+        "Copy",
+        "Equals",
+        "Format",
+        "IsNullOrEmpty",
+        "IsNullOrWhiteSpace",
+        "Join"
+    };
+
+    private static readonly HashSet<string> BuiltInNumericStaticMembers = new(StringComparer.Ordinal)
+    {
+        "MaxValue",
+        "MinValue",
+        "Parse",
+        "TryParse"
+    };
+
+    private static readonly HashSet<string> BuiltInNumericInstanceMembers = new(StringComparer.Ordinal)
+    {
+        "CompareTo",
+        "Equals",
+        "ToString"
+    };
+
+    private static readonly HashSet<string> BuiltInBooleanStaticMembers = new(StringComparer.Ordinal)
+    {
+        "FalseString",
+        "Parse",
+        "TrueString",
+        "TryParse"
+    };
+
+    private static readonly HashSet<string> BuiltInBooleanInstanceMembers = new(StringComparer.Ordinal)
+    {
+        "CompareTo",
+        "Equals",
+        "GetHashCode",
+        "ToString"
+    };
+
+    private static readonly HashSet<string> BuiltInArrayMembers = new(StringComparer.Ordinal)
+    {
+        "Length",
+        "LongLength",
+        "Rank",
+        "GetLength",
+        "GetLowerBound",
+        "GetUpperBound",
+        "GetValue",
+        "SetValue",
+        "Clone",
+        "CopyTo"
+    };
+
     private readonly List<CompilerError> _errors = new();
     private readonly Stack<Scope> _scopes = new();
     private readonly List<string> _usingNamespaces = new();
     private readonly Dictionary<string, string> _usingAliases = new(); // alias -> fullName
-    private readonly Dictionary<string, List<string>> _importedSymbols = new(); // symbol -> [source paths]
+    private readonly Dictionary<string, List<ImportedSymbolReference>> _importedSymbols = new(); // symbol -> import references
     private readonly Dictionary<string, Dictionary<string, TypeInfo>> _importedSymbolsByAlias = new(); // alias -> (symbol -> TypeInfo)
     private readonly Dictionary<string, Dictionary<string, SymbolDeclaration>> _importedDeclarationsByAlias = new(); // alias -> (symbol -> declaration)
     private readonly List<FunctionDeclaration> _extensionMethods = new(); // Extension methods available in current compilation
@@ -212,7 +301,12 @@ public class Analyzer : IDisposable
             {
                 if (foundSetup)
                 {
-                    Error("Only one setup block is allowed per test file", setup.Line, setup.Column);
+                    Error(
+                        ErrorCode.DuplicateDeclaration,
+                        "Only one setup block is allowed per test file",
+                        setup.Line,
+                        setup.Column,
+                        length: "setup".Length);
                 }
                 else
                 {
@@ -224,7 +318,12 @@ public class Analyzer : IDisposable
             {
                 if (foundTeardown)
                 {
-                    Error("Only one teardown block is allowed per test file", teardown.Line, teardown.Column);
+                    Error(
+                        ErrorCode.DuplicateDeclaration,
+                        "Only one teardown block is allowed per test file",
+                        teardown.Line,
+                        teardown.Column,
+                        length: "teardown".Length);
                 }
                 foundTeardown = true;
             }
@@ -536,18 +635,19 @@ public class Analyzer : IDisposable
             }
             else if (functionReturnType != BuiltInTypes.Void && !IsAssignable(functionReturnType, exprType))
             {
-                var sourceSnippet = _sourceLines != null && func.ExpressionBody.Line > 0 && func.ExpressionBody.Line <= _sourceLines.Length
-                    ? _sourceLines[func.ExpressionBody.Line - 1]
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
+                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                    ? _sourceLines[diagnosticLine - 1]
                     : null;
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
                     var error = ErrorMessageBuilder.ReturnTypeMismatch(
                         _currentFilePath,
-                        func.ExpressionBody.Line,
-                        func.ExpressionBody.Column,
+                        diagnosticLine,
+                        diagnosticColumn,
                         sourceSnippet,
-                        func.ExpressionBody.ToString().Length,
+                        diagnosticLength,
                         func.Name,
                         exprType.ToString(),
                         functionReturnType.ToString()
@@ -619,9 +719,14 @@ public class Analyzer : IDisposable
     {
         switch (statement)
         {
+            case ReturnStatement { Value: { } value }:
+                return !ContainsParserErrorPlaceholder(value);
+
             case ReturnStatement:
-            case ThrowStatement:
                 return true;
+
+            case ThrowStatement throwStmt:
+                return !ContainsParserErrorPlaceholder(throwStmt.Expression);
 
             case BlockStatement block:
                 // If any statement always returns, the remainder of the block is unreachable,
@@ -875,7 +980,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.DuplicateDeclaration, $"Union case '{unionCase.Name}' is already defined — each case in a union must have a unique name", caseLine, caseCol);
+                    Error(ErrorCode.DuplicateDeclaration, $"Union case '{unionCase.Name}' is already defined — each case in a union must have a unique name", caseLine, caseCol, length: Math.Max(1, unionCase.Name.Length));
                 }
             }
 
@@ -920,7 +1025,7 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error(ErrorCode.DuplicateDeclaration, $"Enum member '{member.Name}' is already defined — each member in an enum must have a unique name", memLine, memCol);
+                    Error(ErrorCode.DuplicateDeclaration, $"Enum member '{member.Name}' is already defined — each member in an enum must have a unique name", memLine, memCol, length: Math.Max(1, member.Name.Length));
                 }
             }
 
@@ -930,11 +1035,25 @@ public class Analyzer : IDisposable
                 var valueType = AnalyzeExpression(member.Value);
                 if (enumDecl.Type == EnumType.Int && !IsNumericType(valueType))
                 {
-                    Error($"Enum member '{member.Name}' must have a numeric value — this enum uses int values", enumDecl.Line, enumDecl.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(member.Value);
+                    Error(
+                        ErrorCode.TypeMismatch,
+                        $"Enum member '{member.Name}' must have a numeric value — this enum uses int values",
+                        diagnosticLine,
+                        diagnosticColumn,
+                        $"Use a numeric value for '{member.Name}', or change the enum backing type to 'string'",
+                        diagnosticLength);
                 }
                 else if (enumDecl.Type == EnumType.String && !IsStringType(valueType))
                 {
-                    Error($"Enum member '{member.Name}' must have a string value — this enum uses string values", enumDecl.Line, enumDecl.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(member.Value);
+                    Error(
+                        ErrorCode.TypeMismatch,
+                        $"Enum member '{member.Name}' must have a string value — this enum uses string values",
+                        diagnosticLine,
+                        diagnosticColumn,
+                        $"Use a string value for '{member.Name}', or change the enum backing type to 'int'",
+                        diagnosticLength);
                 }
             }
         }
@@ -977,18 +1096,20 @@ public class Analyzer : IDisposable
                 _currentExpectedType = previousExpectedType;
                 if (!IsAssignable(fieldType, initType))
                 {
-                    var sourceSnippet = _sourceLines != null && field.Line > 0 && field.Line <= _sourceLines.Length
-                        ? _sourceLines[field.Line - 1]
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetExpressionDiagnosticSpan(field.Initializer);
+                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                        ? _sourceLines[diagnosticLine - 1]
                         : null;
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
                         var error = ErrorMessageBuilder.TypeMismatch(
                             _currentFilePath,
-                            field.Line,
-                            field.Column,
+                            diagnosticLine,
+                            diagnosticColumn,
                             sourceSnippet,
-                            field.Name.Length,
+                            diagnosticLength,
                             initType.ToString(),
                             fieldType.ToString()
                         );
@@ -1036,18 +1157,20 @@ public class Analyzer : IDisposable
             var exprType = AnalyzeExpression(prop.ExpressionBody);
             if (!IsAssignable(propType, exprType))
             {
-                var sourceSnippet = _sourceLines != null && prop.Line > 0 && prop.Line <= _sourceLines.Length
-                    ? _sourceLines[prop.Line - 1]
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                    GetExpressionDiagnosticSpan(prop.ExpressionBody);
+                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                    ? _sourceLines[diagnosticLine - 1]
                     : null;
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
                     var error = ErrorMessageBuilder.TypeMismatch(
                         _currentFilePath,
-                        prop.Line,
-                        prop.Column,
+                        diagnosticLine,
+                        diagnosticColumn,
                         sourceSnippet,
-                        prop.Name.Length,
+                        diagnosticLength,
                         exprType.ToString(),
                         propType.ToString()
                     );
@@ -1207,7 +1330,13 @@ public class Analyzer : IDisposable
         {
             if (terminated)
             {
-                Error(ErrorCode.UnreachableStatement, "This code will never run — there's a 'return' or 'throw' above it", stmt.Line, stmt.Column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetStatementDiagnosticSpan(stmt);
+                Error(
+                    ErrorCode.UnreachableStatement,
+                    "This code will never run — there's a 'return' or 'throw' above it",
+                    diagnosticLine,
+                    diagnosticColumn,
+                    length: diagnosticLength);
                 break;
             }
             AnalyzeStatement(stmt);
@@ -1252,7 +1381,7 @@ public class Analyzer : IDisposable
                 var (whileThenNarrowings, _) = ExtractFlowNarrowings(whileStmt.Condition);
                 if (!IsBoolType(condType))
                 {
-                    Error($"The condition in a 'while' loop must be a boolean, but I found '{condType}'", whileStmt.Line, whileStmt.Column);
+                    ReportBooleanConditionTypeMismatch(whileStmt.Condition, "a 'while' loop", condType);
                 }
                 var wasInLoop = _inLoop;
                 _inLoop = true;
@@ -1275,13 +1404,25 @@ public class Analyzer : IDisposable
             case BreakStatement:
                 if (!_inLoop)
                 {
-                    Error("'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here", stmt.Line, stmt.Column);
+                    Error(
+                        ErrorCode.InvalidSyntax,
+                        "'break' can only be used inside a loop (for, foreach, while) — there's no loop to break out of here",
+                        stmt.Line,
+                        stmt.Column,
+                        "Move this `break` inside a loop, or remove it if there is no loop to exit.",
+                        "break".Length);
                 }
                 break;
             case ContinueStatement:
                 if (!_inLoop)
                 {
-                    Error("'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here", stmt.Line, stmt.Column);
+                    Error(
+                        ErrorCode.InvalidSyntax,
+                        "'continue' can only be used inside a loop (for, foreach, while) — there's no loop to continue here",
+                        stmt.Line,
+                        stmt.Column,
+                        "Move this `continue` inside a loop, or remove it if there is no loop to continue.",
+                        "continue".Length);
                 }
                 break;
             case ThrowStatement throwStmt:
@@ -1322,11 +1463,92 @@ public class Analyzer : IDisposable
         var errorsBefore = _errors.Count;
         AnalyzeExpression(exprStmt.Expression);
 
+        if (ContainsParserErrorPlaceholder(exprStmt.Expression))
+            return;
+
         if (!IsValidExpressionStatement(exprStmt.Expression) && _errors.Count == errorsBefore)
         {
             ReportInvalidExpressionStatement(exprStmt.Expression);
         }
     }
+
+    private static bool ContainsParserErrorPlaceholder(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression { Name: "<error>" } => true,
+            MemberAccessExpression { MemberName: "<error>" } => true,
+            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
+                .OfType<InterpolatedStringHole>()
+                .Any(hole => ContainsParserErrorPlaceholder(hole.Expression)),
+            RangeExpression range => (range.Start != null && ContainsParserErrorPlaceholder(range.Start)) ||
+                                     (range.End != null && ContainsParserErrorPlaceholder(range.End)),
+            MemberAccessExpression memberAccess => ContainsParserErrorPlaceholder(memberAccess.Object),
+            CallExpression call => ContainsParserErrorPlaceholder(call.Callee) ||
+                                   call.Arguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)),
+            BinaryExpression binary => ContainsParserErrorPlaceholder(binary.Left) ||
+                                       ContainsParserErrorPlaceholder(binary.Right),
+            AssignmentExpression assignment => ContainsParserErrorPlaceholder(assignment.Target) ||
+                                               ContainsParserErrorPlaceholder(assignment.Value),
+            LambdaExpression lambda => lambda.ExpressionBody != null &&
+                                       ContainsParserErrorPlaceholder(lambda.ExpressionBody),
+            UnaryExpression unary => ContainsParserErrorPlaceholder(unary.Operand),
+            MustExpression must => ContainsParserErrorPlaceholder(must.Expression),
+            ParenthesizedExpression parenthesized => ContainsParserErrorPlaceholder(parenthesized.Inner),
+            CheckedExpression checkedExpression => ContainsParserErrorPlaceholder(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => ContainsParserErrorPlaceholder(uncheckedExpression.Expression),
+            IndexAccessExpression indexAccess => ContainsParserErrorPlaceholder(indexAccess.Object) ||
+                                                 ContainsParserErrorPlaceholder(indexAccess.Index),
+            CastExpression cast => ContainsParserErrorPlaceholder(cast.Expression),
+            IsExpression isExpression => ContainsParserErrorPlaceholder(isExpression.Expression),
+            AwaitExpression awaitExpression => ContainsParserErrorPlaceholder(awaitExpression.Expression),
+            ThrowExpression throwExpression => ContainsParserErrorPlaceholder(throwExpression.Expression),
+            TernaryExpression ternary => ContainsParserErrorPlaceholder(ternary.Condition) ||
+                                         ContainsParserErrorPlaceholder(ternary.ThenExpression) ||
+                                         ContainsParserErrorPlaceholder(ternary.ElseExpression),
+            ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
+            TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
+            NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
+                                  (@new.Initializer != null && ContainsParserErrorPlaceholder(@new.Initializer)),
+            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
+                (property.IndexExpression != null && ContainsParserErrorPlaceholder(property.IndexExpression)) ||
+                ContainsParserErrorPlaceholder(property.Value)),
+            WithExpression withExpression => ContainsParserErrorPlaceholder(withExpression.Target) ||
+                                             withExpression.Properties.Any(property =>
+                                                 (property.IndexExpression != null && ContainsParserErrorPlaceholder(property.IndexExpression)) ||
+                                                 ContainsParserErrorPlaceholder(property.Value)),
+            SpreadExpression spread => ContainsParserErrorPlaceholder(spread.Expression),
+            MatchExpression match => ContainsParserErrorPlaceholder(match.Value) ||
+                                     match.Cases.Any(matchCase =>
+                                         ContainsParserErrorPlaceholder(matchCase.Pattern) ||
+                                         (matchCase.Guard != null && ContainsParserErrorPlaceholder(matchCase.Guard)) ||
+                                         ContainsParserErrorPlaceholder(matchCase.Expression)),
+            NameofExpression nameofExpression => ContainsParserErrorPlaceholder(nameofExpression.Target),
+            _ => false
+        };
+    }
+
+    private static bool ContainsParserErrorPlaceholder(Pattern pattern)
+    {
+        return pattern switch
+        {
+            LiteralPattern literal => ContainsParserErrorPlaceholder(literal.Literal),
+            RelationalPattern relational => ContainsParserErrorPlaceholder(relational.Value),
+            UnionCasePattern unionCase => unionCase.Properties?.Any(ContainsParserErrorPlaceholder) == true,
+            ObjectPattern objectPattern => objectPattern.Properties.Any(ContainsParserErrorPlaceholder),
+            ListPattern listPattern => listPattern.Elements.Any(ContainsParserErrorPlaceholder),
+            AndPattern andPattern => ContainsParserErrorPlaceholder(andPattern.Left) ||
+                                     ContainsParserErrorPlaceholder(andPattern.Right),
+            OrPattern orPattern => ContainsParserErrorPlaceholder(orPattern.Left) ||
+                                   ContainsParserErrorPlaceholder(orPattern.Right),
+            NotPattern notPattern => ContainsParserErrorPlaceholder(notPattern.Pattern),
+            PositionalPattern positional => positional.Patterns.Any(ContainsParserErrorPlaceholder),
+            _ => false
+        };
+    }
+
+    private static bool ContainsParserErrorPlaceholder(PropertyPattern property)
+        => property.Pattern != null && ContainsParserErrorPlaceholder(property.Pattern);
 
     private static bool IsValidExpressionStatement(Expression expression)
     {
@@ -1382,6 +1604,298 @@ public class Analyzer : IDisposable
             UncheckedExpression uncheckedExpression => GetExpressionStatementDiagnosticSpan(uncheckedExpression.Expression),
             _ => (expression.Line, expression.Column, GetExpressionLength(expression.Line, expression.Column))
         };
+    }
+
+    private (int Line, int Column, int Length) GetStatementDiagnosticSpan(Statement statement)
+    {
+        return statement switch
+        {
+            ExpressionStatement expressionStatement => GetExpressionStatementDiagnosticSpan(expressionStatement.Expression),
+            VariableDeclarationStatement variableDeclaration => GetVariableDeclarationNameDiagnosticSpan(variableDeclaration),
+            LocalFunctionStatement localFunction => (
+                localFunction.Line,
+                localFunction.Column,
+                GetTokenLength(localFunction.Line, localFunction.Column)),
+            _ => (statement.Line, statement.Column, GetTokenLength(statement.Line, statement.Column))
+        };
+    }
+
+    private static (int Line, int Column, int Length) GetVariableDeclarationNameDiagnosticSpan(
+        VariableDeclarationStatement variableDeclaration)
+        => (
+            variableDeclaration.Line,
+            variableDeclaration.Column,
+            Math.Max(1, variableDeclaration.Name.Length));
+
+    private (int Line, int Column, int Length) GetFunctionNameDiagnosticSpan(FunctionDeclaration function)
+    {
+        if (string.IsNullOrWhiteSpace(function.Name) || function.Name == "<error>")
+            return (function.Line, function.Column, GetTokenLength(function.Line, function.Column));
+
+        return (
+            function.Line,
+            GetDeclarationNameColumn(function.Name, function.Line, function.Column),
+            Math.Max(1, function.Name.Length));
+    }
+
+    private (int Line, int Column, int Length) GetExpressionDiagnosticSpan(Expression expression)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
+            ThisExpression thisExpression => (thisExpression.Line, thisExpression.Column, "this".Length),
+            IntLiteralExpression literal => (literal.Line, literal.Column, Math.Max(1, literal.Value.Length)),
+            FloatLiteralExpression literal => (literal.Line, literal.Column, Math.Max(1, literal.Value.Length)),
+            CharLiteralExpression literal => (literal.Line, literal.Column, GetTokenLength(literal.Line, literal.Column)),
+            StringLiteralExpression literal => (literal.Line, literal.Column, GetTokenLength(literal.Line, literal.Column)),
+            InterpolatedStringExpression interpolated => (interpolated.Line, interpolated.Column, GetTokenLength(interpolated.Line, interpolated.Column)),
+            BoolLiteralExpression literal => (literal.Line, literal.Column, literal.Value ? 4 : 5),
+            NullLiteralExpression literal => (literal.Line, literal.Column, 4),
+            MemberAccessExpression memberAccess when TryGetStableNullPath(memberAccess) is { } path
+                => GetStablePathDiagnosticSpan(memberAccess, path, memberAccess.Line, GetMemberNameColumn(memberAccess)),
+            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
+            ParenthesizedExpression parenthesized => GetExpressionDiagnosticSpan(parenthesized.Inner),
+            CheckedExpression checkedExpression => GetExpressionDiagnosticSpan(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => GetExpressionDiagnosticSpan(uncheckedExpression.Expression),
+            CallExpression call => GetCallDiagnosticSpan(call, GetCallTargetName(call) ?? "call"),
+            _ => (expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
+        };
+    }
+
+    private (int Line, int Column, int Length) GetPatternNameDiagnosticSpan(Pattern pattern)
+    {
+        return pattern switch
+        {
+            IdentifierPattern identifier => (
+                identifier.Line,
+                identifier.Column,
+                Math.Max(1, identifier.Name.Length)),
+            UnionCasePattern unionCase => (
+                unionCase.Line,
+                unionCase.Column,
+                Math.Max(1, unionCase.CaseName.Length)),
+            TypePattern typePattern => (
+                typePattern.Line,
+                typePattern.Column,
+                GetTypePatternNameLength(typePattern)),
+            ListPattern listPattern => GetListPatternDiagnosticSpan(listPattern),
+            _ => (pattern.Line, pattern.Column, GetTokenLength(pattern.Line, pattern.Column))
+        };
+    }
+
+    private int GetTypePatternNameLength(TypePattern typePattern)
+    {
+        return typePattern.Type switch
+        {
+            SimpleTypeReference simple => Math.Max(1, simple.Name.Length),
+            GenericTypeReference generic => Math.Max(1, generic.Name.Length),
+            _ => GetTokenLength(typePattern.Line, typePattern.Column)
+        };
+    }
+
+    private (int Line, int Column, int Length) GetPropertyPatternNameDiagnosticSpan(
+        PropertyPattern propertyPattern,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        var line = propertyPattern.Line > 0 ? propertyPattern.Line : fallbackLine;
+        var column = propertyPattern.Column > 0 ? propertyPattern.Column : fallbackColumn;
+        var length = propertyPattern.Name == "<error>"
+            ? GetTokenLength(line, column)
+            : Math.Max(1, propertyPattern.Name.Length);
+
+        return (line, column, length);
+    }
+
+    private (int Line, int Column, int Length) GetListPatternDiagnosticSpan(ListPattern listPattern)
+        => (listPattern.Line, listPattern.Column, GetDelimitedPatternLength(listPattern.Line, listPattern.Column, '[', ']'));
+
+    private int GetDelimitedPatternLength(int line, int column, char openDelimiter, char closeDelimiter)
+    {
+        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+            return 1;
+
+        var sourceLine = _sourceLines[line - 1];
+        var start = column - 1;
+        if (start < 0 || start >= sourceLine.Length || sourceLine[start] != openDelimiter)
+            return GetTokenLength(line, column);
+
+        var depth = 0;
+        for (var i = start; i < sourceLine.Length; i++)
+        {
+            if (sourceLine[i] == openDelimiter)
+            {
+                depth++;
+            }
+            else if (sourceLine[i] == closeDelimiter)
+            {
+                depth--;
+                if (depth == 0)
+                    return i - start + 1;
+            }
+        }
+
+        return Math.Max(1, sourceLine.TrimEnd().Length - start);
+    }
+
+    private void ReportBooleanConditionTypeMismatch(Expression condition, string owner, TypeInfo actualType)
+    {
+        if (BuiltInTypes.IsUnknown(actualType) || ContainsParserErrorPlaceholder(condition))
+            return;
+
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(condition);
+        Error(
+            ErrorCode.TypeMismatch,
+            $"The condition in {owner} must be a boolean, but I found '{actualType}'",
+            diagnosticLine,
+            diagnosticColumn,
+            length: diagnosticLength);
+    }
+
+    private static string GetBinaryOperatorText(BinaryOperator op) => op switch
+    {
+        BinaryOperator.Add => "+",
+        BinaryOperator.Subtract => "-",
+        BinaryOperator.Multiply => "*",
+        BinaryOperator.Divide => "/",
+        BinaryOperator.Modulo => "%",
+        BinaryOperator.Equal => "==",
+        BinaryOperator.NotEqual => "!=",
+        BinaryOperator.Less => "<",
+        BinaryOperator.LessOrEqual => "<=",
+        BinaryOperator.Greater => ">",
+        BinaryOperator.GreaterOrEqual => ">=",
+        BinaryOperator.And => "&&",
+        BinaryOperator.Or => "||",
+        BinaryOperator.BitwiseAnd => "&",
+        BinaryOperator.BitwiseOr => "|",
+        BinaryOperator.BitwiseXor => "^",
+        BinaryOperator.LeftShift => "<<",
+        BinaryOperator.RightShift => ">>",
+        BinaryOperator.NullCoalesce => "??",
+        BinaryOperator.Range => "..",
+        _ => op.ToString()
+    };
+
+    private (int Line, int Column, int Length) GetBinaryOperatorDiagnosticSpan(BinaryExpression expression)
+        => (expression.Line, expression.Column, Math.Max(1, GetBinaryOperatorText(expression.Operator).Length));
+
+    private static (int Line, int Column, int Length) GetSourceSpanDiagnosticSpan(
+        SourceSpan span,
+        int fallbackLine,
+        int fallbackColumn,
+        int fallbackLength = 1)
+        => span.IsValid && span.StartLine == span.EndLine
+            ? (span.StartLine, span.StartColumn, Math.Max(1, span.Length))
+            : (fallbackLine, fallbackColumn, Math.Max(1, fallbackLength));
+
+    private (int Line, int Column, int Length) GetBinaryOperandDiagnosticSpan(
+        BinaryExpression expression,
+        bool leftIsWrong,
+        bool rightIsWrong)
+    {
+        if (leftIsWrong && !rightIsWrong)
+            return GetExpressionDiagnosticSpan(expression.Left);
+
+        if (rightIsWrong && !leftIsWrong)
+            return GetExpressionDiagnosticSpan(expression.Right);
+
+        return GetBinaryOperatorDiagnosticSpan(expression);
+    }
+
+    private (int Line, int Column, int Length) GetNullReceiverDiagnosticSpan(
+        Expression receiver,
+        string path,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        if (path != "this value")
+            return GetStablePathDiagnosticSpan(receiver, path, fallbackLine, fallbackColumn);
+
+        return GetExpressionDiagnosticSpan(receiver);
+    }
+
+    private (int Line, int Column, int Length) GetStablePathDiagnosticSpan(
+        Expression expression,
+        string path,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        var (line, column) = GetExpressionStartPosition(expression, fallbackLine, fallbackColumn);
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length)
+        {
+            var sourceLine = _sourceLines[line - 1];
+            var startIndex = Math.Clamp(column - 1, 0, sourceLine.Length);
+            var index = sourceLine.IndexOf(path, startIndex, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                index = sourceLine.IndexOf(path, StringComparison.Ordinal);
+            }
+
+            if (index >= 0)
+            {
+                return (line, index + 1, Math.Max(1, path.Length));
+            }
+        }
+
+        return (line, column, Math.Max(1, path.Length));
+    }
+
+    private static (int Line, int Column) GetExpressionStartPosition(Expression expression, int fallbackLine, int fallbackColumn)
+    {
+        return expression switch
+        {
+            MemberAccessExpression memberAccess => GetExpressionStartPosition(memberAccess.Object, fallbackLine, fallbackColumn),
+            IndexAccessExpression indexAccess => GetExpressionStartPosition(indexAccess.Object, fallbackLine, fallbackColumn),
+            CallExpression call => GetExpressionStartPosition(call.Callee, fallbackLine, fallbackColumn),
+            ParenthesizedExpression parenthesized => GetExpressionStartPosition(parenthesized.Inner, fallbackLine, fallbackColumn),
+            CheckedExpression checkedExpression => GetExpressionStartPosition(checkedExpression.Expression, fallbackLine, fallbackColumn),
+            UncheckedExpression uncheckedExpression => GetExpressionStartPosition(uncheckedExpression.Expression, fallbackLine, fallbackColumn),
+            _ when expression.Line > 0 && expression.Column > 0 => (expression.Line, expression.Column),
+            _ => (fallbackLine, fallbackColumn)
+        };
+    }
+
+    private int GetTokenLength(int line, int column)
+    {
+        if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
+            return 1;
+
+        var sourceLine = _sourceLines[line - 1];
+        var start = column - 1;
+        if (start < 0 || start >= sourceLine.Length)
+            return 1;
+
+        if (sourceLine[start] == '"')
+            return ScanQuotedTokenLength(sourceLine, start, '"');
+
+        if (sourceLine[start] == '\'')
+            return ScanQuotedTokenLength(sourceLine, start, '\'');
+
+        if (sourceLine[start] == '$' && start + 1 < sourceLine.Length && sourceLine[start + 1] == '"')
+            return 1 + ScanQuotedTokenLength(sourceLine, start + 1, '"');
+
+        var end = start;
+        while (end < sourceLine.Length && !char.IsWhiteSpace(sourceLine[end]) && sourceLine[end] is not ',' and not ')' and not ']' and not '}')
+        {
+            end++;
+        }
+
+        return Math.Max(1, end - start);
+    }
+
+    private static int ScanQuotedTokenLength(string sourceLine, int quoteStart, char quote)
+    {
+        var index = quoteStart + 1;
+        while (index < sourceLine.Length)
+        {
+            if (sourceLine[index] == quote && sourceLine[index - 1] != '\\')
+                return index - quoteStart + 1;
+
+            index++;
+        }
+
+        return Math.Max(1, sourceLine.Length - quoteStart);
     }
 
     private string DescribeExpressionForDiagnostic(Expression expression)
@@ -1478,8 +1992,9 @@ public class Analyzer : IDisposable
             // Verify expression type matches return type
             if (returnType != BuiltInTypes.Void && !IsAssignable(returnType, exprType))
             {
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(func.ExpressionBody);
                 Error(ErrorCode.TypeMismatch, $"Function '{func.Name}' should return '{returnType}' but the expression body gives '{exprType}'",
-                    func.ExpressionBody.Line, func.ExpressionBody.Column);
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 
@@ -1511,23 +2026,25 @@ public class Analyzer : IDisposable
 
         // Determine final type
         TypeInfo finalType;
-        if (declaredType != null && inferredType != null)
+        if (declaredType != null && inferredType != null && varDecl.Initializer != null)
         {
             // Both specified - check compatibility
             if (!IsAssignable(declaredType, inferredType))
             {
-                var sourceSnippet = _sourceLines != null && varDecl.Line > 0 && varDecl.Line <= _sourceLines.Length
-                    ? _sourceLines[varDecl.Line - 1]
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                    GetExpressionDiagnosticSpan(varDecl.Initializer);
+                var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                    ? _sourceLines[diagnosticLine - 1]
                     : null;
 
                 if (sourceSnippet != null && _currentFilePath != null)
                 {
                     var error = ErrorMessageBuilder.TypeMismatch(
                         _currentFilePath,
-                        varDecl.Line,
-                        varDecl.Column,
+                        diagnosticLine,
+                        diagnosticColumn,
                         sourceSnippet,
-                        varDecl.Name.Length,
+                        diagnosticLength,
                         inferredType.ToString(),
                         declaredType.ToString()
                     );
@@ -1545,7 +2062,14 @@ public class Analyzer : IDisposable
             // Type specified but no initializer
             if (varDecl.Kind == VariableKind.Const)
             {
-                Error("A 'const' must have an initial value — the compiler needs to know its value at compile time", varDecl.Line, varDecl.Column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetVariableDeclarationNameDiagnosticSpan(varDecl);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    "A 'const' must have an initial value — the compiler needs to know its value at compile time",
+                    diagnosticLine,
+                    diagnosticColumn,
+                    $"Add an initializer, for example `const {varDecl.Name}: {declaredType} = 42`.",
+                    diagnosticLength);
             }
             finalType = declaredType;
         }
@@ -1554,8 +2078,11 @@ public class Analyzer : IDisposable
             // void cannot be used as a value (e.g., x := DoStuff() where DoStuff returns void)
             if (inferredType == BuiltInTypes.Void)
             {
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = varDecl.Initializer != null
+                    ? GetExpressionDiagnosticSpan(varDecl.Initializer)
+                    : (varDecl.Line, varDecl.Column, Math.Max(1, varDecl.Name.Length));
                 Error(ErrorCode.TypeMismatch, "This expression doesn't return a value (it's void) — you can't assign it to a variable",
-                    varDecl.Line, varDecl.Column);
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 finalType = BuiltInTypes.Unknown;
             }
             else
@@ -1566,7 +2093,14 @@ public class Analyzer : IDisposable
         }
         else
         {
-            Error("I can't determine the type of this variable — give it a type annotation or an initial value", varDecl.Line, varDecl.Column);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetVariableDeclarationNameDiagnosticSpan(varDecl);
+            Error(
+                ErrorCode.InvalidSyntax,
+                "I can't determine the type of this variable — give it a type annotation or an initial value",
+                diagnosticLine,
+                diagnosticColumn,
+                $"Add a type annotation like `let {varDecl.Name}: int`, or add an initializer like `let {varDecl.Name} := 0`.",
+                diagnosticLength);
             finalType = BuiltInTypes.Unknown;
         }
 
@@ -1641,18 +2175,19 @@ public class Analyzer : IDisposable
         if (!IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType))
         {
             // Use ErrorMessageBuilder for better error message
-            var sourceSnippet = _sourceLines != null && ifStmt.Line > 0 && ifStmt.Line <= _sourceLines.Length
-                ? _sourceLines[ifStmt.Line - 1]
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(ifStmt.Condition);
+            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                ? _sourceLines[diagnosticLine - 1]
                 : null;
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
                 var error = ErrorMessageBuilder.TypeMismatch(
                     _currentFilePath,
-                    ifStmt.Line,
-                    ifStmt.Column,
+                    diagnosticLine,
+                    diagnosticColumn,
                     sourceSnippet,
-                    3, // "if" keyword length
+                    diagnosticLength,
                     condType.ToString(),
                     "bool"
                 );
@@ -1660,7 +2195,8 @@ public class Analyzer : IDisposable
             }
             else
             {
-                Error(ErrorCode.TypeMismatch, $"The condition in an 'if' must be a boolean, but I found '{condType}'", ifStmt.Line, ifStmt.Column);
+                Error(ErrorCode.TypeMismatch, $"The condition in an 'if' must be a boolean, but I found '{condType}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 
@@ -1905,7 +2441,7 @@ public class Analyzer : IDisposable
             var condType = AnalyzeExpression(forStmt.Condition);
             if (!IsBoolType(condType))
             {
-                Error($"The condition in a 'for' loop must be a boolean, but I found '{condType}'", forStmt.Line, forStmt.Column);
+                ReportBooleanConditionTypeMismatch(forStmt.Condition, "a 'for' loop", condType);
             }
         }
 
@@ -2042,7 +2578,13 @@ public class Analyzer : IDisposable
     {
         if (_currentReturnType == null)
         {
-            Error("'return' can only be used inside a function — there's no function to return from here", returnStmt.Line, returnStmt.Column);
+            Error(
+                ErrorCode.InvalidSyntax,
+                "'return' can only be used inside a function — there's no function to return from here",
+                returnStmt.Line,
+                returnStmt.Column,
+                "Move this `return` inside a function, or remove it if there is no function to return from.",
+                "return".Length);
             return;
         }
 
@@ -2109,24 +2651,32 @@ public class Analyzer : IDisposable
     {
         var functionName = _currentFunction?.Name ?? "this function";
         CompilerError error;
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = _currentFunctionReturnTypeWasOmitted && _currentFunction != null
+            ? GetFunctionNameDiagnosticSpan(_currentFunction)
+            : returnStmt.Value != null
+            ? GetExpressionDiagnosticSpan(returnStmt.Value)
+            : (returnStmt.Line, returnStmt.Column, 6);
+        var diagnosticSourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+            ? _sourceLines[diagnosticLine - 1]
+            : sourceSnippet;
 
         if (_currentReturnType == BuiltInTypes.Void)
         {
             error = _currentFunctionReturnTypeWasOmitted
                 ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
                     _currentFilePath!,
-                    returnStmt.Line,
-                    returnStmt.Column,
-                    sourceSnippet,
-                    6, // "return" keyword length
+                    diagnosticLine,
+                    diagnosticColumn,
+                    diagnosticSourceSnippet,
+                    diagnosticLength,
                     functionName,
                     returnedType.ToString())
                 : ErrorMessageBuilder.ReturnValueInVoidFunction(
                     _currentFilePath!,
-                    returnStmt.Line,
-                    returnStmt.Column,
-                    sourceSnippet,
-                    6, // "return" keyword length
+                    diagnosticLine,
+                    diagnosticColumn,
+                    diagnosticSourceSnippet,
+                    diagnosticLength,
                     functionName,
                     returnedType.ToString());
         }
@@ -2134,10 +2684,10 @@ public class Analyzer : IDisposable
         {
             error = ErrorMessageBuilder.ReturnTypeMismatch(
                 _currentFilePath!,
-                returnStmt.Line,
-                returnStmt.Column,
-                sourceSnippet,
-                6, // "return" keyword length
+                diagnosticLine,
+                diagnosticColumn,
+                diagnosticSourceSnippet,
+                diagnosticLength,
                 functionName,
                 returnedType.ToString(),
                 expectedReturnValueType.ToString());
@@ -2148,15 +2698,17 @@ public class Analyzer : IDisposable
 
     private void AddExpressionBodyReturnError(FunctionDeclaration func, TypeInfo expressionType, int? fallbackLine = null, int? fallbackColumn = null)
     {
-        var line = func.ExpressionBody?.Line ?? fallbackLine ?? func.Line;
-        var column = func.ExpressionBody?.Column ?? fallbackColumn ?? func.Column;
+        var (line, column, length) = _currentFunctionReturnTypeWasOmitted
+            ? GetFunctionNameDiagnosticSpan(func)
+            : func.ExpressionBody != null
+            ? GetExpressionDiagnosticSpan(func.ExpressionBody)
+            : (fallbackLine ?? func.Line, fallbackColumn ?? func.Column, 1);
         var sourceSnippet = _sourceLines != null && line > 0 && line <= _sourceLines.Length
             ? _sourceLines[line - 1]
             : null;
 
         if (sourceSnippet != null && _currentFilePath != null)
         {
-            var length = Math.Max(1, func.ExpressionBody?.ToString()?.Length ?? 1);
             var error = _currentFunctionReturnTypeWasOmitted
                 ? ErrorMessageBuilder.ReturnValueRequiresReturnType(
                     _currentFilePath,
@@ -2294,8 +2846,11 @@ public class Analyzer : IDisposable
                 {
                     if (!TryGetUnionCaseForPattern(ut, identPattern.Name, out _))
                     {
-                        Error($"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
-                            pattern.Line, pattern.Column);
+                        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                            GetPatternNameDiagnosticSpan(identPattern);
+                        Error(ErrorCode.InvalidPattern,
+                            $"'{identPattern.Name}' is not a case of union '{ut}' — check the union definition for available cases",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                     // For union cases without properties, no variables to bind
                 }
@@ -2319,21 +2874,30 @@ public class Analyzer : IDisposable
 
                     if (!TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchingCase))
                     {
-                        Error($"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
-                            pattern.Line, pattern.Column);
+                        var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                            GetPatternNameDiagnosticSpan(unionPattern);
+                        Error(ErrorCode.InvalidPattern,
+                            $"'{unionPattern.CaseName}' is not a case of union '{unionType}' — check the union definition for available cases",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                     else if (unionPattern.Properties != null)
                     {
                         // Bind property patterns to their types
                         if (matchingCase.Properties == null)
                         {
-                            Error($"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
-                                pattern.Line, pattern.Column);
+                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                GetPatternNameDiagnosticSpan(unionPattern);
+                            Error(ErrorCode.InvalidPattern,
+                                $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
+                                diagnosticLine, diagnosticColumn, length: diagnosticLength);
                         }
                         else if (matchingCase.Properties.Count == 0)
                         {
-                            Error($"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
-                                pattern.Line, pattern.Column);
+                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                GetPatternNameDiagnosticSpan(unionPattern);
+                            Error(ErrorCode.InvalidPattern,
+                                $"Union case '{caseName}' doesn't carry any data — you can't destructure it with property patterns",
+                                diagnosticLine, diagnosticColumn, length: diagnosticLength);
                         }
                         else
                         {
@@ -2356,13 +2920,18 @@ public class Analyzer : IDisposable
                                     {
                                         // Simple binding
                                         var bindingName = propPattern.BindingName ?? propPattern.Name;
-                                        DeclareSymbol(bindingName, propType, pattern.Line, pattern.Column);
+                                        var (bindingLine, bindingColumn, _) =
+                                            GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
+                                        DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
                                     }
                                 }
                                 else
                                 {
-                                    Error($"Union case '{caseName}' doesn't have a property named '{propPattern.Name}' — check the case definition for available properties",
-                                        pattern.Line, pattern.Column);
+                                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                        GetPropertyPatternNameDiagnosticSpan(propPattern, pattern.Line, pattern.Column);
+                                    Error(ErrorCode.InvalidPattern,
+                                        $"Union case '{caseName}' doesn't have a property named '{propPattern.Name}' — check the case definition for available properties",
+                                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                                 }
                             }
                         }
@@ -2431,8 +3000,11 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error($"A list pattern can only match arrays or collections, but this value is '{valueType}'",
-                        pattern.Line, pattern.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetListPatternDiagnosticSpan(listPattern);
+                    Error(ErrorCode.PatternTypeMismatch,
+                        $"A list pattern can only match arrays or collections, but this value is '{valueType}'",
+                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     elementType = BuiltInTypes.Unknown; // fallback to avoid cascading errors
                 }
 
@@ -2545,7 +3117,11 @@ public class Analyzer : IDisposable
 
             if (propType == null)
             {
-                Error($"'{valueType}' doesn't have a property named '{propPattern.Name}'", line, column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                    GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
+                Error(ErrorCode.InvalidPattern,
+                    $"'{valueType}' doesn't have a property named '{propPattern.Name}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 continue;
             }
 
@@ -2558,7 +3134,9 @@ public class Analyzer : IDisposable
             {
                 // Simple binding - use BindingName if provided, otherwise use property Name
                 var bindingName = propPattern.BindingName ?? propPattern.Name;
-                DeclareSymbol(bindingName, propType, line, column);
+                var (bindingLine, bindingColumn, _) =
+                    GetPropertyPatternNameDiagnosticSpan(propPattern, line, column);
+                DeclareSymbol(bindingName, propType, bindingLine, bindingColumn);
             }
         }
     }
@@ -2699,8 +3277,12 @@ public class Analyzer : IDisposable
         }
 
         // If no expected type context, report an error
-        Error("I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')",
-            defaultExpr.Line, defaultExpr.Column);
+        Error(
+            ErrorCode.CannotInferType,
+            "I can't figure out what type 'default' should be here — add a type annotation so I know what you mean (e.g., 'let x: int = default')",
+            defaultExpr.Line,
+            defaultExpr.Column,
+            length: "default".Length);
         return BuiltInTypes.Unknown;
     }
 
@@ -2895,8 +3477,23 @@ public class Analyzer : IDisposable
 
         if (!IsNumericType(left) || !IsNumericType(right))
         {
-            Error($"The operator '{expr.Operator}' doesn't work with '{left}' and '{right}' — both sides need to be numeric types",
-                expr.Line, expr.Column);
+            var leftIsWrong = !IsNumericType(left);
+            var rightIsWrong = !IsNumericType(right);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            var sideText = leftIsWrong == rightIsWrong
+                ? $"I found '{left}' and '{right}'"
+                : leftIsWrong
+                    ? $"the left side is '{left}'"
+                    : $"the right side is '{right}'";
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator doesn't work with '{left}' and '{right}' — both sides need numeric values, but {sideText}",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use numeric operands, convert the non-numeric value, or choose an operator that supports this type.",
+                diagnosticLength);
             return BuiltInTypes.Unknown;
         }
 
@@ -2904,8 +3501,15 @@ public class Analyzer : IDisposable
         var result = GetWiderType(left, right);
         if (result == null)
         {
-            Error($"The operator '{expr.Operator}' doesn't work with '{left}' and '{right}' — both sides need to be numeric types",
-                expr.Line, expr.Column);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetBinaryOperatorDiagnosticSpan(expr);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            Error(
+                ErrorCode.TypeMismatch,
+                $"The '{opText}' operator doesn't work with '{left}' and '{right}'",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use numeric operands with a compatible common type, or add an explicit conversion.",
+                diagnosticLength);
             return BuiltInTypes.Unknown;
         }
         return result;
@@ -2915,7 +3519,23 @@ public class Analyzer : IDisposable
     {
         if (!IsBoolType(left) || !IsBoolType(right))
         {
-            Error($"Both sides of '{expr.Operator}' must be booleans, but I found '{left}' and '{right}'", expr.Line, expr.Column);
+            var leftIsWrong = !IsBoolType(left);
+            var rightIsWrong = !IsBoolType(right);
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                GetBinaryOperandDiagnosticSpan(expr, leftIsWrong, rightIsWrong);
+            var opText = GetBinaryOperatorText(expr.Operator);
+            var sideText = leftIsWrong == rightIsWrong
+                ? $"I found '{left}' and '{right}'"
+                : leftIsWrong
+                    ? $"the left side is '{left}'"
+                    : $"the right side is '{right}'";
+            Error(
+                ErrorCode.TypeMismatch,
+                $"Both sides of '{opText}' must be booleans, but {sideText}",
+                diagnosticLine,
+                diagnosticColumn,
+                "Use boolean expressions on both sides of the operator.",
+                diagnosticLength);
         }
         return BuiltInTypes.Bool;
     }
@@ -2978,8 +3598,17 @@ public class Analyzer : IDisposable
                     }
                     return symbolType;
                 }
-                // Symbol not found in alias
-                Error($"'{member.MemberName}' doesn't exist in '{aliasName}' — check the import for available symbols", member.Line, member.Column);
+                var memberColumn = GetMemberNameColumn(member);
+                var similarSymbols = symbols.Count == 0
+                    ? new List<string>()
+                    : new SmartSuggester(symbols.Keys.ToList()).SuggestSimilarNames(member.MemberName);
+                Error(
+                    ErrorCode.UndefinedMember,
+                    $"'{member.MemberName}' doesn't exist in import alias '{aliasName}' — check the import for available symbols",
+                    member.Line,
+                    memberColumn,
+                    similarSymbols.Count > 0 ? $"Did you mean '{similarSymbols[0]}'?" : null,
+                    Math.Max(1, member.MemberName.Length));
                 return BuiltInTypes.Unknown;
             }
 
@@ -3002,7 +3631,7 @@ public class Analyzer : IDisposable
         // Resolve member on type
         var includeStaticMembers = IsStaticMemberAccessTarget(member.Object);
         var memberType = ResolveMember(receiverType, member.MemberName, includeStaticMembers);
-        if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member))
+        if (BuiltInTypes.IsUnknown(memberType) && ShouldReportUndefinedMember(receiverType, member, includeStaticMembers))
         {
             ReportUndefinedMember(receiverType, member, includeStaticMembers);
         }
@@ -3132,7 +3761,8 @@ public class Analyzer : IDisposable
             _ => $"Guard with 'if {path} == null {{ return }}' or add a fallback before using '{path}'."
         };
 
-        Error(ErrorCode.PossibleNullAccess, message, line, column, suggestion, length: 1);
+        var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetNullReceiverDiagnosticSpan(receiver, path, line, column);
+        Error(ErrorCode.PossibleNullAccess, message, diagnosticLine, diagnosticColumn, suggestion, diagnosticLength);
     }
 
     private bool TryResolveNullableMemberAccess(MemberAccessExpression member, TypeInfo objectType, out TypeInfo memberType)
@@ -3398,7 +4028,7 @@ public class Analyzer : IDisposable
         }
     }
 
-    private bool ShouldReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member)
+    private bool ShouldReportUndefinedMember(TypeInfo receiverType, MemberAccessExpression member, bool includeStaticMembers)
     {
         if (string.IsNullOrWhiteSpace(member.MemberName) || member.MemberName == "<error>")
             return false;
@@ -3417,18 +4047,65 @@ public class Analyzer : IDisposable
         return receiverType switch
         {
             SimpleTypeInfo simple when simple == BuiltInTypes.Object => false,
-            SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null,
-            GenericTypeInfo or ArrayTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null,
+            SimpleTypeInfo simple => TryConvertTypeInfoToClrType(simple) != null
+                                     || (IsKnownBuiltInReceiverWithoutReflection(simple)
+                                         && !IsKnownBuiltInMemberWithoutReflection(simple, member.MemberName, includeStaticMembers)),
+            ArrayTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null
+                             || !IsKnownBuiltInMemberWithoutReflection(receiverType, member.MemberName, includeStaticMembers),
+            GenericTypeInfo => TryConvertTypeInfoToClrType(receiverType) != null,
             ReflectionTypeInfo reflection when IsSystemObjectType(reflection.Type) => false,
             ReflectionTypeInfo reflection => HasReliableReflectionMemberSet(reflection.Type),
             ClassTypeInfo or StructTypeInfo or RecordTypeInfo
                 or InterfaceTypeInfo or EnumTypeInfo or UnionTypeInfo or NewtypeInfo
                 or TupleTypeInfo => true,
-            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, member),
-            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, member),
+            NullableTypeInfo nullable => ShouldReportUndefinedMember(nullable.InnerType, member, includeStaticMembers),
+            ObliviousTypeInfo oblivious => ShouldReportUndefinedMember(oblivious.InnerType, member, includeStaticMembers),
             _ => false
         };
     }
+
+    private static bool IsKnownBuiltInMemberWithoutReflection(TypeInfo receiverType, string memberName, bool includeStaticMembers)
+    {
+        if (BuiltInObjectMembers.Contains(memberName))
+            return true;
+
+        return receiverType switch
+        {
+            SimpleTypeInfo simple when simple == BuiltInTypes.String =>
+                BuiltInStringInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInStringStaticMembers.Contains(memberName)),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Bool =>
+                BuiltInBooleanInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInBooleanStaticMembers.Contains(memberName)),
+            SimpleTypeInfo simple when IsBuiltInNumericType(simple) =>
+                BuiltInNumericInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Char =>
+                BuiltInNumericInstanceMembers.Contains(memberName)
+                || (includeStaticMembers && BuiltInNumericStaticMembers.Contains(memberName)),
+            ArrayTypeInfo => BuiltInArrayMembers.Contains(memberName),
+            _ => false
+        };
+    }
+
+    private static bool IsKnownBuiltInReceiverWithoutReflection(SimpleTypeInfo type)
+        => type == BuiltInTypes.String
+           || type == BuiltInTypes.Bool
+           || type == BuiltInTypes.Char
+           || IsBuiltInNumericType(type);
+
+    private static bool IsBuiltInNumericType(SimpleTypeInfo type)
+        => type == BuiltInTypes.Int
+           || type == BuiltInTypes.Long
+           || type == BuiltInTypes.Float
+           || type == BuiltInTypes.Double
+           || type == BuiltInTypes.Decimal
+           || type == BuiltInTypes.Byte
+           || type == BuiltInTypes.SByte
+           || type == BuiltInTypes.Short
+           || type == BuiltInTypes.UShort
+           || type == BuiltInTypes.UInt
+           || type == BuiltInTypes.ULong;
 
     private static bool HasReliableReflectionMemberSet(Type type)
     {
@@ -4863,19 +5540,21 @@ public class Analyzer : IDisposable
                 int minArgs = requiredParamCount;
                 if (argTypes.Count < minArgs)
                 {
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetCallDiagnosticSpan(call, funcType.Declaration.Name);
                     // Use ErrorMessageBuilder for better error message
-                    var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
-                        ? _sourceLines[call.Line - 1]
+                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                        ? _sourceLines[diagnosticLine - 1]
                         : null;
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
                         var error = ErrorMessageBuilder.WrongArgumentCount(
                             _currentFilePath,
-                            call.Line,
-                            call.Column,
+                            diagnosticLine,
+                            diagnosticColumn,
                             sourceSnippet,
-                            funcType.Declaration.Name.Length,
+                            diagnosticLength,
                             funcType.Declaration.Name,
                             minArgs,
                             argTypes.Count
@@ -4884,25 +5563,28 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        Error($"'{funcType.Declaration.Name}' needs at least {minArgs} argument(s), but you passed {argTypes.Count}",
-                            call.Line, call.Column);
+                        Error(ErrorCode.WrongArgumentCount,
+                            $"'{funcType.Declaration.Name}' needs at least {minArgs} argument(s), but you passed {argTypes.Count}",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                 }
                 else if (!hasParamsParameter && argTypes.Count > effectiveParamCount)
                 {
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                        GetCallDiagnosticSpan(call, funcType.Declaration.Name);
                     // Use ErrorMessageBuilder for better error message
-                    var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
-                        ? _sourceLines[call.Line - 1]
+                    var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                        ? _sourceLines[diagnosticLine - 1]
                         : null;
 
                     if (sourceSnippet != null && _currentFilePath != null)
                     {
                         var error = ErrorMessageBuilder.WrongArgumentCount(
                             _currentFilePath,
-                            call.Line,
-                            call.Column,
+                            diagnosticLine,
+                            diagnosticColumn,
                             sourceSnippet,
-                            funcType.Declaration.Name.Length,
+                            diagnosticLength,
                             funcType.Declaration.Name,
                             effectiveParamCount,
                             argTypes.Count
@@ -4911,8 +5593,9 @@ public class Analyzer : IDisposable
                     }
                     else
                     {
-                        Error($"'{funcType.Declaration.Name}' takes {effectiveParamCount} argument(s), but you passed {argTypes.Count}",
-                            call.Line, call.Column);
+                        Error(ErrorCode.WrongArgumentCount,
+                            $"'{funcType.Declaration.Name}' takes {effectiveParamCount} argument(s), but you passed {argTypes.Count}",
+                            diagnosticLine, diagnosticColumn, length: diagnosticLength);
                     }
                 }
                 else
@@ -4933,19 +5616,20 @@ public class Analyzer : IDisposable
 
                         if (!IsAssignable(paramType, argType))
                         {
-                            var sourceSnippet = _sourceLines != null && call.Line > 0 && call.Line <= _sourceLines.Length
-                                ? _sourceLines[call.Line - 1]
+                            var (diagnosticLine, diagnosticColumn, diagnosticLength) =
+                                GetExpressionDiagnosticSpan(call.Arguments[i].Value);
+                            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                                ? _sourceLines[diagnosticLine - 1]
                                 : null;
 
                             if (sourceSnippet != null && _currentFilePath != null)
                             {
-                                var spanLength = Math.Max(1, sourceSnippet.TrimEnd().Length - call.Column + 1);
                                 var error = ErrorMessageBuilder.WrongArgumentType(
                                     _currentFilePath,
-                                    call.Line,
-                                    call.Column,
+                                    diagnosticLine,
+                                    diagnosticColumn,
                                     sourceSnippet,
-                                    spanLength,
+                                    diagnosticLength,
                                     funcType.Declaration.Name,
                                     i + 1,
                                     parameters[paramIndex].Name,
@@ -4957,7 +5641,7 @@ public class Analyzer : IDisposable
                             else
                             {
                                 Error(ErrorCode.TypeMismatch, $"Argument {i + 1} is '{argType}', but parameter '{parameters[paramIndex].Name}' expects '{paramType}'",
-                                    call.Line, call.Column);
+                                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
                             }
                         }
                     }
@@ -5078,13 +5762,48 @@ public class Analyzer : IDisposable
                     : BuiltInTypes.Void;
             }
 
-            // No matching overload found
-            Error(ErrorCode.NoMatchingOverload,
-                $"None of the overloads of '{nsharpGroup.Declarations[0].Name}' accept {argTypes.Count} argument(s) with these types — check the function signature",
-                call.Line, call.Column);
+            ReportNoMatchingNSharpOverload(nsharpGroup, call, argTypes);
         }
 
         return BuiltInTypes.Unknown;
+    }
+
+    private void ReportNoMatchingNSharpOverload(NSharpMethodGroupInfo methodGroup, CallExpression call, List<TypeInfo> argTypes)
+    {
+        if (methodGroup.Declarations.Count == 0)
+            return;
+
+        var functionName = GetCallTargetName(call) ?? methodGroup.Declarations[0].Name;
+        var (line, column, length) = GetCallDiagnosticSpan(call, functionName);
+        var argumentTypes = argTypes.Select(type => type.ToString()).ToList();
+        var candidateSignatures = methodGroup.Declarations
+            .Select(declaration => FormatNSharpMethodSignature(declaration, call))
+            .Distinct(StringComparer.Ordinal)
+            .Take(8)
+            .ToList();
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.NoMatchingOverload(
+                _currentFilePath,
+                line,
+                column,
+                _sourceLines[line - 1],
+                length,
+                functionName,
+                call.Arguments.Count,
+                argumentTypes,
+                candidateSignatures));
+            return;
+        }
+
+        Error(
+            ErrorCode.NoMatchingOverload,
+            $"No overload of '{functionName}' accepts {call.Arguments.Count} argument(s) with these types",
+            line,
+            column,
+            "Check the argument count and types against the available overloads.",
+            length);
     }
 
     private TypeInfo HandleUnboundReflectionCall(CallExpression call, IReadOnlyList<MethodInfo> candidateMethods, List<TypeInfo> argTypes)
@@ -5206,6 +5925,42 @@ public class Analyzer : IDisposable
             MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
             _ => (call.Line, call.Column, Math.Max(1, functionName.Length))
         };
+    }
+
+    private string FormatNSharpMethodSignature(FunctionDeclaration declaration, CallExpression call)
+    {
+        var parameterStart = call.Callee is MemberAccessExpression &&
+                             declaration.Parameters.Count > 0 &&
+                             declaration.Parameters[0].IsThis
+            ? 1
+            : 0;
+        var name = declaration.IsOperatorOverload
+            ? $"operator {declaration.OperatorSymbol}"
+            : declaration.Name;
+        var typeParameters = declaration.TypeParameters is { Count: > 0 }
+            ? $"<{string.Join(", ", declaration.TypeParameters.Select(parameter => parameter.Name))}>"
+            : string.Empty;
+        var parameters = declaration.Parameters
+            .Skip(parameterStart)
+            .Select(FormatNSharpParameterSignature);
+        var returnType = declaration.ReturnType != null
+            ? $": {TranspileTypeReference(declaration.ReturnType)}"
+            : string.Empty;
+
+        return $"{name}{typeParameters}({string.Join(", ", parameters)}){returnType}";
+    }
+
+    private string FormatNSharpParameterSignature(Parameter parameter)
+    {
+        var modifier = parameter.Modifier switch
+        {
+            Ast.ParameterModifier.Ref => "ref ",
+            Ast.ParameterModifier.Out => "out ",
+            Ast.ParameterModifier.Params => "params ",
+            _ => parameter.IsThis ? "this " : string.Empty
+        };
+        var defaultValue = parameter.DefaultValue != null ? " = ..." : string.Empty;
+        return $"{modifier}{parameter.Name}: {TranspileTypeReference(parameter.Type)}{defaultValue}";
     }
 
     private static string FormatReflectionMethodSignature(MethodInfo method, CallExpression call)
@@ -7103,18 +7858,19 @@ public class Analyzer : IDisposable
 
         if (!IsAssignable(targetType, valueType))
         {
-            var sourceSnippet = _sourceLines != null && assignment.Line > 0 && assignment.Line <= _sourceLines.Length
-                ? _sourceLines[assignment.Line - 1]
+            var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(assignment.Value);
+            var sourceSnippet = _sourceLines != null && diagnosticLine > 0 && diagnosticLine <= _sourceLines.Length
+                ? _sourceLines[diagnosticLine - 1]
                 : null;
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
                 var error = ErrorMessageBuilder.TypeMismatch(
                     _currentFilePath,
-                    assignment.Line,
-                    assignment.Column,
+                    diagnosticLine,
+                    diagnosticColumn,
                     sourceSnippet,
-                    1,
+                    diagnosticLength,
                     valueType.ToString(),
                     targetType.ToString()
                 );
@@ -7122,7 +7878,8 @@ public class Analyzer : IDisposable
             }
             else
             {
-                Error($"Type mismatch in assignment — expected '{targetType}' but got '{valueType}'", assignment.Line, assignment.Column);
+                Error(ErrorCode.TypeMismatch, $"Type mismatch in assignment — expected '{targetType}' but got '{valueType}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 
@@ -7172,9 +7929,27 @@ public class Analyzer : IDisposable
 
             if (field != null && field.Modifiers.HasFlag(Modifiers.Readonly))
             {
-                Error($"Field '{fieldName}' is readonly — it can only be assigned in a constructor", line, column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetAssignmentTargetNameDiagnosticSpan(target, line, column);
+                Error(
+                    ErrorCode.ReadonlyAssignment,
+                    $"Field '{fieldName}' is readonly — it can only be assigned in a constructor",
+                    diagnosticLine,
+                    diagnosticColumn,
+                    "Move this assignment into a constructor, or remove `readonly` if the field needs to change later.",
+                    diagnosticLength);
             }
         }
+    }
+
+    private (int Line, int Column, int Length) GetAssignmentTargetNameDiagnosticSpan(Expression target, int fallbackLine, int fallbackColumn)
+    {
+        return target switch
+        {
+            IdentifierExpression identifier => (identifier.Line, identifier.Column, Math.Max(1, identifier.Name.Length)),
+            MemberAccessExpression memberAccess => (memberAccess.Line, GetMemberNameColumn(memberAccess), Math.Max(1, memberAccess.MemberName.Length)),
+            ParenthesizedExpression parenthesized => GetAssignmentTargetNameDiagnosticSpan(parenthesized.Inner, fallbackLine, fallbackColumn),
+            _ => (fallbackLine, fallbackColumn, GetTokenLength(fallbackLine, fallbackColumn))
+        };
     }
 
     private FunctionTypeInfo AnalyzeLambda(LambdaExpression lambda, TypeInfo? expectedType = null)
@@ -7273,7 +8048,7 @@ public class Analyzer : IDisposable
         var condType = AnalyzeExpression(ternary.Condition);
         if (!IsBoolType(condType))
         {
-            Error($"The condition in a ternary expression must be a boolean, but I found '{condType}'", ternary.Line, ternary.Column);
+            ReportBooleanConditionTypeMismatch(ternary.Condition, "a ternary expression", condType);
         }
 
         var thenType = AnalyzeExpression(ternary.ThenExpression);
@@ -7296,7 +8071,10 @@ public class Analyzer : IDisposable
             var elemType = AnalyzeExpression(elem);
             if (!IsAssignable(firstType, elemType))
             {
-                Error($"All elements in an array must be the same type — the first element is '{firstType}' but I found '{elemType}'", array.Line, array.Column);
+                var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(elem);
+                Error(ErrorCode.TypeMismatch,
+                    $"All elements in an array must be the same type — the first element is '{firstType}' but I found '{elemType}'",
+                    diagnosticLine, diagnosticColumn, length: diagnosticLength);
             }
         }
 
@@ -7437,8 +8215,9 @@ public class Analyzer : IDisposable
                 var guardType = AnalyzeExpression(matchCase.Guard);
                 if (!IsAssignable(BuiltInTypes.Bool, guardType))
                 {
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Guard);
                     Error(ErrorCode.GuardNotBoolean, $"A match guard must be a boolean, but this expression is '{guardType}'",
-                        matchCase.Guard.Line, matchCase.Guard.Column);
+                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 }
             }
 
@@ -7460,8 +8239,10 @@ public class Analyzer : IDisposable
                 }
                 else
                 {
-                    Error($"All match arms must return the same type — the first arm returns '{resultType}', but this arm returns '{caseType}'",
-                        matchCase.Expression.Line, matchCase.Expression.Column);
+                    var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(matchCase.Expression);
+                    Error(ErrorCode.TypeMismatch,
+                        $"All match arms must return the same type — the first arm returns '{resultType}', but this arm returns '{caseType}'",
+                        diagnosticLine, diagnosticColumn, length: diagnosticLength);
                 }
             }
 
@@ -9907,7 +10688,12 @@ public class Analyzer : IDisposable
                 }
             }
 
-            Error($"'{name}' is already declared in this scope — each name must be unique within the same scope", line, column);
+            Error(
+                ErrorCode.DuplicateDeclaration,
+                $"'{name}' is already declared in this scope — each name must be unique within the same scope",
+                line,
+                nameColumn,
+                length: Math.Max(1, name.Length));
         }
         else
         {
@@ -9953,11 +10739,26 @@ public class Analyzer : IDisposable
 
         for (int i = 0; i < a.Parameters.Count; i++)
         {
-            if (a.Parameters[i].Type.ToString() != b.Parameters[i].Type.ToString())
+            if (GetParameterTypeSignature(a.Parameters[i].Type) != GetParameterTypeSignature(b.Parameters[i].Type))
                 return false;
         }
 
         return true;
+    }
+
+    private static string GetParameterTypeSignature(TypeReference typeRef)
+    {
+        return typeRef switch
+        {
+            SimpleTypeReference simple => simple.Name,
+            ArrayTypeReference array => $"{GetParameterTypeSignature(array.ElementType)}[]",
+            GenericTypeReference generic => $"{generic.Name}<{string.Join(",", generic.TypeArguments.Select(GetParameterTypeSignature))}>",
+            NullableTypeReference nullable => $"{GetParameterTypeSignature(nullable.InnerType)}?",
+            UnionTypeReference union => string.Join("|", union.Arms.Select(GetParameterTypeSignature)),
+            TupleTypeReference tuple => $"({string.Join(",", tuple.Elements.Select(element => GetParameterTypeSignature(element.Type)))})",
+            FunctionTypeReference function => $"({string.Join(",", function.ParameterTypes.Select(GetParameterTypeSignature))})->{GetParameterTypeSignature(function.ReturnType)}",
+            _ => typeRef.ToString() ?? "unknown"
+        };
     }
 
     private void DeclareType(string name, TypeInfo type, int line, int column)
@@ -9966,7 +10767,12 @@ public class Analyzer : IDisposable
         var nameColumn = GetDeclarationNameColumn(name, line, column);
         if (currentScope.Types.ContainsKey(name))
         {
-            Error($"A type named '{name}' already exists — each type name must be unique", line, column);
+            Error(
+                ErrorCode.DuplicateDeclaration,
+                $"A type named '{name}' already exists — each type name must be unique",
+                line,
+                nameColumn,
+                length: Math.Max(1, name.Length));
         }
         else
         {
@@ -10007,16 +10813,28 @@ public class Analyzer : IDisposable
             var param = parameters[i];
             if (param.Modifier == Ast.ParameterModifier.Params)
             {
+                var (paramLine, paramColumn, paramLength) = GetParameterDiagnosticSpan(param, line, column);
+
                 // params must be last parameter
                 if (i != parameters.Count - 1)
                 {
-                    Error("A 'params' parameter must come last in the parameter list — move it to the end", line, column);
+                    Error(
+                        ErrorCode.ParamsNotLast,
+                        "A 'params' parameter must come last in the parameter list — move it to the end",
+                        paramLine,
+                        paramColumn,
+                        length: paramLength);
                 }
 
                 // C# 13: params can be array, Span<T>, ReadOnlySpan<T>, or collection types
                 if (!IsValidParamsType(param.Type))
                 {
-                    Error($"A 'params' parameter must be an array or collection type — '{TranspileTypeReference(param.Type)}' is not a valid params type", line, column);
+                    Error(
+                        ErrorCode.InvalidParameter,
+                        $"A 'params' parameter must be an array or collection type — '{TranspileTypeReference(param.Type)}' is not a valid params type",
+                        paramLine,
+                        paramColumn,
+                        length: paramLength);
                 }
             }
         }
@@ -10043,9 +10861,10 @@ public class Analyzer : IDisposable
                 // Validate that default value is a compile-time constant
                 if (!IsValidDefaultValue(param.DefaultValue!))
                 {
+                    var (defaultLine, defaultColumn, defaultLength) = GetExpressionDiagnosticSpan(param.DefaultValue!);
                     Error(ErrorCode.InvalidDefaultParameterValue,
                         $"The default value for '{param.Name}' must be something the compiler can evaluate — use a literal, null, or a simple constant",
-                        line, column);
+                        defaultLine, defaultColumn, length: defaultLength);
                 }
             }
             else
@@ -10053,12 +10872,23 @@ public class Analyzer : IDisposable
                 // Required parameter found after optional parameter
                 if (foundOptional)
                 {
+                    var (paramLine, paramColumn, paramLength) = GetParameterDiagnosticSpan(param, line, column);
                     Error(ErrorCode.RequiredParameterAfterOptional,
                         $"Required parameter '{param.Name}' can't come after optional parameters — move it before the optional ones, or give it a default value too",
-                        line, column);
+                        paramLine, paramColumn, length: paramLength);
                 }
             }
         }
+    }
+
+    private static (int Line, int Column, int Length) GetParameterDiagnosticSpan(
+        Parameter parameter,
+        int fallbackLine,
+        int fallbackColumn)
+    {
+        var line = parameter.Line > 0 ? parameter.Line : fallbackLine;
+        var column = parameter.Column > 0 ? parameter.Column : fallbackColumn;
+        return (line, column, Math.Max(1, parameter.Name.Length));
     }
 
     private bool IsValidDefaultValue(Expression expr)
@@ -10153,10 +10983,26 @@ public class Analyzer : IDisposable
 
     private void ValidateOperatorOverload(FunctionDeclaration func)
     {
+        var (operatorKeywordLine, operatorKeywordColumn, operatorKeywordLength) = GetSourceSpanDiagnosticSpan(
+            func.OperatorKeywordSpan,
+            func.Line,
+            func.Column,
+            "operator".Length);
+        var (operatorSymbolLine, operatorSymbolColumn, operatorSymbolLength) = GetSourceSpanDiagnosticSpan(
+            func.OperatorSymbolSpan,
+            func.Line,
+            func.Column,
+            func.OperatorSymbol?.Length ?? 1);
+
         // Operator overloads must be static
         if (!func.Modifiers.HasFlag(Modifiers.Static))
         {
-            Error("Operator overloads must be declared 'static' — they don't belong to a specific instance", func.Line, func.Column);
+            Error(
+                ErrorCode.InvalidOperatorOverload,
+                "Operator overloads must be declared 'static' — they don't belong to a specific instance",
+                operatorKeywordLine,
+                operatorKeywordColumn,
+                length: operatorKeywordLength);
         }
 
         // Get expected parameter count
@@ -10173,7 +11019,12 @@ public class Analyzer : IDisposable
 
         if (expectedParams == -1)
         {
-            Error($"The operator '{func.OperatorSymbol}' cannot be overloaded — only arithmetic, comparison, bitwise, and logical operators are supported", func.Line, func.Column);
+            Error(
+                ErrorCode.InvalidOperatorOverload,
+                $"The operator '{func.OperatorSymbol}' cannot be overloaded — only arithmetic, comparison, bitwise, and logical operators are supported",
+                operatorSymbolLine,
+                operatorSymbolColumn,
+                length: operatorSymbolLength);
             return;
         }
 
@@ -10182,12 +11033,22 @@ public class Analyzer : IDisposable
         {
             if (func.Parameters.Count != 1 && func.Parameters.Count != 2)
             {
-                Error($"Operator '{func.OperatorSymbol}' can be unary (1 parameter) or binary (2 parameters), but you declared {func.Parameters.Count}", func.Line, func.Column);
+                Error(
+                    ErrorCode.OperatorParameterCount,
+                    $"Operator '{func.OperatorSymbol}' can be unary (1 parameter) or binary (2 parameters), but you declared {func.Parameters.Count}",
+                    operatorSymbolLine,
+                    operatorSymbolColumn,
+                    length: operatorSymbolLength);
             }
         }
         else if (func.Parameters.Count != expectedParams)
         {
-            Error($"Operator '{func.OperatorSymbol}' requires exactly {expectedParams} parameter(s), but you declared {func.Parameters.Count}", func.Line, func.Column);
+            Error(
+                ErrorCode.OperatorParameterCount,
+                $"Operator '{func.OperatorSymbol}' requires exactly {expectedParams} parameter(s), but you declared {func.Parameters.Count}",
+                operatorSymbolLine,
+                operatorSymbolColumn,
+                length: operatorSymbolLength);
         }
     }
 
@@ -10197,7 +11058,7 @@ public class Analyzer : IDisposable
         Error(ErrorCode.InvalidSyntax, message, line, column);
     }
 
-    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 1)
+    private void Error(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
     {
         CompilerError error;
 
@@ -10222,6 +11083,7 @@ public class Analyzer : IDisposable
             error = CompilerError.Create(code, message, line, column, ErrorSeverity.Error) with
             {
                 FileName = _currentFilePath,
+                Length = Math.Max(1, length),
                 Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
             };
         }
@@ -10234,7 +11096,7 @@ public class Analyzer : IDisposable
         Warning(ErrorCode.UnusedVariable, message, line, column);
     }
 
-    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 1)
+    private void Warning(ErrorCode code, string message, int line, int column, string? suggestion = null, int length = 0)
     {
         CompilerError warning;
 
@@ -10259,12 +11121,18 @@ public class Analyzer : IDisposable
             warning = CompilerError.Create(code, message, line, column, ErrorSeverity.Warning) with
             {
                 FileName = _currentFilePath,
+                Length = Math.Max(1, length),
                 Suggestion = suggestion ?? ErrorSuggestions.GetSuggestion(code)
             };
         }
 
         _errors.Add(warning);
     }
+
+    private string? GetSourceSnippet(int line)
+        => _sourceLines != null && line > 0 && line <= _sourceLines.Length
+            ? _sourceLines[line - 1]
+            : null;
 
     // Package validation
     private void ValidatePackageName(PackageDeclaration package)
@@ -10326,29 +11194,33 @@ public class Analyzer : IDisposable
     private void ProcessFileImport(FileImport import, FileResolver resolver)
     {
         // Resolve the file path
-        var resolvedPath = resolver.ValidateImportPath(import.Path, out var errorMessage);
+        var resolvedPath = ResolveFileImportPath(resolver, import.Path, out var errorMessage);
         if (resolvedPath == null)
         {
             // Use ErrorMessageBuilder for better error message
-            var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
-                ? _sourceLines[import.Line - 1]
-                : null;
+            var sourceSnippet = GetSourceSnippet(import.Line);
 
             if (sourceSnippet != null && _currentFilePath != null)
             {
                 var error = ErrorMessageBuilder.ImportNotFound(
                     _currentFilePath,
                     import.Line,
-                    import.Column,
+                    import.DiagnosticColumn,
                     sourceSnippet,
-                    import.Path.Length,
+                    import.DiagnosticLength,
                     import.Path
                 );
                 _errors.Add(error);
             }
             else
             {
-                Error(errorMessage!, import.Line, import.Column);
+                Error(
+                    ErrorCode.ImportNotFound,
+                    errorMessage!,
+                    import.Line,
+                    import.DiagnosticColumn,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.ImportNotFound),
+                    import.DiagnosticLength);
             }
             return;
         }
@@ -10357,26 +11229,25 @@ public class Analyzer : IDisposable
         if (_currentFilePath != null &&
             string.Equals(Path.GetFullPath(resolvedPath), Path.GetFullPath(_currentFilePath), StringComparison.OrdinalIgnoreCase))
         {
-            var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
-                ? _sourceLines[import.Line - 1]
-                : null;
+            var sourceSnippet = GetSourceSnippet(import.Line);
 
             if (sourceSnippet != null)
             {
                 var error = ErrorMessageBuilder.CircularImport(
                     _currentFilePath,
                     import.Line,
-                    import.Column,
+                    import.DiagnosticColumn,
                     sourceSnippet,
-                    import.Path.Length,
+                    import.DiagnosticLength,
                     import.Path);
                 _errors.Add(error);
             }
             else
             {
                 Error(ErrorCode.CircularImport, $"'{import.Path}' imports itself — circular imports aren't allowed",
-                    import.Line, import.Column,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
+                    import.Line, import.DiagnosticColumn,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport),
+                    import.DiagnosticLength);
             }
             return;
         }
@@ -10386,7 +11257,7 @@ public class Analyzer : IDisposable
         string? importedSource = null;
         try
         {
-            importedSource = System.IO.File.ReadAllText(resolvedPath);
+            importedSource = TryGetProjectSourceText(resolvedPath) ?? System.IO.File.ReadAllText(resolvedPath);
             var lexer = new Lexer(importedSource, resolvedPath);
             var tokens = lexer.Tokenize();
             var parser = new Parser(tokens, resolvedPath, importedSource);  // Pass source code
@@ -10396,7 +11267,12 @@ public class Analyzer : IDisposable
             // Report parse errors
             foreach (var error in parseResult.Errors)
             {
-                Error($"The imported file '{import.Path}' has a syntax error — {error.Message}", import.Line, import.Column);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    $"The imported file '{import.Path}' has a syntax error — {error.Message}",
+                    import.Line,
+                    import.DiagnosticColumn,
+                    length: import.DiagnosticLength);
             }
 
             if (importedUnit == null)
@@ -10406,7 +11282,12 @@ public class Analyzer : IDisposable
         }
         catch (Exception ex)
         {
-            Error($"I couldn't read the imported file '{import.Path}' — {ex.Message}", import.Line, import.Column);
+            Error(
+                ErrorCode.InvalidSyntax,
+                $"I couldn't read the imported file '{import.Path}' — {ex.Message}",
+                import.Line,
+                import.DiagnosticColumn,
+                length: import.DiagnosticLength);
             return;
         }
 
@@ -10419,22 +11300,20 @@ public class Analyzer : IDisposable
             {
                 if (nestedImport is FileImport nestedFileImport)
                 {
-                    var nestedPath = importedFileResolver.ValidateImportPath(nestedFileImport.Path, out _);
+                    var nestedPath = ResolveFileImportPath(importedFileResolver, nestedFileImport.Path, out _);
                     if (nestedPath != null &&
                         string.Equals(Path.GetFullPath(nestedPath), currentNormalized, StringComparison.OrdinalIgnoreCase))
                     {
-                        var sourceSnippet = _sourceLines != null && import.Line > 0 && import.Line <= _sourceLines.Length
-                            ? _sourceLines[import.Line - 1]
-                            : null;
+                        var sourceSnippet = GetSourceSnippet(import.Line);
 
                         if (sourceSnippet != null)
                         {
                             var error = ErrorMessageBuilder.CircularImport(
                                 _currentFilePath,
                                 import.Line,
-                                import.Column,
+                                import.DiagnosticColumn,
                                 sourceSnippet,
-                                import.Path.Length,
+                                import.DiagnosticLength,
                                 import.Path);
                             _errors.Add(error);
                         }
@@ -10442,8 +11321,9 @@ public class Analyzer : IDisposable
                         {
                             Error(ErrorCode.CircularImport,
                                 $"Circular import: '{import.Path}' imports '{nestedFileImport.Path}' which imports this file back — break the cycle by restructuring your imports",
-                                import.Line, import.Column,
-                                ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport));
+                                import.Line, import.DiagnosticColumn,
+                                ErrorSuggestions.GetSuggestion(ErrorCode.CircularImport),
+                                import.DiagnosticLength);
                         }
                         return;
                     }
@@ -10485,9 +11365,14 @@ public class Analyzer : IDisposable
                 // Track collision detection
                 if (!_importedSymbols.ContainsKey(symbol.Name))
                 {
-                    _importedSymbols[symbol.Name] = new List<string>();
+                    _importedSymbols[symbol.Name] = new List<ImportedSymbolReference>();
                 }
-                _importedSymbols[symbol.Name].Add(resolvedPath);
+                _importedSymbols[symbol.Name].Add(new ImportedSymbolReference(
+                    resolvedPath,
+                    import.Path,
+                    import.Line,
+                    import.DiagnosticColumn,
+                    import.DiagnosticLength));
 
                 // Add to global scope
                 var globalScope = _scopes.Last(); // Global scope is at the bottom of stack
@@ -10514,6 +11399,19 @@ public class Analyzer : IDisposable
                 _bindingMap.RecordDeclaration(symbol.Declaration);
             }
         }
+    }
+
+    private string? ResolveFileImportPath(FileResolver resolver, string importPath, out string? errorMessage)
+    {
+        var resolvedPath = Path.GetFullPath(resolver.ResolveFilePath(importPath));
+        if (_projectSourceTexts.ContainsKey(resolvedPath) || System.IO.File.Exists(resolvedPath))
+        {
+            errorMessage = null;
+            return resolvedPath;
+        }
+
+        errorMessage = $"Imported file not found: {importPath} (resolved to {resolvedPath})";
+        return null;
     }
 
     private void ProcessNamespaceImport(NamespaceImport import)
@@ -11066,14 +11964,64 @@ public class Analyzer : IDisposable
 
     private void CheckImportCollisions()
     {
-        foreach (var (symbol, sources) in _importedSymbols)
+        foreach (var (symbol, imports) in _importedSymbols)
         {
-            if (sources.Count > 1)
+            if (imports.Count <= 1)
+                continue;
+
+            var duplicate = imports[1];
+            var importList = FormatImportCollisionSources(imports);
+            var message = $"Imported symbol '{symbol}' is defined by multiple file imports";
+            var suggestion = $"Add an alias to one import, such as `import \"{duplicate.ImportPath}\" as Alias`, and qualify the symbol.";
+            var humanExplanation = $"The symbol '{symbol}' is imported more than once, so N# cannot choose which definition to use.";
+            var contextualHint =
+                $"N# found '{symbol}' in these file imports: {importList}.\n" +
+                "Unaliased file imports place their exported symbols directly in scope. Use an alias on one import to make the reference explicit.";
+
+            var sourceSnippet = GetSourceSnippet(duplicate.Line);
+            if (sourceSnippet != null && _currentFilePath != null)
             {
-                Error($"'{symbol}' is imported from multiple sources ({string.Join(", ", sources)}) — use an alias to resolve the conflict", 0, 0);
+                var error = CompilerError.WithSnippet(
+                    ErrorCode.ImportCollision,
+                    message,
+                    _currentFilePath,
+                    duplicate.Line,
+                    duplicate.Column,
+                    sourceSnippet,
+                    duplicate.Length,
+                    suggestion,
+                    ErrorSeverity.Error) with
+                {
+                    HumanExplanation = humanExplanation,
+                    ContextualHint = contextualHint,
+                    DocsUrl = "https://docs.n-sharp.dev/errors/NL702"
+                };
+
+                _errors.Add(error);
+                continue;
             }
+
+            _errors.Add(CompilerError.Create(
+                ErrorCode.ImportCollision,
+                message,
+                duplicate.Line,
+                duplicate.Column,
+                ErrorSeverity.Error) with
+            {
+                FileName = _currentFilePath ?? duplicate.SourcePath,
+                Length = Math.Max(1, duplicate.Length),
+                Suggestion = suggestion,
+                HumanExplanation = humanExplanation,
+                ContextualHint = contextualHint,
+                DocsUrl = "https://docs.n-sharp.dev/errors/NL702"
+            });
         }
     }
+
+    private static string FormatImportCollisionSources(IEnumerable<ImportedSymbolReference> imports)
+        => string.Join(", ", imports
+            .Select(import => $"\"{import.ImportPath}\"")
+            .Distinct(StringComparer.OrdinalIgnoreCase));
 
     /// <summary>
     /// Load a .NET assembly by file path for type resolution (metadata-only via MLC)
@@ -11916,6 +12864,13 @@ public enum NullState
 }
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
+
+internal sealed record ImportedSymbolReference(
+    string SourcePath,
+    string ImportPath,
+    int Line,
+    int Column,
+    int Length);
 
 /// <summary>
 /// A symbol discovered from another file in the same project.

@@ -144,6 +144,7 @@ Undefined identifier 'unknownVar'
 
 - Exit code 0 = clean, 1 = errors
 - JSON by default, `--text` for Elm-style diagnostics
+- `results[].line`, `results[].column`, and `results[].length` are the canonical marker span for both compiler and linter diagnostics; linter results no longer use one-character placeholder lengths.
 - Always runs parse + analysis first, then:
   - `il` backend (default): emits a temporary IL assembly to verify the direct backend succeeds
 

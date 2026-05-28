@@ -102,6 +102,1481 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_SemanticDiagnostics_PreserveExpectedMarkerSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func TakesInt(value: int) {}
+
+            func main() {
+                maybeCustomerName: string? = "Ada"
+                print maybeCustomerName.Length
+                TakesInt("oops")
+                TakesInt()
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var nullAccess = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL905");
+        Assert.Equal(7, nullAccess.Line);
+        Assert.Equal(11, nullAccess.Column);
+        Assert.Equal("maybeCustomerName".Length, nullAccess.Length);
+
+        var wrongArgument = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("Cannot pass"));
+        Assert.Equal(8, wrongArgument.Line);
+        Assert.Equal(14, wrongArgument.Column);
+        Assert.Equal("\"oops\"".Length, wrongArgument.Length);
+
+        var wrongCount = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL401");
+        Assert.Equal(9, wrongCount.Line);
+        Assert.Equal(5, wrongCount.Column);
+        Assert.Equal("TakesInt".Length, wrongCount.Length);
+    }
+
+    [Fact]
+    public void Check_NSharpNoMatchingOverload_PreservesCallableNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class Processor {
+                func Process(x: int): int { return x }
+                func Process(x: string): string { return x }
+            }
+
+            func main() {
+                p := new Processor()
+                p.Process(true)
+            }
+            """);
+
+        Assert.False(result.Ok);
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL402" &&
+                          diagnostic.Message.Contains("Process"));
+        AssertPlaygroundSpan(diagnostic, line: 10, column: 7, length: "Process".Length);
+        Assert.Contains("Process(x: int): int", diagnostic.Hint);
+        Assert.Contains("Process(x: string): string", diagnostic.Hint);
+    }
+
+    [Fact]
+    public void Check_TypeMismatchDiagnostics_PreserveOffendingExpressionSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func TakesVoid(): void {
+            }
+
+            func ExpressionBodyMismatch(): int => "bad"
+
+            func ExpressionBodyRequiresReturnType() => "bad"
+
+            func main(): int {
+                declared: int = "hi"
+                inferred := TakesVoid()
+                if "yes" {
+                    return "bad"
+                }
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var expressionBodyMismatch = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("ExpressionBodyMismatch"));
+        AssertPlaygroundSpan(expressionBodyMismatch, line: 6, column: 39, length: "\"bad\"".Length);
+
+        var expressionBodyRequiresReturnType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("ExpressionBodyRequiresReturnType"));
+        AssertPlaygroundSpan(expressionBodyRequiresReturnType, line: 8, column: 6, length: "ExpressionBodyRequiresReturnType".Length);
+
+        var localInitializer = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 11 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertPlaygroundSpan(localInitializer, line: 11, column: 21, length: "\"hi\"".Length);
+
+        var voidAssignment = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("void"));
+        AssertPlaygroundSpan(voidAssignment, line: 12, column: 17, length: "TakesVoid".Length);
+
+        var ifCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 13 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertPlaygroundSpan(ifCondition, line: 13, column: 8, length: "\"yes\"".Length);
+
+        var returnValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("main") &&
+                          diagnostic.Message.Contains("returns string"));
+        AssertPlaygroundSpan(returnValue, line: 14, column: 16, length: "\"bad\"".Length);
+    }
+
+    [Fact]
+    public void Check_EnumMemberInitializerTypeMismatches_PreserveInitializerValueSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            enum HttpCode: int {
+                Ok = "ok"
+            }
+
+            enum Label: string {
+                Ready = 1
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var numericValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'Ok'"));
+        AssertPlaygroundSpan(numericValue, line: 4, column: 10, length: "\"ok\"".Length);
+
+        var stringValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'Ready'"));
+        AssertPlaygroundSpan(stringValue, line: 8, column: 13, length: "1".Length);
+    }
+
+    [Fact]
+    public void Check_ControlFlowAndCollectionTypeMismatches_PreserveOffendingExpressionSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                while "loop" {
+                }
+
+                for i := 0; "loop"; i++ {
+                }
+
+                value := 1
+                answer := "maybe" ? 1 : 2
+                numbers := [1, "two"]
+                label := match value {
+                    n when "guard" => "positive",
+                    _ => 12345
+                }
+                print label
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var whileCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'while'"));
+        AssertPlaygroundSpan(whileCondition, line: 4, column: 11, length: "\"loop\"".Length);
+
+        var forCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("'for'"));
+        AssertPlaygroundSpan(forCondition, line: 7, column: 17, length: "\"loop\"".Length);
+
+        var ternaryCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("ternary expression"));
+        AssertPlaygroundSpan(ternaryCondition, line: 11, column: 15, length: "\"maybe\"".Length);
+
+        var arrayElement = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("All elements in an array"));
+        AssertPlaygroundSpan(arrayElement, line: 12, column: 20, length: "\"two\"".Length);
+
+        var matchGuard = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL505");
+        AssertPlaygroundSpan(matchGuard, line: 14, column: 16, length: "\"guard\"".Length);
+
+        var matchArm = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("All match arms"));
+        AssertPlaygroundSpan(matchArm, line: 15, column: 14, length: "12345".Length);
+    }
+
+    [Fact]
+    public void Check_LoopControlOutsideLoop_PreservesFullKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                break
+                continue
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var breakDiagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'break'"));
+        AssertPlaygroundSpan(breakDiagnostic, line: 4, column: 5, length: "break".Length);
+
+        var continueDiagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'continue'"));
+        AssertPlaygroundSpan(continueDiagnostic, line: 5, column: 5, length: "continue".Length);
+    }
+
+    [Fact]
+    public void Check_ReturnOutsideFunctionAndTargetlessDefault_PreserveFullKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().CheckProject(
+            [
+                new PlaygroundFile("Program.tests.nl", """
+                    func main() {
+                        value := default
+                    }
+
+                    test "does not return" {
+                        return
+                    }
+                    """)
+            ],
+            "Program.tests.nl");
+
+        Assert.False(result.Ok);
+
+        var targetlessDefault = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL203" &&
+                          diagnostic.Message.Contains("'default'"));
+        AssertPlaygroundSpan(targetlessDefault, line: 2, column: 14, length: "default".Length);
+
+        var returnOutsideFunction = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'return' can only"));
+        AssertPlaygroundSpan(returnOutsideFunction, line: 6, column: 5, length: "return".Length);
+    }
+
+    [Fact]
+    public void Check_ReadonlyAssignment_PreservesAssignedFieldNameSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class Account {
+                readonly id: string = "initial"
+
+                func Change() {
+                    id = "next"
+                    this.id = "again"
+                }
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var directAssignment = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL309" &&
+                          diagnostic.Line == 7);
+        AssertPlaygroundSpan(directAssignment, line: 7, column: 9, length: "id".Length);
+
+        var memberAssignment = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL309" &&
+                          diagnostic.Line == 8);
+        AssertPlaygroundSpan(memberAssignment, line: 8, column: 14, length: "id".Length);
+    }
+
+    [Fact]
+    public void Check_UnreachableStatement_PreservesUnreachableKeywordSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                return
+                print "after"
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var unreachableDiagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL312");
+        AssertPlaygroundSpan(unreachableDiagnostic, line: 5, column: 5, length: "print".Length);
+    }
+
+    [Fact]
+    public void Check_InvalidVariableDeclarations_PreserveFullNameSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                const answer: int
+                let value
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var constWithoutInitializer = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'const'"));
+        AssertPlaygroundSpan(constWithoutInitializer, line: 4, column: 11, length: "answer".Length);
+
+        var unknownVariableType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("determine the type"));
+        AssertPlaygroundSpan(unknownVariableType, line: 5, column: 9, length: "value".Length);
+    }
+
+    [Fact]
+    public void Check_InvalidGenericConstraints_PreserveOffendingConstraintSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func BadClassStruct<T>(value: T): T where T : class, struct {
+                return value
+            }
+
+            func BadStructNew<T>(value: T): T where T : struct, new() {
+                return value
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var classStructConflict = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("both 'class' and 'struct'"));
+        AssertPlaygroundSpan(classStructConflict, line: 3, column: 54, length: "struct".Length);
+
+        var structNewConflict = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("Cannot combine 'struct' and 'new()'"));
+        AssertPlaygroundSpan(structNewConflict, line: 7, column: 53, length: "new()".Length);
+    }
+
+    [Fact]
+    public void Check_AssignmentAndOperatorTypeMismatches_PreserveSpecificExpressionSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                x := 0
+                x = "text"
+
+                oneBad := 1 - "two"
+                bothBad := "one" - "two"
+                logicalRight := true && 1
+                logicalBoth := 1 && 2
+
+                print x
+            }
+            """);
+
+        Assert.False(result.Ok);
+
+        var assignmentValue = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Message == "Type mismatch");
+        AssertPlaygroundSpan(assignmentValue, line: 5, column: 9, length: "\"text\"".Length);
+
+        var arithmeticRightOperand = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 7 &&
+                          diagnostic.Message.Contains("right side"));
+        AssertPlaygroundSpan(arithmeticRightOperand, line: 7, column: 19, length: "\"two\"".Length);
+
+        var arithmeticOperator = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 8 &&
+                          diagnostic.Message.Contains("I found 'string' and 'string'"));
+        AssertPlaygroundSpan(arithmeticOperator, line: 8, column: 22, length: "-".Length);
+
+        var logicalRightOperand = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 9 &&
+                          diagnostic.Message.Contains("right side"));
+        AssertPlaygroundSpan(logicalRightOperand, line: 9, column: 29, length: "1".Length);
+
+        var logicalOperator = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Line == 10 &&
+                          diagnostic.Message.Contains("I found 'int' and 'int'"));
+        AssertPlaygroundSpan(logicalOperator, line: 10, column: 22, length: "&&".Length);
+    }
+
+    [Fact]
+    public void Check_PatternErrors_PreserveSpecificPatternSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            union Result {
+                Success { value: int }
+                Failure { message: string }
+            }
+
+            record User {
+                Name: string
+            }
+
+            func main() {
+                r := new Result.Success { value: 42 }
+                x := match r {
+                    Result.Unknown => 0,
+                    Result.Success { missing: value } => value,
+                    Result.Failure { message } => 0
+                }
+
+                user := new User { Name: "Ada" }
+                y := match user {
+                    { Missing: value } => value,
+                    _ => "unknown"
+                }
+
+                n := 1
+                z := match n {
+                    [first, ..] => first,
+                    _ => 0
+                }
+            }
+            """);
+
+        var missingCase = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL503" &&
+                          diagnostic.Line == 15 &&
+                          diagnostic.Message.Contains("'Result.Unknown'"));
+        AssertPlaygroundSpan(missingCase, line: 15, column: 9, length: "Result.Unknown".Length);
+
+        var missingUnionProperty = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL503" &&
+                          diagnostic.Line == 16 &&
+                          diagnostic.Message.Contains("'missing'"));
+        AssertPlaygroundSpan(missingUnionProperty, line: 16, column: 26, length: "missing".Length);
+
+        var missingObjectProperty = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL503" &&
+                          diagnostic.Line == 22 &&
+                          diagnostic.Message.Contains("'Missing'"));
+        AssertPlaygroundSpan(missingObjectProperty, line: 22, column: 11, length: "Missing".Length);
+
+        var listPatternMismatch = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL504");
+        AssertPlaygroundSpan(listPatternMismatch, line: 28, column: 9, length: "[first, ..]".Length);
+    }
+
+    [Fact]
+    public void Check_DeclarationErrors_PreserveDeclarationNameSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func Duplicate(value: int): int { return value }
+
+            func Duplicate(value: int): int { return value }
+
+            class Thing {}
+            class Thing {}
+
+            enum Status {
+                Pending,
+                Pending
+            }
+
+            union Result {
+                Success
+                Success
+            }
+
+            func BadParams(params rest: int[], tail: int) {}
+
+            func BadOrdering(first: int = 1, second: int) {}
+
+            func BadDefault(value: int = makeValue()) {}
+
+            func main() {
+                value := 1
+                value := 2
+            }
+            """);
+
+        var duplicateFunction = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Message.Contains("'Duplicate'"));
+        AssertPlaygroundSpan(duplicateFunction, line: 5, column: 6, length: "Duplicate".Length);
+
+        var duplicateType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 8 &&
+                          diagnostic.Message.Contains("Thing"));
+        AssertPlaygroundSpan(duplicateType, line: 8, column: 7, length: "Thing".Length);
+
+        var duplicateEnumMember = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 12 &&
+                          diagnostic.Message.Contains("enum member"));
+        AssertPlaygroundSpan(duplicateEnumMember, line: 12, column: 5, length: "Pending".Length);
+
+        var duplicateUnionCase = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 17 &&
+                          diagnostic.Message.Contains("union case"));
+        AssertPlaygroundSpan(duplicateUnionCase, line: 17, column: 5, length: "Success".Length);
+
+        var paramsNotLast = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL407");
+        AssertPlaygroundSpan(paramsNotLast, line: 20, column: 23, length: "rest".Length);
+
+        var requiredAfterOptional = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL409");
+        AssertPlaygroundSpan(requiredAfterOptional, line: 22, column: 34, length: "second".Length);
+
+        var invalidDefault = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL410");
+        AssertPlaygroundSpan(invalidDefault, line: 24, column: 30, length: "makeValue".Length);
+
+        var duplicateLocal = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Line == 28 &&
+                          diagnostic.Message.Contains("'value'"));
+        AssertPlaygroundSpan(duplicateLocal, line: 28, column: 5, length: "value".Length);
+    }
+
+    [Fact]
+    public void Check_OperatorOverloadErrors_PreserveOperatorKeywordAndSymbolSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class Vector {
+                X: int
+
+                func operator %(a: Vector, b: Vector, c: Vector): Vector {
+                    return a
+                }
+
+                static func operator true(a: Vector, b: Vector): bool {
+                    return true
+                }
+            }
+            """);
+
+        var missingStatic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL601");
+        AssertPlaygroundSpan(missingStatic, line: 6, column: 10, length: "operator".Length);
+
+        var moduloArity = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL602" &&
+                          diagnostic.Message.Contains("'%'"));
+        AssertPlaygroundSpan(moduloArity, line: 6, column: 19, length: "%".Length);
+
+        var trueArity = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL602" &&
+                          diagnostic.Message.Contains("'true'"));
+        AssertPlaygroundSpan(trueArity, line: 10, column: 26, length: "true".Length);
+    }
+
+    [Fact]
+    public void Check_DuplicateTestLifecycleBlocks_PreserveFullKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().CheckProject(
+            [
+                new PlaygroundFile("Program.tests.nl", """
+                    setup {
+                        first := 1
+                    }
+
+                    setup {
+                        second := 2
+                    }
+
+                    teardown {
+                        Cleanup()
+                    }
+
+                    teardown {
+                        CleanupAgain()
+                    }
+
+                    func Cleanup() {}
+                    func CleanupAgain() {}
+
+                    test "works" {
+                        assert true
+                    }
+                    """)
+            ],
+            "Program.tests.nl");
+
+        var duplicateSetup = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Message.Contains("setup block"));
+        AssertPlaygroundSpan(duplicateSetup, line: 5, column: 1, length: "setup".Length);
+
+        var duplicateTeardown = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL306" &&
+                          diagnostic.Message.Contains("teardown block"));
+        AssertPlaygroundSpan(duplicateTeardown, line: 13, column: 1, length: "teardown".Length);
+    }
+
+    [Fact]
+    public void Check_LinterDiagnostic_PreservesFullSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                Message := "hi"
+                print Message
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL008" &&
+                          diagnostic.Message.Contains("Message"));
+
+        Assert.True(result.Ok);
+        Assert.Equal("info", diagnostic.Severity);
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("Message".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Check_UnusedShorthandVariable_PreservesVariableNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                asdf := "meow"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL001" &&
+                          diagnostic.Message.Contains("asdf"));
+
+        Assert.False(result.Ok);
+        Assert.Equal("error", diagnostic.Severity);
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("asdf".Length, diagnostic.Length);
+    }
+
+    private static void AssertPlaygroundSpan(PlaygroundDiagnostic diagnostic, int line, int column, int length)
+    {
+        Assert.Equal(line, diagnostic.Line);
+        Assert.Equal(column, diagnostic.Column);
+        Assert.Equal(length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Check_ObjectInitializerEquals_PreservesPropertyNameSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name: string
+            }
+
+            func main() {
+                user := new User { Name = "Ada" }
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("Object initializer member 'Name' uses '='"));
+
+        Assert.Equal(8, diagnostic.Line);
+        Assert.Equal(24, diagnostic.Column);
+        Assert.Equal("Name".Length, diagnostic.Length);
+        Assert.Contains("colon", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Name: value", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_ObjectInitializerMissingValue_PreservesPropertyNameSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name: string
+            }
+
+            func main() {
+                user := new User { Name: }
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected a value for object initializer member 'Name'"));
+
+        AssertPlaygroundSpan(diagnostic, line: 8, column: 24, length: "Name".Length);
+        Assert.Contains("Name: value", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("func () {\n}", "Expected function name", "func")]
+    [InlineData("class {\n}", "Expected class name", "class")]
+    [InlineData("struct {\n}", "Expected struct name", "struct")]
+    [InlineData("record {\n}", "Expected record name", "record")]
+    [InlineData("interface {\n}", "Expected interface name", "interface")]
+    [InlineData("union {\n}", "Expected union name", "union")]
+    [InlineData("enum {\n}", "Expected enum name", "enum")]
+    [InlineData("type = int", "Expected type alias name", "type")]
+    public void Check_MissingDeclarationName_PreservesDeclarationKeywordSpanForMarkers(
+        string declarationSource,
+        string message,
+        string keyword)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{declarationSource}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 1, length: keyword.Length);
+    }
+
+    [Theory]
+    [InlineData("func main(: string) {\n}", "Expected parameter name", 13, "string")]
+    [InlineData("func main(name:) {\n}", "Expected type name", 11, "name")]
+    [InlineData("func main(name: string, ) {\n}", "Expected parameter name", 11, "name: string,")]
+    [InlineData("func main<T,>() {\n}", "Expected type parameter name", 10, "<T,>")]
+    [InlineData("class Box<> {\n}", "Expected type parameter name", 10, "<>")]
+    public void Check_MalformedParameterLists_PreserveVisibleTokenSpansForMarkers(
+        string declarationSource,
+        string message,
+        int column,
+        string highlightedText)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{declarationSource}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: column, length: highlightedText.Length);
+    }
+
+    [Theory]
+    [InlineData("class User {\n    Name:\n}", "Expected type name", 4, 5, "Name")]
+    [InlineData("class User {\n    Items: List<>\n}", "Expected type name", 4, 12, "List<>")]
+    [InlineData("func main() {\n    value := new\n}", "Expected type name", 4, 14, "new")]
+    [InlineData("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}", "Expected ':' after object initializer member 'Name'", 7, 24, "Name")]
+    public void Check_AdditionalMalformedConstructs_PreserveVisibleTokenSpansForMarkers(
+        string sourceBody,
+        string message,
+        int line,
+        int column,
+        string highlightedText)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{sourceBody}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: line, column: column, length: highlightedText.Length);
+    }
+
+    [Fact]
+    public void Check_MissingFieldTypeBeforeNextField_PreservesBothOwningSpansForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name:
+                Items: List<>
+            }
+            """);
+
+        var missingNameType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected type name") &&
+                          diagnostic.Line == 4 &&
+                          diagnostic.Column == 5);
+        AssertPlaygroundSpan(missingNameType, line: 4, column: 5, length: "Name".Length);
+
+        var emptyGenericArgument = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected type name") &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Column == 12);
+        AssertPlaygroundSpan(emptyGenericArgument, line: 5, column: 12, length: "List<>".Length);
+    }
+
+    [Fact]
+    public void Check_IncompleteMemberAccess_PointsAtReceiver()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada"
+                name.
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected member name"));
+
+        Assert.Equal(5, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
+        Assert.Contains("dot", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL313" ||
+                          diagnostic.Message.Contains("<error>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_IncompleteMemberAccessBeforeCall_PreservesReceiverSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada"
+                name.()
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected member name"));
+
+        AssertPlaygroundSpan(diagnostic, line: 5, column: 5, length: "name".Length);
+        Assert.Contains("dot (.)", diagnostic.Explanation, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL313" ||
+                          diagnostic.Message.Contains("<error>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Check_UnterminatedStringLiteral_PreservesSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada
+                print name
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+        Assert.Equal("    name := \"Ada", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("triple-quoted string", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnterminatedStringLiteral_WithEscapedQuote_PreservesSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name := "Ada\"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(6, diagnostic.Length);
+        Assert.Equal("    name := \"Ada\\\"", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnterminatedCharacterLiteral_PreservesSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                letter := 'a
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated character literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(15, diagnostic.Column);
+        Assert.Equal(2, diagnostic.Length);
+        Assert.Equal("    letter := 'a", diagnostic.SourceSnippet);
+        Assert.Contains("closing quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("single character", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnterminatedTripleQuoteStringLiteral_PreservesOpeningDelimiterSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("package Playground\n\nfunc main() {\n    text := \"\"\"hello\nworld\n}\n");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated triple-quoted string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(3, diagnostic.Length);
+        Assert.Equal("    text := \"\"\"hello", diagnostic.SourceSnippet);
+        Assert.Contains("closing triple quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("closing triple quote", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnterminatedInterpolatedRawStringLiteral_PreservesOpeningDelimiterSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("package Playground\n\nfunc main() {\n    text := $\"\"\"hello {name}\n}\n");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL105" &&
+                          diagnostic.Message.Contains("Unterminated interpolated raw string literal"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal(4, diagnostic.Length);
+        Assert.Equal("    text := $\"\"\"hello {name}", diagnostic.SourceSnippet);
+        Assert.Contains("closing triple quote", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("closing triple quote", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_MissingClosingParen_PreservesCallOwnerSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                print("hello"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL107" &&
+                          diagnostic.Message.Contains("Missing closing ')'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
+        Assert.Equal("    print(\"hello\"", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_UnclosedEmptyCallArgumentList_PreservesCallOwnerSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                print(
+                greeting.CompareTo("ter")
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL107" &&
+                          diagnostic.Message.Contains("Missing closing ')'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("print".Length, diagnostic.Length);
+        Assert.Equal("    print(", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
+    }
+
+    [Fact]
+    public void Check_UnclosedEmptyFunctionParameterList_PreservesFunctionNameSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("package Playground\n\nfunc main(\n");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL107" &&
+                          diagnostic.Message.Contains("Missing closing ')'"));
+
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(6, diagnostic.Column);
+        Assert.Equal("main".Length, diagnostic.Length);
+        Assert.Equal("func main(", diagnostic.SourceSnippet);
+        Assert.Contains("closing ')'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing parenthesis", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_MissingClosingBrace_PreservesFunctionNameSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                print "hi"
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL106" &&
+                          diagnostic.Message.Contains("Missing closing '}'"));
+
+        Assert.Equal(3, diagnostic.Line);
+        Assert.Equal(6, diagnostic.Column);
+        Assert.Equal("main".Length, diagnostic.Length);
+        Assert.Equal("func main() {", diagnostic.SourceSnippet);
+        Assert.Contains("closing brace", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_MissingClosingBracket_PreservesAssignedVariableSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                nums := [1, 2
+                print nums
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL108" &&
+                          diagnostic.Message.Contains("Missing closing ']'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("nums".Length, diagnostic.Length);
+        Assert.Equal("    nums := [1, 2", diagnostic.SourceSnippet);
+        Assert.Contains("closing ']'", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("matching closing bracket", diagnostic.Hint, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Check_MissingParameterColon_PreservesParameterNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func greet(name string): string {
+                return name
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected ':' after parameter name"));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 12, length: "name".Length);
+        Assert.Equal("func greet(name string): string {", diagnostic.SourceSnippet);
+        Assert.Contains("name: Type", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_MissingFieldColon_PreservesFieldNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name string
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected ':' or ':=' after field name"));
+
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 5, length: "Name".Length);
+        Assert.Equal("    Name string", diagnostic.SourceSnippet);
+        Assert.Contains("Name: Type", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_MissingFunctionReturnColon_PreservesFunctionNameSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func answer() int {
+                return 1
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected ':' before return type"));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 6, length: "answer".Length);
+        Assert.Equal("func answer() int {", diagnostic.SourceSnippet);
+        Assert.Contains("func name(...): Type", diagnostic.Hint, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Check_DefaultParserSpan_PreservesVisibleTokenSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            enum Status: decimal {
+                Open
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101" &&
+                          diagnostic.Message.Contains("Unsupported enum backing type"));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 14, length: "decimal".Length);
+        Assert.Equal("enum Status: decimal {", diagnostic.SourceSnippet);
+    }
+
+    [Fact]
+    public void Check_DefaultSemanticSpan_PreservesVisibleTokenSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main(): int {
+                let value: var = 42
+                return value
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("'var' is not a type"));
+
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 16, length: "var".Length);
+        Assert.Equal("    let value: var = 42", diagnostic.SourceSnippet);
+    }
+
+    [Fact]
+    public void Check_MissingFileImport_PreservesQuotedPathSpan()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            import "./Missing"
+
+            func main() {
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL701");
+
+        AssertPlaygroundSpan(diagnostic, line: 1, column: 8, length: "\"./Missing\"".Length);
+        Assert.Equal("import \"./Missing\"", diagnostic.SourceSnippet);
+    }
+
+    [Fact]
+    public void CheckProject_FileImportCollision_PreservesDuplicateQuotedPathSpan()
+    {
+        var result = new PlaygroundCompiler().CheckProject(
+            [
+                new PlaygroundFile("Program.nl", """
+                    import "./A"
+                    import "./B"
+
+                    func main() {
+                    }
+                    """),
+                new PlaygroundFile("A.nl", """
+                    class Shared {
+                    }
+                    """),
+                new PlaygroundFile("B.nl", """
+                    class Shared {
+                    }
+                    """)
+            ],
+            "Program.nl");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL702" &&
+                          diagnostic.Message.Contains("Shared", StringComparison.Ordinal));
+
+        AssertPlaygroundSpan(diagnostic, line: 2, column: 8, length: "\"./B\"".Length);
+        Assert.Equal("import \"./B\"", diagnostic.SourceSnippet);
+        Assert.NotNull(diagnostic.Suggestion);
+        Assert.NotNull(diagnostic.Hint);
+        Assert.Contains("alias", diagnostic.Suggestion);
+        Assert.Contains("\"./A\"", diagnostic.Hint);
+        Assert.Contains("\"./B\"", diagnostic.Hint);
+    }
+
+    [Fact]
+    public void Check_MissingInitializer_PreservesVariableNameSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                name :=
+                    greeting := "hi"
+                print greeting
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected an initializer expression after ':='"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
+        Assert.Equal("    name :=", diagnostic.SourceSnippet);
+        Assert.Contains("initializer expression", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL301" && diagnostic.Message.Contains("greeting"));
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL001" && diagnostic.Message.Contains("name"));
+    }
+
+    [Fact]
+    public void Check_MissingAssignmentValue_PreservesTargetSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                value := 1
+                value =
+                print value
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected expression after '='"));
+
+        AssertPlaygroundSpan(diagnostic, line: 5, column: 5, length: "value".Length);
+        Assert.Equal("    value =", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
+    }
+
+    [Fact]
+    public void Check_DanglingBinaryOperator_PreservesExpressionSegmentSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                value := 1 +
+                print value
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected expression after '+'"));
+
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 14, length: "1 +".Length);
+        Assert.Equal("    value := 1 +", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101");
+    }
+
+    [Fact]
+    public void Check_MissingKeywordsAndKeywordExpressions_PreserveVisibleKeywordSpans()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                foreach item items {
+                    print item
+                }
+
+                if {
+                    print "missing condition"
+                }
+
+                while {
+                    print "missing condition"
+                }
+
+                print
+                    value := 1
+            }
+            """);
+
+        var missingIn = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected 'in' between the loop variable and collection"));
+        AssertPlaygroundSpan(missingIn, line: 4, column: 5, length: "foreach".Length);
+
+        var missingIfCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected a condition expression after 'if'"));
+        AssertPlaygroundSpan(missingIfCondition, line: 8, column: 5, length: "if".Length);
+
+        var missingWhileCondition = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected a condition expression after 'while'"));
+        AssertPlaygroundSpan(missingWhileCondition, line: 12, column: 5, length: "while".Length);
+
+        var missingPrintExpression = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected an expression to print after 'print'"));
+        AssertPlaygroundSpan(missingPrintExpression, line: 16, column: 5, length: "print".Length);
+
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL202" &&
+                          diagnostic.Message.Contains("condition in a 'while' loop", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("""
+func main() {
+    + 1
+}
+""", "NL103", "Prefix '+'", 4, 5, "+ 1")]
+    [InlineData("""
+func main() {
+    .Name
+}
+""", "NL102", "Expected expression before '.'", 4, 5, ".Name")]
+    [InlineData("""
+func main() {
+    if true
+}
+""", "NL102", "Expected statement body", 4, 5, "if")]
+    [InlineData("""
+func main() {
+    for item in items
+}
+""", "NL102", "Expected statement body", 4, 5, "for")]
+    [InlineData("""
+func main() {
+    value := await
+}
+""", "NL102", "Expected an expression to await after 'await'", 4, 14, "await")]
+    [InlineData("""
+func main() {
+    value := must
+}
+""", "NL102", "Expected a nullable expression to unwrap after 'must'", 4, 14, "must")]
+    [InlineData("""
+func main() {
+    f := x =>
+}
+""", "NL102", "Expected a lambda body expression after '=>'", 4, 10, "x =>")]
+    [InlineData("""
+func main() {
+    result := condition ? 1 :
+}
+""", "NL102", "Expected an else expression after ':'", 4, 15, "condition ? 1 :")]
+    public void Check_RecoverySpans_AvoidPunctuationOnlyMarkers(
+        string sourceBody,
+        string code,
+        string message,
+        int line,
+        int column,
+        string highlightedText)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{sourceBody}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == code &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: line, column: column, length: highlightedText.Length);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101" ||
+                          diagnostic.Code == "NL313");
+    }
+
+    [Fact]
+    public void Check_UsingTupleDeconstruction_PreservesTuplePatternSpanForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func getPair(): (int, int) {
+                return (1, 2)
+            }
+
+            func main() {
+                using let (left, right) := getPair() {
+                    print "ok"
+                }
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL103" &&
+                          diagnostic.Message.Contains("Using statement requires a variable declaration"));
+
+        AssertPlaygroundSpan(diagnostic, line: 8, column: 15, length: "(left, right)".Length);
+        Assert.Equal("    using let (left, right) := getPair() {", diagnostic.SourceSnippet);
+        Assert.Contains("single variable declarations", diagnostic.Explanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("using let resource", diagnostic.Hint, StringComparison.Ordinal);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Message.Contains("<error>", StringComparison.Ordinal) ||
+                          diagnostic.Message.Contains("can't determine the type", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Check_ThrowMissingExpression_DoesNotMarkFollowingStatementUnreachable()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                throw
+                    greeting := "hi"
+            }
+            """);
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected an exception expression after 'throw'"));
+
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("throw".Length, diagnostic.Length);
+        Assert.Equal("    throw", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL312");
+    }
+
+    [Fact]
     public void Format_ValidProgram_ReturnsFormattedCode()
     {
         var result = new PlaygroundCompiler().Format("func main(){print 5}");
@@ -275,10 +1750,11 @@ public sealed class PlaygroundCompilerTests
             """);
 
         Assert.False(result.Ok);
-        Assert.Contains(result.Diagnostics, diagnostic =>
+        var diagnostic = Assert.Single(result.Diagnostics, diagnostic =>
             diagnostic.Code == "NL303"
             && diagnostic.Message.Contains("ToUp")
             && diagnostic.Message.Contains("string"));
+        AssertPlaygroundSpan(diagnostic, line: 4, column: 26, length: "ToUp".Length);
     }
 
     [Fact]

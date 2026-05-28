@@ -134,9 +134,9 @@ Parser uses `Consume()` / `Expect()`-style helpers:
 Current behavior:
 - Collects parse diagnostics and still returns a partial `CompilationUnit`.
 - Recovers at declaration, member, statement, and block boundaries.
-- Uses line/column information to avoid swallowing the next same-indent statement after a dangling operator.
+- Uses line/column information and statement-start lookahead to avoid swallowing the next statement after a dangling operator or required-expression anchor, including editor auto-indent after `:=`.
 - Suppresses cascades with panic-mode recovery, then resets at the next useful boundary.
-- Emits concrete diagnostics for common editing mistakes such as incomplete member access, missing braces, dangling binary operators, and C#-style `=` inside N# object initializers.
+- Emits concrete diagnostics for common editing mistakes such as incomplete member access, missing braces, missing line-ending or empty-list `)` / `]` delimiters, missing required expressions after statement/declaration anchors, malformed string/character/raw string literals, dangling binary operators, and C#-style `=` inside N# object initializers.
 
 Partial ASTs use placeholder nodes such as `<error>` only to keep downstream tooling alive; analyzer and tooling paths treat these as unknown values instead of reporting secondary undefined-symbol cascades.
 

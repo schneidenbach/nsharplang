@@ -166,7 +166,14 @@ public record FileImport(
     string Path,
     string? Alias,
     int Line,
-    int Column) : Statement(Line, Column);
+    int Column) : Statement(Line, Column)
+{
+    public int PathColumn { get; init; } = Column;
+    public int PathLength { get; init; } = string.IsNullOrEmpty(Path) ? 1 : Path.Length;
+
+    public int DiagnosticColumn => PathColumn > 0 ? PathColumn : Column;
+    public int DiagnosticLength => PathLength > 0 ? PathLength : 1;
+}
 
 // Namespace import: import System.Collections.Generic [as Alias]
 public record NamespaceImport(

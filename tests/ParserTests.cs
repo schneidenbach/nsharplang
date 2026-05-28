@@ -3097,6 +3097,20 @@ func main() {
     }
 
     [Fact]
+    public void TestFileImportTracksQuotedPathSpan()
+    {
+        var importLine = "import \"Models/Person\"";
+
+        var cu = Parse(importLine);
+        var fileImport = Assert.IsType<FileImport>(Assert.Single(cu.FileImports));
+
+        Assert.Equal(importLine.IndexOf('"') + 1, fileImport.PathColumn);
+        Assert.Equal("\"Models/Person\"".Length, fileImport.PathLength);
+        Assert.Equal(fileImport.PathColumn, fileImport.DiagnosticColumn);
+        Assert.Equal(fileImport.PathLength, fileImport.DiagnosticLength);
+    }
+
+    [Fact]
     public void TestFileImportWithAlias()
     {
         var source = @"
@@ -3284,6 +3298,42 @@ func main() {
         var stateLiteral = stateProp.Pattern as LiteralPattern;
         Assert.NotNull(stateLiteral);
         // Use stateLiteral! for all following references
+    }
+
+    [Fact]
+    public void TestPropertyPatternSourceLocations()
+    {
+        var source = """
+func Test() {
+    result := match person {
+        { Address: { City: city, State: "NY" } } => city
+    }
+}
+""";
+
+        var cu = Parse(source);
+        var funcDecl = Assert.IsType<FunctionDeclaration>(cu.Declarations[0]);
+        var varDecl = Assert.IsType<VariableDeclarationStatement>(funcDecl.Body!.Statements[0]);
+        var matchExpr = Assert.IsType<MatchExpression>(varDecl.Initializer);
+        var objectPattern = Assert.IsType<ObjectPattern>(matchExpr.Cases[0].Pattern);
+
+        var addressProp = Assert.Single(objectPattern.Properties);
+        Assert.Equal("Address", addressProp.Name);
+        Assert.Equal(3, addressProp.Line);
+        Assert.Equal(11, addressProp.Column);
+
+        var nestedObj = Assert.IsType<ObjectPattern>(addressProp.Pattern);
+        Assert.Equal(2, nestedObj.Properties.Count);
+
+        var cityProp = nestedObj.Properties[0];
+        Assert.Equal("City", cityProp.Name);
+        Assert.Equal(3, cityProp.Line);
+        Assert.Equal(22, cityProp.Column);
+
+        var stateProp = nestedObj.Properties[1];
+        Assert.Equal("State", stateProp.Name);
+        Assert.Equal(3, stateProp.Line);
+        Assert.Equal(34, stateProp.Column);
     }
 
     [Fact]

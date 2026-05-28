@@ -979,10 +979,10 @@ public class CompletionEngine
     private static bool IsCompleteLiteralReceiverToken(Token token, string sourceSuffix)
         => token.Type switch
         {
-            TokenType.StringLiteral => token.Value.EndsWith("\"", StringComparison.Ordinal),
-            TokenType.TripleQuoteStringLiteral => sourceSuffix.EndsWith("\"\"\"", StringComparison.Ordinal),
-            TokenType.InterpolatedRawStringLiteral => token.Value.EndsWith("\"\"\"", StringComparison.Ordinal),
-            TokenType.CharLiteral => token.Value.EndsWith("'", StringComparison.Ordinal),
+            TokenType.StringLiteral => token.IsTerminated,
+            TokenType.TripleQuoteStringLiteral => token.IsTerminated && sourceSuffix.EndsWith("\"\"\"", StringComparison.Ordinal),
+            TokenType.InterpolatedRawStringLiteral => token.IsTerminated,
+            TokenType.CharLiteral => token.IsTerminated,
             _ => true
         };
 

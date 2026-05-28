@@ -98,6 +98,21 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public void WithSnippet_DefaultSpan_UsesNearestVisibleToken()
+    {
+        var error = CompilerError.WithSnippet(
+            ErrorCode.InvalidSyntax,
+            "Expected expression",
+            "test.nl",
+            3,
+            1,
+            "    print value");
+
+        Assert.Equal(5, error.Column);
+        Assert.Equal("print".Length, error.Length);
+    }
+
+    [Fact]
     public void FormatForTooling_PreservesRichContextWithoutLocation()
     {
         var error = ErrorMessageBuilder.TypeMismatch(
