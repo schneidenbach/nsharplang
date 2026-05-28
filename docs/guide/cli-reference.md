@@ -238,16 +238,25 @@ nlc completion bash > /etc/bash_completion.d/nlc
 
 ## Lint Rules
 
+N# is near-zero-warnings: every active lint rule is a build-blocking **error**. Correctness, safety, and hygiene are enforced; pure style is handled by `nlc format`, not by diagnostics. See `docs/DESIGN.md` → Strictness.
+
 | Code | Severity | Description |
 |------|----------|-------------|
 | NL001 | error | Unused variable |
 | NL002 | error | Missing import |
 | NL703 | error | Circular file import; diagnostic includes the import cycle path and a dependency-inversion/shared-file suggestion |
-| NL003 | warning | Unnecessary null check on value type |
-| NL004 | warning | Async function without await |
-| NL005 | info | Use pattern matching |
+| NL003 | error | Unnecessary null check on value type |
+| NL004 | error | Async function without await |
 | NL006 | error | Unreachable code |
 | NL010 | error | Unused import |
+| NL011 | error | Empty catch block |
+| NL012 | error | Unused parameter |
+| NL016 | error | Redundant null check on an always-non-null expression |
+| NL020 | error | Shadowed variable |
+
+Compiler safety diagnostics are likewise build-blocking errors: `NL905` (possible null access, flow-based), `NL903` (visibility convention), `NL904` (obsolete usage), and `NL907` (nullability).
+
+Pure-style rules that used to emit `info`/`warning` diagnostics — `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014`/`NL906` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block) — have been removed and folded into `nlc format`.
 
 ## Inline Lint Suppression
 

@@ -1612,6 +1612,42 @@ When you compile N# code to a library, C# consumers should:
 
 This is the experiment: can we get better types while keeping C# interop simple?
 
+## Strictness
+
+N# is a **near-zero-warnings** language. The compiler is deliberately strict: it is the "Go for .NET" stance applied to diagnostics. Go and Rust earned developer trust by being *predictable* — a clean build means the program is actually well-formed, not "well-formed except for the 47 warnings everyone scrolled past." N# adopts the same contract.
+
+### The Core Rule
+
+**Correctness and safety issues are hard errors. Pure style is handled by the formatter, not by diagnostics.**
+
+There is intentionally no large middle tier of "warnings you can ignore." A warning that never blocks a build is a warning that rots: it accumulates, gets suppressed wholesale, and trains developers to stop reading compiler output. N# refuses that outcome. If something is wrong enough to flag, it is wrong enough to fail the build. If it is merely a stylistic preference, the formatter rewrites it and there is nothing to flag.
+
+### Why a strict compiler beats a permissive one
+
+A tight, strict compiler with Elm-level messages is strictly better than a permissive one with a wall of warnings:
+
+- **Trust:** A green build means correct. There is no "known-noisy" baseline to mentally subtract.
+- **Signal over noise:** Every diagnostic is actionable. Because diagnostics are rare, each one deserves — and gets — Elm-level context, a precise span on the offending token, and a concrete suggestion.
+- **No broken-windows decay:** Permissive languages accumulate ignored warnings until the output is worthless. Near-zero-warnings keeps the signal alive.
+- **LLM-friendliness:** An agent driving `nlc check` gets a binary, unambiguous answer — clean or not — instead of having to triage severity tiers it cannot safely rank.
+
+### What this means in practice
+
+- **Safety becomes errors.** Flow-based null safety, nullability mismatches, definite-assignment gaps, visibility-convention violations, obsolete API usage, and unused-result misuse are build-blocking errors, not warnings.
+- **Hygiene becomes errors.** Unused variables, unused parameters, unreachable code, unused imports, empty `catch` blocks, redundant null checks, and shadowed variables fail the build. (Prefix an intentionally unused local with `_` to opt out where the language allows it.)
+- **Pure style is deleted as a diagnostic.** Rules that only express formatting taste — prefer interpolation, prefer `const`, prefer `readonly`, empty-block layout, casing of locals, pattern-matching style, redundant type annotations — are not diagnostics at all. The formatter is the single source of truth for canonical layout, and `nlc format` rewrites code to it.
+
+### Strict checks N# enforces
+
+- **Strict null-flow:** Dereferencing a nullable value without first guarding it (e.g. an `if x != null` narrowing, `?.`, or `??`) is an error. Null safety is flow-based, not syntactic.
+- **Unused-result enforcement:** A must-use or error-returning result must be used or explicitly discarded with `_ =`. Silently dropping a result that carries an error or a required value is an error.
+- **Shadowing is an error:** Declaring a local that shadows a name in an enclosing scope is rejected, so reads always bind to the obvious declaration.
+- **Definite-assignment hardening:** Non-nullable fields and `out` parameters must be assigned on every path before use; the analyzer treats gaps as errors rather than letting null leak in.
+
+### The escape hatch
+
+Strictness is calibrated, not dogmatic. Where a real diagnostic is genuinely a false positive, N# supports targeted inline suppression (`// nlc:ignore <code>`) and `.editorconfig` overrides for configurable rules — but the *default* posture is strict, and the product ships strict.
+
 ## Open Design Questions
 
 (To be filled in through design discussions)
