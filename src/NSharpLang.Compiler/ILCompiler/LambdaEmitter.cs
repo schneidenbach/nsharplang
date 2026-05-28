@@ -33,14 +33,225 @@ public partial class ILCompiler
 
         if (capturedVariables.Count == 0)
         {
-            // Simple lambda - no closures needed
+            // Simple lambda - no real captures, emit as a static method (no display class).
             EmitSimpleLambda(lambda, contextualDelegateType);
+        }
+        else if (CanEmitAsThisOnlyInstanceLambda(capturedVariables))
+        {
+            // The lambda only captures the enclosing instance ('this') and no real locals
+            // or parameters. Emit it as an instance method bound to the existing 'this'
+            // instead of allocating a <>c__DisplayClass closure.
+            EmitInstanceThisLambda(lambda, contextualDelegateType);
         }
         else
         {
-            // Lambda with closures - need to create a display class
+            // Lambda with real captures - need to create a display class
             EmitClosureLambda(lambda, capturedVariables, contextualDelegateType);
         }
+    }
+
+    /// <summary>
+    /// Determines whether a lambda whose only capture is the enclosing instance ('this')
+    /// can be emitted as an instance method bound directly to the existing 'this',
+    /// avoiding a display-class allocation. This requires that 'this' is a genuine arg0
+    /// instance reference (not itself a captured field of an enclosing closure) and that
+    /// there are no other lifted captures.
+    /// </summary>
+    private bool CanEmitAsThisOnlyInstanceLambda(HashSet<string> capturedVariables)
+    {
+        if (capturedVariables.Count != 1 || !capturedVariables.Contains(ThisCaptureName))
+        {
+            return false;
+        }
+
+        if (!_currentHasThis || _currentTypeBuilder == null)
+        {
+            return false;
+        }
+
+        // Value-type instances ('this' is a managed pointer at arg0) cannot be bound directly
+        // to a delegate without boxing a copy, which would change capture semantics. Let those
+        // fall back to the display-class path, which copies 'this' by value into the closure.
+        if (IsValueTypeLike(_currentTypeBuilder))
+        {
+            return false;
+        }
+
+        // If 'this' is currently reached through a captured-this field (i.e. we are already
+        // inside a closure's display class), arg0 is the display-class instance, not the real
+        // 'this'. Fall back to the display-class path so the capture is threaded correctly.
+        return GetCapturedThisField() == null;
+    }
+
+    /// <summary>
+    /// Emit a lambda that only captures the enclosing instance as an instance method on the
+    /// current type, binding the resulting delegate to the existing 'this'. No closure class
+    /// is allocated.
+    /// </summary>
+    private void EmitInstanceThisLambda(LambdaExpression lambda, Type? contextualDelegateType)
+    {
+        if (_currentIL == null || _programType == null)
+            throw new InvalidOperationException("No IL generator context");
+
+        var ownerType = _currentTypeBuilder
+            ?? throw new InvalidOperationException("No owning type available for instance lambda emission");
+
+        GetLambdaSignature(lambda, out var parameterTypes, out var returnType);
+
+        // Create an instance method for the lambda on the current type.
+        var lambdaMethod = ownerType.DefineMethod(
+            $"<Lambda>_{_lambdaCounter++}",
+            MethodAttributes.Private | MethodAttributes.HideBySig,
+            returnType,
+            parameterTypes);
+
+        var il = lambdaMethod.GetILGenerator();
+
+        // Save current context
+        var savedIL = _currentIL;
+        var savedLocals = _locals;
+        var savedParameters = _parameters;
+        var savedParameterTypes = _parameterTypes;
+        var savedByRefParameters = _byRefParameters;
+        var savedInferredLocalTypes = _inferredLocalTypes;
+        var savedCurrentReturnType = _currentReturnType;
+        var savedCurrentAsyncReturnType = _currentAsyncReturnType;
+        var savedCurrentAsyncResultType = _currentAsyncResultType;
+        var savedCurrentAsyncReturnsValueTask = _currentAsyncReturnsValueTask;
+        var savedCurrentGeneratorReturnType = _currentGeneratorReturnType;
+        var savedCurrentYieldElementType = _currentYieldElementType;
+        var savedCurrentYieldListLocal = _currentYieldListLocal;
+        var savedCurrentYieldBreakLabel = _currentYieldBreakLabel;
+        var savedExpectedExpressionType = _expectedExpressionType;
+        var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
+        var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
+        var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
+        var savedLiftedIdentifiers = _liftedIdentifiers;
+        var savedLiftedClosureFields = _liftedClosureFields;
+        var savedClosureFields = _closureFields;
+        var savedCurrentHasThis = _currentHasThis;
+        var localFunctionDefinition = _pendingLocalFunctionDefinition;
+
+        // Set up lambda context
+        _currentIL = il;
+        var bodyReturnType = returnType;
+        if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Async) == true
+            && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
+        {
+            _currentAsyncReturnType = returnType;
+            _currentAsyncResultType = asyncResultType;
+            _currentAsyncReturnsValueTask = returnsValueTask;
+            bodyReturnType = asyncResultType ?? typeof(void);
+        }
+
+        InitializeBodyContextForBody(bodyReturnType, lambda.BlockBody, lambda.ExpressionBody, lambda.Parameters);
+        _inferredLocalTypes = null;
+        // The lambda body still runs against the real 'this' (arg0), so member/this access
+        // resolves directly. No captured-this field is in play.
+        _currentHasThis = true;
+        _closureFields = null;
+        _expectedExpressionType = null;
+
+        if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Generator) == true)
+        {
+            if (!TryGetSequenceElementType(returnType, out var yieldElementType, out _))
+            {
+                throw new InvalidOperationException($"Generator local function must return a sequence type, but got {returnType}");
+            }
+
+            _currentGeneratorReturnType = returnType;
+            _currentYieldElementType = yieldElementType;
+            _currentYieldBreakLabel = _currentIL.DefineLabel();
+            var listType = typeof(List<>).MakeGenericType(yieldElementType);
+            _currentYieldListLocal = _currentIL.DeclareLocal(listType);
+            var listCtor = ResolveCollectionConstructor(listType, constructor => HasParameterCount(constructor, 0))
+                ?? throw new InvalidOperationException($"Could not resolve constructor for {listType}");
+            _currentIL.Emit(OpCodes.Newobj, listCtor);
+            _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
+        }
+
+        // Register parameters (offset by 1 for 'this')
+        RegisterParameterContext(lambda.Parameters, parameterTypes, 1);
+
+        // Emit body
+        if (lambda.ExpressionBody != null)
+        {
+            if (_currentAsyncReturnType != null)
+            {
+                if (_currentAsyncResultType != null)
+                {
+                    EmitExpressionWithExpectedType(lambda.ExpressionBody, _currentAsyncResultType);
+                }
+                else
+                {
+                    EmitExpression(lambda.ExpressionBody);
+                    if (GetExpressionType(lambda.ExpressionBody) != typeof(void))
+                    {
+                        il.Emit(OpCodes.Pop);
+                    }
+                }
+
+                EmitWrapCurrentAsyncReturn();
+            }
+            else
+            {
+                EmitExpressionWithExpectedType(lambda.ExpressionBody, returnType);
+            }
+
+            il.Emit(OpCodes.Ret);
+        }
+        else if (lambda.BlockBody != null)
+        {
+            EmitStatement(lambda.BlockBody);
+
+            if (_currentGeneratorReturnType != null)
+            {
+                il.MarkLabel(_currentYieldBreakLabel!.Value);
+                EmitGeneratorReturnValue(_currentGeneratorReturnType, _currentYieldListLocal!);
+                il.Emit(OpCodes.Ret);
+            }
+            else if (_currentAsyncReturnType != null && _currentAsyncResultType == null)
+            {
+                EmitWrapCurrentAsyncReturn();
+                il.Emit(OpCodes.Ret);
+            }
+            else if (returnType == typeof(void))
+            {
+                il.Emit(OpCodes.Ret);
+            }
+        }
+
+        // Restore context
+        _currentIL = savedIL;
+        _locals = savedLocals;
+        _parameters = savedParameters;
+        _parameterTypes = savedParameterTypes;
+        _byRefParameters = savedByRefParameters;
+        _inferredLocalTypes = savedInferredLocalTypes;
+        _currentReturnType = savedCurrentReturnType;
+        _currentAsyncReturnType = savedCurrentAsyncReturnType;
+        _currentAsyncResultType = savedCurrentAsyncResultType;
+        _currentAsyncReturnsValueTask = savedCurrentAsyncReturnsValueTask;
+        _currentGeneratorReturnType = savedCurrentGeneratorReturnType;
+        _currentYieldElementType = savedCurrentYieldElementType;
+        _currentYieldListLocal = savedCurrentYieldListLocal;
+        _currentYieldBreakLabel = savedCurrentYieldBreakLabel;
+        _expectedExpressionType = savedExpectedExpressionType;
+        _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
+        _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
+        _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
+        _liftedIdentifiers = savedLiftedIdentifiers;
+        _liftedClosureFields = savedLiftedClosureFields;
+        _closureFields = savedClosureFields;
+        _currentHasThis = savedCurrentHasThis;
+
+        var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, contextualDelegateType ?? savedExpectedExpressionType);
+
+        // Bind the delegate to the existing 'this' (arg0). The lambda method is private and
+        // non-virtual, so a plain ldftn is always correct.
+        EmitLoadImplicitThisReference();
+        _currentIL.Emit(OpCodes.Ldftn, lambdaMethod);
+        _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(delegateType));
     }
 
     /// <summary>
