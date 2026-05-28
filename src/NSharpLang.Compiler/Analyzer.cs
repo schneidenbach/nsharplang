@@ -16,6 +16,12 @@ namespace NSharpLang.Compiler;
 /// </summary>
 public class Analyzer : IDisposable
 {
+    /// <summary>
+    /// Length of the <c>match</c> keyword. Non-exhaustive-match diagnostics underline
+    /// the <c>match</c> keyword so the squiggle lands on the construct that is incomplete.
+    /// </summary>
+    private const int MatchKeywordLength = 5;
+
     private sealed record FlowNarrowing(string Path, TypeInfo? NarrowedType, NullState? NullState);
 
     private static readonly HashSet<string> BuiltInObjectMembers = new(StringComparer.Ordinal)
@@ -1716,6 +1722,44 @@ public class Analyzer : IDisposable
     private (int Line, int Column, int Length) GetListPatternDiagnosticSpan(ListPattern listPattern)
         => (listPattern.Line, listPattern.Column, GetDelimitedPatternLength(listPattern.Line, listPattern.Column, '[', ']'));
 
+    /// <summary>
+    /// Computes the span for an 'is' expression covering the 'is' keyword through the
+    /// tested type name (e.g. underlines <c>is string</c>). Falls back to the 'is'
+    /// keyword alone when source text is unavailable.
+    /// </summary>
+    private (int Line, int Column, int Length) GetIsExpressionDiagnosticSpan(IsExpression isExpr)
+    {
+        const int IsKeywordLength = 2;
+
+        if (_sourceLines == null || isExpr.Line <= 0 || isExpr.Line > _sourceLines.Length)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        var sourceLine = _sourceLines[isExpr.Line - 1];
+        var start = isExpr.Column - 1;
+        if (start < 0 || start >= sourceLine.Length)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        // Skip the 'is' keyword and any whitespace before the type name.
+        var typeStart = start + IsKeywordLength;
+        while (typeStart < sourceLine.Length && char.IsWhiteSpace(sourceLine[typeStart]))
+            typeStart++;
+
+        if (typeStart >= sourceLine.Length)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        var typeEnd = typeStart;
+        while (typeEnd < sourceLine.Length &&
+               (char.IsLetterOrDigit(sourceLine[typeEnd]) || sourceLine[typeEnd] is '_' or '.' or '<' or '>' or '?' or '[' or ']'))
+        {
+            typeEnd++;
+        }
+
+        if (typeEnd <= typeStart)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        return (isExpr.Line, isExpr.Column, typeEnd - start);
+    }
+
     private int GetDelimitedPatternLength(int line, int column, char openDelimiter, char closeDelimiter)
     {
         if (_sourceLines == null || line <= 0 || line > _sourceLines.Length)
@@ -3058,9 +3102,11 @@ public class Analyzer : IDisposable
                 // Check if pattern is provably impossible
                 if (!IsPatternPossible(valueType, targetType))
                 {
+                    var (impossibleLine, impossibleColumn, impossibleLength) =
+                        GetPatternNameDiagnosticSpan(typePattern);
                     Error(ErrorCode.ImpossiblePattern,
-                        $"This 'is {targetType}' pattern will never match — a '{valueType}' can never be '{targetType}'",
-                        pattern.Line, pattern.Column);
+                        $"This '{targetType}' pattern can never match — a '{valueType}' is never a '{targetType}'",
+                        impossibleLine, impossibleColumn, length: impossibleLength);
                 }
 
                 // Bind the variable if a binding name is provided
@@ -8430,9 +8476,11 @@ public class Analyzer : IDisposable
 
         if (!IsPatternPossible(sourceType, targetType))
         {
+            var (impossibleLine, impossibleColumn, impossibleLength) =
+                GetIsExpressionDiagnosticSpan(isExpr);
             Error(ErrorCode.ImpossiblePattern,
-                $"This 'is {targetType}' check will always be false — a '{sourceType}' can never be '{targetType}'",
-                isExpr.Line, isExpr.Column);
+                $"This 'is {targetType}' check is always false — a '{sourceType}' is never a '{targetType}'",
+                impossibleLine, impossibleColumn, length: impossibleLength);
         }
 
         return BuiltInTypes.Bool;
@@ -8624,7 +8672,8 @@ public class Analyzer : IDisposable
             $"This nullable match doesn't cover {missingText} — handle both 'null' and a non-null value arm",
             match.Line,
             match.Column,
-            "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.");
+            "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.",
+            length: MatchKeywordLength);
     }
 
     private void CheckAnonymousUnionMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
@@ -8669,7 +8718,8 @@ public class Analyzer : IDisposable
             $"This match doesn't cover all anonymous union arms — missing: {string.Join(", ", missingArms)}",
             match.Line,
             match.Column,
-            "Add an arm for each missing type, or add a wildcard `_` arm.");
+            "Add an arm for each missing type, or add a wildcard `_` arm.",
+            length: MatchKeywordLength);
     }
 
     private void CheckMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
@@ -8783,7 +8833,8 @@ public class Analyzer : IDisposable
                     $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
                     match.Line,
                     match.Column,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)));
+                    ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)),
+                    length: MatchKeywordLength);
             }
             else
             {
@@ -8798,7 +8849,7 @@ public class Analyzer : IDisposable
                         match.Line,
                         match.Column,
                         sourceSnippet,
-                        5, // "match" keyword length
+                        MatchKeywordLength,
                         missingCases
                     );
                     _errors.Add(error);
@@ -8807,7 +8858,8 @@ public class Analyzer : IDisposable
                 {
                     var missingCasesStr = string.Join(", ", missingCases);
                     Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
-                        match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
+                        match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr),
+                        length: MatchKeywordLength);
                 }
             }
         }
@@ -9088,7 +9140,8 @@ public class Analyzer : IDisposable
             {
                 var missingStr = string.Join(", ", missingMembers);
                 Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all enum members — missing: {missingStr}",
-                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr));
+                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr),
+                    length: MatchKeywordLength);
             }
         }
         else

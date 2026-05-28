@@ -7490,7 +7490,7 @@ func Main() {
                 x: int = 42
                 result := x is string
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7502,7 +7502,7 @@ func Main() {
                 flag: bool = true
                 result := flag is int
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7569,7 +7569,7 @@ func Main() {
                 c: Cat = new Cat { Name: ""Whiskers"" }
                 result := c is Dog
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7614,7 +7614,7 @@ func Main() {
                     len: int = s.Length
                 }
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7641,7 +7641,7 @@ func Main() {
                 x: int = 5
                 result := x is double
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     #endregion
