@@ -85,7 +85,7 @@ public static class DiagnosticCatalog
                 >= ErrorCode.UnexpectedToken and <= ErrorCode.MissingClosingBracket => DiagnosticCategory.Syntax,
                 >= ErrorCode.TypeNotFound and <= ErrorCode.GenericConstraintViolation => DiagnosticCategory.Type,
                 >= ErrorCode.UndefinedVariable and <= ErrorCode.InvalidExpressionStatement => DiagnosticCategory.Semantic,
-                >= ErrorCode.WrongArgumentCount and <= ErrorCode.InvalidDefaultParameterValue => DiagnosticCategory.Function,
+                >= ErrorCode.WrongArgumentCount and <= ErrorCode.MethodGroupUsedAsValue => DiagnosticCategory.Function,
                 >= ErrorCode.NonExhaustiveMatch and <= ErrorCode.ImpossiblePattern => DiagnosticCategory.Pattern,
                 >= ErrorCode.InvalidOperatorOverload and <= ErrorCode.ConversionOperatorInvalid => DiagnosticCategory.Operator,
                 >= ErrorCode.ImportNotFound and <= ErrorCode.NamespaceNotFound => DiagnosticCategory.Import,

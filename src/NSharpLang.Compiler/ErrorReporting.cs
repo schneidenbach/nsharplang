@@ -56,6 +56,7 @@ public enum ErrorCode
     MultipleParams = 408,
     RequiredParameterAfterOptional = 409,
     InvalidDefaultParameterValue = 410,
+    MethodGroupUsedAsValue = 411,
 
     // Pattern matching errors (500-599)
     NonExhaustiveMatch = 501,
@@ -711,6 +712,9 @@ public static class ErrorSuggestions
             ErrorCode.WrongArgumentCount
                 => "Check the function signature for required parameters",
 
+            ErrorCode.MethodGroupUsedAsValue
+                => "Call the method with parentheses, or pass it to a parameter with a delegate type",
+
             ErrorCode.ReadonlyAssignment
                 => "Readonly fields can only be assigned in constructor",
 
@@ -1148,6 +1152,29 @@ public static class ErrorMessageBuilder
             HumanExplanation = humanExplanation,
             ContextualHint = contextualHint,
             DocsUrl = "https://docs.n-sharp.dev/errors/NL402"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style method group used as value error.
+    /// </summary>
+    public static CompilerError MethodGroupUsedAsValue(string fileName, int line, int column, string sourceSnippet,
+        int length, string methodName)
+    {
+        var humanExplanation = $"`{methodName}` names a method, not a value:";
+        var contextualHint =
+            "Methods need a call site like `name()` before they produce a value.\n" +
+            "A bare method name is only valid when the surrounding API expects a delegate.";
+
+        return new CompilerError(ErrorCode.MethodGroupUsedAsValue, $"Method '{methodName}' must be called or passed to a delegate", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = $"If you meant to use the result, call `{methodName}(...)`. If you meant to pass the method itself, pass it to a parameter with a delegate type.",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL411"
         };
     }
 

@@ -146,7 +146,9 @@ public class Analyzer : IDisposable
     private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
     private int _currentLine; // Tracks last analyzed line for scope end positions
     private bool _suppressNullabilityFlowType;
+    private bool _allowUnboundCallableReference;
     private readonly HashSet<(int Line, int Column, string Path, string Operation)> _reportedNullabilityDiagnostics = new();
+    private readonly HashSet<(int Line, int Column, string Name)> _reportedCallableReferenceDiagnostics = new();
     private bool _disposed;
 
     // Project-level auto-discovered symbols (set once by MultiFileCompiler, persists across Analyze calls)
@@ -1461,7 +1463,7 @@ public class Analyzer : IDisposable
     private void AnalyzeExpressionStatement(ExpressionStatement exprStmt)
     {
         var errorsBefore = _errors.Count;
-        AnalyzeExpression(exprStmt.Expression);
+        AnalyzeExpressionAllowingUnboundCallableReference(exprStmt.Expression);
 
         if (ContainsParserErrorPlaceholder(exprStmt.Expression))
             return;
@@ -3186,7 +3188,110 @@ public class Analyzer : IDisposable
 
         _semanticModel.RecordExpressionType(expr.Line, expr.Column, flowType);
         _semanticModel.RecordExpressionNullState(expr.Line, expr.Column, nullState);
+
+        if (!_allowUnboundCallableReference && IsUnboundCallableReference(expr, flowType))
+        {
+            ReportMethodGroupUsedAsValue(expr, flowType);
+            return BuiltInTypes.Unknown;
+        }
+
         return flowType;
+    }
+
+    private TypeInfo AnalyzeExpressionAllowingUnboundCallableReference(Expression expression)
+    {
+        var previous = _allowUnboundCallableReference;
+        _allowUnboundCallableReference = true;
+        try
+        {
+            return AnalyzeExpression(expression);
+        }
+        finally
+        {
+            _allowUnboundCallableReference = previous;
+        }
+    }
+
+    private bool IsUnboundCallableReference(Expression expression, TypeInfo type)
+    {
+        if (expression is LambdaExpression)
+            return false;
+
+        if (_currentExpectedType != null && CanBindCallableReferenceToExpectedType(_currentExpectedType))
+            return false;
+
+        var resolvedType = ResolveTypeAlias(type);
+        return resolvedType is ReflectionMethodInfo
+            or ReflectionMethodGroupInfo
+            or NSharpMethodGroupInfo
+            || resolvedType is FunctionTypeInfo { Declaration: not null };
+    }
+
+    private bool CanBindCallableReferenceToExpectedType(TypeInfo expectedType)
+    {
+        var resolvedExpected = ResolveTypeAlias(expectedType);
+        return resolvedExpected switch
+        {
+            FunctionTypeInfo => true,
+            GenericTypeInfo { Name: "Func" or "Action" } => true,
+            ReflectionTypeInfo reflection => IsDelegateType(reflection.Type) || IsRuntimeDelegateType(reflection.Type),
+            ObliviousTypeInfo oblivious => CanBindCallableReferenceToExpectedType(oblivious.InnerType),
+            NullableTypeInfo nullable => CanBindCallableReferenceToExpectedType(nullable.InnerType),
+            _ => false
+        };
+    }
+
+    private static bool IsRuntimeDelegateType(Type type)
+        => typeof(Delegate).IsAssignableFrom(type)
+            && type != typeof(Delegate)
+            && type != typeof(MulticastDelegate);
+
+    private void ReportMethodGroupUsedAsValue(Expression expression, TypeInfo type)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expression);
+        var name = GetCallableReferenceName(expression, type);
+        if (!_reportedCallableReferenceDiagnostics.Add((line, column, name)))
+            return;
+
+        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.MethodGroupUsedAsValue(
+                _currentFilePath,
+                line,
+                column,
+                _sourceLines[line - 1],
+                length,
+                name));
+            return;
+        }
+
+        Error(
+            ErrorCode.MethodGroupUsedAsValue,
+            $"Method '{name}' must be called or passed to a delegate",
+            line,
+            column,
+            $"Call `{name}(...)`, or pass `{name}` to a parameter with a delegate type.",
+            length);
+    }
+
+    private static string GetCallableReferenceName(Expression expression, TypeInfo type)
+    {
+        return expression switch
+        {
+            IdentifierExpression identifier => identifier.Name,
+            MemberAccessExpression memberAccess => memberAccess.MemberName,
+            ParenthesizedExpression parenthesized => GetCallableReferenceName(parenthesized.Inner, type),
+            CheckedExpression checkedExpression => GetCallableReferenceName(checkedExpression.Expression, type),
+            UncheckedExpression uncheckedExpression => GetCallableReferenceName(uncheckedExpression.Expression, type),
+            _ => type switch
+            {
+                ReflectionMethodInfo methodInfo => methodInfo.Method.Name,
+                ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 => methodGroup.Methods[0].Name,
+                NSharpMethodGroupInfo methodGroup when methodGroup.Declarations.Count > 0 => methodGroup.Declarations[0].Name,
+                FunctionTypeInfo { Declaration: { } declaration } => declaration.Name,
+                _ => "method"
+            }
+        };
     }
 
     private TypeInfo ApplyNullabilityFlowType(Expression expr, TypeInfo type, NullState nullState)
@@ -4422,27 +4527,34 @@ public class Analyzer : IDisposable
         {
             var clrType = TryConvertTypeInfoToClrType(objectType);
             if (clrType != null)
+            {
                 objectType = new ReflectionTypeInfo(clrType);
+            }
+            else
+            {
+                var bindingClrType = TryConvertTypeInfoToClrTypeForBinding(objectType);
+                if (bindingClrType != null &&
+                    TryResolveReflectionPropertyOrField(bindingClrType, memberName, includeStaticMembers, out var memberType))
+                {
+                    return memberType;
+                }
+            }
+        }
+
+        if (objectType is GenericTypeInfo genericType
+            && TryResolveKnownGenericMember(genericType, memberName, out var knownGenericMember))
+        {
+            return knownGenericMember;
         }
 
         // Handle reflection-based types
         if (objectType is ReflectionTypeInfo reflectionType)
         {
             var type = reflectionType.Type;
+            var memberFlags = GetReflectionMemberFlags(includeStaticMembers);
 
-            // Try property
-            var memberFlags = BindingFlags.Public | BindingFlags.Instance;
-            if (includeStaticMembers)
-                memberFlags |= BindingFlags.Static;
-
-            var property = type.GetProperty(memberName, memberFlags);
-            if (property != null)
-                return NullabilityMetadata.ConvertProperty(property);
-
-            // Try field
-            var field = type.GetField(memberName, memberFlags);
-            if (field != null)
-                return NullabilityMetadata.ConvertField(field);
+            if (TryResolveReflectionPropertyOrField(type, memberName, includeStaticMembers, out var memberType))
+                return memberType;
 
             // Try methods (get all matching methods to handle overloads)
             var methods = type.GetMethods(memberFlags)
@@ -4598,6 +4710,73 @@ public class Analyzer : IDisposable
 
         // Member not found on type, try extension methods
         return TryResolveExtensionMethod(objectType, memberName);
+    }
+
+    private static BindingFlags GetReflectionMemberFlags(bool includeStaticMembers)
+    {
+        var memberFlags = BindingFlags.Public | BindingFlags.Instance;
+        if (includeStaticMembers)
+            memberFlags |= BindingFlags.Static;
+        return memberFlags;
+    }
+
+    private static bool TryResolveReflectionPropertyOrField(
+        Type type,
+        string memberName,
+        bool includeStaticMembers,
+        out TypeInfo memberType)
+    {
+        var memberFlags = GetReflectionMemberFlags(includeStaticMembers);
+
+        var property = type.GetProperty(memberName, memberFlags);
+        if (property != null)
+        {
+            memberType = NullabilityMetadata.ConvertProperty(property);
+            return true;
+        }
+
+        var field = type.GetField(memberName, memberFlags);
+        if (field != null)
+        {
+            memberType = NullabilityMetadata.ConvertField(field);
+            return true;
+        }
+
+        memberType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private static bool TryResolveKnownGenericMember(GenericTypeInfo genericType, string memberName, out TypeInfo memberType)
+    {
+        if (memberName == "Count" && IsCountedGenericCollection(genericType))
+        {
+            memberType = BuiltInTypes.Int;
+            return true;
+        }
+
+        memberType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private static bool IsCountedGenericCollection(GenericTypeInfo genericType)
+    {
+        var name = genericType.Name;
+        var namespaceSeparator = name.LastIndexOf('.');
+        if (namespaceSeparator >= 0)
+            name = name[(namespaceSeparator + 1)..];
+
+        var aritySeparator = name.IndexOf('`');
+        if (aritySeparator >= 0)
+            name = name[..aritySeparator];
+
+        return genericType.TypeArguments.Count switch
+        {
+            1 => name is "List" or "IList" or "IReadOnlyList"
+                or "Collection" or "ICollection" or "ReadOnlyCollection" or "IReadOnlyCollection"
+                or "HashSet" or "SortedSet" or "Queue" or "Stack",
+            2 => name is "Dictionary" or "IDictionary" or "SortedDictionary",
+            _ => false
+        };
     }
 
     /// <summary>
@@ -5325,8 +5504,12 @@ public class Analyzer : IDisposable
 
     private Type? TryConvertTypeInfoToClrType(TypeInfo typeInfo)
     {
-        if (_wellKnownTypes == null) return null;
         var resolvedType = ResolveTypeAlias(typeInfo);
+        if (resolvedType is ReflectionTypeInfo reflectionType)
+            return reflectionType.Type;
+
+        if (_wellKnownTypes == null)
+            return TryConvertBuiltInTypeInfoToRuntimeClrType(resolvedType);
 
         return resolvedType switch
         {
@@ -5346,13 +5529,41 @@ public class Analyzer : IDisposable
             SimpleTypeInfo simple when simple == BuiltInTypes.String => _wellKnownTypes.String,
             SimpleTypeInfo simple when simple == BuiltInTypes.Void => _wellKnownTypes.Void,
             SimpleTypeInfo simple when simple == BuiltInTypes.Object => _wellKnownTypes.Object,
-            ReflectionTypeInfo reflection => reflection.Type,
             ArrayTypeInfo array => TryConvertTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
             NullableTypeInfo nullable => TryConvertNullableType(nullable.InnerType),
             ObliviousTypeInfo oblivious => TryConvertTypeInfoToClrType(oblivious.InnerType),
             GenericTypeInfo generic => TryConstructKnownGenericType(generic),
             FunctionTypeInfo function => TryConstructDelegateType(function),
             UnionTypeInfo { IsAnonymous: true } anonymousUnion => TryConstructRuntimeUnionType(anonymousUnion),
+            _ => null
+        };
+    }
+
+    private Type? TryConvertBuiltInTypeInfoToRuntimeClrType(TypeInfo typeInfo)
+    {
+        return typeInfo switch
+        {
+            SimpleTypeInfo simple when simple == BuiltInTypes.Int => typeof(int),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Long => typeof(long),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Float => typeof(float),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Double => typeof(double),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Decimal => typeof(decimal),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Byte => typeof(byte),
+            SimpleTypeInfo simple when simple == BuiltInTypes.SByte => typeof(sbyte),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Short => typeof(short),
+            SimpleTypeInfo simple when simple == BuiltInTypes.UShort => typeof(ushort),
+            SimpleTypeInfo simple when simple == BuiltInTypes.UInt => typeof(uint),
+            SimpleTypeInfo simple when simple == BuiltInTypes.ULong => typeof(ulong),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Char => typeof(char),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Bool => typeof(bool),
+            SimpleTypeInfo simple when simple == BuiltInTypes.String => typeof(string),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Void => typeof(void),
+            SimpleTypeInfo simple when simple == BuiltInTypes.Object => typeof(object),
+            ArrayTypeInfo array => TryConvertBuiltInTypeInfoToRuntimeClrType(array.ElementType)?.MakeArrayType(),
+            NullableTypeInfo nullable => TryConvertBuiltInTypeInfoToRuntimeClrType(nullable.InnerType) is { IsValueType: true } innerType
+                ? typeof(Nullable<>).MakeGenericType(innerType)
+                : null,
+            ObliviousTypeInfo oblivious => TryConvertBuiltInTypeInfoToRuntimeClrType(oblivious.InnerType),
             _ => null
         };
     }
@@ -5471,7 +5682,7 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeCall(CallExpression call)
     {
-        var calleeType = AnalyzeExpression(call.Callee);
+        var calleeType = AnalyzeExpressionAllowingUnboundCallableReference(call.Callee);
         ReportPossibleNullAccess(call.Callee, calleeType, call.Line, call.Column, "call", isNullConditional: false);
 
         // Analyze arguments
@@ -5481,7 +5692,7 @@ public class Analyzer : IDisposable
             for (int i = 0; i < call.Arguments.Count; i++)
             {
                 var expectedType = i < functionType.ParameterTypes.Count ? functionType.ParameterTypes[i] : null;
-                argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType));
+                argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType, allowUnboundCallableReference: true));
             }
         }
         else
@@ -5499,7 +5710,7 @@ public class Analyzer : IDisposable
                     argTypes.Add(BuiltInTypes.Unknown);
                     continue;
                 }
-                argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null));
+                argTypes.Add(AnalyzeExpressionWithExpectedType(arg.Value, null, allowUnboundCallableReference: true));
             }
         }
 
@@ -6000,14 +6211,20 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private TypeInfo AnalyzeExpressionWithExpectedType(Expression expression, TypeInfo? expectedType)
+    private TypeInfo AnalyzeExpressionWithExpectedType(
+        Expression expression,
+        TypeInfo? expectedType,
+        bool allowUnboundCallableReference = false)
     {
         if (expression is LambdaExpression lambda)
             return AnalyzeLambda(lambda, expectedType);
 
         var previousExpectedType = _currentExpectedType;
+        var previousAllowUnboundCallableReference = _allowUnboundCallableReference;
         if (expectedType != null)
             _currentExpectedType = expectedType;
+        if (allowUnboundCallableReference)
+            _allowUnboundCallableReference = true;
 
         try
         {
@@ -6016,6 +6233,7 @@ public class Analyzer : IDisposable
         finally
         {
             _currentExpectedType = previousExpectedType;
+            _allowUnboundCallableReference = previousAllowUnboundCallableReference;
         }
     }
 
@@ -6780,7 +6998,7 @@ public class Analyzer : IDisposable
             if (call.Arguments[i].Value is LambdaExpression)
                 continue;
 
-            analyzedNonLambdaArguments[i] = AnalyzeExpression(call.Arguments[i].Value);
+            analyzedNonLambdaArguments[i] = AnalyzeExpressionAllowingUnboundCallableReference(call.Arguments[i].Value);
         }
 
         var candidates = new List<(MethodInfo Method, Dictionary<Type, Type> Bindings, Dictionary<Type, TypeInfo> TypeInfoBindings,
@@ -6841,7 +7059,7 @@ public class Analyzer : IDisposable
             if (call.Arguments[i].Value is LambdaExpression)
                 continue;
 
-            analyzedNonLambdaArguments[i] = AnalyzeExpression(call.Arguments[i].Value);
+            analyzedNonLambdaArguments[i] = AnalyzeExpressionAllowingUnboundCallableReference(call.Arguments[i].Value);
         }
 
         var preBound = PreBindReflectionMethod(method, call, receiverClrType, receiverTypeInfo, analyzedNonLambdaArguments);

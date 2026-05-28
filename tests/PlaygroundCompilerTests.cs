@@ -102,6 +102,47 @@ public sealed class PlaygroundCompilerTests
     }
 
     [Fact]
+    public void Check_MethodGroupUsedAsValue_ReturnsCompilerDiagnostic()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            func main() {
+                print "asf".ToString
+            }
+            """);
+
+        Assert.False(result.Ok);
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL411");
+        Assert.Equal("error", diagnostic.Severity);
+        Assert.Equal(4, diagnostic.Line);
+        Assert.Equal(17, diagnostic.Column);
+        Assert.Equal("ToString".Length, diagnostic.Length);
+        Assert.Contains("ToString", diagnostic.Message);
+    }
+
+    [Fact]
+    public void RunProject_MethodGroupUsedAsValue_SkipsExecutionWithCompilerDiagnostic()
+    {
+        var result = new PlaygroundCompiler().RunProject(
+            [new PlaygroundFile("Program.nl", """
+                package Playground
+
+                func main() {
+                    value := "asf".ToString
+                    print value
+                }
+                """)],
+            "Program.nl");
+
+        Assert.False(result.Ok);
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "NL411");
+        Assert.Contains("compiler errors", result.Stderr);
+    }
+
+    [Fact]
     public void Check_SemanticDiagnostics_PreserveExpectedMarkerSpans()
     {
         var result = new PlaygroundCompiler().Check("""

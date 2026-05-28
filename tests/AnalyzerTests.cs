@@ -415,6 +415,55 @@ func Main() {
     }
 
     [Fact]
+    public void MethodGroupUsedAsPrintValue_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                print ""hello"".ToString
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.MethodGroupUsedAsValue &&
+            e.Message.Contains("ToString") &&
+            e.ContextualHint?.Contains("delegate") == true);
+    }
+
+    [Fact]
+    public void MethodGroupUsedAsInferredVariableValue_Error()
+    {
+        var result = AnalyzeWithSource(@"
+            func Main() {
+                value := ""hello"".ToString
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.MethodGroupUsedAsValue &&
+            e.Message.Contains("ToString"));
+    }
+
+    [Fact]
+    public void GenericListOfNSharpType_CountProperty_IsNotMethodGroup()
+    {
+        var result = AnalyzeWithSource(@"
+            import System.Collections.Generic
+
+            class TaskItem {
+                Name: string
+            }
+
+            func Main() {
+                tasks := new List<TaskItem>()
+                total := tasks.Count
+                print total
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.MethodGroupUsedAsValue);
+    }
+
+    [Fact]
     public void ExpressionStatement_SideEffectingForms_NoErrors()
     {
         AssertNoErrors(@"
@@ -2658,6 +2707,26 @@ func Main() {
                 list := new List<int>()
                 list.Add(1)
                 count := list.Count
+            }
+        ");
+    }
+
+    [Fact]
+    public void AssemblyResolution_GenericPropertyWithNSharpTypeArgument_Resolved()
+    {
+        AssertNoErrors(@"
+            import System.Collections.Generic
+
+            class TaskItem {
+                Title: string
+            }
+
+            func Main() {
+                tasks := new List<TaskItem>()
+                count: int = tasks.Count
+                if tasks.Count == 0 {
+                    print ""No tasks""
+                }
             }
         ");
     }

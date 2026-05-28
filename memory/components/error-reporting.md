@@ -112,6 +112,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL401`: WrongArgumentCount
 - `NL402`: NoMatchingOverload
 - `NL403-410`: Various parameter errors
+- `NL411`: MethodGroupUsedAsValue (bare method reference used where a value is required; call it or pass it to a delegate parameter)
 
 ### Pattern Matching Errors (500-599)
 - `NL501`: NonExhaustiveMatch
