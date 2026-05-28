@@ -160,6 +160,82 @@ func Main() {
     }
 
     [Fact]
+    public void Diagnostics_FunctionCallErrors_UnderlineCalleeNameWithExactRanges()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///function-call-spans.nl";
+
+        var source = """
+func TakesInt(value: int) {}
+
+func main() {
+    TakesInt()
+    Unknown()
+    TakesInt
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // NL401: span underlines the callee name; message pluralizes "argument".
+        var wrongCount = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.WrongArgumentCount);
+        Assert.Equal("Function 'TakesInt' expects 1 argument but got 0", wrongCount.Message);
+        AssertDiagnosticSpan(wrongCount, line: 4, column: 5, length: "TakesInt".Length);
+        AssertLspRange(wrongCount, line0: 3, startCharacter: 4, endCharacter: 12);
+
+        // NL412: span underlines the bare call name, reported as a function.
+        var undefinedFunction = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.UndefinedFunction);
+        Assert.Equal("Function 'Unknown' not found", undefinedFunction.Message);
+        AssertDiagnosticSpan(undefinedFunction, line: 5, column: 5, length: "Unknown".Length);
+        AssertLspRange(undefinedFunction, line0: 4, startCharacter: 4, endCharacter: 11);
+
+        // NL411: span underlines the method name used as a value.
+        var methodGroup = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.MethodGroupUsedAsValue);
+        Assert.Equal("Method 'TakesInt' must be called or passed to a delegate", methodGroup.Message);
+        AssertDiagnosticSpan(methodGroup, line: 6, column: 5, length: "TakesInt".Length);
+        AssertLspRange(methodGroup, line0: 5, startCharacter: 4, endCharacter: 12);
+    }
+
+    [Fact]
+    public void Diagnostics_NoMatchingOverload_PluralizesArgumentCount()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///overload-plural.nl";
+
+        var source = """
+class Processor {
+    func Process(x: int): int { return x }
+    func Process(x: string): string { return x }
+}
+
+func main() {
+    p := new Processor()
+    p.Process(true)
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.NoMatchingOverload);
+
+        Assert.Equal("No overload of 'Process' accepts 1 argument with these types", diagnostic.Message);
+        AssertDiagnosticSpan(diagnostic, line: 8, column: 7, length: "Process".Length);
+        AssertLspRange(diagnostic, line0: 7, startCharacter: 6, endCharacter: 13);
+    }
+
+    [Fact]
     public void Diagnostics_PossibleNullDereference_UsesStableCompilerCode()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
@@ -971,6 +1047,8 @@ func BadOrdering(first: int = 1, second: int) {}
 
 func BadDefault(value: int = makeValue()) {}
 
+func BadParamsType(params count: int) {}
+
 func main() {
     value := 1
     value := 2
@@ -1012,20 +1090,28 @@ func main() {
         var paramsNotLast = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.ParamsNotLast);
         AssertDiagnosticSpan(paramsNotLast, line: 18, column: 23, length: "rest".Length);
+        AssertLspRange(paramsNotLast, line0: 17, startCharacter: 22, endCharacter: 26);
 
         var requiredAfterOptional = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.RequiredParameterAfterOptional);
         AssertDiagnosticSpan(requiredAfterOptional, line: 20, column: 34, length: "second".Length);
+        AssertLspRange(requiredAfterOptional, line0: 19, startCharacter: 33, endCharacter: 39);
 
         var invalidDefault = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.InvalidDefaultParameterValue);
         AssertDiagnosticSpan(invalidDefault, line: 22, column: 30, length: "makeValue".Length);
+        AssertLspRange(invalidDefault, line0: 21, startCharacter: 29, endCharacter: 38);
+
+        var invalidParamsType = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidParameter);
+        AssertDiagnosticSpan(invalidParamsType, line: 24, column: 27, length: "count".Length);
+        AssertLspRange(invalidParamsType, line0: 23, startCharacter: 26, endCharacter: 31);
 
         var duplicateLocal = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
-                          diagnostic.Line == 26 &&
+                          diagnostic.Line == 28 &&
                           diagnostic.Message.Contains("'value'"));
-        AssertDiagnosticSpan(duplicateLocal, line: 26, column: 5, length: "value".Length);
+        AssertDiagnosticSpan(duplicateLocal, line: 28, column: 5, length: "value".Length);
     }
 
     [Fact]

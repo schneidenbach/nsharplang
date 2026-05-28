@@ -928,6 +928,12 @@ public static class TypeConversionSuggester
 public static class ErrorMessageBuilder
 {
     /// <summary>
+    /// Returns the singular or plural form of a noun based on a count.
+    /// </summary>
+    private static string Pluralize(int count, string singular, string plural)
+        => count == 1 ? singular : plural;
+
+    /// <summary>
     /// Create an Elm-style type mismatch error
     /// </summary>
     public static CompilerError TypeMismatch(string fileName, int line, int column, string sourceSnippet,
@@ -1145,13 +1151,14 @@ public static class ErrorMessageBuilder
     {
         var humanExplanation = $"I am having trouble with this function call on line {line}:";
 
+        var expectedArguments = $"{expected} {Pluralize(expected, "argument", "arguments")}";
         var contextualHint = expected > actual
-            ? $"The function `{functionName}` expects {expected} arguments, but you are\n" +
+            ? $"The function `{functionName}` expects {expectedArguments}, but you are\n" +
               $"passing {actual}. You may have forgotten to pass some arguments."
-            : $"The function `{functionName}` expects {expected} arguments, but you are\n" +
+            : $"The function `{functionName}` expects {expectedArguments}, but you are\n" +
               $"passing {actual}. You may have passed too many arguments.";
 
-        return new CompilerError(ErrorCode.WrongArgumentCount, $"Function '{functionName}' expects {expected} arguments but got {actual}", line, column, ErrorSeverity.Error)
+        return new CompilerError(ErrorCode.WrongArgumentCount, $"Function '{functionName}' expects {expectedArguments} but got {actual}", line, column, ErrorSeverity.Error)
         {
             FileName = fileName,
             SourceSnippet = sourceSnippet,
@@ -1175,13 +1182,14 @@ public static class ErrorMessageBuilder
             ? "No callable overloads were found."
             : "Available overloads:\n" + string.Join("\n", candidateSignatures.Select(signature => $"  - {signature}"));
 
+        var argumentCountText = $"{actualArgumentCount} {Pluralize(actualArgumentCount, "argument", "arguments")}";
         var humanExplanation = $"I cannot find an overload of `{functionName}` that matches this call:";
         var contextualHint =
-            $"This call passes {actualArgumentCount} argument(s): {argumentText}.\n" +
+            $"This call passes {argumentCountText}: {argumentText}.\n" +
             $"{signatureText}\n\n" +
             "Check the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it.";
 
-        return new CompilerError(ErrorCode.NoMatchingOverload, $"No overload of '{functionName}' accepts {actualArgumentCount} argument(s) with these types", line, column, ErrorSeverity.Error)
+        return new CompilerError(ErrorCode.NoMatchingOverload, $"No overload of '{functionName}' accepts {argumentCountText} with these types", line, column, ErrorSeverity.Error)
         {
             FileName = fileName,
             SourceSnippet = sourceSnippet,
