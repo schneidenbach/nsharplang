@@ -6901,6 +6901,55 @@ public partial class ILCompiler
         return type.IsByRef ? type.GetElementType() ?? typeof(object) : type;
     }
 
+    /// <summary>
+    /// Decides whether a virtual instance method dispatch can be safely lowered from
+    /// <c>callvirt</c> to a non-virtual <c>call</c>.
+    ///
+    /// A <c>callvirt</c> does two things that a <c>call</c> does not: (1) it performs a
+    /// null-check on the receiver, and (2) it dispatches virtually based on the receiver's
+    /// runtime type. Devirtualizing is therefore only correct when BOTH:
+    ///   * the dispatch target is statically exact (no derived override can change it), and
+    ///   * the null-check is unnecessary because the receiver is provably non-null.
+    ///
+    /// We stay strictly conservative: we only devirtualize when the receiver expression
+    /// produces a value whose runtime type is exactly known and which can never be null.
+    /// The canonical safe cases are object creation (<c>new T()</c>) and string-producing
+    /// literals, both of which yield a non-null reference of an exact runtime type, so virtual
+    /// dispatch resolves deterministically and the null-check is provably redundant.
+    /// </summary>
+    private static bool CanDevirtualizeInstanceCall(Expression receiver, Type receiverType)
+    {
+        // Value-type receivers are already dispatched with `call` by the caller; nothing to do.
+        if (IsValueTypeLike(receiverType))
+            return false;
+
+        // Open generic parameters use constrained dispatch; never devirtualize them here.
+        if (receiverType.IsGenericParameter)
+            return false;
+
+        // The receiver must be provably non-null AND of an exactly-known runtime type so that
+        // dropping both the null-check and the virtual dispatch preserves semantics.
+        return IsExactlyTypedNonNullReceiver(receiver);
+    }
+
+    /// <summary>
+    /// Returns true when the receiver expression yields a non-null reference whose runtime type
+    /// is exactly the static type (so virtual dispatch resolves deterministically). These are
+    /// expressions that construct a fresh value: <c>new T()</c> and string-producing literals.
+    /// </summary>
+    private static bool IsExactlyTypedNonNullReceiver(Expression receiver)
+    {
+        return receiver switch
+        {
+            // `new T()` yields a non-null reference whose runtime type is exactly T.
+            NewExpression => true,
+            // String literals and interpolated strings yield a non-null System.String (sealed).
+            StringLiteralExpression => true,
+            InterpolatedStringExpression => true,
+            _ => false,
+        };
+    }
+
     private static Type GetNullConditionalResultType(Type memberType)
     {
         return memberType.IsValueType && Nullable.GetUnderlyingType(memberType) == null
@@ -12269,7 +12318,10 @@ public partial class ILCompiler
                     }
 
                     EmitBoundCallArguments(boundInstanceCall.Arguments);
-                    _currentIL.Emit(useAddressReceiverForBoundCall || !boundInstanceCall.Method.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, boundInstanceCall.Method);
+                    var useDirectBoundCall = useAddressReceiverForBoundCall
+                        || !boundInstanceCall.Method.IsVirtual
+                        || CanDevirtualizeInstanceCall(memberAccess.Object, objectType);
+                    _currentIL.Emit(useDirectBoundCall ? OpCodes.Call : OpCodes.Callvirt, boundInstanceCall.Method);
                     return;
                 }
 
@@ -12295,7 +12347,10 @@ public partial class ILCompiler
                 }
 
                 EmitCallArguments(call.Arguments, userDefinedMethod.GetParameters().Select(p => p.ParameterType).ToArray());
-                _currentIL.Emit(useAddressReceiver || !userDefinedMethod.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, userDefinedMethod);
+                var useDirectUserCall = useAddressReceiver
+                    || !userDefinedMethod.IsVirtual
+                    || CanDevirtualizeInstanceCall(memberAccess.Object, objectType);
+                _currentIL.Emit(useDirectUserCall ? OpCodes.Call : OpCodes.Callvirt, userDefinedMethod);
                 return;
             }
 
@@ -12355,7 +12410,9 @@ public partial class ILCompiler
                 }
 
                 EmitBoundCallArguments(boundRuntimeMethod.Arguments);
-                if (useAddressReceiver || !boundRuntimeMethod.Method.IsVirtual)
+                if (useAddressReceiver
+                    || !boundRuntimeMethod.Method.IsVirtual
+                    || CanDevirtualizeInstanceCall(memberAccess.Object, objectType))
                 {
                     _currentIL.Emit(OpCodes.Call, boundRuntimeMethod.Method);
                 }
