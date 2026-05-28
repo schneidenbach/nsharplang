@@ -224,6 +224,117 @@ func main(): int {
     }
 
     [Fact]
+    public void ErrorTupleResultUseAfterNonReturningErrorBranch_IsRejected()
+    {
+        var result = Analyze(@"
+            import System
+
+            func Hi(): int {
+                throw new Exception(""boom"")
+            }
+
+            func Main() {
+                i, err := Hi()
+                if err != null {
+                    print err
+                }
+
+                print $""hi returned {i}""
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.UnverifiedErrorResult);
+        Assert.Contains("'i'", error.Message);
+        Assert.Contains("'err'", error.Message);
+    }
+
+    [Fact]
+    public void ErrorTupleResultUseInsideErrorBranch_IsRejected()
+    {
+        var result = Analyze(@"
+            import System
+
+            func Hi(): int {
+                throw new Exception(""boom"")
+            }
+
+            func Main() {
+                i, err := Hi()
+                if err != null {
+                    print i
+                }
+            }
+        ");
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UnverifiedErrorResult);
+    }
+
+    [Fact]
+    public void ErrorTupleResultUseAfterReturningErrorBranch_IsAllowed()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Hi(): int {
+                throw new Exception(""boom"")
+            }
+
+            func Main() {
+                i, err := Hi()
+                if err != null {
+                    return
+                }
+
+                print i
+            }
+        ");
+    }
+
+    [Fact]
+    public void ErrorTupleResultUseInsideNullErrorBranch_IsAllowed()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Hi(): int {
+                return 42
+            }
+
+            func Main() {
+                i, err := Hi()
+                if err == null {
+                    print i
+                } else {
+                    print err
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void ErrorTupleResultUseAfterReturningElseBranch_IsAllowed()
+    {
+        AssertNoErrors(@"
+            import System
+
+            func Hi(): int {
+                return 42
+            }
+
+            func Main() {
+                i, err := Hi()
+                if err == null {
+                    print ""ok""
+                } else {
+                    return
+                }
+
+                print i
+            }
+        ");
+    }
+
+    [Fact]
     public void ConstWithoutInitializer_Error()
     {
         AssertHasError(@"

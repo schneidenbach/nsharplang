@@ -110,6 +110,13 @@ For non-nullable fields:
 - Analyzer tracks which fields are assigned
 - Reports error if field not initialized
 
+### Error Tuple Result Availability
+For Go-style error tuples (`result, err := MightFail()`):
+- The result is available only on paths where the paired `err` is proven `null`
+- `if err == null { ... }` makes the result available inside the success branch
+- `if err != null { return }` or `throw` makes the result available after the guard
+- Using the result while `err` may be non-null reports `NL314`
+
 ## Convention-Based Visibility
 
 Enforced by Analyzer:

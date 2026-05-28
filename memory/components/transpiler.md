@@ -197,6 +197,9 @@ catch (Exception ex)
 }
 ```
 
+The analyzer treats `result` as available only after control flow proves `err == null`
+or after a non-null error branch exits.
+
 ### Yield Break
 `yield break` exports directly to C# `yield break;`:
 ```

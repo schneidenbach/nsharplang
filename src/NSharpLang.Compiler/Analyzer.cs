@@ -146,8 +146,10 @@ public class Analyzer : IDisposable
     private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
     private int _currentLine; // Tracks last analyzed line for scope end positions
     private bool _suppressNullabilityFlowType;
+    private bool _suppressErrorTupleResultUse;
     private bool _allowUnboundCallableReference;
     private readonly HashSet<(int Line, int Column, string Path, string Operation)> _reportedNullabilityDiagnostics = new();
+    private readonly HashSet<(int Line, int Column, string Name)> _reportedUnverifiedErrorResultDiagnostics = new();
     private readonly HashSet<(int Line, int Column, string Name)> _reportedCallableReferenceDiagnostics = new();
     private bool _disposed;
 
@@ -225,7 +227,9 @@ public class Analyzer : IDisposable
         _semanticScopeIds.Clear();
         _currentLine = 0;
         _suppressNullabilityFlowType = false;
+        _suppressErrorTupleResultUse = false;
         _reportedNullabilityDiagnostics.Clear();
+        _reportedUnverifiedErrorResultDiagnostics.Clear();
         _currentReturnType = null;
         _currentFunction = null;
         _currentFunctionReturnTypeWasOmitted = false;
@@ -2138,6 +2142,7 @@ public class Analyzer : IDisposable
             {
                 DeclareSymbol(resultVar, initType, tupleDecl.Line, tupleDecl.Column);
                 RecordVariableInCurrentScope(resultVar, initType);
+                RegisterErrorTupleResult(resultVar, errVar, tupleDecl.Line, tupleDecl.Column);
             }
 
             // Declare err variable as nullable Exception
@@ -2146,6 +2151,7 @@ public class Analyzer : IDisposable
                 var exceptionType = new ExternalTypeInfo("Exception?");
                 DeclareSymbol(errVar, exceptionType, tupleDecl.Line, tupleDecl.Column);
                 RecordVariableInCurrentScope(errVar, exceptionType);
+                SetNullStateInCurrentScope(errVar, NullState.MaybeNull);
             }
         }
         else
@@ -2259,6 +2265,10 @@ public class Analyzer : IDisposable
             if (narrowing.NullState is { } nullState)
             {
                 currentScope.NullStates[narrowing.Path] = nullState;
+                if (nullState == NullState.Null)
+                {
+                    MarkErrorTupleResultsAvailableForError(narrowing.Path);
+                }
             }
 
             if (narrowing.NarrowedType is not { } narrowedType)
@@ -8084,9 +8094,19 @@ public class Analyzer : IDisposable
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
     {
         var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
-        _suppressNullabilityFlowType = true;
-        var targetType = AnalyzeExpression(assignment.Target);
-        _suppressNullabilityFlowType = previousSuppressNullabilityFlowType;
+        var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
+        TypeInfo targetType;
+        try
+        {
+            _suppressNullabilityFlowType = true;
+            _suppressErrorTupleResultUse = assignment.Operator == AssignmentOperator.Assign;
+            targetType = AnalyzeExpression(assignment.Target);
+        }
+        finally
+        {
+            _suppressErrorTupleResultUse = previousSuppressErrorTupleResultUse;
+            _suppressNullabilityFlowType = previousSuppressNullabilityFlowType;
+        }
 
         var previousExpectedType = _currentExpectedType;
         _currentExpectedType = targetType;
@@ -8124,6 +8144,7 @@ public class Analyzer : IDisposable
         }
 
         UpdateNullStateAfterAssignment(assignment.Target, assignment.Value, targetType, valueType);
+        MarkErrorTupleResultAvailableAfterAssignment(assignment.Target);
 
         return targetType;
     }
@@ -9431,6 +9452,100 @@ public class Analyzer : IDisposable
         _scopes.Peek().NullStates[path] = state;
     }
 
+    private void RegisterErrorTupleResult(string resultName, string errorName, int line, int column)
+    {
+        if (_scopes.Count == 0 || string.IsNullOrWhiteSpace(resultName) || resultName == "_")
+            return;
+
+        _scopes.Peek().ErrorTupleResults[resultName] =
+            new ErrorTupleResultGuard(resultName, errorName, line, column);
+    }
+
+    private void MarkErrorTupleResultsAvailableForError(string errorName)
+    {
+        if (_scopes.Count == 0 || string.IsNullOrWhiteSpace(errorName) || errorName.Contains('.', StringComparison.Ordinal))
+            return;
+
+        var currentScope = _scopes.Peek();
+        foreach (var scope in _scopes)
+        {
+            foreach (var guard in scope.ErrorTupleResults.Values)
+            {
+                if (guard.ErrorName == errorName)
+                {
+                    currentScope.AvailableErrorTupleResults.Add(guard.ResultName);
+                }
+            }
+
+            if (scope.Symbols.ContainsKey(errorName))
+                break;
+        }
+    }
+
+    private void MarkErrorTupleResultAvailableAfterAssignment(Expression target)
+    {
+        if (_scopes.Count == 0 || target is not IdentifierExpression identifier)
+            return;
+
+        if (TryGetErrorTupleResultGuard(identifier.Name, out _))
+        {
+            _scopes.Peek().AvailableErrorTupleResults.Add(identifier.Name);
+        }
+    }
+
+    private void ReportUnverifiedErrorTupleResultUseIfNeeded(string name, int line, int column)
+    {
+        if (_suppressErrorTupleResultUse)
+            return;
+
+        if (!TryGetErrorTupleResultGuard(name, out var guard) || IsErrorTupleResultAvailable(name))
+            return;
+
+        var key = (line, column, name);
+        if (!_reportedUnverifiedErrorResultDiagnostics.Add(key))
+            return;
+
+        Error(
+            ErrorCode.UnverifiedErrorResult,
+            $"Result '{name}' may be unavailable because '{guard.ErrorName}' can be non-null",
+            line,
+            column,
+            $"Use '{name}' only after `if {guard.ErrorName} == null`, or return/throw from an `if {guard.ErrorName} != null` error branch before the result is used.",
+            Math.Max(1, name.Length));
+    }
+
+    private bool TryGetErrorTupleResultGuard(string resultName, out ErrorTupleResultGuard guard)
+    {
+        foreach (var scope in _scopes)
+        {
+            if (scope.ErrorTupleResults.TryGetValue(resultName, out guard!))
+                return true;
+
+            if (scope.Symbols.ContainsKey(resultName))
+                break;
+        }
+
+        guard = null!;
+        return false;
+    }
+
+    private bool IsErrorTupleResultAvailable(string resultName)
+    {
+        foreach (var scope in _scopes)
+        {
+            if (scope.AvailableErrorTupleResults.Contains(resultName))
+                return true;
+
+            if (scope.ErrorTupleResults.ContainsKey(resultName))
+                return false;
+
+            if (scope.Symbols.ContainsKey(resultName))
+                return true;
+        }
+
+        return true;
+    }
+
     private void InvalidateNullFactsForAssignment(string path)
     {
         foreach (var scope in _scopes)
@@ -9535,7 +9650,10 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
 
         if (TryResolveIdentifierBindingTarget(name, line, column, out var type))
+        {
+            ReportUnverifiedErrorTupleResultUseIfNeeded(name, line, column);
             return type;
+        }
 
         // Use ErrorMessageBuilder for better error message with suggestions
         var similarNames = FindSimilarVariableNames(name);
@@ -13076,6 +13194,8 @@ public class Scope
     public Dictionary<string, TypeInfo> Symbols { get; } = new();
     public Dictionary<string, TypeInfo> Types { get; } = new();
     public Dictionary<string, NullState> NullStates { get; } = new(StringComparer.Ordinal);
+    internal Dictionary<string, ErrorTupleResultGuard> ErrorTupleResults { get; } = new(StringComparer.Ordinal);
+    internal HashSet<string> AvailableErrorTupleResults { get; } = new(StringComparer.Ordinal);
 
     // Declaration locations for binding map (name → declaration info)
     private readonly Dictionary<string, SymbolDeclaration> _declarationLocations = new();
@@ -13121,6 +13241,8 @@ public enum NullState
     NotNull,
     Oblivious
 }
+
+internal sealed record ErrorTupleResultGuard(string ResultName, string ErrorName, int Line, int Column);
 
 internal sealed record ImportedSymbolInfo(string Name, TypeInfo Type, SymbolDeclaration Declaration);
 
