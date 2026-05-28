@@ -3258,6 +3258,110 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_EmitsNewtypeAsReadonlyValueStruct()
+    {
+        // A newtype must lower to a `readonly record struct` so it never boxes on the hot path
+        // and stays consumable from C#. Verify the emitted type's shape directly.
+        var source = @"
+type UserId = newtype int";
+
+        var info = CompileAndInspect(source, assembly =>
+        {
+            var userId = assembly.GetType("UserId");
+            Assert.NotNull(userId);
+
+            var valueProperty = userId!.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+            return new
+            {
+                IsValueType = userId.IsValueType,
+                IsSealed = userId.IsSealed,
+                HasReadOnlyAttribute = userId.GetCustomAttributes(false)
+                    .Any(a => a.GetType().FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"),
+                HasPublicValue = valueProperty != null && valueProperty.GetMethod is { IsPublic: true },
+                ValueType = valueProperty?.PropertyType
+            };
+        });
+
+        // Value type (no boxing as a reference), sealed, and marked readonly struct.
+        Assert.True(info.IsValueType, "newtype must be emitted as a value type");
+        Assert.True(info.IsSealed, "newtype value struct must be sealed");
+        Assert.True(info.HasReadOnlyAttribute, "newtype must carry IsReadOnlyAttribute (readonly struct)");
+
+        // Interop: the public struct exposes a public `Value` member of the underlying type for C#.
+        Assert.True(info.HasPublicValue, "newtype must expose a public Value member for C# interop");
+        Assert.Equal(typeof(int), info.ValueType);
+    }
+
+    [Fact]
+    public void ILCompiler_NewtypeInArithmeticLoop_EmitsNoBoxing()
+    {
+        // Hot path: construct a newtype and read its underlying value inside a loop, doing
+        // arithmetic on the result. The IL must contain no `box` opcode.
+        var source = @"
+type Counter = newtype int
+
+func sum(): int {
+    total := 0
+    i := 0
+    while i < 5 {
+        c := new Counter(i)
+        total = total + c.Value
+        i = i + 1
+    }
+    return total
+}";
+
+        var hasBox = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program");
+            var method = program!.GetMethod("sum", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            var opCodes = GetMethodOpCodes(method!);
+            return opCodes.Any(op => op == OpCodes.Box);
+        });
+
+        Assert.False(hasBox, "newtype arithmetic must not emit a box opcode");
+
+        // Behavior check: 0 + 1 + 2 + 3 + 4 == 10.
+        Assert.Equal(10, Assert.IsType<int>(CompileAndInvoke(source, "sum")));
+    }
+
+    [Fact]
+    public void ILCompiler_NewtypePassedByValue_EmitsNoBoxing()
+    {
+        // Passing a newtype to a function that takes the newtype must pass it by value
+        // (no boxing) and the parameter type must be a value type.
+        var source = @"
+type Counter = newtype int
+
+func addValue(c: Counter): int {
+    return c.Value + 1
+}
+
+func run(): int {
+    return addValue(new Counter(41))
+}";
+
+        var info = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program");
+            var addValue = program!.GetMethod("addValue", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            var run = program!.GetMethod("run", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            return new
+            {
+                ParameterIsValueType = addValue!.GetParameters()[0].ParameterType.IsValueType,
+                AddValueBoxes = GetMethodOpCodes(addValue!).Any(op => op == OpCodes.Box),
+                RunBoxes = GetMethodOpCodes(run!).Any(op => op == OpCodes.Box)
+            };
+        });
+
+        Assert.True(info.ParameterIsValueType, "newtype parameter must be a value type");
+        Assert.False(info.AddValueBoxes, "reading newtype Value must not box");
+        Assert.False(info.RunBoxes, "passing a newtype by value must not box");
+
+        Assert.Equal(42, Assert.IsType<int>(CompileAndInvoke(source, "run")));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteNewtypeDeclaration()
     {
         var source = @"
