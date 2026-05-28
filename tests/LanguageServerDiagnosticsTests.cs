@@ -101,6 +101,34 @@ func Main() {
     }
 
     [Fact]
+    public void Diagnostics_UndefinedBareCall_ReportsFunctionNotVariable()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///undefined-bare-call.nl";
+
+        var source = """
+func Main() {
+    i := Hi()
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.UndefinedFunction);
+
+        Assert.Equal("Function 'Hi' not found", diagnostic.Message);
+        Assert.Contains("function named `Hi`", diagnostic.HumanExplanation);
+        Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.UndefinedVariable &&
+                          diagnostic.Message.Contains("Hi"));
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 10, length: "Hi".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 9, endCharacter: 11);
+    }
+
+    [Fact]
     public void Diagnostics_PossibleNullDereference_UsesStableCompilerCode()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

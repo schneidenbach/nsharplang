@@ -58,6 +58,7 @@ public enum ErrorCode
     RequiredParameterAfterOptional = 409,
     InvalidDefaultParameterValue = 410,
     MethodGroupUsedAsValue = 411,
+    UndefinedFunction = 412,
 
     // Pattern matching errors (500-599)
     NonExhaustiveMatch = 501,
@@ -293,7 +294,7 @@ public record CompilerError
             ErrorCode.TypeMismatch or ErrorCode.TypeNotFound => "TYPE MISMATCH",
             ErrorCode.UndefinedVariable or ErrorCode.UndefinedType or ErrorCode.UndefinedMember => "NAMING ERROR",
             ErrorCode.NonExhaustiveMatch => "INCOMPLETE PATTERN MATCH",
-            ErrorCode.WrongArgumentCount or ErrorCode.NoMatchingOverload => "FUNCTION CALL ERROR",
+            ErrorCode.WrongArgumentCount or ErrorCode.NoMatchingOverload or ErrorCode.UndefinedFunction => "FUNCTION CALL ERROR",
             ErrorCode.CircularImport => "CIRCULAR IMPORT",
             _ => "ERROR"
         });
@@ -698,6 +699,9 @@ public static class ErrorSuggestions
             ErrorCode.UndefinedVariable when context != null
                 => $"Variable '{context}' is not defined in current scope",
 
+            ErrorCode.UndefinedFunction when context != null
+                => $"Function '{context}' is not defined in current scope",
+
             ErrorCode.TypeMismatch
                 => "Ensure types are compatible or add explicit cast",
 
@@ -1046,6 +1050,31 @@ public static class ErrorMessageBuilder
             ContextualHint = contextualHint,
             Suggestions = similarNames.Any() ? similarNames : null,
             DocsUrl = "https://docs.n-sharp.dev/errors/NL301"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style undefined function error
+    /// </summary>
+    public static CompilerError UndefinedFunction(string fileName, int line, int column, string sourceSnippet,
+        int length, string functionName, List<string> similarNames)
+    {
+        var humanExplanation = $"I cannot find a function named `{functionName}` on line {line}:";
+
+        var contextualHint = similarNames.Any()
+            ? "Function calls need a function, method, or callable value with this name in scope.\n" +
+              "If this is from another file or namespace, import it before calling it."
+            : $"Define `func {functionName}(...)` before calling it, or import the function if it lives elsewhere.";
+
+        return new CompilerError(ErrorCode.UndefinedFunction, $"Function '{functionName}' not found", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestions = similarNames.Any() ? similarNames : null,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL412"
         };
     }
 

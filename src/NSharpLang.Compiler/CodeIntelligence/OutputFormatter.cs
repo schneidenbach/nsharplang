@@ -823,7 +823,7 @@ public static class OutputFormatter
                 });
         }
 
-        if (code == "NL301" || messageLower.Contains("undefined variable") || messageLower.Contains("undefined symbol"))
+        if (code == "NL301" || code == "NL412" || messageLower.Contains("undefined variable") || messageLower.Contains("undefined symbol"))
         {
             return new DiagnosticClusterTraits(
                 "identifier-resolution",

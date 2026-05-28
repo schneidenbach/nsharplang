@@ -355,6 +355,23 @@ func main(): int {
     }
 
     [Fact]
+    public void UndefinedBareCall_ReportsFunctionError()
+    {
+        var result = Analyze(@"
+            func Main() {
+                i := Hi()
+            }
+        ");
+
+        Assert.Contains(result.Errors, e =>
+            e.Code == ErrorCode.UndefinedFunction &&
+            e.Message.Contains("Function 'Hi' not found"));
+        Assert.DoesNotContain(result.Errors, e =>
+            e.Code == ErrorCode.UndefinedVariable &&
+            e.Message.Contains("Hi"));
+    }
+
+    [Fact]
     public void BuiltInMemberTypo_WithoutSystemAssemblies_ReportsUndefinedMember()
     {
         const string source = """

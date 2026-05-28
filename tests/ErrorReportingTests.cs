@@ -298,6 +298,30 @@ public class ErrorReportingTests
     }
 
     [Fact]
+    public void ElmStyle_UndefinedFunction_ReportsFunctionNotVariable()
+    {
+        var error = ErrorMessageBuilder.UndefinedFunction(
+            "test.nl",
+            6,
+            10,
+            "    i := Hi()",
+            2,
+            "Hi",
+            new List<string>()
+        );
+
+        var formatted = error.Format(useColors: false);
+        var tooling = error.FormatForTooling(includeCode: true, includeLocation: false);
+
+        Assert.Equal(ErrorCode.UndefinedFunction, error.Code);
+        Assert.Contains("FUNCTION CALL ERROR", formatted);
+        Assert.Contains("function named `Hi`", formatted);
+        Assert.Equal("Function 'Hi' not found", error.Message);
+        Assert.Contains("NL412: Function 'Hi' not found", tooling);
+        Assert.DoesNotContain("Variable 'Hi' not found", tooling);
+    }
+
+    [Fact]
     public void ElmStyle_NonExhaustiveMatch_ListsMissingCases()
     {
         var missingCases = new List<string> { "Pending", "Cancelled" };
