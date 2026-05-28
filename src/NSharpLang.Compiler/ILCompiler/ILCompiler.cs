@@ -12299,16 +12299,58 @@ public partial class ILCompiler
                 return;
             }
 
-            // Handle constrained calls on generic type parameters
+            // Handle constrained calls on generic type parameters. Loading the
+            // receiver by address and emitting a `constrained.` prefix lets the
+            // runtime dispatch on the concrete type argument without boxing the
+            // value when `T` is instantiated with a value type.
             if (objectType.IsGenericParameter)
             {
                 EmitAddressableExpression(memberAccess.Object, objectType);
 
-                // For generic type parameters, we need to find the method on the constraint
-                BoundRuntimeMethodCall? boundRuntimeCall = null;
-
-                // Try to find the method on the constraints
                 var constraints = objectType.GetGenericParameterConstraints();
+
+                // Prefer declared/duck interface (or class) constraints that are
+                // defined in this compilation: their methods live in TypeBuilders
+                // and cannot be resolved through runtime reflection binding.
+                foreach (var constraint in constraints)
+                {
+                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    {
+                        continue;
+                    }
+
+                    var boundDeclaredCall = BindDeclaredMethodCall(
+                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                        call,
+                        targetType: constraint,
+                        predicate: overload => !overload.Builder.IsStatic);
+                    if (boundDeclaredCall != null)
+                    {
+                        EmitBoundCallArguments(boundDeclaredCall.Arguments);
+
+                        // constrained. on the type parameter avoids boxing the
+                        // receiver when the method is dispatched virtually.
+                        _currentIL.Emit(OpCodes.Constrained, objectType);
+                        _currentIL.Emit(OpCodes.Callvirt, boundDeclaredCall.Method);
+                        return;
+                    }
+
+                    // Interface declarations only register their members in the
+                    // method table (not the overload table), so fall back to a
+                    // direct lookup and bind the call arguments positionally.
+                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
+                    if (declaredMethod != null)
+                    {
+                        EmitCallArguments(call.Arguments, declaredMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray());
+
+                        _currentIL.Emit(OpCodes.Constrained, objectType);
+                        _currentIL.Emit(OpCodes.Callvirt, declaredMethod);
+                        return;
+                    }
+                }
+
+                // Otherwise resolve the method against a runtime (BCL) constraint.
+                BoundRuntimeMethodCall? boundRuntimeCall = null;
                 foreach (var constraint in constraints)
                 {
                     boundRuntimeCall = BindRuntimeMethodCall(
@@ -15550,7 +15592,35 @@ public partial class ILCompiler
             // Use reflection for built-in types
             if (objectType.IsGenericParameter)
             {
-                foreach (var constraint in objectType.GetGenericParameterConstraints())
+                var genericConstraints = objectType.GetGenericParameterConstraints();
+
+                // Declared/duck interface (or class) constraints defined in this
+                // compilation resolve through the TypeBuilder method tables.
+                foreach (var constraint in genericConstraints)
+                {
+                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    {
+                        continue;
+                    }
+
+                    var boundDeclaredCall = BindDeclaredMethodCall(
+                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                        call,
+                        targetType: constraint,
+                        predicate: overload => !overload.Builder.IsStatic);
+                    if (boundDeclaredCall != null)
+                    {
+                        return GetBoundDeclaredMethodReturnType(boundDeclaredCall);
+                    }
+
+                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
+                    if (declaredMethod != null)
+                    {
+                        return declaredMethod.ReturnType;
+                    }
+                }
+
+                foreach (var constraint in genericConstraints)
                 {
                     var constrainedMethod = BindRuntimeMethodCall(
                         constraint,
