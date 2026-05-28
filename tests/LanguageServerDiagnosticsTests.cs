@@ -155,6 +155,53 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_PossibleNullDereference_UnderlinesReceiverExpression()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///null-receiver-span.nl";
+
+        // Receiver `customer` starts at column 12 (1-based) on line 3; the squiggle
+        // must cover the whole receiver token, not the '.' or the member name.
+        var source = "func main() {\n    customer: string? = \"Ada\"\n    len := customer.Length\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+        var nullAccess = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.PossibleNullAccess);
+
+        Assert.Equal(ErrorSeverity.Error, nullAccess.Severity);
+        AssertDiagnosticSpan(nullAccess, line: 3, column: 12, length: "customer".Length);
+        AssertLspRange(nullAccess, line0: 2, startCharacter: 11, endCharacter: 11 + "customer".Length);
+    }
+
+    [Fact]
+    public void Diagnostics_PossibleNullIndex_UnderlinesReceiverExpression()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///null-index-span.nl";
+
+        var source = "func first(items: int[]?): int {\n    return items[0]\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+        var nullAccess = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.PossibleNullAccess);
+
+        Assert.Equal(ErrorSeverity.Error, nullAccess.Severity);
+        // `items` starts at column 12 (1-based) on line 2.
+        AssertDiagnosticSpan(nullAccess, line: 2, column: 12, length: "items".Length);
+        AssertLspRange(nullAccess, line0: 1, startCharacter: 11, endCharacter: 11 + "items".Length);
+    }
+
+    [Fact]
     public void Diagnostics_SemanticErrors_UseExpectedTokenSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
