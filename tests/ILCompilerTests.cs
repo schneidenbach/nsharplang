@@ -3476,6 +3476,245 @@ union Shape {
     }
 
     [Fact]
+    public void ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct()
+    {
+        var source = @"
+union Color {
+    Red
+    Green
+    Blue
+}";
+
+        var isValueType = CompileAndInspect(source, assembly =>
+        {
+            var unionType = assembly.GetType("Color");
+            Assert.NotNull(unionType);
+            return unionType!.IsValueType;
+        });
+
+        Assert.True(isValueType, "Small, closed, payload-free union should be emitted as a value type.");
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnion_StillEmitsNestedCaseMarkerTypes()
+    {
+        var source = @"
+union Color {
+    Red
+    Green
+    Blue
+}";
+
+        var typeNames = CompileAndInspect(source, assembly =>
+            assembly.GetTypes().Select(t => t.FullName).Where(n => n != null).OrderBy(n => n).ToArray());
+
+        Assert.Contains("Color", typeNames);
+        Assert.Contains("Color+Red", typeNames);
+        Assert.Contains("Color+Green", typeNames);
+        Assert.Contains("Color+Blue", typeNames);
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnion_ExposesTagToCSharpInterop()
+    {
+        var source = @"
+union Color {
+    Red
+    Green
+    Blue
+}";
+
+        var (isValueType, hasTagProperty, redTag, blueTag) = CompileAndInspect(source, assembly =>
+        {
+            var unionType = assembly.GetType("Color")!;
+            var tagProperty = unionType.GetProperty("Tag", BindingFlags.Public | BindingFlags.Instance);
+
+            var red = unionType.GetNestedType("Red")!.GetField("Tag", BindingFlags.Public | BindingFlags.Static);
+            var blue = unionType.GetNestedType("Blue")!.GetField("Tag", BindingFlags.Public | BindingFlags.Static);
+
+            return (
+                unionType.IsValueType,
+                tagProperty != null && tagProperty.PropertyType == typeof(int),
+                (int)red!.GetRawConstantValue()!,
+                (int)blue!.GetRawConstantValue()!);
+        });
+
+        Assert.True(isValueType);
+        Assert.True(hasTagProperty, "Value-struct union should expose a public int Tag property for C# consumers.");
+        Assert.Equal(0, redTag);
+        Assert.Equal(2, blueTag);
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnionConstruction_DoesNotAllocatePerCase()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func choose(go: bool): Signal {
+    if go {
+        return new Signal.Go
+    }
+    return new Signal.Stop
+}";
+
+        var hasNewobj = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program")!;
+            var method = programType.GetMethod("choose", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            return GetMethodOpCodes(method).Contains(OpCodes.Newobj);
+        });
+
+        Assert.False(hasNewobj, "Value-struct union construction must not allocate a per-case object (no newobj).");
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnionMatch_DoesNotUseIsinst()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func describe(go: bool): int {
+    s := new Signal.Stop
+    if go {
+        s = new Signal.Go
+    }
+    return match s {
+        Signal.Stop => 1,
+        Signal.Go => 2
+    }
+}";
+
+        var hasIsinst = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program")!;
+            var method = programType.GetMethod("describe", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            return GetMethodOpCodes(method).Contains(OpCodes.Isinst);
+        });
+
+        Assert.False(hasIsinst, "Value-struct union match must dispatch on the integer tag, not isinst.");
+    }
+
+    [Fact]
+    public void ILCompiler_CanConstructAndMatchPayloadFreeValueStructUnion()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+    Wait
+}
+
+func make(code: int): Signal {
+    if code == 0 {
+        return new Signal.Stop
+    }
+    if code == 1 {
+        return new Signal.Go
+    }
+    return new Signal.Wait
+}
+
+func main(code: int): int {
+    s := make(code)
+    return match s {
+        Signal.Stop => 100,
+        Signal.Go => 200,
+        Signal.Wait => 300
+    }
+}";
+
+        Assert.Equal(100, Assert.IsType<int>(CompileAndInvoke(source, "main", 0)));
+        Assert.Equal(200, Assert.IsType<int>(CompileAndInvoke(source, "main", 1)));
+        Assert.Equal(300, Assert.IsType<int>(CompileAndInvoke(source, "main", 2)));
+    }
+
+    [Fact]
+    public void ILCompiler_ValueStructUnion_InferredLocalAndArgumentPassing()
+    {
+        // Exercises (a) direct `:=` inference from `new U.Case`, and (b) passing a
+        // value-struct union across a function boundary as an argument — both must
+        // round-trip without a spurious box/unbox.
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func classify(s: Signal): int {
+    return match s {
+        Signal.Stop => 7,
+        Signal.Go => 9
+    }
+}
+
+func main(go: bool): int {
+    s := new Signal.Stop
+    if go {
+        s = new Signal.Go
+    }
+    return classify(s)
+}";
+
+        Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source, "main", false)));
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source, "main", true)));
+    }
+
+    [Fact]
+    public void ILCompiler_ValueStructUnion_IsExpressionUsesTagCompare()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func isStop(go: bool): bool {
+    s := new Signal.Stop
+    if go {
+        s = new Signal.Go
+    }
+    return s is Signal.Stop
+}";
+
+        Assert.True(Assert.IsType<bool>(CompileAndInvoke(source, "isStop", false)));
+        Assert.False(Assert.IsType<bool>(CompileAndInvoke(source, "isStop", true)));
+
+        var hasIsinst = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var method = program.GetMethod("isStop", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            return GetMethodOpCodes(method).Contains(OpCodes.Isinst);
+        });
+
+        Assert.False(hasIsinst, "is-expression against a value-struct union case must compare the tag, not use isinst.");
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadCarryingUnion_KeepsClassHierarchyRepresentation()
+    {
+        // Unions whose cases carry payloads are NOT yet value-struct emittable; they
+        // must keep the reference class-hierarchy representation so existing behavior
+        // (field reads, isinst matching, C# class interop) is preserved.
+        var source = @"
+union Result {
+    Success { value: int }
+    Failure { error: string }
+}";
+
+        var isValueType = CompileAndInspect(source, assembly =>
+            assembly.GetType("Result")!.IsValueType);
+
+        Assert.False(isValueType, "Payload-carrying union must remain a reference type (class hierarchy).");
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteDefaultExpressionInTypedContexts()
     {
         var source = @"

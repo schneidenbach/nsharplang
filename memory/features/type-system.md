@@ -178,6 +178,29 @@ union Result<T> {
 
 Transpiled to abstract base class with nested record cases.
 
+#### Value-Struct Union Representation (Performance)
+
+Small, closed, payload-free unions (every case is a bare tag, e.g. an enum-like
+discriminated union) are emitted as an allocation-free `readonly struct` with an
+integer discriminator tag instead of the abstract-class + nested-case-class
+hierarchy. For these unions:
+
+- The union type is a value type (`IsValueType == true`) — no object header, no
+  per-case heap allocation.
+- Construction (`new U.Case`) calls a static factory on the struct; the hot path
+  contains no per-case `newobj`.
+- `match` / pattern tests compare the integer tag, not a reference-type `isinst`.
+- C# interop is preserved: the struct exposes a public `int Tag` property, the
+  nested `U.Case` marker types still exist, and each marker carries a public
+  `const int Tag` with the case's tag value.
+
+Eligibility is decided by `NSharpLang.Compiler.Performance.UnionValueLayout`
+(non-generic, closed, ≤ 16 cases, value-friendly). Unions that carry payloads
+(e.g. `Result` above) remain on the reference class-hierarchy representation today;
+extending the value-struct layout to inline case payloads is planned follow-up
+work. Anything not eligible keeps the class hierarchy, so existing semantics and
+interop never regress.
+
 ## Anonymous Union Types
 
 Anonymous unions use `A | B` syntax when a value may be one of two concrete types
