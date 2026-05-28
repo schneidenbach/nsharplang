@@ -10154,7 +10154,11 @@ public partial class ILCompiler
         MethodInfo? getEnumeratorMethod;
         Type enumeratorType;
 
-        if (collectionType.IsArray)
+        // Single-dimension, zero-based arrays (SZArrays) get the allocation-free
+        // index-loop fast path (ldlen + index + ldelem) with no enumerator allocation.
+        // Multi-dimension or non-zero-based / variable-bound rank-1 arrays fall through
+        // to the enumerator path, since ldlen/ldelem are only valid for SZArrays.
+        if (IsSingleDimensionZeroBasedArray(collectionType))
         {
             elementType = collectionType.GetElementType()!;
             EmitForeachForArray(foreachStmt, collectionType, elementType);
@@ -10429,6 +10433,22 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldloc, _currentYieldListLocal);
         EmitExpressionWithExpectedType(yieldStmt.Value, _currentYieldElementType);
         _currentIL.Emit(OpCodes.Callvirt, addMethod);
+    }
+
+    /// <summary>
+    /// Returns true only for single-dimension, zero-based arrays (SZArrays, i.e. <c>T[]</c>).
+    /// These are the only arrays for which <c>ldlen</c>/<c>ldelem</c> are valid IL and for
+    /// which the allocation-free index-loop fast path is safe. Multi-dimension arrays
+    /// (<c>T[,]</c>) and non-zero-based / variable-bound rank-1 arrays (<c>T[*]</c>) must use
+    /// the enumerator path to preserve correct row-major semantics.
+    /// </summary>
+    private static bool IsSingleDimensionZeroBasedArray(Type type)
+    {
+        // Type.IsSZArray is the purpose-built predicate: it is true only for single-dimension,
+        // zero-based arrays (T[]) and false for multi-dimension (T[,]) and variable-bound
+        // rank-1 arrays (T[*]). It is reliable across runtime types, generic-parameter element
+        // types, and reflection-only/builder types in the compiler context.
+        return type.IsSZArray;
     }
 
     /// <summary>

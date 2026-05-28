@@ -936,6 +936,82 @@ func sumArray(numbers: int[]): int {
     }
 
     [Fact]
+    public void ILCompiler_ForeachOverArray_UsesAllocationFreeIndexLoop()
+    {
+        // foreach over a T[] must lower to an ldlen + index loop with NO enumerator:
+        // no GetEnumerator call (callvirt) and no enumerator allocation (newobj).
+        var source = @"
+func sumArray(numbers: int[]): int {
+    sum := 0
+    foreach num in numbers {
+        sum = sum + num
+    }
+    return sum
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("sumArray", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.Contains(OpCodes.Ldelem_I4, opCodes);
+        // No enumerator allocation and no GetEnumerator/MoveNext calls.
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+        Assert.DoesNotContain(OpCodes.Call, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverReferenceArray_UsesAllocationFreeIndexLoop()
+    {
+        // Reference-typed element arrays must also use the index-loop fast path
+        // (ldlen + ldelem.ref) with no enumerator allocation.
+        var source = @"
+func countStrings(values: string[]): int {
+    count := 0
+    foreach value in values {
+        count = count + 1
+    }
+    return count
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("countStrings", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.Contains(OpCodes.Ldelem_Ref, opCodes);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverArray_ProducesCorrectSum()
+    {
+        // Confirm the allocation-free lowering preserves exact semantics.
+        var source = @"
+func sumArray(): int {
+    numbers := [1, 2, 3, 4, 5]
+    sum := 0
+    foreach num in numbers {
+        sum = sum + num
+    }
+    return sum
+}";
+
+        var result = CompileAndInvoke(source, "sumArray");
+        Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileForeachWithPrint()
     {
         var source = @"
