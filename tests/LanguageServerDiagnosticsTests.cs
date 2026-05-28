@@ -1185,6 +1185,141 @@ func main() {
         AssertLspRange(diagnostic, line0: 5, startCharacter: 23, endCharacter: 27);
     }
 
+    [Theory]
+    [InlineData("func () {\n}", "Expected function name", "func")]
+    [InlineData("class {\n}", "Expected class name", "class")]
+    [InlineData("struct {\n}", "Expected struct name", "struct")]
+    [InlineData("record {\n}", "Expected record name", "record")]
+    [InlineData("interface {\n}", "Expected interface name", "interface")]
+    [InlineData("union {\n}", "Expected union name", "union")]
+    [InlineData("enum {\n}", "Expected enum name", "enum")]
+    [InlineData("type = int", "Expected type alias name", "type")]
+    public void Diagnostics_MissingDeclarationName_UsesDeclarationKeywordSpan(
+        string declarationSource,
+        string message,
+        string keyword)
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = $"file:///missing-{keyword}-name.nl";
+        var source = $"package Playground\n\n{declarationSource}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains(message));
+
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 1, length: keyword.Length);
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(2, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(0, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(keyword.Length, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Theory]
+    [InlineData("func main(: string) {\n}", "Expected parameter name", 13, "string")]
+    [InlineData("func main(name:) {\n}", "Expected type name", 11, "name")]
+    [InlineData("func main(name: string, ) {\n}", "Expected parameter name", 11, "name: string,")]
+    [InlineData("func main<T,>() {\n}", "Expected type parameter name", 10, "<T,>")]
+    [InlineData("class Box<> {\n}", "Expected type parameter name", 10, "<>")]
+    public void Diagnostics_MalformedParameterLists_UseVisibleTokenSpans(
+        string declarationSource,
+        string message,
+        int column,
+        string highlightedText)
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///malformed-parameters.nl";
+        var source = $"package Playground\n\n{declarationSource}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains(message));
+
+        AssertDiagnosticSpan(diagnostic, line: 3, column: column, length: highlightedText.Length);
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(2, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(column - 1, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(column - 1 + highlightedText.Length, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Theory]
+    [InlineData("class User {\n    Name:\n}", "Expected type name", 4, 5, "Name")]
+    [InlineData("class User {\n    Items: List<>\n}", "Expected type name", 4, 12, "List<>")]
+    [InlineData("func main() {\n    value := new\n}", "Expected type name", 4, 14, "new")]
+    [InlineData("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}", "Expected ':' after object initializer member 'Name'", 7, 24, "Name")]
+    public void Diagnostics_AdditionalMalformedConstructs_UseVisibleTokenSpans(
+        string sourceBody,
+        string message,
+        int line,
+        int column,
+        string highlightedText)
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///additional-malformed-spans.nl";
+        var source = $"package Playground\n\n{sourceBody}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains(message));
+
+        AssertDiagnosticSpan(diagnostic, line: line, column: column, length: highlightedText.Length);
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(diagnostic);
+        Assert.Equal(line - 1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(column - 1, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(column - 1 + highlightedText.Length, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Diagnostics_MissingFieldTypeBeforeNextField_UsesBothOwningSpans()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///field-type-before-next-field.nl";
+        var source = """
+package Playground
+
+class User {
+    Name:
+    Items: List<>
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+        var missingNameType = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected type name") &&
+                          diagnostic.Line == 4 &&
+                          diagnostic.Column == 5);
+        AssertDiagnosticSpan(missingNameType, line: 4, column: 5, length: "Name".Length);
+        AssertLspRange(missingNameType, line0: 3, startCharacter: 4, endCharacter: 8);
+
+        var emptyGenericArgument = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ExpectedToken &&
+                          diagnostic.Message.Contains("Expected type name") &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Column == 12);
+        AssertDiagnosticSpan(emptyGenericArgument, line: 5, column: 12, length: "List<>".Length);
+        AssertLspRange(emptyGenericArgument, line0: 4, startCharacter: 11, endCharacter: 17);
+    }
+
     [Fact]
     public void LspCompilerDiagnostic_UsesExactCompilerSpan()
     {
@@ -1841,6 +1976,75 @@ func main() {
         Assert.DoesNotContain(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.TypeMismatch &&
                           diagnostic.Message.Contains("condition in a 'while' loop", System.StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("""
+func main() {
+    + 1
+}
+""", ErrorCode.InvalidSyntax, "Prefix '+'", 2, 5, "+ 1")]
+    [InlineData("""
+func main() {
+    .Name
+}
+""", ErrorCode.ExpectedToken, "Expected expression before '.'", 2, 5, ".Name")]
+    [InlineData("""
+func main() {
+    if true
+}
+""", ErrorCode.ExpectedToken, "Expected statement body", 2, 5, "if")]
+    [InlineData("""
+func main() {
+    for item in items
+}
+""", ErrorCode.ExpectedToken, "Expected statement body", 2, 5, "for")]
+    [InlineData("""
+func main() {
+    value := await
+}
+""", ErrorCode.ExpectedToken, "Expected an expression to await after 'await'", 2, 14, "await")]
+    [InlineData("""
+func main() {
+    value := must
+}
+""", ErrorCode.ExpectedToken, "Expected a nullable expression to unwrap after 'must'", 2, 14, "must")]
+    [InlineData("""
+func main() {
+    f := x =>
+}
+""", ErrorCode.ExpectedToken, "Expected a lambda body expression after '=>'", 2, 10, "x =>")]
+    [InlineData("""
+func main() {
+    result := condition ? 1 :
+}
+""", ErrorCode.ExpectedToken, "Expected an else expression after ':'", 2, 15, "condition ? 1 :")]
+    public void Diagnostics_RecoverySpans_AvoidPunctuationOnlyMarkers(
+        string source,
+        ErrorCode code,
+        string message,
+        int line,
+        int column,
+        string highlightedText)
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///recovery-span.nl";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+        var diagnostic = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == code &&
+                          diagnostic.Message.Contains(message));
+
+        AssertDiagnosticSpan(diagnostic, line: line, column: column, length: highlightedText.Length);
+        AssertLspRange(diagnostic, line0: line - 1, startCharacter: column - 1, endCharacter: column - 1 + highlightedText.Length);
+        Assert.DoesNotContain(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.UnexpectedToken ||
+                          diagnostic.Code == ErrorCode.InvalidExpressionStatement);
     }
 
     [Fact]

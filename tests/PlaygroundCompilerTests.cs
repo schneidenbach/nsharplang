@@ -831,6 +831,98 @@ public sealed class PlaygroundCompilerTests
         Assert.Contains("Name: value", diagnostic.Hint, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("func () {\n}", "Expected function name", "func")]
+    [InlineData("class {\n}", "Expected class name", "class")]
+    [InlineData("struct {\n}", "Expected struct name", "struct")]
+    [InlineData("record {\n}", "Expected record name", "record")]
+    [InlineData("interface {\n}", "Expected interface name", "interface")]
+    [InlineData("union {\n}", "Expected union name", "union")]
+    [InlineData("enum {\n}", "Expected enum name", "enum")]
+    [InlineData("type = int", "Expected type alias name", "type")]
+    public void Check_MissingDeclarationName_PreservesDeclarationKeywordSpanForMarkers(
+        string declarationSource,
+        string message,
+        string keyword)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{declarationSource}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: 1, length: keyword.Length);
+    }
+
+    [Theory]
+    [InlineData("func main(: string) {\n}", "Expected parameter name", 13, "string")]
+    [InlineData("func main(name:) {\n}", "Expected type name", 11, "name")]
+    [InlineData("func main(name: string, ) {\n}", "Expected parameter name", 11, "name: string,")]
+    [InlineData("func main<T,>() {\n}", "Expected type parameter name", 10, "<T,>")]
+    [InlineData("class Box<> {\n}", "Expected type parameter name", 10, "<>")]
+    public void Check_MalformedParameterLists_PreserveVisibleTokenSpansForMarkers(
+        string declarationSource,
+        string message,
+        int column,
+        string highlightedText)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{declarationSource}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: 3, column: column, length: highlightedText.Length);
+    }
+
+    [Theory]
+    [InlineData("class User {\n    Name:\n}", "Expected type name", 4, 5, "Name")]
+    [InlineData("class User {\n    Items: List<>\n}", "Expected type name", 4, 12, "List<>")]
+    [InlineData("func main() {\n    value := new\n}", "Expected type name", 4, 14, "new")]
+    [InlineData("class User {\n    Name: string\n}\nfunc main() {\n    user := new User { Name }\n}", "Expected ':' after object initializer member 'Name'", 7, 24, "Name")]
+    public void Check_AdditionalMalformedConstructs_PreserveVisibleTokenSpansForMarkers(
+        string sourceBody,
+        string message,
+        int line,
+        int column,
+        string highlightedText)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{sourceBody}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: line, column: column, length: highlightedText.Length);
+    }
+
+    [Fact]
+    public void Check_MissingFieldTypeBeforeNextField_PreservesBothOwningSpansForMarkers()
+    {
+        var result = new PlaygroundCompiler().Check("""
+            package Playground
+
+            class User {
+                Name:
+                Items: List<>
+            }
+            """);
+
+        var missingNameType = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected type name") &&
+                          diagnostic.Line == 4 &&
+                          diagnostic.Column == 5);
+        AssertPlaygroundSpan(missingNameType, line: 4, column: 5, length: "Name".Length);
+
+        var emptyGenericArgument = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL102" &&
+                          diagnostic.Message.Contains("Expected type name") &&
+                          diagnostic.Line == 5 &&
+                          diagnostic.Column == 12);
+        AssertPlaygroundSpan(emptyGenericArgument, line: 5, column: 12, length: "List<>".Length);
+    }
+
     [Fact]
     public void Check_IncompleteMemberAccess_PointsAtReceiver()
     {
@@ -1367,6 +1459,67 @@ public sealed class PlaygroundCompilerTests
         Assert.DoesNotContain(result.Diagnostics,
             diagnostic => diagnostic.Code == "NL202" &&
                           diagnostic.Message.Contains("condition in a 'while' loop", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("""
+func main() {
+    + 1
+}
+""", "NL103", "Prefix '+'", 4, 5, "+ 1")]
+    [InlineData("""
+func main() {
+    .Name
+}
+""", "NL102", "Expected expression before '.'", 4, 5, ".Name")]
+    [InlineData("""
+func main() {
+    if true
+}
+""", "NL102", "Expected statement body", 4, 5, "if")]
+    [InlineData("""
+func main() {
+    for item in items
+}
+""", "NL102", "Expected statement body", 4, 5, "for")]
+    [InlineData("""
+func main() {
+    value := await
+}
+""", "NL102", "Expected an expression to await after 'await'", 4, 14, "await")]
+    [InlineData("""
+func main() {
+    value := must
+}
+""", "NL102", "Expected a nullable expression to unwrap after 'must'", 4, 14, "must")]
+    [InlineData("""
+func main() {
+    f := x =>
+}
+""", "NL102", "Expected a lambda body expression after '=>'", 4, 10, "x =>")]
+    [InlineData("""
+func main() {
+    result := condition ? 1 :
+}
+""", "NL102", "Expected an else expression after ':'", 4, 15, "condition ? 1 :")]
+    public void Check_RecoverySpans_AvoidPunctuationOnlyMarkers(
+        string sourceBody,
+        string code,
+        string message,
+        int line,
+        int column,
+        string highlightedText)
+    {
+        var result = new PlaygroundCompiler().Check($"package Playground\n\n{sourceBody}");
+
+        var diagnostic = Assert.Single(result.Diagnostics,
+            diagnostic => diagnostic.Code == code &&
+                          diagnostic.Message.Contains(message));
+
+        AssertPlaygroundSpan(diagnostic, line: line, column: column, length: highlightedText.Length);
+        Assert.DoesNotContain(result.Diagnostics,
+            diagnostic => diagnostic.Code == "NL101" ||
+                          diagnostic.Code == "NL313");
     }
 
     [Fact]

@@ -67,6 +67,166 @@ func test() {
         Assert.Contains("dot (.)", error.HumanExplanation);
     }
 
+    [Theory]
+    [InlineData("func () {\n}", "Expected function name", "func")]
+    [InlineData("class {\n}", "Expected class name", "class")]
+    [InlineData("struct {\n}", "Expected struct name", "struct")]
+    [InlineData("record {\n}", "Expected record name", "record")]
+    [InlineData("interface {\n}", "Expected interface name", "interface")]
+    [InlineData("union {\n}", "Expected union name", "union")]
+    [InlineData("enum {\n}", "Expected enum name", "enum")]
+    [InlineData("type = int", "Expected type alias name", "type")]
+    public void Parser_MissingDeclarationName_PointsAtDeclarationKeyword(
+        string source,
+        string message,
+        string keyword)
+    {
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains(message));
+        Assert.Equal(1, diagnostic.Line);
+        Assert.Equal(1, diagnostic.Column);
+        Assert.Equal(keyword.Length, diagnostic.Length);
+        Assert.StartsWith(keyword, diagnostic.SourceSnippet, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parser_MissingParameterName_PointsAtTypeToken()
+    {
+        var result = Parse("func main(: string) {\n}");
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected parameter name"));
+        Assert.Equal(1, diagnostic.Line);
+        Assert.Equal(13, diagnostic.Column);
+        Assert.Equal("string".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Parser_MissingParameterType_PointsAtParameterName()
+    {
+        var result = Parse("func main(name:) {\n}");
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected type name"));
+        Assert.Equal(1, diagnostic.Line);
+        Assert.Equal(11, diagnostic.Column);
+        Assert.Equal("name".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Parser_TrailingParameterComma_PointsAtPreviousParameter()
+    {
+        var result = Parse("func main(name: string, ) {\n}");
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected parameter name"));
+        Assert.Equal(1, diagnostic.Line);
+        Assert.Equal(11, diagnostic.Column);
+        Assert.Equal("name: string,".Length, diagnostic.Length);
+    }
+
+    [Theory]
+    [InlineData("func main<T,>() {\n}", 10, 4)]
+    [InlineData("class Box<> {\n}", 10, 2)]
+    public void Parser_MissingTypeParameterName_PointsAtGenericParameterList(
+        string source,
+        int expectedColumn,
+        int expectedLength)
+    {
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected type parameter name"));
+        Assert.Equal(1, diagnostic.Line);
+        Assert.Equal(expectedColumn, diagnostic.Column);
+        Assert.Equal(expectedLength, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Parser_MissingFieldType_PointsAtFieldName()
+    {
+        var result = Parse("class User {\n    Name:\n}");
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected type name"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("Name".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Parser_MissingGenericTypeArgument_PointsAtGenericType()
+    {
+        var result = Parse("class User {\n    Items: List<>\n}");
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected type name"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(12, diagnostic.Column);
+        Assert.Equal("List<>".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Parser_MissingFieldTypeBeforeNextField_PointsAtFieldNameAndContinues()
+    {
+        var result = Parse("class User {\n    Name:\n    Items: List<>\n}");
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected type name") &&
+            error.Line == 2 &&
+            error.Column == 5 &&
+            error.Length == "Name".Length);
+        Assert.Contains(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected type name") &&
+            error.Line == 3 &&
+            error.Column == 12 &&
+            error.Length == "List<>".Length);
+    }
+
+    [Fact]
+    public void Parser_MissingObjectInitializerColon_PointsAtPropertyName()
+    {
+        var result = Parse("""
+class User {
+    Name: string
+}
+func main() {
+    user := new User { Name }
+}
+""");
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected ':' after object initializer member 'Name'"));
+        Assert.Equal(5, diagnostic.Line);
+        Assert.Equal(24, diagnostic.Column);
+        Assert.Equal("Name".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Parser_NewMissingType_PointsAtNewKeyword()
+    {
+        var result = Parse("func main() {\n    value := new\n}");
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected type name"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(14, diagnostic.Column);
+        Assert.Equal("new".Length, diagnostic.Length);
+    }
+
     [Fact]
     public void Parser_ReportsError_MissingClosingParen_SingleLine()
     {
@@ -899,6 +1059,151 @@ func test() {
         var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
         Assert.Contains(function.Body!.Statements, statement =>
             statement is WhileStatement { Body: BlockStatement });
+    }
+
+    [Theory]
+    [InlineData("""
+func test() {
+    if true
+}
+""", "if", 2, "Expected statement body")]
+    [InlineData("""
+func test() {
+    for item in items
+}
+""", "for", 2, "Expected statement body")]
+    [InlineData("""
+func test() {
+    while true
+}
+""", "while", 2, "Expected statement body")]
+    public void Parser_MissingStatementBody_UnderlinesControlFlowKeyword(
+        string source,
+        string keyword,
+        int line,
+        string message)
+    {
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains(message));
+
+        Assert.Equal(line, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal(keyword.Length, diagnostic.Length);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+    }
+
+    [Fact]
+    public void Parser_InvalidPrefixPlus_UnderlinesVisibleExpressionSegment()
+    {
+        var source = """
+func test() {
+    + 1
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.InvalidSyntax &&
+            error.Message.Contains("Prefix '+'"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal("+ 1".Length, diagnostic.Length);
+        Assert.Equal("    + 1", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+    }
+
+    [Fact]
+    public void Parser_LeadingMemberAccess_UnderlinesVisibleMemberAccess()
+    {
+        var source = """
+func test() {
+    .Name
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected expression before '.'"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(5, diagnostic.Column);
+        Assert.Equal(".Name".Length, diagnostic.Length);
+        Assert.Equal("    .Name", diagnostic.SourceSnippet);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+    }
+
+    [Theory]
+    [InlineData("await", "Expected an expression to await after 'await'", 14, "await")]
+    [InlineData("must", "Expected a nullable expression to unwrap after 'must'", 14, "must")]
+    public void Parser_MissingUnaryKeywordOperand_UnderlinesKeyword(
+        string keyword,
+        string message,
+        int column,
+        string highlightedText)
+    {
+        var source = $$"""
+func test() {
+    value := {{keyword}}
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains(message));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(column, diagnostic.Column);
+        Assert.Equal(highlightedText.Length, diagnostic.Length);
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.UnexpectedToken);
+    }
+
+    [Fact]
+    public void Parser_MissingLambdaBody_UnderlinesLambdaHeader()
+    {
+        var source = """
+func test() {
+    f := x =>
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected a lambda body expression after '=>'"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(10, diagnostic.Column);
+        Assert.Equal("x =>".Length, diagnostic.Length);
+    }
+
+    [Fact]
+    public void Parser_MissingTernaryElse_UnderlinesTernaryExpression()
+    {
+        var source = """
+func test() {
+    value := condition ? 1 :
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Expected an else expression after ':'"));
+
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Equal(14, diagnostic.Column);
+        Assert.Equal("condition ? 1 :".Length, diagnostic.Length);
     }
 
     [Fact]
