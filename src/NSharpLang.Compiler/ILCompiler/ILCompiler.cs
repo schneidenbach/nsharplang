@@ -2466,10 +2466,18 @@ public partial class ILCompiler
         // of those forms is more involved, so to stay conservative we disable the struct-box
         // optimisation for the whole body whenever it contains any lambda. Named local
         // functions invoked directly remain eligible.
+        //
+        // A named local function is only lowered to a direct, by-reference call when it has an
+        // explicit return type (see GetDirectLocalFunctionDeclarations). A return-type-less local
+        // function is instead lowered through a heap display class + delegate, which captures the
+        // box by field rather than by managed reference; mixing that with a stack struct box
+        // produces invalid IL. So the struct-box optimisation is also disabled for the whole body
+        // whenever any return-type-less local function is present.
         var structBoxable = new HashSet<string>(StringComparer.Ordinal);
         var bodyContainsLambda = (body != null && ContainsLambda(body))
             || (expressionBody != null && ContainsLambda(expressionBody));
-        if (!bodyContainsLambda)
+        var bodyContainsReturnlessLocalFunction = ContainsReturnlessLocalFunction(body);
+        if (!bodyContainsLambda && !bodyContainsReturnlessLocalFunction)
         {
             structBoxable.UnionWith(mutated);
             structBoxable.ExceptWith(escapesFrame);
@@ -4247,6 +4255,44 @@ public partial class ILCompiler
             AssertStatement assertStatement => ContainsLambda(assertStatement.Condition)
                 || (assertStatement.Message != null && ContainsLambda(assertStatement.Message)),
             AssertThrowsStatement assertThrowsStatement => ContainsLambda(assertThrowsStatement.Body),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Whether <paramref name="block"/> contains a named local function with no explicit return
+    /// type anywhere in its subtree. Such local functions are lowered through a heap display class
+    /// + delegate (see <see cref="GetDirectLocalFunctionDeclarations"/>, which requires a non-null
+    /// <c>ReturnType</c> for direct, by-reference lowering), so their captured boxes must remain
+    /// heap boxes. The struct-box optimisation is disabled for the whole body when one is present.
+    /// </summary>
+    private static bool ContainsReturnlessLocalFunction(BlockStatement? block)
+    {
+        return block != null && ContainsReturnlessLocalFunction((Statement)block);
+    }
+
+    private static bool ContainsReturnlessLocalFunction(Statement statement)
+    {
+        return statement switch
+        {
+            LocalFunctionStatement localFunction =>
+                localFunction.Function.ReturnType == null
+                || (localFunction.Function.Body != null && ContainsReturnlessLocalFunction(localFunction.Function.Body)),
+            BlockStatement block => block.Statements.Any(ContainsReturnlessLocalFunction),
+            IfStatement ifStatement => ContainsReturnlessLocalFunction(ifStatement.ThenStatement)
+                || (ifStatement.ElseStatement != null && ContainsReturnlessLocalFunction(ifStatement.ElseStatement)),
+            ForStatement forStatement => (forStatement.Initializer != null && ContainsReturnlessLocalFunction(forStatement.Initializer))
+                || ContainsReturnlessLocalFunction(forStatement.Body),
+            ForeachStatement foreachStatement => ContainsReturnlessLocalFunction(foreachStatement.Body),
+            AwaitForEachStatement awaitForEachStatement => ContainsReturnlessLocalFunction(awaitForEachStatement.Body),
+            WhileStatement whileStatement => ContainsReturnlessLocalFunction(whileStatement.Body),
+            TryStatement tryStatement => ContainsReturnlessLocalFunction(tryStatement.TryBlock)
+                || tryStatement.CatchClauses.Any(catchClause => ContainsReturnlessLocalFunction(catchClause.Block))
+                || (tryStatement.FinallyBlock != null && ContainsReturnlessLocalFunction(tryStatement.FinallyBlock)),
+            UsingStatement usingStatement => usingStatement.Body != null && ContainsReturnlessLocalFunction(usingStatement.Body),
+            LockStatement lockStatement => ContainsReturnlessLocalFunction(lockStatement.Body),
+            SwitchStatement switchStatement => switchStatement.Cases.Any(
+                switchCase => switchCase.Statements.Any(ContainsReturnlessLocalFunction)),
             _ => false
         };
     }

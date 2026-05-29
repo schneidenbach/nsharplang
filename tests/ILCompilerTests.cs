@@ -3122,6 +3122,60 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_StructClosureMutationIsSharedAcrossCallSites()
+    {
+        // A captured local mutated by a directly-invoked local function must observe
+        // the mutation across multiple invocations and from the enclosing frame. This
+        // is the critical aliasing case for the struct-box lowering: passing the box by
+        // managed reference must preserve shared-mutation semantics (parity with C#:
+        // an int local captured by a local function, incremented twice, reads 2).
+        var source = @"
+func main(): int {
+    counter := 0
+
+    func increment(): int {
+        counter = counter + 1
+        return counter
+    }
+
+    increment()
+    increment()
+
+    func readDoubled(): int => counter * 2
+
+    return readDoubled()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(4, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_StructClosureMutationFromEnclosingFrameIsObservedByLocalFunction()
+    {
+        // Mutating the captured local directly in the enclosing frame after the local
+        // function is defined must be observed when the local function later reads it.
+        var source = @"
+func main(): int {
+    total := 5
+
+    func add(n: int): int {
+        total = total + n
+        return total
+    }
+
+    add(10)
+    total = total + 100
+    add(1)
+
+    return total
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(116, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanInferImplicitReturnTypeForLocalFunction()
     {
         var source = @"
