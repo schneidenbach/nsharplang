@@ -103,6 +103,13 @@ public partial class ILCompiler
     private readonly Dictionary<Type, ConstructorInfo> _liftedStorageConstructors = new();
     private readonly Dictionary<Type, FieldInfo> _liftedStorageValueFields = new();
     private readonly Dictionary<Type, Type> _liftedStorageValueTypes = new();
+    // Value-struct (allocation-free) union support. For unions classified as
+    // value-struct-emittable by NSharpLang.Compiler.Performance.UnionValueLayout, we
+    // emit a readonly struct carrying an integer tag instead of the class hierarchy.
+    // _valueStructUnions maps the union's struct type to its layout; _valueStructUnionCaseTypes
+    // maps each nested case marker type back to the owning union layout.
+    private readonly Dictionary<Type, ValueStructUnionLayout> _valueStructUnions = new();
+    private readonly Dictionary<Type, ValueStructUnionLayout> _valueStructUnionCaseTypes = new();
     private readonly Dictionary<DelegateSignatureKey, Type> _customDelegateTypes = new();
     private readonly Dictionary<Type, ConstructorInfo> _delegateConstructors = new();
     private readonly Dictionary<Type, MethodInfo> _delegateInvokeMethods = new();
@@ -143,6 +150,22 @@ public partial class ILCompiler
         ConstructorBuilder EnumerableConstructor,
         TypeBuilder EnumeratorType,
         ConstructorBuilder EnumeratorConstructor);
+
+    /// <summary>
+    /// Layout metadata for a union emitted as an allocation-free value struct.
+    /// <see cref="TagField"/> holds the integer discriminator; <see cref="CaseTags"/>
+    /// maps each nested case marker type to its assigned tag value. The nested case
+    /// types are still emitted (so reflection/type-resolution and existing tooling see
+    /// them), but they act purely as tag markers — no instance of a case class is ever
+    /// allocated.
+    /// </summary>
+    private sealed record ValueStructUnionLayout(
+        TypeBuilder UnionType,
+        FieldBuilder TagField,
+        ConstructorBuilder TagConstructor,
+        MethodBuilder TagGetter,
+        Dictionary<Type, int> CaseTags,
+        Dictionary<Type, MethodBuilder> CaseFactories);
 
     private sealed record DeclaredMethodOverload(FunctionDeclaration Declaration, MethodBuilder Builder);
     private sealed record DeclaredConstructorOverload(ConstructorDeclaration Declaration, ConstructorBuilder Builder);
@@ -13205,6 +13228,19 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Emit construction of a value-struct union case by calling the case's static
+    /// factory on the union struct. This leaves the union value on the stack with no
+    /// per-case heap allocation in the caller (a single <c>call</c>).
+    /// </summary>
+    private void EmitValueStructUnionConstruction(ValueStructUnionLayout layout, Type caseType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var factory = layout.CaseFactories[caseType];
+        _currentIL.Emit(OpCodes.Call, factory);
+    }
+
+    /// <summary>
     /// Emit IL for a new object expression
     /// </summary>
     private void EmitNewObject(NewExpression newExpr)
@@ -13212,6 +13248,14 @@ public partial class ILCompiler
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
         var type = ResolveNewExpressionType(newExpr);
+
+        // Allocation-free value-struct union case construction: `new U.Case` produces a
+        // U struct value via the case's static factory, instead of allocating a case class.
+        if (TryGetValueStructUnionCase(type, out var unionLayout, out _))
+        {
+            EmitValueStructUnionConstruction(unionLayout, type);
+            return;
+        }
 
         if (type.IsGenericParameter)
         {
@@ -14765,6 +14809,15 @@ public partial class ILCompiler
             return;
         }
 
+        // `unionValue is U.Case` on a value-struct union is an integer tag compare, not a
+        // reference-type isinst (which would be invalid IL against a value type). The case
+        // carries no payload, so there is nothing to bind; produce the boolean result.
+        if (TryGetValueStructUnionCase(targetType, out var vsIsLayout, out var vsIsTag))
+        {
+            EmitValueStructUnionIsTest(isExpr.Expression, vsIsLayout, vsIsTag);
+            return;
+        }
+
         EmitExpression(isExpr.Expression);
         _currentIL.Emit(OpCodes.Isinst, targetType);
 
@@ -15016,7 +15069,7 @@ public partial class ILCompiler
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
             TupleExpression tuple => GetTupleExpressionType(tuple),
             NewExpression newExpr => newExpr.Type != null || _expectedExpressionType != null || IsAnonymousObjectCreation(newExpr)
-                ? ResolveNewExpressionType(newExpr)
+                ? MapValueStructUnionCaseToUnion(ResolveNewExpressionType(newExpr))
                 : typeof(object),
             WithExpression withExpr => GetExpressionType(withExpr.Target),
             AwaitExpression awaitExpression => GetAwaitResultType(GetExpressionType(awaitExpression.Expression)),
@@ -16873,6 +16926,14 @@ public partial class ILCompiler
             return;
         }
 
+        // Allocation-free path: small, closed, value-friendly, payload-free unions are
+        // emitted as a readonly struct with an integer tag instead of a class hierarchy.
+        if (Performance.UnionValueLayout.IsValueStructEmittable(unionDecl))
+        {
+            DeclareValueStructUnion(moduleBuilder, unionDecl);
+            return;
+        }
+
         var unionType = moduleBuilder.DefineType(
             unionDecl.Name,
             GetTypeVisibilityAttributes(unionDecl.Name, unionDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract);
@@ -16962,12 +17023,162 @@ public partial class ILCompiler
         }
     }
 
+    /// <summary>
+    /// Emit a small, closed, payload-free union as an allocation-free
+    /// <c>readonly struct</c> with an integer discriminator tag. Each case is assigned
+    /// a distinct tag value; construction writes the tag (no <c>newobj</c>) and pattern
+    /// tests compare the tag (no <c>isinst</c>). Nested case marker types are still
+    /// emitted so reflection / type-resolution / tooling continue to see
+    /// <c>Union+Case</c>, but they are never instantiated.
+    /// </summary>
+    private void DeclareValueStructUnion(ModuleBuilder moduleBuilder, UnionDeclaration unionDecl)
+    {
+        var unionType = moduleBuilder.DefineType(
+            unionDecl.Name,
+            GetTypeVisibilityAttributes(unionDecl.Name, unionDecl.Modifiers) | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+            typeof(ValueType));
+        ApplyCustomAttributes(unionType.SetCustomAttribute, unionDecl.Attributes);
+        ApplyNullableContextAttribute(unionType.SetCustomAttribute);
+        ApplyIsReadOnlyAttribute(unionType.SetCustomAttribute);
+        RegisterType(unionDecl.Name, unionType);
+
+        // Integer discriminator. InitOnly is valid because it is only ever written in
+        // the private tag constructor, keeping the struct a genuine readonly struct.
+        var tagField = unionType.DefineField(
+            "_tag",
+            typeof(int),
+            FieldAttributes.Private | FieldAttributes.InitOnly);
+        _fields[GetFieldKey(unionType, "_tag")] = tagField;
+
+        // Private constructor: U(int tag) { _tag = tag; }. Construction goes through the
+        // per-case static factories below, never directly from call sites, so the field
+        // stays encapsulated and the readonly-struct invariant holds.
+        var tagCtor = unionType.DefineConstructor(
+            MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            CallingConventions.Standard,
+            new[] { typeof(int) });
+        var ctorIl = tagCtor.GetILGenerator();
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Ldarg_1);
+        ctorIl.Emit(OpCodes.Stfld, tagField);
+        ctorIl.Emit(OpCodes.Ret);
+
+        // Public Tag accessor so the discriminator is inspectable from C#.
+        var tagGetter = unionType.DefineMethod(
+            "get_Tag",
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var tagIl = tagGetter.GetILGenerator();
+        tagIl.Emit(OpCodes.Ldarg_0);
+        tagIl.Emit(OpCodes.Ldfld, tagField);
+        tagIl.Emit(OpCodes.Ret);
+        var tagProperty = unionType.DefineProperty("Tag", PropertyAttributes.None, typeof(int), Type.EmptyTypes);
+        tagProperty.SetGetMethod(tagGetter);
+
+        var caseTags = new Dictionary<Type, int>();
+        var caseFactories = new Dictionary<Type, MethodBuilder>();
+        var layout = new ValueStructUnionLayout(unionType, tagField, tagCtor, tagGetter, caseTags, caseFactories);
+
+        int tag = 0;
+        foreach (var unionCase in unionDecl.Cases)
+        {
+            // Marker nested type, preserved for reflection/tooling parity with the
+            // class-hierarchy representation. It is sealed/abstract and never instantiated.
+            var caseType = unionType.DefineNestedType(
+                unionCase.Name,
+                VisibilityConventions.GetNestedTypeAttributes(unionCase.Name, Modifiers.None) | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.Abstract,
+                typeof(object));
+            ApplyNullableContextAttribute(caseType.SetCustomAttribute);
+
+            var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
+            RegisterType(caseKey, caseType);
+
+            // Public int constant exposing the tag value (e.g. Union.Case.Tag) for C# consumers.
+            var caseTagConst = caseType.DefineField(
+                "Tag",
+                typeof(int),
+                FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal);
+            caseTagConst.SetConstant(tag);
+
+            caseTags[caseType] = tag;
+            _valueStructUnionCaseTypes[caseType] = layout;
+            tag++;
+        }
+
+        // Per-case static factories on the union struct: `static U <Case>() => new U(tag)`.
+        // Call sites invoke these with a single `call`, so no per-case object is allocated
+        // in the caller. The factory name is prefixed to avoid colliding with the nested
+        // marker type of the same case name.
+        int factoryTag = 0;
+        foreach (var unionCase in unionDecl.Cases)
+        {
+            var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
+            var caseType = _types[caseKey];
+
+            var factory = unionType.DefineMethod(
+                $"Create_{unionCase.Name}",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                unionType,
+                Type.EmptyTypes);
+            var factoryIl = factory.GetILGenerator();
+            factoryIl.Emit(OpCodes.Ldc_I4, factoryTag);
+            factoryIl.Emit(OpCodes.Newobj, tagCtor);
+            factoryIl.Emit(OpCodes.Ret);
+
+            caseFactories[caseType] = factory;
+            factoryTag++;
+        }
+
+        _valueStructUnions[unionType] = layout;
+    }
+
+    /// <summary>Returns the value-struct layout for a union type, or null if it is not value-struct represented.</summary>
+    private ValueStructUnionLayout? GetValueStructUnionLayout(Type type)
+    {
+        return _valueStructUnions.TryGetValue(type, out var layout) ? layout : null;
+    }
+
+    /// <summary>
+    /// If <paramref name="type"/> is a value-struct union case marker, returns the owning
+    /// union struct type; otherwise returns <paramref name="type"/> unchanged. A
+    /// constructed value-struct union case (<c>new U.Case</c>) yields a <c>U</c> value, so
+    /// its expression type must be reported as <c>U</c> — not the marker — to avoid a
+    /// spurious box/unbox coercion when the value is stored or returned.
+    /// </summary>
+    private Type MapValueStructUnionCaseToUnion(Type type)
+    {
+        return _valueStructUnionCaseTypes.TryGetValue(type, out var layout) ? layout.UnionType : type;
+    }
+
+    /// <summary>Returns the owning union layout and tag for a value-struct union case marker type, or false.</summary>
+    private bool TryGetValueStructUnionCase(Type caseType, out ValueStructUnionLayout layout, out int tag)
+    {
+        if (_valueStructUnionCaseTypes.TryGetValue(caseType, out var found))
+        {
+            layout = found;
+            tag = found.CaseTags[caseType];
+            return true;
+        }
+
+        layout = null!;
+        tag = 0;
+        return false;
+    }
+
     private void EmitUnionBodies(UnionDeclaration unionDecl, string? declaredTypeName = null)
     {
         var typeName = declaredTypeName ?? unionDecl.Name;
         if (!_types.TryGetValue(typeName, out var unionType))
         {
             throw new InvalidOperationException($"Union {typeName} not declared");
+        }
+
+        // Value-struct unions have no per-case bodies/constructors to emit; everything
+        // is inlined at construction/match sites and the struct itself needs no body.
+        if (GetValueStructUnionLayout(unionType) != null)
+        {
+            return;
         }
 
         if (_constructors.TryGetValue(GetConstructorKey(unionType), out var unionCtor))
@@ -18468,9 +18679,16 @@ public partial class ILCompiler
                 }
                 else if (identPattern.Name.Contains('.') && _types.TryGetValue(identPattern.Name, out var qualifiedCaseType))
                 {
-                    _currentIL.Emit(OpCodes.Isinst, qualifiedCaseType);
-                    _currentIL.Emit(OpCodes.Brtrue, successLabel);
-                    _currentIL.Emit(OpCodes.Br, failLabel);
+                    if (TryGetValueStructUnionCase(qualifiedCaseType, out var qualifiedLayout, out var qualifiedTag))
+                    {
+                        EmitValueStructUnionTagTest(qualifiedLayout, qualifiedTag, successLabel, failLabel);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Isinst, qualifiedCaseType);
+                        _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                        _currentIL.Emit(OpCodes.Br, failLabel);
+                    }
                 }
                 else if (TryResolvePatternType(identPattern.Name, out var patternType))
                 {
@@ -18759,6 +18977,14 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Union case type {unionPattern.CaseName} not declared");
         }
 
+        // Value-struct union: compare the discriminator tag instead of using isinst.
+        // Payload-free emittable unions never have pattern properties.
+        if (TryGetValueStructUnionCase(caseType, out var vsLayout, out var vsTag))
+        {
+            EmitValueStructUnionTagTest(vsLayout, vsTag, successLabel, failLabel);
+            return;
+        }
+
         _currentIL.Emit(OpCodes.Isinst, caseType);
         _currentIL.Emit(OpCodes.Dup);
 
@@ -18778,6 +19004,43 @@ public partial class ILCompiler
         var caseLocal = _currentIL.DeclareLocal(caseType);
         _currentIL.Emit(OpCodes.Stloc, caseLocal);
         EmitPropertyPatternTests(caseType, caseLocal, unionPattern.Properties, successLabel, failLabel);
+    }
+
+    /// <summary>
+    /// Emit a value-struct union case test: the union value is on the stack; store it,
+    /// read its discriminator tag, and branch to success when it equals the case tag.
+    /// </summary>
+    private void EmitValueStructUnionTagTest(ValueStructUnionLayout layout, int tag, Label successLabel, Label failLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Read the discriminator via the public Tag accessor so the private backing
+        // field stays encapsulated (and so the read is legal from any calling method).
+        var unionLocal = _currentIL.DeclareLocal(layout.UnionType);
+        _currentIL.Emit(OpCodes.Stloc, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca_S, unionLocal);
+        _currentIL.Emit(OpCodes.Call, layout.TagGetter);
+        _currentIL.Emit(OpCodes.Ldc_I4, tag);
+        _currentIL.Emit(OpCodes.Beq, successLabel);
+        _currentIL.Emit(OpCodes.Br, failLabel);
+    }
+
+    /// <summary>
+    /// Emit a boolean `unionValue is U.Case` test for a value-struct union: evaluate the
+    /// union value, read its tag via the public accessor, and compare to the case tag.
+    /// Leaves a bool (1/0) on the stack.
+    /// </summary>
+    private void EmitValueStructUnionIsTest(Expression expression, ValueStructUnionLayout layout, int tag)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var unionLocal = _currentIL.DeclareLocal(layout.UnionType);
+        EmitExpression(expression);
+        _currentIL.Emit(OpCodes.Stloc, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca_S, unionLocal);
+        _currentIL.Emit(OpCodes.Call, layout.TagGetter);
+        _currentIL.Emit(OpCodes.Ldc_I4, tag);
+        _currentIL.Emit(OpCodes.Ceq);
     }
 
     private void EmitObjectPatternTest(Type targetType, List<PropertyPattern> properties, Label successLabel, Label failLabel)
