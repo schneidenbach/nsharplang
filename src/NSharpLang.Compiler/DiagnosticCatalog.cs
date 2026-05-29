@@ -23,7 +23,8 @@ public enum DiagnosticCategory
     Hygiene,
     Nullability,
     Style,
-    Performance
+    Performance,
+    Aot
 }
 
 public sealed record DiagnosticDescriptor(
@@ -64,6 +65,7 @@ public static class DiagnosticCatalog
     {
         var descriptors = CompilerDescriptors()
             .Concat(PerformanceDescriptors())
+            .Concat(AotDescriptors())
             .Concat(LinterRuleDescriptors())
             .ToList();
 
@@ -82,8 +84,9 @@ public static class DiagnosticCatalog
     {
         foreach (ErrorCode code in Enum.GetValues<ErrorCode>())
         {
-            // Performance diagnostics are described explicitly in PerformanceDescriptors().
-            if (IsPerformanceCode(code))
+            // Performance and AOT diagnostics are described explicitly in
+            // PerformanceDescriptors() / AotDescriptors().
+            if (IsPerformanceCode(code) || IsAotCode(code))
             {
                 continue;
             }
@@ -198,6 +201,52 @@ public static class DiagnosticCatalog
 
     private static bool IsPerformanceCode(ErrorCode code)
         => code is >= ErrorCode.AllocationHere and <= ErrorCode.DelegateAllocation;
+
+    /// <summary>
+    /// Descriptors for the AOT/trimming safety diagnostics (NL960-NL969). These are advisory
+    /// (info) by default so ordinary builds are not blocked, but the AOT analysis pass promotes
+    /// them to build-blocking errors when the user opts in with <c>--aot</c>.
+    /// </summary>
+    private static IEnumerable<DiagnosticDescriptor> AotDescriptors()
+    {
+        yield return Aot(
+            ErrorCode.AotReflectionUse,
+            "Reflection blocks AOT",
+            "Uses runtime reflection here. The trimmer cannot see which members are accessed reflectively, so they may be removed, and Native AOT cannot resolve them ahead of time.");
+
+        yield return Aot(
+            ErrorCode.AotDynamicCode,
+            "Dynamic code blocks AOT",
+            "Generates or invokes code at runtime here (e.g. Reflection.Emit, Activator.CreateInstance, or dynamic dispatch). Native AOT has no JIT, so dynamically generated code cannot run.");
+
+        yield return Aot(
+            ErrorCode.AotMakeGenericType,
+            "Runtime generic instantiation blocks AOT",
+            "Constructs a generic type or method at runtime here (MakeGenericType / MakeGenericMethod). Native AOT only instantiates the generic combinations it can see at compile time.");
+
+        yield return Aot(
+            ErrorCode.AotExpressionTree,
+            "Expression tree blocks AOT",
+            "Builds or compiles a LINQ expression tree here. Compiling an expression tree emits IL at runtime, which Native AOT cannot do.");
+    }
+
+    private static DiagnosticDescriptor Aot(
+        ErrorCode code,
+        string title,
+        string explanation)
+        => new(
+            $"NL{(int)code:D3}",
+            title,
+            DiagnosticSource.Compiler,
+            DiagnosticCategory.Aot,
+            DiagnosticSeverity.Info,
+            BlocksBuildByDefault: false,
+            IsConfigurable: true,
+            DocsUrl: $"https://docs.n-sharp.dev/errors/NL{(int)code:D3}",
+            Explanation: explanation);
+
+    private static bool IsAotCode(ErrorCode code)
+        => code is >= ErrorCode.AotReflectionUse and <= ErrorCode.AotExpressionTree;
 
     private static string ToTitle(string pascalCase)
     {

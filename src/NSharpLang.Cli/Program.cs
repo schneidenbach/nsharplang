@@ -85,6 +85,7 @@ Options:
   --verbose          Show detailed build output
   --timings          Emit per-phase timing breakdown after build
   --perf-report      Emit a versioned JSON performance report after build
+  --aot              Analyze for Native AOT safety; AOT blockers become build errors
   --output <path>    Output directory for build artifacts (-o shorthand)
   --help, -h         Show this help text
 
@@ -95,6 +96,7 @@ Examples:
   nlc build --verbose    Show detailed build output
   nlc build --timings    Show phase-level timing breakdown
   nlc build --perf-report Emit a JSON performance report
+  nlc build --aot        Fail the build on Native AOT blockers
   nlc build -o ./dist    Build to a specific output directory
   nlc build Program.nl   Build a single file
 
@@ -109,10 +111,11 @@ Exit codes:
         var verbose = args.Contains("--verbose");
         var timings = args.Contains("--timings");
         var perfReport = args.Contains("--perf-report");
+        var aot = args.Contains("--aot");
         var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
         var backendOption = GetOptionValue(args, "--backend");
         var projectOption = GetOptionValue(args, "--project");
-        args = args.Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report").ToArray();
+        args = args.Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot").ToArray();
         // Strip --output/-o and its value from positional args
         args = StripOptionWithValue(args, "--output");
         args = StripOptionWithValue(args, "-o");
@@ -137,7 +140,8 @@ Exit codes:
                 var buildResult = RunBuildEmittingPerfReport(
                     perfReport,
                     projectRoot,
-                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose));
+                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot),
+                    () => CollectProjectAotBlockers(projectRoot, currentProjectConfig));
                 return buildResult;
             }
 
@@ -153,7 +157,8 @@ Exit codes:
             var singleFileResult = RunBuildEmittingPerfReport(
                 perfReport,
                 sourceDir,
-                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir));
+                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot),
+                () => CollectSingleFileAotBlockers(sourceFile, sourceProjectConfig));
             return singleFileResult;
         }
         catch (Exception ex)
@@ -168,7 +173,11 @@ Exit codes:
     /// progress output is redirected to stderr so stdout contains only valid JSON. The report's
     /// <c>ok</c> flag reflects whether the build succeeded (exit code 0).
     /// </summary>
-    static int RunBuildEmittingPerfReport(bool perfReport, string projectRoot, Func<int> build)
+    static int RunBuildEmittingPerfReport(
+        bool perfReport,
+        string projectRoot,
+        Func<int> build,
+        Func<IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>> collectAotBlockers)
     {
         if (!perfReport)
         {
@@ -177,11 +186,13 @@ Exit codes:
 
         var originalOut = Console.Out;
         int exitCode;
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> aotBlockers;
         try
         {
             // Keep stdout reserved for the JSON report; send build logs to stderr.
             Console.SetOut(Console.Error);
             exitCode = build();
+            aotBlockers = SafeCollectAotBlockers(collectAotBlockers);
         }
         finally
         {
@@ -189,8 +200,22 @@ Exit codes:
         }
 
         Console.WriteLine(
-            NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(projectRoot, exitCode == 0));
+            NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(projectRoot, exitCode == 0, aotBlockers));
         return exitCode;
+    }
+
+    private static IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> SafeCollectAotBlockers(
+        Func<IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>> collect)
+    {
+        try
+        {
+            return collect();
+        }
+        catch
+        {
+            // The perf report is best-effort instrumentation; never fail the build over it.
+            return Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>();
+        }
     }
 
     /// <summary>
@@ -365,21 +390,29 @@ Options:
   --output <dir>          Output directory for published files
   --runtime <rid>         Current host runtime only; adds a framework-dependent launcher
   --self-contained        Planned; currently exits with guidance
+  --aot                   Analysis-only: verify Native AOT safety and annotate public APIs
   --help, -h              Show this help text
 
 Supported publish shapes:
   - Portable framework-dependent: nlc publish --output ./dist
   - Current-runtime launcher: nlc publish --runtime <current-rid>
 
+Native AOT (--aot):
+  Analysis-only this release. Fails the publish on any AOT blocker (reflection,
+  dynamic code, runtime generics, expression trees) and stamps public APIs with
+  [RequiresUnreferencedCode]/[RequiresDynamicCode]. It does NOT emit a native image yet.
+
 Unsupported today:
   - Cross-runtime publishing, e.g. publishing linux-x64 from osx-arm64
   - Self-contained apphost/runtime bundles
+  - Native AOT image generation
 
 Examples:
   nlc publish
   nlc publish --backend il --output ./dist
   nlc publish --configuration Release
   nlc publish --runtime <current-rid> --output ./dist
+  nlc publish --aot
   nlc publish --output ./dist
 
 Exit codes:
@@ -418,9 +451,15 @@ Exit codes:
             var output = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
             var runtime = GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r");
             var selfContained = args.Contains("--self-contained");
+            var aot = args.Contains("--aot");
             if (selfContained)
             {
                 return Error(SelfContainedPublishUnsupportedMessage);
+            }
+
+            if (aot)
+            {
+                Console.WriteLine(AotPublishAnalysisOnlyNotice);
             }
 
             if (!string.IsNullOrWhiteSpace(runtime))
@@ -441,10 +480,13 @@ Exit codes:
                 config,
                 configuration,
                 publishDir,
-                includeTests: false);
+                includeTests: false,
+                aotMode: aot);
             if (outputPath == null)
             {
-                return Error("Publish failed");
+                return Error(aot
+                    ? "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
+                    : "Publish failed");
             }
 
             if (!string.IsNullOrWhiteSpace(runtime))
@@ -493,6 +535,11 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
     }
 
+    private const string AotPublishAnalysisOnlyNotice =
+        "nlc publish --aot is analysis-only in this release: it verifies your project is Native AOT-safe " +
+        "(failing on any AOT blocker) and stamps [RequiresUnreferencedCode]/[RequiresDynamicCode] on public APIs, " +
+        "but it does NOT produce a native image yet. The output is the usual framework-dependent assembly.";
+
     private const string SelfContainedPublishUnsupportedMessage =
         "Self-contained publish is not available in nlc publish yet. " +
         "Today nlc publish produces framework-dependent artifacts. " +
@@ -518,7 +565,8 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         };
         var switchOptions = new HashSet<string>(StringComparer.Ordinal)
         {
-            "--self-contained"
+            "--self-contained",
+            "--aot"
         };
 
         for (var i = 0; i < args.Length; i++)

@@ -23,12 +23,15 @@ The executable toolchain is now IL-only:
 | `nlc build --backend il` | Compile with the direct IL backend | `nlc build --backend il` |
 | `nlc build --release` | Build with Release configuration/output layout | `nlc build --release` |
 | `nlc build --verbose` | Build with detailed native resolver/test output | `nlc build --verbose` |
+| `nlc build --perf-report` | Emit a versioned JSON perf report (allocations, dispatch, AOT blockers) | `nlc build --perf-report` |
+| `nlc build --aot` | Native AOT safety analysis; AOT blockers (reflection/dynamic code/runtime generics/expression trees) become build errors | `nlc build --aot` |
 | `nlc run` | Compile and run project through the IL backend | `nlc run` |
 | `nlc run <file>` | Compile and run single file | `nlc run Program.nl` |
 | `nlc run --backend il` | Build and run via the direct IL backend | `nlc run --backend il` |
 | `nlc publish` | Publish portable framework-dependent artifacts | `nlc publish --output ./dist` |
 | `nlc publish --runtime <current-rid>` | Add a framework-dependent launcher for the current host runtime only | `nlc publish --runtime osx-arm64 --output ./dist` |
 | `nlc publish --self-contained` | Unsupported/planned; exits 1 with guidance | `nlc publish --self-contained` |
+| `nlc publish --aot` | Analysis-only: verify Native AOT safety (fails on blockers) and annotate public APIs; no native image yet | `nlc publish --aot` |
 | `nlc publish --backend il` | Publish with the IL backend | `nlc publish --backend il --output ./dist` |
 | `nlc clean` | Remove build artifacts (`bin/`, `obj/`, `.nlc/`) and legacy generated wrappers | `nlc clean` |
 | `nlc clean --all` | Also clear NuGet caches | `nlc clean --all` |
@@ -36,6 +39,7 @@ The executable toolchain is now IL-only:
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `nlc watch check` |
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
+| `nlc check --aot` | Type-check plus Native AOT safety gate (AOT blockers become errors) | `nlc check --aot` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
 ### Code Intelligence (`nlc query`)

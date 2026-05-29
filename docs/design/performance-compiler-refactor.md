@@ -295,6 +295,49 @@ Recommendation: default to normal .NET JIT for compatibility; offer NativeAOT as
 | NativeAOT default | Breaks some reflection/dynamic/plugin patterns | Better startup/deployment profile | Too expensive for v1 default. |
 | Explicit AOT mode with diagnostics | User chooses tradeoff | Clear deployment story | Recommended future path. |
 
+### Implemented: AOT-Blocker Analysis, `--aot` Mode, And Annotations
+
+The first slice of the "explicit AOT mode" is shipped. It is analysis-only — N# does **not**
+emit a native image yet; `nlc publish --aot` is explicit about that.
+
+**Analysis pass.** `AotBlockerAnalyzer` (in `src/NSharpLang.Compiler/Performance/`) walks every
+parsed compilation unit and records each construct that prevents Native AOT or trimming:
+
+| Construct | `AotSafetyKind` | Diagnostic |
+| --- | --- | --- |
+| Reflection (`GetType`, `GetMethod`, `GetProperty`, `GetCustomAttributes`, …) | `MetadataRequired` | NL960 |
+| Dynamic code (`Activator.CreateInstance`, `DynamicInvoke`, `CreateDelegate`) | `DynamicCodeRequired` | NL961 |
+| Runtime generic instantiation (`MakeGenericType` / `MakeGenericMethod`) | `DynamicCodeRequired` | NL962 |
+| Expression trees (`Expression.*`, `.Compile()`) | `ExpressionTreeRequired` | NL963 |
+
+Detection is shape/name-based over the AST — N# has no dedicated reflection syntax, so the pass
+recognizes the well-known BCL entry points. `nameof(...)` is compile-time and is never flagged.
+Each blocker is attributed to its enclosing declaration and ABI boundary (via `AbiClassifier`),
+and the corresponding `PerformanceFacts` (`AotSafety` + `Escape = ReflectionBoundary`) are recorded
+into the shared `PerformanceFactStore`. The pass runs on every analysis (it changes no behavior on
+its own), so the facts are always available.
+
+**`--aot` strict gate.** `nlc build --aot` and `nlc check --aot` promote every blocker to a
+build-blocking, Elm-quality error: clear title, source caret, a "why this blocks AOT" explanation,
+and a concrete fix hint. `nlc publish --aot` runs the same gate (analysis-only) and prints a notice
+that no native image is produced this release. Without `--aot`, blockers are not errors.
+
+**Public-API annotations.** Independent of the strict gate, ordinary builds stamp the BCL
+attributes `[RequiresUnreferencedCode]` (reflection) and `[RequiresDynamicCode]` (dynamic code /
+runtime generics / expression trees) onto **public** methods that contain blockers, so downstream
+C#/AOT consumers see the same warnings the .NET libraries emit. Only the public CLR surface is
+annotated; file-private/internal/local code is invisible to consumers and is left alone. Attribute
+emission is metadata-only — it never changes a method's IL body — so emitted IL stays verifiable
+and GC-safe.
+
+**Perf report.** `nlc build --perf-report` now populates the previously-empty `aotBlockers` array
+with `{ code, kind, file, line, column, construct, enclosingBoundary, enclosingDeclaration,
+onPublicSurface }` for each blocker. The report shape is stable and versioned by the envelope's
+`schemaVersion`.
+
+Not yet done (future phases): native image generation, trimming roots/feature switches, and
+benchmark evidence comparing JIT+PGO against NativeAOT.
+
 ## SIMD And Hardware Intrinsics
 
 N# should not invent a vector model before the basic IL is strong. It should first expose .NET's existing SIMD safely.

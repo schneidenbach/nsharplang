@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Cli;
 
@@ -17,7 +18,7 @@ partial class Program
             : config?.EffectiveBackend ?? CompilationBackend.Il;
     }
 
-    private static int BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false)
+    private static int BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false)
     {
         var totalSw = Stopwatch.StartNew();
         var resolveSw = new Stopwatch();
@@ -47,7 +48,7 @@ partial class Program
             resolveSw.Stop();
 
             compileSw.Start();
-            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references);
+            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, aotMode: aot);
             compileSw.Stop();
             if (outputPath == null)
             {
@@ -76,7 +77,7 @@ Build timings:
         }
     }
 
-    private static int BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir)
+    private static int BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir, bool aot = false)
     {
         try
         {
@@ -92,7 +93,7 @@ Build timings:
                 sourceDir,
                 config,
                 new ReferenceResolutionOptions(Configuration: release ? "Release" : "Debug", BuildProjectReferences: false));
-            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references);
+            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references, aotMode: aot);
             if (outputPath == null)
             {
                 return 1;
@@ -191,7 +192,8 @@ Build timings:
         string configuration,
         string? outputDir = null,
         bool includeTests = false,
-        bool verbose = false)
+        bool verbose = false,
+        bool aotMode = false)
     {
         projectRoot = Path.GetFullPath(projectRoot);
         var resolvedOutputDir = outputDir != null
@@ -202,7 +204,7 @@ Build timings:
             config,
             new ReferenceResolutionOptions(Configuration: configuration, IncludeTests: includeTests, Quiet: !verbose));
 
-        return CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, includeTests);
+        return CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, includeTests, aotMode);
     }
 
     private static string? CompileProjectWithIlBackend(
@@ -210,7 +212,8 @@ Build timings:
         ProjectConfig config,
         string outputDir,
         ReferenceResolutionResult? references = null,
-        bool includeTests = false)
+        bool includeTests = false,
+        bool aotMode = false)
     {
         var sourceFiles = config.GetSourceFiles(projectRoot, includeTests).ToArray();
         if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
@@ -224,7 +227,8 @@ Build timings:
             outputDir,
             CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
             config,
-            references);
+            references,
+            aotMode);
     }
 
     private static string? CompileSourceFilesWithIlBackend(
@@ -232,7 +236,8 @@ Build timings:
         string projectRoot,
         ProjectConfig config,
         string outputDir,
-        ReferenceResolutionResult? references = null)
+        ReferenceResolutionResult? references = null,
+        bool aotMode = false)
     {
         if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
         {
@@ -245,7 +250,8 @@ Build timings:
             outputDir,
             CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
             config,
-            references);
+            references,
+            aotMode);
     }
 
     private static string? CompileWithIlBackend(
@@ -253,10 +259,12 @@ Build timings:
         string outputDir,
         string assemblyName,
         ProjectConfig config,
-        ReferenceResolutionResult? references)
+        ReferenceResolutionResult? references,
+        bool aotMode = false)
     {
         Directory.CreateDirectory(outputDir);
 
+        compiler.AotMode = aotMode;
         var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
         var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
         EmitCompilationDiagnostics(result);
@@ -309,5 +317,41 @@ Build timings:
         var config = projectConfig ?? ProjectFileParser.CreateDefault(defaultName);
         config.Name ??= defaultName;
         return config;
+    }
+
+    /// <summary>
+    /// Run the AOT-blocker analysis pass over a project and project the blockers into the
+    /// stable perf-report shape. Analysis-only: emits no IL and never blocks the build.
+    /// </summary>
+    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> CollectProjectAotBlockers(string projectRoot, ProjectConfig? config)
+    {
+        var compiler = new MultiFileCompiler(projectRoot, config);
+        compiler.CompileForAnalysis();
+        return ToPerfReportBlockers(compiler.AotBlockers);
+    }
+
+    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> CollectSingleFileAotBlockers(string sourceFile, ProjectConfig? projectConfig)
+    {
+        var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
+        var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
+        var compiler = new MultiFileCompiler(new[] { sourceFile }, sourceDir, config);
+        compiler.CompileForAnalysis();
+        return ToPerfReportBlockers(compiler.AotBlockers);
+    }
+
+    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> ToPerfReportBlockers(IReadOnlyList<AotBlocker> blockers)
+    {
+        return blockers
+            .Select(blocker => new OutputFormatter.PerfReportAotBlocker(
+                Code: $"NL{(int)blocker.DiagnosticCode:D3}",
+                Kind: blocker.Kind.ToString(),
+                File: blocker.File,
+                Line: blocker.Line,
+                Column: blocker.Column,
+                Construct: blocker.Construct,
+                EnclosingBoundary: blocker.EnclosingBoundary.ToString(),
+                EnclosingDeclaration: blocker.EnclosingDeclaration,
+                OnPublicSurface: blocker.IsOnPublicSurface))
+            .ToList();
     }
 }
