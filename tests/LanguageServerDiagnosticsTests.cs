@@ -1219,6 +1219,107 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_ImpossiblePattern_UnderlinesTypeNameAndIsCheck()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///impossible-pattern-spans.nl";
+
+        var source = """
+func main() {
+    x: int = 42
+    label := match x {
+        string s => 1,
+        _ => 0
+    }
+    result := x is string
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // A type pattern that can never match underlines just the type name token.
+        var typePattern = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ImpossiblePattern &&
+                          diagnostic.Line == 4);
+        AssertDiagnosticSpan(typePattern, line: 4, column: 9, length: "string".Length);
+        AssertLspRange(typePattern, line0: 3, startCharacter: 8, endCharacter: 14);
+
+        // An impossible `is` check underlines the `is` keyword through the tested type.
+        var isCheck = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ImpossiblePattern &&
+                          diagnostic.Line == 7);
+        AssertDiagnosticSpan(isCheck, line: 7, column: 17, length: "is string".Length);
+        AssertLspRange(isCheck, line0: 6, startCharacter: 16, endCharacter: 25);
+    }
+
+    [Fact]
+    public void Diagnostics_NonExhaustiveMatch_UnderlinesMatchKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///non-exhaustive-match-spans.nl";
+
+        var source = """
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+func describe(c: Color): int {
+    return match c {
+        Color.Red => 1
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // The squiggle lands on the `match` keyword that introduces the incomplete match.
+        var nonExhaustive = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.NonExhaustiveMatch);
+        AssertDiagnosticSpan(nonExhaustive, line: 8, column: 12, length: "match".Length);
+        AssertLspRange(nonExhaustive, line0: 7, startCharacter: 11, endCharacter: 16);
+    }
+
+    [Fact]
+    public void Diagnostics_NonExhaustiveNullableMatch_UnderlinesMatchKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///non-exhaustive-nullable-match-spans.nl";
+
+        var source = """
+func describe(name: string?): int {
+    return match name {
+        null => 0
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // The nullable-match arm of the exhaustiveness checker also underlines `match`.
+        var nonExhaustive = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.NonExhaustiveMatch);
+        AssertDiagnosticSpan(nonExhaustive, line: 2, column: 12, length: "match".Length);
+        AssertLspRange(nonExhaustive, line0: 1, startCharacter: 11, endCharacter: 16);
+    }
+
+    [Fact]
     public void Diagnostics_DeclarationErrors_UseDeclarationNameSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
