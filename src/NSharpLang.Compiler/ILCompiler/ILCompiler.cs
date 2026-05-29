@@ -7294,6 +7294,14 @@ public partial class ILCompiler
             return false;
         }
 
+        // Mutation gate: a by-value parameter is a mutable local. If the body assigns to it
+        // (`p = …`, `p += …`, `p++`), lowering to byref would store *through* the caller's
+        // reference and corrupt the caller's value. Such a parameter keeps its by-value ABI.
+        if (Performance.StructCopyAnalysis.ParameterIsAssignedInBody(owningFunction, parameter.Name))
+        {
+            return false;
+        }
+
         var elementType = GetByRefElementType(resolvedType);
         return Performance.StructCopyAnalysis.ShouldPassByReadOnlyReference(
             elementType,

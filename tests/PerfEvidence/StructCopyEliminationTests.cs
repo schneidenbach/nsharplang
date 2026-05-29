@@ -171,4 +171,88 @@ record struct Big(a: double, b: double, c: double, d: double) {
             return 0;
         });
     }
+
+    [Fact]
+    public void StructCopy_ExpressionBodiedClosure_KeepsByValueAbi()
+    {
+        // Escape gate, expression-bodied form: `func f(value) => () => ...` declares a closure in
+        // the function's expression body, not a block body. The escape scan must cover both, or
+        // the captured parameter would be lowered to a byref that the closure outlives.
+        const string source = @"
+import System
+
+func choose(value: Big): Func<double> => () => value.a + value.b + value.c + value.d
+
+record struct Big(a: double, b: double, c: double, d: double) {
+}
+";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var choose = ILShapeInspector.GetProgramMethod(assembly, "choose");
+            Assert.False(
+                choose.GetParameters().Single().ParameterType.IsByRef,
+                "An expression-bodied closure must still keep its captured parameter by value.");
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void StructCopy_ReassignedParameter_KeepsByValueAbi()
+    {
+        // Mutation gate: a by-value parameter is a mutable local. Reassigning it (`value = ...`)
+        // must affect only the callee's copy. If it were lowered to a byref, the store would write
+        // through the caller's reference and corrupt the caller's value — a silent miscompile.
+        const string source = @"
+record struct Big(a: double, b: double, c: double, d: double) {
+}
+
+func replace(value: Big): double {
+    value = new Big(9.0, 9.0, 9.0, 9.0)
+    return value.a
+}
+";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var replace = ILShapeInspector.GetProgramMethod(assembly, "replace");
+            Assert.False(
+                replace.GetParameters().Single().ParameterType.IsByRef,
+                "A parameter reassigned in the body must keep its by-value ABI.");
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void StructCopy_ReassignedParameter_DoesNotMutateCaller()
+    {
+        // Behavioral proof for the mutation gate: reassigning the parameter inside the callee must
+        // not be observable by the caller.
+        const string source = @"
+record struct Big(a: double, b: double, c: double, d: double) {
+}
+
+func replace(value: Big): double {
+    value = new Big(9.0, 9.0, 9.0, 9.0)
+    return value.a
+}
+
+func run(): double {
+    big := new Big(1.0, 2.0, 3.0, 4.0)
+    inner := replace(big)
+    return inner + big.a
+}
+";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var run = ILShapeInspector.GetProgramMethod(assembly, "run");
+            var result = run.Invoke(null, Array.Empty<object>());
+
+            // replace returns 9 (its local copy), caller's big.a stays 1 → 10. If the parameter
+            // were wrongly lowered to byref, big.a would be corrupted to 9 → 18.
+            Assert.Equal(10.0, Assert.IsType<double>(result));
+            return 0;
+        });
+    }
 }

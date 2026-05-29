@@ -64,7 +64,91 @@ public static class StructCopyAnalysis
     /// </summary>
     public static bool BodyContainsClosure(FunctionDeclaration function)
     {
-        return function.Body is { } body && NodeContainsClosure(body, new HashSet<object>(ReferenceEqualityComparer.Instance));
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+
+        // Both forms must be scanned: a block body (`func f() { ... }`) and an expression body
+        // (`func f() => () => x`). An expression-bodied function whose expression is itself a
+        // lambda would otherwise slip past the escape gate and have its parameters lowered to
+        // byref while still being captured by the closure.
+        if (function.Body is { } block && NodeContainsClosure(block, visited))
+        {
+            return true;
+        }
+
+        return function.ExpressionBody is { } expression && NodeContainsClosure(expression, visited);
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when the named parameter is the target of an assignment
+    /// (<c>p = …</c>, <c>p += …</c>) or an in-place increment/decrement (<c>p++</c>) anywhere in
+    /// the function body. A by-value parameter is a mutable local: assigning to it changes only the
+    /// callee's copy. Once a parameter is lowered to pass-by-<c>in</c> (a managed reference) such a
+    /// store would write <em>through</em> the reference and corrupt the caller's storage, so any
+    /// reassigned parameter must keep its by-value ABI.
+    /// </summary>
+    public static bool ParameterIsAssignedInBody(FunctionDeclaration function, string parameterName)
+    {
+        var visited = new HashSet<object>(ReferenceEqualityComparer.Instance);
+
+        if (function.Body is { } block && NodeAssignsIdentifier(block, parameterName, visited))
+        {
+            return true;
+        }
+
+        return function.ExpressionBody is { } expression
+            && NodeAssignsIdentifier(expression, parameterName, visited);
+    }
+
+    private static bool NodeAssignsIdentifier(object? node, string name, HashSet<object> visited)
+    {
+        if (node is null || !visited.Add(node))
+        {
+            return false;
+        }
+
+        switch (node)
+        {
+            case AssignmentExpression { Target: IdentifierExpression target } when target.Name == name:
+                return true;
+            case UnaryExpression
+                {
+                    Operator: UnaryOperator.PreIncrement
+                        or UnaryOperator.PreDecrement
+                        or UnaryOperator.PostIncrement
+                        or UnaryOperator.PostDecrement,
+                    Operand: IdentifierExpression operand,
+                } when operand.Name == name:
+                return true;
+            case string:
+            case Type:
+                return false;
+        }
+
+        if (node is AstNode astNode)
+        {
+            foreach (var child in EnumerateChildren(astNode))
+            {
+                if (NodeAssignsIdentifier(child, name, visited))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        if (node is IEnumerable enumerable)
+        {
+            foreach (var item in enumerable)
+            {
+                if (item is AstNode or IEnumerable && NodeAssignsIdentifier(item, name, visited))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static bool NodeContainsClosure(object? node, HashSet<object> visited)
@@ -183,9 +267,14 @@ public static class StructCopyAnalysis
             return false;
         }
 
-        // Only immutable structs are safe: a mutable struct passed by `in` would force the
-        // runtime to make a hidden defensive copy on every member access, which both negates
-        // the win and risks observable mutation-through-readonly differences.
+        // Only provably-immutable structs are safe. We require that every instance field is
+        // InitOnly (constructor-write-only). Such a struct cannot mutate itself through any
+        // instance member — a field write is only legal in the constructor — so passing it by
+        // `in` can never let a callee observably mutate the caller's storage. (A settable
+        // auto-property would emit a non-InitOnly backing field and is therefore excluded here,
+        // keeping it by value.) The worst case for a non-`readonly`-marked-but-immutable struct
+        // is a redundant CLR defensive copy on a non-readonly instance-method call, which is
+        // behavior-preserving, never a correctness bug.
         if (!IsReadOnlyStruct(resolvedType, declaredFields))
         {
             return false;
@@ -235,19 +324,26 @@ public static class StructCopyAnalysis
     }
 
     /// <summary>
-    /// Determines whether a value type is a <c>readonly struct</c>. For runtime types this is
-    /// the presence of <see cref="IsReadOnlyAttribute"/>. For a <see cref="TypeBuilder"/> still
-    /// being emitted we cannot read custom attributes, so we conservatively treat it as readonly
-    /// only when every instance field is itself <c>InitOnly</c> (i.e. emitted as <c>readonly</c>),
-    /// which is exactly how N# emits immutable structs/records/newtypes.
+    /// Determines whether a value type is provably immutable, i.e. safe to pass by <c>in</c>.
+    /// A struct qualifies when every instance field is <c>InitOnly</c> (constructor-write-only):
+    /// no instance member can then mutate it, because a field write outside the constructor is
+    /// illegal. This is exactly how N# emits immutable structs/records/newtypes, and a settable
+    /// auto-property — whose backing field is <em>not</em> <c>InitOnly</c> — is correctly excluded.
+    ///
+    /// <para>
+    /// For an in-flight <see cref="TypeBuilder"/> the caller supplies the field shape via
+    /// <paramref name="declaredFields"/> (its reflection surface is not yet queryable). For a
+    /// fully baked runtime type we accept either an explicit <see cref="IsReadOnlyAttribute"/> or
+    /// an all-<c>InitOnly</c> field shape read back through reflection.
+    /// </para>
     /// </summary>
     public static bool IsReadOnlyStruct(Type type, IReadOnlyList<StructFieldDescriptor>? declaredFields = null)
     {
         if (declaredFields is not null)
         {
-            // Caller supplied the in-flight field shape (TypeBuilder). Treat the struct as
-            // readonly only when every instance field is InitOnly — exactly how N# emits
-            // immutable structs/records/newtypes. A mutable field keeps the by-value ABI.
+            // Caller supplied the in-flight field shape (TypeBuilder). The struct is immutable
+            // only when every instance field is InitOnly; a single mutable field keeps the
+            // by-value ABI.
             return AllInstanceFieldsAreInitOnly(declaredFields);
         }
 
