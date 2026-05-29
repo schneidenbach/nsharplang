@@ -118,6 +118,16 @@ public sealed class GenericSpecializer
             return false;
         }
 
+        // ByRef-like structs (Span<T>, ReadOnlySpan<T>, ref structs) are value types but cannot
+        // be boxed, stored on the heap, used as generic arguments, or returned through many
+        // shapes. Specializing over them would let a concrete body store/return them in ways the
+        // CLR forbids, producing unverifiable IL. The shared generic path already rejects them via
+        // the CLR's own instantiation rules; keep them off the specialization path entirely.
+        if (type.IsByRefLike)
+        {
+            return false;
+        }
+
         if (type.ContainsGenericParameters)
         {
             return false;
@@ -136,13 +146,53 @@ public sealed class GenericSpecializer
         // Source-declared structs are emitted as TypeBuilders; their full layout/members are
         // not necessarily baked when we build the specialized signature. Specializing over them
         // is feasible but raises the GC-safety risk surface, so we stay conservative and leave
-        // them on the shared generic path until proven safe by evidence.
-        if (type is TypeBuilder)
+        // them on the shared generic path until proven safe by evidence. This must also reject
+        // constructed value types that *contain* a source struct (e.g. Nullable<SourceStruct> or
+        // a constructed source generic struct, which appear as TypeBuilderInstantiation), since
+        // emitting tokens against an unbaked source type is the same hazard one level down.
+        if (InvolvesUnbakedSourceType(type))
         {
             return false;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when <paramref name="type"/> is, or transitively contains as a generic
+    /// argument, a source-declared (<see cref="TypeBuilder"/>-backed, not-yet-baked) type. Such
+    /// types are excluded from specialization because their layout/tokens are not guaranteed to be
+    /// finalized when the specialized signature/body is emitted.
+    /// </summary>
+    private static bool InvolvesUnbakedSourceType(Type type)
+    {
+        // Direct source-declared type, or a constructed generic over one
+        // (TypeBuilderInstantiation reports IsGenericType but is not a runtime RuntimeType).
+        if (type is TypeBuilder || type is GenericTypeParameterBuilder)
+        {
+            return true;
+        }
+
+        if (type.IsGenericType)
+        {
+            // TypeBuilderInstantiation (the closed form of a source generic type) is not a baked
+            // runtime type; treat any non-RuntimeType constructed generic as unbaked, and inspect
+            // each generic argument for nested source types.
+            if (type.GetType().Name == "TypeBuilderInstantiation")
+            {
+                return true;
+            }
+
+            foreach (var argument in type.GetGenericArguments())
+            {
+                if (InvolvesUnbakedSourceType(argument))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     /// <summary>

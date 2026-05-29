@@ -50,6 +50,17 @@ public class GenericSpecializerTests
     }
 
     [Fact]
+    public void IsSpecializableValueType_RejectsByRefLikeStructs()
+    {
+        // Span<T>/ReadOnlySpan<T> and ref structs are value types but cannot be boxed, stored on
+        // the heap, or used as generic arguments. Specializing over them would emit unverifiable
+        // IL, so they must be rejected even though IsValueType is true.
+        Assert.True(typeof(Span<int>).IsByRefLike);
+        Assert.False(GenericSpecializer.IsSpecializableValueType(typeof(Span<int>)));
+        Assert.False(GenericSpecializer.IsSpecializableValueType(typeof(ReadOnlySpan<byte>)));
+    }
+
+    [Fact]
     public void AreSpecializableValueTypeArguments_RequiresAtLeastOneArgument()
     {
         Assert.False(GenericSpecializer.AreSpecializableValueTypeArguments(Array.Empty<Type>()));

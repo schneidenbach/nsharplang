@@ -145,6 +145,48 @@ func main(): int {
         });
     }
 
+    [Fact]
+    public void ConstrainedGeneric_StaysShared_NotSpecialized()
+    {
+        // A generic constrained to an interface must NOT be specialized over a value type: the
+        // type argument can be inferred from a prefix of the call before the overload is fully
+        // accepted, and an arbitrary value type may not satisfy the constraint. Specializing
+        // would emit a monomorphic body that resolves the constrained member call against the
+        // concrete type and fail to compile. The shared generic path stays intact.
+        const string source = @"
+interface IShape {
+    func Area(): int
+}
+
+struct Square : IShape {
+    Side: int
+    constructor(side: int) { this.Side = side }
+    func Area(): int { return this.Side * this.Side }
+}
+
+func totalArea<T>(shape: T): int where T : IShape {
+    return shape.Area()
+}
+
+func main(): int {
+    s := new Square(3)
+    return totalArea(s)
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var programType = assembly.GetType("Program")!;
+
+            // No specialization of the constrained generic should have been emitted.
+            Assert.Null(FindSpecialization(programType, "totalArea"));
+
+            var totalArea = programType.GetMethod("totalArea", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(totalArea);
+            Assert.True(totalArea!.IsGenericMethodDefinition, "Constrained generic must stay an open generic definition.");
+            return 0;
+        });
+    }
+
     private static MethodInfo? FindSpecialization(Type programType, string baseName)
     {
         return programType

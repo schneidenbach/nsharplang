@@ -6281,6 +6281,19 @@ public partial class ILCompiler
             return null;
         }
 
+        // GC-safety / correctness gate: type arguments may be inferred from a prefix of the
+        // call's arguments before the overload is fully accepted. If the declaration constrains
+        // its type parameters to a base type / interface (or to `class`), an arbitrary value
+        // type may not satisfy the constraint — specializing over it would emit a monomorphic
+        // body that resolves constrained member calls against the concrete type and can fail to
+        // compile (e.g. T : IShape with T = int -> int.Area() not found). Only specialize when
+        // every constraint on the type parameters is one a value type provably satisfies
+        // (`struct` / `new()`); otherwise stay on the shared generic path.
+        if (!HasOnlySpecializationSafeConstraints(declaration))
+        {
+            return null;
+        }
+
         if (_genericSpecializer.TryGet(declaration, typeArguments, out var existing))
         {
             return existing.Builder;
@@ -6304,6 +6317,38 @@ public partial class ILCompiler
         }
 
         return specialization.Builder;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when every generic constraint on <paramref name="declaration"/> is one
+    /// that a value type provably satisfies (<c>struct</c> / <c>new()</c>). A type-argument
+    /// constraint (base type or interface) or a <c>class</c> constraint means an arbitrary value
+    /// type may not be a legal instantiation, so the declaration must not be specialized.
+    /// </summary>
+    private static bool HasOnlySpecializationSafeConstraints(FunctionDeclaration declaration)
+    {
+        if (declaration.Constraints is not { Count: > 0 } constraints)
+        {
+            return true;
+        }
+
+        foreach (var constraint in constraints)
+        {
+            // A `class` constraint can never be satisfied by a value type.
+            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
+            {
+                return false;
+            }
+
+            // Any base-type / interface constraint means member calls in the body are resolved
+            // against that bound; a value type may not satisfy it. Stay on the shared path.
+            if (constraint.Constraints is { Count: > 0 })
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -16433,21 +16478,27 @@ public partial class ILCompiler
     {
         if (typeRef is SimpleTypeReference simpleType)
         {
-            // When emitting a specialized (monomorphized) body, the generic type parameter
-            // names are bound to concrete value types. Resolve them first so every token in
-            // the specialized body refers to the concrete type rather than an open parameter.
-            if (_activeGenericSpecialization != null
-                && _activeGenericSpecialization.TryGetValue(simpleType.Name, out var specializedType))
-            {
-                return specializedType;
-            }
-
-            // Check for generic type parameters first
+            // Check for generic type parameters first. These belong to a more-local scope
+            // (e.g. a nested generic local function inside a specialized body) and MUST take
+            // precedence over the specialization map: a nested `<T>` that shadows the outer
+            // type parameter name must resolve to its own open parameter, not the outer
+            // concrete type. Resolving the map first would erase the nested parameter and emit
+            // wrong tokens / unverifiable IL.
             if (genericParameters != null)
             {
                 var genericParam = genericParameters.FirstOrDefault(gp => gp.Name == simpleType.Name);
                 if (genericParam != null)
                     return genericParam;
+            }
+
+            // When emitting a specialized (monomorphized) body, the generic type parameter
+            // names are bound to concrete value types. Resolve them after the local generic
+            // parameters so every remaining open token in the specialized body refers to the
+            // concrete type rather than an open parameter.
+            if (_activeGenericSpecialization != null
+                && _activeGenericSpecialization.TryGetValue(simpleType.Name, out var specializedType))
+            {
+                return specializedType;
             }
 
             if (_typeAliases.TryGetValue(simpleType.Name, out var aliasedType))
