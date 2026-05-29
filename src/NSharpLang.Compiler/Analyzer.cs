@@ -4287,7 +4287,7 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        Warning(
+        Error(
             ErrorCode.NullabilityWarning,
             $"This 'must' unwrap is redundant — the expression is already known to be '{operandType}'",
             must.Line,
@@ -9799,29 +9799,6 @@ public class Analyzer : IDisposable
                 Math.Max(1, union.Span.IsValid ? union.Span.EndColumn - union.Span.StartColumn : 1));
         }
 
-        for (var i = 0; i < uniqueArms.Count; i++)
-        {
-            for (var j = 0; j < uniqueArms.Count; j++)
-            {
-                if (i == j)
-                    continue;
-
-                var wider = uniqueArms[i];
-                var narrower = uniqueArms[j];
-                if (IsAssignable(wider, narrower))
-                {
-                    var span = GetTypeReferenceStartSpan(union);
-                    Warning(
-                        ErrorCode.UnnecessaryTypeAnnotation,
-                        $"Anonymous union arm '{narrower}' is already covered by '{wider}'.",
-                        span.StartLine,
-                        span.StartColumn,
-                        $"Prefer '{wider}', or declare a named union if these cases must stay distinct.",
-                        Math.Max(1, union.Span.IsValid ? union.Span.EndColumn - union.Span.StartColumn : 1));
-                }
-            }
-        }
-
         return new UnionTypeInfo(uniqueArms);
     }
 
@@ -10359,11 +10336,12 @@ public class Analyzer : IDisposable
         if (VisibilityConventions.IsExportedIdentifier(name) || char.IsLower(name[0]))
             return;
 
-        Warning(
+        Error(
             ErrorCode.VisibilityConventionWarning,
             $"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
             line,
-            column);
+            column,
+            length: Math.Max(1, name.Length));
     }
 
     // Type checking helpers

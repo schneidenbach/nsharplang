@@ -351,6 +351,71 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_PossibleNullDereference_SquiggleCoversReceiverToken()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nullable-span.nl";
+
+        var source = "func main() {\n    x: string? = \"hello\"\n    len := x.Length\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.PossibleNullAccess && d.DiagnosticId == "NL905");
+
+        // `len := x.Length` — the squiggle must land on the receiver `x`, not the dot or member.
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 12, length: "x".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 11, endCharacter: 12);
+    }
+
+    [Fact]
+    public void Diagnostics_NullableValueAccess_SquiggleCoversValueToken()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nullable-value-span.nl";
+
+        var source = "func Main(input: int?): int {\n    return input.Value\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.NullabilityWarning && d.Message.Contains(".Value"));
+
+        Assert.Equal(ErrorSeverity.Error, diagnostic.Severity);
+        // `return input.Value` — the squiggle must cover the `Value` member token.
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 18, length: "Value".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 17, endCharacter: 22);
+    }
+
+    [Fact]
+    public void Diagnostics_RedundantMustUnwrap_SquiggleCoversMustKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///redundant-must-span.nl";
+
+        var source = "func Main(input: int?): int {\n    if input.HasValue {\n        return must input\n    }\n    return 0\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.NullabilityWarning && d.Message.Contains("redundant"));
+
+        Assert.Equal(ErrorSeverity.Error, diagnostic.Severity);
+        // `        return must input` — the squiggle must cover the `must` keyword (4 chars).
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 16, length: "must".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 15, endCharacter: 19);
+    }
+
+    [Fact]
     public void Diagnostics_SemanticErrors_UseExpectedTokenSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
