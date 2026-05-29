@@ -338,6 +338,45 @@ No performance feature is complete until it has all applicable evidence:
 3. **BenchmarkDotNet results**: matched-shape N# vs C#, idiomatic C#, allocation counts, environment info, and raw JSON/Markdown.
 4. **Regression budget**: if an optimization helps one benchmark but harms ordinary code, the decision must be documented.
 5. **Docs**: public docs must state what the evidence proves and what it does not prove.
+6. **IL verifiability**: every emitted assembly must pass ECMA-335 IL verification (the IL Verification Gate below). Performance-driven IL changes must stay verifiable and GC-safe.
+
+### IL Verification Gate
+
+PR #160 shipped GC-unsafe IL that the JIT only rejected at runtime on Linux
+x64; macOS/Windows happened to tolerate it and CI never ran an x64 leg or any
+IL verifier, so the bug shipped. The IL Verification Gate closes that hole by
+making unverifiable IL a deterministic, host-independent, **blocking** failure.
+
+- **Single source of truth**: `scripts/ilverify.sh`. It is invoked by both CI
+  (`.github/workflows/build.yml`, the blocking `ilverify` job on
+  `ubuntu-latest`) and the local full-suite gate
+  (`tests/scripts/test-all-core.sh`, Step 10b). There is exactly one place that
+  defines what "verifiable" means for N#.
+- **What it does**: builds every example project, every single-file example,
+  and the `issue-tracker` fixture with `nlc build`, locates each emitted output
+  assembly, and runs `dotnet ilverify` against it, resolving the BCL and
+  ASP.NET shared frameworks (auto-discovered via `dotnet --list-runtimes`, so it
+  works on Homebrew, apt, and CI .NET layouts) plus sibling output DLLs.
+- **Exit-code caveat**: `dotnet ilverify` is parsed by output, not exit code —
+  a clean run prints `... Verified.`, verification errors print `[IL]:`/`[MD]:
+  Error` lines, and an internal ilverify crash prints a stack trace with no
+  summary. The script classifies each case explicitly. A genuine usage/load
+  failure (bad refs) is a hard error and is never allowlisted.
+- **Baseline allowlist**: `scripts/ilverify-baseline.txt` records known,
+  pre-existing findings in the normalized form
+  `<Assembly.dll> | <kind> | <detail>` (kinds: `IL:<Code>`, `MD`, `CRASH`). The
+  gate fails only on findings **not** in the baseline, so it catches NEW
+  unverifiable IL — exactly the #160 regression class — while pre-existing debt
+  is tracked, not silently ignored. The baseline is intentionally small and
+  every entry is debt. Regenerate it deliberately with
+  `scripts/ilverify.sh --update-baseline` and review the diff. The current
+  baseline captures real, pre-existing emitter bugs (struct `Equals`
+  receiver-type confusion, `int`/`double` conversion mismatches, init-only field
+  writes outside `.ctor`, an interface-method emission gap, and an ilverify
+  crash on the lock-statement lowering); these are tracked for a follow-up
+  emitter fix and must not grow.
+- **Why blocking from day one**: confirmed by the product owner. A non-blocking
+  verifier is how #160 happened.
 
 ## Implementation Roadmap
 
