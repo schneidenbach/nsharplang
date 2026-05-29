@@ -148,6 +148,15 @@ public partial class ILCompiler
     // call-site stack allocation of `params Span<T>` buffers, because a `localloc`
     // inside a loop leaks stack for the whole method frame on every iteration.
     private int _loopNestingDepth;
+
+    // True only while emitting an expression whose value is consumed at an empty
+    // evaluation stack (a statement-root call: expression statement, return value,
+    // variable initializer, or assignment RHS). `localloc` for a `params Span<T>`
+    // buffer requires an empty stack to stay verifiable, so call-site stack allocation
+    // is gated on this flag. It is captured-and-cleared at the top of every expression
+    // emission, so any nested sub-expression (operands, receivers, arguments) observes
+    // false and never triggers the optimization on a non-empty stack.
+    private bool _atEvalStackRoot;
     private readonly List<(TestDeclaration Declaration, MethodBuilder Method)> _testMethods = new();
 
     private sealed record AsyncSequenceAdapterInfo(
@@ -6670,11 +6679,18 @@ public partial class ILCompiler
 
     private void EmitBoundCallArguments(IReadOnlyList<BoundCallArgument> arguments)
     {
+        // Consume the statement-root flag: stack allocation is only verifiable on an empty
+        // evaluation stack, which is guaranteed only when this call is the root expression of a
+        // statement (and, for instance calls, has not yet pushed a receiver — see EmitExpression).
+        var atEvalStackRoot = _atEvalStackRoot;
+        _atEvalStackRoot = false;
+
         // Fast, allocation-free path: when the trailing params parameter is a
         // Span<T>/ReadOnlySpan<T> whose elements are stack-allocatable and the call site
         // does not let the span escape into a loop frame, materialize the params arguments
         // into a `localloc` buffer wrapped in a Span<T> instead of allocating a heap array.
-        if (arguments.Count > 0
+        if (atEvalStackRoot
+            && arguments.Count > 0
             && arguments[^1] is ParamsCollectionBoundCallArgument trailingParams
             && CanStackAllocateParamsSpan(trailingParams))
         {
@@ -9295,6 +9311,9 @@ public partial class ILCompiler
                 break;
 
             case ExpressionStatement exprStmt:
+                // Statement-root call: the evaluation stack is empty here, so a params Span<T>
+                // argument may be stack-allocated.
+                _atEvalStackRoot = true;
                 EmitExpression(exprStmt.Expression);
                 // Pop the result if it's not used
                 if (GetExpressionType(exprStmt.Expression) != typeof(void))
@@ -9790,11 +9809,15 @@ public partial class ILCompiler
         {
             if (hadExistingLocal && IsLiftedIdentifier(varDecl.Name))
             {
+                // Statement-root initializer: emitted onto an empty evaluation stack.
+                _atEvalStackRoot = true;
                 EmitExpressionWithExpectedType(varDecl.Initializer, varType);
                 EmitStoreLiftedLocalValue(local, varType, leaveValueOnStack: false);
             }
             else
             {
+                // Statement-root initializer: emitted onto an empty evaluation stack.
+                _atEvalStackRoot = true;
                 EmitInitializeNamedLocal(local, varType, emitDefaultValue: false, initializer: varDecl.Initializer);
             }
         }
@@ -10186,6 +10209,9 @@ public partial class ILCompiler
             }
             else
             {
+                // Statement-root return value: emitted onto an empty evaluation stack, so a
+                // params Span<T> argument in the returned expression may be stack-allocated.
+                _atEvalStackRoot = true;
                 EmitExpressionWithExpectedType(ret.Value, _currentReturnType ?? GetExpressionType(ret.Value));
             }
         }
@@ -11243,6 +11269,13 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        // Capture and clear the statement-root flag so only the immediate expression at the
+        // root observes it; every nested sub-expression sees an empty (false) state. The flag is
+        // re-armed below for the call case, whose own callee/receiver/argument emission re-enters
+        // here and clears it again as appropriate.
+        var atEvalStackRoot = _atEvalStackRoot;
+        _atEvalStackRoot = false;
+
         switch (expression)
         {
             case IntLiteralExpression intLit:
@@ -11296,7 +11329,14 @@ public partial class ILCompiler
                 break;
 
             case CallExpression call:
+                // Re-arm the root flag for the call itself. For static/top-level calls nothing is
+                // pushed before the arguments, so EmitBoundCallArguments still sees an empty stack
+                // and may stack-allocate a params Span<T>. For instance calls the receiver is
+                // emitted first (via EmitExpression/EmitAddressableExpression), which clears the
+                // flag, so the optimization correctly stays disabled there.
+                _atEvalStackRoot = atEvalStackRoot;
                 EmitCall(call);
+                _atEvalStackRoot = false;
                 break;
 
             case AssignmentExpression assignment:

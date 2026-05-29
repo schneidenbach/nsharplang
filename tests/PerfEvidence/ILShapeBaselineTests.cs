@@ -96,4 +96,75 @@ func main(): int {
             return 0;
         });
     }
+
+    [Fact]
+    public void ParamsSpan_StatementRootCallSite_StackAllocatesInsteadOfNewArr()
+    {
+        // A `params Span<int>` call at an empty-eval-stack statement root (here, the var
+        // initializer / return) materializes the arguments into a `localloc` buffer wrapped in a
+        // Span<int>. The optimized site must therefore contain a `localloc` and NO `newarr`
+        // (the heap-array path used `newarr` + a Span ctor `newobj`).
+        const string source = @"
+func sum(params numbers: Span<int>): int {
+    total := 0
+    for i := 0; i < numbers.Length; i++ {
+        total += numbers[i]
+    }
+
+    return total
+}
+
+func main(): int {
+    result := sum(1, 2, 3)
+    return result
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(0, ILShapeInspector.CountOpcode(main, OpCodes.Newarr));
+            Assert.True(
+                ILShapeInspector.CountOpcode(main, OpCodes.Localloc) >= 1,
+                "Expected the statement-root params Span<int> call to stack-allocate via localloc.");
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void ParamsSpan_InsideLoop_FallsBackToHeapArray()
+    {
+        // Inside a loop, a per-iteration `localloc` would leak stack for the whole method frame,
+        // so the conservative optimization is disabled and the call falls back to the heap-array
+        // path. The loop body must therefore retain a `newarr` and emit no `localloc`.
+        const string source = @"
+func sum(params numbers: Span<int>): int {
+    total := 0
+    for i := 0; i < numbers.Length; i++ {
+        total += numbers[i]
+    }
+
+    return total
+}
+
+func main(): int {
+    acc := 0
+    for i := 0; i < 3; i++ {
+        acc += sum(1, 2, 3)
+    }
+
+    return acc
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(0, ILShapeInspector.CountOpcode(main, OpCodes.Localloc));
+            Assert.True(
+                ILShapeInspector.CountOpcode(main, OpCodes.Newarr) >= 1,
+                "Expected the in-loop params Span<int> call to fall back to a heap array (newarr).");
+            return 0;
+        });
+    }
 }
