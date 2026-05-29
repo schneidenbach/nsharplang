@@ -305,6 +305,74 @@ func main(): int {
         Assert.Equal(11, result);
     }
 
+    [Fact]
+    public void IlShape_NestedBlockBuffer_StaysHeapArray()
+    {
+        // Promotion storage is method-wide and string-keyed and is never scope-restored. A buffer
+        // declared inside a nested block is therefore NOT promoted (deferred to heap) to avoid a
+        // method-wide key intercepting a different same-named symbol elsewhere.
+        const string source = @"
+func main(): int {
+    total := 0
+    if total == 0 {
+        buf: int[] = [1, 2, 3]
+        total = buf[0] + buf[2]
+    }
+    return total
+}";
+
+        var result = ILShapeInspector.Compile(source, assembly =>
+        {
+            var method = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.True(
+                ILShapeInspector.CountOpcode(method, OpCodes.Newarr) >= 1,
+                "Expected a buffer declared inside a nested block to remain a heap array (newarr).");
+            return (int)method.Invoke(null, null)!;
+        });
+
+        Assert.Equal(4, result);
+    }
+
+    [Fact]
+    public void IlShape_LocalCollidingWithField_StaysHeapArray()
+    {
+        // A local whose name collides with an instance field of the enclosing type must not be
+        // promoted: the method-wide promoted-buffer key could otherwise intercept `values.Length`
+        // / `values[i]` accesses that should bind to the field.
+        const string source = @"
+class Holder {
+    values: int[]
+
+    constructor() {
+        values = [0, 0]
+    }
+
+    func compute(): int {
+        values: int[] = [5, 6, 7]
+        return values[0] + values.Length
+    }
+}";
+
+        var result = ILShapeInspector.Compile(source, assembly =>
+        {
+            var holderType = assembly.GetType("Holder");
+            Assert.NotNull(holderType);
+            var method = holderType!.GetMethod(
+                "compute",
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.NotNull(method);
+
+            Assert.True(
+                ILShapeInspector.CountOpcode(method!, OpCodes.Newarr) >= 1,
+                "Expected a local colliding with a field name to remain a heap array (newarr).");
+
+            var instance = Activator.CreateInstance(holderType);
+            return (int)method!.Invoke(instance, null)!;
+        });
+
+        Assert.Equal(5 + 3, result);
+    }
+
     // ==================== Helpers ====================
 
     private static int InvokeMainInt(string source) =>

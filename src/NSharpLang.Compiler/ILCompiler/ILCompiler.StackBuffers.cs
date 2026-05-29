@@ -81,6 +81,16 @@ public partial class ILCompiler
                 continue;
             }
 
+            // A promoted name must not collide with an instance/static member (field or property) of
+            // the current type. `_promotedBuffers` is method-wide and string-keyed, so without this
+            // guard a member access such as `buf.Length` that should bind to a field could be
+            // intercepted and lowered to the stack buffer. The analysis already requires the local to
+            // be a single top-level declaration; this closes the remaining field/property case.
+            if (TryResolveCurrentTypeMember(promotion.Name, out _, out _, out _, out _))
+            {
+                continue;
+            }
+
             var elementType = ResolveType(new SimpleTypeReference(promotion.ElementTypeName), _currentGenericParameters);
             var structType = GetOrCreateStackBufferStructType(promotion.Length, elementType);
             var bufferLocal = _currentIL.DeclareLocal(structType);

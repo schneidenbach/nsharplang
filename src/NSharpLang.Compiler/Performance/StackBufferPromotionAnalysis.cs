@@ -108,14 +108,35 @@ public static class StackBufferPromotionAnalysis
 
     private static void CollectCandidates(BlockStatement body, Dictionary<string, CandidateInfo> candidates)
     {
+        // Promotion storage (_promotedBuffers in the emitter) is method-wide and string-keyed, and
+        // is never scope-restored the way the normal locals table is. To keep that model sound we
+        // only promote locals declared as DIRECT statements of the function body's top-level block:
+        // such a local is in scope for the entire body, so no sibling/inner-block binding of the same
+        // name exists, and a method-wide name key can never intercept a different symbol. Buffers
+        // declared inside nested blocks/control-flow stay on the heap (deferred).
+        //
+        // We additionally disqualify any name that is *declared* anywhere else in the body (in any
+        // nested scope), so a top-level candidate cannot collide with an inner-block local of the
+        // same name. (Field/property name collisions are filtered separately by the emitter, which
+        // has the semantic member table.)
+        var allDeclaredNames = new Dictionary<string, int>(System.StringComparer.Ordinal);
         foreach (var statement in EnumerateStatements(body))
+        {
+            if (statement is VariableDeclarationStatement { Name: var declaredName })
+            {
+                allDeclaredNames.TryGetValue(declaredName, out var count);
+                allDeclaredNames[declaredName] = count + 1;
+            }
+        }
+
+        foreach (var statement in body.Statements)
         {
             if (statement is not VariableDeclarationStatement
                 {
                     Type: ArrayTypeReference { ElementType: SimpleTypeReference elementType },
                     Initializer: ArrayLiteralExpression literal,
                     Name: var name,
-                } declaration)
+                })
             {
                 continue;
             }
@@ -139,7 +160,15 @@ public static class StackBufferPromotionAnalysis
                 continue;
             }
 
-            // A name declared more than once in the same body is ambiguous; bail on duplicates.
+            // The name must be declared exactly once in the whole body (this top-level declaration).
+            // Any other declaration of the same name anywhere makes the method-wide key ambiguous.
+            if (allDeclaredNames.TryGetValue(name, out var declarationCount) && declarationCount != 1)
+            {
+                candidates.Remove(name);
+                continue;
+            }
+
+            // A name declared more than once at top level is ambiguous; bail on duplicates.
             if (candidates.ContainsKey(name))
             {
                 candidates.Remove(name);
