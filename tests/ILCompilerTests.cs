@@ -391,6 +391,53 @@ Hello, {name}!
     }
 
     [Fact]
+    public void ILCompiler_InterpolatedString_ValueTypeAndStringHoles_MatchesCSharp()
+    {
+        var result = CompileAndInvoke("""
+func main(): string {
+    count := 7
+    name := "Spencer"
+    ratio := 3.14159
+    return $"User {name} has {count} items at ratio {ratio}"
+}
+""");
+
+        // Parity with the equivalent C# interpolated string.
+        const int count = 7;
+        const string name = "Spencer";
+        const double ratio = 3.14159;
+        Assert.Equal($"User {name} has {count} items at ratio {ratio}", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_InterpolatedString_FormatClauses_AreCultureCorrect()
+    {
+        var result = CompileAndInvoke("""
+func main(): string {
+    count := 255
+    ratio := 3.14159
+    return $"hex={count:X} pi={ratio:F2}"
+}
+""");
+
+        const int count = 255;
+        const double ratio = 3.14159;
+        Assert.Equal($"hex={count:X} pi={ratio:F2}", Assert.IsType<string>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_InterpolatedString_LiteralOnly_ReturnsConstant()
+    {
+        var result = CompileAndInvoke("""
+func main(): string {
+    return $"just literal text"
+}
+""");
+
+        Assert.Equal("just literal text", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileFunctionWithReturn()
     {
         var source = @"

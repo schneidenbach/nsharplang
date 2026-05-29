@@ -148,6 +148,24 @@ Recommendation: split union representation by boundary.
 
 Language tradeoff: if users can observe identity of union cases, allocation-free unions become harder. Recommendation: do not promise reference identity for union cases unless explicitly class-backed.
 
+## String Interpolation
+
+String interpolation is pervasive in idiomatic code, so its lowering directly shapes the allocation profile of typical programs.
+
+Previous lowering built a `string[]`, stored each segment (boxing every value-type hole into `object` and routing through `string.Concat(object)` / `string.Format(string, object)`), then called `string.Concat(string[])`. That path allocated an array per interpolation plus one box per value-type hole.
+
+Current lowering mirrors the C# compiler and targets `System.Runtime.CompilerServices.DefaultInterpolatedStringHandler` (a stackalloc-backed ref struct):
+
+1. Construct the handler with the constant `literalLength` (sum of literal-segment lengths) and `formattedCount` (number of holes), matching the constants C# passes.
+2. Emit `AppendLiteral(string)` per literal segment.
+3. Emit `AppendFormatted<T>(T)` per hole using the **generic** overload instantiated at the hole's static type, so value-type holes are never boxed. String holes use the dedicated `AppendFormatted(string)` overload. Holes with a format clause use `AppendFormatted<T>(T, string)`.
+4. Produce the result with `ToStringAndClear()`.
+5. A purely literal interpolation (no holes) folds to a single `ldstr` constant and never allocates a handler.
+
+The handler is a ref struct kept strictly stack-local: it is declared as a local, only ever addressed via `ldloca`, and never stored to a field or captured, so the byref-internal value type stays verifiable and GC-safe (ILVerify-clean, and exercised under `--blame-crash` on linux/amd64 — the platform where unverifiable IL crashes).
+
+Net effect per interpolation with value holes: `box` drops to `0`, the `string[]` allocation (`newarr`) and `string.Concat` call are eliminated. IL-shape regression tests in `ILShapeBaselineTests` pin `box == 0`, `newarr == 0`, no `string.Concat`, exactly one handler ctor + `ToStringAndClear`, and one `AppendFormatted` per hole. Behavioral tests assert exact string parity (including culture-correct `:X` / `:F2` format clauses) against the equivalent C# interpolation.
+
 ## Generics And Specialization
 
 The CLR already specializes generic code for value types but shares many reference-type instantiations. N# can still do better for internal code.
