@@ -192,6 +192,58 @@ Recommendation: compile-time structural dispatch internally, CLR interface shape
 | Erase duck interfaces internally | No public interop for erased shape | Direct calls, no adapter allocation | Recommended default for internal use. |
 | Generate adapters automatically at boundaries | More generated types | Best of both worlds if tested | Add after Bound IR ABI classifier exists. |
 
+## Match And Switch Lowering
+
+`match` expressions and `switch` statements are control-flow hot paths. The naive lowering tests
+each arm in source order with an independent compare-and-branch; with N arms a value that hits the
+last arm pays N comparisons, and large dispatch tables become O(N) hot loops.
+
+Implemented compiler work (Unit 10):
+
+1. **Dense integer/enum jump tables.** When every selectable arm is a guardless constant
+   `int`/`char`/`bool` literal or an int-backed enum-member pattern (e.g. `Color.Red`), and the
+   keys are dense enough, the arms lower to a single range-biased `OpCodes.Switch`: the scrutinee
+   is shifted by the minimum key (`sub`) and used to index the jump table, with a `br` to the
+   default for out-of-range values. Density heuristic: at least four distinct keys and a key span
+   `(max - min)` no larger than four times the key count, so the table is never dominated by empty
+   default slots.
+2. **String hash dispatch.** A string `match`/`switch` with four or more distinct literal keys
+   computes a process-stable content hash (FNV-1a) of the scrutinee **once**, switches on
+   `hash % bucketCount`, then verifies the candidate(s) in that bucket with ordinal string
+   equality. The compile-time bucket assignment and the emitted run-time hash use the identical
+   FNV-1a function, so a key always lands in the bucket it was assigned to. A null scrutinee is
+   routed to the default before hashing. `String.GetHashCode` is deliberately **not** used because
+   it is randomized per process and would make bucket assignment non-deterministic.
+3. **Single scrutinee evaluation.** The scrutinee is always spilled to a local exactly once and
+   every test (table index, hash input, equality verification, or linear compare) reads that local.
+   Side-effecting scrutinees (`match next() { ... }`) run their side effect exactly once.
+4. **Cheapest-first / correctness-preserving fallback.** Guards (`when` clauses), non-constant
+   patterns, nullable scrutinees, sparse key sets, and short key sets fall back to the existing
+   linear chain. First-match-wins, guard fallthrough, variable-binding catch-alls, and
+   exhaustiveness/no-match semantics are preserved exactly; the dispatch path declines whenever it
+   cannot prove equivalence (e.g. a non-final `default`, multiple defaults, or any guard).
+
+This also fixed a latent correctness bug: enum-member patterns (`Color.Red`) were previously
+misread as variable bindings in `match`, so an enum match always selected its first arm. They now
+compare the discriminant.
+
+### Decision: Dispatch Shape By Arm Kind And Density
+
+Recommendation: choose the dispatch shape from the arm kinds and key density, never unconditionally.
+
+| Option | Cost | Performance impact | Decision |
+| --- | --- | --- | --- |
+| Always linear compare chain | Simplest | O(N) per match, O(N) table scans | Keep only as the fallback. |
+| Always jump table | Wastes space on sparse keys | Great when dense, pathological when sparse | Gate behind a density heuristic. |
+| Always string hash dispatch | Hash cost dominates tiny matches | Wins only past a key-count threshold | Gate behind a ≥4-key threshold. |
+| Kind- and density-directed selection | Slightly more compiler logic | Best shape per match, verifiable IL | Recommended (implemented). |
+
+Verifiability gate: every emitted shape (jump table, hash loop, string verification) must pass
+ILVerify and run crash-free under amd64, because IL bugs here can be GC-unsafe and crash only on
+x64 (see the PR #160 regression). IL-shape tests assert the presence/absence of `OpCodes.Switch`
+and single scrutinee evaluation; behavioural tests cover dense, sparse, guarded, enum, string,
+null, and variable-binding-catch-all matches.
+
 ## Collections, Spans, And Loops
 
 N# cannot be Go-like if idiomatic loops allocate or hide bounds checks behind abstractions.
