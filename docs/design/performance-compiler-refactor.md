@@ -263,7 +263,12 @@ Landed in this workstream (`ILCompiler.Async.cs`):
   generators. The fault guard sets the protected-region depth, which previously leaked into nested
   bodies and bound their returns to the wrong generator. `SaveAndResetNestedMethodReturnContext` /
   `RestoreNestedMethodReturnContext` now isolate the structured-return + exception-depth context
-  around every nested method body (in `LambdaEmitter` and `EmitGenericLocalFunctionBody`).
+  around every nested method body (in `LambdaEmitter` and `EmitGenericLocalFunctionBody`). Each
+  nested emitter also establishes its *own* structured-return context
+  (`InitializeStructuredReturnContext`) and closes it (`TryCloseNestedStructuredReturn`), so a
+  `return` inside a `try`/`catch` within a lambda or local function routes through the nested
+  generator. Previously this either crashed codegen ("No structured return context") or emitted a
+  cross-generator `stloc`/`leave` (invalid IL).
 - **Pooled-builder selection plumbing.** `language.pooledAsync` (project.yml) +
   `ResolveAsyncMethodBuilderType` select `PoolingAsyncValueTaskMethodBuilder[<T>]` for
   ValueTask-returning async methods; `ApplyAsyncMethodBuilderAttribute` is the single wiring point
@@ -279,6 +284,14 @@ Landed in this workstream (`ILCompiler.Async.cs`):
 - The fault guard is applied to top-level functions and type methods only. Async **lambdas** and
   async **local functions** still surface a thrown exception synchronously (pre-existing behavior);
   wrapping them is follow-up work once the shared body-emission paths are unified.
+- **`OperationCanceledException` → canceled task.** C#'s async builder reports a thrown
+  `OperationCanceledException` by completing the task as *canceled* (via
+  `TrySetCanceled(oce.CancellationToken)`), not faulted. The fault guard currently routes *all*
+  exceptions through `Task.FromException`, so a thrown OCE becomes a *faulted* task carrying the
+  OCE rather than a canceled one. Matching C# exactly requires `TrySetCanceled` semantics —
+  `Task.FromCanceled` is stricter (it throws unless the token is already canceled, so it cannot be
+  used for a bare `new OperationCanceledException()`). Deferred until the async builder path is
+  fleshed out; the common throw-an-exception case is correct today.
 
 ## Error Handling And Exceptions
 
