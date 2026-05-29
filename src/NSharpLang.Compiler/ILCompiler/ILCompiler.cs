@@ -9,6 +9,7 @@ using System.Runtime.Loader;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Performance;
 using BlobBuilder = System.Reflection.Metadata.BlobBuilder;
 using MetadataTokens = System.Reflection.Metadata.Ecma335.MetadataTokens;
 using MetadataRootBuilder = System.Reflection.Metadata.Ecma335.MetadataRootBuilder;
@@ -58,6 +59,11 @@ public partial class ILCompiler
     private Dictionary<string, Type>? _inferredLocalTypes;
     private HashSet<string>? _byRefParameters;
     private GenericTypeParameterBuilder[]? _currentGenericParameters;
+
+    // When emitting a specialized (monomorphized) generic body, this maps the generic type
+    // parameter names to the concrete value types they are bound to. ResolveType consults it
+    // first so every emitted token resolves to the concrete type, keeping the IL verifiable.
+    private IReadOnlyDictionary<string, Type>? _activeGenericSpecialization;
     private Type? _currentReturnType;
     private Type? _expectedExpressionType;
     private Type? _currentAsyncReturnType;
@@ -89,6 +95,18 @@ public partial class ILCompiler
     private readonly Dictionary<string, PropertyBuilder> _indexers = new();
     private readonly Dictionary<string, IReadOnlyList<Parameter>> _declaredMethodParameters = new();
     private readonly Dictionary<FunctionDeclaration, MethodBuilder> _methodBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
+
+    // Selective generic specialization (monomorphization) of private/local generics over
+    // value types. The specializer owns policy + registry; ILCompiler emits the bodies.
+    private readonly GenericSpecializer _genericSpecializer = new();
+
+    // Declarations that sit at compilation-unit scope (top level), used to classify the ABI
+    // boundary of a generic function before deciding whether it may be specialized.
+    private readonly HashSet<FunctionDeclaration> _topLevelFunctionDeclarations = new(ReferenceEqualityComparer.Instance);
+
+    // Specialized bodies that still need to be emitted, captured in declaration order.
+    private readonly List<GenericSpecialization> _pendingSpecializationBodies = new();
+    private readonly HashSet<GenericSpecialization> _emittedSpecializationBodies = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<FunctionDeclaration, List<AnonymousUnionShim>> _anonymousUnionShimsByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ConstructorDeclaration, ConstructorBuilder> _constructorBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<string, List<DeclaredMethodOverload>> _declaredMethodOverloads = new();
@@ -6218,7 +6236,168 @@ public partial class ILCompiler
             return (null, null);
         }
 
+        if (TryGetSpecializedMethod(overload, typeArguments) is { } specializedMethod)
+        {
+            return (specializedMethod, typeArguments);
+        }
+
         return (overload.Builder.MakeGenericMethod(typeArguments), typeArguments);
+    }
+
+    /// <summary>
+    /// Attempts to redirect a closed generic instantiation to a monomorphized, non-generic
+    /// specialization. Returns the specialized <see cref="MethodInfo"/> when one is registered
+    /// (or can be registered) for the exact value-type arguments, otherwise <c>null</c> so the
+    /// caller falls back to the shared generic path.
+    /// </summary>
+    /// <remarks>
+    /// Conservative gating (GC-safety critical): only static top-level functions on the
+    /// program type whose ABI boundary is non-public are eligible, and only when every type
+    /// argument is a concrete, finalized value type. The specialized body is emitted by
+    /// re-driving the ordinary body emitter against a concrete-type substitution, so the IL
+    /// stays verifiable.
+    /// </remarks>
+    private MethodInfo? TryGetSpecializedMethod(DeclaredMethodOverload overload, Type[] typeArguments)
+    {
+        var declaration = overload.Declaration;
+
+        // Only top-level static functions are specialized today. Instance/extension generics,
+        // and any non-static shape, stay on the shared generic path.
+        if (!_topLevelFunctionDeclarations.Contains(declaration)
+            || !overload.Builder.IsStatic
+            || overload.Builder.DeclaringType != _programType)
+        {
+            return null;
+        }
+
+        if (declaration.TypeParameters is not { Count: > 0 }
+            || typeArguments.Length != declaration.TypeParameters.Count)
+        {
+            return null;
+        }
+
+        if (!GenericSpecializer.AreSpecializableValueTypeArguments(typeArguments))
+        {
+            return null;
+        }
+
+        if (_genericSpecializer.TryGet(declaration, typeArguments, out var existing))
+        {
+            return existing.Builder;
+        }
+
+        var boundary = AbiClassifier.ClassifyFunctionBoundary(declaration, isTopLevel: true);
+        var specialization = _genericSpecializer.Register(
+            declaration,
+            boundary,
+            typeArguments,
+            () => DeclareGenericSpecialization(declaration, overload.Builder, typeArguments));
+
+        if (specialization == null)
+        {
+            return null;
+        }
+
+        if (_emittedSpecializationBodies.Add(specialization))
+        {
+            _pendingSpecializationBodies.Add(specialization);
+        }
+
+        return specialization.Builder;
+    }
+
+    /// <summary>
+    /// Declares the non-generic <see cref="MethodBuilder"/> that carries a specialized generic
+    /// body. The signature is the open generic signature with the type parameters substituted
+    /// by the concrete value-type arguments. No body is emitted here.
+    /// </summary>
+    private MethodBuilder DeclareGenericSpecialization(
+        FunctionDeclaration declaration,
+        MethodBuilder genericDefinition,
+        Type[] typeArguments)
+    {
+        if (_programType == null)
+        {
+            throw new InvalidOperationException("Program type is not initialized.");
+        }
+
+        var substitution = BuildSpecializationSubstitution(declaration, typeArguments);
+
+        // Resolve return/parameter types through the concrete substitution. We temporarily
+        // install the substitution so ResolveType maps the type-parameter names to concrete
+        // value types exactly as it will during body emission.
+        var savedSpecialization = _activeGenericSpecialization;
+        var savedGenericParameters = _currentGenericParameters;
+        _activeGenericSpecialization = substitution;
+        _currentGenericParameters = null;
+
+        Type returnType;
+        Type[] parameterTypes;
+        try
+        {
+            returnType = GetDeclaredFunctionReturnType(declaration, null);
+            parameterTypes = declaration.Parameters
+                .Select(parameter => ResolveParameterType(parameter, (GenericTypeParameterBuilder[]?)null))
+                .ToArray();
+        }
+        finally
+        {
+            _activeGenericSpecialization = savedSpecialization;
+            _currentGenericParameters = savedGenericParameters;
+        }
+
+        var methodName = BuildSpecializationName(genericDefinition.Name, typeArguments);
+
+        // Private so the specialization never widens the assembly's public surface, static to
+        // mirror the top-level function shape, HideBySig to match ordinary method emission.
+        var methodBuilder = _programType.DefineMethod(
+            methodName,
+            MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
+            returnType,
+            parameterTypes);
+
+        for (var i = 0; i < declaration.Parameters.Count; i++)
+        {
+            methodBuilder.DefineParameter(i + 1, GetParameterAttributes(declaration.Parameters[i]), declaration.Parameters[i].Name);
+        }
+
+        return methodBuilder;
+    }
+
+    private static Dictionary<string, Type> BuildSpecializationSubstitution(
+        FunctionDeclaration declaration,
+        Type[] typeArguments)
+    {
+        var typeParameters = declaration.TypeParameters
+            ?? throw new InvalidOperationException($"Function '{declaration.Name}' is not generic.");
+
+        var substitution = new Dictionary<string, Type>(StringComparer.Ordinal);
+        for (var i = 0; i < typeParameters.Count; i++)
+        {
+            substitution[typeParameters[i].Name] = typeArguments[i];
+        }
+
+        return substitution;
+    }
+
+    private static string BuildSpecializationName(string baseName, Type[] typeArguments)
+    {
+        // Use a '$'-delimited suffix that cannot collide with a valid N# identifier so the
+        // specialized method never clashes with a user-declared method.
+        var suffix = string.Join("_", typeArguments.Select(type => SanitizeTypeNameForMethod(type)));
+        return $"{baseName}${suffix}";
+    }
+
+    private static string SanitizeTypeNameForMethod(Type type)
+    {
+        var name = type.FullName ?? type.Name;
+        var builder = new System.Text.StringBuilder(name.Length);
+        foreach (var ch in name)
+        {
+            builder.Append(char.IsLetterOrDigit(ch) ? ch : '_');
+        }
+
+        return builder.ToString();
     }
 
     private bool TryBindDeclaredParameters(
@@ -8481,6 +8660,7 @@ public partial class ILCompiler
         {
             if (declaration is FunctionDeclaration funcDecl)
             {
+                _topLevelFunctionDeclarations.Add(funcDecl);
                 DeclareFunction(_programType, funcDecl);
             }
             else if (declaration is ClassDeclaration classDecl)
@@ -8547,6 +8727,11 @@ public partial class ILCompiler
         {
             EmitTestBodies();
         }
+
+        // Emit monomorphized generic specializations requested while emitting the bodies above.
+        // Done after the main third pass so all generic definitions are declared and bindable,
+        // and before any type is baked.
+        EmitPendingSpecializationBodies();
 
         EnsureRuntimeEntryPointWrapper();
 
@@ -8930,9 +9115,28 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Method {function.Name} not declared");
         }
 
-        // Get generic parameters if the method is generic
+        EmitFunctionBody(function, methodBuilder, specialization: null);
+    }
+
+    /// <summary>
+    /// Emits a function body into <paramref name="methodBuilder"/>. When
+    /// <paramref name="specialization"/> is non-null this is a monomorphized specialization:
+    /// the generic type parameter names are bound to concrete value types via the active
+    /// substitution, the target method is non-generic, and the anonymous-union shim emission
+    /// (which is only generated for non-generic public functions) is skipped.
+    /// </summary>
+    private void EmitFunctionBody(
+        FunctionDeclaration function,
+        MethodBuilder methodBuilder,
+        IReadOnlyDictionary<string, Type>? specialization)
+    {
+        var savedSpecialization = _activeGenericSpecialization;
+        _activeGenericSpecialization = specialization;
+
+        // Get generic parameters if the method is generic. A specialized method is non-generic;
+        // its open type parameters are resolved through the substitution instead.
         _currentGenericParameters = null;
-        if (methodBuilder.IsGenericMethodDefinition)
+        if (specialization == null && methodBuilder.IsGenericMethodDefinition)
         {
             _currentGenericParameters = methodBuilder.GetGenericArguments()
                 .Cast<GenericTypeParameterBuilder>()
@@ -9029,7 +9233,32 @@ public partial class ILCompiler
         // Clear context
         ClearMethodContext();
         _currentGenericParameters = null;
-        EmitAnonymousUnionParameterShims(function);
+        _activeGenericSpecialization = savedSpecialization;
+
+        // Anonymous-union parameter shims are only emitted for ordinary (non-specialized)
+        // declarations; a specialized body reuses the original declaration's shims, if any.
+        if (specialization == null)
+        {
+            EmitAnonymousUnionParameterShims(function);
+        }
+    }
+
+    /// <summary>
+    /// Drains the queue of pending specialized generic bodies, emitting each one. Emission of a
+    /// specialized body can itself request further specializations (e.g. a generic that calls
+    /// another generic over the same value type), so this loops until the queue is empty.
+    /// Runs after the main third pass so all generic definitions are already declared.
+    /// </summary>
+    private void EmitPendingSpecializationBodies()
+    {
+        while (_pendingSpecializationBodies.Count > 0)
+        {
+            var specialization = _pendingSpecializationBodies[0];
+            _pendingSpecializationBodies.RemoveAt(0);
+
+            var substitution = specialization.CreateSubstitution();
+            EmitFunctionBody(specialization.Declaration, specialization.Builder, substitution);
+        }
     }
 
     /// <summary>
@@ -16204,6 +16433,15 @@ public partial class ILCompiler
     {
         if (typeRef is SimpleTypeReference simpleType)
         {
+            // When emitting a specialized (monomorphized) body, the generic type parameter
+            // names are bound to concrete value types. Resolve them first so every token in
+            // the specialized body refers to the concrete type rather than an open parameter.
+            if (_activeGenericSpecialization != null
+                && _activeGenericSpecialization.TryGetValue(simpleType.Name, out var specializedType))
+            {
+                return specializedType;
+            }
+
             // Check for generic type parameters first
             if (genericParameters != null)
             {

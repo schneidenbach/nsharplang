@@ -170,6 +170,44 @@ Recommendation: selective internal specialization, not global Rust-style monomor
 | Selective private specialization | Larger assemblies, more compiler complexity | Better value-type hot paths | Recommended. |
 | Whole-program monomorphization | Dynamic loading/reflection interop, build size, AOT complexity | Rust-like codegen potential | Not aligned with CLR product goals. |
 
+### Implementation: Selective Specialization (shipped)
+
+Selective internal specialization is implemented by `Performance/GenericSpecializer.cs`
+(policy + registry) and a hook in the IL backend (`ILCompiler.cs`). The design is built
+around the lesson from the GC-unsafe IL regression that crashed on x64: **we never rewrite
+IL tokens after the fact.** Instead the existing, type-correct body emitter is re-driven
+with the generic type parameter names bound to concrete value types through a substitution
+map (`_activeGenericSpecialization`, consulted first in `ResolveType`). Every local,
+signature, `ldtoken`, `newobj`, and array element type therefore flows through the same
+resolution code that already produces verifiable IL for ordinary non-generic methods.
+
+What changes at a specialized call site is only the target method token: a closed generic
+instantiation `foo<int32>(...)` becomes a direct call to a concrete non-generic method
+`foo$System_Int32(int32)`. The shared-generic dictionary-lookup shape is gone and the body
+carries no boxing for the specialized value type.
+
+Gating (deliberately conservative — this is the highest GC-safety-risk pass):
+
+1. **Boundary**: only `ClrInternal` / `FilePrivate` / `Local` generics are eligible
+   (`AbiClassifier.ClassifyFunctionBoundary`). Public CLR surface keeps its generic ABI
+   untouched for C# interop.
+2. **Shape**: only static, top-level functions on the program type are specialized today.
+   Instance/extension generics stay shared.
+3. **Type arguments**: only closed, finalized value types — reference types (already shared
+   via `__Canon`), open generic parameters, pointers, by-ref types, and `void` are excluded.
+   Source-declared structs (emitted as `TypeBuilder`s, whose layout may not be baked when the
+   specialized signature is built) are also conservatively left shared until proven safe by
+   evidence.
+4. **Cap**: an internal `DefaultSpecializationCap` (256) bounds the number of specialized
+   bodies emitted; once reached, further requests fall back to the shared path. Every skipped
+   instantiation is recorded (`GenericSpecializer.Skipped`) with a reason for diagnostics.
+
+Verification: specialized assemblies pass `ilverify` (the make-or-break gate for this pass)
+with zero new errors over baseline, IL-shape regression tests assert `box == 0` and the
+absence of a generic-instantiation token for specialized call sites (and that public generics
+stay shared), and behavioural parity is checked by invoking specialized programs. See
+`tests/PerfEvidence/GenericSpecializationTests.cs` and `tests/GenericSpecializerTests.cs`.
+
 ## Dispatch And Interfaces
 
 N# should make concrete dispatch the default on hot paths while preserving .NET polymorphism at boundaries.

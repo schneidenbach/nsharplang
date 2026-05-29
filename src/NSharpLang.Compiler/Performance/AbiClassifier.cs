@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using NSharpLang.Compiler.Ast;
 
@@ -274,6 +275,22 @@ public sealed class AbiClassifier
     {
         var key = new DeclarationKey(_file, classification.Line, classification.Column);
         _classifications[key] = classification;
+    }
+
+    /// <summary>
+    /// Classifies a <see cref="FunctionDeclaration"/> by its ABI boundary using the same
+    /// rules as the full walk. Exposed so performance passes (e.g. generic specialization)
+    /// can determine a single declaration's boundary without re-running the whole classifier.
+    /// </summary>
+    /// <param name="function">The function declaration to classify.</param>
+    /// <param name="isTopLevel">
+    /// <c>true</c> when the function is declared at compilation-unit scope (not a type member
+    /// or local function); top-level camelCase declarations are file-private by convention.
+    /// </param>
+    public static AbiBoundary ClassifyFunctionBoundary(FunctionDeclaration function, bool isTopLevel)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        return ClassifyBoundary(function.Name, function.Modifiers, isTopLevel);
     }
 
     /// <summary>
