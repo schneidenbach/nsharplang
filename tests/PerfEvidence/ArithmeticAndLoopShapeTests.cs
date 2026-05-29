@@ -178,9 +178,50 @@ func checkedAdd(x: int, y: int): int {
 
         var il = ILShapeInspector.DecodeProgramMethod(source, "checkedAdd");
 
-        // An explicit checked region must still emit add.ovf.
+        // An explicit checked region must still emit add.ovf — and ONLY add.ovf. Asserting the total
+        // overflow-opcode count is 1 (not just add.ovf >= 1) rules out a regression that leaks any
+        // extra *.ovf (sub.ovf, mul.ovf, conv.ovf.*, …) into the emitted method.
         Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Add_Ovf));
+        Assert.Equal(1, CountOverflowOpcodes(il));
         Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Add));
+    }
+
+    [Fact]
+    public void ArithmeticSubtractAndMultiply_DefaultUnchecked_UsePlainOpcodes()
+    {
+        // The unchecked default applies to sub and mul exactly as it does to add: plain sub/mul,
+        // never sub.ovf/mul.ovf. Without this, a regression that only touched subtraction or
+        // multiplication emission would slip past the add-only tests above.
+        const string source = @"
+func subMul(x: int, y: int): int {
+    return x - y * x
+}";
+
+        var il = ILShapeInspector.DecodeProgramMethod(source, "subMul");
+
+        Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Sub));
+        Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Mul));
+        Assert.Equal(0, CountOverflowOpcodes(il));
+    }
+
+    [Fact]
+    public void ArithmeticSubtractAndMultiply_Checked_UseOverflowOpcodes()
+    {
+        // The mirror of the default case: an explicit checked(...) must emit sub.ovf and mul.ovf
+        // (and nothing but those two overflow opcodes), proving checked is honored for sub/mul,
+        // not just add.
+        const string source = @"
+func subMulChecked(x: int, y: int): int {
+    return checked(x - y * x)
+}";
+
+        var il = ILShapeInspector.DecodeProgramMethod(source, "subMulChecked");
+
+        Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Sub_Ovf));
+        Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Mul_Ovf));
+        Assert.Equal(2, CountOverflowOpcodes(il));
+        Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Sub));
+        Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Mul));
     }
 
     [Fact]

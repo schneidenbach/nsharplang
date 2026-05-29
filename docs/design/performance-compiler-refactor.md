@@ -327,8 +327,8 @@ load-bearing for hot loops:
 
 1. **Compiler-introduced induction arithmetic stays unchecked unconditionally.** The index
    increment (`i++`) emitted by the array and span foreach fast paths is always a plain `add`,
-   independent of `_overflowCheckingEnabled`. Even when the loop *body* is inside a `checked`
-   region, only the user expression inside `checked(...)` gets `*.ovf`; the induction must not.
+   independent of `_overflowCheckingEnabled`. Even when the loop *body* contains a `checked(...)`
+   expression, only that user expression gets `*.ovf`; the induction must not.
    A poisoned induction (`add.ovf`) would defeat RyuJIT's loop optimizations and add a per-iteration
    overflow check that the language never asked for.
 
