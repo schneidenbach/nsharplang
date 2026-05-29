@@ -572,11 +572,19 @@ internal static class DiagnosticSpanResolver
         if (index < 0)
             return -1;
 
-        while (index > 0 && IsDiagnosticTokenChar(sourceLine[index - 1]))
-            index--;
+        // Walk back to the start of the preceding identifier-like token so the
+        // span begins on the first character of the word rather than mid-token.
+        if (IsIdentifierPart(sourceLine[index]))
+        {
+            while (index > 0 && IsIdentifierPart(sourceLine[index - 1]))
+                index--;
+        }
 
         return index;
     }
+
+    private static bool IsIdentifierPart(char ch)
+        => char.IsLetterOrDigit(ch) || ch == '_';
 
     private static int InferVisibleTokenLength(string sourceLine, int zeroBasedStart)
     {
@@ -596,18 +604,75 @@ internal static class DiagnosticSpanResolver
             return 1 + ScanQuotedDiagnosticTokenLength(sourceLine, zeroBasedStart + 1, '"');
         }
 
-        var end = zeroBasedStart;
-        while (end < sourceLine.Length && IsDiagnosticTokenChar(sourceLine[end]))
-            end++;
+        // Identifiers, keywords and numeric literals all begin with a letter,
+        // digit or underscore. Operators never do, so resolving the identifier
+        // run first keeps a leading operator char (e.g. '!', '?') from being
+        // swallowed as if it were part of an identifier.
+        if (IsIdentifierPart(sourceLine[zeroBasedStart]))
+            return ScanIdentifierLikeTokenLength(sourceLine, zeroBasedStart);
 
-        if (end > zeroBasedStart)
-            return end - zeroBasedStart;
-
-        return zeroBasedStart + 1 < sourceLine.Length &&
-               IsPunctuationPair(sourceLine[zeroBasedStart], sourceLine[zeroBasedStart + 1])
-            ? 2
-            : 1;
+        // The remaining tokens are operators / punctuation. Use a
+        // longest-match scan so multi-character operators (==, !=, =>, ::,
+        // ?., ??=, ...) underline the whole operator rather than one char.
+        return MatchOperatorLength(sourceLine, zeroBasedStart);
     }
+
+    private static int ScanIdentifierLikeTokenLength(string sourceLine, int zeroBasedStart)
+    {
+        var end = zeroBasedStart + 1;
+        while (end < sourceLine.Length)
+        {
+            var ch = sourceLine[end];
+
+            if (char.IsLetterOrDigit(ch) || ch == '_')
+            {
+                end++;
+                continue;
+            }
+
+            // Allow trailing annotations that bind to the identifier:
+            //   member access (foo.bar), nullable types (int?), and the
+            //   null-forgiving operator (value!). A '.' only continues the
+            //   run when it is a member access dot, never the start of a
+            //   range operator ('..' / '...').
+            if (ch == '.' && end + 1 < sourceLine.Length && IsIdentifierPart(sourceLine[end + 1]))
+            {
+                end++;
+                continue;
+            }
+
+            if ((ch == '!' || ch == '?') &&
+                (end + 1 >= sourceLine.Length || !IsOperatorChar(sourceLine[end + 1])))
+            {
+                end++;
+                continue;
+            }
+
+            break;
+        }
+
+        return end - zeroBasedStart;
+    }
+
+    private static int MatchOperatorLength(string sourceLine, int zeroBasedStart)
+    {
+        var remaining = sourceLine.Length - zeroBasedStart;
+
+        foreach (var op in MultiCharOperators)
+        {
+            if (op.Length <= remaining &&
+                string.CompareOrdinal(sourceLine, zeroBasedStart, op, 0, op.Length) == 0)
+            {
+                return op.Length;
+            }
+        }
+
+        return 1;
+    }
+
+    private static bool IsOperatorChar(char ch)
+        => ch is ':' or '=' or '!' or '<' or '>' or '&' or '|'
+            or '+' or '-' or '*' or '/' or '?' or '.' or '%' or '^' or '~';
 
     private static int ScanQuotedDiagnosticTokenLength(string sourceLine, int quoteStart, char quote)
     {
@@ -629,20 +694,20 @@ internal static class DiagnosticSpanResolver
         return Math.Max(1, sourceLine.Length - quoteStart);
     }
 
-    private static bool IsDiagnosticTokenChar(char ch)
-        => char.IsLetterOrDigit(ch) || ch is '_' or '.' or '!' or '?';
-
-    private static bool IsPunctuationPair(char first, char second)
-        => (first, second) is
-            (':', '=') or
-            ('=', '>') or
-            ('=', '=') or
-            ('!', '=') or
-            ('>', '=') or
-            ('<', '=') or
-            ('&', '&') or
-            ('|', '|') or
-            ('?', '?');
+    /// <summary>
+    /// Multi-character operators recognized by the lexer, ordered longest-first
+    /// so the resolver performs a longest match (e.g. "??=" before "??", "..."
+    /// before ".."). Single-character operators fall through to length 1.
+    /// </summary>
+    private static readonly string[] MultiCharOperators =
+    {
+        // 3-character operators
+        "??=", "...",
+        // 2-character operators
+        ":=", "::", "==", "=>", "!=", "<=", "<<", ">=", ">>",
+        "&&", "||", "++", "+=", "--", "-=", "*=", "/=",
+        "??", "?.", "?[", "..",
+    };
 }
 
 public enum ErrorSeverity
