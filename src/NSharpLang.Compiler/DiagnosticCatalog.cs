@@ -84,7 +84,7 @@ public static class DiagnosticCatalog
             {
                 >= ErrorCode.UnexpectedToken and <= ErrorCode.MissingClosingBracket => DiagnosticCategory.Syntax,
                 >= ErrorCode.TypeNotFound and <= ErrorCode.GenericConstraintViolation => DiagnosticCategory.Type,
-                >= ErrorCode.UndefinedVariable and <= ErrorCode.DiscardedMustUseResult => DiagnosticCategory.Semantic,
+                >= ErrorCode.UndefinedVariable and <= ErrorCode.ShadowedDeclaration => DiagnosticCategory.Semantic,
                 >= ErrorCode.WrongArgumentCount and <= ErrorCode.UndefinedFunction => DiagnosticCategory.Function,
                 >= ErrorCode.NonExhaustiveMatch and <= ErrorCode.ImpossiblePattern => DiagnosticCategory.Pattern,
                 >= ErrorCode.InvalidOperatorOverload and <= ErrorCode.ConversionOperatorInvalid => DiagnosticCategory.Operator,

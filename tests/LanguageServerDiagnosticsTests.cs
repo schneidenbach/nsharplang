@@ -236,6 +236,95 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_ShadowedLocal_UnderlinesInnerName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///shadowing.nl";
+
+        var source = """
+func Main() {
+    count := 1
+    if count > 0 {
+        count := 2
+        print $"{count}"
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ShadowedDeclaration);
+
+        Assert.Equal("NL316", diagnostic.DiagnosticId);
+        Assert.Contains("'count'", diagnostic.Message);
+        // Inner `count := 2` is on line 4 at column 9 (8 spaces of indent + 1).
+        AssertDiagnosticSpan(diagnostic, line: 4, column: 9, length: "count".Length);
+        AssertLspRange(diagnostic, line0: 3, startCharacter: 8, endCharacter: 13);
+    }
+
+    [Fact]
+    public void Diagnostics_ShadowedParameter_UnderlinesInnerLocalName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///shadow-param.nl";
+
+        var source = """
+func Greet(name: string) {
+    name := "override"
+    print name
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ShadowedDeclaration);
+
+        // `name := "override"` is on line 2 at column 5 (4 spaces of indent + 1).
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 5, length: "name".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 4, endCharacter: 8);
+    }
+
+    [Fact]
+    public void Diagnostics_ReadBeforeDefiniteAssignment_UnderlinesTheRead()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///definite-assignment.nl";
+
+        var source = """
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    }
+    print total
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.DefiniteAssignmentError);
+
+        Assert.Equal("NL304", diagnostic.DiagnosticId);
+        Assert.Contains("'total'", diagnostic.Message);
+        // `print total` is on line 10; `total` starts at column 11 (4 indent + "print " = 10).
+        AssertDiagnosticSpan(diagnostic, line: 10, column: 11, length: "total".Length);
+        AssertLspRange(diagnostic, line0: 9, startCharacter: 10, endCharacter: 15);
+    }
+
+    [Fact]
     public void Diagnostics_PossibleNullDereference_UsesStableCompilerCode()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);

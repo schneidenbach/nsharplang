@@ -764,14 +764,32 @@ func Main() {
     }
 
     [Fact]
-    public void ScopeNesting_Valid()
+    public void ScopeNesting_NestedRedeclarationShadowsOuter_IsError()
+    {
+        // N# forbids shadowing: a nested block re-declaring an outer local is an
+        // error (NL315), not the silently-permitted re-binding of older languages.
+        AssertHasErrorCode(@"
+            func Main() {
+                x := 1
+                {
+                    x := 2
+                    print x
+                }
+            }
+        ", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void ScopeNesting_NestedBlockWithDistinctName_IsValid()
     {
         AssertNoErrors(@"
             func Main() {
                 x := 1
                 {
-                    x := 2
+                    y := 2
+                    print y
                 }
+                print x
             }
         ");
     }
@@ -8435,5 +8453,198 @@ func Describe(value: int | string): int {
     }
 }
         ");
+    }
+
+    // ── NL315: shadowing is a hard compiler error ──────────────────────────
+
+    private CompilerError AssertHasErrorCode(string source, ErrorCode code)
+    {
+        var result = Analyze(source);
+        var match = result.Errors.FirstOrDefault(e => e.Code == code && e.Severity == ErrorSeverity.Error);
+        Assert.True(match != null,
+            $"Expected {code} but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+        return match!;
+    }
+
+    private void AssertNoErrorCode(string source, ErrorCode code)
+    {
+        var result = Analyze(source);
+        Assert.DoesNotContain(result.Errors, e => e.Code == code && e.Severity == ErrorSeverity.Error);
+    }
+
+    [Fact]
+    public void Shadowing_InnerBlockLocalShadowingOuterLocal_IsError()
+    {
+        var error = AssertHasErrorCode(@"
+func Main() {
+    count := 1
+    if count > 0 {
+        count := 2
+        print count
+    }
+}", ErrorCode.ShadowedDeclaration);
+        Assert.Equal("NL316", error.DiagnosticId);
+        Assert.Contains("'count'", error.Message);
+        Assert.Equal(5, error.Length);
+    }
+
+    [Fact]
+    public void Shadowing_LocalShadowingParameter_IsError()
+    {
+        AssertHasErrorCode(@"
+func Greet(name: string) {
+    name := ""override""
+    print name
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_NestedFunctionBlockShadowingOuter_IsError()
+    {
+        AssertHasErrorCode(@"
+func Outer() {
+    sum := 1
+    for i := 0; i < 3; i = i + 1 {
+        sum := i
+        print sum
+    }
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_SiblingBlocksReusingName_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    if true {
+        temp := 1
+        print temp
+    }
+    if false {
+        temp := 2
+        print temp
+    }
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_LocalShadowingClassField_IsAllowed()
+    {
+        // Fields live in the class scope, not an enclosing local scope, so a method
+        // local may reuse a field name (it is accessed via `this.` when needed).
+        AssertNoErrorCode(@"
+class Counter {
+    count: int = 0
+
+    func Increment() {
+        count := 1
+        print count
+    }
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_DiscardAndUnderscoreNames_AreAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    _temp := 1
+    if true {
+        _temp := 2
+        print _temp
+    }
+    print _temp
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    // ── NL304: definite assignment for locals ──────────────────────────────
+
+    [Fact]
+    public void DefiniteAssignment_ReadAfterConditionalAssignment_IsError()
+    {
+        var error = AssertHasErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    }
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+        Assert.Equal("NL304", error.DiagnosticId);
+        Assert.Contains("'total'", error.Message);
+        Assert.Equal(5, error.Length);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_ReadBeforeAnyAssignment_IsError()
+    {
+        AssertHasErrorCode(@"
+func Main() {
+    let value: int
+    print value
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_AssignedOnAllBranches_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    } else {
+        total = 0
+    }
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_AssignedBeforeUse_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    let total: int
+    total = 42
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_InitializedAtDeclaration_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    total := 0
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_EarlyReturnGuardsUnassignedPath_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    } else {
+        return
+    }
+    print total
+}", ErrorCode.DefiniteAssignmentError);
     }
 }
