@@ -8841,4 +8841,43 @@ func bad(a: Box, b: Box): Box {
     return a + b
 }", ErrorCode.TypeMismatch);
     }
+
+    [Fact]
+    public void ArithmeticOp_VectorPlusUnrelatedType_StillReportsTypeMismatch()
+    {
+        // A runtime vector operator must NOT bind when the *other* operand is an unrelated type.
+        // `Vector<int>.op_Addition(Vector<int>, Vector<int>)` exists, but `Box` is not assignable to
+        // the second parameter, so the analyzer must still report a mismatch (matching the IL
+        // backend, which resolves operators against the actual argument types).
+        AssertHasErrorCode(@"
+import System.Numerics
+
+class Box {
+    Value: int
+}
+
+func bad(a: Vector<int>, b: Box): Vector<int> {
+    return a + b
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ArithmeticOp_DeclaredOperatorWithWrongParameterTypes_StillReportsTypeMismatch()
+    {
+        // A declared `operator +` whose parameters do NOT accept the operands must not bind. Here
+        // the operator takes (int, int); using it for `Vec2 + Vec2` must still be a type mismatch.
+        AssertHasErrorCode(@"
+struct Vec2 {
+    X: double
+    Y: double
+
+    static func operator +(a: int, b: int): Vec2 {
+        return new Vec2 { X: 0.0, Y: 0.0 }
+    }
+}
+
+func bad(a: Vec2, b: Vec2): Vec2 {
+    return a + b
+}", ErrorCode.TypeMismatch);
+    }
 }

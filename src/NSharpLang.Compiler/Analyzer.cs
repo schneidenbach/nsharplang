@@ -4339,7 +4339,7 @@ public class Analyzer : IDisposable
         // Search both operand types (the operator may be declared on either side).
         foreach (var operandType in new[] { left, right })
         {
-            if (TryResolveDeclaredBinaryOperator(operandType, symbol, out result)
+            if (TryResolveDeclaredBinaryOperator(operandType, symbol, left, right, out result)
                 || TryResolveRuntimeBinaryOperator(operandType, clrName, left, right, out result))
             {
                 return true;
@@ -4349,7 +4349,12 @@ public class Analyzer : IDisposable
         return false;
     }
 
-    private bool TryResolveDeclaredBinaryOperator(TypeInfo operandType, string symbol, out TypeInfo result)
+    private bool TryResolveDeclaredBinaryOperator(
+        TypeInfo operandType,
+        string symbol,
+        TypeInfo left,
+        TypeInfo right,
+        out TypeInfo result)
     {
         result = BuiltInTypes.Unknown;
 
@@ -4366,12 +4371,19 @@ public class Analyzer : IDisposable
             return false;
         }
 
+        // Require a binary operator whose declared parameter types actually accept the operands.
+        // Without this check `Vec + Vec` would bind to *any* `static func operator +` on the type
+        // (e.g. one declared as `operator +(a: int, b: int)`), swallowing a real type mismatch and
+        // diverging from the IL backend, which resolves operators against the actual argument types.
         var match = members
             .OfType<FunctionDeclaration>()
             .FirstOrDefault(member =>
                 member.IsOperatorOverload
                 && member.OperatorSymbol == symbol
-                && member.Parameters.Count == 2);
+                && member.Parameters.Count == 2
+                && member.ReturnType != null
+                && IsAssignable(ResolveType(member.Parameters[0].Type), left)
+                && IsAssignable(ResolveType(member.Parameters[1].Type), right));
 
         if (match?.ReturnType == null)
         {
@@ -4423,9 +4435,11 @@ public class Analyzer : IDisposable
                 continue;
             }
 
-            // Require both operand CLR types to be assignable to the operator's parameter types.
-            // If we couldn't resolve a CLR type for an operand, fall back to a name-only match so
-            // we stay permissive rather than emit a spurious error.
+            // Require BOTH operand CLR types to resolve and be assignable to the operator's
+            // parameter types. The IL backend resolves operators against the actual argument types,
+            // so the analyzer must too: if an operand's CLR type is unknown, or doesn't match the
+            // parameter, this is not the operator we want — keep looking, and ultimately let a real
+            // type mismatch surface rather than silently binding (e.g. `Vector<int> + Box`).
             if (!IsRuntimeOperatorParameterCompatible(parameters[0].ParameterType, leftClr)
                 || !IsRuntimeOperatorParameterCompatible(parameters[1].ParameterType, rightClr))
             {
@@ -4497,8 +4511,11 @@ public class Analyzer : IDisposable
     {
         if (argumentType == null)
         {
-            // Operand CLR type unknown (e.g. an N# user type used as an argument). Don't block.
-            return true;
+            // Operand CLR type unknown. We cannot prove this operator applies, and the IL backend
+            // would not bind it either (it resolves against concrete argument types). Treat it as
+            // incompatible so an unrelated operand can't piggy-back on a vector/struct operator
+            // (e.g. `Vector<int> + SomeUserType`) and swallow a genuine type mismatch.
+            return false;
         }
 
         try
@@ -4509,7 +4526,9 @@ public class Analyzer : IDisposable
         }
         catch (NotSupportedException)
         {
-            return true;
+            // Reflection couldn't decide (e.g. open generic parameter). Be conservative and reject;
+            // a real binary-operator mismatch is preferable to a spurious accept.
+            return false;
         }
     }
 
