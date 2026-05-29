@@ -90,6 +90,13 @@ public partial class ILCompiler
     private readonly Dictionary<string, IReadOnlyList<Parameter>> _declaredMethodParameters = new();
     private readonly Dictionary<FunctionDeclaration, MethodBuilder> _methodBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<FunctionDeclaration, List<AnonymousUnionShim>> _anonymousUnionShimsByDeclaration = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Functions whose by-value struct parameters were lowered to pass-by-<c>in</c> during
+    /// signature emission (struct-copy elimination). Recorded so the body-emission pass can mark
+    /// the same parameters as byref, keeping the signature and the body in exact agreement.
+    /// </summary>
+    private readonly HashSet<FunctionDeclaration> _copyElidedFunctions = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ConstructorDeclaration, ConstructorBuilder> _constructorBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<string, List<DeclaredMethodOverload>> _declaredMethodOverloads = new();
     private readonly Dictionary<string, List<DeclaredConstructorOverload>> _declaredConstructorOverloads = new();
@@ -6366,7 +6373,17 @@ public partial class ILCompiler
                 {
                     var expectsByRef = parameterType.IsByRef;
                     var suppliedByRef = supplied.Argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out;
-                    if (expectsByRef != suppliedByRef)
+
+                    // A parameter the compiler lowered to pass-by-`in` (struct-copy elimination)
+                    // is byref at the IL level but takes an ordinary by-value argument at the
+                    // source level, exactly like a C# `in` parameter. Only enforce the strict
+                    // ref/out match when the parameter is byref because the *source* declared it
+                    // `ref`/`out`; a synthesized `in` accepts a value argument.
+                    var parameterDeclaredByRef = i < declaredParameters.Count
+                        && declaredParameters[i].Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out;
+                    var isSynthesizedInParameter = expectsByRef && !parameterDeclaredByRef;
+
+                    if (expectsByRef != suppliedByRef && !(isSynthesizedInParameter && !suppliedByRef))
                     {
                         boundArguments = Array.Empty<BoundCallArgument>();
                         return false;
@@ -6672,7 +6689,10 @@ public partial class ILCompiler
                 case SuppliedBoundCallArgument supplied:
                     if (supplied.ParameterType.IsByRef)
                     {
-                        EmitArgumentAddress(supplied.Argument.Value, GetByRefElementType(supplied.ParameterType));
+                        // A byref parameter fed by an argument the source did NOT mark `ref`/`out`
+                        // is a pass-by-`in` lowering: tolerate an rvalue by spilling to a temp.
+                        var allowRvalueCopy = supplied.Argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out);
+                        EmitArgumentAddress(supplied.Argument.Value, GetByRefElementType(supplied.ParameterType), allowRvalueCopy);
                     }
                     else
                     {
@@ -7119,12 +7139,215 @@ public partial class ILCompiler
         };
     }
 
+    private static ParameterAttributes GetParameterAttributes(Parameter parameter, Type resolvedParameterType)
+    {
+        var attributes = GetParameterAttributes(parameter);
+
+        // A parameter lowered to pass-by-`in` carries the `[In]` parameter flag, matching how
+        // C# emits `in` parameters (byref + In + modreq(InAttribute) + [IsReadOnly]).
+        if (IsSynthesizedInParameter(parameter, resolvedParameterType))
+        {
+            attributes |= ParameterAttributes.In;
+        }
+
+        return attributes;
+    }
+
+    /// <summary>
+    /// True when the parameter type is byref purely because struct-copy elimination lowered an
+    /// otherwise by-value parameter to pass-by-<c>in</c> (i.e. the source did not declare
+    /// <c>ref</c>/<c>out</c>).
+    /// </summary>
+    private static bool IsSynthesizedInParameter(Parameter parameter, Type resolvedParameterType)
+    {
+        return resolvedParameterType.IsByRef
+            && parameter.Modifier is not (Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out);
+    }
+
+    /// <summary>
+    /// Marks a pass-by-<c>in</c> parameter with <see cref="System.Runtime.CompilerServices.IsReadOnlyAttribute"/>
+    /// so C# sees it as <c>in</c> rather than <c>ref</c>. The <c>modreq(InAttribute)</c> on the
+    /// signature (see <see cref="SetMethodSignatureWithInModifiers"/>) is what the C# binder keys on;
+    /// the attribute keeps language services and decompilers in agreement.
+    /// </summary>
+    private void ApplyInParameterAttributes(ParameterBuilder parameterBuilder, Parameter parameter, Type resolvedParameterType)
+    {
+        if (IsSynthesizedInParameter(parameter, resolvedParameterType))
+        {
+            ApplyIsReadOnlyAttribute(parameterBuilder.SetCustomAttribute);
+        }
+    }
+
+    /// <summary>
+    /// Sets a method's signature, attaching <c>modreq(InAttribute)</c> to every parameter that
+    /// struct-copy elimination lowered to pass-by-<c>in</c>. Falls back to the simpler
+    /// <see cref="MethodBuilder.SetReturnType"/>/<see cref="MethodBuilder.SetParameters"/> pair
+    /// when there are no <c>in</c> parameters so the common case keeps its existing metadata shape.
+    /// </summary>
+    private void SetMethodSignatureWithInModifiers(
+        MethodBuilder methodBuilder,
+        IReadOnlyList<Parameter> parameters,
+        Type returnType,
+        Type[] parameterTypes)
+    {
+        var hasInParameter = false;
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            if (i < parameters.Count && IsSynthesizedInParameter(parameters[i], parameterTypes[i]))
+            {
+                hasInParameter = true;
+                break;
+            }
+        }
+
+        if (!hasInParameter)
+        {
+            methodBuilder.SetReturnType(returnType);
+            methodBuilder.SetParameters(parameterTypes);
+            return;
+        }
+
+        var inModifiers = GetInParameterRequiredCustomModifiers();
+        var parameterRequiredModifiers = new Type[parameterTypes.Length][];
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            parameterRequiredModifiers[i] = i < parameters.Count
+                && IsSynthesizedInParameter(parameters[i], parameterTypes[i])
+                    ? inModifiers
+                    : Type.EmptyTypes;
+        }
+
+        methodBuilder.SetSignature(
+            returnType,
+            returnTypeRequiredCustomModifiers: null,
+            returnTypeOptionalCustomModifiers: null,
+            parameterTypes,
+            parameterTypeRequiredCustomModifiers: parameterRequiredModifiers,
+            parameterTypeOptionalCustomModifiers: null);
+    }
+
     private Type ResolveParameterType(Parameter parameter, GenericTypeParameterBuilder[]? genericParameters = null)
     {
         var parameterType = ResolveType(parameter.Type, genericParameters);
         return parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out
             ? parameterType.MakeByRefType()
             : parameterType;
+    }
+
+    /// <summary>
+    /// Like <see cref="ResolveParameterType(Parameter, GenericTypeParameterBuilder[])"/> but, for a
+    /// function whose body declares no closures (so no parameter can escape via capture), lowers a
+    /// large readonly-struct parameter to pass-by-<c>in</c> for struct-copy elimination. This is the
+    /// same lowering C# performs for <c>in</c> parameters and is ABI-compatible — callers still pass
+    /// by value at the source level. See Performance/StructCopyAnalysis.cs.
+    /// </summary>
+    private Type ResolveParameterTypeWithCopyElision(
+        Parameter parameter,
+        FunctionDeclaration owningFunction,
+        bool ownerDeclaresClosures,
+        GenericTypeParameterBuilder[]? genericParameters = null)
+    {
+        var resolved = ResolveParameterType(parameter, genericParameters);
+        return ShouldLowerParameterToReadOnlyReference(parameter, owningFunction, ownerDeclaresClosures, resolved)
+            ? GetByRefElementType(resolved).MakeByRefType()
+            : resolved;
+    }
+
+    /// <summary>
+    /// Decides whether a by-value parameter should be lowered to pass-by-<c>in</c>. Only applies to
+    /// parameters with no explicit <c>ref</c>/<c>out</c>/<c>params</c> modifier, on a non-generic,
+    /// closure-free function, whose resolved type clears every
+    /// <see cref="Performance.StructCopyAnalysis"/> safety gate (large, provably readonly,
+    /// non-generic value type).
+    /// </summary>
+    private bool ShouldLowerParameterToReadOnlyReference(
+        Parameter parameter,
+        FunctionDeclaration owningFunction,
+        bool ownerDeclaresClosures,
+        Type resolvedType)
+    {
+        if (parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params)
+        {
+            return false;
+        }
+
+        // `this` extension receivers and defaulted parameters keep their by-value shape: extension
+        // `this` interacts with C# extension-method binding, and an `in` parameter cannot carry an
+        // optional default through metadata the way a by-value parameter does.
+        if (parameter.IsThis || parameter.DefaultValue != null)
+        {
+            return false;
+        }
+
+        // Generic functions are left untouched: their binding path re-resolves parameter types and
+        // the extra consistency surface is not worth it for the first iteration.
+        if (owningFunction.TypeParameters is { Count: > 0 })
+        {
+            return false;
+        }
+
+        // Escape gate: only lower when no closure in the body can capture (and thus outlive) the
+        // parameter. A captured parameter is copied into a display class by value, and the lifting
+        // emit path expects a by-value argument slot, so we must not hand it a byref.
+        if (ownerDeclaresClosures)
+        {
+            return false;
+        }
+
+        var elementType = GetByRefElementType(resolvedType);
+        return Performance.StructCopyAnalysis.ShouldPassByReadOnlyReference(
+            elementType,
+            GetDeclaredStructFields(elementType));
+    }
+
+    /// <summary>
+    /// Collects the instance fields of an in-flight <see cref="TypeBuilder"/> struct from the
+    /// compiler's field registry so <see cref="Performance.StructCopyAnalysis"/> can measure its
+    /// size and immutability before <c>CreateType()</c> (where reflection over fields would throw).
+    /// Returns <c>null</c> for fully baked runtime types, which describe themselves.
+    /// </summary>
+    private IReadOnlyList<Performance.StructCopyAnalysis.StructFieldDescriptor>? GetDeclaredStructFields(Type type)
+    {
+        if (type is not TypeBuilder)
+        {
+            return null;
+        }
+
+        var prefix = GetTypeKey(type) + ".";
+        var descriptors = new List<Performance.StructCopyAnalysis.StructFieldDescriptor>();
+        foreach (var entry in _fields)
+        {
+            if (!entry.Key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Only direct members of this type, not a nested type whose key shares the prefix.
+            if (entry.Key.IndexOf('.', prefix.Length) >= 0)
+            {
+                continue;
+            }
+
+            var field = entry.Value;
+            descriptors.Add(new Performance.StructCopyAnalysis.StructFieldDescriptor(
+                field.FieldType,
+                field.IsInitOnly,
+                field.IsStatic));
+        }
+
+        return descriptors;
+    }
+
+    /// <summary>
+    /// The required custom modifier the CLR uses to mark a byref parameter as <c>in</c>
+    /// (read-only) so that C# binds it as <c>in</c> rather than <c>ref</c>. Returns an empty
+    /// array when the runtime type is unavailable, which degrades to a plain byref (still
+    /// verifiable, still copy-free) rather than failing the build.
+    /// </summary>
+    private Type[] GetInParameterRequiredCustomModifiers()
+    {
+        var inAttribute = ResolveOptionalRuntimeType("System.Runtime.InteropServices.InAttribute");
+        return inAttribute is null ? Type.EmptyTypes : new[] { inAttribute };
     }
 
     private Type ResolveParameterType(Parameter parameter, IReadOnlyDictionary<string, Type> genericTypeArguments)
@@ -7153,7 +7376,11 @@ public partial class ILCompiler
             .ToArray();
     }
 
-    private void RegisterParameterContext(IReadOnlyList<Parameter> parameters, int startIndex, GenericTypeParameterBuilder[]? genericParameters = null)
+    private void RegisterParameterContext(
+        IReadOnlyList<Parameter> parameters,
+        int startIndex,
+        GenericTypeParameterBuilder[]? genericParameters = null,
+        FunctionDeclaration? copyElisionOwner = null)
     {
         if (_currentIL == null || _locals == null || _parameters == null || _parameterTypes == null || _byRefParameters == null)
             throw new InvalidOperationException("No parameter context available");
@@ -7163,9 +7390,22 @@ public partial class ILCompiler
             var parameter = parameters[i];
             var parameterType = ResolveType(parameter.Type, genericParameters);
             _parameters[parameter.Name] = startIndex + i;
+            // The logical type seen by the body is always the value type; an `in`-lowered
+            // parameter is read by dereferencing the managed reference (see _byRefParameters).
             _parameterTypes[parameter.Name] = parameterType;
 
             if (parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out)
+            {
+                _byRefParameters.Add(parameter.Name);
+                continue;
+            }
+
+            // Mirror the struct-copy-elimination decision made when the signature was emitted: a
+            // parameter lowered to pass-by-`in` is a managed reference at the IL level, so reads
+            // of it must dereference. Closure-free elision guarantees the parameter is never
+            // captured, so the lift path below is unreachable for these parameters.
+            if (copyElisionOwner != null
+                && ShouldLowerParameterToReadOnlyReference(parameter, copyElisionOwner, ownerDeclaresClosures: false, parameterType))
             {
                 _byRefParameters.Add(parameter.Name);
                 continue;
@@ -7817,6 +8057,11 @@ public partial class ILCompiler
             ?? throw new InvalidOperationException($"Could not resolve required runtime type {fullName}");
     }
 
+    private Type? ResolveOptionalRuntimeType(string fullName)
+    {
+        return ResolveExternalType(fullName);
+    }
+
     private void ApplyRequiredMemberAttribute(Action<CustomAttributeBuilder> applyAttribute)
     {
         var requiredMemberAttribute = ResolveRequiredRuntimeType("System.Runtime.CompilerServices.RequiredMemberAttribute");
@@ -8189,7 +8434,7 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldloca_S, tempLocal);
     }
 
-    private void EmitArgumentAddress(Expression expression, Type elementType)
+    private void EmitArgumentAddress(Expression expression, Type elementType, bool allowReadOnlyRvalueCopy = false)
     {
         if (_currentIL == null || _locals == null || _parameters == null)
             throw new InvalidOperationException("No IL generator context");
@@ -8230,6 +8475,20 @@ public partial class ILCompiler
             case IndexAccessExpression indexAccess:
                 EmitIndexArgumentAddress(indexAccess);
                 return;
+        }
+
+        // For a parameter the compiler lowered to pass-by-`in`, the argument may be an rvalue
+        // (a literal, `new T(...)`, a method result, an arithmetic expression). The CLR requires
+        // a managed reference, so we spill the value into a fresh local and take its address —
+        // exactly the temporary C# materializes for an `in` argument. This is never reached for a
+        // genuine `ref`/`out` argument, where an rvalue would be a source error.
+        if (allowReadOnlyRvalueCopy)
+        {
+            EmitExpressionWithExpectedType(expression, elementType);
+            var temp = _currentIL.DeclareLocal(elementType);
+            _currentIL.Emit(OpCodes.Stloc, temp);
+            _currentIL.Emit(OpCodes.Ldloca_S, temp);
+            return;
         }
 
         throw new NotImplementedException($"ref/out arguments for {expression.GetType().Name} are not yet supported in IL compiler");
@@ -8380,6 +8639,12 @@ public partial class ILCompiler
             if (argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out)
             {
                 EmitArgumentAddress(argument.Value, parameterElementType);
+            }
+            else if (parameterType.IsByRef)
+            {
+                // The parameter is byref but the argument is not `ref`/`out`: a pass-by-`in`
+                // lowering. Hand the callee a readonly reference, spilling rvalues to a temp.
+                EmitArgumentAddress(argument.Value, parameterElementType, allowReadOnlyRvalueCopy: true);
             }
             else
             {
@@ -8774,14 +9039,32 @@ public partial class ILCompiler
         // Determine return type (may reference generic parameters)
         var returnType = GetDeclaredFunctionReturnType(function, genericParameters);
 
+        // Struct-copy elimination is only applied when the function declares no closures (so no
+        // parameter can be captured and outlive the call) and produces no anonymous-union shims
+        // (whose forwarding signatures would otherwise need to be kept in lock-step). When neither
+        // gate holds we fall back to plain by-value parameter resolution.
+        var enableCopyElision = !DeclaresAnonymousUnionShims(function, methodAttributes)
+            && !Performance.StructCopyAnalysis.BodyContainsClosure(function);
+
         // Determine parameter types (may reference generic parameters)
         var parameterTypes = function.Parameters
-            .Select(p => ResolveParameterType(p, genericParameters))
+            .Select(p => enableCopyElision
+                ? ResolveParameterTypeWithCopyElision(p, function, ownerDeclaresClosures: false, genericParameters)
+                : ResolveParameterType(p, genericParameters))
             .ToArray();
 
-        // Set return type and parameter types
-        methodBuilder.SetReturnType(returnType);
-        methodBuilder.SetParameters(parameterTypes);
+        // Record the elision decision so the body-emission pass can dereference the same
+        // parameters. Only record when at least one parameter was actually lowered.
+        if (enableCopyElision && parameterTypes.Where((type, index) =>
+                IsSynthesizedInParameter(function.Parameters[index], type)).Any())
+        {
+            _copyElidedFunctions.Add(function);
+        }
+
+        // Set the signature, attaching the `in` required custom modifier to any parameter the
+        // struct-copy elimination pass lowered to pass-by-reference. SetSignature is the only
+        // builder API that can carry per-parameter required modifiers.
+        SetMethodSignatureWithInModifiers(methodBuilder, function.Parameters, returnType, parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, function.Attributes);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
         if (function.ReturnType != null)
@@ -8793,8 +9076,9 @@ public partial class ILCompiler
         // Define parameter names
         for (int i = 0; i < function.Parameters.Count; i++)
         {
-            var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(function.Parameters[i]), function.Parameters[i].Name);
+            var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(function.Parameters[i], parameterTypes[i]), function.Parameters[i].Name);
             ApplyParameterAttributes(parameterBuilder, function.Parameters[i], genericParameters);
+            ApplyInParameterAttributes(parameterBuilder, function.Parameters[i], parameterTypes[i]);
         }
 
         // Store method builder for later reference
@@ -8809,6 +9093,33 @@ public partial class ILCompiler
             returnType,
             parameterTypes,
             genericParameters);
+    }
+
+    /// <summary>
+    /// Predicts whether <see cref="DeclareAnonymousUnionParameterShims"/> would emit forwarding
+    /// shims for this function. Struct-copy elimination is disabled for such functions so that the
+    /// shim signatures never drift out of sync with the elided primary signature.
+    /// </summary>
+    private static bool DeclaresAnonymousUnionShims(FunctionDeclaration function, MethodAttributes targetAttributes)
+    {
+        if (function.IsOperatorOverload
+            || function.IsConversionOperator
+            || function.Modifiers.HasFlag(Modifiers.Abstract)
+            || function.TypeParameters is { Count: > 0 }
+            || (targetAttributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+        {
+            return false;
+        }
+
+        var unionParameters = function.Parameters
+            .Where(parameter => TryGetTwoArmAnonymousUnion(parameter.Type) != null)
+            .ToList();
+
+        if (unionParameters.Count == 0)
+            return false;
+
+        return unionParameters.All(parameter =>
+            parameter.Modifier is not (Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params));
     }
 
     private void DeclareAnonymousUnionParameterShims(
@@ -8971,7 +9282,11 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
         }
 
-        RegisterParameterContext(function.Parameters, 0, _currentGenericParameters);
+        RegisterParameterContext(
+            function.Parameters,
+            0,
+            _currentGenericParameters,
+            copyElisionOwner: _copyElidedFunctions.Contains(function) ? function : null);
 
         // Emit function body
         if (function.Body != null)
