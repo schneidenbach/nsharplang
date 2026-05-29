@@ -164,7 +164,9 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run examples/04-pattern-ma
 
 ## Performance Characteristics
 
-- **Compilation speed**: Fast (single-pass parser, single-pass analyzer)
-- **Memory usage**: Low (streaming lexer, no intermediate files)
+- **Compilation speed**: Designed for fast front-end passes; quote exact speed only from dated runs
+- **Memory usage**: Designed to avoid unnecessary intermediate files; quote exact memory behavior only from measured runs
 - **Exported C# quality**: Clean, readable C# with proper indentation
-- **Runtime performance**: Same as hand-written C# (no overhead)
+- **Runtime performance**: The IL backend can emit direct calls for non-escaping local functions and contextual lambda locals, including explicit `Func<>`/`Action<>` locals that do not cross a value boundary. Readonly captures stay unboxed; mutable captures and lifetime-sensitive escaping local functions use lifted storage. CLR delegates remain the public ABI for public/external APIs, stored or returned function values, expression trees, and `Delegate`/`MulticastDelegate` boundaries. Do not claim C#, Go, or Rust parity without dated BenchmarkDotNet output and IL-shape evidence for the scenario.
+- **Current function-value evidence**: On 2026-05-27, the external scratch BenchmarkDotNet harness showed N# matched-shape local lambda direct calls at 487.095 ns / 0 B, contextual captured lambda locals at 483.615 ns / 0 B, and repeated local lambda creation at 263.401 ns / 0 B for `N=1024` on Apple M4 / .NET 10 ShortRun. The same run still showed the delegate-boundary lambda case at 487.124 ns for N# versus 274.111 ns for matched C#, so delegate ABI paths remain evidence-gated and should not be marketed as solved.
+- **Performance refactor plan**: See [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md) for the Bound IR, performance facts, ABI classification, value layout, span/loop, generic specialization, and AOT-readiness roadmap.

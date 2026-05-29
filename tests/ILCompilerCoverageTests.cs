@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -10,6 +11,19 @@ namespace NSharpLang.Tests;
 
 public partial class ILCompilerTests
 {
+    private static bool HasLiftedStorageField(Assembly assembly)
+    {
+        return assembly.GetTypes()
+            .SelectMany(type => type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static))
+            .Any(field => IsLiftedStorageType(field.FieldType));
+    }
+
+    private static bool IsLiftedStorageType(Type type)
+    {
+        return type.IsGenericType && type.GetGenericTypeDefinition() == typeof(System.Runtime.CompilerServices.StrongBox<>)
+            || type.Name.StartsWith("<>LiftedBox", StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ILCompiler_CanExecuteLockStatementAndReleaseMonitor()
     {
@@ -651,6 +665,44 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_DirectLocalFunctionLoop_DoesNotLiftUncapturedLocals()
+    {
+        var source = @"
+func main(): int {
+    func addOne(value: int): int {
+        return value + 1
+    }
+
+    total := 0
+    for i := 0; i < 8; i++ {
+        total += addOne(i)
+    }
+
+    return total
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(36, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+    }
+
+    [Fact]
     public void ILCompiler_DirectCapturingLocalFunctionCall_DoesNotMaterializeDelegateInCaller()
     {
         var source = @"
@@ -681,6 +733,7 @@ func main(): int {
         });
 
         Assert.Equal(7, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
         Assert.Equal(0, result.CallvirtCount);
         Assert.True(result.CallCount >= 1, "Direct capturing local function calls should lower to direct calls with capture arguments.");
     }
@@ -757,6 +810,684 @@ func main(): int {
         Assert.Equal(5, Assert.IsType<int>(result.Value));
         Assert.True(result.NewobjCount >= 1, "Escaping a local function as a Func value must materialize a delegate.");
         Assert.True(result.CallvirtCount >= 1, "Invoking an escaped delegate should still use the delegate Invoke path.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectLambdaLocalCall_DoesNotMaterializeDelegateInCaller()
+    {
+        var source = @"
+func main(): int {
+    getValue := () => 42
+    return getValue() + getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                CallCount = opCodes.Count(opCode => opCode == OpCodes.Call)
+            };
+        });
+
+        Assert.Equal(84, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.True(result.CallCount >= 2, "Non-escaping lambda local invocations should lower to direct call instructions.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectLambdaLocalLoop_DoesNotLiftUncapturedLocals()
+    {
+        var source = @"
+func main(): int {
+    one := () => 1
+    total := 0
+    for i := 0; i < 8; i++ {
+        total += i + one()
+    }
+
+    return total
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(36, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+    }
+
+    [Fact]
+    public void ILCompiler_DirectContextualLambdaLocalLoop_DoesNotMaterializeDelegateInCaller()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    addOne: Func<int, int> = value => value + 1
+    total := 0
+    for i := 0; i < 8; i++ {
+        total += addOne(i)
+    }
+
+    return total
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                CallCount = opCodes.Count(opCode => opCode == OpCodes.Call)
+            };
+        });
+
+        Assert.Equal(36, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.True(result.CallCount >= 1, "Non-escaping contextual lambda locals should lower to direct helper calls.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectContextualCapturedLambdaLocal_DoesNotLiftReadonlyCapture()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    offset := 3
+    addOffset: Func<int, int> = value => value + offset
+    return addOffset(4)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(7, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.Equal(0, result.CallvirtCount);
+        Assert.False(result.HasLiftedStorageField, "Readonly captures used only by a direct helper should not allocate lifted storage.");
+    }
+
+    [Fact]
+    public void ILCompiler_ShadowedLambdaParameter_DoesNotForceReadonlyCaptureLiftedStorage()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    value := 3
+    getValue: Func<int> = () => value
+    mutateShadow: Func<int, int> = value => {
+        value = 9
+        return value
+    }
+
+    ignored := mutateShadow(1)
+    return getValue() + ignored
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(12, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasLiftedStorageField, "Mutation of a shadowing lambda parameter must not force lifted storage for an outer readonly capture.");
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingLambdaLocal_MaterializesDelegateAtBoundary()
+    {
+        var source = @"
+import System
+
+func observe(getValue: Func<int>): int {
+    return 0
+}
+
+func main(): int {
+    getValue: Func<int> = () => 42
+    ignored := observe(getValue)
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.True(result.NewobjCount >= 1, "Escaping a lambda as a Func value must materialize a delegate at the value boundary.");
+        Assert.True(result.CallvirtCount >= 1, "Invoking an escaped lambda delegate should use the CLR delegate Invoke path.");
+    }
+
+    [Fact]
+    public void ILCompiler_NonCapturingEscapedLambda_UsesCachedDelegateField()
+    {
+        var source = @"
+import System
+
+func observe(getValue: Func<int>): int {
+    return 0
+}
+
+func main(): int {
+    getValue: Func<int> = () => 42
+    ignored := observe(getValue)
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+            var cachedDelegateFields = assembly.GetTypes()
+                .SelectMany(type => type.GetFields(BindingFlags.NonPublic | BindingFlags.Static))
+                .Where(field => typeof(Delegate).IsAssignableFrom(field.FieldType))
+                .ToArray();
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                LdsfldCount = opCodes.Count(opCode => opCode == OpCodes.Ldsfld),
+                StsfldCount = opCodes.Count(opCode => opCode == OpCodes.Stsfld),
+                CachedDelegateFieldCount = cachedDelegateFields.Length
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.True(result.LdsfldCount >= 1, "A cached non-capturing lambda should load a static delegate field.");
+        Assert.True(result.StsfldCount >= 1, "A cached non-capturing lambda should initialize a static delegate field.");
+        Assert.True(result.CachedDelegateFieldCount >= 1, "The compiler should define a static delegate cache field.");
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingReadonlyCapturedLambda_DoesNotUseLiftedStorage()
+    {
+        var source = @"
+import System
+
+func make(): Func<int> {
+    value := 42
+    return () => value
+}
+
+func main(): int {
+    getValue := make()
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasLiftedStorageField, "Readonly escaped lambda captures can be copied into the display class without StrongBox storage.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceLambdaWithoutInstanceAccess_DoesNotCreateDisplayClass()
+    {
+        var source = @"
+import System
+
+class Holder {
+    value: int = 40
+
+    func Run(): int {
+        getValue: Func<int> = () => 42
+        return getValue()
+    }
+}
+
+func main(): int {
+    holder := new Holder()
+    return holder.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A lambda in an instance method must not allocate a closure when it does not reference instance state.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceLambdaCapturingOnlyThisField_DoesNotCreateDisplayClass()
+    {
+        // A bare lambda passed as an argument (so it is lowered through EmitLambda, not the
+        // local-function path) that references only an instance field must be emitted as an
+        // instance method bound to 'this' rather than allocating a <>c__DisplayClass closure.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Counter {
+    value: int = 41
+
+    func Run(): int {
+        return apply(() => value + 1)
+    }
+}
+
+func main(): int {
+    counter := new Counter()
+    return counter.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            var counterType = assembly.GetType("Counter");
+            Assert.NotNull(counterType);
+            var instanceLambdaMethods = counterType!
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(method => method.Name.StartsWith("<Lambda>", StringComparison.Ordinal))
+                .ToArray();
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal)),
+                InstanceLambdaMethodCount = instanceLambdaMethods.Length
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A lambda that only captures 'this' must bind to the existing instance instead of allocating a closure.");
+        Assert.True(result.InstanceLambdaMethodCount >= 1, "The 'this'-only lambda should be emitted as an instance method on the declaring type.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceLambdaCapturingOnlyThisViaThisExpression_DoesNotCreateDisplayClass()
+    {
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Box {
+    payload: int = 7
+
+    func Run(): int {
+        return apply(() => this.payload * 2)
+    }
+}
+
+func main(): int {
+    box := new Box()
+    return box.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            var boxType = assembly.GetType("Box");
+            Assert.NotNull(boxType);
+            var instanceLambdaMethods = boxType!
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(method => method.Name.StartsWith("<Lambda>", StringComparison.Ordinal))
+                .ToArray();
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal)),
+                InstanceLambdaMethodCount = instanceLambdaMethods.Length
+            };
+        });
+
+        Assert.Equal(14, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A lambda that only references 'this' via a this-expression should still avoid allocating a display class.");
+        Assert.True(result.InstanceLambdaMethodCount >= 1, "The 'this'-only lambda should be emitted as an instance method on the declaring type.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceLambdaCapturingThisAndLocal_StillCreatesDisplayClass()
+    {
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Adder {
+    seed: int = 10
+
+    func Run(): int {
+        offset := 5
+        return apply(() => seed + offset)
+    }
+}
+
+func main(): int {
+    adder := new Adder()
+    return adder.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(15, Assert.IsType<int>(result.Value));
+        Assert.True(result.HasDisplayClass, "A lambda that captures both 'this' and a local must still allocate a display class to thread the local capture.");
+    }
+
+    [Fact]
+    public void ILCompiler_NoCaptureLambdaArgument_DoesNotCreateDisplayClass()
+    {
+        // A lambda inside an instance method that references neither 'this' nor any local must
+        // be emitted statically with no display class.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Holder {
+    value: int = 99
+
+    func Run(): int {
+        return apply(() => 42)
+    }
+}
+
+func main(): int {
+    holder := new Holder()
+    return holder.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A non-capturing lambda must not allocate a display class.");
+    }
+
+    [Fact]
+    public void ILCompiler_StructLambdaCapturingOnlyThis_DoesNotUseInstanceLambdaFastPath()
+    {
+        // A value-type 'this' is a managed pointer at arg0 and cannot be bound to a delegate
+        // without boxing a copy, which would change capture semantics. The 'this'-only
+        // instance-lambda fast path must therefore be skipped for structs: the lambda must be
+        // emitted on a display class rather than as an instance method on the struct itself.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+struct Tally {
+    total: int
+
+    func Run(): int {
+        return apply(() => total + 1)
+    }
+}
+
+func main(): int {
+    tally := new Tally { total: 41 }
+    return tally.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var tallyType = assembly.GetType("Tally");
+            Assert.NotNull(tallyType);
+            var structInstanceLambdaMethods = tallyType!
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(method => method.Name.StartsWith("<Lambda>", StringComparison.Ordinal))
+                .ToArray();
+
+            return new
+            {
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal)),
+                StructInstanceLambdaMethodCount = structInstanceLambdaMethods.Length
+            };
+        });
+
+        Assert.Equal(0, result.StructInstanceLambdaMethodCount);
+        Assert.True(result.HasDisplayClass, "A struct 'this'-only lambda must fall back to the display-class path, not the instance-method fast path.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceBlockBodyLambdaCapturingOnlyThis_DoesNotCreateDisplayClass()
+    {
+        // Exercise the block-body branch of the 'this'-only instance-lambda path.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Service {
+    seed: int = 20
+
+    func Run(): int {
+        return apply(() => {
+            doubled := seed * 2
+            return doubled + 2
+        })
+    }
+}
+
+func main(): int {
+    service := new Service()
+    return service.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A block-body lambda that only captures 'this' should bind to the instance without a display class.");
+    }
+
+    [Fact]
+    public void ILCompiler_DirectMutableCapturedLambdaLocal_PreservesMutation()
+    {
+        var source = @"
+func main(): int {
+    value := 0
+    increment := () => {
+        value += 1
+        return value
+    }
+
+    return increment() + increment()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            var opCodes = GetMethodOpCodes(main!);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                CallvirtCount = opCodes.Count(opCode => opCode == OpCodes.Callvirt)
+            };
+        });
+
+        Assert.Equal(3, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.CallvirtCount);
+    }
+
+    [Fact]
+    public void ILCompiler_EscapingMutableCapturedLambdaLocal_UsesLiftedStorage()
+    {
+        var source = @"
+import System
+
+func make(): Func<int> {
+    value := 1
+    getValue: Func<int> = () => value
+    value = 4
+    return getValue
+}
+
+func main(): int {
+    getValue := make()
+    return getValue()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasLiftedStorageField = HasLiftedStorageField(assembly)
+            };
+        });
+
+        Assert.Equal(4, Assert.IsType<int>(result.Value));
+        Assert.True(result.HasLiftedStorageField, "A mutable escaped capture must keep shared lifted storage so post-capture writes are visible.");
     }
 
     [Fact]
@@ -2919,5 +3650,172 @@ func main(): int {
         });
 
         Assert.Equal(0, Assert.IsType<int>(result));
+    }
+
+    // ---- foreach over Span<T> / ReadOnlySpan<T> lowering (allocation-free index loop) ----
+
+    /// <summary>
+    /// Decodes a method body and returns the simple names of every method referenced by a
+    /// call/callvirt/newobj instruction. Used to assert that span foreach never resolves an
+    /// enumerator (GetEnumerator / MoveNext / get_Current) or allocates one.
+    /// </summary>
+    private static IReadOnlyList<string> GetReferencedMethodNames(MethodInfo method)
+    {
+        var body = method.GetMethodBody();
+        var il = body?.GetILAsByteArray() ?? Array.Empty<byte>();
+        var module = method.Module;
+        var genericTypeArgs = method.DeclaringType?.GetGenericArguments();
+        var genericMethodArgs = method.GetGenericArguments();
+        var names = new List<string>();
+
+        for (var offset = 0; offset < il.Length;)
+        {
+            var opCodeValue = il[offset++];
+            OpCode opCode;
+            if (opCodeValue == 0xfe)
+            {
+                opCode = MultiByteOpCodes[il[offset++]];
+            }
+            else
+            {
+                opCode = SingleByteOpCodes[opCodeValue];
+            }
+
+            if ((opCode == OpCodes.Call || opCode == OpCodes.Callvirt || opCode == OpCodes.Newobj)
+                && opCode.OperandType == OperandType.InlineMethod)
+            {
+                var token = BitConverter.ToInt32(il, offset);
+                try
+                {
+                    var member = module.ResolveMethod(token, genericTypeArgs, genericMethodArgs);
+                    if (member != null)
+                    {
+                        names.Add(member.Name);
+                    }
+                }
+                catch (Exception)
+                {
+                    // Best-effort: unresolved tokens are not enumerator references we care about.
+                }
+            }
+
+            offset += GetOperandSize(opCode.OperandType, il, offset);
+        }
+
+        return names;
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverReadOnlySpan_DoesNotAllocateEnumerator()
+    {
+        // A `params ReadOnlySpan<int>` parameter hands the body a ReadOnlySpan<int> we can
+        // iterate with `for ... in`, exercising the span foreach lowering directly.
+        var source = @"
+func sumSpan(params numbers: ReadOnlySpan<int>): int {
+    total := 0
+    for number in numbers {
+        total += number
+    }
+    return total
+}
+
+func main(): int {
+    return sumSpan(1, 2, 3, 4)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var sumSpan = programType!.GetMethod("sumSpan", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(sumSpan);
+
+            var opCodes = GetMethodOpCodes(sumSpan!);
+            var calledMethods = GetReferencedMethodNames(sumSpan!);
+            var main = programType.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CalledMethods = calledMethods,
+            };
+        });
+
+        Assert.Equal(10, Assert.IsType<int>(result.Value));
+        // No enumerator allocation in the loop method.
+        Assert.Equal(0, result.NewobjCount);
+        // No enumerator protocol calls — the loop is a plain index walk.
+        Assert.DoesNotContain("GetEnumerator", result.CalledMethods);
+        Assert.DoesNotContain("MoveNext", result.CalledMethods);
+        Assert.DoesNotContain("get_Current", result.CalledMethods);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverSpan_DoesNotAllocateEnumerator()
+    {
+        var source = @"
+func sumSpan(params numbers: Span<int>): int {
+    total := 0
+    for number in numbers {
+        total += number
+    }
+    return total
+}
+
+func main(): int {
+    return sumSpan(5, 6, 7)
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var sumSpan = programType!.GetMethod("sumSpan", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(sumSpan);
+
+            var opCodes = GetMethodOpCodes(sumSpan!);
+            var calledMethods = GetReferencedMethodNames(sumSpan!);
+            var main = programType.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                NewobjCount = opCodes.Count(opCode => opCode == OpCodes.Newobj),
+                CalledMethods = calledMethods,
+            };
+        });
+
+        Assert.Equal(18, Assert.IsType<int>(result.Value));
+        Assert.Equal(0, result.NewobjCount);
+        Assert.DoesNotContain("GetEnumerator", result.CalledMethods);
+        Assert.DoesNotContain("MoveNext", result.CalledMethods);
+        Assert.DoesNotContain("get_Current", result.CalledMethods);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverReadOnlySpan_IteratesAllElementsInOrder()
+    {
+        // Behavioral coverage: the lowered loop must visit every element exactly once, in order.
+        var source = @"
+func lastTimesCount(params numbers: ReadOnlySpan<int>): int {
+    last := 0
+    count := 0
+    for number in numbers {
+        last = number
+        count += 1
+    }
+    return last * 100 + count
+}
+
+func main(): int {
+    return lastTimesCount(2, 4, 6, 8, 9)
+}";
+
+        var result = CompileAndInvoke(source);
+        // last element 9 * 100 + count 5 = 905
+        Assert.Equal(905, Assert.IsType<int>(result));
     }
 }

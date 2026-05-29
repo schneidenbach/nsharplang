@@ -1,6 +1,6 @@
 # N# CLI Reference
 
-Updated: 2026-05-26
+Updated: 2026-05-27
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -13,14 +13,13 @@ Updated: 2026-05-26
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--backend`, `--release`, `--verbose`, `--timings`, `--output` | `nlc build` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
 | `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
-| `nlc bench` | Run benchmarks | `--project`, `--json` | `nlc bench` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
@@ -43,6 +42,12 @@ Updated: 2026-05-26
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
+### Performance: IL-shape evidence (no `nlc bench`)
+
+N# does **not** ship a wall-clock benchmark runner. Because N# assemblies interop with C#, you can point [BenchmarkDotNet](https://benchmarkdotnet.org/) directly at a compiled N# assembly for timing numbers; re-wrapping it in the toolchain added fragility without adding value.
+
+What the toolchain *does* provide is **deterministic IL-shape inspection** — the codegen-quality signal a performance-focused language should guarantee. The compiler reads a method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports the counts that dominate N# performance: total IL byte length plus `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions. It needs nothing to run and is stable enough to use as a CI regression gate. The data is surfaced through `nlc build --perf-report` and `nlc query perf` as an `ilShape` object (`ilBytes`, `newobj`, `box`, `callvirt`, `call`, `delegateCtors`); methods without a managed IL body report `ilShape: null`. For fair cross-language claims, pair this with an external matched-shape N#/C# harness, idiomatic C# baselines, and separated wrapper-overhead accounting.
+
 ## Query Commands
 
 | Command | Purpose | Example |
@@ -62,6 +67,7 @@ Updated: 2026-05-26
 | `nlc query hover` | Signature and docs at a position | `nlc query hover --file Program.nl --pos 5:12` |
 | `nlc query call-graph` | Callers and callees of a function | `nlc query call-graph --function Main` |
 | `nlc query implementors` | Concrete types implementing an interface | `nlc query implementors --name IShape` |
+| `nlc query perf` | Explain allocation/dispatch/capture/ABI facts at a position | `nlc query perf --file Program.nl --pos 5:12` |
 | `nlc query help` | Show query command help | `nlc query help` |
 
 ## Browser Playground
@@ -102,6 +108,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 ## Build, Test, And Publish Truth
 
 - `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
+- `nlc build --perf-report` builds the project and then prints a versioned JSON performance report to stdout. The envelope is `{ schemaVersion: 1, command: "build", ok: true, projectRoot, perfReport: { allocationSites, delegateSites, boxingSites, dispatchSites, closureCaptures, aotBlockers } }`. The `perfReport` categories are currently emitted as empty arrays while the compiler's performance-fact source is wired up; the envelope shape is stable. Combine with `--project <dir>` to point at a specific project root.
 - `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
 - `nlc publish` produces framework-dependent artifacts. Without `--runtime`, run the output with `dotnet <assembly>.dll` on a compatible .NET installation.
 - `nlc publish --runtime <rid>` is supported only when `<rid>` is the current host runtime. It adds a small framework-dependent launcher beside the `.dll`.
@@ -238,16 +245,37 @@ nlc completion bash > /etc/bash_completion.d/nlc
 
 ## Lint Rules
 
+N# is near-zero-warnings: every active lint rule is a build-blocking **error**. Correctness, safety, and hygiene are enforced; pure style is handled by `nlc format`, not by diagnostics. See `docs/DESIGN.md` → Strictness.
+
 | Code | Severity | Description |
 |------|----------|-------------|
 | NL001 | error | Unused variable |
 | NL002 | error | Missing import |
 | NL703 | error | Circular file import; diagnostic includes the import cycle path and a dependency-inversion/shared-file suggestion |
-| NL003 | warning | Unnecessary null check on value type |
-| NL004 | warning | Async function without await |
-| NL005 | info | Use pattern matching |
+| NL003 | error | Unnecessary null check on value type |
+| NL004 | error | Async function without await |
 | NL006 | error | Unreachable code |
 | NL010 | error | Unused import |
+| NL011 | error | Empty catch block |
+| NL012 | error | Unused parameter |
+| NL016 | error | Redundant null check on an always-non-null expression |
+| NL020 | error | Shadowed variable |
+
+Compiler safety diagnostics are likewise build-blocking errors: `NL905` (possible null access, flow-based), `NL903` (visibility convention), `NL904` (obsolete usage), and `NL907` (nullability).
+
+Pure-style rules that used to emit `info`/`warning` diagnostics — `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014`/`NL906` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block) — have been removed and folded into `nlc format`.
+
+### Performance Diagnostics (NL950–NL999)
+
+Advisory diagnostics emitted by the optimizer to explain allocation and dispatch decisions. They never block builds.
+
+| Code | Severity | Description |
+|------|----------|-------------|
+| NL950 | info | Allocation here — the value escapes its scope and cannot live on the stack |
+| NL951 | warning | Boxing here — a value type is used through an interface or object |
+| NL952 | info | Virtual dispatch not devirtualized — receiver type is not proven exact |
+| NL953 | warning | Closure allocation — the lambda captures enclosing variables |
+| NL954 | warning | Delegate allocation — a method group or lambda is converted to a delegate |
 
 ## Inline Lint Suppression
 
@@ -311,7 +339,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
-| Benchmark | `-bench` | `cargo bench` | `1` | Future work |
+| Benchmark | `-bench` | `cargo bench` | `n/a` | No built-in runner by design: use BenchmarkDotNet directly on the compiled N# assembly. The toolchain provides deterministic IL-shape evidence (`nlc build --perf-report`, `nlc query perf`) instead. |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |
@@ -325,5 +353,5 @@ These remain intentionally out of scope for this pass:
 - A separate IL optimizer for release builds
 - Dependency tree visualization, including nested package-to-package edges for csproj-free `project.yml` dependency trees without an MSBuild project file
 - Native coverage reporting
-- Benchmark execution
+- Built-in cross-language benchmark comparison
 - Machine-readable build timing reports

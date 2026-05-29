@@ -16,6 +16,12 @@ namespace NSharpLang.Compiler;
 /// </summary>
 public class Analyzer : IDisposable
 {
+    /// <summary>
+    /// Length of the <c>match</c> keyword. Non-exhaustive-match diagnostics underline
+    /// the <c>match</c> keyword so the squiggle lands on the construct that is incomplete.
+    /// </summary>
+    private const int MatchKeywordLength = 5;
+
     private sealed record FlowNarrowing(string Path, TypeInfo? NarrowedType, NullState? NullState);
 
     private static readonly HashSet<string> BuiltInObjectMembers = new(StringComparer.Ordinal)
@@ -598,6 +604,9 @@ public class Analyzer : IDisposable
         if (func.Body != null)
         {
             AnalyzeStatement(func.Body);
+
+            // Definite-assignment for locals (NL304): reads before assignment.
+            CheckLocalDefiniteAssignment(func.Body);
 
             // Missing return (all-paths) check for non-void functions.
             // Iterator functions (func* / async*) use yield, not explicit return.
@@ -1270,7 +1279,7 @@ public class Analyzer : IDisposable
         {
             if (!assignedFields.Contains(field))
             {
-                Error(ErrorCode.DefiniteAssignmentError, $"Field '{field}' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration", ctor.Line, ctor.Column);
+                Error(ErrorCode.DefiniteAssignmentError, $"Field '{field}' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration", ctor.Line, ctor.Column, length: "constructor".Length);
             }
         }
     }
@@ -1327,6 +1336,485 @@ public class Analyzer : IDisposable
                     break;
             }
         }
+    }
+
+    // ── Definite assignment for locals (NL304) ─────────────────────────────
+    //
+    // A read of a local that was declared without an initializer is an error
+    // unless the local is definitely assigned on every path that reaches the
+    // read. Modeled after Roslyn's DataFlowPass: we thread an "assigned" set
+    // through the control-flow graph, intersecting at merge points (if/else,
+    // switch) and treating loop bodies conservatively (they may run zero times).
+    // The squiggle lands on the offending READ of the variable.
+
+    private sealed class DefiniteAssignmentState
+    {
+        // Locals declared without an initializer that must be definitely assigned before use.
+        public HashSet<string> Candidates { get; } = new(StringComparer.Ordinal);
+
+        // Currently-definitely-assigned locals on the path being analyzed.
+        public HashSet<string> Assigned { get; } = new(StringComparer.Ordinal);
+
+        // Reads already reported, keyed by name+position, to avoid duplicate squiggles.
+        public HashSet<(string Name, int Line, int Column)> Reported { get; } = new();
+    }
+
+    /// <summary>
+    /// Run definite-assignment analysis over a function/constructor body, reporting
+    /// NL304 on reads of locals that are not definitely assigned on all paths.
+    /// </summary>
+    private void CheckLocalDefiniteAssignment(BlockStatement body)
+    {
+        var state = new DefiniteAssignmentState();
+        AnalyzeDefiniteAssignmentBlock(body, state);
+    }
+
+    // Returns true if the statement (and therefore the path through it) always
+    // exits the enclosing flow via return/throw/break/continue.
+    private bool AnalyzeDefiniteAssignmentStatement(Statement stmt, DefiniteAssignmentState state)
+    {
+        switch (stmt)
+        {
+            case BlockStatement block:
+                return AnalyzeDefiniteAssignmentBlock(block, state);
+
+            case VariableDeclarationStatement varDecl:
+                if (varDecl.Initializer != null)
+                {
+                    AnalyzeDefiniteAssignmentExpression(varDecl.Initializer, state);
+                    state.Assigned.Add(varDecl.Name);
+                }
+                else
+                {
+                    // Declared without initializer: must be assigned before use.
+                    state.Candidates.Add(varDecl.Name);
+                    state.Assigned.Remove(varDecl.Name);
+                }
+                return false;
+
+            case TupleDeconstructionStatement tupleDecl:
+                AnalyzeDefiniteAssignmentExpression(tupleDecl.Initializer, state);
+                foreach (var name in tupleDecl.Names)
+                {
+                    if (name != "_")
+                        state.Assigned.Add(name);
+                }
+                return false;
+
+            case ExpressionStatement exprStmt:
+                AnalyzeDefiniteAssignmentExpression(exprStmt.Expression, state);
+                return false;
+
+            case PrintStatement printStmt:
+                AnalyzeDefiniteAssignmentExpression(printStmt.Value, state);
+                return false;
+
+            case ReturnStatement returnStmt:
+                if (returnStmt.Value != null)
+                    AnalyzeDefiniteAssignmentExpression(returnStmt.Value, state);
+                return true;
+
+            case YieldStatement yieldStmt:
+                if (yieldStmt.Value != null)
+                    AnalyzeDefiniteAssignmentExpression(yieldStmt.Value, state);
+                return false;
+
+            case ThrowStatement throwStmt:
+                AnalyzeDefiniteAssignmentExpression(throwStmt.Expression, state);
+                return true;
+
+            case BreakStatement:
+            case ContinueStatement:
+                return true;
+
+            case IfStatement ifStmt:
+                return AnalyzeDefiniteAssignmentIf(ifStmt, state);
+
+            case WhileStatement whileStmt:
+                AnalyzeDefiniteAssignmentExpression(whileStmt.Condition, state);
+                AnalyzeDefiniteAssignmentLoopBody(whileStmt.Body, state);
+                return false;
+
+            case ForStatement forStmt:
+                if (forStmt.Initializer != null)
+                    AnalyzeDefiniteAssignmentStatement(forStmt.Initializer, state);
+                if (forStmt.Condition != null)
+                    AnalyzeDefiniteAssignmentExpression(forStmt.Condition, state);
+                AnalyzeDefiniteAssignmentLoopBody(forStmt.Body, state, forStmt.Iterator);
+                return false;
+
+            case ForeachStatement foreachStmt:
+                AnalyzeDefiniteAssignmentExpression(foreachStmt.Collection, state);
+                AnalyzeDefiniteAssignmentLoopBody(foreachStmt.Body, state);
+                return false;
+
+            case AwaitForEachStatement awaitForeach:
+                AnalyzeDefiniteAssignmentExpression(awaitForeach.Collection, state);
+                AnalyzeDefiniteAssignmentLoopBody(awaitForeach.Body, state);
+                return false;
+
+            case SwitchStatement switchStmt:
+                return AnalyzeDefiniteAssignmentSwitch(switchStmt, state);
+
+            case TryStatement tryStmt:
+                return AnalyzeDefiniteAssignmentTry(tryStmt, state);
+
+            case UsingStatement usingStmt:
+                if (usingStmt.Declaration != null)
+                    AnalyzeDefiniteAssignmentStatement(usingStmt.Declaration, state);
+                if (usingStmt.Expression != null)
+                    AnalyzeDefiniteAssignmentExpression(usingStmt.Expression, state);
+                if (usingStmt.Body != null)
+                    return AnalyzeDefiniteAssignmentStatement(usingStmt.Body, state);
+                return false;
+
+            case LockStatement lockStmt:
+                AnalyzeDefiniteAssignmentExpression(lockStmt.LockObject, state);
+                AnalyzeDefiniteAssignmentBlock(lockStmt.Body, state);
+                return false;
+
+            case AssertStatement assertStmt:
+                AnalyzeDefiniteAssignmentExpression(assertStmt.Condition, state);
+                if (assertStmt.Message != null)
+                    AnalyzeDefiniteAssignmentExpression(assertStmt.Message, state);
+                return false;
+
+            // Local functions have their own bodies analyzed independently; do not
+            // flow the enclosing assignment state into them.
+            case LocalFunctionStatement:
+            default:
+                return false;
+        }
+    }
+
+    private bool AnalyzeDefiniteAssignmentBlock(BlockStatement block, DefiniteAssignmentState state)
+    {
+        foreach (var statement in block.Statements)
+        {
+            if (AnalyzeDefiniteAssignmentStatement(statement, state))
+                return true;
+        }
+        return false;
+    }
+
+    private bool AnalyzeDefiniteAssignmentIf(IfStatement ifStmt, DefiniteAssignmentState state)
+    {
+        AnalyzeDefiniteAssignmentExpression(ifStmt.Condition, state);
+
+        var beforeBranches = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+
+        var thenAlwaysExits = AnalyzeDefiniteAssignmentStatement(ifStmt.ThenStatement, state);
+        var afterThen = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+
+        // Reset to pre-branch state for the else path.
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(beforeBranches);
+
+        bool elseAlwaysExits;
+        HashSet<string> afterElse;
+        if (ifStmt.ElseStatement != null)
+        {
+            elseAlwaysExits = AnalyzeDefiniteAssignmentStatement(ifStmt.ElseStatement, state);
+            afterElse = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+        }
+        else
+        {
+            elseAlwaysExits = false;
+            afterElse = beforeBranches;
+        }
+
+        // Merge: a variable is assigned afterward only if it is assigned on every
+        // path that can fall through. A path that always exits contributes nothing.
+        state.Assigned.Clear();
+        if (thenAlwaysExits && elseAlwaysExits)
+        {
+            // Both paths exit — code after the if is unreachable; keep pre-branch state.
+            state.Assigned.UnionWith(beforeBranches);
+            return true;
+        }
+        if (thenAlwaysExits)
+        {
+            state.Assigned.UnionWith(afterElse);
+        }
+        else if (elseAlwaysExits)
+        {
+            state.Assigned.UnionWith(afterThen);
+        }
+        else
+        {
+            afterThen.IntersectWith(afterElse);
+            state.Assigned.UnionWith(afterThen);
+        }
+        return false;
+    }
+
+    private void AnalyzeDefiniteAssignmentLoopBody(
+        Statement body,
+        DefiniteAssignmentState state,
+        Expression? iterator = null)
+    {
+        // The body may execute zero times, so assignments inside it are not
+        // definite afterward. Analyze reads against a snapshot, then restore.
+        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+        AnalyzeDefiniteAssignmentStatement(body, state);
+        if (iterator != null)
+            AnalyzeDefiniteAssignmentExpression(iterator, state);
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(before);
+    }
+
+    private bool AnalyzeDefiniteAssignmentSwitch(SwitchStatement switchStmt, DefiniteAssignmentState state)
+    {
+        AnalyzeDefiniteAssignmentExpression(switchStmt.Value, state);
+
+        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+        HashSet<string>? merged = null;
+        var hasDefault = false;
+        var allCasesExit = true;
+
+        foreach (var switchCase in switchStmt.Cases)
+        {
+            if (switchCase.Pattern == null)
+                hasDefault = true;
+
+            state.Assigned.Clear();
+            state.Assigned.UnionWith(before);
+
+            var caseExits = false;
+            foreach (var statement in switchCase.Statements)
+            {
+                if (AnalyzeDefiniteAssignmentStatement(statement, state))
+                {
+                    caseExits = true;
+                    break;
+                }
+            }
+
+            if (!caseExits)
+            {
+                allCasesExit = false;
+                var afterCase = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+                if (merged == null)
+                    merged = afterCase;
+                else
+                    merged.IntersectWith(afterCase);
+            }
+        }
+
+        state.Assigned.Clear();
+        if (hasDefault && allCasesExit)
+            return true;
+        // Without a default case, the value may fall through unmatched, so only
+        // the pre-switch assignments are guaranteed.
+        state.Assigned.UnionWith(hasDefault && merged != null ? merged : before);
+        return false;
+    }
+
+    private bool AnalyzeDefiniteAssignmentTry(TryStatement tryStmt, DefiniteAssignmentState state)
+    {
+        var before = new HashSet<string>(state.Assigned, StringComparer.Ordinal);
+
+        // The try block may throw partway through, so its assignments are not
+        // guaranteed to reach the catch/finally. Analyze reads, then discard.
+        AnalyzeDefiniteAssignmentBlock(tryStmt.TryBlock, state);
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(before);
+
+        foreach (var catchClause in tryStmt.CatchClauses)
+        {
+            var catchState = new HashSet<string>(before, StringComparer.Ordinal);
+            state.Assigned.Clear();
+            state.Assigned.UnionWith(catchState);
+            AnalyzeDefiniteAssignmentBlock(catchClause.Block, state);
+        }
+
+        state.Assigned.Clear();
+        state.Assigned.UnionWith(before);
+        if (tryStmt.FinallyBlock != null)
+            AnalyzeDefiniteAssignmentBlock(tryStmt.FinallyBlock, state);
+        return false;
+    }
+
+    private void AnalyzeDefiniteAssignmentExpression(Expression? expr, DefiniteAssignmentState state)
+    {
+        switch (expr)
+        {
+            case null:
+                return;
+
+            case IdentifierExpression identifier:
+                ReportIfReadBeforeAssigned(identifier, state);
+                return;
+
+            case AssignmentExpression assignment:
+                // Compound assignment (+=, etc.) reads the target first.
+                if (assignment.Operator != AssignmentOperator.Assign
+                    && assignment.Target is IdentifierExpression compoundTarget)
+                {
+                    ReportIfReadBeforeAssigned(compoundTarget, state);
+                }
+                else if (assignment.Target is not IdentifierExpression)
+                {
+                    AnalyzeDefiniteAssignmentExpression(assignment.Target, state);
+                }
+
+                AnalyzeDefiniteAssignmentExpression(assignment.Value, state);
+
+                if (assignment.Target is IdentifierExpression assignTarget)
+                    state.Assigned.Add(assignTarget.Name);
+                return;
+
+            case BinaryExpression binary:
+                AnalyzeDefiniteAssignmentExpression(binary.Left, state);
+                AnalyzeDefiniteAssignmentExpression(binary.Right, state);
+                return;
+
+            case UnaryExpression unary:
+                AnalyzeDefiniteAssignmentExpression(unary.Operand, state);
+                return;
+
+            case MemberAccessExpression member:
+                AnalyzeDefiniteAssignmentExpression(member.Object, state);
+                return;
+
+            case IndexAccessExpression index:
+                AnalyzeDefiniteAssignmentExpression(index.Object, state);
+                AnalyzeDefiniteAssignmentExpression(index.Index, state);
+                return;
+
+            case CallExpression call:
+                AnalyzeDefiniteAssignmentExpression(call.Callee, state);
+                foreach (var argument in call.Arguments)
+                {
+                    // out arguments assign the target rather than reading it.
+                    if (argument.Modifier == ArgumentModifier.Out
+                        && argument.Value is IdentifierExpression outTarget)
+                    {
+                        state.Assigned.Add(outTarget.Name);
+                    }
+                    else
+                    {
+                        AnalyzeDefiniteAssignmentExpression(argument.Value, state);
+                    }
+                }
+                return;
+
+            case TernaryExpression ternary:
+                AnalyzeDefiniteAssignmentExpression(ternary.Condition, state);
+                AnalyzeDefiniteAssignmentExpression(ternary.ThenExpression, state);
+                AnalyzeDefiniteAssignmentExpression(ternary.ElseExpression, state);
+                return;
+
+            case ParenthesizedExpression parenthesized:
+                AnalyzeDefiniteAssignmentExpression(parenthesized.Inner, state);
+                return;
+
+            case CastExpression cast:
+                AnalyzeDefiniteAssignmentExpression(cast.Expression, state);
+                return;
+
+            case IsExpression isExpr:
+                AnalyzeDefiniteAssignmentExpression(isExpr.Expression, state);
+                return;
+
+            case AwaitExpression await:
+                AnalyzeDefiniteAssignmentExpression(await.Expression, state);
+                return;
+
+            case MustExpression must:
+                AnalyzeDefiniteAssignmentExpression(must.Expression, state);
+                return;
+
+            case ThrowExpression throwExpr:
+                AnalyzeDefiniteAssignmentExpression(throwExpr.Expression, state);
+                return;
+
+            case CheckedExpression checkedExpr:
+                AnalyzeDefiniteAssignmentExpression(checkedExpr.Expression, state);
+                return;
+
+            case UncheckedExpression uncheckedExpr:
+                AnalyzeDefiniteAssignmentExpression(uncheckedExpr.Expression, state);
+                return;
+
+            case RangeExpression range:
+                AnalyzeDefiniteAssignmentExpression(range.Start, state);
+                AnalyzeDefiniteAssignmentExpression(range.End, state);
+                return;
+
+            case ArrayLiteralExpression array:
+                foreach (var element in array.Elements)
+                    AnalyzeDefiniteAssignmentExpression(element, state);
+                return;
+
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                    AnalyzeDefiniteAssignmentExpression(element.Value, state);
+                return;
+
+            case InterpolatedStringExpression interpolated:
+                foreach (var part in interpolated.Parts)
+                {
+                    if (part is InterpolatedStringHole hole)
+                        AnalyzeDefiniteAssignmentExpression(hole.Expression, state);
+                }
+                return;
+
+            case NewExpression newExpr:
+                foreach (var argument in newExpr.ConstructorArguments)
+                    AnalyzeDefiniteAssignmentExpression(argument.Value, state);
+                if (newExpr.Initializer != null)
+                {
+                    foreach (var property in newExpr.Initializer.Properties)
+                    {
+                        AnalyzeDefiniteAssignmentExpression(property.IndexExpression, state);
+                        AnalyzeDefiniteAssignmentExpression(property.Value, state);
+                    }
+                }
+                return;
+
+            case SpreadExpression spread:
+                AnalyzeDefiniteAssignmentExpression(spread.Expression, state);
+                return;
+
+            case WithExpression with:
+                AnalyzeDefiniteAssignmentExpression(with.Target, state);
+                foreach (var property in with.Properties)
+                {
+                    AnalyzeDefiniteAssignmentExpression(property.IndexExpression, state);
+                    AnalyzeDefiniteAssignmentExpression(property.Value, state);
+                }
+                return;
+
+            case NameofExpression:
+                // nameof does not read the value of its operand.
+                return;
+
+            // Lambdas capture by reference and may run later; their bodies are
+            // analyzed independently and must not consume the enclosing flow state.
+            case LambdaExpression:
+            default:
+                return;
+        }
+    }
+
+    private void ReportIfReadBeforeAssigned(IdentifierExpression identifier, DefiniteAssignmentState state)
+    {
+        var name = identifier.Name;
+        if (!state.Candidates.Contains(name) || state.Assigned.Contains(name))
+            return;
+
+        var key = (name, identifier.Line, identifier.Column);
+        if (!state.Reported.Add(key))
+            return;
+
+        Error(
+            ErrorCode.DefiniteAssignmentError,
+            $"'{name}' is used here before it has been assigned a value on every path that reaches this point",
+            identifier.Line,
+            identifier.Column,
+            $"Give '{name}' an initial value where you declare it, or assign it on every branch before this use.",
+            Math.Max(1, name.Length));
     }
 
     private void AnalyzeStatements(IReadOnlyList<Statement> statements)
@@ -1475,7 +1963,121 @@ public class Analyzer : IDisposable
         if (!IsValidExpressionStatement(exprStmt.Expression) && _errors.Count == errorsBefore)
         {
             ReportInvalidExpressionStatement(exprStmt.Expression);
+            return;
         }
+
+        if (_errors.Count == errorsBefore)
+        {
+            ReportDiscardedMustUseResultIfNeeded(exprStmt.Expression);
+        }
+    }
+
+    /// <summary>
+    /// Enforces the must-use policy: a bare call whose result is "must-use" (annotated
+    /// with [MustUse]) cannot be discarded silently as an expression statement. The result
+    /// must be used or discarded explicitly with `_ = call()`.
+    /// </summary>
+    private void ReportDiscardedMustUseResultIfNeeded(Expression expression)
+    {
+        var call = UnwrapMustUseCandidate(expression);
+        if (call is null)
+            return;
+
+        if (!TryGetMustUseReason(call, out var reason))
+            return;
+
+        var calleeName = GetCallTargetName(call);
+        var (line, column, length) = GetCallDiagnosticSpan(call, calleeName ?? "call");
+        var subject = calleeName != null ? $"the result of '{calleeName}'" : "this result";
+
+        Error(
+            ErrorCode.DiscardedMustUseResult,
+            $"You're discarding {subject}, but {reason} — its result must be used",
+            line,
+            column,
+            "Use the result (assign it, return it, or pass it to a call), or discard it explicitly with `_ = ...`.",
+            length);
+    }
+
+    /// <summary>
+    /// Returns the underlying call expression if the statement is a bare call whose result
+    /// would be silently discarded. Explicit discards (`_ = call()`) and any other use of
+    /// the value are intentionally excluded.
+    /// </summary>
+    private static CallExpression? UnwrapMustUseCandidate(Expression expression)
+    {
+        return expression switch
+        {
+            CallExpression call => call,
+            ParenthesizedExpression parenthesized => UnwrapMustUseCandidate(parenthesized.Inner),
+            CheckedExpression checkedExpression => UnwrapMustUseCandidate(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => UnwrapMustUseCandidate(uncheckedExpression.Expression),
+            _ => null
+        };
+    }
+
+    private bool TryGetMustUseReason(CallExpression call, out string reason)
+    {
+        reason = string.Empty;
+
+        // The call was already analyzed above, so the callee's resolved type is recorded in the
+        // semantic model. Reuse it instead of re-analyzing the AST, which would double-record
+        // bindings/references and corrupt find-references.
+        if (!_semanticModel.ExpressionTypes.TryGetValue(
+                (call.Callee.Line, call.Callee.Column), out var calleeType))
+        {
+            return false;
+        }
+
+        switch (calleeType)
+        {
+            case FunctionTypeInfo { Declaration: { } declaration } when HasMustUseAttribute(declaration.Attributes):
+                reason = $"'{declaration.Name}' is marked [MustUse]";
+                return true;
+            case NSharpMethodGroupInfo group when group.Declarations.All(d => HasMustUseAttribute(d.Attributes)) && group.Declarations.Count > 0:
+                reason = $"'{group.Declarations[0].Name}' is marked [MustUse]";
+                return true;
+            case ReflectionMethodInfo method when HasMustUseAttribute(method.Method):
+                reason = $"'{method.Method.Name}' is marked [MustUse]";
+                return true;
+            case ReflectionMethodGroupInfo methodGroup when methodGroup.Methods.Length > 0 && methodGroup.Methods.All(HasMustUseAttribute):
+                reason = $"'{methodGroup.Methods[0].Name}' is marked [MustUse]";
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private static bool HasMustUseAttribute(IEnumerable<AttributeNode> attributes)
+        => attributes.Any(attribute => IsMustUseAttributeName(attribute.Name));
+
+    private static bool HasMustUseAttribute(MethodInfo method)
+    {
+        try
+        {
+            return method.GetCustomAttributesData()
+                .Any(data => IsMustUseAttributeName(data.AttributeType.Name)
+                    || IsMustUseAttributeName(data.AttributeType.FullName ?? string.Empty));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsDiscardTarget(Expression target)
+        => target is IdentifierExpression { Name: "_" };
+
+    private static bool IsMustUseAttributeName(string name)
+    {
+        if (string.IsNullOrEmpty(name))
+            return false;
+
+        var lastDot = name.LastIndexOf('.');
+        var simpleName = lastDot >= 0 ? name[(lastDot + 1)..] : name;
+
+        return simpleName.Equals("MustUse", StringComparison.Ordinal)
+            || simpleName.Equals("MustUseAttribute", StringComparison.Ordinal);
     }
 
     private static bool ContainsParserErrorPlaceholder(Expression expression)
@@ -1715,6 +2317,44 @@ public class Analyzer : IDisposable
 
     private (int Line, int Column, int Length) GetListPatternDiagnosticSpan(ListPattern listPattern)
         => (listPattern.Line, listPattern.Column, GetDelimitedPatternLength(listPattern.Line, listPattern.Column, '[', ']'));
+
+    /// <summary>
+    /// Computes the span for an 'is' expression covering the 'is' keyword through the
+    /// tested type name (e.g. underlines <c>is string</c>). Falls back to the 'is'
+    /// keyword alone when source text is unavailable.
+    /// </summary>
+    private (int Line, int Column, int Length) GetIsExpressionDiagnosticSpan(IsExpression isExpr)
+    {
+        const int IsKeywordLength = 2;
+
+        if (_sourceLines == null || isExpr.Line <= 0 || isExpr.Line > _sourceLines.Length)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        var sourceLine = _sourceLines[isExpr.Line - 1];
+        var start = isExpr.Column - 1;
+        if (start < 0 || start >= sourceLine.Length)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        // Skip the 'is' keyword and any whitespace before the type name.
+        var typeStart = start + IsKeywordLength;
+        while (typeStart < sourceLine.Length && char.IsWhiteSpace(sourceLine[typeStart]))
+            typeStart++;
+
+        if (typeStart >= sourceLine.Length)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        var typeEnd = typeStart;
+        while (typeEnd < sourceLine.Length &&
+               (char.IsLetterOrDigit(sourceLine[typeEnd]) || sourceLine[typeEnd] is '_' or '.' or '<' or '>' or '?' or '[' or ']'))
+        {
+            typeEnd++;
+        }
+
+        if (typeEnd <= typeStart)
+            return (isExpr.Line, isExpr.Column, IsKeywordLength);
+
+        return (isExpr.Line, isExpr.Column, typeEnd - start);
+    }
 
     private int GetDelimitedPatternLength(int line, int column, char openDelimiter, char closeDelimiter)
     {
@@ -1991,6 +2631,7 @@ public class Analyzer : IDisposable
         if (func.Body != null)
         {
             AnalyzeStatements(func.Body.Statements);
+            CheckLocalDefiniteAssignment(func.Body);
         }
         else if (func.ExpressionBody != null)
         {
@@ -3058,9 +3699,11 @@ public class Analyzer : IDisposable
                 // Check if pattern is provably impossible
                 if (!IsPatternPossible(valueType, targetType))
                 {
+                    var (impossibleLine, impossibleColumn, impossibleLength) =
+                        GetPatternNameDiagnosticSpan(typePattern);
                     Error(ErrorCode.ImpossiblePattern,
-                        $"This 'is {targetType}' pattern will never match — a '{valueType}' can never be '{targetType}'",
-                        pattern.Line, pattern.Column);
+                        $"This '{targetType}' pattern can never match — a '{valueType}' is never a '{targetType}'",
+                        impossibleLine, impossibleColumn, length: impossibleLength);
                 }
 
                 // Bind the variable if a binding name is provided
@@ -3690,7 +4333,7 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
 
-        Warning(
+        Error(
             ErrorCode.NullabilityWarning,
             $"This 'must' unwrap is redundant — the expression is already known to be '{operandType}'",
             must.Line,
@@ -6466,14 +7109,20 @@ public class Analyzer : IDisposable
         {
             if (bindings.TryGetValue(constraint.TypeParameter, out var boundType))
             {
+                // Underline the argument that forced this binding (e.g. the literal `42`),
+                // falling back to the callee name when no single argument can be identified.
+                var (line, column, length) = GetGenericConstraintDiagnosticSpan(decl, call, constraint.TypeParameter);
+
                 // Validate special constraints
                 if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
                 {
                     if (!IsReferenceType(boundType))
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"'{boundType}' is a value type, but type parameter '{constraint.TypeParameter}' requires a reference type (class constraint)",
-                            call.Line, call.Column);
+                            $"`{boundType}` is a value type, but type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires a reference type (the `class` constraint)",
+                            line, column,
+                            $"Pass a class instance for `{constraint.TypeParameter}`, or relax the `class` constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
 
@@ -6484,8 +7133,10 @@ public class Analyzer : IDisposable
                     if (IsReferenceType(boundType) || boundType is NullableTypeInfo)
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"'{boundType}' is not a non-nullable value type, but type parameter '{constraint.TypeParameter}' requires one (struct constraint)",
-                            call.Line, call.Column);
+                            $"`{boundType}` is not a non-nullable value type, but type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires one (the `struct` constraint)",
+                            line, column,
+                            $"Pass a non-nullable value type for `{constraint.TypeParameter}`, or relax the `struct` constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
 
@@ -6494,8 +7145,10 @@ public class Analyzer : IDisposable
                     if (!HasParameterlessConstructor(boundType))
                     {
                         Error(ErrorCode.GenericConstraintViolation,
-                            $"'{boundType}' doesn't have a parameterless constructor, but type parameter '{constraint.TypeParameter}' requires one (new() constraint)",
-                            call.Line, call.Column);
+                            $"`{boundType}` has no parameterless constructor, but type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires one (the `new()` constraint)",
+                            line, column,
+                            $"Give `{boundType}` a parameterless constructor, or relax the `new()` constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
 
@@ -6505,12 +7158,51 @@ public class Analyzer : IDisposable
                     var constraintType = ApplyNSharpGenericBindings(ResolveType(constraintTypeRef), bindings);
                     if (!IsSubtypeOf(boundType, constraintType) && !IsAssignable(constraintType, boundType))
                     {
-                        Error($"'{boundType}' doesn't implement '{constraintType}', which is required by type parameter '{constraint.TypeParameter}'",
-                            call.Line, call.Column);
+                        Error(ErrorCode.GenericConstraintViolation,
+                            $"`{boundType}` does not implement `{constraintType}`, which type parameter `{constraint.TypeParameter}` of `{decl.Name}` requires",
+                            line, column,
+                            $"Implement `{constraintType}` on `{boundType}`, or relax the constraint on `{decl.Name}`.",
+                            length);
                     }
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Locates the source span to underline for a generic-constraint violation.
+    /// Prefers the single argument whose declared parameter type is exactly the offending
+    /// type parameter (e.g. the literal `42` for `Identity&lt;T&gt;(value: T)`); otherwise
+    /// falls back to the callee name span.
+    /// </summary>
+    private (int Line, int Column, int Length) GetGenericConstraintDiagnosticSpan(
+        FunctionDeclaration decl,
+        CallExpression call,
+        string typeParameter)
+    {
+        var isExtension = decl.Parameters.Count > 0 && decl.Parameters[0].IsThis;
+        var paramStart = isExtension ? 1 : 0;
+
+        Expression? offendingArgument = null;
+        for (var i = 0; i + paramStart < decl.Parameters.Count && i < call.Arguments.Count; i++)
+        {
+            if (decl.Parameters[i + paramStart].Type is SimpleTypeReference simple &&
+                simple.Name == typeParameter)
+            {
+                if (offendingArgument != null)
+                {
+                    // More than one argument binds this type parameter — no single token to blame.
+                    offendingArgument = null;
+                    break;
+                }
+
+                offendingArgument = call.Arguments[i].Value;
+            }
+        }
+
+        return offendingArgument != null
+            ? GetExpressionDiagnosticSpan(offendingArgument)
+            : GetCallDiagnosticSpan(call, GetCallTargetName(call) ?? decl.Name);
     }
 
     /// <summary>
@@ -8113,6 +8805,26 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeAssignment(AssignmentExpression assignment)
     {
+        // Discard assignment: `_ = expr` explicitly throws away a value. The discard is the
+        // sanctioned escape hatch for must-use results, so the target binds nothing and we
+        // only analyze the right-hand side.
+        if (IsDiscardTarget(assignment.Target))
+        {
+            if (assignment.Operator != AssignmentOperator.Assign)
+            {
+                var (discardLine, discardColumn, discardLength) = GetExpressionDiagnosticSpan(assignment.Target);
+                Error(
+                    ErrorCode.InvalidSyntax,
+                    "The discard `_` can only be used with a plain `=` assignment",
+                    discardLine,
+                    discardColumn,
+                    "Use `_ = expr` to discard a value, or assign to a named variable for compound operators.",
+                    discardLength);
+            }
+
+            return AnalyzeExpression(assignment.Value);
+        }
+
         var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
         var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
         TypeInfo targetType;
@@ -8430,9 +9142,11 @@ public class Analyzer : IDisposable
 
         if (!IsPatternPossible(sourceType, targetType))
         {
+            var (impossibleLine, impossibleColumn, impossibleLength) =
+                GetIsExpressionDiagnosticSpan(isExpr);
             Error(ErrorCode.ImpossiblePattern,
-                $"This 'is {targetType}' check will always be false — a '{sourceType}' can never be '{targetType}'",
-                isExpr.Line, isExpr.Column);
+                $"This 'is {targetType}' check is always false — a '{sourceType}' is never a '{targetType}'",
+                impossibleLine, impossibleColumn, length: impossibleLength);
         }
 
         return BuiltInTypes.Bool;
@@ -8624,7 +9338,8 @@ public class Analyzer : IDisposable
             $"This nullable match doesn't cover {missingText} — handle both 'null' and a non-null value arm",
             match.Line,
             match.Column,
-            "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.");
+            "Use `null => ...` for the absent case and `value => ...` to bind the non-null value.",
+            length: MatchKeywordLength);
     }
 
     private void CheckAnonymousUnionMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
@@ -8669,7 +9384,8 @@ public class Analyzer : IDisposable
             $"This match doesn't cover all anonymous union arms — missing: {string.Join(", ", missingArms)}",
             match.Line,
             match.Column,
-            "Add an arm for each missing type, or add a wildcard `_` arm.");
+            "Add an arm for each missing type, or add a wildcard `_` arm.",
+            length: MatchKeywordLength);
     }
 
     private void CheckMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
@@ -8783,7 +9499,8 @@ public class Analyzer : IDisposable
                     $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
                     match.Line,
                     match.Column,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)));
+                    ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)),
+                    length: MatchKeywordLength);
             }
             else
             {
@@ -8798,7 +9515,7 @@ public class Analyzer : IDisposable
                         match.Line,
                         match.Column,
                         sourceSnippet,
-                        5, // "match" keyword length
+                        MatchKeywordLength,
                         missingCases
                     );
                     _errors.Add(error);
@@ -8807,7 +9524,8 @@ public class Analyzer : IDisposable
                 {
                     var missingCasesStr = string.Join(", ", missingCases);
                     Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
-                        match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr));
+                        match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr),
+                        length: MatchKeywordLength);
                 }
             }
         }
@@ -9088,7 +9806,8 @@ public class Analyzer : IDisposable
             {
                 var missingStr = string.Join(", ", missingMembers);
                 Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all enum members — missing: {missingStr}",
-                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr));
+                    match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingStr),
+                    length: MatchKeywordLength);
             }
         }
         else
@@ -9180,29 +9899,6 @@ public class Analyzer : IDisposable
                 span.StartColumn,
                 "Declare a named `union` for larger variants.",
                 Math.Max(1, union.Span.IsValid ? union.Span.EndColumn - union.Span.StartColumn : 1));
-        }
-
-        for (var i = 0; i < uniqueArms.Count; i++)
-        {
-            for (var j = 0; j < uniqueArms.Count; j++)
-            {
-                if (i == j)
-                    continue;
-
-                var wider = uniqueArms[i];
-                var narrower = uniqueArms[j];
-                if (IsAssignable(wider, narrower))
-                {
-                    var span = GetTypeReferenceStartSpan(union);
-                    Warning(
-                        ErrorCode.UnnecessaryTypeAnnotation,
-                        $"Anonymous union arm '{narrower}' is already covered by '{wider}'.",
-                        span.StartLine,
-                        span.StartColumn,
-                        $"Prefer '{wider}', or declare a named union if these cases must stay distinct.",
-                        Math.Max(1, union.Span.IsValid ? union.Span.EndColumn - union.Span.StartColumn : 1));
-                }
-            }
         }
 
         return new UnionTypeInfo(uniqueArms);
@@ -9742,11 +10438,12 @@ public class Analyzer : IDisposable
         if (VisibilityConventions.IsExportedIdentifier(name) || char.IsLower(name[0]))
             return;
 
-        Warning(
+        Error(
             ErrorCode.VisibilityConventionWarning,
             $"Identifier '{name}' starts with a non-letter character — in N#, PascalCase means public and camelCase means private",
             line,
-            column);
+            column,
+            length: Math.Max(1, name.Length));
     }
 
     // Type checking helpers
@@ -11113,6 +11810,8 @@ public class Analyzer : IDisposable
         }
         else
         {
+            CheckShadowedDeclaration(name, type, line, nameColumn);
+
             currentScope.Symbols[name] = type;
             currentScope.NullStates[name] = GetDefaultNullState(type);
 
@@ -11126,6 +11825,76 @@ public class Analyzer : IDisposable
                 currentScope.RecordDeclarationLocation(name, _currentFilePath, line, nameColumn, kind);
             }
         }
+    }
+
+    /// <summary>
+    /// Compiler-level shadowing guarantee (NL315). A local or parameter declaration
+    /// that shadows a local/parameter from an enclosing function/block scope is a hard,
+    /// build-blocking error. This is authoritative: when it fires the file has a compiler
+    /// error, which suppresses the linter's NL020 for the same file (see
+    /// CodeIntelligenceService.GetDiagnostics), so the user sees exactly one diagnostic.
+    /// </summary>
+    private void CheckShadowedDeclaration(string name, TypeInfo type, int line, int nameColumn)
+    {
+        if (_scopes.Count == 0)
+            return;
+
+        // Discards and underscore-prefixed names are intentionally ignored (mirrors NL020).
+        if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
+            return;
+
+        var currentScope = _scopes.Peek();
+
+        // Only locals and parameters can shadow; functions, types, type parameters,
+        // "this"/"value", and members declared in type scopes are out of scope.
+        if (currentScope.Kind is not (ScopeKind.Function or ScopeKind.Block))
+            return;
+        if (!IsValueBinding(currentScope, name, type))
+            return;
+
+        // Walk enclosing scopes outward. Stop at the first non-local scope boundary
+        // (class/struct/record/interface/global) — members there are not "outer locals".
+        var sawCurrent = false;
+        foreach (var scope in _scopes)
+        {
+            if (!sawCurrent)
+            {
+                // Skip the scope we are declaring into.
+                sawCurrent = ReferenceEquals(scope, currentScope);
+                continue;
+            }
+
+            if (scope.Kind is not (ScopeKind.Function or ScopeKind.Block))
+                return; // reached a type/global boundary — no shadowing of an outer local
+
+            if (scope.Symbols.TryGetValue(name, out var outerType) && IsValueBinding(scope, name, outerType))
+            {
+                Error(
+                    ErrorCode.ShadowedDeclaration,
+                    $"'{name}' shadows an existing '{name}' from an enclosing scope — N# forbids shadowing because it hides the outer binding and invites confusing bugs",
+                    line,
+                    nameColumn,
+                    ErrorSuggestions.GetSuggestion(ErrorCode.ShadowedDeclaration, name),
+                    Math.Max(1, name.Length));
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// True when the named symbol in <paramref name="scope"/> is a local variable or
+    /// parameter binding (not a function, method group, type, or type parameter).
+    /// </summary>
+    private static bool IsValueBinding(Scope scope, string name, TypeInfo type)
+    {
+        // "this" is the receiver; "value" is the implicit property-setter parameter.
+        // Excluding "value" avoids false shadowing reports for locals named `value`
+        // inside setters (a common, harmless pattern).
+        if (name is "this" or "value")
+            return false;
+        if (scope.Types.ContainsKey(name))
+            return false; // type parameter
+        return type is not (FunctionTypeInfo or NSharpMethodGroupInfo);
     }
 
     /// <summary>
@@ -12201,9 +12970,11 @@ public class Analyzer : IDisposable
     private bool ReportInaccessibleProjectSymbol(ProjectSymbolInfo symbol, int line, int column)
     {
         Error(
+            ErrorCode.InaccessibleMember,
             $"'{symbol.Name}' is not exported from package/namespace '{symbol.Namespace ?? "<global>"}' — use PascalCase for cross-package visibility or keep camelCase names inside the declaring package",
             line,
-            column);
+            column,
+            length: Math.Max(1, symbol.Name.Length));
         return true;
     }
 
@@ -12211,9 +12982,11 @@ public class Analyzer : IDisposable
     {
         var declaringNamespace = GetNamespaceForFile(declarationFile) ?? "<global>";
         Error(
+            ErrorCode.InaccessibleMember,
             $"'{memberName}' is not exported from package/namespace '{declaringNamespace}' — use PascalCase for cross-package visibility or keep camelCase members inside the declaring package",
             line,
-            column);
+            column,
+            length: Math.Max(1, memberName.Length));
         return true;
     }
 

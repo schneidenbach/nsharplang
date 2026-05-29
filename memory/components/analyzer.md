@@ -117,6 +117,12 @@ For Go-style error tuples (`result, err := MightFail()`):
 - `if err != null { return }` or `throw` makes the result available after the guard
 - Using the result while `err` may be non-null reports `NL314`
 
+### Must-Use Results
+- Functions/methods annotated `[MustUse]` produce results that cannot be silently discarded.
+- A bare call statement (`Compute()`) whose result is thrown away reports `NL315` (`DiscardedMustUseResult`), underlining the callee name.
+- Sanctioned uses: assign/return/pass the value, or discard explicitly via `_ = Compute()`. `_ = expr` is an explicit discard target (handled in `AnalyzeAssignment`); it binds nothing and only analyzes the right-hand side.
+- Scope is intentionally conservative: only `[MustUse]`-annotated N# declarations and external (reflection) methods carrying a `MustUse`/`MustUseAttribute` attribute. Plain non-void results are NOT forced to be used.
+
 ## Convention-Based Visibility
 
 Enforced by Analyzer:

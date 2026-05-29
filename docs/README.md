@@ -79,6 +79,11 @@ nlc run
 
 - **[CI/CD Guide](guide/ci-cd.md)** - Setting up continuous integration and deployment with GitHub Actions, Azure Pipelines, and Docker
 
+### Design Notes
+
+- **[Performance Compiler Refactor](design/performance-compiler-refactor.md)** - Compiler architecture plan for making N# performance-by-default while documenting CLR interop tradeoffs
+- **[Native Object Initialization](design/native-object-initialization.md)** - Object initialization design details
+
 ### Examples
 
 Browse the [examples directory](../examples/) for curated examples; run the repo gates before using an example as release evidence:

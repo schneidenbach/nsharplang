@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` inspection command.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` inspection command.
 
 ---
 
@@ -87,10 +87,8 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
 | `nlc test --coverage` | Unsupported/planned native coverage; exits 1 with text or JSON guidance | `nlc test --coverage --json` |
-| `nlc bench` | Run benchmarks from *.bench.nl files (BenchmarkDotNet) | `nlc bench` |
-| `nlc bench --list` | Discover benchmark functions without running | `nlc bench --list` |
-| `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
-| `nlc bench --export <fmt>` | Export results: json, csv, markdown | `nlc bench --export json` |
+
+**Performance signal — IL shape, not a wall-clock runner.** There is intentionally no `nlc bench` command. A code-generating BenchmarkDotNet wrapper was prototyped and removed: it duplicated the mature BenchmarkDotNet ecosystem (which N# users already get for free through C# interop) and added a fragile codegen/reflection host for marginal value. N#'s first-class, on-brand performance signal is **deterministic IL-shape inspection** (`IlShapeInspector` in `NSharpLang.Compiler.Performance`), surfaced through `nlc build --perf-report` and `nlc query perf`. It needs nothing to run, is noise-free, and is suitable as a CI regression gate — it reports the counts that dominate N# performance (`newobj`/allocations, `box`, `callvirt` vs `call`, delegate constructions). For wall-clock numbers, point BenchmarkDotNet directly at the compiled N# assembly; for fair N#-vs-C# language claims, use a matched-shape harness with idiomatic C# baselines, separated wrapper overhead, and the IL-shape evidence above.
 
 ### Project Management
 
@@ -143,6 +141,7 @@ Undefined identifier 'unknownVar'
 ```
 
 - Exit code 0 = clean, 1 = errors
+- Near-zero-warnings policy: correctness/safety/hygiene diagnostics are build-blocking errors, so a clean `nlc check` (`ok: true`, exit 0) is a strong guarantee rather than "clean modulo warnings." `summary.warnings` is reported but is expected to stay at 0 for well-formed code; pure style is handled by `nlc format`, not surfaced here. See `docs/DESIGN.md` → Strictness.
 - JSON by default, `--text` for Elm-style diagnostics
 - `results[].line`, `results[].column`, and `results[].length` are the canonical marker span for both compiler and linter diagnostics; linter results no longer use one-character placeholder lengths.
 - Always runs parse + analysis first, then:
@@ -155,7 +154,7 @@ Supported backend values:
 
 Current status:
 - `project.yml` backend selection is respected by both the CLI and the MSBuild SDK.
-- `nlc check/build/run/test/bench/publish/pack` all support `backend: il` through the native project.yml path.
+- `nlc check/build/run/test/publish/pack` all support `backend: il` through the native project.yml path.
 - `dotnet build`, `dotnet run`, and `dotnet test` work for IL-backed SDK projects.
 - Generated-C# export no longer exists as a backend or build path.
 - `nlc export csharp` is the only supported product surface for C# generation.
@@ -207,27 +206,26 @@ $ nlc fix --file F                  # fix single file
 
 **Built-in lint rules:**
 
+N# is near-zero-warnings (see `docs/DESIGN.md` → Strictness): every active linter rule is a build-blocking **error**. Pure-style rules have been deleted and folded into `nlc format`.
+
 | Code | Severity | Name | Description |
 |------|----------|------|-------------|
 | NL001 | Error | `unused-variable` | Local variable declared but never read |
 | NL002 | Error | `missing-import` | Type used without the required `import` |
-| NL003 | Warning | `unnecessary-null-check` | Null check on a value-type literal |
-| NL004 | Warning | `async-without-await` | `async` function never uses `await` |
-| NL005 | Info | `use-pattern-matching` | Prefer `match` / `is` over if-else chains |
+| NL003 | Error | `unnecessary-null-check` | Null check on a value-type literal |
+| NL004 | Error | `async-without-await` | `async` function never uses `await` |
 | NL006 | Error | `unreachable-code` | Statements after `return` or `throw` |
-| NL008 | Info | `camel-case-local` | Local variable name starts with uppercase (locals use camelCase; PascalCase is for exported declarations) |
 | NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
-| NL011 | Warning | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
-| NL012 | Info | `unused-parameter` | Function parameter never referenced in the body |
-| NL013 | Info | `prefer-interpolation` | String concatenation with `+` where one operand is a string literal |
-| NL014 | Info | `unnecessary-type-annotation` | Explicit type annotation on a `let` declaration whose type is trivially obvious from a literal initializer (e.g. `let x: int = 5`) |
-| NL015 | Info | `prefer-const` | `let x: T = ...` variable with explicit type annotation that is never reassigned — suggest `const` |
-| NL016 | Warning | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
-| NL018 | Info | `prefer-readonly` | Class field that is only ever assigned inside the `constructor` body — suggest `readonly` modifier |
-| NL019 | Info | `empty-block` | Empty `{}` block in function body, `if`/`else`, loops |
-| NL020 | Warning | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+| NL011 | Error | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
+| NL012 | Error | `unused-parameter` | Function parameter never referenced in the body (underscore-prefixed names are exempt) |
+| NL016 | Error | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
+| NL020 | Error | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
 
-Compiler diagnostics also include error `NL905` for possible null dereference/index/call access. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics.
+**Deleted (pure-style):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.
+
+**Deleted (pure-style, now handled by `nlc format`):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.
+
+Compiler diagnostics also include error `NL905` for possible null dereference/index/call access — now flow-based, so an unguarded nullable access is an error while narrowing via `if x != null`, `?.`, or `??` clears it. It is emitted from semantic analysis rather than the linter and is therefore visible through `nlc check`, `nlc query diagnostics`, and LSP diagnostics. Other promoted compiler diagnostics (`NL903` visibility-convention, `NL904` obsolete-usage, `NL907` nullability) are likewise build-blocking errors.
 
 **Currently supported auto-fixes (`nlc fix`):**
 
@@ -238,9 +236,9 @@ Compiler diagnostics also include error `NL905` for possible null dereference/in
 | NL003 | Remove unnecessary `== null` / `!= null` clause | `Safe` | |
 | NL010 | Remove unused import line | `ReviewNeeded` | Known false positives in NL010 analysis |
 | NL011 | Insert `// TODO: handle exception` in empty catch | `Safe` | |
-| NL013 | Convert concatenation to interpolation | `SuggestionOnly` | Hint only — no edits applied |
-| NL015 | Replace `let` with `const` | `Safe` | |
 | NL905 | Use null-conditional member/index access | `ReviewNeeded` | Changes result nullability; guard/fallback/assertion alternatives are exposed as suggestion-only actions. |
+
+Fixes for deleted pure-style rules (formerly `NL013` concatenation→interpolation, `NL015` `let`→`const`) no longer exist as diagnostics; those rewrites are now part of `nlc format`.
 
 **`FixSafety` levels** (on `CodeAction`):
 - `Safe` — always correct to apply automatically (default `nlc fix` behavior)

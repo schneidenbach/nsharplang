@@ -4,31 +4,31 @@ import System.Threading.Tasks
 
 // Thread-safe counter using lock statement
 class Counter {
-    _value: int = 0
-    _lock: object = new object()
+    count: int = 0
+    syncLock: object = new object()
 
     func Increment() {
-        lock _lock {
-            _value++
+        lock syncLock {
+            count++
         }
     }
 
     func Decrement() {
-        lock _lock {
+        lock syncLock {
             // parentheses optional
-            _value--
+            count--
         }
     }
 
     func GetValue(): int {
-        lock _lock {
-            return _value
+        lock syncLock {
+            return count
         }
     }
 
     func Reset() {
-        lock _lock {
-            _value = 0
+        lock syncLock {
+            count = 0
         }
     }
 }
@@ -36,7 +36,7 @@ class Counter {
 // Bank account with thread-safe operations
 class BankAccount {
     balance: double = 0.0
-    _transactionLock: object = new object()
+    transactionLock: object = new object()
     TransactionCount: int = 0
 
     func Deposit(amount: double) {
@@ -44,7 +44,7 @@ class BankAccount {
             throw new ArgumentException("Amount cannot be negative")
         }
 
-        lock _transactionLock {
+        lock transactionLock {
             balance = balance + amount
             TransactionCount++
             print $"Deposited ${amount:F2}. New balance: ${balance:F2}"
@@ -56,7 +56,7 @@ class BankAccount {
             throw new ArgumentException("Amount cannot be negative")
         }
 
-        lock _transactionLock {
+        lock transactionLock {
             if balance >= amount {
                 balance = balance - amount
                 TransactionCount++
@@ -69,7 +69,7 @@ class BankAccount {
     }
 
     func GetBalance(): double {
-        lock _transactionLock {
+        lock transactionLock {
             return balance
         }
     }

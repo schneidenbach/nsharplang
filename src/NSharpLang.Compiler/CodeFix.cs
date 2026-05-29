@@ -89,9 +89,7 @@ public class CodeFixService
         _providers.Add(new RemoveUnnecessaryNullCheckCodeFixProvider());
         _providers.Add(new PossibleNullAccessCodeFixProvider());
         _providers.Add(new AddCommentToEmptyCatchCodeFixProvider());
-        _providers.Add(new ConvertToInterpolationCodeFixProvider());
         _providers.Add(new RemoveUnusedImportCodeFixProvider());
-        _providers.Add(new ChangeLetToConstCodeFixProvider());
     }
 
     /// <summary>
@@ -484,39 +482,6 @@ public class AddCommentToEmptyCatchCodeFixProvider : CodeFixProvider
 }
 
 /// <summary>
-/// Code fix provider for NL013: Prefer string interpolation.
-/// Converts "hello " + name to $"hello {name}".
-/// </summary>
-public class ConvertToInterpolationCodeFixProvider : CodeFixProvider
-{
-    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL013" };
-
-    public override List<CodeAction> GetCodeActions(
-        Diagnostic diagnostic,
-        CompilationUnit ast,
-        string sourceCode)
-    {
-        var actions = new List<CodeAction>();
-        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
-        var line = diagnostic.Location.Line;
-
-        if (line <= 0 || line > sourceLines.Length)
-            return actions;
-
-        // The transformation is non-trivial in general (nested + chains, format specifiers, etc.).
-        // We provide the action with SuggestionOnly safety so the user knows manual review is expected.
-        actions.Add(new CodeAction(
-            "Convert string concatenation to interpolated string",
-            "NL013",
-            new List<TextEdit>(), // Edits require full expression parsing — provided as hint only
-            CodeActionKind.RefactorRewrite,
-            FixSafety.SuggestionOnly));
-
-        return actions;
-    }
-}
-
-/// <summary>
 /// Code fix provider for NL010: Unused Import.
 /// Deletes the entire import line. Marked ReviewNeeded because the underlying
 /// NL010 analysis has known false positives (hardcoded type maps, missing
@@ -551,43 +516,3 @@ public class RemoveUnusedImportCodeFixProvider : CodeFixProvider
     }
 }
 
-/// <summary>
-/// Code fix provider for NL015: Prefer Const.
-/// Replaces the `let` keyword with `const` on the declaration line.
-/// </summary>
-public class ChangeLetToConstCodeFixProvider : CodeFixProvider
-{
-    public override IEnumerable<string> FixableDiagnosticCodes => new[] { "NL015" };
-
-    public override List<CodeAction> GetCodeActions(
-        Diagnostic diagnostic,
-        CompilationUnit ast,
-        string sourceCode)
-    {
-        var actions = new List<CodeAction>();
-        var sourceLines = SourceTextLines.SplitLogicalLines(sourceCode);
-        var line = diagnostic.Location.Line;
-
-        if (line <= 0 || line > sourceLines.Length)
-            return actions;
-
-        var sourceLine = sourceLines[line - 1];
-
-        // Find `let ` on the declaration line and replace with `const `
-        var letIndex = sourceLine.IndexOf("let ", StringComparison.Ordinal);
-        if (letIndex < 0)
-            return actions;
-
-        // Replace `let ` (4 chars) with `const ` (6 chars)
-        var edit = new TextEdit(line, letIndex, line, letIndex + 4, "const ");
-
-        actions.Add(new CodeAction(
-            "Change 'let' to 'const'",
-            "NL015",
-            new List<TextEdit> { edit },
-            CodeActionKind.QuickFix,
-            FixSafety.Safe));
-
-        return actions;
-    }
-}

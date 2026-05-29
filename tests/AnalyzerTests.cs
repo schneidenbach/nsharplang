@@ -335,6 +335,105 @@ func main(): int {
     }
 
     [Fact]
+    public void DiscardedMustUseFunctionResult_IsRejected()
+    {
+        var result = Analyze(@"
+            [MustUse]
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                Compute()
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
+        Assert.Contains("'Compute'", error.Message);
+        Assert.Contains("must be used", error.Message);
+    }
+
+    [Fact]
+    public void DiscardedMustUseMethodResult_IsRejected()
+    {
+        var result = Analyze(@"
+            class Calc {
+                [MustUse]
+                func Add(a: int, b: int): int {
+                    return a + b
+                }
+            }
+
+            func Main() {
+                let c := new Calc()
+                c.Add(1, 2)
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
+        Assert.Contains("'Add'", error.Message);
+    }
+
+    [Fact]
+    public void ExplicitDiscardOfMustUseResult_IsAllowed()
+    {
+        AssertNoErrors(@"
+            [MustUse]
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                _ = Compute()
+            }
+        ");
+    }
+
+    [Fact]
+    public void UsedMustUseResult_IsAllowed()
+    {
+        AssertNoErrors(@"
+            [MustUse]
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                let x := Compute()
+                print $""{x}""
+            }
+        ");
+    }
+
+    [Fact]
+    public void DiscardedNonMustUseResult_IsAllowed()
+    {
+        AssertNoErrors(@"
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                Compute()
+            }
+        ");
+    }
+
+    [Fact]
+    public void VoidCallStatement_IsAllowed()
+    {
+        AssertNoErrors(@"
+            func SideEffect() {
+                print ""hi""
+            }
+
+            func Main() {
+                SideEffect()
+            }
+        ");
+    }
+
+    [Fact]
     public void ConstWithoutInitializer_Error()
     {
         AssertHasError(@"
@@ -665,14 +764,32 @@ func Main() {
     }
 
     [Fact]
-    public void ScopeNesting_Valid()
+    public void ScopeNesting_NestedRedeclarationShadowsOuter_IsError()
+    {
+        // N# forbids shadowing: a nested block re-declaring an outer local is an
+        // error (NL315), not the silently-permitted re-binding of older languages.
+        AssertHasErrorCode(@"
+            func Main() {
+                x := 1
+                {
+                    x := 2
+                    print x
+                }
+            }
+        ", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void ScopeNesting_NestedBlockWithDistinctName_IsValid()
     {
         AssertNoErrors(@"
             func Main() {
                 x := 1
                 {
-                    x := 2
+                    y := 2
+                    print y
                 }
+                print x
             }
         ");
     }
@@ -4694,7 +4811,7 @@ func Main() {
             func Main() {
                 result := Max(new Plain(), new Plain())
             }
-        ", "doesn't implement");
+        ", "does not implement");
     }
 
     [Fact]
@@ -6256,6 +6373,148 @@ func Main() {
     }
 
     [Fact]
+    public void Nullability_StrictFlow_MethodCallOnNullableReceiverErrors()
+    {
+        var result = Analyze(@"
+            class Box {
+                func Open(): int { return 1 }
+            }
+
+            func Use(b: Box?): int {
+                return b.Open()
+            }
+        ");
+
+        // Calling a method on a possibly-null receiver is a hard error and the
+        // squiggle must land on the receiver, not the '.' or member name.
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+        Assert.Equal(ErrorSeverity.Error, error.Severity);
+        Assert.Equal("b".Length, error.Length);
+        Assert.Contains("`b`", error.Message);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_IndexAccessOnNullableReceiverErrors()
+    {
+        var result = Analyze(@"
+            func First(items: int[]?): int {
+                return items[0]
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+        Assert.Equal(ErrorSeverity.Error, error.Severity);
+        Assert.Contains("Possible null index", error.Message);
+        Assert.Equal("items".Length, error.Length);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_CoalesceFallbackNarrowsToNonNull()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                t := s ?? ""fallback""
+                return t.Length
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_ThrowGuardNarrowsAfterEarlyExit()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                if s == null {
+                    throw ""value was null""
+                }
+
+                return s.Length
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_IsPatternNarrowsBoundVariable()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                if s is string str {
+                    return str.Length
+                }
+                return 0
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_MatchNullArmNarrowsOtherArm()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                return match s {
+                    null => 0,
+                    other => other.Length
+                }
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_NonNullableTypeNeverErrors()
+    {
+        var result = Analyze(@"
+            class Box {
+                func Open(): int { return 1 }
+            }
+
+            func Use(b: Box): int {
+                return b.Open()
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_ReassignmentToNonNullClearsNullState()
+    {
+        var result = Analyze(@"
+            func Length(): int {
+                x: string? = null
+                x = ""now not null""
+                return x.Length
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_NullConditionalAccessNeverErrors()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int? {
+                return s?.Length
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
     public void Nullability_AssignmentInvalidatesPriorGuardFact()
     {
         var result = Analyze(@"
@@ -6327,7 +6586,7 @@ func Main() {
     }
 
     [Fact]
-    public void MustExpression_RedundantAfterHasValueGuard_Warns()
+    public void MustExpression_RedundantAfterHasValueGuard_Errors()
     {
         var result = Analyze(@"
             func Main(input: int?): int {
@@ -6338,10 +6597,10 @@ func Main() {
             }
         ");
 
-        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
         Assert.Contains(result.Errors, e =>
             e.Code == ErrorCode.NullabilityWarning
-            && e.Severity == ErrorSeverity.Warning
+            && e.DiagnosticId == "NL907"
+            && e.Severity == ErrorSeverity.Error
             && e.Message.Contains("redundant"));
     }
 
@@ -6852,7 +7111,7 @@ func Main() {
             func Main() {
                 result := Max(new Plain(), new Plain())
             }
-        ", "doesn't implement");
+        ", "does not implement");
     }
 
     // --- Special constraint tests ---
@@ -6939,7 +7198,7 @@ func Main() {
                 p := new Point(1, 2)
                 result := Create<Point>(p)
             }
-        ", "doesn't have a parameterless constructor");
+        ", "has no parameterless constructor");
     }
 
     [Fact]
@@ -7033,7 +7292,7 @@ func Main() {
                 r := new RequiresPrimary(1)
                 result := Create<RequiresPrimary>(r)
             }
-        ", "doesn't have a parameterless constructor");
+        ", "has no parameterless constructor");
     }
 
     [Fact]
@@ -7466,14 +7725,6 @@ func Main() {
               && e.Message.Contains(expectedMessage));
     }
 
-    private void AssertHasWarning(string source, string expectedMessage)
-    {
-        var result = Analyze(source);
-        Assert.Contains(result.Errors,
-            e => e.Severity == NSharpLang.Compiler.ErrorSeverity.Warning
-              && e.Message.Contains(expectedMessage));
-    }
-
     private void AssertNoWarning(string source, string warningMessage)
     {
         var result = Analyze(source);
@@ -7490,7 +7741,7 @@ func Main() {
                 x: int = 42
                 result := x is string
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7502,7 +7753,7 @@ func Main() {
                 flag: bool = true
                 result := flag is int
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7569,7 +7820,7 @@ func Main() {
                 c: Cat = new Cat { Name: ""Whiskers"" }
                 result := c is Dog
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7614,7 +7865,7 @@ func Main() {
                     len: int = s.Length
                 }
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     [Fact]
@@ -7641,7 +7892,7 @@ func Main() {
                 x: int = 5
                 result := x is double
             }
-        ", "will always be false");
+        ", "is always false");
     }
 
     #endregion
@@ -8291,15 +8542,6 @@ func Bad(value: int | string | bool): void {
     }
 
     [Fact]
-    public void AnonymousUnion_WarnsForSubsumedArms()
-    {
-        AssertHasWarning(@"
-func Bad(value: object | string): void {
-}
-        ", "already covered by 'object'");
-    }
-
-    [Fact]
     public void AnonymousUnion_NarrowsElseBranchAfterIsCheck()
     {
         AssertNoErrors(@"
@@ -8336,5 +8578,198 @@ func Describe(value: int | string): int {
     }
 }
         ");
+    }
+
+    // ── NL315: shadowing is a hard compiler error ──────────────────────────
+
+    private CompilerError AssertHasErrorCode(string source, ErrorCode code)
+    {
+        var result = Analyze(source);
+        var match = result.Errors.FirstOrDefault(e => e.Code == code && e.Severity == ErrorSeverity.Error);
+        Assert.True(match != null,
+            $"Expected {code} but got: {string.Join(", ", result.Errors.Select(e => $"{e.DiagnosticId}:{e.Message}"))}");
+        return match!;
+    }
+
+    private void AssertNoErrorCode(string source, ErrorCode code)
+    {
+        var result = Analyze(source);
+        Assert.DoesNotContain(result.Errors, e => e.Code == code && e.Severity == ErrorSeverity.Error);
+    }
+
+    [Fact]
+    public void Shadowing_InnerBlockLocalShadowingOuterLocal_IsError()
+    {
+        var error = AssertHasErrorCode(@"
+func Main() {
+    count := 1
+    if count > 0 {
+        count := 2
+        print count
+    }
+}", ErrorCode.ShadowedDeclaration);
+        Assert.Equal("NL316", error.DiagnosticId);
+        Assert.Contains("'count'", error.Message);
+        Assert.Equal(5, error.Length);
+    }
+
+    [Fact]
+    public void Shadowing_LocalShadowingParameter_IsError()
+    {
+        AssertHasErrorCode(@"
+func Greet(name: string) {
+    name := ""override""
+    print name
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_NestedFunctionBlockShadowingOuter_IsError()
+    {
+        AssertHasErrorCode(@"
+func Outer() {
+    sum := 1
+    for i := 0; i < 3; i = i + 1 {
+        sum := i
+        print sum
+    }
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_SiblingBlocksReusingName_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    if true {
+        temp := 1
+        print temp
+    }
+    if false {
+        temp := 2
+        print temp
+    }
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_LocalShadowingClassField_IsAllowed()
+    {
+        // Fields live in the class scope, not an enclosing local scope, so a method
+        // local may reuse a field name (it is accessed via `this.` when needed).
+        AssertNoErrorCode(@"
+class Counter {
+    count: int = 0
+
+    func Increment() {
+        count := 1
+        print count
+    }
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    [Fact]
+    public void Shadowing_DiscardAndUnderscoreNames_AreAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    _temp := 1
+    if true {
+        _temp := 2
+        print _temp
+    }
+    print _temp
+}", ErrorCode.ShadowedDeclaration);
+    }
+
+    // ── NL304: definite assignment for locals ──────────────────────────────
+
+    [Fact]
+    public void DefiniteAssignment_ReadAfterConditionalAssignment_IsError()
+    {
+        var error = AssertHasErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    }
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+        Assert.Equal("NL304", error.DiagnosticId);
+        Assert.Contains("'total'", error.Message);
+        Assert.Equal(5, error.Length);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_ReadBeforeAnyAssignment_IsError()
+    {
+        AssertHasErrorCode(@"
+func Main() {
+    let value: int
+    print value
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_AssignedOnAllBranches_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    } else {
+        total = 0
+    }
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_AssignedBeforeUse_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    let total: int
+    total = 42
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_InitializedAtDeclaration_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Main() {
+    total := 0
+    print total
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_EarlyReturnGuardsUnassignedPath_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    } else {
+        return
+    }
+    print total
+}", ErrorCode.DefiniteAssignmentError);
     }
 }

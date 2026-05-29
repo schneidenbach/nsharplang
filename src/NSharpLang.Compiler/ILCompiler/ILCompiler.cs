@@ -103,6 +103,13 @@ public partial class ILCompiler
     private readonly Dictionary<Type, ConstructorInfo> _liftedStorageConstructors = new();
     private readonly Dictionary<Type, FieldInfo> _liftedStorageValueFields = new();
     private readonly Dictionary<Type, Type> _liftedStorageValueTypes = new();
+    // Value-struct (allocation-free) union support. For unions classified as
+    // value-struct-emittable by NSharpLang.Compiler.Performance.UnionValueLayout, we
+    // emit a readonly struct carrying an integer tag instead of the class hierarchy.
+    // _valueStructUnions maps the union's struct type to its layout; _valueStructUnionCaseTypes
+    // maps each nested case marker type back to the owning union layout.
+    private readonly Dictionary<Type, ValueStructUnionLayout> _valueStructUnions = new();
+    private readonly Dictionary<Type, ValueStructUnionLayout> _valueStructUnionCaseTypes = new();
     private readonly Dictionary<DelegateSignatureKey, Type> _customDelegateTypes = new();
     private readonly Dictionary<Type, ConstructorInfo> _delegateConstructors = new();
     private readonly Dictionary<Type, MethodInfo> _delegateInvokeMethods = new();
@@ -113,6 +120,7 @@ public partial class ILCompiler
     private TypeBuilder? _currentTypeBuilder;
     private int _asyncSequenceAdapterCounter = 0;
     private int _customDelegateCounter = 0;
+    private int _delegateCacheCounter = 0;
     private int _liftedStorageCounter = 0;
     private bool _currentHasThis;
     private ConstructorInfo? _nullableAttributeByteConstructor;
@@ -125,6 +133,8 @@ public partial class ILCompiler
     private Dictionary<string, FieldBuilder>? _closureFields;
     private readonly List<TypeBuilder> _closureTypes = new();
     private bool _liftLocalsIntoBoxes;
+    private HashSet<string>? _localsToLiftIntoBoxes;
+    private HashSet<string>? _localsToPredeclareForCapture;
     private HashSet<string>? _liftedIdentifiers;
     private HashSet<string>? _liftedClosureFields;
     private FunctionDeclaration? _pendingLocalFunctionDefinition;
@@ -141,6 +151,22 @@ public partial class ILCompiler
         TypeBuilder EnumeratorType,
         ConstructorBuilder EnumeratorConstructor);
 
+    /// <summary>
+    /// Layout metadata for a union emitted as an allocation-free value struct.
+    /// <see cref="TagField"/> holds the integer discriminator; <see cref="CaseTags"/>
+    /// maps each nested case marker type to its assigned tag value. The nested case
+    /// types are still emitted (so reflection/type-resolution and existing tooling see
+    /// them), but they act purely as tag markers — no instance of a case class is ever
+    /// allocated.
+    /// </summary>
+    private sealed record ValueStructUnionLayout(
+        TypeBuilder UnionType,
+        FieldBuilder TagField,
+        ConstructorBuilder TagConstructor,
+        MethodBuilder TagGetter,
+        Dictionary<Type, int> CaseTags,
+        Dictionary<Type, MethodBuilder> CaseFactories);
+
     private sealed record DeclaredMethodOverload(FunctionDeclaration Declaration, MethodBuilder Builder);
     private sealed record DeclaredConstructorOverload(ConstructorDeclaration Declaration, ConstructorBuilder Builder);
     private sealed record AnonymousUnionShim(
@@ -149,6 +175,9 @@ public partial class ILCompiler
         FunctionDeclaration Declaration,
         Type[] OriginalParameterTypes,
         Type[] ShimParameterTypes);
+    private sealed record LocalCaptureStorageInfo(
+        HashSet<string> CapturedLocals,
+        HashSet<string> LocalsToLiftIntoBoxes);
     private sealed class DelegateSignatureKey(Type[] parameterTypes, Type returnType) : IEquatable<DelegateSignatureKey>
     {
         private readonly Type[] _parameterTypes = parameterTypes.ToArray();
@@ -693,7 +722,7 @@ public partial class ILCompiler
             }
 
             _currentIL = constructorBuilder.GetILGenerator();
-            InitializeBodyContext(null, ContainsNestedFunction(setupDeclaration.Body));
+            InitializeBodyContextForBody(null, setupDeclaration.Body, null, Array.Empty<Parameter>());
             _currentHasThis = true;
 
             _currentIL.Emit(OpCodes.Ldarg_0);
@@ -746,7 +775,7 @@ public partial class ILCompiler
             }
 
             _currentIL = disposeMethod.GetILGenerator();
-            InitializeBodyContext(null, ContainsNestedFunction(teardownDeclaration.Body));
+            InitializeBodyContextForBody(null, teardownDeclaration.Body, null, Array.Empty<Parameter>());
             _currentHasThis = true;
 
             EmitStatement(teardownDeclaration.Body);
@@ -757,7 +786,11 @@ public partial class ILCompiler
         foreach (var (declaration, methodBuilder) in _testMethods)
         {
             _currentIL = methodBuilder.GetILGenerator();
-            InitializeBodyContext(typeof(void), ContainsNestedFunction(declaration.Body));
+            InitializeBodyContextForBody(
+                typeof(void),
+                declaration.Body,
+                null,
+                declaration.TableParameters != null ? declaration.TableParameters : Array.Empty<Parameter>());
             _currentHasThis = true;
 
             if (declaration.TableParameters != null)
@@ -847,7 +880,7 @@ public partial class ILCompiler
             bodyReturnType = asyncResultType ?? typeof(void);
         }
 
-        InitializeBodyContext(bodyReturnType == typeof(void) ? null : bodyReturnType, body != null && ContainsNestedFunction(body));
+        InitializeBodyContextForBody(bodyReturnType == typeof(void) ? null : bodyReturnType, body, null, Array.Empty<Parameter>());
         _currentHasThis = true;
 
         if (setupVariables != null)
@@ -1130,6 +1163,8 @@ public partial class ILCompiler
         _byRefParameters = null;
         _currentReturnType = null;
         _liftLocalsIntoBoxes = false;
+        _localsToLiftIntoBoxes = null;
+        _localsToPredeclareForCapture = null;
         _liftedIdentifiers = null;
         _liftedClosureFields = null;
         _currentAsyncReturnType = null;
@@ -1147,7 +1182,11 @@ public partial class ILCompiler
         _currentHasThis = false;
     }
 
-    private void InitializeBodyContext(Type? returnType, bool liftLocalsIntoBoxes)
+    private void InitializeBodyContext(
+        Type? returnType,
+        bool liftLocalsIntoBoxes,
+        HashSet<string>? localsToLiftIntoBoxes = null,
+        HashSet<string>? localsToPredeclareForCapture = null)
     {
         _locals = new Dictionary<string, LocalBuilder>();
         _parameters = new Dictionary<string, int>();
@@ -1155,6 +1194,10 @@ public partial class ILCompiler
         _byRefParameters = new HashSet<string>();
         _currentReturnType = returnType;
         _liftLocalsIntoBoxes = liftLocalsIntoBoxes;
+        _localsToLiftIntoBoxes = liftLocalsIntoBoxes ? localsToLiftIntoBoxes : null;
+        _localsToPredeclareForCapture = localsToPredeclareForCapture is { Count: > 0 }
+            ? localsToPredeclareForCapture
+            : null;
         _liftedIdentifiers = liftLocalsIntoBoxes ? new HashSet<string>() : null;
         _liftedClosureFields = null;
         _currentHasThis = false;
@@ -2030,16 +2073,29 @@ public partial class ILCompiler
         return _liftedClosureFields?.Contains(name) == true;
     }
 
+    private bool ShouldLiftLocalIntoBox(string name)
+    {
+        return _liftLocalsIntoBoxes
+            && (_localsToLiftIntoBoxes == null || _localsToLiftIntoBoxes.Contains(name));
+    }
+
+    private bool ShouldPredeclareLocalForCapture(string name)
+    {
+        return ShouldLiftLocalIntoBox(name)
+            || _localsToPredeclareForCapture?.Contains(name) == true;
+    }
+
     private LocalBuilder DeclareNamedLocal(string name, Type valueType)
     {
         if (_currentIL == null || _locals == null)
             throw new InvalidOperationException("No IL generator context");
 
-        var storageType = _liftLocalsIntoBoxes ? CreateStrongBoxType(valueType) : valueType;
+        var shouldLift = ShouldLiftLocalIntoBox(name);
+        var storageType = shouldLift ? CreateStrongBoxType(valueType) : valueType;
         var local = _currentIL.DeclareLocal(storageType);
         _locals[name] = local;
 
-        if (_liftLocalsIntoBoxes)
+        if (shouldLift)
         {
             _liftedIdentifiers?.Add(name);
         }
@@ -2174,6 +2230,1688 @@ public partial class ILCompiler
         if (leaveValueOnStack)
         {
             _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+        }
+    }
+
+    private void InitializeBodyContextForBody(
+        Type? returnType,
+        BlockStatement? body,
+        Expression? expressionBody,
+        IReadOnlyList<Parameter> parameters)
+    {
+        var captureStorage = GetLocalCaptureStorageInfo(body, expressionBody, parameters);
+        InitializeBodyContext(
+            returnType,
+            captureStorage.LocalsToLiftIntoBoxes.Count > 0,
+            captureStorage.LocalsToLiftIntoBoxes,
+            captureStorage.CapturedLocals);
+    }
+
+    private LocalCaptureStorageInfo GetLocalCaptureStorageInfo(
+        BlockStatement? body,
+        Expression? expressionBody,
+        IReadOnlyList<Parameter> parameters)
+    {
+        var containsNestedFunction = ContainsNestedFunction(body)
+            || (expressionBody != null && ContainsNestedFunction(expressionBody));
+        if (!containsNestedFunction)
+        {
+            return new LocalCaptureStorageInfo(
+                new HashSet<string>(StringComparer.Ordinal),
+                new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        var candidates = new HashSet<string>(parameters.Select(parameter => parameter.Name), StringComparer.Ordinal);
+        if (body != null)
+        {
+            CollectPotentialLocalStorageNames(body, candidates);
+        }
+        if (expressionBody != null)
+        {
+            CollectPotentialLocalStorageNames(expressionBody, candidates);
+        }
+
+        var captured = new HashSet<string>(StringComparer.Ordinal);
+        if (body != null)
+        {
+            CollectNestedFunctionCapturedStorageNames(body, candidates, captured);
+        }
+
+        if (expressionBody != null)
+        {
+            CollectNestedFunctionCapturedStorageNames(expressionBody, candidates, captured);
+        }
+
+        if (captured.Count == 0)
+        {
+            return new LocalCaptureStorageInfo(
+                captured,
+                new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        var mutated = new HashSet<string>(StringComparer.Ordinal);
+        if (body != null)
+        {
+            CollectMutatedCapturedStorageNames(body, captured, mutated);
+        }
+        if (expressionBody != null)
+        {
+            CollectMutatedCapturedStorageNames(expressionBody, captured, mutated);
+        }
+
+        CollectEscapingLocalFunctionCapturedStorageNames(body, candidates, mutated);
+
+        return new LocalCaptureStorageInfo(captured, mutated);
+    }
+
+    private void CollectEscapingLocalFunctionCapturedStorageNames(
+        BlockStatement? block,
+        HashSet<string> candidates,
+        HashSet<string> captured)
+    {
+        if (block == null)
+        {
+            return;
+        }
+
+        var localFunctions = block.Statements
+            .OfType<LocalFunctionStatement>()
+            .ToList();
+        if (localFunctions.Count > 0)
+        {
+            var localFunctionNames = localFunctions
+                .Select(localFunction => localFunction.Function.Name)
+                .ToHashSet(StringComparer.Ordinal);
+            var escapingNames = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var statement in block.Statements)
+            {
+                if (statement is LocalFunctionStatement localFunction)
+                {
+                    if (localFunction.Function.ExpressionBody != null)
+                    {
+                        FindEscapingLocalFunctionReferences(
+                            localFunction.Function.ExpressionBody,
+                            localFunctionNames,
+                            escapingNames,
+                            isDirectCallCallee: false);
+                    }
+
+                    if (localFunction.Function.Body != null)
+                    {
+                        FindEscapingLocalFunctionReferences(
+                            localFunction.Function.Body,
+                            localFunctionNames,
+                            escapingNames);
+                    }
+
+                    continue;
+                }
+
+                FindEscapingLocalFunctionReferences(statement, localFunctionNames, escapingNames);
+            }
+
+            foreach (var localFunction in localFunctions)
+            {
+                if (escapingNames.Contains(localFunction.Function.Name))
+                {
+                    CollectFunctionCapturedStorageNames(localFunction.Function, candidates, captured);
+                }
+            }
+        }
+
+        foreach (var statement in block.Statements)
+        {
+            CollectEscapingLocalFunctionCapturedStorageNames(statement, candidates, captured);
+        }
+    }
+
+    private void CollectEscapingLocalFunctionCapturedStorageNames(
+        Statement statement,
+        HashSet<string> candidates,
+        HashSet<string> captured)
+    {
+        switch (statement)
+        {
+            case BlockStatement block:
+                CollectEscapingLocalFunctionCapturedStorageNames(block, candidates, captured);
+                break;
+            case LocalFunctionStatement localFunction:
+                CollectEscapingLocalFunctionCapturedStorageNames(localFunction.Function.Body, candidates, captured);
+                if (localFunction.Function.ExpressionBody != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(localFunction.Function.ExpressionBody, candidates, captured);
+                }
+                break;
+            case ExpressionStatement expressionStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(expressionStatement.Expression, candidates, captured);
+                break;
+            case VariableDeclarationStatement variableDeclaration when variableDeclaration.Initializer != null:
+                CollectEscapingLocalFunctionCapturedStorageNames(variableDeclaration.Initializer, candidates, captured);
+                break;
+            case TupleDeconstructionStatement tupleDeconstruction:
+                CollectEscapingLocalFunctionCapturedStorageNames(tupleDeconstruction.Initializer, candidates, captured);
+                break;
+            case IfStatement ifStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(ifStatement.ThenStatement, candidates, captured);
+                if (ifStatement.ElseStatement != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(ifStatement.ElseStatement, candidates, captured);
+                }
+                break;
+            case ForStatement forStatement:
+                if (forStatement.Initializer != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(forStatement.Initializer, candidates, captured);
+                }
+                if (forStatement.Iterator != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(forStatement.Iterator, candidates, captured);
+                }
+                CollectEscapingLocalFunctionCapturedStorageNames(forStatement.Body, candidates, captured);
+                break;
+            case ForeachStatement foreachStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(foreachStatement.Body, candidates, captured);
+                break;
+            case AwaitForEachStatement awaitForEachStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(awaitForEachStatement.Body, candidates, captured);
+                break;
+            case WhileStatement whileStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(whileStatement.Body, candidates, captured);
+                break;
+            case ReturnStatement returnStatement when returnStatement.Value != null:
+                CollectEscapingLocalFunctionCapturedStorageNames(returnStatement.Value, candidates, captured);
+                break;
+            case YieldStatement yieldStatement when yieldStatement.Value != null:
+                CollectEscapingLocalFunctionCapturedStorageNames(yieldStatement.Value, candidates, captured);
+                break;
+            case ThrowStatement throwStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(throwStatement.Expression, candidates, captured);
+                break;
+            case TryStatement tryStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(tryStatement.TryBlock, candidates, captured);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(catchClause.Block, candidates, captured);
+                }
+                if (tryStatement.FinallyBlock != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(tryStatement.FinallyBlock, candidates, captured);
+                }
+                break;
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration?.Initializer != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(usingStatement.Declaration.Initializer, candidates, captured);
+                }
+                if (usingStatement.Expression != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(usingStatement.Expression, candidates, captured);
+                }
+                if (usingStatement.Body != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(usingStatement.Body, candidates, captured);
+                }
+                break;
+            case LockStatement lockStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(lockStatement.Body, candidates, captured);
+                break;
+            case SwitchStatement switchStatement:
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    foreach (var caseStatement in switchCase.Statements)
+                    {
+                        CollectEscapingLocalFunctionCapturedStorageNames(caseStatement, candidates, captured);
+                    }
+                }
+                break;
+            case PrintStatement printStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(printStatement.Value, candidates, captured);
+                break;
+            case AssertStatement assertStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(assertStatement.Condition, candidates, captured);
+                if (assertStatement.Message != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(assertStatement.Message, candidates, captured);
+                }
+                break;
+            case AssertThrowsStatement assertThrowsStatement:
+                CollectEscapingLocalFunctionCapturedStorageNames(assertThrowsStatement.Body, candidates, captured);
+                break;
+        }
+    }
+
+    private void CollectEscapingLocalFunctionCapturedStorageNames(
+        Expression expression,
+        HashSet<string> candidates,
+        HashSet<string> captured)
+    {
+        switch (expression)
+        {
+            case LambdaExpression lambda:
+                CollectEscapingLocalFunctionCapturedStorageNames(lambda.BlockBody, candidates, captured);
+                break;
+            case BinaryExpression binary:
+                CollectEscapingLocalFunctionCapturedStorageNames(binary.Left, candidates, captured);
+                CollectEscapingLocalFunctionCapturedStorageNames(binary.Right, candidates, captured);
+                break;
+            case UnaryExpression unary:
+                CollectEscapingLocalFunctionCapturedStorageNames(unary.Operand, candidates, captured);
+                break;
+            case CallExpression call:
+                CollectEscapingLocalFunctionCapturedStorageNames(call.Callee, candidates, captured);
+                foreach (var argument in call.Arguments)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(argument.Value, candidates, captured);
+                }
+                break;
+            case AssignmentExpression assignment:
+                CollectEscapingLocalFunctionCapturedStorageNames(assignment.Target, candidates, captured);
+                CollectEscapingLocalFunctionCapturedStorageNames(assignment.Value, candidates, captured);
+                break;
+            case MemberAccessExpression memberAccess:
+                CollectEscapingLocalFunctionCapturedStorageNames(memberAccess.Object, candidates, captured);
+                break;
+            case IndexAccessExpression indexAccess:
+                CollectEscapingLocalFunctionCapturedStorageNames(indexAccess.Object, candidates, captured);
+                CollectEscapingLocalFunctionCapturedStorageNames(indexAccess.Index, candidates, captured);
+                break;
+            case TernaryExpression ternary:
+                CollectEscapingLocalFunctionCapturedStorageNames(ternary.Condition, candidates, captured);
+                CollectEscapingLocalFunctionCapturedStorageNames(ternary.ThenExpression, candidates, captured);
+                CollectEscapingLocalFunctionCapturedStorageNames(ternary.ElseExpression, candidates, captured);
+                break;
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(element, candidates, captured);
+                }
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(element.Value, candidates, captured);
+                }
+                break;
+            case ObjectInitializerExpression initializer:
+                foreach (var property in initializer.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectEscapingLocalFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
+                    }
+                    CollectEscapingLocalFunctionCapturedStorageNames(property.Value, candidates, captured);
+                }
+                break;
+            case NewExpression newExpression:
+                foreach (var argument in newExpression.ConstructorArguments)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(argument.Value, candidates, captured);
+                }
+                if (newExpression.Initializer != null)
+                {
+                    CollectEscapingLocalFunctionCapturedStorageNames(newExpression.Initializer, candidates, captured);
+                }
+                break;
+            case CastExpression castExpression:
+                CollectEscapingLocalFunctionCapturedStorageNames(castExpression.Expression, candidates, captured);
+                break;
+            case MatchExpression matchExpression:
+                CollectEscapingLocalFunctionCapturedStorageNames(matchExpression.Value, candidates, captured);
+                foreach (var matchCase in matchExpression.Cases)
+                {
+                    if (matchCase.Guard != null)
+                    {
+                        CollectEscapingLocalFunctionCapturedStorageNames(matchCase.Guard, candidates, captured);
+                    }
+                    CollectEscapingLocalFunctionCapturedStorageNames(matchCase.Expression, candidates, captured);
+                }
+                break;
+            case WithExpression withExpression:
+                CollectEscapingLocalFunctionCapturedStorageNames(withExpression.Target, candidates, captured);
+                foreach (var property in withExpression.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectEscapingLocalFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
+                    }
+                    CollectEscapingLocalFunctionCapturedStorageNames(property.Value, candidates, captured);
+                }
+                break;
+            case ParenthesizedExpression parenthesizedExpression:
+                CollectEscapingLocalFunctionCapturedStorageNames(parenthesizedExpression.Inner, candidates, captured);
+                break;
+        }
+    }
+
+    private static void CollectMutatedCapturedStorageNames(
+        Statement statement,
+        HashSet<string> captured,
+        HashSet<string> mutated)
+    {
+        switch (statement)
+        {
+            case BlockStatement block:
+                foreach (var innerStatement in block.Statements)
+                {
+                    CollectMutatedCapturedStorageNames(innerStatement, captured, mutated);
+                }
+                break;
+            case ExpressionStatement expressionStatement:
+                CollectMutatedCapturedStorageNames(expressionStatement.Expression, captured, mutated);
+                break;
+            case VariableDeclarationStatement variableDeclaration when variableDeclaration.Initializer != null:
+                CollectMutatedCapturedStorageNames(variableDeclaration.Initializer, captured, mutated);
+                break;
+            case TupleDeconstructionStatement tupleDeconstruction:
+                CollectMutatedCapturedStorageNames(tupleDeconstruction.Initializer, captured, mutated);
+                break;
+            case LocalFunctionStatement localFunction:
+                var localFunctionCaptured = RemoveShadowedCapturedNames(
+                    captured,
+                    localFunction.Function.Parameters.Select(parameter => parameter.Name));
+                if (localFunction.Function.ExpressionBody != null)
+                {
+                    CollectMutatedCapturedStorageNames(localFunction.Function.ExpressionBody, localFunctionCaptured, mutated);
+                }
+                if (localFunction.Function.Body != null)
+                {
+                    CollectMutatedCapturedStorageNames(localFunction.Function.Body, localFunctionCaptured, mutated);
+                }
+                break;
+            case IfStatement ifStatement:
+                CollectMutatedCapturedStorageNames(ifStatement.Condition, captured, mutated);
+                CollectMutatedCapturedStorageNames(ifStatement.ThenStatement, captured, mutated);
+                if (ifStatement.ElseStatement != null)
+                {
+                    CollectMutatedCapturedStorageNames(ifStatement.ElseStatement, captured, mutated);
+                }
+                break;
+            case ForStatement forStatement:
+                if (forStatement.Initializer != null)
+                {
+                    CollectMutatedCapturedStorageNames(forStatement.Initializer, captured, mutated);
+                }
+                if (forStatement.Condition != null)
+                {
+                    CollectMutatedCapturedStorageNames(forStatement.Condition, captured, mutated);
+                }
+                if (forStatement.Iterator != null)
+                {
+                    CollectMutatedCapturedStorageNames(forStatement.Iterator, captured, mutated);
+                }
+                CollectMutatedCapturedStorageNames(forStatement.Body, captured, mutated);
+                break;
+            case ForeachStatement foreachStatement:
+                CollectMutatedCapturedStorageNames(foreachStatement.Collection, captured, mutated);
+                CollectMutatedCapturedStorageNames(foreachStatement.Body, captured, mutated);
+                break;
+            case AwaitForEachStatement awaitForEachStatement:
+                CollectMutatedCapturedStorageNames(awaitForEachStatement.Collection, captured, mutated);
+                CollectMutatedCapturedStorageNames(awaitForEachStatement.Body, captured, mutated);
+                break;
+            case WhileStatement whileStatement:
+                CollectMutatedCapturedStorageNames(whileStatement.Condition, captured, mutated);
+                CollectMutatedCapturedStorageNames(whileStatement.Body, captured, mutated);
+                break;
+            case ReturnStatement returnStatement when returnStatement.Value != null:
+                CollectMutatedCapturedStorageNames(returnStatement.Value, captured, mutated);
+                break;
+            case YieldStatement yieldStatement when yieldStatement.Value != null:
+                CollectMutatedCapturedStorageNames(yieldStatement.Value, captured, mutated);
+                break;
+            case ThrowStatement throwStatement:
+                CollectMutatedCapturedStorageNames(throwStatement.Expression, captured, mutated);
+                break;
+            case TryStatement tryStatement:
+                CollectMutatedCapturedStorageNames(tryStatement.TryBlock, captured, mutated);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    CollectMutatedCapturedStorageNames(catchClause.Block, captured, mutated);
+                }
+                if (tryStatement.FinallyBlock != null)
+                {
+                    CollectMutatedCapturedStorageNames(tryStatement.FinallyBlock, captured, mutated);
+                }
+                break;
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration?.Initializer != null)
+                {
+                    CollectMutatedCapturedStorageNames(usingStatement.Declaration.Initializer, captured, mutated);
+                }
+                if (usingStatement.Expression != null)
+                {
+                    CollectMutatedCapturedStorageNames(usingStatement.Expression, captured, mutated);
+                }
+                if (usingStatement.Body != null)
+                {
+                    CollectMutatedCapturedStorageNames(usingStatement.Body, captured, mutated);
+                }
+                break;
+            case LockStatement lockStatement:
+                CollectMutatedCapturedStorageNames(lockStatement.LockObject, captured, mutated);
+                CollectMutatedCapturedStorageNames(lockStatement.Body, captured, mutated);
+                break;
+            case SwitchStatement switchStatement:
+                CollectMutatedCapturedStorageNames(switchStatement.Value, captured, mutated);
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    foreach (var caseStatement in switchCase.Statements)
+                    {
+                        CollectMutatedCapturedStorageNames(caseStatement, captured, mutated);
+                    }
+                }
+                break;
+            case PrintStatement printStatement:
+                CollectMutatedCapturedStorageNames(printStatement.Value, captured, mutated);
+                break;
+            case AssertStatement assertStatement:
+                CollectMutatedCapturedStorageNames(assertStatement.Condition, captured, mutated);
+                if (assertStatement.Message != null)
+                {
+                    CollectMutatedCapturedStorageNames(assertStatement.Message, captured, mutated);
+                }
+                break;
+            case AssertThrowsStatement assertThrowsStatement:
+                CollectMutatedCapturedStorageNames(assertThrowsStatement.Body, captured, mutated);
+                break;
+        }
+    }
+
+    private static void CollectMutatedCapturedStorageNames(
+        Expression expression,
+        HashSet<string> captured,
+        HashSet<string> mutated)
+    {
+        switch (expression)
+        {
+            case AssignmentExpression assignment:
+                AddMutatedTargetName(assignment.Target, captured, mutated);
+                CollectMutatedCapturedStorageNames(assignment.Value, captured, mutated);
+                break;
+            case UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PreDecrement or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement } unary:
+                AddMutatedTargetName(unary.Operand, captured, mutated);
+                break;
+            case LambdaExpression lambda:
+                var lambdaCaptured = RemoveShadowedCapturedNames(
+                    captured,
+                    lambda.Parameters.Select(parameter => parameter.Name));
+                if (lambda.ExpressionBody != null)
+                {
+                    CollectMutatedCapturedStorageNames(lambda.ExpressionBody, lambdaCaptured, mutated);
+                }
+                if (lambda.BlockBody != null)
+                {
+                    CollectMutatedCapturedStorageNames(lambda.BlockBody, lambdaCaptured, mutated);
+                }
+                break;
+            case InterpolatedStringExpression interpolatedString:
+                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
+                {
+                    CollectMutatedCapturedStorageNames(hole.Expression, captured, mutated);
+                }
+                break;
+            case RangeExpression range:
+                if (range.Start != null)
+                {
+                    CollectMutatedCapturedStorageNames(range.Start, captured, mutated);
+                }
+                if (range.End != null)
+                {
+                    CollectMutatedCapturedStorageNames(range.End, captured, mutated);
+                }
+                break;
+            case BinaryExpression binary:
+                CollectMutatedCapturedStorageNames(binary.Left, captured, mutated);
+                CollectMutatedCapturedStorageNames(binary.Right, captured, mutated);
+                break;
+            case UnaryExpression unary:
+                CollectMutatedCapturedStorageNames(unary.Operand, captured, mutated);
+                break;
+            case MustExpression mustExpression:
+                CollectMutatedCapturedStorageNames(mustExpression.Expression, captured, mutated);
+                break;
+            case MemberAccessExpression memberAccess:
+                CollectMutatedCapturedStorageNames(memberAccess.Object, captured, mutated);
+                break;
+            case IndexAccessExpression indexAccess:
+                CollectMutatedCapturedStorageNames(indexAccess.Object, captured, mutated);
+                CollectMutatedCapturedStorageNames(indexAccess.Index, captured, mutated);
+                break;
+            case CallExpression call:
+                CollectMutatedCapturedStorageNames(call.Callee, captured, mutated);
+                foreach (var argument in call.Arguments)
+                {
+                    if (argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out)
+                    {
+                        AddMutatedTargetName(argument.Value, captured, mutated);
+                    }
+                    else
+                    {
+                        CollectMutatedCapturedStorageNames(argument.Value, captured, mutated);
+                    }
+                }
+                break;
+            case TernaryExpression ternary:
+                CollectMutatedCapturedStorageNames(ternary.Condition, captured, mutated);
+                CollectMutatedCapturedStorageNames(ternary.ThenExpression, captured, mutated);
+                CollectMutatedCapturedStorageNames(ternary.ElseExpression, captured, mutated);
+                break;
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    CollectMutatedCapturedStorageNames(element, captured, mutated);
+                }
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    CollectMutatedCapturedStorageNames(element.Value, captured, mutated);
+                }
+                break;
+            case ObjectInitializerExpression initializer:
+                foreach (var property in initializer.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectMutatedCapturedStorageNames(property.IndexExpression, captured, mutated);
+                    }
+                    CollectMutatedCapturedStorageNames(property.Value, captured, mutated);
+                }
+                break;
+            case NewExpression newExpression:
+                foreach (var argument in newExpression.ConstructorArguments)
+                {
+                    if (argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out)
+                    {
+                        AddMutatedTargetName(argument.Value, captured, mutated);
+                    }
+                    else
+                    {
+                        CollectMutatedCapturedStorageNames(argument.Value, captured, mutated);
+                    }
+                }
+                if (newExpression.Initializer != null)
+                {
+                    CollectMutatedCapturedStorageNames(newExpression.Initializer, captured, mutated);
+                }
+                break;
+            case CastExpression castExpression:
+                CollectMutatedCapturedStorageNames(castExpression.Expression, captured, mutated);
+                break;
+            case IsExpression isExpression:
+                CollectMutatedCapturedStorageNames(isExpression.Expression, captured, mutated);
+                break;
+            case MatchExpression matchExpression:
+                CollectMutatedCapturedStorageNames(matchExpression.Value, captured, mutated);
+                foreach (var matchCase in matchExpression.Cases)
+                {
+                    if (matchCase.Guard != null)
+                    {
+                        CollectMutatedCapturedStorageNames(matchCase.Guard, captured, mutated);
+                    }
+                    CollectMutatedCapturedStorageNames(matchCase.Expression, captured, mutated);
+                }
+                break;
+            case SpreadExpression spreadExpression:
+                CollectMutatedCapturedStorageNames(spreadExpression.Expression, captured, mutated);
+                break;
+            case WithExpression withExpression:
+                CollectMutatedCapturedStorageNames(withExpression.Target, captured, mutated);
+                foreach (var property in withExpression.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectMutatedCapturedStorageNames(property.IndexExpression, captured, mutated);
+                    }
+                    CollectMutatedCapturedStorageNames(property.Value, captured, mutated);
+                }
+                break;
+            case AwaitExpression awaitExpression:
+                CollectMutatedCapturedStorageNames(awaitExpression.Expression, captured, mutated);
+                break;
+            case ThrowExpression throwExpression:
+                CollectMutatedCapturedStorageNames(throwExpression.Expression, captured, mutated);
+                break;
+            case NameofExpression nameofExpression:
+                CollectMutatedCapturedStorageNames(nameofExpression.Target, captured, mutated);
+                break;
+            case CheckedExpression checkedExpression:
+                CollectMutatedCapturedStorageNames(checkedExpression.Expression, captured, mutated);
+                break;
+            case UncheckedExpression uncheckedExpression:
+                CollectMutatedCapturedStorageNames(uncheckedExpression.Expression, captured, mutated);
+                break;
+            case ParenthesizedExpression parenthesizedExpression:
+                CollectMutatedCapturedStorageNames(parenthesizedExpression.Inner, captured, mutated);
+                break;
+        }
+    }
+
+    private static void AddMutatedTargetName(
+        Expression target,
+        HashSet<string> captured,
+        HashSet<string> mutated)
+    {
+        switch (target)
+        {
+            case IdentifierExpression identifier when captured.Contains(identifier.Name):
+                mutated.Add(identifier.Name);
+                break;
+            case ParenthesizedExpression parenthesized:
+                AddMutatedTargetName(parenthesized.Inner, captured, mutated);
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    AddMutatedTargetName(element.Value, captured, mutated);
+                }
+                break;
+        }
+    }
+
+    private static HashSet<string> RemoveShadowedCapturedNames(
+        HashSet<string> captured,
+        IEnumerable<string> shadowedNames)
+    {
+        var shadowed = shadowedNames.ToHashSet(StringComparer.Ordinal);
+        return shadowed.Count == 0
+            ? captured
+            : captured.Where(name => !shadowed.Contains(name)).ToHashSet(StringComparer.Ordinal);
+    }
+
+    private static void CollectPotentialLocalStorageNames(Statement statement, HashSet<string> candidates)
+    {
+        switch (statement)
+        {
+            case BlockStatement block:
+                foreach (var innerStatement in block.Statements)
+                {
+                    CollectPotentialLocalStorageNames(innerStatement, candidates);
+                }
+                break;
+            case VariableDeclarationStatement variableDeclaration:
+                candidates.Add(variableDeclaration.Name);
+                if (variableDeclaration.Initializer != null)
+                {
+                    CollectPotentialLocalStorageNames(variableDeclaration.Initializer, candidates);
+                }
+                break;
+            case TupleDeconstructionStatement tupleDeconstruction:
+                foreach (var name in tupleDeconstruction.Names)
+                {
+                    if (name != "_")
+                    {
+                        candidates.Add(name);
+                    }
+                }
+                CollectPotentialLocalStorageNames(tupleDeconstruction.Initializer, candidates);
+                break;
+            case ForStatement forStatement:
+                if (forStatement.Initializer != null)
+                {
+                    CollectPotentialLocalStorageNames(forStatement.Initializer, candidates);
+                }
+                if (forStatement.Condition != null)
+                {
+                    CollectPotentialLocalStorageNames(forStatement.Condition, candidates);
+                }
+                if (forStatement.Iterator != null)
+                {
+                    CollectPotentialLocalStorageNames(forStatement.Iterator, candidates);
+                }
+                CollectPotentialLocalStorageNames(forStatement.Body, candidates);
+                break;
+            case ForeachStatement foreachStatement:
+                candidates.Add(foreachStatement.VariableName);
+                CollectPotentialLocalStorageNames(foreachStatement.Collection, candidates);
+                CollectPotentialLocalStorageNames(foreachStatement.Body, candidates);
+                break;
+            case AwaitForEachStatement awaitForEachStatement:
+                candidates.Add(awaitForEachStatement.VariableName);
+                CollectPotentialLocalStorageNames(awaitForEachStatement.Collection, candidates);
+                CollectPotentialLocalStorageNames(awaitForEachStatement.Body, candidates);
+                break;
+            case IfStatement ifStatement:
+                CollectPotentialLocalStorageNames(ifStatement.Condition, candidates);
+                CollectPotentialLocalStorageNames(ifStatement.ThenStatement, candidates);
+                if (ifStatement.ElseStatement != null)
+                {
+                    CollectPotentialLocalStorageNames(ifStatement.ElseStatement, candidates);
+                }
+                break;
+            case WhileStatement whileStatement:
+                CollectPotentialLocalStorageNames(whileStatement.Condition, candidates);
+                CollectPotentialLocalStorageNames(whileStatement.Body, candidates);
+                break;
+            case TryStatement tryStatement:
+                CollectPotentialLocalStorageNames(tryStatement.TryBlock, candidates);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    if (catchClause.VariableName != null)
+                    {
+                        candidates.Add(catchClause.VariableName);
+                    }
+                    CollectPotentialLocalStorageNames(catchClause.Block, candidates);
+                }
+                if (tryStatement.FinallyBlock != null)
+                {
+                    CollectPotentialLocalStorageNames(tryStatement.FinallyBlock, candidates);
+                }
+                break;
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration != null)
+                {
+                    CollectPotentialLocalStorageNames(usingStatement.Declaration, candidates);
+                }
+                if (usingStatement.Expression != null)
+                {
+                    CollectPotentialLocalStorageNames(usingStatement.Expression, candidates);
+                }
+                if (usingStatement.Body != null)
+                {
+                    CollectPotentialLocalStorageNames(usingStatement.Body, candidates);
+                }
+                break;
+            case LockStatement lockStatement:
+                CollectPotentialLocalStorageNames(lockStatement.LockObject, candidates);
+                CollectPotentialLocalStorageNames(lockStatement.Body, candidates);
+                break;
+            case SwitchStatement switchStatement:
+                CollectPotentialLocalStorageNames(switchStatement.Value, candidates);
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    if (switchCase.Pattern != null)
+                    {
+                        CollectPatternBindingNames(switchCase.Pattern, candidates);
+                    }
+                    foreach (var caseStatement in switchCase.Statements)
+                    {
+                        CollectPotentialLocalStorageNames(caseStatement, candidates);
+                    }
+                }
+                break;
+            case ExpressionStatement expressionStatement:
+                CollectPotentialLocalStorageNames(expressionStatement.Expression, candidates);
+                break;
+            case ReturnStatement returnStatement when returnStatement.Value != null:
+                CollectPotentialLocalStorageNames(returnStatement.Value, candidates);
+                break;
+            case YieldStatement yieldStatement when yieldStatement.Value != null:
+                CollectPotentialLocalStorageNames(yieldStatement.Value, candidates);
+                break;
+            case ThrowStatement throwStatement:
+                CollectPotentialLocalStorageNames(throwStatement.Expression, candidates);
+                break;
+            case PrintStatement printStatement:
+                CollectPotentialLocalStorageNames(printStatement.Value, candidates);
+                break;
+            case AssertStatement assertStatement:
+                CollectPotentialLocalStorageNames(assertStatement.Condition, candidates);
+                if (assertStatement.Message != null)
+                {
+                    CollectPotentialLocalStorageNames(assertStatement.Message, candidates);
+                }
+                break;
+            case AssertThrowsStatement assertThrowsStatement:
+                CollectPotentialLocalStorageNames(assertThrowsStatement.Body, candidates);
+                break;
+            case LocalFunctionStatement:
+                break;
+        }
+    }
+
+    private static void CollectPotentialLocalStorageNames(Expression expression, HashSet<string> candidates)
+    {
+        switch (expression)
+        {
+            case LambdaExpression:
+                break;
+            case InterpolatedStringExpression interpolatedString:
+                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
+                {
+                    CollectPotentialLocalStorageNames(hole.Expression, candidates);
+                }
+                break;
+            case RangeExpression range:
+                if (range.Start != null)
+                {
+                    CollectPotentialLocalStorageNames(range.Start, candidates);
+                }
+                if (range.End != null)
+                {
+                    CollectPotentialLocalStorageNames(range.End, candidates);
+                }
+                break;
+            case BinaryExpression binary:
+                CollectPotentialLocalStorageNames(binary.Left, candidates);
+                CollectPotentialLocalStorageNames(binary.Right, candidates);
+                break;
+            case UnaryExpression unary:
+                CollectPotentialLocalStorageNames(unary.Operand, candidates);
+                break;
+            case MustExpression mustExpression:
+                CollectPotentialLocalStorageNames(mustExpression.Expression, candidates);
+                break;
+            case MemberAccessExpression memberAccess:
+                CollectPotentialLocalStorageNames(memberAccess.Object, candidates);
+                break;
+            case IndexAccessExpression indexAccess:
+                CollectPotentialLocalStorageNames(indexAccess.Object, candidates);
+                CollectPotentialLocalStorageNames(indexAccess.Index, candidates);
+                break;
+            case CallExpression call:
+                CollectPotentialLocalStorageNames(call.Callee, candidates);
+                foreach (var argument in call.Arguments)
+                {
+                    CollectPotentialLocalStorageNames(argument.Value, candidates);
+                }
+                break;
+            case AssignmentExpression assignment:
+                CollectPotentialLocalStorageNames(assignment.Target, candidates);
+                CollectPotentialLocalStorageNames(assignment.Value, candidates);
+                break;
+            case TernaryExpression ternary:
+                CollectPotentialLocalStorageNames(ternary.Condition, candidates);
+                CollectPotentialLocalStorageNames(ternary.ThenExpression, candidates);
+                CollectPotentialLocalStorageNames(ternary.ElseExpression, candidates);
+                break;
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    CollectPotentialLocalStorageNames(element, candidates);
+                }
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    CollectPotentialLocalStorageNames(element.Value, candidates);
+                }
+                break;
+            case ObjectInitializerExpression initializer:
+                foreach (var property in initializer.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectPotentialLocalStorageNames(property.IndexExpression, candidates);
+                    }
+                    CollectPotentialLocalStorageNames(property.Value, candidates);
+                }
+                break;
+            case NewExpression newExpression:
+                foreach (var argument in newExpression.ConstructorArguments)
+                {
+                    CollectPotentialLocalStorageNames(argument.Value, candidates);
+                }
+                if (newExpression.Initializer != null)
+                {
+                    CollectPotentialLocalStorageNames(newExpression.Initializer, candidates);
+                }
+                break;
+            case CastExpression castExpression:
+                CollectPotentialLocalStorageNames(castExpression.Expression, candidates);
+                break;
+            case IsExpression isExpression:
+                CollectPotentialLocalStorageNames(isExpression.Expression, candidates);
+                if (isExpression.VariableName != null)
+                {
+                    candidates.Add(isExpression.VariableName);
+                }
+                break;
+            case MatchExpression matchExpression:
+                CollectPotentialLocalStorageNames(matchExpression.Value, candidates);
+                foreach (var matchCase in matchExpression.Cases)
+                {
+                    CollectPatternBindingNames(matchCase.Pattern, candidates);
+                    if (matchCase.Guard != null)
+                    {
+                        CollectPotentialLocalStorageNames(matchCase.Guard, candidates);
+                    }
+                    CollectPotentialLocalStorageNames(matchCase.Expression, candidates);
+                }
+                break;
+            case SpreadExpression spreadExpression:
+                CollectPotentialLocalStorageNames(spreadExpression.Expression, candidates);
+                break;
+            case WithExpression withExpression:
+                CollectPotentialLocalStorageNames(withExpression.Target, candidates);
+                foreach (var property in withExpression.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectPotentialLocalStorageNames(property.IndexExpression, candidates);
+                    }
+                    CollectPotentialLocalStorageNames(property.Value, candidates);
+                }
+                break;
+            case AwaitExpression awaitExpression:
+                CollectPotentialLocalStorageNames(awaitExpression.Expression, candidates);
+                break;
+            case ThrowExpression throwExpression:
+                CollectPotentialLocalStorageNames(throwExpression.Expression, candidates);
+                break;
+            case NameofExpression nameofExpression:
+                CollectPotentialLocalStorageNames(nameofExpression.Target, candidates);
+                break;
+            case CheckedExpression checkedExpression:
+                CollectPotentialLocalStorageNames(checkedExpression.Expression, candidates);
+                break;
+            case UncheckedExpression uncheckedExpression:
+                CollectPotentialLocalStorageNames(uncheckedExpression.Expression, candidates);
+                break;
+            case ParenthesizedExpression parenthesizedExpression:
+                CollectPotentialLocalStorageNames(parenthesizedExpression.Inner, candidates);
+                break;
+        }
+    }
+
+    private static void CollectNestedFunctionCapturedStorageNames(
+        Statement statement,
+        HashSet<string> candidates,
+        HashSet<string> captured)
+    {
+        switch (statement)
+        {
+            case LocalFunctionStatement localFunction:
+                CollectFunctionCapturedStorageNames(localFunction.Function, candidates, captured);
+                break;
+            case BlockStatement block:
+                foreach (var innerStatement in block.Statements)
+                {
+                    CollectNestedFunctionCapturedStorageNames(innerStatement, candidates, captured);
+                }
+                break;
+            case ExpressionStatement expressionStatement:
+                CollectNestedFunctionCapturedStorageNames(expressionStatement.Expression, candidates, captured);
+                break;
+            case VariableDeclarationStatement variableDeclaration when variableDeclaration.Initializer != null:
+                CollectNestedFunctionCapturedStorageNames(variableDeclaration.Initializer, candidates, captured);
+                break;
+            case TupleDeconstructionStatement tupleDeconstruction:
+                CollectNestedFunctionCapturedStorageNames(tupleDeconstruction.Initializer, candidates, captured);
+                break;
+            case IfStatement ifStatement:
+                CollectNestedFunctionCapturedStorageNames(ifStatement.Condition, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(ifStatement.ThenStatement, candidates, captured);
+                if (ifStatement.ElseStatement != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(ifStatement.ElseStatement, candidates, captured);
+                }
+                break;
+            case ForStatement forStatement:
+                if (forStatement.Initializer != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(forStatement.Initializer, candidates, captured);
+                }
+                if (forStatement.Condition != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(forStatement.Condition, candidates, captured);
+                }
+                if (forStatement.Iterator != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(forStatement.Iterator, candidates, captured);
+                }
+                CollectNestedFunctionCapturedStorageNames(forStatement.Body, candidates, captured);
+                break;
+            case ForeachStatement foreachStatement:
+                CollectNestedFunctionCapturedStorageNames(foreachStatement.Collection, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(foreachStatement.Body, candidates, captured);
+                break;
+            case AwaitForEachStatement awaitForEachStatement:
+                CollectNestedFunctionCapturedStorageNames(awaitForEachStatement.Collection, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(awaitForEachStatement.Body, candidates, captured);
+                break;
+            case WhileStatement whileStatement:
+                CollectNestedFunctionCapturedStorageNames(whileStatement.Condition, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(whileStatement.Body, candidates, captured);
+                break;
+            case ReturnStatement returnStatement when returnStatement.Value != null:
+                CollectNestedFunctionCapturedStorageNames(returnStatement.Value, candidates, captured);
+                break;
+            case YieldStatement yieldStatement when yieldStatement.Value != null:
+                CollectNestedFunctionCapturedStorageNames(yieldStatement.Value, candidates, captured);
+                break;
+            case ThrowStatement throwStatement:
+                CollectNestedFunctionCapturedStorageNames(throwStatement.Expression, candidates, captured);
+                break;
+            case TryStatement tryStatement:
+                CollectNestedFunctionCapturedStorageNames(tryStatement.TryBlock, candidates, captured);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    CollectNestedFunctionCapturedStorageNames(catchClause.Block, candidates, captured);
+                }
+                if (tryStatement.FinallyBlock != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(tryStatement.FinallyBlock, candidates, captured);
+                }
+                break;
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration?.Initializer != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(usingStatement.Declaration.Initializer, candidates, captured);
+                }
+                if (usingStatement.Expression != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(usingStatement.Expression, candidates, captured);
+                }
+                if (usingStatement.Body != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(usingStatement.Body, candidates, captured);
+                }
+                break;
+            case LockStatement lockStatement:
+                CollectNestedFunctionCapturedStorageNames(lockStatement.LockObject, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(lockStatement.Body, candidates, captured);
+                break;
+            case SwitchStatement switchStatement:
+                CollectNestedFunctionCapturedStorageNames(switchStatement.Value, candidates, captured);
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    foreach (var caseStatement in switchCase.Statements)
+                    {
+                        CollectNestedFunctionCapturedStorageNames(caseStatement, candidates, captured);
+                    }
+                }
+                break;
+            case PrintStatement printStatement:
+                CollectNestedFunctionCapturedStorageNames(printStatement.Value, candidates, captured);
+                break;
+            case AssertStatement assertStatement:
+                CollectNestedFunctionCapturedStorageNames(assertStatement.Condition, candidates, captured);
+                if (assertStatement.Message != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(assertStatement.Message, candidates, captured);
+                }
+                break;
+            case AssertThrowsStatement assertThrowsStatement:
+                CollectNestedFunctionCapturedStorageNames(assertThrowsStatement.Body, candidates, captured);
+                break;
+        }
+    }
+
+    private static void CollectNestedFunctionCapturedStorageNames(
+        Expression expression,
+        HashSet<string> candidates,
+        HashSet<string> captured)
+    {
+        switch (expression)
+        {
+            case LambdaExpression lambda:
+                CollectLambdaCapturedStorageNames(lambda, candidates, captured);
+                break;
+            case InterpolatedStringExpression interpolatedString:
+                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
+                {
+                    CollectNestedFunctionCapturedStorageNames(hole.Expression, candidates, captured);
+                }
+                break;
+            case RangeExpression range:
+                if (range.Start != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(range.Start, candidates, captured);
+                }
+                if (range.End != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(range.End, candidates, captured);
+                }
+                break;
+            case BinaryExpression binary:
+                CollectNestedFunctionCapturedStorageNames(binary.Left, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(binary.Right, candidates, captured);
+                break;
+            case UnaryExpression unary:
+                CollectNestedFunctionCapturedStorageNames(unary.Operand, candidates, captured);
+                break;
+            case MustExpression mustExpression:
+                CollectNestedFunctionCapturedStorageNames(mustExpression.Expression, candidates, captured);
+                break;
+            case MemberAccessExpression memberAccess:
+                CollectNestedFunctionCapturedStorageNames(memberAccess.Object, candidates, captured);
+                break;
+            case IndexAccessExpression indexAccess:
+                CollectNestedFunctionCapturedStorageNames(indexAccess.Object, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(indexAccess.Index, candidates, captured);
+                break;
+            case CallExpression call:
+                CollectNestedFunctionCapturedStorageNames(call.Callee, candidates, captured);
+                foreach (var argument in call.Arguments)
+                {
+                    CollectNestedFunctionCapturedStorageNames(argument.Value, candidates, captured);
+                }
+                break;
+            case AssignmentExpression assignment:
+                CollectNestedFunctionCapturedStorageNames(assignment.Target, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(assignment.Value, candidates, captured);
+                break;
+            case TernaryExpression ternary:
+                CollectNestedFunctionCapturedStorageNames(ternary.Condition, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(ternary.ThenExpression, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(ternary.ElseExpression, candidates, captured);
+                break;
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    CollectNestedFunctionCapturedStorageNames(element, candidates, captured);
+                }
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    CollectNestedFunctionCapturedStorageNames(element.Value, candidates, captured);
+                }
+                break;
+            case ObjectInitializerExpression initializer:
+                foreach (var property in initializer.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectNestedFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
+                    }
+                    CollectNestedFunctionCapturedStorageNames(property.Value, candidates, captured);
+                }
+                break;
+            case NewExpression newExpression:
+                foreach (var argument in newExpression.ConstructorArguments)
+                {
+                    CollectNestedFunctionCapturedStorageNames(argument.Value, candidates, captured);
+                }
+                if (newExpression.Initializer != null)
+                {
+                    CollectNestedFunctionCapturedStorageNames(newExpression.Initializer, candidates, captured);
+                }
+                break;
+            case CastExpression castExpression:
+                CollectNestedFunctionCapturedStorageNames(castExpression.Expression, candidates, captured);
+                break;
+            case IsExpression isExpression:
+                CollectNestedFunctionCapturedStorageNames(isExpression.Expression, candidates, captured);
+                break;
+            case MatchExpression matchExpression:
+                CollectNestedFunctionCapturedStorageNames(matchExpression.Value, candidates, captured);
+                foreach (var matchCase in matchExpression.Cases)
+                {
+                    if (matchCase.Guard != null)
+                    {
+                        CollectNestedFunctionCapturedStorageNames(matchCase.Guard, candidates, captured);
+                    }
+                    CollectNestedFunctionCapturedStorageNames(matchCase.Expression, candidates, captured);
+                }
+                break;
+            case SpreadExpression spreadExpression:
+                CollectNestedFunctionCapturedStorageNames(spreadExpression.Expression, candidates, captured);
+                break;
+            case WithExpression withExpression:
+                CollectNestedFunctionCapturedStorageNames(withExpression.Target, candidates, captured);
+                foreach (var property in withExpression.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectNestedFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
+                    }
+                    CollectNestedFunctionCapturedStorageNames(property.Value, candidates, captured);
+                }
+                break;
+            case AwaitExpression awaitExpression:
+                CollectNestedFunctionCapturedStorageNames(awaitExpression.Expression, candidates, captured);
+                break;
+            case ThrowExpression throwExpression:
+                CollectNestedFunctionCapturedStorageNames(throwExpression.Expression, candidates, captured);
+                break;
+            case NameofExpression nameofExpression:
+                CollectNestedFunctionCapturedStorageNames(nameofExpression.Target, candidates, captured);
+                break;
+            case CheckedExpression checkedExpression:
+                CollectNestedFunctionCapturedStorageNames(checkedExpression.Expression, candidates, captured);
+                break;
+            case UncheckedExpression uncheckedExpression:
+                CollectNestedFunctionCapturedStorageNames(uncheckedExpression.Expression, candidates, captured);
+                break;
+            case ParenthesizedExpression parenthesizedExpression:
+                CollectNestedFunctionCapturedStorageNames(parenthesizedExpression.Inner, candidates, captured);
+                break;
+        }
+    }
+
+    private static void CollectFunctionCapturedStorageNames(
+        FunctionDeclaration function,
+        HashSet<string> candidates,
+        HashSet<string> captured)
+    {
+        var shadowed = function.Parameters
+            .Select(parameter => parameter.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (function.ExpressionBody != null)
+        {
+            CollectCandidateIdentifierReferences(function.ExpressionBody, candidates, captured, shadowed);
+        }
+
+        if (function.Body != null)
+        {
+            CollectCandidateIdentifierReferences(function.Body, candidates, captured, shadowed);
+        }
+    }
+
+    private static void CollectLambdaCapturedStorageNames(
+        LambdaExpression lambda,
+        HashSet<string> candidates,
+        HashSet<string> captured)
+    {
+        var shadowed = lambda.Parameters
+            .Select(parameter => parameter.Name)
+            .ToHashSet(StringComparer.Ordinal);
+
+        if (lambda.ExpressionBody != null)
+        {
+            CollectCandidateIdentifierReferences(lambda.ExpressionBody, candidates, captured, shadowed);
+        }
+
+        if (lambda.BlockBody != null)
+        {
+            CollectCandidateIdentifierReferences(lambda.BlockBody, candidates, captured, shadowed);
+        }
+    }
+
+    private static void CollectCandidateIdentifierReferences(
+        Statement statement,
+        HashSet<string> candidates,
+        HashSet<string> captured,
+        HashSet<string> shadowed)
+    {
+        switch (statement)
+        {
+            case BlockStatement block:
+                foreach (var innerStatement in block.Statements)
+                {
+                    CollectCandidateIdentifierReferences(innerStatement, candidates, captured, shadowed);
+                }
+                break;
+            case ExpressionStatement expressionStatement:
+                CollectCandidateIdentifierReferences(expressionStatement.Expression, candidates, captured, shadowed);
+                break;
+            case VariableDeclarationStatement variableDeclaration:
+                if (variableDeclaration.Initializer != null)
+                {
+                    CollectCandidateIdentifierReferences(variableDeclaration.Initializer, candidates, captured, shadowed);
+                }
+                break;
+            case TupleDeconstructionStatement tupleDeconstruction:
+                CollectCandidateIdentifierReferences(tupleDeconstruction.Initializer, candidates, captured, shadowed);
+                break;
+            case LocalFunctionStatement localFunction:
+                var nestedShadowed = new HashSet<string>(shadowed, StringComparer.Ordinal);
+                foreach (var parameter in localFunction.Function.Parameters)
+                {
+                    nestedShadowed.Add(parameter.Name);
+                }
+                if (localFunction.Function.ExpressionBody != null)
+                {
+                    CollectCandidateIdentifierReferences(localFunction.Function.ExpressionBody, candidates, captured, nestedShadowed);
+                }
+                if (localFunction.Function.Body != null)
+                {
+                    CollectCandidateIdentifierReferences(localFunction.Function.Body, candidates, captured, nestedShadowed);
+                }
+                break;
+            case IfStatement ifStatement:
+                CollectCandidateIdentifierReferences(ifStatement.Condition, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(ifStatement.ThenStatement, candidates, captured, shadowed);
+                if (ifStatement.ElseStatement != null)
+                {
+                    CollectCandidateIdentifierReferences(ifStatement.ElseStatement, candidates, captured, shadowed);
+                }
+                break;
+            case ForStatement forStatement:
+                if (forStatement.Initializer != null)
+                {
+                    CollectCandidateIdentifierReferences(forStatement.Initializer, candidates, captured, shadowed);
+                }
+                if (forStatement.Condition != null)
+                {
+                    CollectCandidateIdentifierReferences(forStatement.Condition, candidates, captured, shadowed);
+                }
+                if (forStatement.Iterator != null)
+                {
+                    CollectCandidateIdentifierReferences(forStatement.Iterator, candidates, captured, shadowed);
+                }
+                CollectCandidateIdentifierReferences(forStatement.Body, candidates, captured, shadowed);
+                break;
+            case ForeachStatement foreachStatement:
+                CollectCandidateIdentifierReferences(foreachStatement.Collection, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(foreachStatement.Body, candidates, captured, shadowed);
+                break;
+            case AwaitForEachStatement awaitForEachStatement:
+                CollectCandidateIdentifierReferences(awaitForEachStatement.Collection, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(awaitForEachStatement.Body, candidates, captured, shadowed);
+                break;
+            case WhileStatement whileStatement:
+                CollectCandidateIdentifierReferences(whileStatement.Condition, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(whileStatement.Body, candidates, captured, shadowed);
+                break;
+            case ReturnStatement returnStatement when returnStatement.Value != null:
+                CollectCandidateIdentifierReferences(returnStatement.Value, candidates, captured, shadowed);
+                break;
+            case YieldStatement yieldStatement when yieldStatement.Value != null:
+                CollectCandidateIdentifierReferences(yieldStatement.Value, candidates, captured, shadowed);
+                break;
+            case ThrowStatement throwStatement:
+                CollectCandidateIdentifierReferences(throwStatement.Expression, candidates, captured, shadowed);
+                break;
+            case TryStatement tryStatement:
+                CollectCandidateIdentifierReferences(tryStatement.TryBlock, candidates, captured, shadowed);
+                foreach (var catchClause in tryStatement.CatchClauses)
+                {
+                    CollectCandidateIdentifierReferences(catchClause.Block, candidates, captured, shadowed);
+                }
+                if (tryStatement.FinallyBlock != null)
+                {
+                    CollectCandidateIdentifierReferences(tryStatement.FinallyBlock, candidates, captured, shadowed);
+                }
+                break;
+            case UsingStatement usingStatement:
+                if (usingStatement.Declaration?.Initializer != null)
+                {
+                    CollectCandidateIdentifierReferences(usingStatement.Declaration.Initializer, candidates, captured, shadowed);
+                }
+                if (usingStatement.Expression != null)
+                {
+                    CollectCandidateIdentifierReferences(usingStatement.Expression, candidates, captured, shadowed);
+                }
+                if (usingStatement.Body != null)
+                {
+                    CollectCandidateIdentifierReferences(usingStatement.Body, candidates, captured, shadowed);
+                }
+                break;
+            case LockStatement lockStatement:
+                CollectCandidateIdentifierReferences(lockStatement.LockObject, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(lockStatement.Body, candidates, captured, shadowed);
+                break;
+            case SwitchStatement switchStatement:
+                CollectCandidateIdentifierReferences(switchStatement.Value, candidates, captured, shadowed);
+                foreach (var switchCase in switchStatement.Cases)
+                {
+                    foreach (var caseStatement in switchCase.Statements)
+                    {
+                        CollectCandidateIdentifierReferences(caseStatement, candidates, captured, shadowed);
+                    }
+                }
+                break;
+            case PrintStatement printStatement:
+                CollectCandidateIdentifierReferences(printStatement.Value, candidates, captured, shadowed);
+                break;
+            case AssertStatement assertStatement:
+                CollectCandidateIdentifierReferences(assertStatement.Condition, candidates, captured, shadowed);
+                if (assertStatement.Message != null)
+                {
+                    CollectCandidateIdentifierReferences(assertStatement.Message, candidates, captured, shadowed);
+                }
+                break;
+            case AssertThrowsStatement assertThrowsStatement:
+                CollectCandidateIdentifierReferences(assertThrowsStatement.Body, candidates, captured, shadowed);
+                break;
+            case EmptyStatement:
+            case BreakStatement:
+            case ContinueStatement:
+                break;
+            default:
+                AddUnshadowedCandidates(candidates, captured, shadowed);
+                break;
+        }
+    }
+
+    private static void CollectCandidateIdentifierReferences(
+        Expression expression,
+        HashSet<string> candidates,
+        HashSet<string> captured,
+        HashSet<string> shadowed)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                if (!shadowed.Contains(identifier.Name) && candidates.Contains(identifier.Name))
+                {
+                    captured.Add(identifier.Name);
+                }
+                break;
+            case LambdaExpression lambda:
+                var nestedShadowed = new HashSet<string>(shadowed, StringComparer.Ordinal);
+                foreach (var parameter in lambda.Parameters)
+                {
+                    nestedShadowed.Add(parameter.Name);
+                }
+                if (lambda.ExpressionBody != null)
+                {
+                    CollectCandidateIdentifierReferences(lambda.ExpressionBody, candidates, captured, nestedShadowed);
+                }
+                if (lambda.BlockBody != null)
+                {
+                    CollectCandidateIdentifierReferences(lambda.BlockBody, candidates, captured, nestedShadowed);
+                }
+                break;
+            case InterpolatedStringExpression interpolatedString:
+                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
+                {
+                    CollectCandidateIdentifierReferences(hole.Expression, candidates, captured, shadowed);
+                }
+                break;
+            case RangeExpression range:
+                if (range.Start != null)
+                {
+                    CollectCandidateIdentifierReferences(range.Start, candidates, captured, shadowed);
+                }
+                if (range.End != null)
+                {
+                    CollectCandidateIdentifierReferences(range.End, candidates, captured, shadowed);
+                }
+                break;
+            case BinaryExpression binary:
+                CollectCandidateIdentifierReferences(binary.Left, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(binary.Right, candidates, captured, shadowed);
+                break;
+            case UnaryExpression unary:
+                CollectCandidateIdentifierReferences(unary.Operand, candidates, captured, shadowed);
+                break;
+            case MustExpression mustExpression:
+                CollectCandidateIdentifierReferences(mustExpression.Expression, candidates, captured, shadowed);
+                break;
+            case MemberAccessExpression memberAccess:
+                CollectCandidateIdentifierReferences(memberAccess.Object, candidates, captured, shadowed);
+                break;
+            case IndexAccessExpression indexAccess:
+                CollectCandidateIdentifierReferences(indexAccess.Object, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(indexAccess.Index, candidates, captured, shadowed);
+                break;
+            case CallExpression call:
+                CollectCandidateIdentifierReferences(call.Callee, candidates, captured, shadowed);
+                foreach (var argument in call.Arguments)
+                {
+                    CollectCandidateIdentifierReferences(argument.Value, candidates, captured, shadowed);
+                }
+                break;
+            case AssignmentExpression assignment:
+                CollectCandidateIdentifierReferences(assignment.Target, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(assignment.Value, candidates, captured, shadowed);
+                break;
+            case TernaryExpression ternary:
+                CollectCandidateIdentifierReferences(ternary.Condition, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(ternary.ThenExpression, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(ternary.ElseExpression, candidates, captured, shadowed);
+                break;
+            case ArrayLiteralExpression arrayLiteral:
+                foreach (var element in arrayLiteral.Elements)
+                {
+                    CollectCandidateIdentifierReferences(element, candidates, captured, shadowed);
+                }
+                break;
+            case TupleExpression tuple:
+                foreach (var element in tuple.Elements)
+                {
+                    CollectCandidateIdentifierReferences(element.Value, candidates, captured, shadowed);
+                }
+                break;
+            case ObjectInitializerExpression initializer:
+                foreach (var property in initializer.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectCandidateIdentifierReferences(property.IndexExpression, candidates, captured, shadowed);
+                    }
+                    CollectCandidateIdentifierReferences(property.Value, candidates, captured, shadowed);
+                }
+                break;
+            case NewExpression newExpression:
+                foreach (var argument in newExpression.ConstructorArguments)
+                {
+                    CollectCandidateIdentifierReferences(argument.Value, candidates, captured, shadowed);
+                }
+                if (newExpression.Initializer != null)
+                {
+                    CollectCandidateIdentifierReferences(newExpression.Initializer, candidates, captured, shadowed);
+                }
+                break;
+            case CastExpression castExpression:
+                CollectCandidateIdentifierReferences(castExpression.Expression, candidates, captured, shadowed);
+                break;
+            case IsExpression isExpression:
+                CollectCandidateIdentifierReferences(isExpression.Expression, candidates, captured, shadowed);
+                break;
+            case MatchExpression matchExpression:
+                CollectCandidateIdentifierReferences(matchExpression.Value, candidates, captured, shadowed);
+                foreach (var matchCase in matchExpression.Cases)
+                {
+                    if (matchCase.Guard != null)
+                    {
+                        CollectCandidateIdentifierReferences(matchCase.Guard, candidates, captured, shadowed);
+                    }
+                    CollectCandidateIdentifierReferences(matchCase.Expression, candidates, captured, shadowed);
+                }
+                break;
+            case SpreadExpression spreadExpression:
+                CollectCandidateIdentifierReferences(spreadExpression.Expression, candidates, captured, shadowed);
+                break;
+            case WithExpression withExpression:
+                CollectCandidateIdentifierReferences(withExpression.Target, candidates, captured, shadowed);
+                foreach (var property in withExpression.Properties)
+                {
+                    if (property.IndexExpression != null)
+                    {
+                        CollectCandidateIdentifierReferences(property.IndexExpression, candidates, captured, shadowed);
+                    }
+                    CollectCandidateIdentifierReferences(property.Value, candidates, captured, shadowed);
+                }
+                break;
+            case AwaitExpression awaitExpression:
+                CollectCandidateIdentifierReferences(awaitExpression.Expression, candidates, captured, shadowed);
+                break;
+            case ThrowExpression throwExpression:
+                CollectCandidateIdentifierReferences(throwExpression.Expression, candidates, captured, shadowed);
+                break;
+            case NameofExpression nameofExpression:
+                CollectCandidateIdentifierReferences(nameofExpression.Target, candidates, captured, shadowed);
+                break;
+            case CheckedExpression checkedExpression:
+                CollectCandidateIdentifierReferences(checkedExpression.Expression, candidates, captured, shadowed);
+                break;
+            case UncheckedExpression uncheckedExpression:
+                CollectCandidateIdentifierReferences(uncheckedExpression.Expression, candidates, captured, shadowed);
+                break;
+            case ParenthesizedExpression parenthesizedExpression:
+                CollectCandidateIdentifierReferences(parenthesizedExpression.Inner, candidates, captured, shadowed);
+                break;
+            case IntLiteralExpression:
+            case FloatLiteralExpression:
+            case CharLiteralExpression:
+            case StringLiteralExpression:
+            case BoolLiteralExpression:
+            case NullLiteralExpression:
+            case ThisExpression:
+            case BaseExpression:
+            case DefaultExpression:
+            case TypeOfExpression:
+            case SizeOfExpression:
+                break;
+            default:
+                AddUnshadowedCandidates(candidates, captured, shadowed);
+                break;
+        }
+    }
+
+    private static void AddUnshadowedCandidates(
+        HashSet<string> candidates,
+        HashSet<string> captured,
+        HashSet<string> shadowed)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (!shadowed.Contains(candidate))
+            {
+                captured.Add(candidate);
+            }
+        }
+    }
+
+    private static void CollectPatternBindingNames(Pattern pattern, HashSet<string> candidates)
+    {
+        switch (pattern)
+        {
+            case IdentifierPattern identifierPattern:
+                candidates.Add(identifierPattern.Name);
+                break;
+            case UnionCasePattern unionCasePattern when unionCasePattern.Properties != null:
+                foreach (var property in unionCasePattern.Properties)
+                {
+                    if (property.BindingName != null)
+                    {
+                        candidates.Add(property.BindingName);
+                    }
+                    if (property.Pattern != null)
+                    {
+                        CollectPatternBindingNames(property.Pattern, candidates);
+                    }
+                }
+                break;
+            case AndPattern andPattern:
+                CollectPatternBindingNames(andPattern.Left, candidates);
+                CollectPatternBindingNames(andPattern.Right, candidates);
+                break;
+            case OrPattern orPattern:
+                CollectPatternBindingNames(orPattern.Left, candidates);
+                CollectPatternBindingNames(orPattern.Right, candidates);
+                break;
+            case NotPattern notPattern:
+                CollectPatternBindingNames(notPattern.Pattern, candidates);
+                break;
+            case PositionalPattern positionalPattern:
+                foreach (var innerPattern in positionalPattern.Patterns)
+                {
+                    CollectPatternBindingNames(innerPattern, candidates);
+                }
+                break;
+            case ObjectPattern objectPattern:
+                foreach (var property in objectPattern.Properties)
+                {
+                    if (property.BindingName != null)
+                    {
+                        candidates.Add(property.BindingName);
+                    }
+                    if (property.Pattern != null)
+                    {
+                        CollectPatternBindingNames(property.Pattern, candidates);
+                    }
+                }
+                break;
+            case ListPattern listPattern:
+                foreach (var innerPattern in listPattern.Elements)
+                {
+                    CollectPatternBindingNames(innerPattern, candidates);
+                }
+                break;
+            case SlicePattern slicePattern when slicePattern.BindingName != null:
+                candidates.Add(slicePattern.BindingName);
+                break;
+            case TypePattern typePattern when typePattern.BindingName != null:
+                candidates.Add(typePattern.BindingName);
+                break;
         }
     }
 
@@ -2450,6 +4188,23 @@ public partial class ILCompiler
             return;
 
         applyAttribute(new CustomAttributeBuilder(_nullableContextAttributeConstructor, new object[] { context }));
+    }
+
+    /// <summary>
+    /// Emits <see cref="System.Runtime.CompilerServices.IsReadOnlyAttribute"/> on a value type so that
+    /// the C# compiler and JIT treat it as a <c>readonly struct</c>. This eliminates defensive copies
+    /// when members are invoked through <c>in</c>/readonly references, which is the whole point of
+    /// emitting small immutable wrappers (newtypes and readonly record structs) as value types on the
+    /// hot path. Without this marker, callers conservatively copy the struct before each member access.
+    /// </summary>
+    private void ApplyIsReadOnlyAttribute(Action<CustomAttributeBuilder> applyAttribute)
+    {
+        var attributeType = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute);
+        var constructor = attributeType.GetConstructor(Type.EmptyTypes);
+        if (constructor == null)
+            return;
+
+        applyAttribute(new CustomAttributeBuilder(constructor, Array.Empty<object>()));
     }
 
     private void ApplyNullableAttribute(Action<CustomAttributeBuilder> applyAttribute, TypeReference typeReference, GenericTypeParameterBuilder[]? genericParameters = null)
@@ -4062,11 +5817,14 @@ public partial class ILCompiler
             return false;
         }
 
+        if (target.ReceiverKind == MethodGroupReceiverKind.None)
+        {
+            EmitStaticDelegate(target.Method, target.DelegateType);
+            return true;
+        }
+
         switch (target.ReceiverKind)
         {
-            case MethodGroupReceiverKind.None:
-                _currentIL.Emit(OpCodes.Ldnull);
-                break;
             case MethodGroupReceiverKind.ImplicitThis:
                 EmitLoadImplicitThisDelegateReceiver(target.Method);
                 break;
@@ -5183,6 +6941,55 @@ public partial class ILCompiler
         return type.IsByRef ? type.GetElementType() ?? typeof(object) : type;
     }
 
+    /// <summary>
+    /// Decides whether a virtual instance method dispatch can be safely lowered from
+    /// <c>callvirt</c> to a non-virtual <c>call</c>.
+    ///
+    /// A <c>callvirt</c> does two things that a <c>call</c> does not: (1) it performs a
+    /// null-check on the receiver, and (2) it dispatches virtually based on the receiver's
+    /// runtime type. Devirtualizing is therefore only correct when BOTH:
+    ///   * the dispatch target is statically exact (no derived override can change it), and
+    ///   * the null-check is unnecessary because the receiver is provably non-null.
+    ///
+    /// We stay strictly conservative: we only devirtualize when the receiver expression
+    /// produces a value whose runtime type is exactly known and which can never be null.
+    /// The canonical safe cases are object creation (<c>new T()</c>) and string-producing
+    /// literals, both of which yield a non-null reference of an exact runtime type, so virtual
+    /// dispatch resolves deterministically and the null-check is provably redundant.
+    /// </summary>
+    private static bool CanDevirtualizeInstanceCall(Expression receiver, Type receiverType)
+    {
+        // Value-type receivers are already dispatched with `call` by the caller; nothing to do.
+        if (IsValueTypeLike(receiverType))
+            return false;
+
+        // Open generic parameters use constrained dispatch; never devirtualize them here.
+        if (receiverType.IsGenericParameter)
+            return false;
+
+        // The receiver must be provably non-null AND of an exactly-known runtime type so that
+        // dropping both the null-check and the virtual dispatch preserves semantics.
+        return IsExactlyTypedNonNullReceiver(receiver);
+    }
+
+    /// <summary>
+    /// Returns true when the receiver expression yields a non-null reference whose runtime type
+    /// is exactly the static type (so virtual dispatch resolves deterministically). These are
+    /// expressions that construct a fresh value: <c>new T()</c> and string-producing literals.
+    /// </summary>
+    private static bool IsExactlyTypedNonNullReceiver(Expression receiver)
+    {
+        return receiver switch
+        {
+            // `new T()` yields a non-null reference whose runtime type is exactly T.
+            NewExpression => true,
+            // String literals and interpolated strings yield a non-null System.String (sealed).
+            StringLiteralExpression => true,
+            InterpolatedStringExpression => true,
+            _ => false,
+        };
+    }
+
     private static Type GetNullConditionalResultType(Type memberType)
     {
         return memberType.IsValueType && Nullable.GetUnderlyingType(memberType) == null
@@ -5364,7 +7171,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (_liftLocalsIntoBoxes)
+            if (ShouldLiftLocalIntoBox(parameter.Name))
             {
                 var local = DeclareNamedLocal(parameter.Name, parameterType);
                 EmitLoadArgument(startIndex + i);
@@ -5397,7 +7204,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (_liftLocalsIntoBoxes)
+            if (ShouldLiftLocalIntoBox(parameter.Name))
             {
                 var local = DeclareNamedLocal(parameter.Name, parameterType);
                 EmitLoadArgument(startIndex + i);
@@ -7144,8 +8951,7 @@ public partial class ILCompiler
             bodyReturnType = asyncResultType ?? typeof(void);
         }
 
-        InitializeBodyContext(bodyReturnType, ContainsNestedFunction(function.Body)
-            || (function.ExpressionBody != null && ContainsNestedFunction(function.ExpressionBody)));
+        InitializeBodyContextForBody(bodyReturnType, function.Body, function.ExpressionBody, function.Parameters);
         InitializeStructuredReturnContext(bodyReturnType);
         if (function.Modifiers.HasFlag(Modifiers.Generator))
         {
@@ -7369,6 +9175,7 @@ public partial class ILCompiler
         var localFunctions = block.Statements
             .OfType<LocalFunctionStatement>()
             .ToList();
+        var directLambdaLocals = GetDirectLambdaLocalDeclarations(block, localFunctions);
 
         foreach (var localFunction in localFunctions)
         {
@@ -7376,7 +9183,13 @@ public partial class ILCompiler
             _localFunctionDeclarations[localFunction.Function.Name] = localFunction.Function;
         }
 
-        if (_liftLocalsIntoBoxes)
+        foreach (var directLambdaLocal in directLambdaLocals.Values)
+        {
+            _localFunctionDeclarations ??= new Dictionary<string, FunctionDeclaration>();
+            _localFunctionDeclarations[directLambdaLocal.Function.Name] = directLambdaLocal.Function;
+        }
+
+        if (_liftLocalsIntoBoxes || _localsToPredeclareForCapture is { Count: > 0 })
         {
             var predeclaredNames = new HashSet<string>();
             foreach (var statement in block.Statements)
@@ -7384,6 +9197,12 @@ public partial class ILCompiler
                 switch (statement)
                 {
                     case VariableDeclarationStatement variableDeclaration:
+                        if (directLambdaLocals.ContainsKey(variableDeclaration))
+                            break;
+
+                        if (!ShouldPredeclareLocalForCapture(variableDeclaration.Name))
+                            break;
+
                         if (!predeclaredNames.Add(variableDeclaration.Name))
                             break;
 
@@ -7409,7 +9228,7 @@ public partial class ILCompiler
                         for (int i = 0; i < tupleDeconstruction.Names.Count; i++)
                         {
                             var name = tupleDeconstruction.Names[i];
-                            if (name == "_" || !predeclaredNames.Add(name))
+                            if (name == "_" || !ShouldPredeclareLocalForCapture(name) || !predeclaredNames.Add(name))
                             {
                                 continue;
                             }
@@ -7455,6 +9274,11 @@ public partial class ILCompiler
             }
         }
 
+        foreach (var directLambdaLocal in directLambdaLocals.Values)
+        {
+            DeclareGenericLocalFunction(directLambdaLocal);
+        }
+
         foreach (var localFunction in localFunctions)
         {
             if (localFunction.Function.TypeParameters is { Count: > 0 }
@@ -7467,6 +9291,11 @@ public partial class ILCompiler
             EmitLocalFunctionInitialization(localFunction);
         }
 
+        foreach (var directLambdaLocal in directLambdaLocals.Values)
+        {
+            EmitGenericLocalFunctionBody(directLambdaLocal);
+        }
+
         var declaredNames = new HashSet<string>();
         foreach (var statement in block.Statements)
         {
@@ -7475,8 +9304,13 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (!_liftLocalsIntoBoxes)
-                ShadowOuterLocalsForBlockDeclaration(statement, outerLocals, declaredNames);
+            ShadowOuterLocalsForBlockDeclaration(statement, outerLocals, declaredNames);
+            if (statement is VariableDeclarationStatement variableDeclaration
+                && directLambdaLocals.ContainsKey(variableDeclaration))
+            {
+                continue;
+            }
+
             EmitStatement(statement);
         }
     }
@@ -7512,6 +9346,9 @@ public partial class ILCompiler
         if (_locals == null || name == "_" || !declaredNames.Add(name))
             return;
 
+        if (IsLiftedIdentifier(name))
+            return;
+
         if (outerLocals.ContainsKey(name))
             _locals.Remove(name);
     }
@@ -7525,10 +9362,15 @@ public partial class ILCompiler
         return CreateDelegateType(parameterTypes, returnType);
     }
 
-    private Type GetLocalFunctionReturnType(FunctionDeclaration function)
+    private Type GetLocalFunctionReturnType(FunctionDeclaration function, GenericTypeParameterBuilder[]? genericParameters = null)
     {
+        // A generic local function's own type parameters (e.g. `func f<T>(): T`) are NOT in the
+        // enclosing method's generic parameter set, so the return type must be resolved against the
+        // combined parameters supplied by the caller. Falling back to _currentGenericParameters here
+        // erased a `T` return to `object`, producing GC-unsafe IL (the body returns an unboxed T while
+        // the signature claimed object) that crashes the x64 JIT.
         var innerReturnType = function.ReturnType != null
-            ? ResolveType(function.ReturnType, _currentGenericParameters)
+            ? ResolveType(function.ReturnType, genericParameters ?? _currentGenericParameters)
             : function.ExpressionBody != null
                 ? GetExpressionType(function.ExpressionBody)
                 : function.Body != null
@@ -8406,10 +10248,23 @@ public partial class ILCompiler
         MethodInfo? getEnumeratorMethod;
         Type enumeratorType;
 
-        if (collectionType.IsArray)
+        // Single-dimension, zero-based arrays (SZArrays) get the allocation-free
+        // index-loop fast path (ldlen + index + ldelem) with no enumerator allocation.
+        // Multi-dimension or non-zero-based / variable-bound rank-1 arrays fall through
+        // to the enumerator path, since ldlen/ldelem are only valid for SZArrays.
+        if (IsSingleDimensionZeroBasedArray(collectionType))
         {
             elementType = collectionType.GetElementType()!;
             EmitForeachForArray(foreachStmt, collectionType, elementType);
+            return;
+        }
+
+        // Span<T> / ReadOnlySpan<T> get an allocation-free index-loop fast path
+        // (Length + indexer) with no enumerator allocation. Spans are ref structs,
+        // so the enumerator path would be undesirable anyway.
+        if (TryGetSpanElementType(collectionType, out var spanElementType, out _))
+        {
+            EmitForeachForSpan(foreachStmt, collectionType, spanElementType);
             return;
         }
 
@@ -8684,6 +10539,22 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Returns true only for single-dimension, zero-based arrays (SZArrays, i.e. <c>T[]</c>).
+    /// These are the only arrays for which <c>ldlen</c>/<c>ldelem</c> are valid IL and for
+    /// which the allocation-free index-loop fast path is safe. Multi-dimension arrays
+    /// (<c>T[,]</c>) and non-zero-based / variable-bound rank-1 arrays (<c>T[*]</c>) must use
+    /// the enumerator path to preserve correct row-major semantics.
+    /// </summary>
+    private static bool IsSingleDimensionZeroBasedArray(Type type)
+    {
+        // Type.IsSZArray is the purpose-built predicate: it is true only for single-dimension,
+        // zero-based arrays (T[]) and false for multi-dimension (T[,]) and variable-bound
+        // rank-1 arrays (T[*]). It is reliable across runtime types, generic-parameter element
+        // types, and reflection-only/builder types in the compiler context.
+        return type.IsSZArray;
+    }
+
+    /// <summary>
     /// Emit IL for foreach over an array (using index-based iteration)
     /// </summary>
     private void EmitForeachForArray(ForeachStatement foreachStmt, Type arrayType, Type elementType)
@@ -8778,6 +10649,96 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Br, loopStart);
 
         // Mark loop end
+        _currentIL.MarkLabel(loopEnd);
+    }
+
+    /// <summary>
+    /// Emit IL for foreach over a Span&lt;T&gt; or ReadOnlySpan&lt;T&gt; using an
+    /// allocation-free index loop. Reads the span's Length once and loads each element
+    /// through MemoryMarshal.GetReference + Unsafe.Add + ldind, exactly as span indexing
+    /// does. No enumerator is allocated and the ref struct never escapes the stack frame.
+    /// </summary>
+    private void EmitForeachForSpan(ForeachStatement foreachStmt, Type spanType, Type elementType)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Store the span in a local (ref struct value type — stays on the stack frame).
+        EmitExpression(foreachStmt.Collection);
+        var spanLocal = _currentIL.DeclareLocal(spanType);
+        _currentIL.Emit(OpCodes.Stloc, spanLocal);
+
+        // Cache the length once so the bounds check does not re-read it each iteration.
+        var lengthGetter = ResolveRuntimeProperty(spanType, "Length", BindingFlags.Public | BindingFlags.Instance)?.Getter
+            ?? throw new InvalidOperationException($"Cannot find Length property for span type {spanType}");
+        var lengthLocal = _currentIL.DeclareLocal(typeof(int));
+        _currentIL.Emit(OpCodes.Ldloca, spanLocal);
+        _currentIL.Emit(OpCodes.Call, lengthGetter);
+        _currentIL.Emit(OpCodes.Stloc, lengthLocal);
+
+        // Index variable initialized to 0.
+        var indexLocal = _currentIL.DeclareLocal(typeof(int));
+        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        var loopStart = _currentIL.DefineLabel();
+        var continueLabel = _currentIL.DefineLabel();
+        var loopEnd = _currentIL.DefineLabel();
+
+        _currentIL.MarkLabel(loopStart);
+
+        // if (index >= length) break;
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldloc, lengthLocal);
+        _currentIL.Emit(OpCodes.Bge, loopEnd);
+
+        // Load span[index] via GetReference + Unsafe.Add + ldind (the span indexer shape).
+        _currentIL.Emit(OpCodes.Ldloc, spanLocal);
+        _currentIL.Emit(OpCodes.Call, ResolveSpanGetReferenceMethod(spanType));
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Call, ResolveUnsafeAddMethod(elementType));
+        EmitLoadIndirect(elementType);
+
+        // Declare loop variable and store the element.
+        LocalBuilder loopVar;
+        if (_locals.TryGetValue(foreachStmt.VariableName, out var existingSpanLoopVar))
+        {
+            loopVar = existingSpanLoopVar;
+        }
+        else
+        {
+            loopVar = DeclareNamedLocal(foreachStmt.VariableName, elementType);
+        }
+        if (IsLiftedIdentifier(foreachStmt.VariableName))
+        {
+            EmitStoreLiftedLocalValue(loopVar, elementType, leaveValueOnStack: false);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Stloc, loopVar);
+        }
+
+        _breakLabels.Push(new BranchTarget(loopEnd, useLeave: false));
+        _continueLabels.Push(new BranchTarget(continueLabel, useLeave: false));
+        try
+        {
+            EmitStatement(foreachStmt.Body);
+        }
+        finally
+        {
+            _continueLabels.Pop();
+            _breakLabels.Pop();
+        }
+
+        _currentIL.MarkLabel(continueLabel);
+
+        // index++
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4_1);
+        _currentIL.Emit(OpCodes.Add);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        _currentIL.Emit(OpCodes.Br, loopStart);
+
         _currentIL.MarkLabel(loopEnd);
     }
 
@@ -10521,7 +12482,10 @@ public partial class ILCompiler
                     }
 
                     EmitBoundCallArguments(boundInstanceCall.Arguments);
-                    _currentIL.Emit(useAddressReceiverForBoundCall || !boundInstanceCall.Method.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, boundInstanceCall.Method);
+                    var useDirectBoundCall = useAddressReceiverForBoundCall
+                        || !boundInstanceCall.Method.IsVirtual
+                        || CanDevirtualizeInstanceCall(memberAccess.Object, objectType);
+                    _currentIL.Emit(useDirectBoundCall ? OpCodes.Call : OpCodes.Callvirt, boundInstanceCall.Method);
                     return;
                 }
 
@@ -10547,20 +12511,65 @@ public partial class ILCompiler
                 }
 
                 EmitCallArguments(call.Arguments, userDefinedMethod.GetParameters().Select(p => p.ParameterType).ToArray());
-                _currentIL.Emit(useAddressReceiver || !userDefinedMethod.IsVirtual ? OpCodes.Call : OpCodes.Callvirt, userDefinedMethod);
+                var useDirectUserCall = useAddressReceiver
+                    || !userDefinedMethod.IsVirtual
+                    || CanDevirtualizeInstanceCall(memberAccess.Object, objectType);
+                _currentIL.Emit(useDirectUserCall ? OpCodes.Call : OpCodes.Callvirt, userDefinedMethod);
                 return;
             }
 
-            // Handle constrained calls on generic type parameters
+            // Handle constrained calls on generic type parameters. Loading the
+            // receiver by address and emitting a `constrained.` prefix lets the
+            // runtime dispatch on the concrete type argument without boxing the
+            // value when `T` is instantiated with a value type.
             if (objectType.IsGenericParameter)
             {
                 EmitAddressableExpression(memberAccess.Object, objectType);
 
-                // For generic type parameters, we need to find the method on the constraint
-                BoundRuntimeMethodCall? boundRuntimeCall = null;
-
-                // Try to find the method on the constraints
                 var constraints = objectType.GetGenericParameterConstraints();
+
+                // Prefer declared/duck interface (or class) constraints that are
+                // defined in this compilation: their methods live in TypeBuilders
+                // and cannot be resolved through runtime reflection binding.
+                foreach (var constraint in constraints)
+                {
+                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    {
+                        continue;
+                    }
+
+                    var boundDeclaredCall = BindDeclaredMethodCall(
+                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                        call,
+                        targetType: constraint,
+                        predicate: overload => !overload.Builder.IsStatic);
+                    if (boundDeclaredCall != null)
+                    {
+                        EmitBoundCallArguments(boundDeclaredCall.Arguments);
+
+                        // constrained. on the type parameter avoids boxing the
+                        // receiver when the method is dispatched virtually.
+                        _currentIL.Emit(OpCodes.Constrained, objectType);
+                        _currentIL.Emit(OpCodes.Callvirt, boundDeclaredCall.Method);
+                        return;
+                    }
+
+                    // Interface declarations only register their members in the
+                    // method table (not the overload table), so fall back to a
+                    // direct lookup and bind the call arguments positionally.
+                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
+                    if (declaredMethod != null)
+                    {
+                        EmitCallArguments(call.Arguments, declaredMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray());
+
+                        _currentIL.Emit(OpCodes.Constrained, objectType);
+                        _currentIL.Emit(OpCodes.Callvirt, declaredMethod);
+                        return;
+                    }
+                }
+
+                // Otherwise resolve the method against a runtime (BCL) constraint.
+                BoundRuntimeMethodCall? boundRuntimeCall = null;
                 foreach (var constraint in constraints)
                 {
                     boundRuntimeCall = BindRuntimeMethodCall(
@@ -10607,7 +12616,9 @@ public partial class ILCompiler
                 }
 
                 EmitBoundCallArguments(boundRuntimeMethod.Arguments);
-                if (useAddressReceiver || !boundRuntimeMethod.Method.IsVirtual)
+                if (useAddressReceiver
+                    || !boundRuntimeMethod.Method.IsVirtual
+                    || CanDevirtualizeInstanceCall(memberAccess.Object, objectType))
                 {
                     _currentIL.Emit(OpCodes.Call, boundRuntimeMethod.Method);
                 }
@@ -11321,6 +13332,19 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Emit construction of a value-struct union case by calling the case's static
+    /// factory on the union struct. This leaves the union value on the stack with no
+    /// per-case heap allocation in the caller (a single <c>call</c>).
+    /// </summary>
+    private void EmitValueStructUnionConstruction(ValueStructUnionLayout layout, Type caseType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var factory = layout.CaseFactories[caseType];
+        _currentIL.Emit(OpCodes.Call, factory);
+    }
+
+    /// <summary>
     /// Emit IL for a new object expression
     /// </summary>
     private void EmitNewObject(NewExpression newExpr)
@@ -11328,6 +13352,14 @@ public partial class ILCompiler
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
         var type = ResolveNewExpressionType(newExpr);
+
+        // Allocation-free value-struct union case construction: `new U.Case` produces a
+        // U struct value via the case's static factory, instead of allocating a case class.
+        if (TryGetValueStructUnionCase(type, out var unionLayout, out _))
+        {
+            EmitValueStructUnionConstruction(unionLayout, type);
+            return;
+        }
 
         if (type.IsGenericParameter)
         {
@@ -12881,6 +14913,15 @@ public partial class ILCompiler
             return;
         }
 
+        // `unionValue is U.Case` on a value-struct union is an integer tag compare, not a
+        // reference-type isinst (which would be invalid IL against a value type). The case
+        // carries no payload, so there is nothing to bind; produce the boolean result.
+        if (TryGetValueStructUnionCase(targetType, out var vsIsLayout, out var vsIsTag))
+        {
+            EmitValueStructUnionIsTest(isExpr.Expression, vsIsLayout, vsIsTag);
+            return;
+        }
+
         EmitExpression(isExpr.Expression);
         _currentIL.Emit(OpCodes.Isinst, targetType);
 
@@ -13132,7 +15173,7 @@ public partial class ILCompiler
             AssignmentExpression assignment => GetExpressionType(assignment.Value),
             TupleExpression tuple => GetTupleExpressionType(tuple),
             NewExpression newExpr => newExpr.Type != null || _expectedExpressionType != null || IsAnonymousObjectCreation(newExpr)
-                ? ResolveNewExpressionType(newExpr)
+                ? MapValueStructUnionCaseToUnion(ResolveNewExpressionType(newExpr))
                 : typeof(object),
             WithExpression withExpr => GetExpressionType(withExpr.Target),
             AwaitExpression awaitExpression => GetAwaitResultType(GetExpressionType(awaitExpression.Expression)),
@@ -13802,7 +15843,35 @@ public partial class ILCompiler
             // Use reflection for built-in types
             if (objectType.IsGenericParameter)
             {
-                foreach (var constraint in objectType.GetGenericParameterConstraints())
+                var genericConstraints = objectType.GetGenericParameterConstraints();
+
+                // Declared/duck interface (or class) constraints defined in this
+                // compilation resolve through the TypeBuilder method tables.
+                foreach (var constraint in genericConstraints)
+                {
+                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    {
+                        continue;
+                    }
+
+                    var boundDeclaredCall = BindDeclaredMethodCall(
+                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                        call,
+                        targetType: constraint,
+                        predicate: overload => !overload.Builder.IsStatic);
+                    if (boundDeclaredCall != null)
+                    {
+                        return GetBoundDeclaredMethodReturnType(boundDeclaredCall);
+                    }
+
+                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
+                    if (declaredMethod != null)
+                    {
+                        return declaredMethod.ReturnType;
+                    }
+                }
+
+                foreach (var constraint in genericConstraints)
                 {
                     var constrainedMethod = BindRuntimeMethodCall(
                         constraint,
@@ -14989,6 +17058,14 @@ public partial class ILCompiler
             return;
         }
 
+        // Allocation-free path: small, closed, value-friendly, payload-free unions are
+        // emitted as a readonly struct with an integer tag instead of a class hierarchy.
+        if (Performance.UnionValueLayout.IsValueStructEmittable(unionDecl))
+        {
+            DeclareValueStructUnion(moduleBuilder, unionDecl);
+            return;
+        }
+
         var unionType = moduleBuilder.DefineType(
             unionDecl.Name,
             GetTypeVisibilityAttributes(unionDecl.Name, unionDecl.Modifiers) | TypeAttributes.Class | TypeAttributes.Abstract);
@@ -15078,12 +17155,162 @@ public partial class ILCompiler
         }
     }
 
+    /// <summary>
+    /// Emit a small, closed, payload-free union as an allocation-free
+    /// <c>readonly struct</c> with an integer discriminator tag. Each case is assigned
+    /// a distinct tag value; construction writes the tag (no <c>newobj</c>) and pattern
+    /// tests compare the tag (no <c>isinst</c>). Nested case marker types are still
+    /// emitted so reflection / type-resolution / tooling continue to see
+    /// <c>Union+Case</c>, but they are never instantiated.
+    /// </summary>
+    private void DeclareValueStructUnion(ModuleBuilder moduleBuilder, UnionDeclaration unionDecl)
+    {
+        var unionType = moduleBuilder.DefineType(
+            unionDecl.Name,
+            GetTypeVisibilityAttributes(unionDecl.Name, unionDecl.Modifiers) | TypeAttributes.Sealed | TypeAttributes.SequentialLayout,
+            typeof(ValueType));
+        ApplyCustomAttributes(unionType.SetCustomAttribute, unionDecl.Attributes);
+        ApplyNullableContextAttribute(unionType.SetCustomAttribute);
+        ApplyIsReadOnlyAttribute(unionType.SetCustomAttribute);
+        RegisterType(unionDecl.Name, unionType);
+
+        // Integer discriminator. InitOnly is valid because it is only ever written in
+        // the private tag constructor, keeping the struct a genuine readonly struct.
+        var tagField = unionType.DefineField(
+            "_tag",
+            typeof(int),
+            FieldAttributes.Private | FieldAttributes.InitOnly);
+        _fields[GetFieldKey(unionType, "_tag")] = tagField;
+
+        // Private constructor: U(int tag) { _tag = tag; }. Construction goes through the
+        // per-case static factories below, never directly from call sites, so the field
+        // stays encapsulated and the readonly-struct invariant holds.
+        var tagCtor = unionType.DefineConstructor(
+            MethodAttributes.Private | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName,
+            CallingConventions.Standard,
+            new[] { typeof(int) });
+        var ctorIl = tagCtor.GetILGenerator();
+        ctorIl.Emit(OpCodes.Ldarg_0);
+        ctorIl.Emit(OpCodes.Ldarg_1);
+        ctorIl.Emit(OpCodes.Stfld, tagField);
+        ctorIl.Emit(OpCodes.Ret);
+
+        // Public Tag accessor so the discriminator is inspectable from C#.
+        var tagGetter = unionType.DefineMethod(
+            "get_Tag",
+            MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+            typeof(int),
+            Type.EmptyTypes);
+        var tagIl = tagGetter.GetILGenerator();
+        tagIl.Emit(OpCodes.Ldarg_0);
+        tagIl.Emit(OpCodes.Ldfld, tagField);
+        tagIl.Emit(OpCodes.Ret);
+        var tagProperty = unionType.DefineProperty("Tag", PropertyAttributes.None, typeof(int), Type.EmptyTypes);
+        tagProperty.SetGetMethod(tagGetter);
+
+        var caseTags = new Dictionary<Type, int>();
+        var caseFactories = new Dictionary<Type, MethodBuilder>();
+        var layout = new ValueStructUnionLayout(unionType, tagField, tagCtor, tagGetter, caseTags, caseFactories);
+
+        int tag = 0;
+        foreach (var unionCase in unionDecl.Cases)
+        {
+            // Marker nested type, preserved for reflection/tooling parity with the
+            // class-hierarchy representation. It is sealed/abstract and never instantiated.
+            var caseType = unionType.DefineNestedType(
+                unionCase.Name,
+                VisibilityConventions.GetNestedTypeAttributes(unionCase.Name, Modifiers.None) | TypeAttributes.Class | TypeAttributes.Sealed | TypeAttributes.Abstract,
+                typeof(object));
+            ApplyNullableContextAttribute(caseType.SetCustomAttribute);
+
+            var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
+            RegisterType(caseKey, caseType);
+
+            // Public int constant exposing the tag value (e.g. Union.Case.Tag) for C# consumers.
+            var caseTagConst = caseType.DefineField(
+                "Tag",
+                typeof(int),
+                FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal);
+            caseTagConst.SetConstant(tag);
+
+            caseTags[caseType] = tag;
+            _valueStructUnionCaseTypes[caseType] = layout;
+            tag++;
+        }
+
+        // Per-case static factories on the union struct: `static U <Case>() => new U(tag)`.
+        // Call sites invoke these with a single `call`, so no per-case object is allocated
+        // in the caller. The factory name is prefixed to avoid colliding with the nested
+        // marker type of the same case name.
+        int factoryTag = 0;
+        foreach (var unionCase in unionDecl.Cases)
+        {
+            var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
+            var caseType = _types[caseKey];
+
+            var factory = unionType.DefineMethod(
+                $"Create_{unionCase.Name}",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
+                unionType,
+                Type.EmptyTypes);
+            var factoryIl = factory.GetILGenerator();
+            factoryIl.Emit(OpCodes.Ldc_I4, factoryTag);
+            factoryIl.Emit(OpCodes.Newobj, tagCtor);
+            factoryIl.Emit(OpCodes.Ret);
+
+            caseFactories[caseType] = factory;
+            factoryTag++;
+        }
+
+        _valueStructUnions[unionType] = layout;
+    }
+
+    /// <summary>Returns the value-struct layout for a union type, or null if it is not value-struct represented.</summary>
+    private ValueStructUnionLayout? GetValueStructUnionLayout(Type type)
+    {
+        return _valueStructUnions.TryGetValue(type, out var layout) ? layout : null;
+    }
+
+    /// <summary>
+    /// If <paramref name="type"/> is a value-struct union case marker, returns the owning
+    /// union struct type; otherwise returns <paramref name="type"/> unchanged. A
+    /// constructed value-struct union case (<c>new U.Case</c>) yields a <c>U</c> value, so
+    /// its expression type must be reported as <c>U</c> — not the marker — to avoid a
+    /// spurious box/unbox coercion when the value is stored or returned.
+    /// </summary>
+    private Type MapValueStructUnionCaseToUnion(Type type)
+    {
+        return _valueStructUnionCaseTypes.TryGetValue(type, out var layout) ? layout.UnionType : type;
+    }
+
+    /// <summary>Returns the owning union layout and tag for a value-struct union case marker type, or false.</summary>
+    private bool TryGetValueStructUnionCase(Type caseType, out ValueStructUnionLayout layout, out int tag)
+    {
+        if (_valueStructUnionCaseTypes.TryGetValue(caseType, out var found))
+        {
+            layout = found;
+            tag = found.CaseTags[caseType];
+            return true;
+        }
+
+        layout = null!;
+        tag = 0;
+        return false;
+    }
+
     private void EmitUnionBodies(UnionDeclaration unionDecl, string? declaredTypeName = null)
     {
         var typeName = declaredTypeName ?? unionDecl.Name;
         if (!_types.TryGetValue(typeName, out var unionType))
         {
             throw new InvalidOperationException($"Union {typeName} not declared");
+        }
+
+        // Value-struct unions have no per-case bodies/constructors to emit; everything
+        // is inlined at construction/match sites and the struct itself needs no body.
+        if (GetValueStructUnionLayout(unionType) != null)
+        {
+            return;
         }
 
         if (_constructors.TryGetValue(GetConstructorKey(unionType), out var unionCtor))
@@ -16111,7 +18338,7 @@ public partial class ILCompiler
 
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
         _currentIL = constructorBuilder.GetILGenerator();
-        InitializeBodyContext(null, ContainsNestedFunction(ctorDecl.Body));
+        InitializeBodyContextForBody(null, ctorDecl.Body, null, ctorDecl.Parameters);
         _currentHasThis = true;
         _currentGenericParameters = typeGenericParameters;
 
@@ -16210,8 +18437,7 @@ public partial class ILCompiler
             bodyReturnType = asyncResultType ?? typeof(void);
         }
 
-        InitializeBodyContext(bodyReturnType, ContainsNestedFunction(funcDecl.Body)
-            || (funcDecl.ExpressionBody != null && ContainsNestedFunction(funcDecl.ExpressionBody)));
+        InitializeBodyContextForBody(bodyReturnType, funcDecl.Body, funcDecl.ExpressionBody, funcDecl.Parameters);
         InitializeStructuredReturnContext(bodyReturnType);
         _currentHasThis = !methodBuilder.IsStatic;
         if (funcDecl.Modifiers.HasFlag(Modifiers.Generator))
@@ -16585,9 +18811,16 @@ public partial class ILCompiler
                 }
                 else if (identPattern.Name.Contains('.') && _types.TryGetValue(identPattern.Name, out var qualifiedCaseType))
                 {
-                    _currentIL.Emit(OpCodes.Isinst, qualifiedCaseType);
-                    _currentIL.Emit(OpCodes.Brtrue, successLabel);
-                    _currentIL.Emit(OpCodes.Br, failLabel);
+                    if (TryGetValueStructUnionCase(qualifiedCaseType, out var qualifiedLayout, out var qualifiedTag))
+                    {
+                        EmitValueStructUnionTagTest(qualifiedLayout, qualifiedTag, successLabel, failLabel);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Isinst, qualifiedCaseType);
+                        _currentIL.Emit(OpCodes.Brtrue, successLabel);
+                        _currentIL.Emit(OpCodes.Br, failLabel);
+                    }
                 }
                 else if (TryResolvePatternType(identPattern.Name, out var patternType))
                 {
@@ -16876,6 +19109,14 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Union case type {unionPattern.CaseName} not declared");
         }
 
+        // Value-struct union: compare the discriminator tag instead of using isinst.
+        // Payload-free emittable unions never have pattern properties.
+        if (TryGetValueStructUnionCase(caseType, out var vsLayout, out var vsTag))
+        {
+            EmitValueStructUnionTagTest(vsLayout, vsTag, successLabel, failLabel);
+            return;
+        }
+
         _currentIL.Emit(OpCodes.Isinst, caseType);
         _currentIL.Emit(OpCodes.Dup);
 
@@ -16895,6 +19136,43 @@ public partial class ILCompiler
         var caseLocal = _currentIL.DeclareLocal(caseType);
         _currentIL.Emit(OpCodes.Stloc, caseLocal);
         EmitPropertyPatternTests(caseType, caseLocal, unionPattern.Properties, successLabel, failLabel);
+    }
+
+    /// <summary>
+    /// Emit a value-struct union case test: the union value is on the stack; store it,
+    /// read its discriminator tag, and branch to success when it equals the case tag.
+    /// </summary>
+    private void EmitValueStructUnionTagTest(ValueStructUnionLayout layout, int tag, Label successLabel, Label failLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Read the discriminator via the public Tag accessor so the private backing
+        // field stays encapsulated (and so the read is legal from any calling method).
+        var unionLocal = _currentIL.DeclareLocal(layout.UnionType);
+        _currentIL.Emit(OpCodes.Stloc, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca_S, unionLocal);
+        _currentIL.Emit(OpCodes.Call, layout.TagGetter);
+        _currentIL.Emit(OpCodes.Ldc_I4, tag);
+        _currentIL.Emit(OpCodes.Beq, successLabel);
+        _currentIL.Emit(OpCodes.Br, failLabel);
+    }
+
+    /// <summary>
+    /// Emit a boolean `unionValue is U.Case` test for a value-struct union: evaluate the
+    /// union value, read its tag via the public accessor, and compare to the case tag.
+    /// Leaves a bool (1/0) on the stack.
+    /// </summary>
+    private void EmitValueStructUnionIsTest(Expression expression, ValueStructUnionLayout layout, int tag)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var unionLocal = _currentIL.DeclareLocal(layout.UnionType);
+        EmitExpression(expression);
+        _currentIL.Emit(OpCodes.Stloc, unionLocal);
+        _currentIL.Emit(OpCodes.Ldloca_S, unionLocal);
+        _currentIL.Emit(OpCodes.Call, layout.TagGetter);
+        _currentIL.Emit(OpCodes.Ldc_I4, tag);
+        _currentIL.Emit(OpCodes.Ceq);
     }
 
     private void EmitObjectPatternTest(Type targetType, List<PropertyPattern> properties, Label successLabel, Label failLabel)
@@ -17516,6 +19794,13 @@ public partial class ILCompiler
             baseType);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, recordDecl.Attributes);
         ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
+
+        // A readonly value-type wrapper (e.g. a newtype, which lowers to `readonly record struct`)
+        // must carry IsReadOnlyAttribute so consumers avoid defensive copies on the hot path.
+        if (recordDecl.IsStruct && recordDecl.Modifiers.HasFlag(Modifiers.Readonly))
+        {
+            ApplyIsReadOnlyAttribute(typeBuilder.SetCustomAttribute);
+        }
 
         RegisterType(recordDecl.Name, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, recordDecl.TypeParameters);

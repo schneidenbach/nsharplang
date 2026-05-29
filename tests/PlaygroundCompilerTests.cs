@@ -778,20 +778,20 @@ public sealed class PlaygroundCompilerTests
             package Playground
 
             func main() {
-                Message := "hi"
-                print Message
+                message := "hi"
             }
             """);
 
         var diagnostic = Assert.Single(result.Diagnostics,
-            diagnostic => diagnostic.Code == "NL008" &&
-                          diagnostic.Message.Contains("Message"));
+            diagnostic => diagnostic.Code == "NL001" &&
+                          diagnostic.Message.Contains("message"));
 
-        Assert.True(result.Ok);
-        Assert.Equal("info", diagnostic.Severity);
+        // NL001 (unused-variable) is a build-blocking error.
+        Assert.False(result.Ok);
+        Assert.Equal("error", diagnostic.Severity);
         Assert.Equal(4, diagnostic.Line);
         Assert.Equal(5, diagnostic.Column);
-        Assert.Equal("Message".Length, diagnostic.Length);
+        Assert.Equal("message".Length, diagnostic.Length);
     }
 
     [Fact]

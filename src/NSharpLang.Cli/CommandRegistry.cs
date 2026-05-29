@@ -20,7 +20,6 @@ public static class CommandRegistry
         new CliCommandSpec("test", "Run .tests.nl test suites"),
         new CliCommandSpec("format", "Format .nl source files"),
         new CliCommandSpec("lint", "Run static analysis rules"),
-        new CliCommandSpec("bench", "Run benchmarks"),
         new CliCommandSpec("clean", "Remove build artifacts"),
         new CliCommandSpec("watch", "Re-run commands on file changes"),
         new CliCommandSpec("doc", "Generate HTML API documentation"),
@@ -61,6 +60,7 @@ public static class CommandRegistry
         new CliCommandSpec("hover", "Signature + docs at a position"),
         new CliCommandSpec("call-graph", "Callers and callees of a function"),
         new CliCommandSpec("implementors", "Concrete types implementing an interface"),
+        new CliCommandSpec("perf", "Explain allocation/dispatch/capture/ABI facts at a position"),
         new CliCommandSpec("help", "Show query help")
     };
 

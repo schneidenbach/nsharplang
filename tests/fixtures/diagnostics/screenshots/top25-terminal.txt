@@ -10,6 +10,13 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        example: [analyzer] Cannot infer type
        next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
+  [1x] diagnostic-message-shape / variable-declaration / risk: low
+       recipe: manual-triage:inspect-root-diagnostic
+       root: analyzer/duplicate-declaration.nl:3:5
+       next command: nlc query inspect --file analyzer/duplicate-declaration.nl --pos 3:5
+       example: [analyzer] 'count' is already declared in this scope
+       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
+       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   [1x] diagnostic-message-shape / function-declaration / risk: low
        recipe: manual-triage:inspect-root-diagnostic
        root: analyzer/missing-return.nl:1:1
@@ -64,13 +71,6 @@ Diagnostic clusters (25 groups, 25 diagnostics)
        root: linter/async-without-await.nl:1:1
        next command: nlc query inspect --file linter/async-without-await.nl --pos 1:1
        example: [linter] Async function has no await
-       next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
-       next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
-  [1x] diagnostic-message-shape / call-or-construction / risk: low
-       recipe: manual-triage:inspect-root-diagnostic
-       root: linter/empty-catch.nl:5:3
-       next command: nlc query inspect --file linter/empty-catch.nl --pos 5:3
-       example: [linter] Empty catch block
        next: Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.
        next: After fixing the root cause, rerun diagnostics and compare the remaining cluster counts.
   ... 15 more clusters omitted; use --json for the full AI-consumable cluster list.
@@ -255,6 +255,19 @@ Suggestion: Add arms for the missing cases or a final `_ => ...` arm when a catc
 
 See: https://docs.n-sharp.dev/errors/analyzer/NL501
 
+── [NL306] ERROR ────── analyzer/duplicate-declaration.nl:3:5 ──
+
+    3 |     count := 2
+      |     ^^^^^
+
+[analyzer] 'count' is already declared in this scope
+
+Two declarations share the name `count`; the second hides the first and is almost always a mistake.
+
+Suggestion: Rename one of the declarations or remove the duplicate.
+
+See: https://docs.n-sharp.dev/errors/analyzer/NL306
+
 ── [NL001] ERROR ────────────── linter/unused-variable.nl:2:5 ──
 
     2 |     temp := 42
@@ -294,9 +307,22 @@ Suggestion: Remove the import or use a symbol from it.
 
 See: https://docs.n-sharp.dev/errors/linter/NL010
 
-── [NL003] WARNING ───── linter/unnecessary-null-check.nl:3:4 ──
+── [NL002] ERROR ────────────── linter/missing-import.nl:2:18 ──
 
-    3 | if name != null {
+    2 |     items := new List<int>()
+      |                  ^^^^
+
+[linter] I can't find 'List' — it looks like a missing import
+
+`List` resolves to a known framework type whose namespace is not imported in this file.
+
+Suggestion: Add `import System.Collections.Generic` at the top of the file.
+
+See: https://docs.n-sharp.dev/errors/linter/NL002
+
+── [NL003] ERROR ─────── linter/unnecessary-null-check.nl:3:4 ──
+
+    3 | if zero != null {
       |    ^^^^
 
 [linter] Unnecessary null check on non-nullable value
@@ -307,7 +333,7 @@ Suggestion: Delete the null check and keep the useful branch body.
 
 See: https://docs.n-sharp.dev/errors/linter/NL003
 
-── [NL004] WARNING ──────── linter/async-without-await.nl:1:1 ──
+── [NL004] ERROR ────────── linter/async-without-await.nl:1:1 ──
 
     1 | async func Load(): Task<int> {
       | ^^^^^^^^^^
@@ -320,20 +346,7 @@ Suggestion: Remove `async` or await the asynchronous operation that should drive
 
 See: https://docs.n-sharp.dev/errors/linter/NL004
 
-── [NL005] INFO ────────── linter/use-pattern-matching.nl:3:1 ──
-
-    3 | if value is string {
-      | ^^
-
-[linter] Use pattern matching
-
-A chain of type or shape checks is easier to audit when expressed as one match.
-
-Suggestion: Rewrite the branch as a `match` when several related cases are being handled.
-
-See: https://docs.n-sharp.dev/errors/linter/NL005
-
-── [NL011] WARNING ──────────────── linter/empty-catch.nl:5:3 ──
+── [NL011] ERROR ────────────────── linter/empty-catch.nl:5:3 ──
 
     5 | } catch (ex) {
       |   ^^^^^
@@ -346,7 +359,7 @@ Suggestion: Handle the error, log it, or explain the intentional suppression wit
 
 See: https://docs.n-sharp.dev/errors/linter/NL011
 
-── [NL012] INFO ───────────── linter/unused-parameter.nl:1:11 ──
+── [NL012] ERROR ──────────── linter/unused-parameter.nl:1:11 ──
 
     1 | func Save(options: SaveOptions) {
       |           ^^^^^^^
@@ -359,33 +372,20 @@ Suggestion: Use the parameter, remove it from the signature, or prefix it with `
 
 See: https://docs.n-sharp.dev/errors/linter/NL012
 
-── [NL013] INFO ───────── linter/prefer-interpolation.nl:2:12 ──
+── [NL016] ERROR ───────── linter/redundant-null-check.nl:3:4 ──
 
-    2 | message := "Hello, " + name
-      |            ^
+    3 | if new User() != null {
+      |    ^^^^^^^^^
 
-[linter] Prefer string interpolation
+[linter] Redundant null check on a value that was just created
 
-Interpolation keeps formatting intent in one string instead of splitting it across concatenation.
+The expression was just created with `new`, so the comparison against null is always true.
 
-Suggestion: Use `$"Hello, {name}"`.
+Suggestion: Remove the null check — the value cannot be null.
 
-See: https://docs.n-sharp.dev/errors/linter/NL013
+See: https://docs.n-sharp.dev/errors/linter/NL016
 
-── [NL015] INFO ────────────────── linter/prefer-const.nl:2:5 ──
-
-    2 | let limit := 10
-      |     ^^^^^
-
-[linter] Variable 'limit' can be const
-
-Values that never change are clearer when declared as constants.
-
-Suggestion: Change `let` to `const`.
-
-See: https://docs.n-sharp.dev/errors/linter/NL015
-
-── [NL020] WARNING ────────── linter/shadowed-variable.nl:4:9 ──
+── [NL020] ERROR ──────────── linter/shadowed-variable.nl:4:9 ──
 
     4 |         count := item.Count
       |         ^^^^^
@@ -399,4 +399,4 @@ Suggestion: Rename the inner variable or reuse the existing one intentionally.
 See: https://docs.n-sharp.dev/errors/linter/NL020
 
 
-Found 17 errors, 4 warnings, 4 info.
+Found 25 errors.

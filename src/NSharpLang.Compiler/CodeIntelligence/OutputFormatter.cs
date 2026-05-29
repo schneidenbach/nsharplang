@@ -246,6 +246,49 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    /// <summary>
+    /// Emits the versioned performance report envelope for <c>nlc build --perf-report</c>.
+    /// The report groups performance facts by category. Until the compiler wires up a
+    /// performance-fact source, the categories are emitted as empty arrays so the
+    /// envelope shape is stable for downstream consumers.
+    /// </summary>
+    public static string BuildPerfReportToJson(string? projectRoot, bool ok = true)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "build",
+            ok,
+            projectRoot = NormalizePath(projectRoot),
+            perfReport = new
+            {
+                allocationSites = Array.Empty<object>(),
+                delegateSites = Array.Empty<object>(),
+                boxingSites = Array.Empty<object>(),
+                dispatchSites = Array.Empty<object>(),
+                closureCaptures = Array.Empty<object>(),
+                aotBlockers = Array.Empty<object>()
+            }
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    public static string PerfToJson(string file, int line, int col, string? projectRoot,
+        IReadOnlyList<object>? facts = null)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "perf",
+            ok = true,
+            projectRoot = NormalizePath(projectRoot),
+            file = NormalizePath(file),
+            position = new { line, column = col },
+            facts = facts ?? Array.Empty<object>()
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
     public static string DefinitionToJson(DefinitionResult result)
     {
         var envelope = new

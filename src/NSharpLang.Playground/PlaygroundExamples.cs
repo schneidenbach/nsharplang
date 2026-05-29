@@ -289,7 +289,10 @@ public static class PlaygroundExamples
             """
             package Tutorial
 
+            import System.Threading.Tasks
+
             async func LoadMessage(name: string): string {
+                await Task.Delay(10)
                 return $"Loaded profile for {name}"
             }
 

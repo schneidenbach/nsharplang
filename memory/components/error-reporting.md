@@ -41,7 +41,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 - Compiler diagnostics carry authoritative `Line`, `Column`, and `Length` through `CompilerError`; LSP and Playground markers use those exact spans.
 - Linter diagnostics carry `Location` plus `Length`; VS Code, `nlc check`, `nlc lint`, and Playground markers must use the stored linter span instead of re-searching message text in the source line.
-- Shorthand declarations such as `Message := "hi"` store the identifier column, so style diagnostics like `NL008` underline `Message`, not the `:=` operator or the tail of the identifier.
+- Shorthand declarations such as `message := "hi"` store the identifier column, so identifier-anchored diagnostics (including hygiene diagnostics like `NL001` unused-variable) underline `message`, not the `:=` operator or the tail of the identifier.
 - Name lookup diagnostics should underline the unresolved name itself: missing variables (`NL301`) and missing bare call targets (`NL412`) underline the identifier being resolved, while missing members (`NL303`) underline the requested member name, including symbols requested through file-import aliases such as `Lib.MissingThing`.
 - File-import diagnostics (`NL701`, `NL702`, `NL703`, and file-import `NL010`) underline the quoted path token that the developer must edit; import collisions point at the later duplicate import path rather than `(0,0)` or the `import` keyword.
 - The Playground/WASM fallback analyzer still reports built-in member typos such as `"text".ToUp()` when reflection metadata is unavailable, while suppressing diagnostics for known valid built-in members such as `ToUpper` and `Length`.
@@ -71,20 +71,35 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Declaration diagnostics should underline the duplicate or invalid declaration token, not a one-character fallback: duplicate symbols/types/cases/members underline the duplicate name, duplicate test lifecycle blocks underline the full `setup` or `teardown` keyword, invalid local variable declarations such as `const answer: int` or `let value` underline the full variable name, `params` ordering/type errors underline the params parameter name, required-after-optional errors underline the required parameter name, and invalid default values underline the default expression.
 - Missing declaration names underline the visible declaration keyword, such as `func`, `class`, `struct`, `record`, `interface`, `union`, `enum`, or `type`, instead of punctuation like `(`, `{`, or `=`.
 - Assignment diagnostics should underline the target or value token that must change: readonly field reassignment (`NL309`) underlines the assigned field name, whether the assignment is direct (`id = ...`) or qualified (`this.id = ...`).
+- Shadowing diagnostics (`NL315`) underline the shadowing declaration's NAME (the inner local/parameter), not the `:=`/`let` keyword. Definite-assignment diagnostics for locals (`NL304`) underline the READ of the unassigned variable, not its declaration.
 
 ## Error Codes
 
 ### Lint Diagnostics (001-099)
-- `NL001`: Unused variable (error by default; prefix intentional unused locals with `_`)
-- `NL006`: Unreachable code (error by default)
-- `NL010`: Unused import (error by default)
-- Other lint diagnostics keep warning/info defaults unless overridden in `.editorconfig`.
+
+N# is near-zero-warnings (see `docs/DESIGN.md` → Strictness). Correctness/safety/hygiene lint rules are build-blocking errors; pure-style rules have been deleted and folded into the formatter.
+
+**Active linter rules (all build-blocking errors):**
+- `NL001`: Unused variable (prefix intentional unused locals with `_`)
+- `NL002`: Missing import
+- `NL003`: Unnecessary null check (null check on a value-type literal)
+- `NL004`: Async without await
+- `NL006`: Unreachable code
+- `NL010`: Unused import
+- `NL011`: Empty catch (silently swallows exceptions)
+- `NL012`: Unused parameter
+- `NL016`: Redundant null check (null-equality check on an always-non-null expression)
+- `NL020`: Shadowed variable (local shadows an outer-scope variable)
+
+**Deleted pure-style rules** (no longer diagnostics; layout is owned by `nlc format`): `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block).
+
+Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig` overrides for configurable rules; the default posture is strict.
 
 ### Syntax Errors (100-199)
 - `NL101`: UnexpectedToken
 - `NL102`: ExpectedToken
 - `NL103`: InvalidSyntax
-- `NL104`: UnexpectedEndOfFile
+- `NL104`: UnexpectedEndOfFile — emitted when `Consume`/`ConsumeIdentifier` reach EOF while a token is still required (e.g. `func`, `class Foo`, or a trailing `<expected>` with no body). The span anchors on the last visible owner token (the keyword/identifier), never on the empty EOF position, and the message reads "...but reached the end of the file" instead of exposing the empty `''` token.
 - `NL105`: InvalidLiteral, including unterminated string, character, triple-quoted, and interpolated raw string literals with spans on the literal opener/token
 - `NL106-108`: Missing closing brace/paren/bracket, with line-break and empty-list recovery pointing at visible owner tokens when available
 - Required-expression `NL102` diagnostics after `:=`, `=`, `print`, `throw`, `if`, `while`, `foreach in`, `await`, `must`, `=>`, ternary `?`/`:`, and similar anchors recover without consuming the next statement, including statements that VS Code auto-indents after a dangling anchor. Declaration and assignment value gaps underline the variable/target name when available; keyword anchors underline the visible keyword; binary operator operand gaps underline the incomplete expression segment such as `1 +` instead of a one-character operator. Parser-recovery placeholders for missing boolean conditions must not cascade into semantic `NL202` diagnostics on whitespace.
@@ -101,13 +116,15 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL301`: UndefinedVariable
 - `NL302`: UndefinedType
 - `NL303`: UndefinedMember
-- `NL304`: DefiniteAssignmentError
+- `NL304`: DefiniteAssignmentError — covers both constructor fields and locals. A local declared without an initializer (`let x: int`) that is read before it is definitely assigned on every path that reaches the read is an error; the squiggle underlines the offending READ of the variable.
 - `NL305`: MissingReturn
 - `NL306`: DuplicateDeclaration
 - `NL307-311`: CircularDependency, InaccessibleMember, ReadonlyAssignment, ConstantRequired, InvalidModifier
 - `NL312`: UnreachableStatement (code after return/throw/exhaustive branches)
 - `NL313`: InvalidExpressionStatement (value/member expression written as a statement with no side effect)
 - `NL314`: UnverifiedErrorResult (error-tuple result used before the paired error is proven null)
+- `NL315`: DiscardedMustUseResult (bare call to a `[MustUse]`-annotated function/method whose result is silently discarded; use the value or discard explicitly with `_ = call()`). Span underlines the callee name.
+- `NL316`: ShadowedDeclaration — a local or parameter that shadows a local/parameter from an enclosing function/block scope is a hard, build-blocking error. This compiler check is authoritative: when it fires the file has a compiler error, which suppresses the linter's `NL020` for that file, so the user sees exactly one diagnostic. Shadowing a class member (field/property) is allowed, as are discards/underscore-prefixed names and sibling blocks that reuse a name without nesting.
 
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount
@@ -128,9 +145,57 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - `NL701`: ImportNotFound
 - `NL702-704`: ImportCollision, CircularImport, NamespaceNotFound
 
-### Warnings (900-999)
+### Compiler Diagnostics (900-999)
+
+Under the near-zero-warnings policy these are build-blocking **errors**, not warnings (see `docs/DESIGN.md` → Strictness):
 - `NL901`: UnusedVariable
-- `NL902-906`: UnreachableCode, VisibilityConvention, ObsoleteUsage, Nullability, UnnecessaryTypeAnnotation
+- `NL902`: UnreachableCode
+- `NL903`: VisibilityConvention (promoted from warning to error)
+- `NL904`: ObsoleteUsage (promoted from warning to error)
+- `NL905`: PossibleNullAccess — flow-based; unguarded nullable dereference/index/call is an error. Emitted from semantic analysis (visible through `nlc check`, `nlc query diagnostics`, and LSP), not the linter.
+- `NL907`: Nullability — nullability mismatch (promoted from warning to error)
+
+**Removed:** `NL906` (UnnecessaryTypeAnnotation) is deleted — redundant type annotations are pure style, handled by the formatter rather than a diagnostic. The `NL906` slot is retired and not reused.
+
+## Severity Policy
+
+N# is **near-zero-warnings** (full rationale in `docs/DESIGN.md` → Strictness). The single rule: correctness/safety/hygiene issues are build-blocking errors; pure style is handled by `nlc format`, not by diagnostics. There is intentionally no large tier of ignorable warnings.
+
+`DiagnosticCatalog` (`src/NSharpLang.Compiler/DiagnosticCatalog.cs`) is the authoritative policy surface — default severity, category, and build-blocking behavior for every code across compiler, linter, CLI, MSBuild, and LSP.
+
+### New strict checks
+
+- **Strict null-flow:** an unguarded nullable dereference/index/call is an error (`NL905`). Narrowing via `if x != null`, `?.`, or `??` clears it. Null safety is flow-based, not syntactic.
+- **Unused-result enforcement:** a must-use or error-returning result must be used or explicitly discarded with `_ =`; silently dropping it is an error.
+- **Shadowing is a compiler error** (linter `NL020`): a local may not shadow a name in an enclosing scope.
+- **Definite-assignment hardening:** non-nullable fields and `out` parameters must be assigned on every path before use (`NL304`); gaps are errors.
+
+### Docs sync — affected NL codes
+
+Keep the `docs.n-sharp.dev/errors/<code>` pages aligned with these changes:
+
+| Code | Source | Change | New severity |
+|------|--------|--------|--------------|
+| `NL903` VisibilityConvention | compiler | promoted | Error |
+| `NL904` ObsoleteUsage | compiler | promoted | Error |
+| `NL905` PossibleNullAccess | compiler | promoted + now flow-based | Error |
+| `NL907` Nullability | compiler | promoted | Error |
+| `NL906` UnnecessaryTypeAnnotation | compiler | **deleted** (folded into formatter) | — |
+| `NL003` unnecessary-null-check | linter | promoted | Error |
+| `NL004` async-without-await | linter | promoted | Error |
+| `NL011` empty-catch | linter | promoted | Error |
+| `NL012` unused-parameter | linter | promoted | Error |
+| `NL016` redundant-null-check | linter | promoted | Error |
+| `NL020` shadowed-variable | linter | promoted | Error |
+| `NL005` use-pattern-matching | linter | **deleted** (formatter) | — |
+| `NL008` camel-case-local | linter | **deleted** (formatter) | — |
+| `NL013` prefer-interpolation | linter | **deleted** (formatter) | — |
+| `NL014` unnecessary-type-annotation | linter | **deleted** (formatter) | — |
+| `NL015` prefer-const | linter | **deleted** (formatter) | — |
+| `NL018` prefer-readonly | linter | **deleted** (formatter) | — |
+| `NL019` empty-block | linter | **deleted** (formatter) | — |
+
+Deleted code slots are retired and not reused, so existing error-page URLs can 410/redirect rather than describe a live rule.
 
 ## Example Output (Elm-style)
 

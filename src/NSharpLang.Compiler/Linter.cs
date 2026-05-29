@@ -205,16 +205,6 @@ internal class LintVisitor
     private readonly HashSet<string> _allMemberAccessNames = new();
     private readonly Stack<HashSet<string>> _typeMemberNameScopes = new();
 
-    // NL015: Track let declarations and assignments within functions
-    // Maps variable name → (Line, Col, HasInitializer, InLambda)
-    private Dictionary<string, (int Line, int Column, bool HasInitializer, bool InLambda)> _letDeclarations = new();
-    private readonly HashSet<string> _assignedVariables = new();
-    private bool _inLambda = false;
-
-    // NL018: Track class field assignments — (field name → (assignedInCtor, assignedElsewhere))
-    private Dictionary<string, (bool InCtor, bool Elsewhere)> _classFieldAssignments = new();
-    private bool _inConstructor = false;
-
     // NL012: Track parameters separately so we can report them without polluting the unused-variable check
     private List<(string Name, int Line, int Column)> _currentFunctionParams = new();
     private HashSet<string> _currentFunctionParamUsages = new();
@@ -552,10 +542,7 @@ internal class LintVisitor
                     VisitStatement(prop.SetBody);
                 break;
             case ConstructorDeclaration ctor:
-                var wasInCtor = _inConstructor;
-                _inConstructor = true;
                 VisitStatement(ctor.Body);
-                _inConstructor = wasInCtor;
                 break;
             case TestDeclaration test:
                 if (test.TableParameters != null)
@@ -603,12 +590,6 @@ internal class LintVisitor
         _currentFunctionParams = new List<(string Name, int Line, int Column)>();
         _currentFunctionParamUsages = new HashSet<string>();
 
-        // NL015: Save outer let/assignment tracking state (per-function)
-        var outerLetDeclarations = _letDeclarations;
-        var outerAssignedVariables = _assignedVariables.ToHashSet();
-        _letDeclarations = new Dictionary<string, (int Line, int Column, bool HasInitializer, bool InLambda)>();
-        _assignedVariables.Clear();
-
         if (func.Body != null)
         {
             PushScope();
@@ -628,9 +609,6 @@ internal class LintVisitor
             // NL012: Report unused parameters
             CheckUnusedParameters(func.Name);
 
-            // NL015: Emit prefer-const diagnostics for this function scope
-            CheckPreferConst();
-
             PopScope();
         }
         else if (func.ExpressionBody != null)
@@ -648,9 +626,6 @@ internal class LintVisitor
 
             // NL012: Report unused parameters
             CheckUnusedParameters(func.Name);
-
-            // NL015: Emit prefer-const diagnostics for this function scope
-            CheckPreferConst();
 
             PopScope();
         }
@@ -679,12 +654,6 @@ internal class LintVisitor
         _hasAwaitInFunction = hadAwait;
         _currentFunctionParams = outerParams;
         _currentFunctionParamUsages = outerParamUsages;
-
-        // NL015: Restore outer let/assignment tracking
-        _letDeclarations = outerLetDeclarations;
-        _assignedVariables.Clear();
-        foreach (var v in outerAssignedVariables)
-            _assignedVariables.Add(v);
     }
 
     private void CheckUnusedParameters(string functionName)
@@ -694,6 +663,12 @@ internal class LintVisitor
 
         foreach (var (name, line, column) in _currentFunctionParams)
         {
+            // Underscore-prefixed parameters are an explicit "intentionally unused" signal
+            // (e.g. an interface/override that doesn't need the value). Honor it so this
+            // build-blocking error never fires for parameters the author already opted out of.
+            if (name == "_" || name.StartsWith("_", StringComparison.Ordinal))
+                continue;
+
             if (!_currentFunctionParamUsages.Contains(name))
             {
                 AddDiagnostic(
@@ -709,14 +684,18 @@ internal class LintVisitor
     private void VisitClass(ClassDeclaration classDecl)
     {
         VisitWithTypeMemberScope(classDecl.Members, classDecl.PrimaryConstructorParameters, () =>
-            VisitClassLikeMembers(classDecl.Members, classDecl.Name, classDecl.Line, classDecl.Column));
+        {
+            foreach (var member in classDecl.Members)
+            {
+                VisitDeclaration(member);
+            }
+        });
     }
 
     private void VisitStruct(StructDeclaration structDecl)
     {
         VisitWithTypeMemberScope(structDecl.Members, structDecl.PrimaryConstructorParameters, () =>
         {
-            // Structs don't typically have the same readonly pattern as classes, visit normally
             foreach (var member in structDecl.Members)
             {
                 VisitDeclaration(member);
@@ -797,45 +776,16 @@ internal class LintVisitor
                 var nameColumn = varDecl.Column;
                 if (!initializerHasParserError)
                 {
-                    // NL008: Camel-case local — warn if name starts with uppercase (skip _ prefixed)
-                    CheckCamelCaseLocal(varDecl.Name, varDecl.Line, nameColumn);
                     DeclareVariable(varDecl.Name, varDecl.Line, nameColumn);
                 }
 
                 if (varDecl.Initializer != null && !initializerHasParserError)
                 {
-                    // NL014: Unnecessary type annotation — flag obvious literal-type matches
-                    if (varDecl.Type != null && varDecl.Kind == VariableKind.Let)
-                        CheckUnnecessaryTypeAnnotation(varDecl.Type, varDecl.Initializer, varDecl.Line, varDecl.Column);
-
                     VisitExpression(varDecl.Initializer);
                 }
-                // NL015: Track let declarations that have an explicit type annotation.
-                // We only flag explicit `let x: T = ...` patterns, not `:=` shorthand,
-                // because the explicit annotation signals the developer is being deliberate
-                // and should use `const` when no reassignment occurs.
-                // Shorthand `:=` is too common to flag — it would be very noisy.
-                if (!initializerHasParserError && varDecl.Kind == VariableKind.Let && varDecl.Type != null)
-                    _letDeclarations[varDecl.Name] = (varDecl.Line, nameColumn, varDecl.Initializer != null, _inLambda);
                 break;
 
             case BlockStatement block:
-                // NL019: Empty block — warn if block has no statements
-                // (Only fire at function-body level; we suppress for interface method stubs etc.
-                //  The simplest safe check: only warn when the block is non-top-level, i.e. there
-                //  IS a containing scope already, which means we are inside at least one function.)
-                if (block.Statements.Count == 0 && _scopeStack.Count > 0)
-                {
-                    var (location, length) = GetBlockOwnerDiagnosticSpan(block);
-                    AddDiagnostic(
-                        "NL019",
-                        "This block is empty — it doesn't do anything",
-                        location,
-                        _config.GetSeverity("NL019"),
-                        "Add code to the block, or remove it if it's not needed",
-                        length);
-                }
-
                 PushScope();
                 var unreachableReported = false;
                 var restIsUnreachable = false;
@@ -1021,6 +971,9 @@ internal class LintVisitor
                 break;
 
             case AwaitForEachStatement awaitForeach:
+                // `await foreach` is a genuine await usage — record it so NL004 does not
+                // misfire on async functions that only consume async streams.
+                _hasAwaitInFunction = true;
                 VisitExpression(awaitForeach.Collection); // Visit collection in outer scope FIRST
                 PushScope();
                 DeclareVariable(awaitForeach.VariableName, awaitForeach.Line, awaitForeach.Column);
@@ -1045,26 +998,8 @@ internal class LintVisitor
                 {
                     var checkedExpr = binary.Right is NullLiteralExpression ? binary.Left : binary.Right;
 
-                    // Check if it's comparing a value type against null
-                    if (checkedExpr is IdentifierExpression ident)
-                    {
-                        // Check if we're comparing against known value types
-                        var knownValueTypes = new[] { "int", "long", "short", "byte", "uint", "ulong", "ushort",
-                            "float", "double", "decimal", "bool", "char", "sbyte" };
-
-                        // Simple heuristic: if the identifier looks like a value type
-                        // In a real implementation, this would use type information from the analyzer
-                        // For now, we'll be conservative and only warn for obvious cases
-
-                        // Check assignment patterns in the current scope
-                        if (_declaredVariables.TryGetValue(ident.Name, out var varInfo))
-                        {
-                            // We would need type information here to be more accurate
-                            // For now, we'll implement a basic version
-                        }
-                    }
-
-                    // Check for direct type comparisons (e.g., comparing int literal)
+                    // Check for direct value-type comparisons (e.g., comparing an int literal
+                    // against null). These can never be null, so the check is unnecessary.
                     if (checkedExpr is IntLiteralExpression ||
                         checkedExpr is FloatLiteralExpression ||
                         checkedExpr is CharLiteralExpression ||
@@ -1079,10 +1014,11 @@ internal class LintVisitor
                             _ => "value type"
                         };
 
+                        // Underline the offending value-type operand, not the whole condition.
                         AddDiagnostic(
                             "NL003",
                             $"This null check is unnecessary — '{typeName}' is a value type and can never be null",
-                            new Location(condition.Line, condition.Column, _filePath),
+                            new Location(checkedExpr.Line, checkedExpr.Column, _filePath),
                             _config.GetSeverity("NL003"),
                             "You can safely remove this null check");
                     }
@@ -1156,20 +1092,11 @@ internal class LintVisitor
                 break;
 
             case BinaryExpression binary:
-                // NL013: Prefer string interpolation over concatenation
-                if (binary.Operator == BinaryOperator.Add)
-                    CheckPreferInterpolation(binary);
                 VisitExpression(binary.Left);
                 VisitExpression(binary.Right);
                 break;
 
             case UnaryExpression unary:
-                if (IsMutationOperator(unary.Operator))
-                {
-                    if (unary.Operand is IdentifierExpression mutationTarget)
-                        _assignedVariables.Add(mutationTarget.Name);
-                    TrackFieldAssignment(unary.Operand);
-                }
                 VisitExpression(unary.Operand);
                 break;
 
@@ -1220,11 +1147,6 @@ internal class LintVisitor
                 break;
 
             case AssignmentExpression assignment:
-                // NL015: Track what variables are assigned to after declaration
-                if (assignment.Target is IdentifierExpression assignTarget)
-                    _assignedVariables.Add(assignTarget.Name);
-                // NL018: Track field assignments to detect constructor-only writes
-                TrackFieldAssignment(assignment.Target);
                 VisitExpression(assignment.Target);
                 VisitExpression(assignment.Value);
                 break;
@@ -1236,8 +1158,6 @@ internal class LintVisitor
                 break;
 
             case LambdaExpression lambda:
-                var wasInLambda = _inLambda;
-                _inLambda = true;
                 PushScope();
                 foreach (var param in lambda.Parameters)
                 {
@@ -1249,7 +1169,6 @@ internal class LintVisitor
                 if (lambda.ExpressionBody != null)
                     VisitExpression(lambda.ExpressionBody);
                 PopScope();
-                _inLambda = wasInLambda;
                 break;
 
             case CastExpression cast:
@@ -1332,48 +1251,6 @@ internal class LintVisitor
                 // Handle any unhandled expression types (literals, etc.)
                 // Most literals don't have child expressions to visit
                 break;
-        }
-    }
-
-    private void CheckCamelCaseLocal(string name, int line, int column)
-    {
-        if (!_config.RuleSeverities.ContainsKey("NL008"))
-            return;
-        if (string.IsNullOrEmpty(name))
-            return;
-        // Skip underscore-prefixed names (convention for intentionally unused / discards)
-        if (name.StartsWith("_", StringComparison.Ordinal))
-            return;
-        if (char.IsUpper(name[0]))
-        {
-            AddDiagnostic(
-                "NL008",
-                $"Local variable '{name}' starts with an uppercase letter — locals use camelCase in N#",
-                new Location(line, column, _filePath),
-                _config.GetSeverity("NL008"),
-                $"Rename to '{char.ToLowerInvariant(name[0])}{name[1..]}' — in N#, PascalCase is reserved for exported (public) declarations");
-        }
-    }
-
-    private void CheckPreferInterpolation(BinaryExpression binary)
-    {
-        if (!_config.RuleSeverities.ContainsKey("NL013"))
-            return;
-
-        var leftIsString = binary.Left is StringLiteralExpression;
-        var rightIsString = binary.Right is StringLiteralExpression;
-
-        // Only fire when at least one operand is a string literal and the other is not also
-        // a string literal (string literal + string literal is just concatenation, not a
-        // case where interpolation helps readability).
-        if ((leftIsString || rightIsString) && !(leftIsString && rightIsString))
-        {
-            AddDiagnostic(
-                "NL013",
-                "String concatenation with '+' is harder to read than interpolation",
-                new Location(binary.Line, binary.Column, _filePath),
-                _config.GetSeverity("NL013"),
-                "Try $\"...{expr}...\" — string interpolation is easier to read and less error-prone");
         }
     }
 
@@ -2152,76 +2029,6 @@ internal class LintVisitor
     }
 
     // -------------------------------------------------------------------------
-    // NL014: Unnecessary Type Annotation
-    // -------------------------------------------------------------------------
-    private void CheckUnnecessaryTypeAnnotation(TypeReference declaredType, Expression initializer, int line, int column)
-    {
-        if (!_config.RuleSeverities.ContainsKey("NL014"))
-            return;
-
-        // Only flag the most obvious cases: literal value matches annotation exactly
-        var (obvious, literalTypeName) = (declaredType, initializer) switch
-        {
-            (SimpleTypeReference { Name: "int" }, IntLiteralExpression) => (true, "int"),
-            (SimpleTypeReference { Name: "string" }, StringLiteralExpression) => (true, "string"),
-            (SimpleTypeReference { Name: "bool" }, BoolLiteralExpression) => (true, "bool"),
-            (SimpleTypeReference { Name: "char" }, CharLiteralExpression) => (true, "char"),
-            (SimpleTypeReference { Name: "float" }, FloatLiteralExpression) => (true, "float"),
-            (SimpleTypeReference { Name: "double" }, FloatLiteralExpression) => (true, "double"),
-            _ => (false, (string?)null)
-        };
-
-        if (obvious && literalTypeName != null)
-        {
-            AddDiagnostic(
-                "NL014",
-                $"You don't need the type annotation here — N# already infers '{literalTypeName}' from the value",
-                new Location(line, column, _filePath),
-                _config.GetSeverity("NL014"),
-                $"Remove ': {literalTypeName}' to keep things clean — the type is obvious from the initializer");
-        }
-    }
-
-    // -------------------------------------------------------------------------
-    // NL015: Prefer Const
-    // -------------------------------------------------------------------------
-    private void CheckPreferConst()
-    {
-        if (!_config.RuleSeverities.ContainsKey("NL015"))
-            return;
-
-        foreach (var kvp in _letDeclarations)
-        {
-            var name = kvp.Key;
-            var (line, column, hasInitializer, inLambda) = kvp.Value;
-
-            // Skip variables without initializers (they MUST be assigned later)
-            if (!hasInitializer)
-                continue;
-
-            // Skip variables inside lambdas (closures capture semantics differ)
-            if (inLambda)
-                continue;
-
-            // Skip if the variable was ever assigned after declaration
-            if (_assignedVariables.Contains(name))
-                continue;
-
-            // Skip if the variable is never read — NL001 (unused variable) will handle that case.
-            // Firing both NL001 and NL015 for the same variable is redundant noise.
-            if (!_usedVariables.Contains(name))
-                continue;
-
-            AddDiagnostic(
-                "NL015",
-                $"Variable '{name}' is never reassigned after its declaration",
-                new Location(line, column, _filePath),
-                _config.GetSeverity("NL015"),
-                $"Use 'const {name}' instead of 'let {name}' to make the intent clear and prevent accidental reassignment");
-        }
-    }
-
-    // -------------------------------------------------------------------------
     // NL016: Redundant Null Check (conservative: only `new` / literal initialisers)
     // -------------------------------------------------------------------------
     private void CheckRedundantNullCheckOnNewOrLiteral(Expression condition)
@@ -2241,14 +2048,12 @@ internal class LintVisitor
 
         var checkedExpr = binary.Right is NullLiteralExpression ? binary.Left : binary.Right;
 
-        // Only flag when the expression being checked was just created via `new` or a non-null literal
+        // Only flag when the expression being checked was just created via `new` or an
+        // array literal. Scalar value-type literals (int/float/char/bool) are handled by
+        // NL003 instead, so we deliberately exclude them here to avoid double-reporting.
         var alwaysNonNull = checkedExpr switch
         {
             NewExpression => true,
-            IntLiteralExpression => true,
-            FloatLiteralExpression => true,
-            CharLiteralExpression => true,
-            BoolLiteralExpression => true,
             ArrayLiteralExpression => true,
             _ => false
         };
@@ -2256,104 +2061,14 @@ internal class LintVisitor
         if (alwaysNonNull)
         {
             var verb = binary.Operator == BinaryOperator.NotEqual ? "always true" : "always false";
+            // Underline the always-non-null operand rather than the whole condition.
             AddDiagnostic(
                 "NL016",
                 $"This null check is redundant — the expression was just created and can never be null (this is {verb})",
-                new Location(condition.Line, condition.Column, _filePath),
+                new Location(checkedExpr.Line, checkedExpr.Column, _filePath),
                 _config.GetSeverity("NL016"),
                 "Remove the null check — the value cannot be null");
         }
     }
 
-    // -------------------------------------------------------------------------
-    // NL018: Prefer Readonly — class members only
-    // -------------------------------------------------------------------------
-    private void VisitClassLikeMembers(List<Declaration> members, string typeName, int typeLine, int typeColumn)
-    {
-        if (!_config.RuleSeverities.ContainsKey("NL018"))
-        {
-            // If rule is disabled just visit normally
-            foreach (var member in members)
-                VisitDeclaration(member);
-            return;
-        }
-
-        // Collect field names that are writable (no readonly modifier yet)
-        var writableFields = new HashSet<string>();
-        foreach (var member in members)
-        {
-            if (member is FieldDeclaration fd
-                && !fd.Modifiers.HasFlag(Modifiers.Readonly)
-                && !fd.Modifiers.HasFlag(Modifiers.Const)
-                && !fd.PropertyModifier.HasFlag(PropertyModifier.Readonly))
-            {
-                writableFields.Add(fd.Name);
-            }
-        }
-
-        // Reset field assignment tracking for this class scope
-        var outerFieldAssignments = _classFieldAssignments;
-        _classFieldAssignments = new Dictionary<string, (bool InCtor, bool Elsewhere)>();
-        foreach (var f in writableFields)
-            _classFieldAssignments[f] = (false, false);
-
-        // Visit all members (constructors will set _inConstructor = true)
-        foreach (var member in members)
-            VisitDeclaration(member);
-
-        // Emit NL018 for fields only assigned in ctor (or initializer) and nowhere else
-        foreach (var kvp in _classFieldAssignments)
-        {
-            var fieldName = kvp.Key;
-            var (inCtor, elsewhere) = kvp.Value;
-            if (inCtor && !elsewhere)
-            {
-                // Find original field declaration for location
-                var fieldDecl = members.OfType<FieldDeclaration>().FirstOrDefault(f => f.Name == fieldName);
-                var loc = fieldDecl != null
-                    ? new Location(fieldDecl.Line, fieldDecl.Column, _filePath)
-                    : new Location(typeLine, typeColumn, _filePath);
-
-                AddDiagnostic(
-                    "NL018",
-                    $"Field '{fieldName}' is only assigned in the constructor and never changed after that",
-                    loc,
-                    _config.GetSeverity("NL018"),
-                    $"Mark '{fieldName}' as 'readonly' to make the intent clear and prevent accidental mutation");
-            }
-        }
-
-        _classFieldAssignments = outerFieldAssignments;
-    }
-
-    private void TrackFieldAssignment(Expression target)
-    {
-        // Only meaningful inside a class context — check if target is a simple field name
-        // or a `this.fieldName` access
-        string? fieldName = target switch
-        {
-            IdentifierExpression id => id.Name,
-            MemberAccessExpression { Object: ThisExpression, MemberName: var m } => m,
-            MemberAccessExpression { Object: IdentifierExpression { Name: "this" }, MemberName: var m } => m,
-            _ => null
-        };
-
-        if (fieldName == null)
-            return;
-
-        if (!_classFieldAssignments.ContainsKey(fieldName))
-            return;
-
-        var (inCtor, elsewhere) = _classFieldAssignments[fieldName];
-        if (_inConstructor)
-            _classFieldAssignments[fieldName] = (true, elsewhere);
-        else
-            _classFieldAssignments[fieldName] = (inCtor, true);
-    }
-
-    private static bool IsMutationOperator(UnaryOperator op) =>
-        op is UnaryOperator.PreIncrement
-            or UnaryOperator.PreDecrement
-            or UnaryOperator.PostIncrement
-            or UnaryOperator.PostDecrement;
 }

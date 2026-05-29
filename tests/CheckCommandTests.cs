@@ -174,23 +174,24 @@ func Main() {
         {
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func Main() {
-    Message := "hi"
-    print Message
+    message := "hi"
 }
 """);
 
             var (exitCode, stdout, _) = CaptureConsole(() =>
                 CheckCommand.Execute(new[] { "--project", tempDir }));
 
-            Assert.Equal(0, exitCode);
+            // NL001 (unused-variable) is a build-blocking error.
+            Assert.Equal(1, exitCode);
 
             var doc = JsonDocument.Parse(stdout);
             var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
-                .Single(result => result.GetProperty("code").GetString() == "NL008");
+                .Single(result => result.GetProperty("code").GetString() == "NL001");
 
+            // The linter underlines the identifier itself using its stored length.
             Assert.Equal(2, diagnostic.GetProperty("line").GetInt32());
             Assert.Equal(5, diagnostic.GetProperty("column").GetInt32());
-            Assert.Equal("Message".Length, diagnostic.GetProperty("length").GetInt32());
+            Assert.Equal("message".Length, diagnostic.GetProperty("length").GetInt32());
         }
         finally
         {

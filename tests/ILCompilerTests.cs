@@ -936,6 +936,82 @@ func sumArray(numbers: int[]): int {
     }
 
     [Fact]
+    public void ILCompiler_ForeachOverArray_UsesAllocationFreeIndexLoop()
+    {
+        // foreach over a T[] must lower to an ldlen + index loop with NO enumerator:
+        // no GetEnumerator call (callvirt) and no enumerator allocation (newobj).
+        var source = @"
+func sumArray(numbers: int[]): int {
+    sum := 0
+    foreach num in numbers {
+        sum = sum + num
+    }
+    return sum
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("sumArray", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.Contains(OpCodes.Ldelem_I4, opCodes);
+        // No enumerator allocation and no GetEnumerator/MoveNext calls.
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+        Assert.DoesNotContain(OpCodes.Call, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverReferenceArray_UsesAllocationFreeIndexLoop()
+    {
+        // Reference-typed element arrays must also use the index-loop fast path
+        // (ldlen + ldelem.ref) with no enumerator allocation.
+        var source = @"
+func countStrings(values: string[]): int {
+    count := 0
+    foreach value in values {
+        count = count + 1
+    }
+    return count
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("countStrings", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Ldlen, opCodes);
+        Assert.Contains(OpCodes.Ldelem_Ref, opCodes);
+        Assert.DoesNotContain(OpCodes.Newobj, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_ForeachOverArray_ProducesCorrectSum()
+    {
+        // Confirm the allocation-free lowering preserves exact semantics.
+        var source = @"
+func sumArray(): int {
+    numbers := [1, 2, 3, 4, 5]
+    sum := 0
+    foreach num in numbers {
+        sum = sum + num
+    }
+    return sum
+}";
+
+        var result = CompileAndInvoke(source, "sumArray");
+        Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileForeachWithPrint()
     {
         var source = @"
@@ -1368,6 +1444,147 @@ class Dog : Animal {
 
         // Should not throw
         compiler.Compile();
+    }
+
+    // ==================== Devirtualization (call vs callvirt) Tests ====================
+
+    [Fact]
+    public void ILCompiler_VirtualCallOnNewExpression_IsDevirtualizedToCall()
+    {
+        // Calling a virtual method on a freshly-constructed `new T()` receiver: the runtime
+        // type is exactly T and the reference is provably non-null, so the callvirt can be
+        // safely lowered to a non-virtual call.
+        var source = @"
+class Greeter {
+    virtual func Greet(): int {
+        return 7
+    }
+}
+
+func main(): int {
+    return new Greeter().Greet()
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Call, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_VirtualCallOnNewExpression_PreservesBehavior()
+    {
+        // The devirtualized call must produce identical observable behavior.
+        var result = CompileAndInvoke(@"
+class Greeter {
+    virtual func Greet(): int {
+        return 7
+    }
+}
+
+func main(): int {
+    return new Greeter().Greet()
+}");
+
+        Assert.Equal(7, result);
+    }
+
+    [Fact]
+    public void ILCompiler_VirtualCallOnPolymorphicReceiver_StaysCallvirt()
+    {
+        // The receiver is a parameter of a base type whose runtime type is NOT statically
+        // known and which may be null. Virtual dispatch and the null-check must be preserved,
+        // so this call must remain a callvirt.
+        var source = @"
+class Animal {
+    virtual func Speak(): int {
+        return 1
+    }
+}
+
+class Dog : Animal {
+    override func Speak(): int {
+        return 2
+    }
+}
+
+func sound(a: Animal): int {
+    return a.Speak()
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("sound", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_VirtualDispatchThroughBaseReference_PreservesBehavior()
+    {
+        // End-to-end: dispatching a virtual method through a base-typed reference must still
+        // resolve to the most-derived override at runtime (i.e. callvirt was preserved).
+        var result = CompileAndInvoke(@"
+class Animal {
+    virtual func Speak(): int {
+        return 1
+    }
+}
+
+class Dog : Animal {
+    override func Speak(): int {
+        return 2
+    }
+}
+
+func sound(a: Animal): int {
+    return a.Speak()
+}
+
+func main(): int {
+    d := new Dog()
+    return sound(d)
+}");
+
+        Assert.Equal(2, result);
+    }
+
+    [Fact]
+    public void ILCompiler_NonVirtualCallOnNewExpression_RemainsCall()
+    {
+        // A non-virtual instance method on a `new T()` receiver was already emitted as `call`;
+        // the devirtualization change must not regress this to callvirt.
+        var source = @"
+class Calculator {
+    func Add(x: int, y: int): int {
+        return x + y
+    }
+}
+
+func main(): int {
+    return new Calculator().Add(5, 3)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Call, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
     }
 
     [Fact]
@@ -2156,6 +2373,159 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_NonCapturingLambdaEscapingInLoop_CachesDelegateInStaticField()
+    {
+        // A non-capturing lambda that escapes (is materialized as a delegate value and
+        // stored in a collection) should allocate the delegate at most once, guarded by a
+        // static cache field - matching Roslyn's <>9__N caching idiom.
+        var source = @"
+import System
+import System.Collections.Generic
+
+func main(): int {
+    handlers := new List<Func<int, int>>()
+    for i := 0; i < 3; i = i + 1 {
+        handler: Func<int, int> = (x) => x + 1
+        handlers.Add(handler)
+    }
+    return handlers[0](41)
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+
+            var cacheField = GetDelegateCacheField(programType!);
+            Assert.NotNull(cacheField);
+            Assert.True(cacheField!.IsStatic);
+            Assert.True(cacheField.IsPrivate);
+
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            AssertDelegateCreationIsCacheGuarded(main!);
+
+            return 0;
+        });
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_MethodGroupDelegateEscapingInLoop_CachesDelegateInStaticField()
+    {
+        // A method-group delegate that escapes inside a loop should also be cached in a
+        // static field so the delegate is allocated at most once.
+        var source = @"
+import System
+import System.Collections.Generic
+
+func increment(value: int): int => value + 1
+
+func main(): int {
+    handlers := new List<Func<int, int>>()
+    for i := 0; i < 3; i = i + 1 {
+        handler: Func<int, int> = increment
+        handlers.Add(handler)
+    }
+    return handlers[0](41)
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+
+            var cacheField = GetDelegateCacheField(programType!);
+            Assert.NotNull(cacheField);
+            Assert.True(cacheField!.IsStatic);
+
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            AssertDelegateCreationIsCacheGuarded(main!);
+
+            return 0;
+        });
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_NonCapturingLambdaEscapingInLoop_AllocatesDelegateOnlyOnce()
+    {
+        // Behavioral confirmation: because the delegate is cached, every loop iteration
+        // observes the same delegate instance.
+        var source = @"
+import System
+import System.Collections.Generic
+
+func main(): bool {
+    handlers := new List<Func<int, int>>()
+    for i := 0; i < 3; i = i + 1 {
+        handler: Func<int, int> = (x) => x + 1
+        handlers.Add(handler)
+    }
+    allSame := true
+    for j := 1; j < handlers.Count; j = j + 1 {
+        if !handlers[0].Equals(handlers[j]) {
+            allSame = false
+        }
+    }
+    return allSame
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    private static FieldInfo? GetDelegateCacheField(Type programType)
+    {
+        return programType
+            .GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            .FirstOrDefault(field => field.Name.StartsWith("<>c__DelegateCache", StringComparison.Ordinal));
+    }
+
+    private static void AssertDelegateCreationIsCacheGuarded(MethodInfo method)
+    {
+        var opCodes = GetMethodOpCodes(method);
+
+        // A delegate construction is a `newobj` immediately preceded by `ldftn`. Each one
+        // must be guarded by a static-field load + branch so the delegate is created at
+        // most once (Roslyn's <>9__N caching idiom). Other `newobj` sites (e.g. the
+        // backing List<>) are unrelated and ignored.
+        var delegateNewobjIndexes = opCodes
+            .Select((opCode, index) => (opCode, index))
+            .Where(entry => entry.opCode == OpCodes.Newobj
+                && entry.index >= 1
+                && opCodes[entry.index - 1] == OpCodes.Ldftn)
+            .Select(entry => entry.index)
+            .ToList();
+
+        Assert.NotEmpty(delegateNewobjIndexes);
+
+        foreach (var index in delegateNewobjIndexes)
+        {
+            // ... ldsfld, dup, brtrue, pop, ldnull, ldftn, newobj, dup, stsfld ...
+            Assert.True(index >= 6, "Cache-guarded delegate creation expected preceding opcodes");
+            Assert.True(index + 2 < opCodes.Count, "Cache-guarded delegate creation expected trailing opcodes");
+            Assert.Equal(OpCodes.Ldftn, opCodes[index - 1]);
+            Assert.Equal(OpCodes.Ldnull, opCodes[index - 2]);
+            Assert.Equal(OpCodes.Pop, opCodes[index - 3]);
+            Assert.True(
+                opCodes[index - 4] == OpCodes.Brtrue_S || opCodes[index - 4] == OpCodes.Brtrue,
+                "Expected branch-if-already-cached before delegate creation");
+            Assert.Equal(OpCodes.Dup, opCodes[index - 5]);
+            Assert.Equal(OpCodes.Ldsfld, opCodes[index - 6]);
+
+            // After creating the delegate it is stored back into the cache field.
+            Assert.Equal(OpCodes.Dup, opCodes[index + 1]);
+            Assert.Equal(OpCodes.Stsfld, opCodes[index + 2]);
+        }
     }
 
     [Fact]
@@ -3258,6 +3628,110 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_EmitsNewtypeAsReadonlyValueStruct()
+    {
+        // A newtype must lower to a `readonly record struct` so it never boxes on the hot path
+        // and stays consumable from C#. Verify the emitted type's shape directly.
+        var source = @"
+type UserId = newtype int";
+
+        var info = CompileAndInspect(source, assembly =>
+        {
+            var userId = assembly.GetType("UserId");
+            Assert.NotNull(userId);
+
+            var valueProperty = userId!.GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+            return new
+            {
+                IsValueType = userId.IsValueType,
+                IsSealed = userId.IsSealed,
+                HasReadOnlyAttribute = userId.GetCustomAttributes(false)
+                    .Any(a => a.GetType().FullName == "System.Runtime.CompilerServices.IsReadOnlyAttribute"),
+                HasPublicValue = valueProperty != null && valueProperty.GetMethod is { IsPublic: true },
+                ValueType = valueProperty?.PropertyType
+            };
+        });
+
+        // Value type (no boxing as a reference), sealed, and marked readonly struct.
+        Assert.True(info.IsValueType, "newtype must be emitted as a value type");
+        Assert.True(info.IsSealed, "newtype value struct must be sealed");
+        Assert.True(info.HasReadOnlyAttribute, "newtype must carry IsReadOnlyAttribute (readonly struct)");
+
+        // Interop: the public struct exposes a public `Value` member of the underlying type for C#.
+        Assert.True(info.HasPublicValue, "newtype must expose a public Value member for C# interop");
+        Assert.Equal(typeof(int), info.ValueType);
+    }
+
+    [Fact]
+    public void ILCompiler_NewtypeInArithmeticLoop_EmitsNoBoxing()
+    {
+        // Hot path: construct a newtype and read its underlying value inside a loop, doing
+        // arithmetic on the result. The IL must contain no `box` opcode.
+        var source = @"
+type Counter = newtype int
+
+func sum(): int {
+    total := 0
+    i := 0
+    while i < 5 {
+        c := new Counter(i)
+        total = total + c.Value
+        i = i + 1
+    }
+    return total
+}";
+
+        var hasBox = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program");
+            var method = program!.GetMethod("sum", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            var opCodes = GetMethodOpCodes(method!);
+            return opCodes.Any(op => op == OpCodes.Box);
+        });
+
+        Assert.False(hasBox, "newtype arithmetic must not emit a box opcode");
+
+        // Behavior check: 0 + 1 + 2 + 3 + 4 == 10.
+        Assert.Equal(10, Assert.IsType<int>(CompileAndInvoke(source, "sum")));
+    }
+
+    [Fact]
+    public void ILCompiler_NewtypePassedByValue_EmitsNoBoxing()
+    {
+        // Passing a newtype to a function that takes the newtype must pass it by value
+        // (no boxing) and the parameter type must be a value type.
+        var source = @"
+type Counter = newtype int
+
+func addValue(c: Counter): int {
+    return c.Value + 1
+}
+
+func run(): int {
+    return addValue(new Counter(41))
+}";
+
+        var info = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program");
+            var addValue = program!.GetMethod("addValue", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            var run = program!.GetMethod("run", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            return new
+            {
+                ParameterIsValueType = addValue!.GetParameters()[0].ParameterType.IsValueType,
+                AddValueBoxes = GetMethodOpCodes(addValue!).Any(op => op == OpCodes.Box),
+                RunBoxes = GetMethodOpCodes(run!).Any(op => op == OpCodes.Box)
+            };
+        });
+
+        Assert.True(info.ParameterIsValueType, "newtype parameter must be a value type");
+        Assert.False(info.AddValueBoxes, "reading newtype Value must not box");
+        Assert.False(info.RunBoxes, "passing a newtype by value must not box");
+
+        Assert.Equal(42, Assert.IsType<int>(CompileAndInvoke(source, "run")));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteNewtypeDeclaration()
     {
         var source = @"
@@ -3473,6 +3947,245 @@ union Shape {
         Assert.Contains("Shape", typeNames);
         Assert.Contains("Shape+Circle", typeNames);
         Assert.Contains("Shape+Square", typeNames);
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnion_IsEmittedAsValueStruct()
+    {
+        var source = @"
+union Color {
+    Red
+    Green
+    Blue
+}";
+
+        var isValueType = CompileAndInspect(source, assembly =>
+        {
+            var unionType = assembly.GetType("Color");
+            Assert.NotNull(unionType);
+            return unionType!.IsValueType;
+        });
+
+        Assert.True(isValueType, "Small, closed, payload-free union should be emitted as a value type.");
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnion_StillEmitsNestedCaseMarkerTypes()
+    {
+        var source = @"
+union Color {
+    Red
+    Green
+    Blue
+}";
+
+        var typeNames = CompileAndInspect(source, assembly =>
+            assembly.GetTypes().Select(t => t.FullName).Where(n => n != null).OrderBy(n => n).ToArray());
+
+        Assert.Contains("Color", typeNames);
+        Assert.Contains("Color+Red", typeNames);
+        Assert.Contains("Color+Green", typeNames);
+        Assert.Contains("Color+Blue", typeNames);
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnion_ExposesTagToCSharpInterop()
+    {
+        var source = @"
+union Color {
+    Red
+    Green
+    Blue
+}";
+
+        var (isValueType, hasTagProperty, redTag, blueTag) = CompileAndInspect(source, assembly =>
+        {
+            var unionType = assembly.GetType("Color")!;
+            var tagProperty = unionType.GetProperty("Tag", BindingFlags.Public | BindingFlags.Instance);
+
+            var red = unionType.GetNestedType("Red")!.GetField("Tag", BindingFlags.Public | BindingFlags.Static);
+            var blue = unionType.GetNestedType("Blue")!.GetField("Tag", BindingFlags.Public | BindingFlags.Static);
+
+            return (
+                unionType.IsValueType,
+                tagProperty != null && tagProperty.PropertyType == typeof(int),
+                (int)red!.GetRawConstantValue()!,
+                (int)blue!.GetRawConstantValue()!);
+        });
+
+        Assert.True(isValueType);
+        Assert.True(hasTagProperty, "Value-struct union should expose a public int Tag property for C# consumers.");
+        Assert.Equal(0, redTag);
+        Assert.Equal(2, blueTag);
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnionConstruction_DoesNotAllocatePerCase()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func choose(go: bool): Signal {
+    if go {
+        return new Signal.Go
+    }
+    return new Signal.Stop
+}";
+
+        var hasNewobj = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program")!;
+            var method = programType.GetMethod("choose", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            return GetMethodOpCodes(method).Contains(OpCodes.Newobj);
+        });
+
+        Assert.False(hasNewobj, "Value-struct union construction must not allocate a per-case object (no newobj).");
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadFreeUnionMatch_DoesNotUseIsinst()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func describe(go: bool): int {
+    s := new Signal.Stop
+    if go {
+        s = new Signal.Go
+    }
+    return match s {
+        Signal.Stop => 1,
+        Signal.Go => 2
+    }
+}";
+
+        var hasIsinst = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program")!;
+            var method = programType.GetMethod("describe", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            return GetMethodOpCodes(method).Contains(OpCodes.Isinst);
+        });
+
+        Assert.False(hasIsinst, "Value-struct union match must dispatch on the integer tag, not isinst.");
+    }
+
+    [Fact]
+    public void ILCompiler_CanConstructAndMatchPayloadFreeValueStructUnion()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+    Wait
+}
+
+func make(code: int): Signal {
+    if code == 0 {
+        return new Signal.Stop
+    }
+    if code == 1 {
+        return new Signal.Go
+    }
+    return new Signal.Wait
+}
+
+func main(code: int): int {
+    s := make(code)
+    return match s {
+        Signal.Stop => 100,
+        Signal.Go => 200,
+        Signal.Wait => 300
+    }
+}";
+
+        Assert.Equal(100, Assert.IsType<int>(CompileAndInvoke(source, "main", 0)));
+        Assert.Equal(200, Assert.IsType<int>(CompileAndInvoke(source, "main", 1)));
+        Assert.Equal(300, Assert.IsType<int>(CompileAndInvoke(source, "main", 2)));
+    }
+
+    [Fact]
+    public void ILCompiler_ValueStructUnion_InferredLocalAndArgumentPassing()
+    {
+        // Exercises (a) direct `:=` inference from `new U.Case`, and (b) passing a
+        // value-struct union across a function boundary as an argument — both must
+        // round-trip without a spurious box/unbox.
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func classify(s: Signal): int {
+    return match s {
+        Signal.Stop => 7,
+        Signal.Go => 9
+    }
+}
+
+func main(go: bool): int {
+    s := new Signal.Stop
+    if go {
+        s = new Signal.Go
+    }
+    return classify(s)
+}";
+
+        Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source, "main", false)));
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source, "main", true)));
+    }
+
+    [Fact]
+    public void ILCompiler_ValueStructUnion_IsExpressionUsesTagCompare()
+    {
+        var source = @"
+union Signal {
+    Stop
+    Go
+}
+
+func isStop(go: bool): bool {
+    s := new Signal.Stop
+    if go {
+        s = new Signal.Go
+    }
+    return s is Signal.Stop
+}";
+
+        Assert.True(Assert.IsType<bool>(CompileAndInvoke(source, "isStop", false)));
+        Assert.False(Assert.IsType<bool>(CompileAndInvoke(source, "isStop", true)));
+
+        var hasIsinst = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var method = program.GetMethod("isStop", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            return GetMethodOpCodes(method).Contains(OpCodes.Isinst);
+        });
+
+        Assert.False(hasIsinst, "is-expression against a value-struct union case must compare the tag, not use isinst.");
+    }
+
+    [Fact]
+    public void ILCompiler_PayloadCarryingUnion_KeepsClassHierarchyRepresentation()
+    {
+        // Unions whose cases carry payloads are NOT yet value-struct emittable; they
+        // must keep the reference class-hierarchy representation so existing behavior
+        // (field reads, isinst matching, C# class interop) is preserved.
+        var source = @"
+union Result {
+    Success { value: int }
+    Failure { error: string }
+}";
+
+        var isValueType = CompileAndInspect(source, assembly =>
+            assembly.GetType("Result")!.IsValueType);
+
+        Assert.False(isValueType, "Payload-carrying union must remain a reference type (class hierarchy).");
     }
 
     [Fact]
@@ -5558,5 +6271,88 @@ func Describe(value: int | string): string {
 
             return true;
         });
+    }
+
+    [Fact]
+    public void ILCompiler_GenericInterfaceConstraint_DispatchesValueTypeWithoutBoxing()
+    {
+        var source = @"
+interface IShape {
+    func Area(): int
+}
+
+struct Square : IShape {
+    side: int
+
+    func Area(): int {
+        return side * side
+    }
+}
+
+func areaOf<T>(shape: T): int where T : IShape {
+    return shape.Area()
+}
+
+func main(): int {
+    sq := new Square { side: 6 }
+    return areaOf(sq)
+}";
+
+        // IL shape: dispatch through the generic constraint must use a
+        // `constrained.` prefix on the value-type receiver and must NOT box it.
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var areaOf = program.GetMethod("areaOf", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(areaOf);
+            return GetMethodOpCodes(areaOf!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        // Behavior is unchanged: 6 * 6 == 36.
+        Assert.Equal(36, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericDuckInterfaceConstraint_DispatchesValueTypeWithoutBoxing()
+    {
+        var source = @"
+duck interface ICounter {
+    func Count(): int
+}
+
+struct Bucket {
+    size: int
+
+    func Count(): int {
+        return size
+    }
+}
+
+func total<T>(item: T): int where T : ICounter {
+    return item.Count()
+}
+
+func main(): int {
+    bucket := new Bucket { size: 9 }
+    return total(bucket)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var total = program.GetMethod("total", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(total);
+            return GetMethodOpCodes(total!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source)));
     }
 }

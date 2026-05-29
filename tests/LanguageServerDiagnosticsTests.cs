@@ -101,6 +101,37 @@ func Main() {
     }
 
     [Fact]
+    public void Diagnostics_DiscardedMustUseResult_UnderlinesCalleeName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///discarded-must-use.nl";
+
+        var source = """
+[MustUse]
+func Compute(): int {
+    return 42
+}
+
+func Main() {
+    Compute()
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.DiscardedMustUseResult);
+
+        Assert.Equal("NL315", diagnostic.DiagnosticId);
+        Assert.Contains("'Compute'", diagnostic.Message);
+        AssertDiagnosticSpan(diagnostic, line: 7, column: 5, length: "Compute".Length);
+        AssertLspRange(diagnostic, line0: 6, startCharacter: 4, endCharacter: 11);
+    }
+
+    [Fact]
     public void Diagnostics_UndefinedBareCall_ReportsFunctionNotVariable()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
@@ -129,6 +160,171 @@ func Main() {
     }
 
     [Fact]
+    public void Diagnostics_FunctionCallErrors_UnderlineCalleeNameWithExactRanges()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///function-call-spans.nl";
+
+        var source = """
+func TakesInt(value: int) {}
+
+func main() {
+    TakesInt()
+    Unknown()
+    TakesInt
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // NL401: span underlines the callee name; message pluralizes "argument".
+        var wrongCount = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.WrongArgumentCount);
+        Assert.Equal("Function 'TakesInt' expects 1 argument but got 0", wrongCount.Message);
+        AssertDiagnosticSpan(wrongCount, line: 4, column: 5, length: "TakesInt".Length);
+        AssertLspRange(wrongCount, line0: 3, startCharacter: 4, endCharacter: 12);
+
+        // NL412: span underlines the bare call name, reported as a function.
+        var undefinedFunction = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.UndefinedFunction);
+        Assert.Equal("Function 'Unknown' not found", undefinedFunction.Message);
+        AssertDiagnosticSpan(undefinedFunction, line: 5, column: 5, length: "Unknown".Length);
+        AssertLspRange(undefinedFunction, line0: 4, startCharacter: 4, endCharacter: 11);
+
+        // NL411: span underlines the method name used as a value.
+        var methodGroup = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.MethodGroupUsedAsValue);
+        Assert.Equal("Method 'TakesInt' must be called or passed to a delegate", methodGroup.Message);
+        AssertDiagnosticSpan(methodGroup, line: 6, column: 5, length: "TakesInt".Length);
+        AssertLspRange(methodGroup, line0: 5, startCharacter: 4, endCharacter: 12);
+    }
+
+    [Fact]
+    public void Diagnostics_NoMatchingOverload_PluralizesArgumentCount()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///overload-plural.nl";
+
+        var source = """
+class Processor {
+    func Process(x: int): int { return x }
+    func Process(x: string): string { return x }
+}
+
+func main() {
+    p := new Processor()
+    p.Process(true)
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            diagnostic => diagnostic.Code == ErrorCode.NoMatchingOverload);
+
+        Assert.Equal("No overload of 'Process' accepts 1 argument with these types", diagnostic.Message);
+        AssertDiagnosticSpan(diagnostic, line: 8, column: 7, length: "Process".Length);
+        AssertLspRange(diagnostic, line0: 7, startCharacter: 6, endCharacter: 13);
+    }
+
+    [Fact]
+    public void Diagnostics_ShadowedLocal_UnderlinesInnerName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///shadowing.nl";
+
+        var source = """
+func Main() {
+    count := 1
+    if count > 0 {
+        count := 2
+        print $"{count}"
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ShadowedDeclaration);
+
+        Assert.Equal("NL316", diagnostic.DiagnosticId);
+        Assert.Contains("'count'", diagnostic.Message);
+        // Inner `count := 2` is on line 4 at column 9 (8 spaces of indent + 1).
+        AssertDiagnosticSpan(diagnostic, line: 4, column: 9, length: "count".Length);
+        AssertLspRange(diagnostic, line0: 3, startCharacter: 8, endCharacter: 13);
+    }
+
+    [Fact]
+    public void Diagnostics_ShadowedParameter_UnderlinesInnerLocalName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///shadow-param.nl";
+
+        var source = """
+func Greet(name: string) {
+    name := "override"
+    print name
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ShadowedDeclaration);
+
+        // `name := "override"` is on line 2 at column 5 (4 spaces of indent + 1).
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 5, length: "name".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 4, endCharacter: 8);
+    }
+
+    [Fact]
+    public void Diagnostics_ReadBeforeDefiniteAssignment_UnderlinesTheRead()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///definite-assignment.nl";
+
+        var source = """
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let total: int
+    if Cond() {
+        total = 5
+    }
+    print total
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.DefiniteAssignmentError);
+
+        Assert.Equal("NL304", diagnostic.DiagnosticId);
+        Assert.Contains("'total'", diagnostic.Message);
+        // `print total` is on line 10; `total` starts at column 11 (4 indent + "print " = 10).
+        AssertDiagnosticSpan(diagnostic, line: 10, column: 11, length: "total".Length);
+        AssertLspRange(diagnostic, line0: 9, startCharacter: 10, endCharacter: 15);
+    }
+
+    [Fact]
     public void Diagnostics_PossibleNullDereference_UsesStableCompilerCode()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
@@ -152,6 +348,118 @@ func main() {
             diagnostic.Severity == ErrorSeverity.Error &&
             diagnostic.Suggestion != null &&
             diagnostic.Suggestion.Contains("?.", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Diagnostics_PossibleNullDereference_SquiggleCoversReceiverToken()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nullable-span.nl";
+
+        var source = "func main() {\n    x: string? = \"hello\"\n    len := x.Length\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.PossibleNullAccess && d.DiagnosticId == "NL905");
+
+        // `len := x.Length` — the squiggle must land on the receiver `x`, not the dot or member.
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 12, length: "x".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 11, endCharacter: 12);
+    }
+
+    [Fact]
+    public void Diagnostics_PossibleNullDereference_UnderlinesReceiverExpression()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///null-receiver-span.nl";
+
+        // Receiver `customer` starts at column 12 (1-based) on line 3; the squiggle
+        // must cover the whole receiver token, not the '.' or the member name.
+        var source = "func main() {\n    customer: string? = \"Ada\"\n    len := customer.Length\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+        var nullAccess = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.PossibleNullAccess);
+
+        Assert.Equal(ErrorSeverity.Error, nullAccess.Severity);
+        AssertDiagnosticSpan(nullAccess, line: 3, column: 12, length: "customer".Length);
+        AssertLspRange(nullAccess, line0: 2, startCharacter: 11, endCharacter: 11 + "customer".Length);
+    }
+
+    [Fact]
+    public void Diagnostics_NullableValueAccess_SquiggleCoversValueToken()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nullable-value-span.nl";
+
+        var source = "func Main(input: int?): int {\n    return input.Value\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.NullabilityWarning && d.Message.Contains(".Value"));
+
+        Assert.Equal(ErrorSeverity.Error, diagnostic.Severity);
+        // `return input.Value` — the squiggle must cover the `Value` member token.
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 18, length: "Value".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 17, endCharacter: 22);
+    }
+
+    [Fact]
+    public void Diagnostics_PossibleNullIndex_UnderlinesReceiverExpression()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///null-index-span.nl";
+
+        var source = "func first(items: int[]?): int {\n    return items[0]\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+        var nullAccess = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.PossibleNullAccess);
+
+        Assert.Equal(ErrorSeverity.Error, nullAccess.Severity);
+        // `items` starts at column 12 (1-based) on line 2.
+        AssertDiagnosticSpan(nullAccess, line: 2, column: 12, length: "items".Length);
+        AssertLspRange(nullAccess, line0: 1, startCharacter: 11, endCharacter: 11 + "items".Length);
+    }
+
+    [Fact]
+    public void Diagnostics_RedundantMustUnwrap_SquiggleCoversMustKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///redundant-must-span.nl";
+
+        var source = "func Main(input: int?): int {\n    if input.HasValue {\n        return must input\n    }\n    return 0\n}";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.NullabilityWarning && d.Message.Contains("redundant"));
+
+        Assert.Equal(ErrorSeverity.Error, diagnostic.Severity);
+        // `        return must input` — the squiggle must cover the `must` keyword (4 chars).
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 16, length: "must".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 15, endCharacter: 19);
     }
 
     [Fact]
@@ -776,6 +1084,179 @@ func BadStructNew<T>(value: T): T where T : struct, new() {
     }
 
     [Fact]
+    public void Diagnostics_GenericConstraintViolations_UnderlineOffendingArgument()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///generic-constraint-violation-spans.nl";
+
+        var source = """
+interface IShape {
+    func Area(): int
+}
+
+class Plain {
+}
+
+func Wrap<T>(value: T): T where T : class {
+    return value
+}
+
+func Box<T>(value: T): T where T : struct {
+    return value
+}
+
+func Draw<T>(shape: T): T where T : IShape {
+    return shape
+}
+
+func main() {
+    a := Wrap(42)
+    b := Box("hi")
+    p := new Plain()
+    c := Draw(p)
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var classViolation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("`class` constraint"));
+        AssertDiagnosticSpan(classViolation, line: 21, column: 15, length: "42".Length);
+        AssertLspRange(classViolation, line0: 20, startCharacter: 14, endCharacter: 16);
+
+        var structViolation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("`struct` constraint"));
+        AssertDiagnosticSpan(structViolation, line: 22, column: 14, length: "\"hi\"".Length);
+        AssertLspRange(structViolation, line0: 21, startCharacter: 13, endCharacter: 17);
+
+        var interfaceViolation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("does not implement"));
+        AssertDiagnosticSpan(interfaceViolation, line: 24, column: 15, length: "p".Length);
+        AssertLspRange(interfaceViolation, line0: 23, startCharacter: 14, endCharacter: 15);
+    }
+
+    [Fact]
+    public void Diagnostics_GenericConstraintViolation_FallsBackToCalleeNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///generic-constraint-callee-span.nl";
+
+        // Two parameters bind T, so there is no single argument to blame:
+        // the squiggle falls back to the callee name `Max`.
+        var source = """
+interface IComparable {
+    func CompareTo(other: object): int
+}
+
+class Plain {
+}
+
+func Max<T>(a: T, b: T): T where T : IComparable {
+    return a
+}
+
+func main() {
+    result := Max(new Plain(), new Plain())
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var violation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("does not implement"));
+        AssertDiagnosticSpan(violation, line: 13, column: 15, length: "Max".Length);
+        AssertLspRange(violation, line0: 12, startCharacter: 14, endCharacter: 17);
+    }
+
+    [Fact]
+    public void Diagnostics_AnonymousUnionTooManyArms_UnderlinesFullUnion()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///anonymous-union-arms-span.nl";
+
+        var source = """
+type Triple = int | string | bool
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var tooManyArms = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidTypeArgument &&
+                          diagnostic.Message.Contains("exactly two arms"));
+        AssertDiagnosticSpan(tooManyArms, line: 1, column: 15, length: "int | string | bool".Length);
+        AssertLspRange(tooManyArms, line0: 0, startCharacter: 14, endCharacter: 33);
+    }
+
+    [Fact]
+    public void Diagnostics_CannotInferType_UnderlinesDefaultKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///cannot-infer-default-span.nl";
+
+        var source = """
+func main() {
+    value := default
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var cannotInfer = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.CannotInferType);
+        AssertDiagnosticSpan(cannotInfer, line: 2, column: 14, length: "default".Length);
+        AssertLspRange(cannotInfer, line0: 1, startCharacter: 13, endCharacter: 20);
+    }
+
+    [Fact]
+    public void Diagnostics_LocalDeclarationTypeMismatch_UnderlinesInitializerLiteral()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///local-decl-type-mismatch-span.nl";
+
+        var source = """
+func main() {
+    count: int = "five"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var mismatch = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch);
+        AssertDiagnosticSpan(mismatch, line: 2, column: 18, length: "\"five\"".Length);
+        AssertLspRange(mismatch, line0: 1, startCharacter: 17, endCharacter: 23);
+    }
+
+    [Fact]
     public void Diagnostics_AssignmentAndOperatorTypeMismatches_UseSpecificExpressionSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
@@ -911,6 +1392,107 @@ func main() {
     }
 
     [Fact]
+    public void Diagnostics_ImpossiblePattern_UnderlinesTypeNameAndIsCheck()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///impossible-pattern-spans.nl";
+
+        var source = """
+func main() {
+    x: int = 42
+    label := match x {
+        string s => 1,
+        _ => 0
+    }
+    result := x is string
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // A type pattern that can never match underlines just the type name token.
+        var typePattern = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ImpossiblePattern &&
+                          diagnostic.Line == 4);
+        AssertDiagnosticSpan(typePattern, line: 4, column: 9, length: "string".Length);
+        AssertLspRange(typePattern, line0: 3, startCharacter: 8, endCharacter: 14);
+
+        // An impossible `is` check underlines the `is` keyword through the tested type.
+        var isCheck = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.ImpossiblePattern &&
+                          diagnostic.Line == 7);
+        AssertDiagnosticSpan(isCheck, line: 7, column: 17, length: "is string".Length);
+        AssertLspRange(isCheck, line0: 6, startCharacter: 16, endCharacter: 25);
+    }
+
+    [Fact]
+    public void Diagnostics_NonExhaustiveMatch_UnderlinesMatchKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///non-exhaustive-match-spans.nl";
+
+        var source = """
+enum Color {
+    Red,
+    Green,
+    Blue
+}
+
+func describe(c: Color): int {
+    return match c {
+        Color.Red => 1
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // The squiggle lands on the `match` keyword that introduces the incomplete match.
+        var nonExhaustive = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.NonExhaustiveMatch);
+        AssertDiagnosticSpan(nonExhaustive, line: 8, column: 12, length: "match".Length);
+        AssertLspRange(nonExhaustive, line0: 7, startCharacter: 11, endCharacter: 16);
+    }
+
+    [Fact]
+    public void Diagnostics_NonExhaustiveNullableMatch_UnderlinesMatchKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///non-exhaustive-nullable-match-spans.nl";
+
+        var source = """
+func describe(name: string?): int {
+    return match name {
+        null => 0
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        // The nullable-match arm of the exhaustiveness checker also underlines `match`.
+        var nonExhaustive = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.NonExhaustiveMatch);
+        AssertDiagnosticSpan(nonExhaustive, line: 2, column: 12, length: "match".Length);
+        AssertLspRange(nonExhaustive, line0: 1, startCharacter: 11, endCharacter: 16);
+    }
+
+    [Fact]
     public void Diagnostics_DeclarationErrors_UseDeclarationNameSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
@@ -939,6 +1521,8 @@ func BadParams(params rest: int[], tail: int) {}
 func BadOrdering(first: int = 1, second: int) {}
 
 func BadDefault(value: int = makeValue()) {}
+
+func BadParamsType(params count: int) {}
 
 func main() {
     value := 1
@@ -981,20 +1565,28 @@ func main() {
         var paramsNotLast = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.ParamsNotLast);
         AssertDiagnosticSpan(paramsNotLast, line: 18, column: 23, length: "rest".Length);
+        AssertLspRange(paramsNotLast, line0: 17, startCharacter: 22, endCharacter: 26);
 
         var requiredAfterOptional = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.RequiredParameterAfterOptional);
         AssertDiagnosticSpan(requiredAfterOptional, line: 20, column: 34, length: "second".Length);
+        AssertLspRange(requiredAfterOptional, line0: 19, startCharacter: 33, endCharacter: 39);
 
         var invalidDefault = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.InvalidDefaultParameterValue);
         AssertDiagnosticSpan(invalidDefault, line: 22, column: 30, length: "makeValue".Length);
+        AssertLspRange(invalidDefault, line0: 21, startCharacter: 29, endCharacter: 38);
+
+        var invalidParamsType = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidParameter);
+        AssertDiagnosticSpan(invalidParamsType, line: 24, column: 27, length: "count".Length);
+        AssertLspRange(invalidParamsType, line0: 23, startCharacter: 26, endCharacter: 31);
 
         var duplicateLocal = Assert.Single(diagnostics,
             diagnostic => diagnostic.Code == ErrorCode.DuplicateDeclaration &&
-                          diagnostic.Line == 26 &&
+                          diagnostic.Line == 28 &&
                           diagnostic.Message.Contains("'value'"));
-        AssertDiagnosticSpan(duplicateLocal, line: 26, column: 5, length: "value".Length);
+        AssertDiagnosticSpan(duplicateLocal, line: 28, column: 5, length: "value".Length);
     }
 
     [Fact]
@@ -2143,5 +2735,475 @@ func main() {
         Assert.DoesNotContain(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
             diagnostic => diagnostic.Message.Contains("<error>", System.StringComparison.Ordinal) ||
                           diagnostic.Message.Contains("can't determine the type", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // Converter conversion-invariant coverage (Unit 12).
+    //
+    // These tests exercise LspDiagnosticConverter directly with hand-constructed CompilerError /
+    // Diagnostic values so the 1-based -> 0-based, end-exclusive, length>=1 and clamp invariants are
+    // asserted independently of any analyzer raise-site span (which other units own).
+    // ---------------------------------------------------------------------------------------------
+
+    [Theory]
+    // Column 1, length 1: minimal span at the very start of a line.
+    [InlineData(1, 1, 1, 0, 0, 1)]
+    // Mid-line span of several columns.
+    [InlineData(5, 10, 4, 4, 9, 13)]
+    // Length defaults below 1 are forced to a single column.
+    [InlineData(3, 3, 0, 2, 2, 3)]
+    [InlineData(3, 3, -7, 2, 2, 3)]
+    // Negative/zero line and column are clamped to 0 without throwing.
+    [InlineData(0, 0, 1, 0, 0, 1)]
+    [InlineData(-4, -9, 1, 0, 0, 1)]
+    // Large length with no source snippet is left intact (end-exclusive).
+    [InlineData(2, 1, 250, 1, 0, 250)]
+    public void Converter_CompilerError_AppliesConversionInvariants(
+        int line,
+        int column,
+        int length,
+        int expectedLine0,
+        int expectedStartCharacter,
+        int expectedEndCharacter)
+    {
+        var error = new CompilerError(ErrorCode.InvalidSyntax, "synthetic", line, column, ErrorSeverity.Error)
+        {
+            Length = length
+        };
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+
+        Assert.Equal(expectedLine0, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(expectedLine0, (int)lspDiagnostic.Range.End.Line);
+        Assert.Equal(expectedStartCharacter, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(expectedEndCharacter, (int)lspDiagnostic.Range.End.Character);
+        Assert.True(lspDiagnostic.Range.End.Character > lspDiagnostic.Range.Start.Character,
+            "End character must stay strictly greater than start (span underlines at least one column).");
+    }
+
+    [Fact]
+    public void Converter_CompilerError_SpanAtEndOfLine_StaysExclusiveWithinLine()
+    {
+        // "abc" is 3 chars; a length-1 span on the final char ('c') ends exactly at the line length.
+        var error = new CompilerError(ErrorCode.InvalidSyntax, "synthetic", line: 1, column: 3, ErrorSeverity.Error)
+        {
+            Length = 1,
+            SourceSnippet = "abc"
+        };
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+
+        Assert.Equal(0, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(2, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(3, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Converter_CompilerError_OverlongSpan_IsClampedToVisibleLineLength()
+    {
+        // A defective length that would otherwise overflow past the end of the visible line must be
+        // clamped to the line length so the squiggle does not bleed into virtual whitespace.
+        var error = new CompilerError(ErrorCode.InvalidSyntax, "synthetic", line: 2, column: 5, ErrorSeverity.Error)
+        {
+            Length = 100,
+            SourceSnippet = "    nums := [1, 2"
+        };
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+
+        Assert.Equal(1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(4, (int)lspDiagnostic.Range.Start.Character);
+        // "    nums := [1, 2" is 17 characters; the end is clamped to that visible length.
+        Assert.Equal("    nums := [1, 2".Length, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Converter_CompilerError_OverlongSpan_NeverCollapsesBelowOneColumn()
+    {
+        // Even when the start sits at (or past) the visible end of the line, the clamp must keep the
+        // range non-empty: end stays strictly greater than start.
+        var error = new CompilerError(ErrorCode.InvalidSyntax, "synthetic", line: 1, column: 6, ErrorSeverity.Error)
+        {
+            Length = 50,
+            SourceSnippet = "abcd"
+        };
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+
+        Assert.Equal(5, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(6, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Fact]
+    public void Converter_CompilerError_MultiLineSnippet_ClampsAgainstFirstLineOnly()
+    {
+        // SourceSnippet may carry more than the starting line; the span is single-line by contract so
+        // the clamp considers only the first physical line and never wraps end onto a later line.
+        var error = new CompilerError(ErrorCode.InvalidSyntax, "synthetic", line: 1, column: 1, ErrorSeverity.Error)
+        {
+            Length = 100,
+            SourceSnippet = "abc\ndefghijklmnop"
+        };
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+
+        Assert.Equal(0, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(0, (int)lspDiagnostic.Range.End.Line);
+        Assert.Equal(0, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal("abc".Length, (int)lspDiagnostic.Range.End.Character);
+    }
+
+    [Theory]
+    [InlineData(1, 1, 1, 0, 0, 1)]
+    [InlineData(7, 12, 10, 6, 11, 21)]
+    [InlineData(3, 3, 0, 2, 2, 3)]
+    [InlineData(0, 0, -3, 0, 0, 1)]
+    public void Converter_LinterDiagnostic_AppliesConversionInvariants(
+        int line,
+        int column,
+        int length,
+        int expectedLine0,
+        int expectedStartCharacter,
+        int expectedEndCharacter)
+    {
+        var diagnostic = new Diagnostic(
+            "NL012",
+            "synthetic",
+            new Location(line, column, "Program.nl"),
+            DiagnosticSeverity.Info,
+            Suggestion: null,
+            Length: length);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromLinterDiagnostic(diagnostic);
+
+        Assert.Equal(expectedLine0, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(expectedLine0, (int)lspDiagnostic.Range.End.Line);
+        Assert.Equal(expectedStartCharacter, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(expectedEndCharacter, (int)lspDiagnostic.Range.End.Character);
+        Assert.True(lspDiagnostic.Range.End.Character > lspDiagnostic.Range.Start.Character);
+    }
+
+    [Theory]
+    [InlineData(DiagnosticSeverity.Error, OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Error)]
+    [InlineData(DiagnosticSeverity.Warning, OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning)]
+    [InlineData(DiagnosticSeverity.Info, OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Information)]
+    public void Converter_LinterDiagnostic_MapsSeverity(
+        DiagnosticSeverity compilerSeverity,
+        OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity expected)
+    {
+        var diagnostic = new Diagnostic(
+            "NL001",
+            "synthetic",
+            new Location(1, 1, "Program.nl"),
+            compilerSeverity,
+            Length: 1);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromLinterDiagnostic(diagnostic);
+
+        Assert.Equal(expected, lspDiagnostic.Severity);
+    }
+
+    [Theory]
+    [InlineData(ErrorSeverity.Error, OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Error)]
+    [InlineData(ErrorSeverity.Warning, OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity.Warning)]
+    public void Converter_CompilerError_MapsSeverity(
+        ErrorSeverity compilerSeverity,
+        OmniSharp.Extensions.LanguageServer.Protocol.Models.DiagnosticSeverity expected)
+    {
+        var error = new CompilerError(ErrorCode.TypeMismatch, "synthetic", line: 1, column: 1, compilerSeverity);
+
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+
+        Assert.Equal(expected, lspDiagnostic.Severity);
+    }
+
+    /// <summary>
+    /// Coverage sweep: every compiler ErrorCode (NL1xx-NL9xx) and every linter rule (NL0xx) must
+    /// produce a deterministic LSP Range obeying the conversion invariants. This guards against a new
+    /// diagnostic code being added without the converter being exercised for it.
+    /// </summary>
+    [Fact]
+    public void Converter_EveryDiagnosticCode_ProducesValidLspRange()
+    {
+        const int line = 4;
+        const int column = 7;
+        const int length = 5;
+
+        foreach (ErrorCode code in System.Enum.GetValues<ErrorCode>())
+        {
+            var severity = code is ErrorCode.VisibilityConventionWarning
+                or ErrorCode.ObsoleteUsage
+                ? ErrorSeverity.Warning
+                : ErrorSeverity.Error;
+
+            var error = new CompilerError(code, $"synthetic {code}", line, column, severity)
+            {
+                Length = length
+            };
+
+            var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+
+            Assert.Equal($"NL{(int)code:D3}", lspDiagnostic.Code!.Value.String);
+            Assert.Equal("N#", lspDiagnostic.Source);
+            Assert.Equal(line - 1, (int)lspDiagnostic.Range.Start.Line);
+            Assert.Equal(column - 1, (int)lspDiagnostic.Range.Start.Character);
+            Assert.Equal(column - 1 + length, (int)lspDiagnostic.Range.End.Character);
+        }
+
+        foreach (var descriptor in DiagnosticCatalog.LinterDescriptors)
+        {
+            var diagnostic = new Diagnostic(
+                descriptor.Code,
+                $"synthetic {descriptor.Code}",
+                new Location(line, column, "Program.nl"),
+                descriptor.DefaultSeverity,
+                Length: length);
+
+            var lspDiagnostic = LspDiagnosticConverter.FromLinterDiagnostic(diagnostic);
+
+            Assert.Equal(descriptor.Code, lspDiagnostic.Code!.Value.String);
+            Assert.Equal("N#", lspDiagnostic.Source);
+            Assert.Equal(line - 1, (int)lspDiagnostic.Range.Start.Line);
+            Assert.Equal(column - 1, (int)lspDiagnostic.Range.Start.Character);
+            Assert.Equal(column - 1 + length, (int)lspDiagnostic.Range.End.Character);
+        }
+    }
+
+    [Fact]
+    public void Diagnostics_UnexpectedEndOfFile_PointsAtLastVisibleOwner()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unexpected-eof.nl";
+
+        // The file ends after `class Foo` with no body, so the parser hits EOF expecting '{'.
+        var source = "class Foo";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UnexpectedEndOfFile);
+
+        // Anchored on the visible owner token `Foo`, never on the empty EOF position.
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 7, length: "Foo".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 6, endCharacter: 9);
+        Assert.DoesNotContain("''", diagnostic.Message);
+        Assert.Contains("end of the file", diagnostic.Message);
+    }
+
+    // ---- Semantic diagnostic span coverage (NL301-NL314) ----
+    // Each squiggle must land exactly on the offending visible token.
+
+    [Fact]
+    public void Diagnostics_UndefinedVariable_UnderlinesVariableName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl301-undefined-variable.nl";
+
+        var source = """
+func main() {
+    print totla
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UndefinedVariable && d.Message.Contains("totla"));
+
+        Assert.Equal("NL301", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 11, length: "totla".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 10, endCharacter: 15);
+    }
+
+    [Fact]
+    public void Diagnostics_UndefinedMember_UnderlinesMemberName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl303-undefined-member.nl";
+
+        var source = """
+func main() {
+    name := "ada"
+    print name.Lenght
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UndefinedMember && d.Message.Contains("Lenght"));
+
+        Assert.Equal("NL303", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 16, length: "Lenght".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 15, endCharacter: 21);
+    }
+
+    [Fact]
+    public void Diagnostics_DefiniteAssignment_UnderlinesConstructorKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl304-definite-assignment.nl";
+
+        var source = """
+class Box {
+    Value: string
+
+    constructor(v: int) {
+        print v
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.DefiniteAssignmentError && d.Message.Contains("Value"));
+
+        Assert.Equal("NL304", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 4, column: 5, length: "constructor".Length);
+        AssertLspRange(diagnostic, line0: 3, startCharacter: 4, endCharacter: 15);
+    }
+
+    [Fact]
+    public void Diagnostics_MissingReturn_UnderlinesFunctionHead()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl305-missing-return.nl";
+
+        var source = """
+func score(ok: bool): int {
+    if ok {
+        return 1
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.MissingReturn);
+
+        Assert.Equal("NL305", diagnostic.DiagnosticId);
+        // "func score" — the func keyword plus the function name.
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 1, length: "func score".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 0, endCharacter: "func score".Length);
+    }
+
+    [Fact]
+    public void Diagnostics_DuplicateDeclaration_UnderlinesName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl306-duplicate-declaration.nl";
+
+        var source = """
+func dup() {
+    x := 1
+    x := 2
+    print x
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.DuplicateDeclaration && d.Message.Contains("'x'"));
+
+        Assert.Equal("NL306", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 5, length: "x".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 4, endCharacter: 5);
+    }
+
+    [Fact]
+    public void Diagnostics_ReadonlyAssignment_UnderlinesFieldName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl309-readonly-assignment.nl";
+
+        var source = """
+class Box {
+    readonly Value: int
+
+    constructor() {
+        Value = 1
+    }
+
+    func change() {
+        Value = 5
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ReadonlyAssignment && d.Message.Contains("Value"));
+
+        Assert.Equal("NL309", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 9, column: 9, length: "Value".Length);
+        AssertLspRange(diagnostic, line0: 8, startCharacter: 8, endCharacter: 13);
+    }
+
+    [Fact]
+    public void Diagnostics_UnreachableStatement_UnderlinesStatementKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl312-unreachable-statement.nl";
+
+        var source = """
+func score(): int {
+    return 1
+    print "unreachable"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UnreachableStatement);
+
+        Assert.Equal("NL312", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 5, length: "print".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 4, endCharacter: 9);
+    }
+
+    [Fact]
+    public void Diagnostics_InvalidExpressionStatement_UnderlinesExpression()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl313-invalid-expression-statement.nl";
+
+        var source = """
+func main() {
+    42
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.InvalidExpressionStatement);
+
+        Assert.Equal("NL313", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 5, length: "42".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 4, endCharacter: 6);
     }
 }

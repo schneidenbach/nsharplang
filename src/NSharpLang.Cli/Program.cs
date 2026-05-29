@@ -56,7 +56,6 @@ partial class Program
             "doctor" => DoctorCommand.Execute(args.Skip(1).ToArray()),
             "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
             "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
-            "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
             "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
             "export" => Commands.ExportCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
@@ -81,9 +80,11 @@ through the native IL backend. No user-authored .csproj is needed.
 
 Options:
   --backend <mode>   Compilation backend: il
+  --project <dir>    Project root directory (default: current directory)
   --release          Build with Release configuration/output layout (default: Debug)
   --verbose          Show detailed build output
   --timings          Emit per-phase timing breakdown after build
+  --perf-report      Emit a versioned JSON performance report after build
   --output <path>    Output directory for build artifacts (-o shorthand)
   --help, -h         Show this help text
 
@@ -93,6 +94,7 @@ Examples:
   nlc build --release    Release configuration/output layout
   nlc build --verbose    Show detailed build output
   nlc build --timings    Show phase-level timing breakdown
+  nlc build --perf-report Emit a JSON performance report
   nlc build -o ./dist    Build to a specific output directory
   nlc build Program.nl   Build a single file
 
@@ -106,20 +108,25 @@ Exit codes:
         var release = args.Contains("--release");
         var verbose = args.Contains("--verbose");
         var timings = args.Contains("--timings");
+        var perfReport = args.Contains("--perf-report");
         var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
         var backendOption = GetOptionValue(args, "--backend");
-        args = args.Where(a => a is not "--release" and not "--verbose" and not "--timings").ToArray();
+        var projectOption = GetOptionValue(args, "--project");
+        args = args.Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report").ToArray();
         // Strip --output/-o and its value from positional args
         args = StripOptionWithValue(args, "--output");
         args = StripOptionWithValue(args, "-o");
         args = StripOptionWithValue(args, "--backend");
+        args = StripOptionWithValue(args, "--project");
 
         try
         {
             // Support both single-file and multi-file builds
             if (args.Length == 0)
             {
-                var projectRoot = Directory.GetCurrentDirectory();
+                var projectRoot = projectOption != null
+                    ? Path.GetFullPath(projectOption)
+                    : Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
                 var backend = ResolveCompilationBackend(backendOption, currentProjectConfig);
                 if (backend != CompilationBackend.Il)
@@ -127,7 +134,11 @@ Exit codes:
                     throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
                 }
 
-                return BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose);
+                var buildResult = RunBuildEmittingPerfReport(
+                    perfReport,
+                    projectRoot,
+                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose));
+                return buildResult;
             }
 
             var sourceFile = args[0];
@@ -139,12 +150,47 @@ Exit codes:
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
             _ = ResolveCompilationBackend(backendOption, sourceProjectConfig);
-            return BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir);
+            var singleFileResult = RunBuildEmittingPerfReport(
+                perfReport,
+                sourceDir,
+                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir));
+            return singleFileResult;
         }
         catch (Exception ex)
         {
             return Error($"Build failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Runs a build action and, when <paramref name="perfReport"/> is set, emits a versioned
+    /// JSON performance report to stdout. While the report is active, the build's human-readable
+    /// progress output is redirected to stderr so stdout contains only valid JSON. The report's
+    /// <c>ok</c> flag reflects whether the build succeeded (exit code 0).
+    /// </summary>
+    static int RunBuildEmittingPerfReport(bool perfReport, string projectRoot, Func<int> build)
+    {
+        if (!perfReport)
+        {
+            return build();
+        }
+
+        var originalOut = Console.Out;
+        int exitCode;
+        try
+        {
+            // Keep stdout reserved for the JSON report; send build logs to stderr.
+            Console.SetOut(Console.Error);
+            exitCode = build();
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+        }
+
+        Console.WriteLine(
+            NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(projectRoot, exitCode == 0));
+        return exitCode;
     }
 
     /// <summary>
@@ -1281,7 +1327,6 @@ Code Quality:
   format [files...]    Format .nl source files
   lint [files...]      Run static analysis rules
   test                 Run .tests.nl test suites (--filter, --verbose)
-  bench                Run benchmarks
 
 Dependencies:
   add <package>        Add a NuGet dependency to project.yml

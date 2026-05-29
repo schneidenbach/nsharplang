@@ -45,6 +45,8 @@ public enum ErrorCode
     UnreachableStatement = 312,
     InvalidExpressionStatement = 313,
     UnverifiedErrorResult = 314,
+    DiscardedMustUseResult = 315,
+    ShadowedDeclaration = 316,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -94,8 +96,16 @@ public enum ErrorCode
     VisibilityConventionWarning = 903,
     ObsoleteUsage = 904,
     PossibleNullAccess = 905,
-    UnnecessaryTypeAnnotation = 906,
     NullabilityWarning = 907,
+
+    // Performance diagnostics (950-999)
+    // Reserved range emitted by the optimizer to explain allocations and dispatch.
+    // Definitions only — emission is wired up by the optimizer pass.
+    AllocationHere = 950,
+    BoxingHere = 951,
+    VirtualDispatchNotDevirtualized = 952,
+    ClosureAllocation = 953,
+    DelegateAllocation = 954,
 }
 
 /// <summary>
@@ -571,11 +581,19 @@ internal static class DiagnosticSpanResolver
         if (index < 0)
             return -1;
 
-        while (index > 0 && IsDiagnosticTokenChar(sourceLine[index - 1]))
-            index--;
+        // Walk back to the start of the preceding identifier-like token so the
+        // span begins on the first character of the word rather than mid-token.
+        if (IsIdentifierPart(sourceLine[index]))
+        {
+            while (index > 0 && IsIdentifierPart(sourceLine[index - 1]))
+                index--;
+        }
 
         return index;
     }
+
+    private static bool IsIdentifierPart(char ch)
+        => char.IsLetterOrDigit(ch) || ch == '_';
 
     private static int InferVisibleTokenLength(string sourceLine, int zeroBasedStart)
     {
@@ -595,18 +613,75 @@ internal static class DiagnosticSpanResolver
             return 1 + ScanQuotedDiagnosticTokenLength(sourceLine, zeroBasedStart + 1, '"');
         }
 
-        var end = zeroBasedStart;
-        while (end < sourceLine.Length && IsDiagnosticTokenChar(sourceLine[end]))
-            end++;
+        // Identifiers, keywords and numeric literals all begin with a letter,
+        // digit or underscore. Operators never do, so resolving the identifier
+        // run first keeps a leading operator char (e.g. '!', '?') from being
+        // swallowed as if it were part of an identifier.
+        if (IsIdentifierPart(sourceLine[zeroBasedStart]))
+            return ScanIdentifierLikeTokenLength(sourceLine, zeroBasedStart);
 
-        if (end > zeroBasedStart)
-            return end - zeroBasedStart;
-
-        return zeroBasedStart + 1 < sourceLine.Length &&
-               IsPunctuationPair(sourceLine[zeroBasedStart], sourceLine[zeroBasedStart + 1])
-            ? 2
-            : 1;
+        // The remaining tokens are operators / punctuation. Use a
+        // longest-match scan so multi-character operators (==, !=, =>, ::,
+        // ?., ??=, ...) underline the whole operator rather than one char.
+        return MatchOperatorLength(sourceLine, zeroBasedStart);
     }
+
+    private static int ScanIdentifierLikeTokenLength(string sourceLine, int zeroBasedStart)
+    {
+        var end = zeroBasedStart + 1;
+        while (end < sourceLine.Length)
+        {
+            var ch = sourceLine[end];
+
+            if (char.IsLetterOrDigit(ch) || ch == '_')
+            {
+                end++;
+                continue;
+            }
+
+            // Allow trailing annotations that bind to the identifier:
+            //   member access (foo.bar), nullable types (int?), and the
+            //   null-forgiving operator (value!). A '.' only continues the
+            //   run when it is a member access dot, never the start of a
+            //   range operator ('..' / '...').
+            if (ch == '.' && end + 1 < sourceLine.Length && IsIdentifierPart(sourceLine[end + 1]))
+            {
+                end++;
+                continue;
+            }
+
+            if ((ch == '!' || ch == '?') &&
+                (end + 1 >= sourceLine.Length || !IsOperatorChar(sourceLine[end + 1])))
+            {
+                end++;
+                continue;
+            }
+
+            break;
+        }
+
+        return end - zeroBasedStart;
+    }
+
+    private static int MatchOperatorLength(string sourceLine, int zeroBasedStart)
+    {
+        var remaining = sourceLine.Length - zeroBasedStart;
+
+        foreach (var op in MultiCharOperators)
+        {
+            if (op.Length <= remaining &&
+                string.CompareOrdinal(sourceLine, zeroBasedStart, op, 0, op.Length) == 0)
+            {
+                return op.Length;
+            }
+        }
+
+        return 1;
+    }
+
+    private static bool IsOperatorChar(char ch)
+        => ch is ':' or '=' or '!' or '<' or '>' or '&' or '|'
+            or '+' or '-' or '*' or '/' or '?' or '.' or '%' or '^' or '~';
 
     private static int ScanQuotedDiagnosticTokenLength(string sourceLine, int quoteStart, char quote)
     {
@@ -628,20 +703,20 @@ internal static class DiagnosticSpanResolver
         return Math.Max(1, sourceLine.Length - quoteStart);
     }
 
-    private static bool IsDiagnosticTokenChar(char ch)
-        => char.IsLetterOrDigit(ch) || ch is '_' or '.' or '!' or '?';
-
-    private static bool IsPunctuationPair(char first, char second)
-        => (first, second) is
-            (':', '=') or
-            ('=', '>') or
-            ('=', '=') or
-            ('!', '=') or
-            ('>', '=') or
-            ('<', '=') or
-            ('&', '&') or
-            ('|', '|') or
-            ('?', '?');
+    /// <summary>
+    /// Multi-character operators recognized by the lexer, ordered longest-first
+    /// so the resolver performs a longest match (e.g. "??=" before "??", "..."
+    /// before ".."). Single-character operators fall through to length 1.
+    /// </summary>
+    private static readonly string[] MultiCharOperators =
+    {
+        // 3-character operators
+        "??=", "...",
+        // 2-character operators
+        ":=", "::", "==", "=>", "!=", "<=", "<<", ">=", ">>",
+        "&&", "||", "++", "+=", "--", "-=", "*=", "/=",
+        "??", "?.", "?[", "..",
+    };
 }
 
 public enum ErrorSeverity
@@ -693,8 +768,17 @@ public static class ErrorSuggestions
             ErrorCode.DefiniteAssignmentError
                 => "Initialize property in constructor or provide default value",
 
+            ErrorCode.ShadowedDeclaration when context != null
+                => $"Rename this declaration (the outer '{context}' is still in scope), or remove it and reuse the existing '{context}'",
+
+            ErrorCode.ShadowedDeclaration
+                => "Rename this declaration, or remove it and reuse the variable from the enclosing scope",
+
             ErrorCode.UnverifiedErrorResult
                 => "Check the paired error first, or return/throw from the error branch before using the result",
+
+            ErrorCode.DiscardedMustUseResult
+                => "Use the result (assign it, return it, or pass it to a call), or discard it explicitly with `_ = ...`",
 
             ErrorCode.UndefinedVariable when context != null
                 => $"Variable '{context}' is not defined in current scope",
@@ -924,6 +1008,12 @@ public static class TypeConversionSuggester
 public static class ErrorMessageBuilder
 {
     /// <summary>
+    /// Returns the singular or plural form of a noun based on a count.
+    /// </summary>
+    private static string Pluralize(int count, string singular, string plural)
+        => count == 1 ? singular : plural;
+
+    /// <summary>
     /// Create an Elm-style type mismatch error
     /// </summary>
     public static CompilerError TypeMismatch(string fileName, int line, int column, string sourceSnippet,
@@ -1141,13 +1231,14 @@ public static class ErrorMessageBuilder
     {
         var humanExplanation = $"I am having trouble with this function call on line {line}:";
 
+        var expectedArguments = $"{expected} {Pluralize(expected, "argument", "arguments")}";
         var contextualHint = expected > actual
-            ? $"The function `{functionName}` expects {expected} arguments, but you are\n" +
+            ? $"The function `{functionName}` expects {expectedArguments}, but you are\n" +
               $"passing {actual}. You may have forgotten to pass some arguments."
-            : $"The function `{functionName}` expects {expected} arguments, but you are\n" +
+            : $"The function `{functionName}` expects {expectedArguments}, but you are\n" +
               $"passing {actual}. You may have passed too many arguments.";
 
-        return new CompilerError(ErrorCode.WrongArgumentCount, $"Function '{functionName}' expects {expected} arguments but got {actual}", line, column, ErrorSeverity.Error)
+        return new CompilerError(ErrorCode.WrongArgumentCount, $"Function '{functionName}' expects {expectedArguments} but got {actual}", line, column, ErrorSeverity.Error)
         {
             FileName = fileName,
             SourceSnippet = sourceSnippet,
@@ -1171,13 +1262,14 @@ public static class ErrorMessageBuilder
             ? "No callable overloads were found."
             : "Available overloads:\n" + string.Join("\n", candidateSignatures.Select(signature => $"  - {signature}"));
 
+        var argumentCountText = $"{actualArgumentCount} {Pluralize(actualArgumentCount, "argument", "arguments")}";
         var humanExplanation = $"I cannot find an overload of `{functionName}` that matches this call:";
         var contextualHint =
-            $"This call passes {actualArgumentCount} argument(s): {argumentText}.\n" +
+            $"This call passes {argumentCountText}: {argumentText}.\n" +
             $"{signatureText}\n\n" +
             "Check the argument count and types. If you meant to reference the method itself, use it in a context with a delegate type instead of calling it.";
 
-        return new CompilerError(ErrorCode.NoMatchingOverload, $"No overload of '{functionName}' accepts {actualArgumentCount} argument(s) with these types", line, column, ErrorSeverity.Error)
+        return new CompilerError(ErrorCode.NoMatchingOverload, $"No overload of '{functionName}' accepts {argumentCountText} with these types", line, column, ErrorSeverity.Error)
         {
             FileName = fileName,
             SourceSnippet = sourceSnippet,

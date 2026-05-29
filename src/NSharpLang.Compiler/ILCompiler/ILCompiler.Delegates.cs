@@ -153,6 +153,61 @@ public partial class ILCompiler
             ?? throw new InvalidOperationException($"Could not resolve delegate constructor for {delegateType}");
     }
 
+    private void EmitStaticDelegate(MethodInfo targetMethod, Type delegateType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (TryEmitCachedStaticDelegate(targetMethod, delegateType))
+        {
+            return;
+        }
+
+        _currentIL.Emit(OpCodes.Ldnull);
+        _currentIL.Emit(OpCodes.Ldftn, targetMethod);
+        _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(delegateType));
+    }
+
+    private bool TryEmitCachedStaticDelegate(MethodInfo targetMethod, Type delegateType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var cacheOwnerType = _currentTypeBuilder ?? _programType;
+        if (cacheOwnerType == null
+            || !targetMethod.IsStatic
+            || targetMethod.ContainsGenericParameters
+            || delegateType.ContainsGenericParameters
+            || delegateType is TypeBuilder
+            || _delegateConstructors.ContainsKey(delegateType)
+            || _localFunctionDeclarations?.Values.Any(function => function.TypeParameters is { Count: > 0 }) == true)
+        {
+            return false;
+        }
+
+        var cacheField = cacheOwnerType.DefineField(
+            $"<>c__DelegateCache{_delegateCacheCounter++}",
+            delegateType,
+            FieldAttributes.Private | FieldAttributes.Static);
+        var cachedLabel = _currentIL.DefineLabel();
+
+        _currentIL.Emit(OpCodes.Ldsfld, cacheField);
+        _currentIL.Emit(OpCodes.Dup);
+        _currentIL.Emit(OpCodes.Brtrue_S, cachedLabel);
+        _currentIL.Emit(OpCodes.Pop);
+        _currentIL.Emit(OpCodes.Ldnull);
+        _currentIL.Emit(OpCodes.Ldftn, targetMethod);
+        _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(delegateType));
+        _currentIL.Emit(OpCodes.Dup);
+        _currentIL.Emit(OpCodes.Stsfld, cacheField);
+        _currentIL.MarkLabel(cachedLabel);
+        return true;
+    }
+
     private bool TryGetDelegateInvokeMethod(Type? type, out MethodInfo? invokeMethod)
     {
         invokeMethod = null;
