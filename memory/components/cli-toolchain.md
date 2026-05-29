@@ -219,9 +219,11 @@ N# is near-zero-warnings (see `docs/DESIGN.md` → Strictness): every active lin
 | NL006 | Error | `unreachable-code` | Statements after `return` or `throw` |
 | NL010 | Error | `unused-import` | `import` statement for a namespace/file whose symbols are never used in the file. Conservative: only fires for known namespaces (e.g. `System.Collections.Generic`); unknown namespaces are never flagged. |
 | NL011 | Error | `empty-catch` | Catch block with no statements (silently swallows exceptions) |
-| NL012 | Error | `unused-parameter` | Function parameter never referenced in the body |
+| NL012 | Error | `unused-parameter` | Function parameter never referenced in the body (underscore-prefixed names are exempt) |
 | NL016 | Error | `redundant-null-check` | Null-equality check on an expression that is always non-null (`new`, array literal, numeric/bool literal) |
 | NL020 | Error | `shadowed-variable` | Local variable declaration shadows a variable in an outer scope |
+
+**Deleted (pure-style):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.
 
 **Deleted (pure-style, now handled by `nlc format`):** `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block). These slots are retired and not reused.
 

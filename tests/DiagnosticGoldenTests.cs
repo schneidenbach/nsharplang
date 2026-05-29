@@ -174,6 +174,10 @@ public class DiagnosticGoldenTests
             "    match color {",
             "The match does not handle every possible value of `Color`.",
             "Add arms for the missing cases or a final `_ => ...` arm when a catch-all is intentional.");
+        yield return Analyzer("NL306", "'count' is already declared in this scope", "analyzer/duplicate-declaration.nl", 3, 5, 5,
+            "    count := 2",
+            "Two declarations share the name `count`; the second hides the first and is almost always a mistake.",
+            "Rename one of the declarations or remove the duplicate.");
 
         yield return Linter("NL001", "Variable 'temp' is declared but never read", "linter/unused-variable.nl", 2, 5, 4,
             "    temp := 42",
@@ -187,18 +191,18 @@ public class DiagnosticGoldenTests
             "import System.Linq",
             "Unused imports make dependency intent harder to read and can mask stale code.",
             "Remove the import or use a symbol from it.");
+        yield return Linter("NL002", "I can't find 'List' — it looks like a missing import", "linter/missing-import.nl", 2, 18, 4,
+            "    items := new List<int>()",
+            "`List` resolves to a known framework type whose namespace is not imported in this file.",
+            "Add `import System.Collections.Generic` at the top of the file.");
         yield return Linter("NL003", "Unnecessary null check on non-nullable value", "linter/unnecessary-null-check.nl", 3, 4, 4,
-            "if name != null {",
+            "if zero != null {",
             "The value is already known to be non-nullable, so the condition adds noise without protecting anything.",
             "Delete the null check and keep the useful branch body.");
         yield return Linter("NL004", "Async function has no await", "linter/async-without-await.nl", 1, 1, 10,
             "async func Load(): Task<int> {",
             "An async function with no await usually does not need the async state machine.",
             "Remove `async` or await the asynchronous operation that should drive this function.");
-        yield return Linter("NL005", "Use pattern matching", "linter/use-pattern-matching.nl", 3, 1, 2,
-            "if value is string {",
-            "A chain of type or shape checks is easier to audit when expressed as one match.",
-            "Rewrite the branch as a `match` when several related cases are being handled.");
         yield return Linter("NL011", "Empty catch block", "linter/empty-catch.nl", 5, 3, 5,
             "} catch (ex) {",
             "Swallowing errors silently makes failures hard to debug and can corrupt program state.",
@@ -207,14 +211,10 @@ public class DiagnosticGoldenTests
             "func Save(options: SaveOptions) {",
             "Unused parameters usually mean the call contract drifted from the implementation.",
             "Use the parameter, remove it from the signature, or prefix it with `_` if required by an interface.");
-        yield return Linter("NL013", "Prefer string interpolation", "linter/prefer-interpolation.nl", 2, 12, 1,
-            "message := \"Hello, \" + name",
-            "Interpolation keeps formatting intent in one string instead of splitting it across concatenation.",
-            "Use `$\"Hello, {name}\"`.");
-        yield return Linter("NL015", "Variable 'limit' can be const", "linter/prefer-const.nl", 2, 5, 5,
-            "let limit := 10",
-            "Values that never change are clearer when declared as constants.",
-            "Change `let` to `const`.");
+        yield return Linter("NL016", "Redundant null check on a value that was just created", "linter/redundant-null-check.nl", 3, 4, 9,
+            "if new User() != null {",
+            "The expression was just created with `new`, so the comparison against null is always true.",
+            "Remove the null check — the value cannot be null.");
         yield return Linter("NL020", "Variable 'count' shadows an outer variable", "linter/shadowed-variable.nl", 4, 9, 5,
             "        count := item.Count",
             "Shadowing makes reads ambiguous and can cause updates to affect the wrong variable.",

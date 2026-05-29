@@ -270,30 +270,6 @@ func main() {
     }
 
     [Fact]
-    public void ChangeLetToConst_EditUsesZeroBasedColumnsAndAppliesExactly()
-    {
-        var sourceCode = @"func main() {
-    let answer = 42
-    print answer
-}";
-        var diagnostic = new Diagnostic(
-            "NL015",
-            "'answer' is never reassigned; use const",
-            new Location(2, 5),
-            DiagnosticSeverity.Info);
-
-        var ast = ParseCode(sourceCode);
-        var fix = Assert.Single(new CodeFixService().GetCodeActions(diagnostic, ast, sourceCode));
-        var edit = Assert.Single(fix.Edits);
-
-        Assert.Equal(new TextEdit(2, 4, 2, 8, "const "), edit);
-        Assert.Equal(@"func main() {
-    const answer = 42
-    print answer
-}", NSharpLang.Compiler.CodeIntelligence.FixApplicator.ApplyEdits(sourceCode, fix.Edits));
-    }
-
-    [Fact]
     public void CodeFixService_ReturnsNoFixes_ForUnknownDiagnosticCode()
     {
         // Arrange
@@ -520,27 +496,6 @@ func main() {
     }
 
     [Fact]
-    public void ConvertToInterpolation_HasSuggestionOnlySafety()
-    {
-        var sourceCode = @"func main() {
-    let name = ""world""
-    let greeting = ""hello "" + name
-}";
-        var diagnostic = new Diagnostic(
-            "NL013",
-            "Prefer string interpolation",
-            new Location(3, 20),
-            DiagnosticSeverity.Info);
-
-        var ast = ParseCode(sourceCode);
-        var provider = new ConvertToInterpolationCodeFixProvider();
-        var fixes = provider.GetCodeActions(diagnostic, ast, sourceCode);
-
-        Assert.Single(fixes);
-        Assert.Equal(FixSafety.SuggestionOnly, fixes[0].Safety);
-    }
-
-    [Fact]
     public void AddCommentToEmptyCatch_HasSafeSafety()
     {
         var sourceCode = @"func main() {
@@ -556,27 +511,6 @@ func main() {
 
         var ast = ParseCode(sourceCode);
         var provider = new AddCommentToEmptyCatchCodeFixProvider();
-        var fixes = provider.GetCodeActions(diagnostic, ast, sourceCode);
-
-        Assert.Single(fixes);
-        Assert.Equal(FixSafety.Safe, fixes[0].Safety);
-    }
-
-    [Fact]
-    public void ChangeLetToConst_HasSafeSafety()
-    {
-        var sourceCode = @"func main() {
-    let MAX = 100
-    print MAX
-}";
-        var diagnostic = new Diagnostic(
-            "NL015",
-            "'MAX' is never reassigned; use const",
-            new Location(2, 5),
-            DiagnosticSeverity.Info);
-
-        var ast = ParseCode(sourceCode);
-        var provider = new ChangeLetToConstCodeFixProvider();
         var fixes = provider.GetCodeActions(diagnostic, ast, sourceCode);
 
         Assert.Single(fixes);

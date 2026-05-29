@@ -41,7 +41,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 - Compiler diagnostics carry authoritative `Line`, `Column`, and `Length` through `CompilerError`; LSP and Playground markers use those exact spans.
 - Linter diagnostics carry `Location` plus `Length`; VS Code, `nlc check`, `nlc lint`, and Playground markers must use the stored linter span instead of re-searching message text in the source line.
-- Shorthand declarations such as `Message := "hi"` store the identifier column, so identifier-anchored diagnostics underline `Message`, not the `:=` operator or the tail of the identifier.
+- Shorthand declarations such as `message := "hi"` store the identifier column, so identifier-anchored diagnostics (including hygiene diagnostics like `NL001` unused-variable) underline `message`, not the `:=` operator or the tail of the identifier.
 - Name lookup diagnostics should underline the unresolved name itself: missing variables (`NL301`) and missing bare call targets (`NL412`) underline the identifier being resolved, while missing members (`NL303`) underline the requested member name, including symbols requested through file-import aliases such as `Lib.MissingThing`.
 - File-import diagnostics (`NL701`, `NL702`, `NL703`, and file-import `NL010`) underline the quoted path token that the developer must edit; import collisions point at the later duplicate import path rather than `(0,0)` or the `import` keyword.
 - The Playground/WASM fallback analyzer still reports built-in member typos such as `"text".ToUp()` when reflection metadata is unavailable, while suppressing diagnostics for known valid built-in members such as `ToUpper` and `Length`.
