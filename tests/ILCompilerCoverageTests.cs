@@ -1142,6 +1142,286 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_InstanceLambdaCapturingOnlyThisField_DoesNotCreateDisplayClass()
+    {
+        // A bare lambda passed as an argument (so it is lowered through EmitLambda, not the
+        // local-function path) that references only an instance field must be emitted as an
+        // instance method bound to 'this' rather than allocating a <>c__DisplayClass closure.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Counter {
+    value: int = 41
+
+    func Run(): int {
+        return apply(() => value + 1)
+    }
+}
+
+func main(): int {
+    counter := new Counter()
+    return counter.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            var counterType = assembly.GetType("Counter");
+            Assert.NotNull(counterType);
+            var instanceLambdaMethods = counterType!
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(method => method.Name.StartsWith("<Lambda>", StringComparison.Ordinal))
+                .ToArray();
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal)),
+                InstanceLambdaMethodCount = instanceLambdaMethods.Length
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A lambda that only captures 'this' must bind to the existing instance instead of allocating a closure.");
+        Assert.True(result.InstanceLambdaMethodCount >= 1, "The 'this'-only lambda should be emitted as an instance method on the declaring type.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceLambdaCapturingOnlyThisViaThisExpression_DoesNotCreateDisplayClass()
+    {
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Box {
+    payload: int = 7
+
+    func Run(): int {
+        return apply(() => this.payload * 2)
+    }
+}
+
+func main(): int {
+    box := new Box()
+    return box.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            var boxType = assembly.GetType("Box");
+            Assert.NotNull(boxType);
+            var instanceLambdaMethods = boxType!
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(method => method.Name.StartsWith("<Lambda>", StringComparison.Ordinal))
+                .ToArray();
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal)),
+                InstanceLambdaMethodCount = instanceLambdaMethods.Length
+            };
+        });
+
+        Assert.Equal(14, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A lambda that only references 'this' via a this-expression should still avoid allocating a display class.");
+        Assert.True(result.InstanceLambdaMethodCount >= 1, "The 'this'-only lambda should be emitted as an instance method on the declaring type.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceLambdaCapturingThisAndLocal_StillCreatesDisplayClass()
+    {
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Adder {
+    seed: int = 10
+
+    func Run(): int {
+        offset := 5
+        return apply(() => seed + offset)
+    }
+}
+
+func main(): int {
+    adder := new Adder()
+    return adder.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(15, Assert.IsType<int>(result.Value));
+        Assert.True(result.HasDisplayClass, "A lambda that captures both 'this' and a local must still allocate a display class to thread the local capture.");
+    }
+
+    [Fact]
+    public void ILCompiler_NoCaptureLambdaArgument_DoesNotCreateDisplayClass()
+    {
+        // A lambda inside an instance method that references neither 'this' nor any local must
+        // be emitted statically with no display class.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Holder {
+    value: int = 99
+
+    func Run(): int {
+        return apply(() => 42)
+    }
+}
+
+func main(): int {
+    holder := new Holder()
+    return holder.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A non-capturing lambda must not allocate a display class.");
+    }
+
+    [Fact]
+    public void ILCompiler_StructLambdaCapturingOnlyThis_DoesNotUseInstanceLambdaFastPath()
+    {
+        // A value-type 'this' is a managed pointer at arg0 and cannot be bound to a delegate
+        // without boxing a copy, which would change capture semantics. The 'this'-only
+        // instance-lambda fast path must therefore be skipped for structs: the lambda must be
+        // emitted on a display class rather than as an instance method on the struct itself.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+struct Tally {
+    total: int
+
+    func Run(): int {
+        return apply(() => total + 1)
+    }
+}
+
+func main(): int {
+    tally := new Tally { total: 41 }
+    return tally.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var tallyType = assembly.GetType("Tally");
+            Assert.NotNull(tallyType);
+            var structInstanceLambdaMethods = tallyType!
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(method => method.Name.StartsWith("<Lambda>", StringComparison.Ordinal))
+                .ToArray();
+
+            return new
+            {
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal)),
+                StructInstanceLambdaMethodCount = structInstanceLambdaMethods.Length
+            };
+        });
+
+        Assert.Equal(0, result.StructInstanceLambdaMethodCount);
+        Assert.True(result.HasDisplayClass, "A struct 'this'-only lambda must fall back to the display-class path, not the instance-method fast path.");
+    }
+
+    [Fact]
+    public void ILCompiler_InstanceBlockBodyLambdaCapturingOnlyThis_DoesNotCreateDisplayClass()
+    {
+        // Exercise the block-body branch of the 'this'-only instance-lambda path.
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+class Service {
+    seed: int = 20
+
+    func Run(): int {
+        return apply(() => {
+            doubled := seed * 2
+            return doubled + 2
+        })
+    }
+}
+
+func main(): int {
+    service := new Service()
+    return service.Run()
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+
+            return new
+            {
+                Value = main!.Invoke(null, null),
+                HasDisplayClass = assembly.GetTypes().Any(type => type.Name.Contains("<>c__DisplayClass", StringComparison.Ordinal))
+            };
+        });
+
+        Assert.Equal(42, Assert.IsType<int>(result.Value));
+        Assert.False(result.HasDisplayClass, "A block-body lambda that only captures 'this' should bind to the instance without a display class.");
+    }
+
+    [Fact]
     public void ILCompiler_DirectMutableCapturedLambdaLocal_PreservesMutation()
     {
         var source = @"
