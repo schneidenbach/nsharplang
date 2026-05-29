@@ -438,6 +438,28 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_InterpolatedString_ReadOnlySpanOfCharHole_MatchesCSharp()
+    {
+        // ReadOnlySpan<char> is a byref-like ref struct and cannot flow through AppendFormatted<T>;
+        // it must route to the dedicated AppendFormatted(ReadOnlySpan<char>) overload like C# does.
+        var result = CompileAndInvoke("""
+import System
+
+func main(): string {
+    text := "hello world"
+    span := text.AsSpan()
+    count := 42
+    return $"[{span}] count={count} hex={count:X}"
+}
+""");
+
+        var text = "hello world";
+        ReadOnlySpan<char> span = text.AsSpan();
+        const int count = 42;
+        Assert.Equal($"[{span}] count={count} hex={count:X}", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileFunctionWithReturn()
     {
         var source = @"

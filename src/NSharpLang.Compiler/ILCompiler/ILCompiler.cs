@@ -11456,6 +11456,17 @@ public partial class ILCompiler
             ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendLiteral(string)");
         var appendFormattedString = handlerType.GetMethod("AppendFormatted", new[] { typeof(string) })
             ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(string)");
+        // ReadOnlySpan<char> holes cannot flow through the generic AppendFormatted<T> (a byref-like
+        // ref struct can never satisfy a generic type argument). C# routes them to the dedicated
+        // span overloads instead, so we resolve those here. Span<char> is handled by emitting its
+        // implicit conversion to ReadOnlySpan<char> before the call.
+        var roSpanOfChar = typeof(ReadOnlySpan<char>);
+        var appendFormattedSpan = handlerType.GetMethod("AppendFormatted", new[] { roSpanOfChar })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(ReadOnlySpan<char>)");
+        var appendFormattedSpanWithFormat = handlerType.GetMethod(
+                "AppendFormatted",
+                new[] { roSpanOfChar, typeof(int), typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(ReadOnlySpan<char>, int, string)");
         var appendFormattedGenericDef = handlerType.GetMethods()
             .FirstOrDefault(m => m.Name == "AppendFormatted"
                 && m.IsGenericMethodDefinition
@@ -11493,14 +11504,40 @@ public partial class ILCompiler
                 {
                     var exprType = GetExpressionType(hole.Expression);
                     var hasFormat = !string.IsNullOrEmpty(hole.FormatClause);
+                    var isReadOnlySpanOfChar = exprType == roSpanOfChar;
+                    var isSpanOfChar = exprType == typeof(Span<char>);
 
                     _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
                     EmitExpression(hole.Expression);
+
+                    if (isSpanOfChar)
+                    {
+                        // Span<char> has an implicit conversion to ReadOnlySpan<char>; emit it so the
+                        // value matches the dedicated span overload (a ref struct cannot be a generic arg).
+                        var spanToReadOnlySpan = typeof(Span<char>).GetMethod("op_Implicit", new[] { typeof(Span<char>) })
+                            ?? throw new InvalidOperationException("Could not resolve Span<char>.op_Implicit(Span<char>) -> ReadOnlySpan<char>");
+                        _currentIL.Emit(OpCodes.Call, spanToReadOnlySpan);
+                    }
 
                     if (!hasFormat && exprType == typeof(string))
                     {
                         // Use the dedicated string overload (no generic instantiation, no boxing).
                         _currentIL.Emit(OpCodes.Call, appendFormattedString);
+                    }
+                    else if (isReadOnlySpanOfChar || isSpanOfChar)
+                    {
+                        // ReadOnlySpan<char>/Span<char> route to the dedicated span overloads.
+                        if (hasFormat)
+                        {
+                            // AppendFormatted(ReadOnlySpan<char>, int alignment, string format): alignment 0.
+                            _currentIL.Emit(OpCodes.Ldc_I4_0);
+                            _currentIL.Emit(OpCodes.Ldstr, hole.FormatClause!);
+                            _currentIL.Emit(OpCodes.Call, appendFormattedSpanWithFormat);
+                        }
+                        else
+                        {
+                            _currentIL.Emit(OpCodes.Call, appendFormattedSpan);
+                        }
                     }
                     else if (hasFormat)
                     {
