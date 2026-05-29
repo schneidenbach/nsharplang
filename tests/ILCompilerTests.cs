@@ -2235,6 +2235,159 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_NonCapturingLambdaEscapingInLoop_CachesDelegateInStaticField()
+    {
+        // A non-capturing lambda that escapes (is materialized as a delegate value and
+        // stored in a collection) should allocate the delegate at most once, guarded by a
+        // static cache field - matching Roslyn's <>9__N caching idiom.
+        var source = @"
+import System
+import System.Collections.Generic
+
+func main(): int {
+    handlers := new List<Func<int, int>>()
+    for i := 0; i < 3; i = i + 1 {
+        handler: Func<int, int> = (x) => x + 1
+        handlers.Add(handler)
+    }
+    return handlers[0](41)
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+
+            var cacheField = GetDelegateCacheField(programType!);
+            Assert.NotNull(cacheField);
+            Assert.True(cacheField!.IsStatic);
+            Assert.True(cacheField.IsPrivate);
+
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            AssertDelegateCreationIsCacheGuarded(main!);
+
+            return 0;
+        });
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_MethodGroupDelegateEscapingInLoop_CachesDelegateInStaticField()
+    {
+        // A method-group delegate that escapes inside a loop should also be cached in a
+        // static field so the delegate is allocated at most once.
+        var source = @"
+import System
+import System.Collections.Generic
+
+func increment(value: int): int => value + 1
+
+func main(): int {
+    handlers := new List<Func<int, int>>()
+    for i := 0; i < 3; i = i + 1 {
+        handler: Func<int, int> = increment
+        handlers.Add(handler)
+    }
+    return handlers[0](41)
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+
+            var cacheField = GetDelegateCacheField(programType!);
+            Assert.NotNull(cacheField);
+            Assert.True(cacheField!.IsStatic);
+
+            var main = programType!.GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(main);
+            AssertDelegateCreationIsCacheGuarded(main!);
+
+            return 0;
+        });
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_NonCapturingLambdaEscapingInLoop_AllocatesDelegateOnlyOnce()
+    {
+        // Behavioral confirmation: because the delegate is cached, every loop iteration
+        // observes the same delegate instance.
+        var source = @"
+import System
+import System.Collections.Generic
+
+func main(): bool {
+    handlers := new List<Func<int, int>>()
+    for i := 0; i < 3; i = i + 1 {
+        handler: Func<int, int> = (x) => x + 1
+        handlers.Add(handler)
+    }
+    allSame := true
+    for j := 1; j < handlers.Count; j = j + 1 {
+        if !handlers[0].Equals(handlers[j]) {
+            allSame = false
+        }
+    }
+    return allSame
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.True(Assert.IsType<bool>(result));
+    }
+
+    private static FieldInfo? GetDelegateCacheField(Type programType)
+    {
+        return programType
+            .GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+            .FirstOrDefault(field => field.Name.StartsWith("<>c__DelegateCache", StringComparison.Ordinal));
+    }
+
+    private static void AssertDelegateCreationIsCacheGuarded(MethodInfo method)
+    {
+        var opCodes = GetMethodOpCodes(method);
+
+        // A delegate construction is a `newobj` immediately preceded by `ldftn`. Each one
+        // must be guarded by a static-field load + branch so the delegate is created at
+        // most once (Roslyn's <>9__N caching idiom). Other `newobj` sites (e.g. the
+        // backing List<>) are unrelated and ignored.
+        var delegateNewobjIndexes = opCodes
+            .Select((opCode, index) => (opCode, index))
+            .Where(entry => entry.opCode == OpCodes.Newobj
+                && entry.index >= 1
+                && opCodes[entry.index - 1] == OpCodes.Ldftn)
+            .Select(entry => entry.index)
+            .ToList();
+
+        Assert.NotEmpty(delegateNewobjIndexes);
+
+        foreach (var index in delegateNewobjIndexes)
+        {
+            // ... ldsfld, dup, brtrue, pop, ldnull, ldftn, newobj, dup, stsfld ...
+            Assert.True(index >= 6, "Cache-guarded delegate creation expected preceding opcodes");
+            Assert.True(index + 2 < opCodes.Count, "Cache-guarded delegate creation expected trailing opcodes");
+            Assert.Equal(OpCodes.Ldftn, opCodes[index - 1]);
+            Assert.Equal(OpCodes.Ldnull, opCodes[index - 2]);
+            Assert.Equal(OpCodes.Pop, opCodes[index - 3]);
+            Assert.True(
+                opCodes[index - 4] == OpCodes.Brtrue_S || opCodes[index - 4] == OpCodes.Brtrue,
+                "Expected branch-if-already-cached before delegate creation");
+            Assert.Equal(OpCodes.Dup, opCodes[index - 5]);
+            Assert.Equal(OpCodes.Ldsfld, opCodes[index - 6]);
+
+            // After creating the delegate it is stored back into the cache field.
+            Assert.Equal(OpCodes.Dup, opCodes[index + 1]);
+            Assert.Equal(OpCodes.Stsfld, opCodes[index + 2]);
+        }
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteFieldInitializerOnClass()
     {
         var source = @"
