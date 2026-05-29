@@ -9362,10 +9362,15 @@ public partial class ILCompiler
         return CreateDelegateType(parameterTypes, returnType);
     }
 
-    private Type GetLocalFunctionReturnType(FunctionDeclaration function)
+    private Type GetLocalFunctionReturnType(FunctionDeclaration function, GenericTypeParameterBuilder[]? genericParameters = null)
     {
+        // A generic local function's own type parameters (e.g. `func f<T>(): T`) are NOT in the
+        // enclosing method's generic parameter set, so the return type must be resolved against the
+        // combined parameters supplied by the caller. Falling back to _currentGenericParameters here
+        // erased a `T` return to `object`, producing GC-unsafe IL (the body returns an unboxed T while
+        // the signature claimed object) that crashes the x64 JIT.
         var innerReturnType = function.ReturnType != null
-            ? ResolveType(function.ReturnType, _currentGenericParameters)
+            ? ResolveType(function.ReturnType, genericParameters ?? _currentGenericParameters)
             : function.ExpressionBody != null
                 ? GetExpressionType(function.ExpressionBody)
                 : function.Body != null

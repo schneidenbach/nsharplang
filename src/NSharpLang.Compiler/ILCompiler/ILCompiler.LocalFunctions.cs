@@ -85,7 +85,7 @@ public partial class ILCompiler
         }
 
         var combinedGenericParameters = CombineGenericParameters(localGenericParameters, _currentGenericParameters);
-        var returnType = GetLocalFunctionReturnType(localFunction.Function);
+        var returnType = GetLocalFunctionReturnType(localFunction.Function, combinedGenericParameters);
         var declaredParameterTypes = localFunction.Function.Parameters
             .Select(parameter => ResolveParameterType(parameter, combinedGenericParameters))
             .ToArray();
