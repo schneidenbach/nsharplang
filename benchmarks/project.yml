@@ -1,0 +1,4 @@
+name: Benchmarks
+version: 1.0.0
+targetFramework: net10.0
+outputType: library
