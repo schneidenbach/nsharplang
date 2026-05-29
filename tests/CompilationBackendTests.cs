@@ -1219,48 +1219,6 @@ test "override il tests" {
     }
 
     [Fact]
-    public void BenchCommand_BackendOverrideToIl_RunsBenchmarksThroughSdkProject()
-    {
-        var tempDir = CreateTempDir();
-        try
-        {
-            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
-            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
-name: BenchIl
-outputType: library
-targetFramework: net10.0
-""");
-            File.WriteAllText(Path.Combine(tempDir, "math.bench.nl"), """
-func benchAddNumbers(): int {
-    return 1 + 2
-}
-""");
-
-            var (exitCode, stdout, stderr) = CaptureConsole(() =>
-                BenchCommand.Execute(new[]
-                {
-                    "--project", tempDir,
-                    "--backend", "il",
-                    "--job", "dry",
-                    "--filter", "benchAddNumbers",
-                    "--json"
-                }));
-
-            Assert.True(exitCode == 0, $"stdout:{Environment.NewLine}{stdout}{Environment.NewLine}stderr:{Environment.NewLine}{stderr}");
-            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
-
-            using var doc = JsonDocument.Parse(stdout);
-            Assert.Equal("bench", doc.RootElement.GetProperty("command").GetString());
-            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-            Assert.True(doc.RootElement.GetProperty("benchmarkCount").GetInt32() >= 1);
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
     public void CompilationStubEmitter_UsesSystemAndSuppressesFallbackMainForTypeEntryPoints()
     {
         var tempDir = CreateTempDir();

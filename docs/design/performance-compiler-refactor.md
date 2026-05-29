@@ -320,7 +320,7 @@ Required tooling:
 
 1. `nlc query perf --file --pos`: explain allocation, dispatch, capture, and ABI facts for a selected expression/function.
 2. `nlc build --perf-report`: emit JSON with schema version, allocation sites, delegate sites, boxing sites, virtual/interface dispatch, closure captures, and AOT blockers.
-3. `nlc bench --explain`: attach IL-shape summaries to benchmark output.
+3. `IlShapeInspector` (in `NSharpLang.Compiler.Performance`): deterministic per-method IL-shape summaries (`newobj`/`box`/`callvirt` vs `call`/delegate ctors), surfaced via `--perf-report` and `query perf`. (A wall-clock `nlc bench` command was prototyped and removed — see `memory/limitations.md`; use BenchmarkDotNet directly on the compiled assembly for timings.)
 4. Stable schema versions for all performance reports.
 
 ### Decision: Performance Diagnostics Before Optimizer Completeness

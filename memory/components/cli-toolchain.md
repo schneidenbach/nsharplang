@@ -8,7 +8,7 @@ The `nlc` CLI is designed for two audiences: humans at a terminal and LLMs navig
 The executable toolchain is now IL-only:
 - `il` — emit IL directly to a managed assembly
 
-`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `bench`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` inspection command.
+`project.yml` supports `backend: il`; when omitted, IL is the default. The CLI honors that setting for `check`, `build`, `run`, `test`, `publish`, and `pack` through the native project.yml build path. The MSBuild SDK remains available for direct `dotnet build`, `dotnet run`, and `dotnet test` compatibility when a host tool needs a `.csproj`. C# generation remains available as the explicit `nlc export csharp` inspection command.
 
 ---
 
@@ -87,12 +87,8 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc test --filter <name>` | Run a subset of tests | `nlc test --filter AddPerson` |
 | `nlc test --verbose` | Show individual test results | `nlc test --verbose` |
 | `nlc test --coverage` | Unsupported/planned native coverage; exits 1 with text or JSON guidance | `nlc test --coverage --json` |
-| `nlc bench` | Run benchmarks from *.bench.nl files (BenchmarkDotNet) | `nlc bench` |
-| `nlc bench --list` | Discover benchmark functions without running | `nlc bench --list` |
-| `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
-| `nlc bench --export <fmt>` | Export results: json, csv, markdown | `nlc bench --export json` |
 
-`nlc bench` is a product benchmark runner for N# `*.bench.nl` functions. It compiles the N# project, generates a BenchmarkDotNet host, and invokes benchmark functions through generated wrapper delegates. That is useful for tracking N# benchmark functions over time, but it is not by itself a fair N# vs C# comparison. For language-performance claims, use a separate matched-shape harness that calls N# and C# through equivalent wrappers, include an idiomatic C# baseline, report wrapper overhead separately, and keep the raw JSON/Markdown plus IL-shape evidence. Function-value claims also need IL-shape evidence for delegate construction, `Invoke` calls, cache fields, and lifted capture storage.
+**Performance signal — IL shape, not a wall-clock runner.** There is intentionally no `nlc bench` command. A code-generating BenchmarkDotNet wrapper was prototyped and removed: it duplicated the mature BenchmarkDotNet ecosystem (which N# users already get for free through C# interop) and added a fragile codegen/reflection host for marginal value. N#'s first-class, on-brand performance signal is **deterministic IL-shape inspection** (`IlShapeInspector` in `NSharpLang.Compiler.Performance`), surfaced through `nlc build --perf-report` and `nlc query perf`. It needs nothing to run, is noise-free, and is suitable as a CI regression gate — it reports the counts that dominate N# performance (`newobj`/allocations, `box`, `callvirt` vs `call`, delegate constructions). For wall-clock numbers, point BenchmarkDotNet directly at the compiled N# assembly; for fair N#-vs-C# language claims, use a matched-shape harness with idiomatic C# baselines, separated wrapper overhead, and the IL-shape evidence above.
 
 ### Project Management
 
@@ -158,7 +154,7 @@ Supported backend values:
 
 Current status:
 - `project.yml` backend selection is respected by both the CLI and the MSBuild SDK.
-- `nlc check/build/run/test/bench/publish/pack` all support `backend: il` through the native project.yml path.
+- `nlc check/build/run/test/publish/pack` all support `backend: il` through the native project.yml path.
 - `dotnet build`, `dotnet run`, and `dotnet test` work for IL-backed SDK projects.
 - Generated-C# export no longer exists as a backend or build path.
 - `nlc export csharp` is the only supported product surface for C# generation.

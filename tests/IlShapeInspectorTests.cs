@@ -1,17 +1,18 @@
 using System;
 using System.Reflection;
-using NSharpLang.Cli.Commands;
+using NSharpLang.Compiler.Performance;
 using Xunit;
 
 namespace NSharpLang.Tests;
 
 /// <summary>
-/// Unit tests for the IL-shape decoder behind <c>nlc bench --explain</c>.
+/// Unit tests for the IL-shape decoder (<see cref="IlShapeInspector"/>) — the deterministic
+/// codegen-quality signal behind N#'s allocation/dispatch perf guarantees.
 /// Each sample method below has a hand-known IL shape so we can assert that the
 /// opcode decoder tallies <c>newobj</c>, <c>box</c>, <c>callvirt</c> vs <c>call</c>,
-/// and delegate constructions without running BenchmarkDotNet.
+/// and delegate constructions.
 /// </summary>
-public class BenchIlShapeTests
+public class IlShapeInspectorTests
 {
     // Sample methods. They are intentionally not optimized away by being public and
     // returning values; the decoder reads the *debug* IL of this test assembly.
@@ -46,8 +47,8 @@ public class BenchIlShapeTests
 
     private static IlShapeSummaryProbe Probe(string name)
     {
-        var method = typeof(BenchIlShapeTests).GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
-        var shape = BenchCommand.ComputeIlShape(method);
+        var method = typeof(IlShapeInspectorTests).GetMethod(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+        var shape = IlShapeInspector.ComputeIlShape(method);
         Assert.NotNull(shape);
         return new IlShapeSummaryProbe(
             shape!.IlBytes,
@@ -108,6 +109,6 @@ public class BenchIlShapeTests
         // Object.ToString has a body, but an interface/abstract method does not.
         var method = typeof(System.Collections.IEnumerable)
             .GetMethod(nameof(System.Collections.IEnumerable.GetEnumerator))!;
-        Assert.Null(BenchCommand.ComputeIlShape(method));
+        Assert.Null(IlShapeInspector.ComputeIlShape(method));
     }
 }

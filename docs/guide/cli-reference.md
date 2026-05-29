@@ -20,7 +20,6 @@ Updated: 2026-05-27
 | `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
-| `nlc bench` | Run N# BenchmarkDotNet benchmarks | `--project`, `--filter`, `--job`, `--export`, `--list`, `--explain`, `--json` | `nlc bench --job short` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
@@ -43,9 +42,11 @@ Updated: 2026-05-27
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
-`nlc bench` measures N# `*.bench.nl` functions through a generated BenchmarkDotNet host. It is useful for tracking N# benchmark functions over time, but cross-language performance claims require an external matched-shape N#/C# harness with raw BenchmarkDotNet output, wrapper-overhead accounting, idiomatic C# baselines, and IL-shape evidence.
+### Performance: IL-shape evidence (no `nlc bench`)
 
-Add `--explain` to attach an IL-shape summary to each discovered benchmark. The CLI reads the compiled method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports the counts that dominate N# performance: total IL byte length plus the number of `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions (`newobj` targeting a `System.Delegate` subclass). In text mode the summary prints before the BenchmarkDotNet run; in `--json` mode (still `schemaVersion: 1`) each benchmark gains a `methods` array whose entries carry an `ilShape` object (`ilBytes`, `newobj`, `box`, `callvirt`, `call`, `delegateCtors`). Methods without a managed IL body report `ilShape: null`.
+N# does **not** ship a wall-clock benchmark runner. Because N# assemblies interop with C#, you can point [BenchmarkDotNet](https://benchmarkdotnet.org/) directly at a compiled N# assembly for timing numbers; re-wrapping it in the toolchain added fragility without adding value.
+
+What the toolchain *does* provide is **deterministic IL-shape inspection** — the codegen-quality signal a performance-focused language should guarantee. The compiler reads a method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports the counts that dominate N# performance: total IL byte length plus `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions. It needs nothing to run and is stable enough to use as a CI regression gate. The data is surfaced through `nlc build --perf-report` and `nlc query perf` as an `ilShape` object (`ilBytes`, `newobj`, `box`, `callvirt`, `call`, `delegateCtors`); methods without a managed IL body report `ilShape: null`. For fair cross-language claims, pair this with an external matched-shape N#/C# harness, idiomatic C# baselines, and separated wrapper-overhead accounting.
 
 ## Query Commands
 
@@ -338,7 +339,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
-| Benchmark | `-bench` | `cargo bench` | `4` | `nlc bench` runs BenchmarkDotNet for N# `*.bench.nl`; cross-language comparisons need an external matched harness |
+| Benchmark | `-bench` | `cargo bench` | `n/a` | No built-in runner by design: use BenchmarkDotNet directly on the compiled N# assembly. The toolchain provides deterministic IL-shape evidence (`nlc build --perf-report`, `nlc query perf`) instead. |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |

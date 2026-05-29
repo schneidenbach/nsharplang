@@ -56,7 +56,6 @@ partial class Program
             "doctor" => DoctorCommand.Execute(args.Skip(1).ToArray()),
             "tree" => TreeCommand.Execute(args.Skip(1).ToArray()),
             "audit" => AuditCommand.Execute(args.Skip(1).ToArray()),
-            "bench" => BenchCommand.Execute(args.Skip(1).ToArray()),
             "pack" => PackCommand.Execute(args.Skip(1).ToArray()),
             "export" => Commands.ExportCommand.Execute(args.Skip(1).ToArray()),
             "help" or "--help" or "-h" => ShowHelp(),
@@ -1328,7 +1327,6 @@ Code Quality:
   format [files...]    Format .nl source files
   lint [files...]      Run static analysis rules
   test                 Run .tests.nl test suites (--filter, --verbose)
-  bench                Run benchmarks
 
 Dependencies:
   add <package>        Add a NuGet dependency to project.yml
