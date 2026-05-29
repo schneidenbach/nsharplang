@@ -23,6 +23,7 @@ public static partial class BenchCommand
         var jobOption = GetOptionValue(args, "--job");
         var listOnly = args.Contains("--list");
         var jsonOutput = args.Contains("--json");
+        var explain = args.Contains("--explain");
 
         if (!Directory.Exists(projectRoot))
         {
@@ -90,7 +91,7 @@ public static partial class BenchCommand
         }
 
         // Run benchmarks
-        return RunBenchmarksWithIl(benchFiles, projectRoot, projectConfig, filter, export, jsonOutput, benchmarkJobAttribute);
+        return RunBenchmarksWithIl(benchFiles, projectRoot, projectConfig, filter, export, jsonOutput, benchmarkJobAttribute, explain);
     }
 
     static int ListBenchmarks(string[] benchFiles, string projectRoot, bool jsonOutput)
@@ -330,6 +331,8 @@ Options:
   --job <kind>          Benchmark job: default, dry, short, medium, long
   --project <dir>       Project root directory (default: current directory)
   --list                List discovered benchmarks without running them
+  --explain             Attach an IL-shape summary (newobj/box/callvirt/call/
+                        delegate-ctor counts) to each benchmark's output
   --json                Output structured JSON (schemaVersion 1 envelope)
   --help, -h            Show this help text
 
@@ -343,6 +346,7 @@ Examples:
   nlc bench
   nlc bench --backend il
   nlc bench --list
+  nlc bench --explain
   nlc bench --filter benchAdd
   nlc bench --job dry
   nlc bench --export json

@@ -20,7 +20,7 @@ Updated: 2026-05-27
 | `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
-| `nlc bench` | Run N# BenchmarkDotNet benchmarks | `--project`, `--filter`, `--job`, `--export`, `--list`, `--json` | `nlc bench --job short` |
+| `nlc bench` | Run N# BenchmarkDotNet benchmarks | `--project`, `--filter`, `--job`, `--export`, `--list`, `--explain`, `--json` | `nlc bench --job short` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
@@ -44,6 +44,8 @@ Updated: 2026-05-27
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
 
 `nlc bench` measures N# `*.bench.nl` functions through a generated BenchmarkDotNet host. It is useful for tracking N# benchmark functions over time, but cross-language performance claims require an external matched-shape N#/C# harness with raw BenchmarkDotNet output, wrapper-overhead accounting, idiomatic C# baselines, and IL-shape evidence.
+
+Add `--explain` to attach an IL-shape summary to each discovered benchmark. The CLI reads the compiled method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports the counts that dominate N# performance: total IL byte length plus the number of `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions (`newobj` targeting a `System.Delegate` subclass). In text mode the summary prints before the BenchmarkDotNet run; in `--json` mode (still `schemaVersion: 1`) each benchmark gains a `methods` array whose entries carry an `ilShape` object (`ilBytes`, `newobj`, `box`, `callvirt`, `call`, `delegateCtors`). Methods without a managed IL body report `ilShape: null`.
 
 ## Query Commands
 
