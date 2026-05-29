@@ -51,11 +51,6 @@ public partial class ILCompiler
         var captured = new HashSet<string>();
         var parameterNames = new HashSet<string>(lambda.Parameters.Select(p => p.Name));
 
-        if (_currentHasThis)
-        {
-            captured.Add(ThisCaptureName);
-        }
-
         // Find all referenced variables that are not parameters
         if (lambda.ExpressionBody != null)
         {
@@ -89,6 +84,18 @@ public partial class ILCompiler
                     {
                         captured.Add(ident.Name);
                     }
+                    else if (IsImplicitInstanceMemberReference(ident.Name))
+                    {
+                        captured.Add(ThisCaptureName);
+                    }
+                }
+                break;
+
+            case ThisExpression:
+            case BaseExpression:
+                if (_currentHasThis)
+                {
+                    captured.Add(ThisCaptureName);
                 }
                 break;
 
@@ -340,6 +347,51 @@ public partial class ILCompiler
         }
     }
 
+    private bool IsImplicitInstanceMemberReference(string name)
+    {
+        if (!_currentHasThis)
+        {
+            return false;
+        }
+
+        if (TryResolveCurrentTypeMember(name, out _, out var field, out var getter, out var setter))
+        {
+            if (field != null)
+            {
+                return !field.IsStatic;
+            }
+
+            if (getter != null)
+            {
+                return !getter.IsStatic;
+            }
+
+            if (setter != null)
+            {
+                return !setter.IsStatic;
+            }
+        }
+
+        if (TryGetImplicitInstanceOwnerTypeBuilder(out var ownerTypeBuilder)
+            && _declaredMethodOverloads.TryGetValue(GetMethodKey(ownerTypeBuilder, name), out var declaredOverloads)
+            && declaredOverloads.Any(overload => !overload.Builder.IsStatic))
+        {
+            return true;
+        }
+
+        if (TryGetImplicitInstanceOwnerType(out var ownerType))
+        {
+            var runtimeLookupType = GetImplicitInstanceRuntimeLookupType(ownerType);
+            var runtimeMethod = ResolveRuntimeMethod(
+                runtimeLookupType,
+                name,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            return runtimeMethod != null;
+        }
+
+        return false;
+    }
+
     /// <summary>
     /// Emit a simple lambda (no closures) as a static method with a delegate
     /// </summary>
@@ -349,9 +401,10 @@ public partial class ILCompiler
             throw new InvalidOperationException("No IL generator context");
 
         GetLambdaSignature(lambda, out var parameterTypes, out var returnType);
+        var ownerType = _currentTypeBuilder ?? _programType;
 
         // Create a static method for the lambda
-        var lambdaMethod = _programType.DefineMethod(
+        var lambdaMethod = ownerType.DefineMethod(
             $"<Lambda>_{_lambdaCounter++}",
             MethodAttributes.Private | MethodAttributes.Static,
             returnType,
@@ -377,6 +430,8 @@ public partial class ILCompiler
         var savedCurrentYieldBreakLabel = _currentYieldBreakLabel;
         var savedExpectedExpressionType = _expectedExpressionType;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
+        var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
+        var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedCurrentHasThis = _currentHasThis;
@@ -394,8 +449,7 @@ public partial class ILCompiler
             bodyReturnType = asyncResultType ?? typeof(void);
         }
 
-        InitializeBodyContext(bodyReturnType, ContainsNestedFunction(lambda.BlockBody)
-            || (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody)));
+        InitializeBodyContextForBody(bodyReturnType, lambda.BlockBody, lambda.ExpressionBody, lambda.Parameters);
         _inferredLocalTypes = null;
         _currentHasThis = false;
         _expectedExpressionType = null;
@@ -485,16 +539,14 @@ public partial class ILCompiler
         _currentYieldBreakLabel = savedCurrentYieldBreakLabel;
         _expectedExpressionType = savedExpectedExpressionType;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
+        _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
+        _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
 
         var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, contextualDelegateType ?? savedExpectedExpressionType);
-
-        // Emit delegate creation: ldnull, ldftn, newobj
-        _currentIL.Emit(OpCodes.Ldnull);
-        _currentIL.Emit(OpCodes.Ldftn, lambdaMethod);
-        _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(delegateType));
+        EmitStaticDelegate(lambdaMethod, delegateType);
     }
 
     /// <summary>
@@ -571,6 +623,8 @@ public partial class ILCompiler
         var savedCurrentTypeBuilder = _currentTypeBuilder;
         var savedClosureFields = _closureFields;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
+        var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
+        var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedCurrentHasThis = _currentHasThis;
@@ -591,8 +645,7 @@ public partial class ILCompiler
             bodyReturnType = asyncResultType ?? typeof(void);
         }
 
-        InitializeBodyContext(bodyReturnType, ContainsNestedFunction(lambda.BlockBody)
-            || (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody)));
+        InitializeBodyContextForBody(bodyReturnType, lambda.BlockBody, lambda.ExpressionBody, lambda.Parameters);
         _currentHasThis = true;
         _expectedExpressionType = null;
         _currentTypeBuilder = closureClass;
@@ -686,6 +739,8 @@ public partial class ILCompiler
         _currentTypeBuilder = savedCurrentTypeBuilder;
         _closureFields = savedClosureFields;
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
+        _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
+        _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;

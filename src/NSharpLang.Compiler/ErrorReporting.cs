@@ -97,6 +97,15 @@ public enum ErrorCode
     ObsoleteUsage = 904,
     PossibleNullAccess = 905,
     NullabilityWarning = 907,
+
+    // Performance diagnostics (950-999)
+    // Reserved range emitted by the optimizer to explain allocations and dispatch.
+    // Definitions only — emission is wired up by the optimizer pass.
+    AllocationHere = 950,
+    BoxingHere = 951,
+    VirtualDispatchNotDevirtualized = 952,
+    ClosureAllocation = 953,
+    DelegateAllocation = 954,
 }
 
 /// <summary>

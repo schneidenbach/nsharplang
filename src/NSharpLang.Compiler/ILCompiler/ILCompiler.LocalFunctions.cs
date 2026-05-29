@@ -203,7 +203,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (_liftLocalsIntoBoxes)
+            if (ShouldLiftLocalIntoBox(capture.Name))
             {
                 var liftedCaptureLocal = DeclareNamedLocal(capture.Name, capture.CaptureParameterType);
                 EmitLoadArgument(captureIndex);
@@ -842,6 +842,8 @@ public partial class ILCompiler
         var savedCurrentTypeBuilder = _currentTypeBuilder;
         var savedClosureFields = _closureFields;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
+        var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
+        var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
         var savedPendingLocalFunctionDefinition = _pendingLocalFunctionDefinition;
@@ -871,8 +873,7 @@ public partial class ILCompiler
                 bodyReturnType = asyncResultType ?? typeof(void);
             }
 
-            InitializeBodyContext(bodyReturnType, ContainsNestedFunction(localFunction.Function.Body)
-                || (localFunction.Function.ExpressionBody != null && ContainsNestedFunction(localFunction.Function.ExpressionBody)));
+            InitializeBodyContextForBody(bodyReturnType, localFunction.Function.Body, localFunction.Function.ExpressionBody, localFunction.Function.Parameters);
             _currentHasThis = !methodBuilder.IsStatic;
             _liftedClosureFields = methodBuilder.IsStatic ? null : savedLiftedClosureFields;
 
@@ -970,6 +971,8 @@ public partial class ILCompiler
             _currentTypeBuilder = savedCurrentTypeBuilder;
             _closureFields = savedClosureFields;
             _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
+            _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
+            _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
             _liftedIdentifiers = savedLiftedIdentifiers;
             _liftedClosureFields = savedLiftedClosureFields;
             _pendingLocalFunctionDefinition = savedPendingLocalFunctionDefinition;
@@ -1016,6 +1019,211 @@ public partial class ILCompiler
             ReferenceEqualityComparer.Instance);
     }
 
+    private Dictionary<VariableDeclarationStatement, LocalFunctionStatement> GetDirectLambdaLocalDeclarations(
+        BlockStatement block,
+        IReadOnlyCollection<LocalFunctionStatement> localFunctions)
+    {
+        var localFunctionNames = localFunctions
+            .Select(localFunction => localFunction.Function.Name)
+            .ToHashSet(StringComparer.Ordinal);
+        var candidateDeclarations = new Dictionary<string, (VariableDeclarationStatement Declaration, LocalFunctionStatement LocalFunction)>(StringComparer.Ordinal);
+        var duplicateNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var statement in block.Statements)
+        {
+            if (statement is not VariableDeclarationStatement variableDeclaration
+                || !TryCreateDirectFunctionValueLocalFunction(variableDeclaration, out var directLocalFunction))
+            {
+                continue;
+            }
+
+            if (localFunctionNames.Contains(variableDeclaration.Name)
+                || !candidateDeclarations.TryAdd(variableDeclaration.Name, (variableDeclaration, directLocalFunction)))
+            {
+                duplicateNames.Add(variableDeclaration.Name);
+            }
+        }
+
+        foreach (var duplicateName in duplicateNames)
+        {
+            candidateDeclarations.Remove(duplicateName);
+        }
+
+        if (candidateDeclarations.Count == 0)
+        {
+            return new Dictionary<VariableDeclarationStatement, LocalFunctionStatement>(ReferenceEqualityComparer.Instance);
+        }
+
+        var candidateNames = candidateDeclarations.Keys.ToHashSet(StringComparer.Ordinal);
+        var escapingNames = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var statement in block.Statements)
+        {
+            if (statement is VariableDeclarationStatement variableDeclaration
+                && candidateDeclarations.TryGetValue(variableDeclaration.Name, out var candidate)
+                && ReferenceEquals(candidate.Declaration, variableDeclaration))
+            {
+                if (variableDeclaration.Initializer != null)
+                {
+                    FindEscapingLocalFunctionReferences(variableDeclaration.Initializer, candidateNames, escapingNames, isDirectCallCallee: false);
+                }
+                continue;
+            }
+
+            FindEscapingLocalFunctionReferences(statement, candidateNames, escapingNames);
+        }
+
+        var directLambdaLocals = new Dictionary<VariableDeclarationStatement, LocalFunctionStatement>(ReferenceEqualityComparer.Instance);
+        foreach (var (name, candidate) in candidateDeclarations)
+        {
+            if (escapingNames.Contains(name))
+            {
+                continue;
+            }
+
+            directLambdaLocals[candidate.Declaration] = candidate.LocalFunction;
+        }
+
+        return directLambdaLocals;
+    }
+
+    private bool TryCreateDirectFunctionValueLocalFunction(
+        VariableDeclarationStatement declaration,
+        out LocalFunctionStatement localFunction)
+    {
+        localFunction = null!;
+
+        if (declaration.Initializer is LambdaExpression lambda)
+        {
+            TypeReference? returnType = null;
+            if (LambdaContainsNestedFunction(lambda))
+            {
+                return false;
+            }
+
+            if (declaration.Type != null)
+            {
+                if (!TryApplyContextualLambdaSignature(declaration.Type, lambda, out lambda, out returnType))
+                {
+                    return false;
+                }
+            }
+
+            localFunction = CreateSyntheticLambdaLocalFunction(declaration, lambda, returnType);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool LambdaContainsNestedFunction(LambdaExpression lambda)
+    {
+        return (lambda.ExpressionBody != null && ContainsNestedFunction(lambda.ExpressionBody))
+            || (lambda.BlockBody != null && ContainsNestedFunction(lambda.BlockBody));
+    }
+
+    private bool TryApplyContextualLambdaSignature(
+        TypeReference delegateType,
+        LambdaExpression lambda,
+        out LambdaExpression typedLambda,
+        out TypeReference returnType)
+    {
+        typedLambda = lambda;
+        returnType = new SimpleTypeReference("void");
+        if (!TryGetDelegateSignatureTypeReferences(
+            delegateType,
+            lambda.Parameters.Count,
+            out var parameterTypes,
+            out var delegateReturnType))
+        {
+            return false;
+        }
+
+        var typedParameters = lambda.Parameters
+            .Select((parameter, index) =>
+            {
+                var hasExplicitType = parameter.Type is not null
+                    && parameter.Type is not SimpleTypeReference { Name: "var" };
+                return hasExplicitType
+                    ? parameter
+                    : parameter with { Type = parameterTypes[index] };
+            })
+            .ToList();
+
+        typedLambda = lambda with { Parameters = typedParameters };
+        returnType = delegateReturnType;
+        return true;
+    }
+
+    private static LocalFunctionStatement CreateSyntheticLambdaLocalFunction(
+        VariableDeclarationStatement declaration,
+        LambdaExpression lambda,
+        TypeReference? returnType = null)
+    {
+        var function = new FunctionDeclaration(
+            declaration.Name,
+            lambda.Parameters,
+            returnType,
+            lambda.BlockBody,
+            lambda.ExpressionBody,
+            TypeParameters: null,
+            Constraints: null,
+            Modifiers.None,
+            new List<AttributeNode>(),
+            IsOperatorOverload: false,
+            OperatorSymbol: null,
+            IsConversionOperator: false,
+            IsImplicitConversion: false,
+            declaration.Line,
+            declaration.Column);
+
+        return new LocalFunctionStatement(function, declaration.Line, declaration.Column);
+    }
+
+    private static bool TryGetDelegateSignatureTypeReferences(
+        TypeReference delegateType,
+        int? parameterCount,
+        out IReadOnlyList<TypeReference> parameterTypes,
+        out TypeReference returnType)
+    {
+        if (delegateType is FunctionTypeReference functionType
+            && (parameterCount == null || functionType.ParameterTypes.Count == parameterCount.Value))
+        {
+            parameterTypes = functionType.ParameterTypes;
+            returnType = functionType.ReturnType;
+            return true;
+        }
+
+        if (delegateType is GenericTypeReference { Name: "Func" } funcType
+            && funcType.TypeArguments.Count > 0
+            && (parameterCount == null || funcType.TypeArguments.Count == parameterCount.Value + 1))
+        {
+            parameterTypes = funcType.TypeArguments.Take(funcType.TypeArguments.Count - 1).ToArray();
+            returnType = funcType.TypeArguments[^1];
+            return true;
+        }
+
+        if (delegateType is GenericTypeReference { Name: "Action" } actionType
+            && (parameterCount == null || actionType.TypeArguments.Count == parameterCount.Value))
+        {
+            parameterTypes = actionType.TypeArguments;
+            returnType = new SimpleTypeReference("void");
+            return true;
+        }
+
+        if (delegateType is SimpleTypeReference { Name: "Action" }
+            && (parameterCount == null || parameterCount.Value == 0))
+        {
+            parameterTypes = Array.Empty<TypeReference>();
+            returnType = new SimpleTypeReference("void");
+            return true;
+        }
+
+        parameterTypes = Array.Empty<TypeReference>();
+        returnType = new SimpleTypeReference("void");
+        return false;
+    }
+
     private bool CanMaterializeLocalFunctionValueAtBoundary(LocalFunctionStatement localFunction)
     {
         if (localFunction.Function.TypeParameters is { Count: > 0 })
@@ -1051,20 +1259,15 @@ public partial class ILCompiler
         }
 
         var delegateType = GetLocalFunctionDelegateType(declaration);
-        var delegateConstructor = delegateType.GetConstructor(new[] { typeof(object), typeof(IntPtr) })
-            ?? throw new InvalidOperationException($"Could not resolve delegate constructor for local function {declaration.Name}");
-
         if (methodBuilder.IsStatic)
         {
-            _currentIL.Emit(OpCodes.Ldnull);
-        }
-        else
-        {
-            EmitGenericLocalFunctionReceiver(methodBuilder);
+            EmitStaticDelegate(methodBuilder, delegateType);
+            return true;
         }
 
+        EmitGenericLocalFunctionReceiver(methodBuilder);
         _currentIL.Emit(OpCodes.Ldftn, methodBuilder);
-        _currentIL.Emit(OpCodes.Newobj, delegateConstructor);
+        _currentIL.Emit(OpCodes.Newobj, GetDelegateConstructor(delegateType));
         return true;
     }
 

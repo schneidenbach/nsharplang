@@ -22,7 +22,8 @@ public enum DiagnosticCategory
     TypeDeclaration,
     Hygiene,
     Nullability,
-    Style
+    Style,
+    Performance
 }
 
 public sealed record DiagnosticDescriptor(
@@ -33,7 +34,8 @@ public sealed record DiagnosticDescriptor(
     DiagnosticSeverity DefaultSeverity,
     bool BlocksBuildByDefault,
     bool IsConfigurable = true,
-    string? DocsUrl = null);
+    string? DocsUrl = null,
+    string? Explanation = null);
 
 public static class DiagnosticCatalog
 {
@@ -61,6 +63,7 @@ public static class DiagnosticCatalog
     private static IReadOnlyDictionary<string, DiagnosticDescriptor> BuildDescriptorMap()
     {
         var descriptors = CompilerDescriptors()
+            .Concat(PerformanceDescriptors())
             .Concat(LinterRuleDescriptors())
             .ToList();
 
@@ -79,6 +82,12 @@ public static class DiagnosticCatalog
     {
         foreach (ErrorCode code in Enum.GetValues<ErrorCode>())
         {
+            // Performance diagnostics are described explicitly in PerformanceDescriptors().
+            if (IsPerformanceCode(code))
+            {
+                continue;
+            }
+
             var diagnosticCode = $"NL{(int)code:D3}";
             var category = code switch
             {
@@ -133,6 +142,62 @@ public static class DiagnosticCatalog
         DiagnosticSeverity severity,
         bool blocksBuild = false)
         => new(code, title, DiagnosticSource.Linter, category, severity, blocksBuild);
+
+    /// <summary>
+    /// Descriptors for the performance diagnostics (NL950-NL999) the optimizer emits to
+    /// explain allocations and dispatch decisions. These are advisory and never block builds.
+    /// </summary>
+    private static IEnumerable<DiagnosticDescriptor> PerformanceDescriptors()
+    {
+        yield return Performance(
+            ErrorCode.AllocationHere,
+            "Allocation here",
+            DiagnosticSeverity.Info,
+            "Allocates here because the value escapes its enclosing scope, so it cannot live on the stack.");
+
+        yield return Performance(
+            ErrorCode.BoxingHere,
+            "Boxing here",
+            DiagnosticSeverity.Warning,
+            "Boxes here because a value type is used through an interface or object, forcing a heap allocation.");
+
+        yield return Performance(
+            ErrorCode.VirtualDispatchNotDevirtualized,
+            "Virtual dispatch not devirtualized",
+            DiagnosticSeverity.Info,
+            "Uses callvirt here because the receiver type is not proven exact, so the call cannot be devirtualized or inlined.");
+
+        yield return Performance(
+            ErrorCode.ClosureAllocation,
+            "Closure allocation",
+            DiagnosticSeverity.Warning,
+            "Allocates a closure here because the lambda captures variables from its enclosing scope.");
+
+        yield return Performance(
+            ErrorCode.DelegateAllocation,
+            "Delegate allocation",
+            DiagnosticSeverity.Warning,
+            "Allocates a delegate here because a method group or lambda is converted to a delegate instance.");
+    }
+
+    private static DiagnosticDescriptor Performance(
+        ErrorCode code,
+        string title,
+        DiagnosticSeverity severity,
+        string explanation)
+        => new(
+            $"NL{(int)code:D3}",
+            title,
+            DiagnosticSource.Compiler,
+            DiagnosticCategory.Performance,
+            severity,
+            BlocksBuildByDefault: false,
+            IsConfigurable: true,
+            DocsUrl: null,
+            Explanation: explanation);
+
+    private static bool IsPerformanceCode(ErrorCode code)
+        => code is >= ErrorCode.AllocationHere and <= ErrorCode.DelegateAllocation;
 
     private static string ToTitle(string pascalCase)
     {

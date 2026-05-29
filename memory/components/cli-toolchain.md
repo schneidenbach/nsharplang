@@ -92,6 +92,8 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | `nlc bench --filter <pat>` | Run only matching benchmarks | `nlc bench --filter benchAdd` |
 | `nlc bench --export <fmt>` | Export results: json, csv, markdown | `nlc bench --export json` |
 
+`nlc bench` is a product benchmark runner for N# `*.bench.nl` functions. It compiles the N# project, generates a BenchmarkDotNet host, and invokes benchmark functions through generated wrapper delegates. That is useful for tracking N# benchmark functions over time, but it is not by itself a fair N# vs C# comparison. For language-performance claims, use a separate matched-shape harness that calls N# and C# through equivalent wrappers, include an idiomatic C# baseline, report wrapper overhead separately, and keep the raw JSON/Markdown plus IL-shape evidence. Function-value claims also need IL-shape evidence for delegate construction, `Invoke` calls, cache fields, and lifted capture storage.
+
 ### Project Management
 
 | Command | Purpose | Example |

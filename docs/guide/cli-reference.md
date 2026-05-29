@@ -1,6 +1,6 @@
 # N# CLI Reference
 
-Updated: 2026-05-26
+Updated: 2026-05-27
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -20,7 +20,7 @@ Updated: 2026-05-26
 | `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
 | `nlc lint [files...]` | Run static analysis rules | `--project`, `--json`, `--text` | `nlc lint --json` |
-| `nlc bench` | Run benchmarks | `--project`, `--json` | `nlc bench` |
+| `nlc bench` | Run N# BenchmarkDotNet benchmarks | `--project`, `--filter`, `--job`, `--export`, `--list`, `--json` | `nlc bench --job short` |
 | `nlc clean` | Remove local build artifacts | `--project`, `--all` | `nlc clean --all` |
 | `nlc watch <check\|build\|test\|lint\|format>` | Re-run a command on file changes | `--project`, `--debounce-ms`, `--max-runs` | `nlc watch check` |
 | `nlc doc` | Generate HTML API docs | `--project`, `--output`, `--open`, `--json` | `nlc doc --open` |
@@ -42,6 +42,8 @@ Updated: 2026-05-26
 | `nlc restore` | Generate MSBuild compatibility config from `project.yml` | `--project` | `nlc restore` |
 | `nlc pack` | Create a NuGet package from `project.yml` metadata | `--project`, `--output` | `nlc pack` |
 | `nlc help` | Show top-level CLI help | none | `nlc help` |
+
+`nlc bench` measures N# `*.bench.nl` functions through a generated BenchmarkDotNet host. It is useful for tracking N# benchmark functions over time, but cross-language performance claims require an external matched-shape N#/C# harness with raw BenchmarkDotNet output, wrapper-overhead accounting, idiomatic C# baselines, and IL-shape evidence.
 
 ## Query Commands
 
@@ -258,6 +260,18 @@ Compiler safety diagnostics are likewise build-blocking errors: `NL905` (possibl
 
 Pure-style rules that used to emit `info`/`warning` diagnostics — `NL005` (use-pattern-matching), `NL008` (camel-case-local), `NL013` (prefer-interpolation), `NL014`/`NL906` (unnecessary-type-annotation), `NL015` (prefer-const), `NL018` (prefer-readonly), `NL019` (empty-block) — have been removed and folded into `nlc format`.
 
+### Performance Diagnostics (NL950–NL999)
+
+Advisory diagnostics emitted by the optimizer to explain allocation and dispatch decisions. They never block builds.
+
+| Code | Severity | Description |
+|------|----------|-------------|
+| NL950 | info | Allocation here — the value escapes its scope and cannot live on the stack |
+| NL951 | warning | Boxing here — a value type is used through an interface or object |
+| NL952 | info | Virtual dispatch not devirtualized — receiver type is not proven exact |
+| NL953 | warning | Closure allocation — the lambda captures enclosing variables |
+| NL954 | warning | Delegate allocation — a method group or lambda is converted to a delegate |
+
 ## Inline Lint Suppression
 
 Specific lints can be suppressed on the next line or the current line:
@@ -320,7 +334,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
-| Benchmark | `-bench` | `cargo bench` | `1` | Future work |
+| Benchmark | `-bench` | `cargo bench` | `4` | `nlc bench` runs BenchmarkDotNet for N# `*.bench.nl`; cross-language comparisons need an external matched harness |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |
@@ -334,5 +348,5 @@ These remain intentionally out of scope for this pass:
 - A separate IL optimizer for release builds
 - Dependency tree visualization, including nested package-to-package edges for csproj-free `project.yml` dependency trees without an MSBuild project file
 - Native coverage reporting
-- Benchmark execution
+- Built-in cross-language benchmark comparison
 - Machine-readable build timing reports
