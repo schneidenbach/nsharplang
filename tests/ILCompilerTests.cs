@@ -6272,4 +6272,87 @@ func Describe(value: int | string): string {
             return true;
         });
     }
+
+    [Fact]
+    public void ILCompiler_GenericInterfaceConstraint_DispatchesValueTypeWithoutBoxing()
+    {
+        var source = @"
+interface IShape {
+    func Area(): int
+}
+
+struct Square : IShape {
+    side: int
+
+    func Area(): int {
+        return side * side
+    }
+}
+
+func areaOf<T>(shape: T): int where T : IShape {
+    return shape.Area()
+}
+
+func main(): int {
+    sq := new Square { side: 6 }
+    return areaOf(sq)
+}";
+
+        // IL shape: dispatch through the generic constraint must use a
+        // `constrained.` prefix on the value-type receiver and must NOT box it.
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var areaOf = program.GetMethod("areaOf", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(areaOf);
+            return GetMethodOpCodes(areaOf!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        // Behavior is unchanged: 6 * 6 == 36.
+        Assert.Equal(36, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericDuckInterfaceConstraint_DispatchesValueTypeWithoutBoxing()
+    {
+        var source = @"
+duck interface ICounter {
+    func Count(): int
+}
+
+struct Bucket {
+    size: int
+
+    func Count(): int {
+        return size
+    }
+}
+
+func total<T>(item: T): int where T : ICounter {
+    return item.Count()
+}
+
+func main(): int {
+    bucket := new Bucket { size: 9 }
+    return total(bucket)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var total = program.GetMethod("total", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(total);
+            return GetMethodOpCodes(total!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
 }
