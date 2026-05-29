@@ -143,6 +143,21 @@ public sealed class AotBlockerAnalyzer
         return new DeclarationContext(boundary, name);
     }
 
+    /// <summary>
+    /// Build the context for a type <em>member</em> (method/property/etc.), qualifying the
+    /// member name with its declaring type so the attribute-emission key is unique across types
+    /// and overloads with the same simple name (e.g. <c>Inspector.Describe</c> vs a top-level
+    /// <c>Describe</c>). The IL emitter looks members up by this same qualified key.
+    /// </summary>
+    private DeclarationContext MemberContextFor(string memberName, int line, int column, DeclarationContext typeContext)
+    {
+        var boundary = _abi.GetBoundary(line, column) ?? typeContext.Boundary;
+        var qualified = string.IsNullOrEmpty(typeContext.Name)
+            ? memberName
+            : $"{typeContext.Name}.{memberName}";
+        return new DeclarationContext(boundary, qualified);
+    }
+
     private void WalkDeclaration(Declaration declaration, DeclarationContext context)
     {
         switch (declaration)
@@ -188,7 +203,7 @@ public sealed class AotBlockerAnalyzer
             switch (member)
             {
                 case FunctionDeclaration func:
-                    var funcContext = ContextFor(func.Name, func.Line, func.Column, typeContext);
+                    var funcContext = MemberContextFor(func.Name, func.Line, func.Column, typeContext);
                     if (func.Body != null)
                     {
                         WalkStatement(func.Body, funcContext);
@@ -200,7 +215,7 @@ public sealed class AotBlockerAnalyzer
                     break;
 
                 case PropertyDeclaration prop:
-                    var propContext = ContextFor(prop.Name, prop.Line, prop.Column, typeContext);
+                    var propContext = MemberContextFor(prop.Name, prop.Line, prop.Column, typeContext);
                     if (prop.GetBody != null)
                     {
                         WalkStatement(prop.GetBody, propContext);
@@ -216,7 +231,7 @@ public sealed class AotBlockerAnalyzer
                     break;
 
                 case FieldDeclaration field when field.Initializer != null:
-                    WalkExpression(field.Initializer, ContextFor(field.Name, field.Line, field.Column, typeContext));
+                    WalkExpression(field.Initializer, MemberContextFor(field.Name, field.Line, field.Column, typeContext));
                     break;
 
                 case ConstructorDeclaration ctor:

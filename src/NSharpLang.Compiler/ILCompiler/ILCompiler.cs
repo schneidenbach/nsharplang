@@ -17579,7 +17579,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, classDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
@@ -17631,7 +17631,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, structDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
@@ -18059,7 +18059,7 @@ public partial class ILCompiler
     /// <summary>
     /// Declare a method (instance or static)
     /// </summary>
-    private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl, IReadOnlyList<Type>? implementedInterfaces = null)
+    private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl, IReadOnlyList<Type>? implementedInterfaces = null, string? declaringTypeName = null)
     {
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
         var returnType = funcDecl.ReturnType != null
@@ -18108,6 +18108,9 @@ public partial class ILCompiler
             returnType,
             parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
+        ApplyAotRequirementAttributes(
+            methodBuilder.SetCustomAttribute,
+            declaringTypeName != null ? $"{declaringTypeName}.{funcDecl.Name}" : funcDecl.Name);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
         if (funcDecl.ReturnType != null)
         {
@@ -20003,7 +20006,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, recordDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);

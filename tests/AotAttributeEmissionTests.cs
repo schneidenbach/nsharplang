@@ -141,6 +141,32 @@ public class AotAttributeEmissionTests
     }
 
     [Fact]
+    public void PublicClassMethodWithReflection_GetsRequiresUnreferencedCode()
+    {
+        // Regression: blockers inside a class method must stamp the emitted CLR method, not just
+        // top-level functions. The requirement is keyed by the type-qualified name (Inspector.Describe)
+        // so the IL emitter can match the right member.
+        const string source = """
+            class Inspector {
+                func Describe(value: object): void {
+                    let t := value.GetType()
+                }
+            }
+            """;
+        var requirements = RequirementsFor(Parse(source));
+
+        var attributeNames = CompileWithRequirements(source, requirements, assembly =>
+        {
+            var method = assembly.GetType("Inspector")?
+                .GetMethod("Describe", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(method);
+            return method!.CustomAttributes.Select(a => a.AttributeType.FullName).ToArray();
+        });
+
+        Assert.Contains("System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute", attributeNames);
+    }
+
+    [Fact]
     public void EmptyRequirements_DoNotChangeEmittedMethods()
     {
         // With no requirements (the default for ordinary builds), the assembly must still

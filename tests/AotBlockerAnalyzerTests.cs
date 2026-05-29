@@ -194,7 +194,9 @@ public class AotBlockerAnalyzerTests
             }
             """));
 
-        Assert.Equal("Inspect", blocker.EnclosingDeclaration);
+        // Type members are keyed by their type-qualified name so the IL emitter can stamp the
+        // correct method even when simple names collide across types/overloads.
+        Assert.Equal("Widget.Inspect", blocker.EnclosingDeclaration);
         Assert.Equal(AbiBoundary.ClrPublic, blocker.EnclosingBoundary);
     }
 
