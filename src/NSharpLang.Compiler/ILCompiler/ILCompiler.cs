@@ -4167,6 +4167,23 @@ public partial class ILCompiler
         applyAttribute(new CustomAttributeBuilder(_nullableContextAttributeConstructor, new object[] { context }));
     }
 
+    /// <summary>
+    /// Emits <see cref="System.Runtime.CompilerServices.IsReadOnlyAttribute"/> on a value type so that
+    /// the C# compiler and JIT treat it as a <c>readonly struct</c>. This eliminates defensive copies
+    /// when members are invoked through <c>in</c>/readonly references, which is the whole point of
+    /// emitting small immutable wrappers (newtypes and readonly record structs) as value types on the
+    /// hot path. Without this marker, callers conservatively copy the struct before each member access.
+    /// </summary>
+    private void ApplyIsReadOnlyAttribute(Action<CustomAttributeBuilder> applyAttribute)
+    {
+        var attributeType = typeof(System.Runtime.CompilerServices.IsReadOnlyAttribute);
+        var constructor = attributeType.GetConstructor(Type.EmptyTypes);
+        if (constructor == null)
+            return;
+
+        applyAttribute(new CustomAttributeBuilder(constructor, Array.Empty<object>()));
+    }
+
     private void ApplyNullableAttribute(Action<CustomAttributeBuilder> applyAttribute, TypeReference typeReference, GenericTypeParameterBuilder[]? genericParameters = null)
     {
         var flags = GetNullableAttributeFlags(typeReference, genericParameters);
@@ -19382,6 +19399,13 @@ public partial class ILCompiler
             baseType);
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, recordDecl.Attributes);
         ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
+
+        // A readonly value-type wrapper (e.g. a newtype, which lowers to `readonly record struct`)
+        // must carry IsReadOnlyAttribute so consumers avoid defensive copies on the hot path.
+        if (recordDecl.IsStruct && recordDecl.Modifiers.HasFlag(Modifiers.Readonly))
+        {
+            ApplyIsReadOnlyAttribute(typeBuilder.SetCustomAttribute);
+        }
 
         RegisterType(recordDecl.Name, typeBuilder);
         var genericParameters = DeclareTypeGenericParameters(typeBuilder, recordDecl.TypeParameters);
