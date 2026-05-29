@@ -66,6 +66,7 @@ Add `--explain` to attach an IL-shape summary to each discovered benchmark. The 
 | `nlc query hover` | Signature and docs at a position | `nlc query hover --file Program.nl --pos 5:12` |
 | `nlc query call-graph` | Callers and callees of a function | `nlc query call-graph --function Main` |
 | `nlc query implementors` | Concrete types implementing an interface | `nlc query implementors --name IShape` |
+| `nlc query perf` | Explain allocation/dispatch/capture/ABI facts at a position | `nlc query perf --file Program.nl --pos 5:12` |
 | `nlc query help` | Show query command help | `nlc query help` |
 
 ## Browser Playground

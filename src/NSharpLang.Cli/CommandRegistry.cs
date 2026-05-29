@@ -61,6 +61,7 @@ public static class CommandRegistry
         new CliCommandSpec("hover", "Signature + docs at a position"),
         new CliCommandSpec("call-graph", "Callers and callees of a function"),
         new CliCommandSpec("implementors", "Concrete types implementing an interface"),
+        new CliCommandSpec("perf", "Explain allocation/dispatch/capture/ABI facts at a position"),
         new CliCommandSpec("help", "Show query help")
     };
 

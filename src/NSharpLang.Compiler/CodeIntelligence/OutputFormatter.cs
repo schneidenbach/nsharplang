@@ -273,6 +273,22 @@ public static class OutputFormatter
         return JsonSerializer.Serialize(envelope, JsonOptions);
     }
 
+    public static string PerfToJson(string file, int line, int col, string? projectRoot,
+        IReadOnlyList<object>? facts = null)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "perf",
+            ok = true,
+            projectRoot = NormalizePath(projectRoot),
+            file = NormalizePath(file),
+            position = new { line, column = col },
+            facts = facts ?? Array.Empty<object>()
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
     public static string DefinitionToJson(DefinitionResult result)
     {
         var envelope = new
