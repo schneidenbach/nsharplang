@@ -346,8 +346,20 @@ Note that N#'s `checked`/`unchecked` are **expression-scoped** (`checked(expr)`)
 context. A `checked(...)` expression appearing in a loop body affects only its own arithmetic; the
 generated induction and bounds-check shape around it stay unchecked.
 
-All emitted IL stays fully verifiable (ILVerify clean) and GC-safe — verified on amd64, not just
-arm64, to avoid the class of GC-unsafe-IL bug that crashed only on Linux x64.
+All emitted IL stays fully verifiable (ILVerify clean) and GC-safe.
+
+**Status: already correct, now regression-locked.** This unit found no codegen gap. The
+default-unchecked arithmetic emission (`ILCompiler.Operators.cs` / `ILCompiler.cs` `EmitBinary`),
+the `checked(...)`-only `*.ovf` path (`TryEmitCheckedBinaryOperator`, gated on the `false`-default
+`_overflowCheckingEnabled` flag), and the array foreach BCE idiom (`EmitForeachForArray`, with the
+induction's plain `add` emitted unconditionally — never under the overflow flag) were already
+implemented as described above. The truth was confirmed by disassembling the IL of a compiled
+probe (`sumArray`/`checkedAdd`/`plainAdd`): `sumArray` shows `ldc.i4.0`-init,
+`ldloc ; ldloc ; ldlen ; conv.i4 ; bge` per-iteration test (exactly one `ldlen`, length not cached),
+`ldelem.i4`, plain user `add`, and a plain `ldc.i4.1 ; add` induction with zero `*.ovf`;
+`checkedAdd` emits a lone `add.ovf`; `plainAdd` emits a lone `add`. ILVerify reports the probe DLL
+clean (zero errors). No `ILCompiler` source change was made — this unit adds only the regression
+tests below.
 
 Regression coverage: `tests/PerfEvidence/ArithmeticAndLoopShapeTests.cs` pins both the IL shape and
 the behavior:
