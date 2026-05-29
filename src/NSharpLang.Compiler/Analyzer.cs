@@ -1279,7 +1279,7 @@ public class Analyzer : IDisposable
         {
             if (!assignedFields.Contains(field))
             {
-                Error(ErrorCode.DefiniteAssignmentError, $"Field '{field}' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration", ctor.Line, ctor.Column);
+                Error(ErrorCode.DefiniteAssignmentError, $"Field '{field}' is non-nullable but isn't assigned in this constructor — either assign it here or give it a default value in its declaration", ctor.Line, ctor.Column, length: "constructor".Length);
             }
         }
     }
@@ -12970,9 +12970,11 @@ public class Analyzer : IDisposable
     private bool ReportInaccessibleProjectSymbol(ProjectSymbolInfo symbol, int line, int column)
     {
         Error(
+            ErrorCode.InaccessibleMember,
             $"'{symbol.Name}' is not exported from package/namespace '{symbol.Namespace ?? "<global>"}' — use PascalCase for cross-package visibility or keep camelCase names inside the declaring package",
             line,
-            column);
+            column,
+            length: Math.Max(1, symbol.Name.Length));
         return true;
     }
 
@@ -12980,9 +12982,11 @@ public class Analyzer : IDisposable
     {
         var declaringNamespace = GetNamespaceForFile(declarationFile) ?? "<global>";
         Error(
+            ErrorCode.InaccessibleMember,
             $"'{memberName}' is not exported from package/namespace '{declaringNamespace}' — use PascalCase for cross-package visibility or keep camelCase members inside the declaring package",
             line,
-            column);
+            column,
+            length: Math.Max(1, memberName.Length));
         return true;
     }
 

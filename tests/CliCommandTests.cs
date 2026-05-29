@@ -851,6 +851,62 @@ func Main() {
     }
 
     [Fact]
+    public void CheckCommand_InaccessibleMember_ReportsNL308WithMemberNameSpan()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-nl308-span-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(Path.Combine(tempDir, "Models"));
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: InaccessibleSpan
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Models", "Widget.nl"), """
+package Models
+
+class Widget {
+    func secretMethod(): string {
+        return "x"
+    }
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import Models
+
+package App
+
+func Main() {
+    w := new Widget()
+    print w.secretMethod()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            using var doc = JsonDocument.Parse(stdout);
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+
+            var diagnostic = Assert.Single(results,
+                result => result.GetProperty("message").GetString()!.Contains("'secretMethod' is not exported"));
+            Assert.Equal("NL308", diagnostic.GetProperty("code").GetString());
+            // `print w.secretMethod()` — column 13 is where `secretMethod` begins (1-based).
+            Assert.Equal(7, diagnostic.GetProperty("line").GetInt32());
+            Assert.Equal(13, diagnostic.GetProperty("column").GetInt32());
+            Assert.Equal("secretMethod".Length, diagnostic.GetProperty("length").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CheckCommand_PackageImport_UsesImportedPackageBeforeDuplicateProjectSymbolAmbiguity()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-package-duplicate-export-{Guid.NewGuid():N}");

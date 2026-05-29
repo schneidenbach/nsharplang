@@ -2992,4 +2992,218 @@ func main() {
         Assert.DoesNotContain("''", diagnostic.Message);
         Assert.Contains("end of the file", diagnostic.Message);
     }
+
+    // ---- Semantic diagnostic span coverage (NL301-NL314) ----
+    // Each squiggle must land exactly on the offending visible token.
+
+    [Fact]
+    public void Diagnostics_UndefinedVariable_UnderlinesVariableName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl301-undefined-variable.nl";
+
+        var source = """
+func main() {
+    print totla
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UndefinedVariable && d.Message.Contains("totla"));
+
+        Assert.Equal("NL301", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 11, length: "totla".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 10, endCharacter: 15);
+    }
+
+    [Fact]
+    public void Diagnostics_UndefinedMember_UnderlinesMemberName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl303-undefined-member.nl";
+
+        var source = """
+func main() {
+    name := "ada"
+    print name.Lenght
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UndefinedMember && d.Message.Contains("Lenght"));
+
+        Assert.Equal("NL303", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 16, length: "Lenght".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 15, endCharacter: 21);
+    }
+
+    [Fact]
+    public void Diagnostics_DefiniteAssignment_UnderlinesConstructorKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl304-definite-assignment.nl";
+
+        var source = """
+class Box {
+    Value: string
+
+    constructor(v: int) {
+        print v
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.DefiniteAssignmentError && d.Message.Contains("Value"));
+
+        Assert.Equal("NL304", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 4, column: 5, length: "constructor".Length);
+        AssertLspRange(diagnostic, line0: 3, startCharacter: 4, endCharacter: 15);
+    }
+
+    [Fact]
+    public void Diagnostics_MissingReturn_UnderlinesFunctionHead()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl305-missing-return.nl";
+
+        var source = """
+func score(ok: bool): int {
+    if ok {
+        return 1
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.MissingReturn);
+
+        Assert.Equal("NL305", diagnostic.DiagnosticId);
+        // "func score" — the func keyword plus the function name.
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 1, length: "func score".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 0, endCharacter: "func score".Length);
+    }
+
+    [Fact]
+    public void Diagnostics_DuplicateDeclaration_UnderlinesName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl306-duplicate-declaration.nl";
+
+        var source = """
+func dup() {
+    x := 1
+    x := 2
+    print x
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.DuplicateDeclaration && d.Message.Contains("'x'"));
+
+        Assert.Equal("NL306", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 5, length: "x".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 4, endCharacter: 5);
+    }
+
+    [Fact]
+    public void Diagnostics_ReadonlyAssignment_UnderlinesFieldName()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl309-readonly-assignment.nl";
+
+        var source = """
+class Box {
+    readonly Value: int
+
+    constructor() {
+        Value = 1
+    }
+
+    func change() {
+        Value = 5
+    }
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.ReadonlyAssignment && d.Message.Contains("Value"));
+
+        Assert.Equal("NL309", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 9, column: 9, length: "Value".Length);
+        AssertLspRange(diagnostic, line0: 8, startCharacter: 8, endCharacter: 13);
+    }
+
+    [Fact]
+    public void Diagnostics_UnreachableStatement_UnderlinesStatementKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl312-unreachable-statement.nl";
+
+        var source = """
+func score(): int {
+    return 1
+    print "unreachable"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UnreachableStatement);
+
+        Assert.Equal("NL312", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 3, column: 5, length: "print".Length);
+        AssertLspRange(diagnostic, line0: 2, startCharacter: 4, endCharacter: 9);
+    }
+
+    [Fact]
+    public void Diagnostics_InvalidExpressionStatement_UnderlinesExpression()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///nl313-invalid-expression-statement.nl";
+
+        var source = """
+func main() {
+    42
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.InvalidExpressionStatement);
+
+        Assert.Equal("NL313", diagnostic.DiagnosticId);
+        AssertDiagnosticSpan(diagnostic, line: 2, column: 5, length: "42".Length);
+        AssertLspRange(diagnostic, line0: 1, startCharacter: 4, endCharacter: 6);
+    }
 }
