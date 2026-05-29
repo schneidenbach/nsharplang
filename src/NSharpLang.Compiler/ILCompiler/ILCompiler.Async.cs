@@ -118,6 +118,26 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Closes a nested method body's structured-return path when one was used. A <c>return</c> inside
+    /// a protected region (try/catch) routes through the structured-return mechanism (<c>leave</c> to a
+    /// shared label), so the nested body must mark that label and emit the final <c>ret</c> against its
+    /// own IL generator. Without this, a <c>return</c> inside a <c>try</c> in a lambda / local function
+    /// would either crash codegen ("No structured return context") or emit a cross-generator
+    /// <c>leave</c>/<c>stloc</c> against the enclosing method. Returns <c>true</c> when it emitted the
+    /// terminal return so the caller can skip its bare-<c>ret</c> fall-through branches.
+    /// </summary>
+    private bool TryCloseNestedStructuredReturn()
+    {
+        if (!_usesStructuredReturn)
+        {
+            return false;
+        }
+
+        EmitStructuredReturnTarget();
+        return true;
+    }
+
+    /// <summary>
     /// Opens the async fault guard for the current method when it is an async method. Returns
     /// <c>true</c> when a guard was opened (the caller must balance it with
     /// <see cref="EndAsyncFaultGuard"/>).

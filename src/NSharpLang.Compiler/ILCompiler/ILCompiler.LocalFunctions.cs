@@ -875,6 +875,9 @@ public partial class ILCompiler
             }
 
             InitializeBodyContextForBody(bodyReturnType, localFunction.Function.Body, localFunction.Function.ExpressionBody, localFunction.Function.Parameters);
+            // Give the nested body its own structured-return target so a `return` inside a try/catch
+            // routes through this generator (not the enclosing method's).
+            InitializeStructuredReturnContext(bodyReturnType);
             _currentHasThis = !methodBuilder.IsStatic;
             _liftedClosureFields = methodBuilder.IsStatic ? null : savedLiftedClosureFields;
 
@@ -941,6 +944,10 @@ public partial class ILCompiler
                 _currentIL.MarkLabel(_currentYieldBreakLabel!.Value);
                 EmitGeneratorReturnValue(_currentGeneratorReturnType, _currentYieldListLocal!);
                 _currentIL.Emit(OpCodes.Ret);
+            }
+            else if (TryCloseNestedStructuredReturn())
+            {
+                // A return inside a try/catch routed through the structured-return target.
             }
             else if (_currentAsyncReturnType != null && _currentAsyncResultType == null)
             {
