@@ -339,6 +339,81 @@ No performance feature is complete until it has all applicable evidence:
 4. **Regression budget**: if an optimization helps one benchmark but harms ordinary code, the decision must be documented.
 5. **Docs**: public docs must state what the evidence proves and what it does not prove.
 
+## Benchmark Corpus And IL-Shape Gate
+
+The performance claims are backed by two coupled artifacts, one per optimized pattern.
+
+### 1. Matched N#-vs-C# benchmark corpus (`benchmarks/`)
+
+`benchmarks/NSharpLang.Benchmarks.csproj` is a BenchmarkDotNet project with one benchmark class per
+pattern. Each class binds the N# probe to a typed delegate in `[GlobalSetup]`
+(`NSharpCompiledMethod.Bind<TDelegate>`) and pairs it with a hand-written, same-algorithm C#
+baseline so the comparison is a fair, matched-shape one.
+
+The project is **deliberately outside** the default `dotnet test` path and is **not** in
+`NSharpLang.sln`: it produces manual, wall-clock before/after numbers for a PR, never a CI gate
+(wall-clock is non-deterministic). Run it manually:
+
+```bash
+# whole corpus (Release is mandatory for real numbers)
+dotnet run -c Release --project benchmarks -- --filter '*'
+# one family
+dotnet run -c Release --project benchmarks -- --filter '*ForeachArray*'
+# fast smoke check that it still executes (not for real numbers)
+dotnet run -c Release --project benchmarks -- --filter '*' --job Dry
+```
+
+Results land in `BenchmarkDotNet.Artifacts/` (git-ignored). `[MemoryDiagnoser]` on every class makes
+the allocation column the load-bearing signal: e.g. the array/span/value-union families report
+0 B/op, and the static-lambda family allocates only the backing `List<>` (the delegate itself is
+cached, so it does not show up per-iteration).
+
+Current families (matched to the PR #160 optimizations):
+
+| Benchmark class                  | Pattern                                   | Probe method |
+| -------------------------------- | ----------------------------------------- | ------------ |
+| `ForeachArrayBenchmarks`         | `foreach` over `T[]`                       | `sumArray`   |
+| `ForeachSpanBenchmarks`          | `foreach` over `ReadOnlySpan<T>`           | `sumSpan`    |
+| `ValueUnionBenchmarks`           | payload-free value-struct union            | `classify`   |
+| `ConstrainedDispatchBenchmarks`  | constrained generic dispatch (no box)      | `run`        |
+| `StaticLambdaBenchmarks`         | cached non-capturing lambda in a loop      | `build`      |
+| `ErrorTupleBenchmarks`           | `(result, err)` tuple, no throw on success | `RunSuccess` |
+
+### 2. Deterministic IL-shape regression gate (`tests/PerfEvidence/IlShapeRegressionTests.cs`)
+
+This is the **ratchet**. Unlike `ILShapeBaselineTests` (which documents the *current* shape so the
+refactor can show progress), each test here pins the *optimized* shape of a hot path so a later
+change cannot silently regress it. The tests are deterministic (decoded IL counts, no wall-clock),
+reuse the existing `ILShapeInspector` harness, and ship inside `tests/Tests.csproj`, so CI enforces
+them on every change. The pinned invariants:
+
+| Test                                                                  | Pinned invariant                          |
+| --------------------------------------------------------------------- | ----------------------------------------- |
+| `Gate_ForeachOverArray_AllocatesNoEnumerator_AndDispatchesNothing`    | `newobj == 0`, no `call`/`callvirt`, `ldlen` present |
+| `Gate_ForeachOverSpan_AllocatesNoEnumerator`                          | `newobj == 0`                             |
+| `Gate_ValueStructUnion_DoesNotBox`                                    | union is a value type, `box == 0`         |
+| `Gate_ConstrainedGenericDispatch_UsesConstrainedCallvirt_AndDoesNotBox` | `constrained.` + `callvirt`, `box == 0` |
+| `Gate_StaticLambdaInLoop_ConstructsDelegateAtMostOnce`                | delegate-ctor `<= 1`                       |
+| `Gate_ErrorTupleSuccessPath_SynthesizesNoThrow`                       | success path has no `throw`/`rethrow`      |
+
+### Adding a new optimized pattern
+
+When a later unit optimizes a new pattern, add **both** artifacts in the same change:
+
+1. **Benchmark**: add `benchmarks/<Pattern>Benchmarks.cs` with a `[MemoryDiagnoser]` class. Put the
+   N# probe in a `const string Source`, bind it in `[GlobalSetup]` via
+   `NSharpCompiledMethod.Bind<TDelegate>(Source, "<method>")`, and write a matched C# `[Benchmark(Baseline = true)]`.
+   For ref-struct parameters (`Span<T>`), declare a custom delegate type — a `Func<>` cannot carry a ref struct.
+2. **IL gate**: add a `Gate_<Pattern>_<Invariant>` test to `IlShapeRegressionTests.cs` that compiles
+   the same probe with `ILShapeInspector.Compile`/`GetProgramMethod` and asserts the pinned opcode
+   counts (`AssertCallCount`, `AssertNoBoxing`, `CountDelegateConstructions`, etc.).
+3. **Verify GC-safe IL**: build the probe with `nlc build <probe>.nl` and run
+   `dotnet ilverify <dll> -r '<shared-runtime>/*.dll' -r '<outdir>/*.dll'` — it must report zero
+   errors. Reference the **shared runtime** dir (it has `System.Private.CoreLib`), not the ref pack.
+4. **Cross-platform crash check**: run the gate under amd64 Linux with a crash detector —
+   `docker run --rm --platform linux/amd64 -v "$PWD":/src -w /src mcr.microsoft.com/dotnet/sdk:10.0 bash -c "dotnet test tests/Tests.csproj --filter IlShapeRegression --blame-crash"` —
+   to catch the GC-unsafe-IL class of bug that only manifested on Linux x64 in PR #160.
+
 ## Implementation Roadmap
 
 ### Phase 0: Evidence Discipline
