@@ -1,6 +1,7 @@
 using Xunit;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.LanguageServer.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -1658,6 +1659,146 @@ func Bar() int => 42
             .Where(f => f.Name == "Bar")
             .ToList();
         Assert.True(funcs != null && funcs.Count == 1, "Bar function should be recovered");
+    }
+
+    #endregion
+
+    #region Syntax Diagnostic Spans (NL101-NL108)
+
+    // Exact start/end span coverage for every parser/syntax diagnostic code.
+    // The asserted (line, column, length) is the same data that maps to the VS Code
+    // squiggle Range via LspDiagnosticConverter: Range(line-1, col-1, line-1, col-1+length).
+
+    [Fact]
+    public void Span_NL101_UnexpectedToken_UnderlinesOffendingToken()
+    {
+        var source = "package T\n\nfunc Main() {\n    let x = @\n}\n";
+
+        var error = SingleSyntaxError(source, ErrorCode.UnexpectedToken);
+
+        AssertSpan(error, line: 4, column: 13, length: 1, "@");
+    }
+
+    [Fact]
+    public void Span_NL102_ExpectedToken_UnderlinesParameterName()
+    {
+        var source = "package T\n\nfunc greet(name string) {\n    return name\n}\n";
+
+        var error = SingleSyntaxError(source, ErrorCode.ExpectedToken,
+            e => e.Message.Contains("after parameter name"));
+
+        AssertSpan(error, line: 3, column: 12, length: "name".Length, "name");
+    }
+
+    [Fact]
+    public void Span_NL103_InvalidSyntax_UnderlinesObjectInitializerMember()
+    {
+        var source = "package T\n\nfunc Make() {\n    let u = new User { Name = \"Ada\" }\n}\n";
+
+        var error = SingleSyntaxError(source, ErrorCode.InvalidSyntax,
+            e => e.Message.Contains("Object initializer member"));
+
+        AssertSpan(error, line: 4, column: 24, length: "Name".Length, "Name");
+    }
+
+    [Fact]
+    public void Span_NL104_UnexpectedEndOfFile_UnderlinesLastVisibleOwner()
+    {
+        // File ends after `class Foo` with no body; the parser expects '{' but hits EOF.
+        var source = "package T\n\nclass Foo";
+
+        var error = SingleSyntaxError(source, ErrorCode.UnexpectedEndOfFile);
+
+        // Span anchors on the visible owner token `Foo`, never on the empty EOF position.
+        AssertSpan(error, line: 3, column: 7, length: "Foo".Length, "Foo");
+        Assert.DoesNotContain("''", error.Message);
+        Assert.Contains("end of the file", error.Message);
+    }
+
+    [Fact]
+    public void Span_NL104_UnexpectedEndOfFile_MissingIdentifier_UnderlinesKeyword()
+    {
+        // File ends right after `func`; the parser expects a name but hits EOF.
+        var source = "package T\n\nfunc";
+
+        var error = SingleSyntaxError(source, ErrorCode.UnexpectedEndOfFile);
+
+        AssertSpan(error, line: 3, column: 1, length: "func".Length, "func");
+        Assert.DoesNotContain("''", error.Message);
+        Assert.Contains("end of the file", error.Message);
+    }
+
+    [Fact]
+    public void Span_NL105_InvalidLiteral_UnderlinesUnterminatedString()
+    {
+        var source = "package T\n\nfunc Main() {\n    name := \"Ada\n}\n";
+
+        var error = SingleSyntaxError(source, ErrorCode.InvalidLiteral);
+
+        AssertSpan(error, line: 4, column: 13, length: "\"Ada".Length, "\"Ada");
+    }
+
+    [Fact]
+    public void Span_NL106_MissingClosingBrace_UnderlinesFunctionName()
+    {
+        var source = "func Main() {\n    print \"hi\"\n";
+
+        var error = SingleSyntaxError(source, ErrorCode.MissingClosingBrace);
+
+        AssertSpan(error, line: 1, column: 6, length: "Main".Length, "Main");
+    }
+
+    [Fact]
+    public void Span_NL107_MissingClosingParen_UnderlinesCallOwner()
+    {
+        var source = "func Main() {\n    print(\"hello\"\n}\n";
+
+        var error = SingleSyntaxError(source, ErrorCode.MissingClosingParen);
+
+        AssertSpan(error, line: 2, column: 5, length: "print".Length, "print");
+    }
+
+    [Fact]
+    public void Span_NL108_MissingClosingBracket_UnderlinesAssignedVariable()
+    {
+        var source = "func Main() {\n    nums := [1, 2\n    print nums\n}\n";
+
+        var error = SingleSyntaxError(source, ErrorCode.MissingClosingBracket);
+
+        AssertSpan(error, line: 2, column: 5, length: "nums".Length, "nums");
+    }
+
+    private static CompilerError SingleSyntaxError(string source, ErrorCode code, Func<CompilerError, bool>? predicate = null)
+    {
+        var result = Parse(source);
+        return Assert.Single(result.Errors, error => error.Code == code && (predicate?.Invoke(error) ?? true));
+    }
+
+    /// <summary>
+    /// Asserts the 1-based compiler span AND the 0-based, end-exclusive LSP range derived from it,
+    /// and that the underlined characters of the source line match the expected visible token.
+    /// </summary>
+    private static void AssertSpan(CompilerError error, int line, int column, int length, string expectedToken)
+    {
+        Assert.Equal(line, error.Line);
+        Assert.Equal(column, error.Column);
+        Assert.Equal(length, error.Length);
+
+        // The actual LSP range that drives the VS Code squiggle (0-based, end-exclusive).
+        var lspDiagnostic = LspDiagnosticConverter.FromCompilerError(error);
+        Assert.Equal(line - 1, (int)lspDiagnostic.Range.Start.Line);
+        Assert.Equal(column - 1, (int)lspDiagnostic.Range.Start.Character);
+        Assert.Equal(column - 1 + length, (int)lspDiagnostic.Range.End.Character);
+        Assert.Equal(line - 1, (int)lspDiagnostic.Range.End.Line);
+
+        // The underlined characters cover the expected visible token (no whitespace-only spans).
+        var snippet = error.SourceSnippet;
+        if (!string.IsNullOrEmpty(snippet) && column - 1 + length <= snippet!.Length)
+        {
+            var underlined = snippet.Substring(column - 1, length);
+            Assert.Equal(expectedToken, underlined);
+            Assert.False(string.IsNullOrWhiteSpace(underlined), "Span must underline a visible token, not whitespace.");
+        }
     }
 
     #endregion

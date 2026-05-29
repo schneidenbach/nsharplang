@@ -2760,7 +2760,6 @@ func main() {
         {
             var severity = code is ErrorCode.VisibilityConventionWarning
                 or ErrorCode.ObsoleteUsage
-                or ErrorCode.UnnecessaryTypeAnnotation
                 ? ErrorSeverity.Warning
                 : ErrorSeverity.Error;
 
@@ -2795,5 +2794,29 @@ func main() {
             Assert.Equal(column - 1, (int)lspDiagnostic.Range.Start.Character);
             Assert.Equal(column - 1 + length, (int)lspDiagnostic.Range.End.Character);
         }
+    }
+
+    [Fact]
+    public void Diagnostics_UnexpectedEndOfFile_PointsAtLastVisibleOwner()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///unexpected-eof.nl";
+
+        // The file ends after `class Foo` with no body, so the parser hits EOF expecting '{'.
+        var source = "class Foo";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostic = Assert.Single(document!.Diagnostics ?? Enumerable.Empty<CompilerError>(),
+            d => d.Code == ErrorCode.UnexpectedEndOfFile);
+
+        // Anchored on the visible owner token `Foo`, never on the empty EOF position.
+        AssertDiagnosticSpan(diagnostic, line: 1, column: 7, length: "Foo".Length);
+        AssertLspRange(diagnostic, line0: 0, startCharacter: 6, endCharacter: 9);
+        Assert.DoesNotContain("''", diagnostic.Message);
+        Assert.Contains("end of the file", diagnostic.Message);
     }
 }

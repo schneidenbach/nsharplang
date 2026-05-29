@@ -5831,6 +5831,22 @@ public class Parser
                 return recoveredToken;
 
             var expected = TokenTypeToString(type);
+
+            if (IsAtEnd())
+            {
+                var ownerSpan = LastVisibleTokenSpan();
+                ReportError(
+                    ErrorCode.UnexpectedEndOfFile,
+                    $"Expected '{expected}' but reached the end of the file",
+                    ownerSpan.Line,
+                    ownerSpan.Column,
+                    humanExplanation: $"I was expecting '{expected}' here, but the file ended first.",
+                    hint: GetHintForMissingToken(type) ?? "Finish this construct before the end of the file.",
+                    length: ownerSpan.Length
+                );
+                return Current; // Don't advance
+            }
+
             ReportError(
                 ErrorCode.ExpectedToken,
                 $"{message}. Expected '{expected}', got '{Current.Value}'",
@@ -5843,6 +5859,23 @@ public class Parser
             return Current; // Don't advance
         }
         return Advance();
+    }
+
+    /// <summary>
+    /// Returns a diagnostic span anchored on the last visible (non-EOF) token, so that
+    /// end-of-file diagnostics underline a real token rather than the empty EOF position.
+    /// </summary>
+    private DiagnosticSpan LastVisibleTokenSpan()
+    {
+        for (var index = Math.Min(_position, _tokens.Count - 1); index >= 0; index--)
+        {
+            var token = _tokens[index];
+            if (token.Type != TokenType.Eof && token.Value.Length > 0)
+                return DiagnosticSpanFromToken(token);
+        }
+
+        var fallback = Current;
+        return new DiagnosticSpan(fallback.Line, Math.Max(1, fallback.Column), 1);
     }
 
     private bool TryReportMissingClosingDelimiter(TokenType type, out Token recoveredToken)
@@ -6443,6 +6476,26 @@ public class Parser
             // Check if this is incomplete member access (dot with no member)
             var previous = _position > 0 ? _tokens[_position - 1] : _tokens[0];
             var isDotAccess = previous.Type == TokenType.Dot || previous.Type == TokenType.QuestionDot;
+
+            if (IsAtEnd())
+            {
+                var eofSpan = diagnosticSpan ?? LastVisibleTokenSpan();
+                ReportError(
+                    ErrorCode.UnexpectedEndOfFile,
+                    $"{message}, but reached the end of the file",
+                    eofSpan.Line,
+                    eofSpan.Column,
+                    humanExplanation: isDotAccess
+                        ? "I see a dot (.) operator but no member name after it; the file ended first."
+                        : "I was expecting an identifier here, but the file ended first.",
+                    hint: isDotAccess
+                        ? "After a dot, I need to see a property or method name."
+                        : "Finish this construct before the end of the file.",
+                    length: eofSpan.Length
+                );
+
+                return "<error>"; // Return placeholder
+            }
 
             var span = diagnosticSpan ?? DiagnosticSpanFromToken(Current);
             ReportError(
