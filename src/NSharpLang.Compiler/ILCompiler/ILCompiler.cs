@@ -143,6 +143,11 @@ public partial class ILCompiler
     // Control-flow targets for nested loops and switches
     private readonly Stack<BranchTarget> _breakLabels = new();
     private readonly Stack<BranchTarget> _continueLabels = new();
+
+    // Nesting depth of the loop currently being emitted. A non-zero depth disables
+    // call-site stack allocation of `params Span<T>` buffers, because a `localloc`
+    // inside a loop leaks stack for the whole method frame on every iteration.
+    private int _loopNestingDepth;
     private readonly List<(TestDeclaration Declaration, MethodBuilder Method)> _testMethods = new();
 
     private sealed record AsyncSequenceAdapterInfo(
@@ -6665,47 +6670,279 @@ public partial class ILCompiler
 
     private void EmitBoundCallArguments(IReadOnlyList<BoundCallArgument> arguments)
     {
+        // Fast, allocation-free path: when the trailing params parameter is a
+        // Span<T>/ReadOnlySpan<T> whose elements are stack-allocatable and the call site
+        // does not let the span escape into a loop frame, materialize the params arguments
+        // into a `localloc` buffer wrapped in a Span<T> instead of allocating a heap array.
+        if (arguments.Count > 0
+            && arguments[^1] is ParamsCollectionBoundCallArgument trailingParams
+            && CanStackAllocateParamsSpan(trailingParams))
+        {
+            EmitBoundCallArgumentsWithStackAllocatedSpan(arguments, trailingParams);
+            return;
+        }
+
         foreach (var argument in arguments)
         {
-            switch (argument)
+            EmitBoundCallArgument(argument);
+        }
+    }
+
+    private void EmitBoundCallArgument(BoundCallArgument argument)
+    {
+        switch (argument)
+        {
+            case SuppliedBoundCallArgument supplied:
+                if (supplied.ParameterType.IsByRef)
+                {
+                    EmitArgumentAddress(supplied.Argument.Value, GetByRefElementType(supplied.ParameterType));
+                }
+                else
+                {
+                    EmitExpressionWithExpectedType(supplied.Argument.Value, supplied.ParameterType);
+                }
+                break;
+
+            case ExpressionBoundCallArgument expressionBound:
+                EmitExpressionWithExpectedType(expressionBound.Expression, expressionBound.ParameterType);
+                break;
+
+            case RuntimeDefaultBoundCallArgument runtimeDefault:
+                if (runtimeDefault.Value == DBNull.Value
+                    || runtimeDefault.Value == Missing.Value
+                    || (runtimeDefault.Value == null && runtimeDefault.ParameterType.IsValueType))
+                {
+                    EmitDefaultValue(runtimeDefault.ParameterType);
+                }
+                else
+                {
+                    EmitConstantValue(runtimeDefault.Value, runtimeDefault.ParameterType);
+                }
+                break;
+
+            case ParamsCollectionBoundCallArgument paramsBound:
+                EmitParamsCollectionArgument(paramsBound);
+                break;
+
+            case CapturedGenericLocalBoundCallArgument capturedGenericLocal:
+                EmitGenericLocalFunctionCaptureArgument(capturedGenericLocal.Capture);
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Determines whether a trailing <c>params Span&lt;T&gt;</c>/<c>params ReadOnlySpan&lt;T&gt;</c>
+    /// argument can be materialized into a stack buffer rather than a heap array. The buffer is
+    /// allocated with <c>localloc</c>, so it is only safe when:
+    /// <list type="bullet">
+    /// <item>the parameter really is a (ReadOnly)Span&lt;T&gt; whose element matches the span's T;</item>
+    /// <item>the element type is unmanaged (no GC references — <c>localloc</c> memory is not tracked
+    /// by the GC, so storing object references there would be type-unsafe);</item>
+    /// <item>the call site is not inside a loop (a per-iteration <c>localloc</c> leaks stack for the
+    /// whole method frame).</item>
+    /// </list>
+    /// Empty params lists are handled by <see cref="EmitParamsCollectionArgument"/>'s caller via a
+    /// <c>default</c> span and never reach here.
+    /// </summary>
+    private bool CanStackAllocateParamsSpan(ParamsCollectionBoundCallArgument paramsArgument)
+    {
+        if (_loopNestingDepth > 0)
+        {
+            return false;
+        }
+
+        var parameterType = paramsArgument.ParameterType;
+        if (!parameterType.IsGenericType)
+        {
+            return false;
+        }
+
+        var genericDefinition = parameterType.GetGenericTypeDefinition();
+        if (genericDefinition != typeof(Span<>) && genericDefinition != typeof(ReadOnlySpan<>))
+        {
+            return false;
+        }
+
+        if (parameterType.GetGenericArguments()[0] != paramsArgument.ElementType)
+        {
+            return false;
+        }
+
+        return IsStackAllocSafeElementType(paramsArgument.ElementType);
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> only for element types that contain no managed (GC-tracked) references
+    /// and therefore may safely live in a <c>localloc</c> buffer. The check is deliberately
+    /// conservative: primitives, pointers, and enums are always safe; any other type (including
+    /// user value types that may transitively hold references, and types still under construction
+    /// as <see cref="System.Reflection.Emit.TypeBuilder"/>) falls back to the heap-array path.
+    /// </summary>
+    private static bool IsStackAllocSafeElementType(Type elementType)
+    {
+        if (elementType.IsPointer || elementType.IsEnum)
+        {
+            return true;
+        }
+
+        if (elementType.IsPrimitive)
+        {
+            // IntPtr/UIntPtr are primitives but carry no references either.
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Emits a call argument list whose trailing argument is a stack-allocatable
+    /// <c>params Span&lt;T&gt;</c>. Preceding arguments are evaluated left-to-right into temp locals
+    /// (preserving evaluation order), the params elements are written into a <c>localloc</c> buffer
+    /// wrapped in a Span&lt;T&gt;, and finally every preceding value plus the span are reloaded in
+    /// declaration order so the call sees the correct argument layout.
+    /// </summary>
+    private void EmitBoundCallArgumentsWithStackAllocatedSpan(
+        IReadOnlyList<BoundCallArgument> arguments,
+        ParamsCollectionBoundCallArgument paramsArgument)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var precedingCount = arguments.Count - 1;
+
+        // localloc requires an empty evaluation stack apart from the size operand. Any preceding
+        // arguments that have already been pushed would violate that, and byref arguments cannot be
+        // round-tripped through a value local. If a preceding argument is byref, fall back to the
+        // heap-array path to stay verifiable.
+        for (var i = 0; i < precedingCount; i++)
+        {
+            if (arguments[i] is SuppliedBoundCallArgument { ParameterType.IsByRef: true })
             {
-                case SuppliedBoundCallArgument supplied:
-                    if (supplied.ParameterType.IsByRef)
-                    {
-                        EmitArgumentAddress(supplied.Argument.Value, GetByRefElementType(supplied.ParameterType));
-                    }
-                    else
-                    {
-                        EmitExpressionWithExpectedType(supplied.Argument.Value, supplied.ParameterType);
-                    }
-                    break;
+                foreach (var argument in arguments)
+                {
+                    EmitBoundCallArgument(argument);
+                }
 
-                case ExpressionBoundCallArgument expressionBound:
-                    EmitExpressionWithExpectedType(expressionBound.Expression, expressionBound.ParameterType);
-                    break;
-
-                case RuntimeDefaultBoundCallArgument runtimeDefault:
-                    if (runtimeDefault.Value == DBNull.Value
-                        || runtimeDefault.Value == Missing.Value
-                        || (runtimeDefault.Value == null && runtimeDefault.ParameterType.IsValueType))
-                    {
-                        EmitDefaultValue(runtimeDefault.ParameterType);
-                    }
-                    else
-                    {
-                        EmitConstantValue(runtimeDefault.Value, runtimeDefault.ParameterType);
-                    }
-                    break;
-
-                case ParamsCollectionBoundCallArgument paramsBound:
-                    EmitParamsCollectionArgument(paramsBound);
-                    break;
-
-                case CapturedGenericLocalBoundCallArgument capturedGenericLocal:
-                    EmitGenericLocalFunctionCaptureArgument(capturedGenericLocal.Capture);
-                    break;
+                return;
             }
         }
+
+        // Evaluate preceding arguments left-to-right into temp locals so side effects keep their
+        // source order even though the span buffer must be built on an empty stack.
+        var spilledLocals = new LocalBuilder[precedingCount];
+        for (var i = 0; i < precedingCount; i++)
+        {
+            var parameterType = arguments[i].ParameterType;
+            EmitBoundCallArgument(arguments[i]);
+            var local = _currentIL.DeclareLocal(parameterType);
+            _currentIL.Emit(OpCodes.Stloc, local);
+            spilledLocals[i] = local;
+        }
+
+        // Build the Span<T> over a localloc buffer (empty eval stack here, as required).
+        var spanLocal = EmitStackAllocatedParamsSpan(paramsArgument);
+
+        // Reload preceding arguments in declaration order, then the span.
+        for (var i = 0; i < precedingCount; i++)
+        {
+            _currentIL.Emit(OpCodes.Ldloc, spilledLocals[i]);
+        }
+
+        _currentIL.Emit(OpCodes.Ldloc, spanLocal);
+    }
+
+    /// <summary>
+    /// Writes the params elements into a <c>localloc</c> stack buffer and constructs a
+    /// <c>(ReadOnly)Span&lt;T&gt;(void*, int)</c> over it, returning the local that holds the span.
+    /// Assumes the evaluation stack is empty (required by <c>localloc</c>) and that
+    /// <see cref="CanStackAllocateParamsSpan"/> has validated the parameter shape.
+    /// </summary>
+    private LocalBuilder EmitStackAllocatedParamsSpan(ParamsCollectionBoundCallArgument paramsArgument)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var elementType = paramsArgument.ElementType;
+        var parameterType = paramsArgument.ParameterType;
+        var count = paramsArgument.Arguments.Count;
+
+        var spanLocal = _currentIL.DeclareLocal(parameterType);
+
+        if (count == 0)
+        {
+            // No elements: an empty span needs no buffer at all.
+            _currentIL.Emit(OpCodes.Ldloca, spanLocal);
+            _currentIL.Emit(OpCodes.Initobj, parameterType);
+            return spanLocal;
+        }
+
+        // bufferLocal holds the native pointer returned by localloc. localloc memory lives for the
+        // remainder of the method frame, which is exactly the lifetime a stackalloc'd span requires.
+        var bufferLocal = _currentIL.DeclareLocal(typeof(byte).MakePointerType());
+
+        // size = count * sizeof(T)
+        _currentIL.Emit(OpCodes.Ldc_I4, count);
+        _currentIL.Emit(OpCodes.Sizeof, elementType);
+        _currentIL.Emit(OpCodes.Mul_Ovf_Un);
+        _currentIL.Emit(OpCodes.Conv_U);
+        _currentIL.Emit(OpCodes.Localloc);
+        _currentIL.Emit(OpCodes.Stloc, bufferLocal);
+
+        var elementSize = GetStackAllocElementSize(elementType);
+        for (var i = 0; i < count; i++)
+        {
+            // address = buffer + i * sizeof(T)
+            _currentIL.Emit(OpCodes.Ldloc, bufferLocal);
+            if (i != 0)
+            {
+                _currentIL.Emit(OpCodes.Ldc_I4, i);
+                if (elementSize.HasValue)
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4, elementSize.Value);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Sizeof, elementType);
+                }
+
+                _currentIL.Emit(OpCodes.Mul);
+                _currentIL.Emit(OpCodes.Add);
+            }
+
+            EmitExpressionWithExpectedType(paramsArgument.Arguments[i].Value, elementType);
+            _currentIL.Emit(OpCodes.Stobj, elementType);
+        }
+
+        // new Span<T>(void* pointer, int length)
+        var spanCtor = parameterType.GetConstructor(new[] { typeof(void).MakePointerType(), typeof(int) })
+            ?? throw new InvalidOperationException($"Could not resolve {parameterType}(void*, int) constructor");
+
+        _currentIL.Emit(OpCodes.Ldloca, spanLocal);
+        _currentIL.Emit(OpCodes.Ldloc, bufferLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4, count);
+        _currentIL.Emit(OpCodes.Call, spanCtor);
+        return spanLocal;
+    }
+
+    private static int? GetStackAllocElementSize(Type elementType)
+    {
+        if (elementType.IsEnum)
+        {
+            elementType = Enum.GetUnderlyingType(elementType);
+        }
+
+        return Type.GetTypeCode(elementType) switch
+        {
+            TypeCode.Boolean or TypeCode.SByte or TypeCode.Byte => 1,
+            TypeCode.Int16 or TypeCode.UInt16 or TypeCode.Char => 2,
+            TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Single => 4,
+            TypeCode.Int64 or TypeCode.UInt64 or TypeCode.Double => 8,
+            _ => null
+        };
     }
 
     private void EmitParamsCollectionArgument(ParamsCollectionBoundCallArgument paramsArgument)
@@ -10037,12 +10274,14 @@ public partial class ILCompiler
         _currentIL.MarkLabel(bodyLabel);
         _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
         _continueLabels.Push(new BranchTarget(continueLabel, useLeave: false));
+        _loopNestingDepth++;
         try
         {
             EmitStatement(forStmt.Body);
         }
         finally
         {
+            _loopNestingDepth--;
             _continueLabels.Pop();
             _breakLabels.Pop();
         }
@@ -10091,12 +10330,14 @@ public partial class ILCompiler
         // Emit body
         _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
         _continueLabels.Push(new BranchTarget(conditionLabel, useLeave: false));
+        _loopNestingDepth++;
         try
         {
             EmitStatement(whileStmt.Body);
         }
         finally
         {
+            _loopNestingDepth--;
             _continueLabels.Pop();
             _breakLabels.Pop();
         }
@@ -10237,6 +10478,21 @@ public partial class ILCompiler
     /// Emit IL for a foreach statement
     /// </summary>
     private void EmitForeach(ForeachStatement foreachStmt)
+    {
+        if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        _loopNestingDepth++;
+        try
+        {
+            EmitForeachCore(foreachStmt);
+        }
+        finally
+        {
+            _loopNestingDepth--;
+        }
+    }
+
+    private void EmitForeachCore(ForeachStatement foreachStmt)
     {
         if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
 
@@ -10493,12 +10749,14 @@ public partial class ILCompiler
 
         _breakLabels.Push(new BranchTarget(disposeLabel, useLeave: false));
         _continueLabels.Push(new BranchTarget(loopStart, useLeave: false));
+        _loopNestingDepth++;
         try
         {
             EmitStatement(awaitForeachStmt.Body);
         }
         finally
         {
+            _loopNestingDepth--;
             _continueLabels.Pop();
             _breakLabels.Pop();
         }
