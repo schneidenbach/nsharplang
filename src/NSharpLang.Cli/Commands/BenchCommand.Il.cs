@@ -117,7 +117,12 @@ public static partial class BenchCommand
             }
 
             File.WriteAllText(Path.Combine(tempDir, "Program.cs"), GenerateBenchmarkEntrypoint(wrapperClasses));
-            var benchmarkProjectPath = Path.Combine(tempDir, "Benchmarks.csproj");
+            // The host project MUST NOT share an assembly identity with the benchmark
+            // target. The target assembly is named after the user's project (project.yml
+            // `name:`); if the host were also "Benchmarks", Assembly.LoadFrom of the target
+            // would return the already-loaded host assembly (identity match wins over path),
+            // and the benchmark `Program` type would never be found.
+            var benchmarkProjectPath = Path.Combine(tempDir, "NlcBenchHost.csproj");
             File.WriteAllText(
                 benchmarkProjectPath,
                 GenerateIlBenchmarkCsProj(projectConfig.TargetFramework, outputAssemblyPath));
@@ -530,7 +535,22 @@ public static partial class BenchCommand
         sb.AppendLine($"public class {className}");
         sb.AppendLine("{");
         sb.AppendLine($"    private static readonly string __benchmarkAssemblyPath = \"{escapedAssemblyPath}\";");
-        sb.AppendLine("    private static readonly global::System.Reflection.Assembly __benchmarkAssembly = global::System.Reflection.Assembly.LoadFrom(__benchmarkAssemblyPath);");
+        sb.AppendLine("    private static readonly global::System.Reflection.Assembly __benchmarkAssembly = __LoadBenchmarkAssembly();");
+        sb.AppendLine();
+        sb.AppendLine("    private static global::System.Reflection.Assembly __LoadBenchmarkAssembly()");
+        sb.AppendLine("    {");
+        sb.AppendLine("        var directory = global::System.IO.Path.GetDirectoryName(__benchmarkAssemblyPath);");
+        sb.AppendLine("        if (!string.IsNullOrEmpty(directory))");
+        sb.AppendLine("        {");
+        sb.AppendLine("            // Resolve the benchmark target's own dependencies from its output directory.");
+        sb.AppendLine("            global::System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, requested) =>");
+        sb.AppendLine("            {");
+        sb.AppendLine("                var candidate = global::System.IO.Path.Combine(directory, requested.Name + \".dll\");");
+        sb.AppendLine("                return global::System.IO.File.Exists(candidate) ? context.LoadFromAssemblyPath(candidate) : null;");
+        sb.AppendLine("            };");
+        sb.AppendLine("        }");
+        sb.AppendLine("        return global::System.Reflection.Assembly.LoadFrom(__benchmarkAssemblyPath);");
+        sb.AppendLine("    }");
         sb.AppendLine();
         sb.AppendLine("    private static global::System.Reflection.MethodInfo ResolveMethod(string typeName, string methodName)");
         sb.AppendLine("    {");
@@ -603,6 +623,9 @@ public static partial class BenchCommand
         sb.AppendLine("    <LangVersion>latest</LangVersion>");
         sb.AppendLine("    <Nullable>enable</Nullable>");
         sb.AppendLine("    <Optimize>true</Optimize>");
+        // Keep the host assembly identity distinct from the benchmark target so the
+        // runtime never confuses the two when resolving the benchmark `Program` type.
+        sb.AppendLine("    <AssemblyName>NlcBenchHost</AssemblyName>");
         sb.AppendLine("  </PropertyGroup>");
         sb.AppendLine("  <ItemGroup>");
         sb.AppendLine($"    <Reference Include=\"{EscapeXml(Path.GetFileNameWithoutExtension(outputAssemblyPath))}\">");
