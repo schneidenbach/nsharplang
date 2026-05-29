@@ -312,6 +312,56 @@ Recommendation: defer. Let RyuJIT and explicit .NET vector APIs carry this initi
 
 Language tradeoff: no new syntax. Performance tradeoff: users write explicit vector code for peak SIMD until evidence justifies language support.
 
+### Status (verified): explicit SIMD works; compiler auto-vectorization deferred
+
+**Part 1 — explicit `System.Numerics` SIMD: done, no code change required.** The compiler's
+existing operator-overload resolution (`ILCompiler.Operators.cs`:
+`TryEmitBinaryOperator` → `ResolveBinaryOperatorMethod` → `ResolveReflectionStaticMethod`)
+already recognizes the static `op_Addition`/`op_Subtraction`/`op_Multiply`/... methods on
+`Vector<T>`, `Vector2`, `Vector3`, and `Vector4` (and on `System.Runtime.Intrinsics` vector
+types, which expose the same operators). For `a + b` on a vector type it emits a direct
+`call op_Addition`, leaving the value types on the evaluation stack — **zero boxing, no virtual
+dispatch, ILVerify-clean**. `new Vector<int>(array)` and `vec.CopyTo(array)` likewise bind to
+the public ctor/method and emit verifiable IL. This is locked in by
+`tests/PerfEvidence/SimdVectorShapeTests.cs` (trait `Category=Simd`), which pins both the IL
+shape (direct intrinsic `call`, no `box`/`newobj`/`callvirt`) and behavioral parity
+(vectorized `Vector<int>` add/multiply are bit-identical to the scalar wrapping result;
+`Vector3` component results match the BCL).
+
+**Part 2 — compiler-driven auto-vectorization of scalar element-wise loops: intentionally
+deferred.** Rewriting `while i < n { c[i] = a[i] + b[i]; i = i + 1 }` into a strided
+`Vector<T>` loop with a scalar remainder is a real semantic optimization, not a small add-on,
+and the marginal value over the JIT is unproven. Even a *verifiable* (no unsafe-memory IL)
+implementation built on `new Vector<T>(array, index)` / `op_Addition` / `CopyTo` must still
+prove a large set of preconditions to stay correct — and verifiable IL prevents x64 *crashes*
+but not wrong *results* or wrong *exception timing*. Given the recent x64-only GC-unsafe-IL
+regression, the conservative call is to keep ordinary scalar loops scalar (a fallback pinned by
+`ScalarElementWiseLoop_StaysScalar_NoVectorTypesEmitted`) and let RyuJIT + explicit vector APIs
+carry SIMD for now. (Note: RyuJIT reliably elides *some* bounds checks and accelerates *some*
+fixed-shape memory operations, but does **not** reliably SIMD-lower arbitrary three-array
+integer arithmetic loops — so "the JIT already does it" is not a sufficient justification on its
+own; the justification is risk/value, below.)
+
+**Reopen criteria for compiler auto-vectorization (all required):**
+
+1. Benchmarks (BenchmarkDotNet on the compiled assembly, on both arm64 and **Linux x64**) show
+   the current N# scalar lowering is *not* already handled well by RyuJIT for the target loop
+   shapes, i.e. there is a real, measured speedup to capture.
+2. A managed `Vector<T>` rewrite shows a meaningful, consistent speedup across supported
+   runtimes/architectures (no regression on small/odd `n`).
+3. Recognizer rules are specified narrowly (exact loop shape: single induction var mutated only
+   by the `i + 1` step; condition exactly `i < n`; single-statement element-wise body with an
+   identical index expression on all sides; integer-wrapping op only — float forbidden;
+   SZ-array element type supported by `Vector<T>`; induction var not captured or used after the
+   loop; `n`/arrays side-effect-free) and tested heavily with **negative** cases.
+4. Dedicated tests cover exception timing, aliasing (`c` aliasing `a`/`b`), null arrays,
+   bounds, partial-write-then-throw, and the remainder tail.
+5. The scalar fallback **reuses the original lowering path** (the guard only selects the vector
+   fast path; a failed guard must execute the unmodified scalar loop so partial-write/throw
+   semantics are preserved) rather than duplicating loop semantics by hand.
+6. Verification gate: ILVerify-clean and a green `--filter Simd` run inside the amd64 Docker
+   lane with `--blame-crash`.
+
 ## Diagnostics And Tooling
 
 A performance-by-default language still needs explainability. Developers should be able to ask why code allocated or dispatched virtually.

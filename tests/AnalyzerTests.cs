@@ -8772,4 +8772,73 @@ func Main() {
     print total
 }", ErrorCode.DefiniteAssignmentError);
     }
+
+    // ==================== Operator overloads on non-numeric operands (SIMD / Unit 13) ====================
+
+    [Fact]
+    public void ArithmeticOp_OnRuntimeVectorType_ResolvesOperatorOverload_NoTypeMismatch()
+    {
+        // System.Numerics.Vector<T> defines static op_Addition/op_Multiply/... operators. The
+        // analyzer must resolve these so explicit SIMD code type-checks (the IL backend already
+        // binds them directly). Previously this produced a spurious NL202 "operator doesn't work".
+        AssertNoErrorCode(@"
+import System.Numerics
+
+func vadd(a: Vector<int>, b: Vector<int>): Vector<int> {
+    return a + b
+}
+
+func vop(a: Vector<int>, b: Vector<int>, c: Vector<int>): Vector<int> {
+    return a * b - c
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ArithmeticOp_OnFixedSizeVectorType_ResolvesOperatorOverload_NoTypeMismatch()
+    {
+        AssertNoErrorCode(@"
+import System.Numerics
+
+func vadd(a: Vector3, b: Vector3): Vector3 {
+    return a + b
+}
+
+func vmul(a: Vector4, b: Vector4): Vector4 {
+    return a * b
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ArithmeticOp_OnUserDeclaredStructOperator_NoTypeMismatch()
+    {
+        // A user struct that declares `static func operator +` must let `a + b` type-check.
+        AssertNoErrorCode(@"
+struct Vec2 {
+    X: double
+    Y: double
+
+    static func operator +(a: Vec2, b: Vec2): Vec2 {
+        return new Vec2 { X: a.X + b.X, Y: a.Y + b.Y }
+    }
+}
+
+func add(a: Vec2, b: Vec2): Vec2 {
+    return a + b
+}", ErrorCode.TypeMismatch);
+    }
+
+    [Fact]
+    public void ArithmeticOp_OnTypeWithoutOperator_StillReportsTypeMismatch()
+    {
+        // Conservative guard: a type with NO matching operator overload must still be rejected,
+        // so the fix doesn't silently swallow real arithmetic errors.
+        AssertHasErrorCode(@"
+class Box {
+    Value: int
+}
+
+func bad(a: Box, b: Box): Box {
+    return a + b
+}", ErrorCode.TypeMismatch);
+    }
 }

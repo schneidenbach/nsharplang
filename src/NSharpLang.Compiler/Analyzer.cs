@@ -4241,6 +4241,15 @@ public class Analyzer : IDisposable
 
         if (!IsNumericType(left) || !IsNumericType(right))
         {
+            // Before rejecting, see if a user-declared or runtime operator overload applies
+            // (e.g. `Vector<int> + Vector<int>`, or a struct with `static func operator +`).
+            // The IL backend already binds these via the static op_* methods; the analyzer must
+            // agree so the program type-checks.
+            if (TryResolveBinaryOperatorOverloadResult(expr.Operator, left, right, out var overloadResult))
+            {
+                return overloadResult;
+            }
+
             var leftIsWrong = !IsNumericType(left);
             var rightIsWrong = !IsNumericType(right);
             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
@@ -4277,6 +4286,231 @@ public class Analyzer : IDisposable
             return BuiltInTypes.Unknown;
         }
         return result;
+    }
+
+    /// <summary>
+    /// Maps an N# binary arithmetic operator to its CLR special-method name (e.g. <c>+</c> →
+    /// <c>op_Addition</c>). Only the operators handled by <see cref="AnalyzeArithmeticOp"/> are
+    /// mapped; everything else returns <c>null</c> so the caller leaves diagnostics unchanged.
+    /// </summary>
+    private static string? GetArithmeticOperatorClrName(BinaryOperator op) => op switch
+    {
+        BinaryOperator.Add => "op_Addition",
+        BinaryOperator.Subtract => "op_Subtraction",
+        BinaryOperator.Multiply => "op_Multiply",
+        BinaryOperator.Divide => "op_Division",
+        BinaryOperator.Modulo => "op_Modulus",
+        _ => null
+    };
+
+    private static string? GetArithmeticOperatorSymbol(BinaryOperator op) => op switch
+    {
+        BinaryOperator.Add => "+",
+        BinaryOperator.Subtract => "-",
+        BinaryOperator.Multiply => "*",
+        BinaryOperator.Divide => "/",
+        BinaryOperator.Modulo => "%",
+        _ => null
+    };
+
+    /// <summary>
+    /// Attempts to resolve a binary arithmetic operator to a user-declared or runtime operator
+    /// overload (<c>op_Addition</c> and friends). On success, <paramref name="result"/> is the
+    /// operator's result type. This keeps the analyzer in step with the IL backend, which binds
+    /// these operators directly (e.g. <c>System.Numerics.Vector&lt;T&gt;</c> arithmetic). The check
+    /// is conservative: it requires a binary (two-parameter) operator whose parameters accept the
+    /// operand types, and it never widens the set of operators beyond the arithmetic five.
+    /// </summary>
+    private bool TryResolveBinaryOperatorOverloadResult(
+        BinaryOperator op,
+        TypeInfo left,
+        TypeInfo right,
+        out TypeInfo result)
+    {
+        result = BuiltInTypes.Unknown;
+
+        var clrName = GetArithmeticOperatorClrName(op);
+        var symbol = GetArithmeticOperatorSymbol(op);
+        if (clrName == null || symbol == null)
+        {
+            return false;
+        }
+
+        // Search both operand types (the operator may be declared on either side).
+        foreach (var operandType in new[] { left, right })
+        {
+            if (TryResolveDeclaredBinaryOperator(operandType, symbol, out result)
+                || TryResolveRuntimeBinaryOperator(operandType, clrName, left, right, out result))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool TryResolveDeclaredBinaryOperator(TypeInfo operandType, string symbol, out TypeInfo result)
+    {
+        result = BuiltInTypes.Unknown;
+
+        var members = operandType switch
+        {
+            ClassTypeInfo classType => classType.Declaration.Members,
+            StructTypeInfo structType => structType.Declaration.Members,
+            RecordTypeInfo recordType => recordType.Declaration.Members,
+            _ => null
+        };
+
+        if (members == null)
+        {
+            return false;
+        }
+
+        var match = members
+            .OfType<FunctionDeclaration>()
+            .FirstOrDefault(member =>
+                member.IsOperatorOverload
+                && member.OperatorSymbol == symbol
+                && member.Parameters.Count == 2);
+
+        if (match?.ReturnType == null)
+        {
+            return false;
+        }
+
+        result = ResolveType(match.ReturnType);
+        return true;
+    }
+
+    private bool TryResolveRuntimeBinaryOperator(
+        TypeInfo operandType,
+        string clrName,
+        TypeInfo left,
+        TypeInfo right,
+        out TypeInfo result)
+    {
+        result = BuiltInTypes.Unknown;
+
+        var clrType = TryResolveOperandClrType(operandType);
+        if (clrType == null)
+        {
+            return false;
+        }
+
+        var leftClr = TryResolveOperandClrType(left);
+        var rightClr = TryResolveOperandClrType(right);
+
+        MethodInfo[] candidates;
+        try
+        {
+            candidates = clrType.GetMethods(BindingFlags.Public | BindingFlags.Static);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or TypeLoadException or FileNotFoundException)
+        {
+            return false;
+        }
+
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Name != clrName)
+            {
+                continue;
+            }
+
+            var parameters = candidate.GetParameters();
+            if (parameters.Length != 2)
+            {
+                continue;
+            }
+
+            // Require both operand CLR types to be assignable to the operator's parameter types.
+            // If we couldn't resolve a CLR type for an operand, fall back to a name-only match so
+            // we stay permissive rather than emit a spurious error.
+            if (!IsRuntimeOperatorParameterCompatible(parameters[0].ParameterType, leftClr)
+                || !IsRuntimeOperatorParameterCompatible(parameters[1].ParameterType, rightClr))
+            {
+                continue;
+            }
+
+            result = ConvertReflectionType(candidate.ReturnType);
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves the CLR type for an operator operand. Falls back to an MLC lookup of the open
+    /// generic definition for imported generics that <see cref="TryConvertTypeInfoToClrType"/>
+    /// doesn't special-case (e.g. <c>System.Numerics.Vector&lt;T&gt;</c>), so operator-overload
+    /// resolution works for arbitrary imported value types — not just the hardcoded BCL generics.
+    /// </summary>
+    private Type? TryResolveOperandClrType(TypeInfo operandType)
+    {
+        var direct = TryConvertTypeInfoToClrType(operandType);
+        if (direct != null)
+        {
+            return direct;
+        }
+
+        if (ResolveTypeAlias(operandType) is not GenericTypeInfo generic)
+        {
+            return null;
+        }
+
+        // Resolve the open generic definition (e.g. "Vector`1") from the MLC assemblies, then
+        // close it over the converted type arguments.
+        var openDefinitionName = $"{generic.Name}`{generic.TypeArguments.Count}";
+        if (TryResolveExternalType(openDefinitionName) is not ReflectionTypeInfo { Type: var openType })
+        {
+            return null;
+        }
+
+        if (!openType.IsGenericTypeDefinition)
+        {
+            return null;
+        }
+
+        var typeArguments = new Type[generic.TypeArguments.Count];
+        for (int i = 0; i < typeArguments.Length; i++)
+        {
+            var argumentClr = TryResolveOperandClrType(generic.TypeArguments[i]);
+            if (argumentClr == null)
+            {
+                return null;
+            }
+
+            typeArguments[i] = argumentClr;
+        }
+
+        try
+        {
+            return openType.MakeGenericType(typeArguments);
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or TypeLoadException)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsRuntimeOperatorParameterCompatible(Type parameterType, Type? argumentType)
+    {
+        if (argumentType == null)
+        {
+            // Operand CLR type unknown (e.g. an N# user type used as an argument). Don't block.
+            return true;
+        }
+
+        try
+        {
+            return parameterType.IsAssignableFrom(argumentType)
+                || parameterType == argumentType
+                || (parameterType.IsByRef && parameterType.GetElementType() == argumentType);
+        }
+        catch (NotSupportedException)
+        {
+            return true;
+        }
     }
 
     private TypeInfo AnalyzeLogicalOp(TypeInfo left, TypeInfo right, BinaryExpression expr)
