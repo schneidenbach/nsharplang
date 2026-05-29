@@ -373,6 +373,7 @@ public static class StackBufferPromotionAnalysis
                     VisitExpression(switchStatement.Value);
                     foreach (var switchCase in switchStatement.Cases)
                     {
+                        VisitPattern(switchCase.Pattern);
                         foreach (var caseStatement in switchCase.Statements)
                         {
                             VisitStatement(caseStatement);
@@ -476,7 +477,19 @@ public static class StackBufferPromotionAnalysis
                     break;
 
                 case UnaryExpression unary:
-                    VisitExpression(unary.Operand);
+                    // Increment/decrement mutates its operand in place. The emitter has no
+                    // promoted-buffer path for `buf[i]++` / `--buf[i]`, so such an operand would fall
+                    // into the normal array codegen (which loads `buf` as a real array reference). The
+                    // plain-index whitelist would treat `buf[i]` as safe, so intercept inc/dec here and
+                    // disqualify the candidate. (`buf++` is a type error handled elsewhere; covered too.)
+                    if (IsIncrementOrDecrement(unary.Operator))
+                    {
+                        DisqualifyReferencedCandidate(unary.Operand);
+                    }
+                    else
+                    {
+                        VisitExpression(unary.Operand);
+                    }
                     break;
 
                 case TernaryExpression ternary:
@@ -563,6 +576,7 @@ public static class StackBufferPromotionAnalysis
                     VisitExpressionAsEscape(match.Value);
                     foreach (var matchCase in match.Cases)
                     {
+                        VisitPattern(matchCase.Pattern);
                         VisitExpressionAsEscape(matchCase.Guard);
                         VisitExpressionAsEscape(matchCase.Expression);
                     }
@@ -684,8 +698,43 @@ public static class StackBufferPromotionAnalysis
 
             foreach (var argument in call.Arguments)
             {
+                // A `ref`/`out` argument takes the *address* of its target. `ref buf[i]` / `out buf[i]`
+                // hands an interior pointer into the (would-be) stack buffer to an opaque callee, which
+                // can store it past the frame's lifetime. The argument value is an IndexAccessExpression,
+                // which the plain-index whitelist would otherwise treat as safe, so we must intercept it
+                // here and disqualify any candidate the argument references. Visiting it as an escape
+                // turns a bare `buf` / `buf[i]` object position into a disqualifying use.
+                if (argument.Modifier != ArgumentModifier.None)
+                {
+                    DisqualifyReferencedCandidate(argument.Value);
+                    continue;
+                }
+
                 // Passing the candidate to any call escapes it (the callee body is opaque here).
                 VisitExpressionAsEscape(argument.Value);
+            }
+        }
+
+        /// <summary>
+        /// Disqualifies any candidate referenced as the receiver of an expression that is being
+        /// address-taken (e.g. the target of a <c>ref</c>/<c>out</c> argument). Covers a bare
+        /// candidate identifier and a candidate index access (<c>buf</c> / <c>buf[i]</c>); any other
+        /// shape is visited normally so nested candidate uses are still caught.
+        /// </summary>
+        private void DisqualifyReferencedCandidate(Expression expression)
+        {
+            switch (expression)
+            {
+                case IdentifierExpression identifier when _candidates.Contains(identifier.Name):
+                    Disqualify(identifier.Name);
+                    break;
+                case IndexAccessExpression { Object: IdentifierExpression identifier }
+                    when _candidates.Contains(identifier.Name):
+                    Disqualify(identifier.Name);
+                    break;
+                default:
+                    VisitExpressionAsEscape(expression);
+                    break;
             }
         }
 
@@ -701,5 +750,82 @@ public static class StackBufferPromotionAnalysis
                 Disqualify(name);
             }
         }
+
+        /// <summary>
+        /// Walks a <see cref="Pattern"/> and visits any embedded expressions as escaping uses, so a
+        /// candidate referenced inside a pattern (e.g. <c>case buf[0] =&gt; ...</c> via a literal
+        /// pattern, or a relational pattern bound to a candidate) is disqualified. Pattern binding
+        /// names (<c>IdentifierPattern</c>, <c>TypePattern</c>, etc.) introduce *new* names and are
+        /// not candidate uses, so they are ignored. Unknown pattern shapes fail closed by
+        /// disqualifying every candidate.
+        /// </summary>
+        private void VisitPattern(Pattern? pattern)
+        {
+            switch (pattern)
+            {
+                case null:
+                case IdentifierPattern:
+                case TypePattern:
+                case SlicePattern:
+                    break;
+                case LiteralPattern literal:
+                    VisitExpressionAsEscape(literal.Literal);
+                    break;
+                case RelationalPattern relational:
+                    VisitExpressionAsEscape(relational.Value);
+                    break;
+                case AndPattern and:
+                    VisitPattern(and.Left);
+                    VisitPattern(and.Right);
+                    break;
+                case OrPattern or:
+                    VisitPattern(or.Left);
+                    VisitPattern(or.Right);
+                    break;
+                case NotPattern not:
+                    VisitPattern(not.Pattern);
+                    break;
+                case PositionalPattern positional:
+                    foreach (var nested in positional.Patterns)
+                    {
+                        VisitPattern(nested);
+                    }
+                    break;
+                case ListPattern list:
+                    foreach (var element in list.Elements)
+                    {
+                        VisitPattern(element);
+                    }
+                    break;
+                case UnionCasePattern unionCase:
+                    if (unionCase.Properties is { } unionProperties)
+                    {
+                        foreach (var property in unionProperties)
+                        {
+                            VisitPattern(property.Pattern);
+                        }
+                    }
+                    break;
+                case ObjectPattern objectPattern:
+                    foreach (var property in objectPattern.Properties)
+                    {
+                        VisitPattern(property.Pattern);
+                    }
+                    break;
+                default:
+                    // Unknown pattern shape: fail closed.
+                    DisqualifyAll();
+                    break;
+            }
+        }
+
+        private static bool IsIncrementOrDecrement(UnaryOperator op) => op switch
+        {
+            UnaryOperator.PreIncrement
+                or UnaryOperator.PreDecrement
+                or UnaryOperator.PostIncrement
+                or UnaryOperator.PostDecrement => true,
+            _ => false,
+        };
     }
 }

@@ -251,6 +251,60 @@ func main(): string {
         Assert.Equal("b", result);
     }
 
+    // ==================== Escape soundness: these shapes must NOT promote ====================
+
+    [Fact]
+    public void IlShape_BufferElementPassedByRef_StaysHeapArray()
+    {
+        // `ref buf[0]` takes the address of an element. Handing an interior pointer into a stack
+        // buffer to an opaque callee could let it escape the frame, so the buffer must stay heap.
+        const string source = @"
+func bump(ref value: int) {
+    value = value + 1
+}
+
+func main(): int {
+    buf: int[] = [10, 20, 30]
+    bump(ref buf[0])
+    return buf[0]
+}";
+
+        var result = ILShapeInspector.Compile(source, assembly =>
+        {
+            var method = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.True(
+                ILShapeInspector.CountOpcode(method, OpCodes.Newarr) >= 1,
+                "Expected a buffer whose element is passed by ref to remain a heap array (newarr).");
+            return (int)method.Invoke(null, null)!;
+        });
+
+        Assert.Equal(11, result);
+    }
+
+    [Fact]
+    public void IlShape_BufferElementIncrement_StaysHeapArray()
+    {
+        // `buf[0]++` mutates the element in place. The emitter has no promoted path for inc/dec on
+        // an index access, so the buffer must stay heap to keep codegen correct.
+        const string source = @"
+func main(): int {
+    buf: int[] = [10, 20, 30]
+    buf[0]++
+    return buf[0]
+}";
+
+        var result = ILShapeInspector.Compile(source, assembly =>
+        {
+            var method = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.True(
+                ILShapeInspector.CountOpcode(method, OpCodes.Newarr) >= 1,
+                "Expected a buffer with an incremented element to remain a heap array (newarr).");
+            return (int)method.Invoke(null, null)!;
+        });
+
+        Assert.Equal(11, result);
+    }
+
     // ==================== Helpers ====================
 
     private static int InvokeMainInt(string source) =>
