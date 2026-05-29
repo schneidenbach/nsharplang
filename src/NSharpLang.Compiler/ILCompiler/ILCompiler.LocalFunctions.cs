@@ -850,6 +850,7 @@ public partial class ILCompiler
         var savedLocalFunctionDeclarations = _localFunctionDeclarations;
         var savedCurrentHasThis = _currentHasThis;
 
+        var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
         try
         {
             _currentIL = methodBuilder.GetILGenerator();
@@ -978,6 +979,7 @@ public partial class ILCompiler
             _pendingLocalFunctionDefinition = savedPendingLocalFunctionDefinition;
             _localFunctionDeclarations = savedLocalFunctionDeclarations;
             _currentHasThis = savedCurrentHasThis;
+            RestoreNestedMethodReturnContext(savedNestedReturnContext);
         }
     }
 

@@ -134,6 +134,10 @@ public partial class ILCompiler
 
         // Set up lambda context
         _currentIL = il;
+        // Isolate the enclosing method's return-flow context (structured-return labels/locals,
+        // protected-region depth, async fault guard) while emitting this nested body into its own
+        // IL generator. Restored below.
+        var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
         var bodyReturnType = returnType;
         if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Async) == true
             && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
@@ -244,6 +248,7 @@ public partial class ILCompiler
         _liftedClosureFields = savedLiftedClosureFields;
         _closureFields = savedClosureFields;
         _currentHasThis = savedCurrentHasThis;
+        RestoreNestedMethodReturnContext(savedNestedReturnContext);
 
         var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, contextualDelegateType ?? savedExpectedExpressionType);
 
@@ -650,6 +655,10 @@ public partial class ILCompiler
 
         // Set up lambda context
         _currentIL = il;
+        // Isolate the enclosing method's return-flow context (structured-return labels/locals,
+        // protected-region depth, async fault guard) while emitting this nested body into its own
+        // IL generator. Restored below.
+        var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
         var bodyReturnType = returnType;
         if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Async) == true
             && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
@@ -755,6 +764,7 @@ public partial class ILCompiler
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
+        RestoreNestedMethodReturnContext(savedNestedReturnContext);
 
         var delegateType = ResolveLambdaDelegateType(parameterTypes, returnType, contextualDelegateType ?? savedExpectedExpressionType);
         EmitStaticDelegate(lambdaMethod, delegateType);
@@ -846,6 +856,10 @@ public partial class ILCompiler
 
         // Set up lambda context
         _currentIL = il;
+        // Isolate the enclosing method's return-flow context (structured-return labels/locals,
+        // protected-region depth, async fault guard) while emitting this nested body into its own
+        // IL generator. Restored below.
+        var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
         var bodyReturnType = returnType;
         if (localFunctionDefinition?.Modifiers.HasFlag(Modifiers.Async) == true
             && TryUnwrapAsyncReturnType(returnType, out var asyncResultType, out var returnsValueTask))
@@ -955,6 +969,7 @@ public partial class ILCompiler
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
         _currentHasThis = savedCurrentHasThis;
+        RestoreNestedMethodReturnContext(savedNestedReturnContext);
 
         // Instantiate closure and set captured variable values
         _currentIL.Emit(OpCodes.Newobj, closureCtor);
