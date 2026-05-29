@@ -177,9 +177,12 @@ Selective internal specialization is implemented by `Performance/GenericSpeciali
 around the lesson from the GC-unsafe IL regression that crashed on x64: **we never rewrite
 IL tokens after the fact.** Instead the existing, type-correct body emitter is re-driven
 with the generic type parameter names bound to concrete value types through a substitution
-map (`_activeGenericSpecialization`, consulted first in `ResolveType`). Every local,
-signature, `ldtoken`, `newobj`, and array element type therefore flows through the same
-resolution code that already produces verifiable IL for ordinary non-generic methods.
+map (`_activeGenericSpecialization` in `ResolveType`). Every local, signature, `ldtoken`,
+`newobj`, and array element type therefore flows through the same resolution code that
+already produces verifiable IL for ordinary non-generic methods. The substitution map is
+consulted *after* any live local generic parameters so that a nested generic local function
+that shadows the outer type-parameter name resolves to its own open parameter, not the outer
+concrete type.
 
 What changes at a specialized call site is only the target method token: a closed generic
 instantiation `foo<int32>(...)` becomes a direct call to a concrete non-generic method

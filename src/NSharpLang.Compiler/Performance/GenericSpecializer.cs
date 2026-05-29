@@ -118,6 +118,19 @@ public sealed class GenericSpecializer
             return false;
         }
 
+        // Reject source-declared (TypeBuilder-backed, not-yet-baked) types FIRST. This must
+        // precede the reflection queries below (IsByRefLike / ContainsGenericParameters /
+        // IsValueType), which throw NotSupportedException on a TypeBuilder or
+        // TypeBuilderInstantiation. Source-declared structs are emitted as TypeBuilders whose
+        // layout/members are not necessarily baked when the specialized signature is built;
+        // specializing over them (or over a value type that *contains* one, e.g.
+        // Nullable<SourceStruct> or a constructed source generic struct) would emit tokens
+        // against an unfinalized source type. Stay conservative and leave them shared.
+        if (InvolvesUnbakedSourceType(type))
+        {
+            return false;
+        }
+
         // ByRef-like structs (Span<T>, ReadOnlySpan<T>, ref structs) are value types but cannot
         // be boxed, stored on the heap, used as generic arguments, or returned through many
         // shapes. Specializing over them would let a concrete body store/return them in ways the
@@ -139,18 +152,6 @@ public sealed class GenericSpecializer
         }
 
         if (type == typeof(void))
-        {
-            return false;
-        }
-
-        // Source-declared structs are emitted as TypeBuilders; their full layout/members are
-        // not necessarily baked when we build the specialized signature. Specializing over them
-        // is feasible but raises the GC-safety risk surface, so we stay conservative and leave
-        // them on the shared generic path until proven safe by evidence. This must also reject
-        // constructed value types that *contain* a source struct (e.g. Nullable<SourceStruct> or
-        // a constructed source generic struct, which appear as TypeBuilderInstantiation), since
-        // emitting tokens against an unbaked source type is the same hazard one level down.
-        if (InvolvesUnbakedSourceType(type))
         {
             return false;
         }
