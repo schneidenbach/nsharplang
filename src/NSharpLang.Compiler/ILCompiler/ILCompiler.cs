@@ -11366,10 +11366,19 @@ public partial class ILCompiler
         }
 
         var memberName = qualifiedName[(lastDot + 1)..];
+        var qualifier = qualifiedName[..lastDot];
+
+        // The qualifier (the part before the final dot) must name the SAME enum as the scrutinee.
+        // A member of a different enum (e.g. `Other.Red` against a `Color` scrutinee) is not a
+        // constant of this scrutinee's type and must not preempt the correct arm. We accept either
+        // the simple enum name (`Color`) or a namespace-qualified form ending in it (`Ns.Color`).
+        if (!QualifierNamesEnum(qualifier, enumType))
+        {
+            return false;
+        }
 
         // Project enums record their literal values keyed by "EnumName.Member".
-        if (_fieldConstants.TryGetValue(qualifiedName, out var recorded)
-            || _fieldConstants.TryGetValue($"{enumType.Name}.{memberName}", out recorded))
+        if (_fieldConstants.TryGetValue($"{enumType.Name}.{memberName}", out var recorded))
         {
             if (recorded is int recordedInt)
             {
@@ -11394,6 +11403,29 @@ public partial class ILCompiler
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="qualifier"/> (the portion of a qualified enum-member pattern
+    /// before its final dot) names <paramref name="enumType"/> — either by its simple name
+    /// (<c>Color</c>) or a namespace-qualified form ending in it (<c>Ns.Color</c>). Guards the
+    /// dispatch path against resolving a member of a different enum to this scrutinee's type.
+    /// </summary>
+    private static bool QualifierNamesEnum(string qualifier, Type enumType)
+    {
+        if (qualifier == enumType.Name)
+        {
+            return true;
+        }
+
+        if (qualifier.EndsWith("." + enumType.Name, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // Match the fully-qualified type name when available (covers namespaced project enums).
+        var fullName = enumType.FullName;
+        return fullName != null && (qualifier == fullName || fullName.EndsWith("." + qualifier, StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -19282,19 +19314,17 @@ public partial class ILCompiler
             return false;
         }
 
-        var underlying = Nullable.GetUnderlyingType(matchValueType) ?? matchValueType;
-        if (underlying.IsEnum)
-        {
-            // Bare identifier against an enum scrutinee is a variable binding (enum members are qualified).
-            bindingName = identifier.Name;
-            return true;
-        }
-
+        // A bare identifier that names a type (e.g. `int`) is a type-test pattern in every
+        // scrutinee position, including against an enum scrutinee. It must NOT be treated as a
+        // catch-all binding, or the dispatch path would diverge from the linear fallback (which
+        // emits a real type test). Check this before the enum-binding assumption below.
         if (TryResolvePatternType(identifier.Name, out _))
         {
             return false;
         }
 
+        // A remaining bare identifier (enum members are always qualified) is a variable binding
+        // that captures the scrutinee.
         bindingName = identifier.Name;
         return true;
     }
