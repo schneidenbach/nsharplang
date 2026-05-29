@@ -684,6 +684,33 @@ func Main() {
     }
 
     [Fact]
+    public void NL010_UnusedImport_SquiggleCoversNamespacePathNotKeyword()
+    {
+        // Regression for the strictness/squiggle audit (PR #160): the NL010 span
+        // must underline the imported namespace path (`System.Linq`), not the
+        // `import` keyword. The directive only records the statement column, so
+        // the linter steps past the keyword to land on the path.
+        var source = @"
+import System.Linq
+
+func Main() {
+    x := 5
+    y := x + 1
+}";
+        // LintWithSource so the linter has the source line to resolve the span against
+        // (matches how the CLI and language server always supply source text).
+        var diagnostics = LintWithSource(source);
+        var nl010 = diagnostics.Single(d => d.Code == "NL010");
+
+        // `import System.Linq` is the second line; the path starts after `import `.
+        var importLine = source.Replace("\r\n", "\n").Split('\n')[nl010.Location.Line - 1];
+        var covered = importLine.Substring(nl010.Location.Column - 1, nl010.Length);
+
+        Assert.Equal("System.Linq", covered);
+        Assert.Equal("System.Linq".Length, nl010.Length);
+    }
+
+    [Fact]
     public void NL010_UnusedImport_NoWarnWhenTypeUsed()
     {
         var source = @"
