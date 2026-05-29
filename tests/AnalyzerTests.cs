@@ -6373,6 +6373,148 @@ func Main() {
     }
 
     [Fact]
+    public void Nullability_StrictFlow_MethodCallOnNullableReceiverErrors()
+    {
+        var result = Analyze(@"
+            class Box {
+                func Open(): int { return 1 }
+            }
+
+            func Use(b: Box?): int {
+                return b.Open()
+            }
+        ");
+
+        // Calling a method on a possibly-null receiver is a hard error and the
+        // squiggle must land on the receiver, not the '.' or member name.
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+        Assert.Equal(ErrorSeverity.Error, error.Severity);
+        Assert.Equal("b".Length, error.Length);
+        Assert.Contains("`b`", error.Message);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_IndexAccessOnNullableReceiverErrors()
+    {
+        var result = Analyze(@"
+            func First(items: int[]?): int {
+                return items[0]
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+        Assert.Equal(ErrorSeverity.Error, error.Severity);
+        Assert.Contains("Possible null index", error.Message);
+        Assert.Equal("items".Length, error.Length);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_CoalesceFallbackNarrowsToNonNull()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                t := s ?? ""fallback""
+                return t.Length
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_ThrowGuardNarrowsAfterEarlyExit()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                if s == null {
+                    throw ""value was null""
+                }
+
+                return s.Length
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_IsPatternNarrowsBoundVariable()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                if s is string str {
+                    return str.Length
+                }
+                return 0
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_MatchNullArmNarrowsOtherArm()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int {
+                return match s {
+                    null => 0,
+                    other => other.Length
+                }
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_NonNullableTypeNeverErrors()
+    {
+        var result = Analyze(@"
+            class Box {
+                func Open(): int { return 1 }
+            }
+
+            func Use(b: Box): int {
+                return b.Open()
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_ReassignmentToNonNullClearsNullState()
+    {
+        var result = Analyze(@"
+            func Length(): int {
+                x: string? = null
+                x = ""now not null""
+                return x.Length
+            }
+        ");
+
+        Assert.False(result.HasErrors, string.Join(", ", result.Errors.Select(e => e.Message)));
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
+    public void Nullability_StrictFlow_NullConditionalAccessNeverErrors()
+    {
+        var result = Analyze(@"
+            func Length(s: string?): int? {
+                return s?.Length
+            }
+        ");
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.PossibleNullAccess);
+    }
+
+    [Fact]
     public void Nullability_AssignmentInvalidatesPriorGuardFact()
     {
         var result = Analyze(@"
