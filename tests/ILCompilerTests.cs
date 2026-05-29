@@ -1446,6 +1446,147 @@ class Dog : Animal {
         compiler.Compile();
     }
 
+    // ==================== Devirtualization (call vs callvirt) Tests ====================
+
+    [Fact]
+    public void ILCompiler_VirtualCallOnNewExpression_IsDevirtualizedToCall()
+    {
+        // Calling a virtual method on a freshly-constructed `new T()` receiver: the runtime
+        // type is exactly T and the reference is provably non-null, so the callvirt can be
+        // safely lowered to a non-virtual call.
+        var source = @"
+class Greeter {
+    virtual func Greet(): int {
+        return 7
+    }
+}
+
+func main(): int {
+    return new Greeter().Greet()
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Call, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_VirtualCallOnNewExpression_PreservesBehavior()
+    {
+        // The devirtualized call must produce identical observable behavior.
+        var result = CompileAndInvoke(@"
+class Greeter {
+    virtual func Greet(): int {
+        return 7
+    }
+}
+
+func main(): int {
+    return new Greeter().Greet()
+}");
+
+        Assert.Equal(7, result);
+    }
+
+    [Fact]
+    public void ILCompiler_VirtualCallOnPolymorphicReceiver_StaysCallvirt()
+    {
+        // The receiver is a parameter of a base type whose runtime type is NOT statically
+        // known and which may be null. Virtual dispatch and the null-check must be preserved,
+        // so this call must remain a callvirt.
+        var source = @"
+class Animal {
+    virtual func Speak(): int {
+        return 1
+    }
+}
+
+class Dog : Animal {
+    override func Speak(): int {
+        return 2
+    }
+}
+
+func sound(a: Animal): int {
+    return a.Speak()
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("sound", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Callvirt, opCodes);
+    }
+
+    [Fact]
+    public void ILCompiler_VirtualDispatchThroughBaseReference_PreservesBehavior()
+    {
+        // End-to-end: dispatching a virtual method through a base-typed reference must still
+        // resolve to the most-derived override at runtime (i.e. callvirt was preserved).
+        var result = CompileAndInvoke(@"
+class Animal {
+    virtual func Speak(): int {
+        return 1
+    }
+}
+
+class Dog : Animal {
+    override func Speak(): int {
+        return 2
+    }
+}
+
+func sound(a: Animal): int {
+    return a.Speak()
+}
+
+func main(): int {
+    d := new Dog()
+    return sound(d)
+}");
+
+        Assert.Equal(2, result);
+    }
+
+    [Fact]
+    public void ILCompiler_NonVirtualCallOnNewExpression_RemainsCall()
+    {
+        // A non-virtual instance method on a `new T()` receiver was already emitted as `call`;
+        // the devirtualization change must not regress this to callvirt.
+        var source = @"
+class Calculator {
+    func Add(x: int, y: int): int {
+        return x + y
+    }
+}
+
+func main(): int {
+    return new Calculator().Add(5, 3)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var method = assembly.GetType("Program")!
+                .GetMethod("main", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return GetMethodOpCodes(method!);
+        });
+
+        Assert.Contains(OpCodes.Call, opCodes);
+        Assert.DoesNotContain(OpCodes.Callvirt, opCodes);
+    }
+
     [Fact]
     public void ILCompiler_CanCompileClassWithBaseAndInterfaces()
     {
