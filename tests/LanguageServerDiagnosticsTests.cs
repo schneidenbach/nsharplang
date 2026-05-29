@@ -1084,6 +1084,179 @@ func BadStructNew<T>(value: T): T where T : struct, new() {
     }
 
     [Fact]
+    public void Diagnostics_GenericConstraintViolations_UnderlineOffendingArgument()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///generic-constraint-violation-spans.nl";
+
+        var source = """
+interface IShape {
+    func Area(): int
+}
+
+class Plain {
+}
+
+func Wrap<T>(value: T): T where T : class {
+    return value
+}
+
+func Box<T>(value: T): T where T : struct {
+    return value
+}
+
+func Draw<T>(shape: T): T where T : IShape {
+    return shape
+}
+
+func main() {
+    a := Wrap(42)
+    b := Box("hi")
+    p := new Plain()
+    c := Draw(p)
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var classViolation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("`class` constraint"));
+        AssertDiagnosticSpan(classViolation, line: 21, column: 15, length: "42".Length);
+        AssertLspRange(classViolation, line0: 20, startCharacter: 14, endCharacter: 16);
+
+        var structViolation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("`struct` constraint"));
+        AssertDiagnosticSpan(structViolation, line: 22, column: 14, length: "\"hi\"".Length);
+        AssertLspRange(structViolation, line0: 21, startCharacter: 13, endCharacter: 17);
+
+        var interfaceViolation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("does not implement"));
+        AssertDiagnosticSpan(interfaceViolation, line: 24, column: 15, length: "p".Length);
+        AssertLspRange(interfaceViolation, line0: 23, startCharacter: 14, endCharacter: 15);
+    }
+
+    [Fact]
+    public void Diagnostics_GenericConstraintViolation_FallsBackToCalleeNameSpan()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///generic-constraint-callee-span.nl";
+
+        // Two parameters bind T, so there is no single argument to blame:
+        // the squiggle falls back to the callee name `Max`.
+        var source = """
+interface IComparable {
+    func CompareTo(other: object): int
+}
+
+class Plain {
+}
+
+func Max<T>(a: T, b: T): T where T : IComparable {
+    return a
+}
+
+func main() {
+    result := Max(new Plain(), new Plain())
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var violation = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.GenericConstraintViolation &&
+                          diagnostic.Message.Contains("does not implement"));
+        AssertDiagnosticSpan(violation, line: 13, column: 15, length: "Max".Length);
+        AssertLspRange(violation, line0: 12, startCharacter: 14, endCharacter: 17);
+    }
+
+    [Fact]
+    public void Diagnostics_AnonymousUnionTooManyArms_UnderlinesFullUnion()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///anonymous-union-arms-span.nl";
+
+        var source = """
+type Triple = int | string | bool
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var tooManyArms = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.InvalidTypeArgument &&
+                          diagnostic.Message.Contains("exactly two arms"));
+        AssertDiagnosticSpan(tooManyArms, line: 1, column: 15, length: "int | string | bool".Length);
+        AssertLspRange(tooManyArms, line0: 0, startCharacter: 14, endCharacter: 33);
+    }
+
+    [Fact]
+    public void Diagnostics_CannotInferType_UnderlinesDefaultKeyword()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///cannot-infer-default-span.nl";
+
+        var source = """
+func main() {
+    value := default
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var cannotInfer = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.CannotInferType);
+        AssertDiagnosticSpan(cannotInfer, line: 2, column: 14, length: "default".Length);
+        AssertLspRange(cannotInfer, line0: 1, startCharacter: 13, endCharacter: 20);
+    }
+
+    [Fact]
+    public void Diagnostics_LocalDeclarationTypeMismatch_UnderlinesInitializerLiteral()
+    {
+        var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
+        var uri = "file:///local-decl-type-mismatch-span.nl";
+
+        var source = """
+func main() {
+    count: int = "five"
+}
+""";
+
+        documentManager.UpdateDocument(uri, source, version: 1);
+
+        var document = documentManager.GetDocument(uri);
+        Assert.NotNull(document);
+
+        var diagnostics = (document!.Diagnostics ?? Enumerable.Empty<CompilerError>()).ToList();
+
+        var mismatch = Assert.Single(diagnostics,
+            diagnostic => diagnostic.Code == ErrorCode.TypeMismatch);
+        AssertDiagnosticSpan(mismatch, line: 2, column: 18, length: "\"five\"".Length);
+        AssertLspRange(mismatch, line0: 1, startCharacter: 17, endCharacter: 23);
+    }
+
+    [Fact]
     public void Diagnostics_AssignmentAndOperatorTypeMismatches_UseSpecificExpressionSpans()
     {
         var documentManager = new DocumentManager(NullLogger<DocumentManager>.Instance);
