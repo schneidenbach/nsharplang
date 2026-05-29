@@ -15508,6 +15508,16 @@ public partial class ILCompiler
             return patternBindingType;
         }
 
+        // Stack-buffer promotion: a promoted buffer is stored as an [InlineArray] struct but stays
+        // logically a `T[]` to the type system. Reads of `buf` (for index-element / .Length type
+        // inference) must resolve to the array type, not the synthesized struct, so return-value and
+        // index coercions stay correct. The promoted buffer is never loaded as a bare identifier
+        // (the analysis disqualifies that), so this only feeds type queries.
+        if (TryGetPromotedBuffer(ident.Name, out var promotedBuffer))
+        {
+            return promotedBuffer.ElementType.MakeArrayType();
+        }
+
         if (_inferredLocalTypes != null && _inferredLocalTypes.TryGetValue(ident.Name, out var inferredLocalType))
         {
             return inferredLocalType;
