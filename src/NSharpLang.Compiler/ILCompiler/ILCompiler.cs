@@ -103,6 +103,15 @@ public partial class ILCompiler
     private readonly Dictionary<Type, ConstructorInfo> _liftedStorageConstructors = new();
     private readonly Dictionary<Type, FieldInfo> _liftedStorageValueFields = new();
     private readonly Dictionary<Type, Type> _liftedStorageValueTypes = new();
+    // Struct (value-type) lifted boxes, used for captured locals that are mutated only by
+    // non-escaping direct-call local functions. The box lives on the stack and is passed by
+    // managed reference, so shared mutation is preserved without a heap allocation. These are
+    // keyed by value type separately from the heap boxes above so both representations can
+    // coexist for the same value type across different methods. The generated struct's value
+    // field / value type are registered in the shared _liftedStorageValueFields /
+    // _liftedStorageValueTypes maps (keyed by the unique box type, so there is no collision).
+    private readonly Dictionary<Type, Type> _structLiftedStorageTypes = new();
+    private readonly Dictionary<Type, ConstructorInfo> _structLiftedStorageConstructors = new();
     // Value-struct (allocation-free) union support. For unions classified as
     // value-struct-emittable by NSharpLang.Compiler.Performance.UnionValueLayout, we
     // emit a readonly struct carrying an integer tag instead of the class hierarchy.
@@ -134,6 +143,7 @@ public partial class ILCompiler
     private readonly List<TypeBuilder> _closureTypes = new();
     private bool _liftLocalsIntoBoxes;
     private HashSet<string>? _localsToLiftIntoBoxes;
+    private HashSet<string>? _structBoxableLocals;
     private HashSet<string>? _localsToPredeclareForCapture;
     private HashSet<string>? _liftedIdentifiers;
     private HashSet<string>? _liftedClosureFields;
@@ -177,7 +187,8 @@ public partial class ILCompiler
         Type[] ShimParameterTypes);
     private sealed record LocalCaptureStorageInfo(
         HashSet<string> CapturedLocals,
-        HashSet<string> LocalsToLiftIntoBoxes);
+        HashSet<string> LocalsToLiftIntoBoxes,
+        HashSet<string> StructBoxableLocals);
     private sealed class DelegateSignatureKey(Type[] parameterTypes, Type returnType) : IEquatable<DelegateSignatureKey>
     {
         private readonly Type[] _parameterTypes = parameterTypes.ToArray();
@@ -1164,6 +1175,7 @@ public partial class ILCompiler
         _currentReturnType = null;
         _liftLocalsIntoBoxes = false;
         _localsToLiftIntoBoxes = null;
+        _structBoxableLocals = null;
         _localsToPredeclareForCapture = null;
         _liftedIdentifiers = null;
         _liftedClosureFields = null;
@@ -1186,7 +1198,8 @@ public partial class ILCompiler
         Type? returnType,
         bool liftLocalsIntoBoxes,
         HashSet<string>? localsToLiftIntoBoxes = null,
-        HashSet<string>? localsToPredeclareForCapture = null)
+        HashSet<string>? localsToPredeclareForCapture = null,
+        HashSet<string>? structBoxableLocals = null)
     {
         _locals = new Dictionary<string, LocalBuilder>();
         _parameters = new Dictionary<string, int>();
@@ -1195,6 +1208,9 @@ public partial class ILCompiler
         _currentReturnType = returnType;
         _liftLocalsIntoBoxes = liftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = liftLocalsIntoBoxes ? localsToLiftIntoBoxes : null;
+        _structBoxableLocals = liftLocalsIntoBoxes && structBoxableLocals is { Count: > 0 }
+            ? structBoxableLocals
+            : null;
         _localsToPredeclareForCapture = localsToPredeclareForCapture is { Count: > 0 }
             ? localsToPredeclareForCapture
             : null;
@@ -1258,6 +1274,52 @@ public partial class ILCompiler
         }
 
         return typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(valueType);
+    }
+
+    /// <summary>
+    /// Creates (or returns the cached) value-type "struct box" used to lift a captured local
+    /// that is mutated only by non-escaping, direct-call local functions. The box is a generated
+    /// value type with a single public <c>Value</c> field; the local that holds it lives on the
+    /// stack and is passed by managed reference to the local-function method, so mutation through
+    /// the reference is observed by all call sites with no heap allocation. Generating a dedicated
+    /// type (rather than reusing <see cref="System.Runtime.CompilerServices.StrongBox{T}"/>, which
+    /// is a reference type) is what removes the closure allocation.
+    /// </summary>
+    private Type CreateStructBoxType(Type valueType)
+    {
+        if (_structLiftedStorageTypes.TryGetValue(valueType, out var existing))
+        {
+            return existing;
+        }
+
+        if (_moduleBuilder == null)
+        {
+            throw new InvalidOperationException("Module builder has not been initialized");
+        }
+
+        var boxType = _moduleBuilder.DefineType(
+            $"<>LiftedStruct{_liftedStorageCounter++}",
+            TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.SequentialLayout | TypeAttributes.BeforeFieldInit,
+            typeof(ValueType));
+        var valueField = boxType.DefineField("Value", valueType, FieldAttributes.Public);
+        var constructor = boxType.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            new[] { valueType });
+        var constructorIl = constructor.GetILGenerator();
+        // A value-type constructor receives a managed pointer to the instance in arg0 and must
+        // not chain to a base constructor; it simply stores the supplied value into the field.
+        constructorIl.Emit(OpCodes.Ldarg_0);
+        constructorIl.Emit(OpCodes.Ldarg_1);
+        constructorIl.Emit(OpCodes.Stfld, valueField);
+        constructorIl.Emit(OpCodes.Ret);
+
+        _generatedHelperTypes.Add(boxType);
+        _structLiftedStorageTypes[valueType] = boxType;
+        _structLiftedStorageConstructors[boxType] = constructor;
+        _liftedStorageValueFields[boxType] = valueField;
+        _liftedStorageValueTypes[boxType] = valueType;
+        return boxType;
     }
 
     private static bool RequiresGeneratedLiftedStorageType(Type type)
@@ -2085,13 +2147,42 @@ public partial class ILCompiler
             || _localsToPredeclareForCapture?.Contains(name) == true;
     }
 
+    /// <summary>
+    /// Whether the lifted box for the captured local <paramref name="name"/> may be a stack
+    /// value type rather than a heap box. True only for locals whose box never escapes the
+    /// current frame (mutated solely through non-escaping, direct-call local functions).
+    /// </summary>
+    private bool ShouldStructBoxLocal(string name)
+    {
+        return _structBoxableLocals?.Contains(name) == true;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="storageType"/> is one of the generated value-type struct boxes.
+    /// Such boxes are addressed with <c>ldloca</c> (the box lives in the local slot) rather than
+    /// <c>ldloc</c> (which would copy the struct and break shared mutation).
+    /// </summary>
+    private bool IsStructBoxStorageType(Type storageType)
+    {
+        return _structLiftedStorageConstructors.ContainsKey(storageType);
+    }
+
+    private ConstructorInfo GetLiftedStorageConstructor(Type storageType, Type valueType)
+    {
+        return _structLiftedStorageConstructors.TryGetValue(storageType, out var structConstructor)
+            ? structConstructor
+            : GetStrongBoxConstructor(valueType);
+    }
+
     private LocalBuilder DeclareNamedLocal(string name, Type valueType)
     {
         if (_currentIL == null || _locals == null)
             throw new InvalidOperationException("No IL generator context");
 
         var shouldLift = ShouldLiftLocalIntoBox(name);
-        var storageType = shouldLift ? CreateStrongBoxType(valueType) : valueType;
+        var storageType = shouldLift
+            ? (ShouldStructBoxLocal(name) ? CreateStructBoxType(valueType) : CreateStrongBoxType(valueType))
+            : valueType;
         var local = _currentIL.DeclareLocal(storageType);
         _locals[name] = local;
 
@@ -2128,9 +2219,22 @@ public partial class ILCompiler
             throw new InvalidOperationException("Initializer was required but not provided");
         }
 
+        if (IsStructBoxStorageType(local.LocalType))
+        {
+            // Initialise the value-type box in place with no allocation: spill the initial value,
+            // then store it through the box's slot address. The local slot is already zeroed by
+            // the method's locals-init flag, so the box needs no separate construction.
+            var initialValue = _currentIL.DeclareLocal(valueType);
+            _currentIL.Emit(OpCodes.Stloc, initialValue);
+            _currentIL.Emit(OpCodes.Ldloca, local);
+            _currentIL.Emit(OpCodes.Ldloc, initialValue);
+            _currentIL.Emit(OpCodes.Stfld, GetStrongBoxValueField(local.LocalType));
+            return;
+        }
+
         if (IsLiftedStorageType(local.LocalType, valueType))
         {
-            var storageConstructor = GetStrongBoxConstructor(valueType);
+            var storageConstructor = GetLiftedStorageConstructor(local.LocalType, valueType);
             try
             {
                 _currentIL.Emit(OpCodes.Newobj, storageConstructor);
@@ -2156,7 +2260,9 @@ public partial class ILCompiler
         if (_currentIL == null)
             throw new InvalidOperationException("No IL generator context");
 
-        _currentIL.Emit(OpCodes.Ldloc, local);
+        // A struct box lives in the local slot, so its field is reached through the slot
+        // address (ldloca). A heap box is a reference, reached through the reference (ldloc).
+        EmitLoadLiftedLocalBoxReference(local);
         _currentIL.Emit(OpCodes.Ldfld, GetStrongBoxValueField(local.LocalType));
     }
 
@@ -2165,8 +2271,29 @@ public partial class ILCompiler
         if (_currentIL == null)
             throw new InvalidOperationException("No IL generator context");
 
-        _currentIL.Emit(OpCodes.Ldloc, local);
+        EmitLoadLiftedLocalBoxReference(local);
         _currentIL.Emit(OpCodes.Ldflda, GetStrongBoxValueField(local.LocalType));
+    }
+
+    /// <summary>
+    /// Pushes the receiver used to access the lifted box's <c>Value</c> field: the box's slot
+    /// address (<c>ldloca</c>) for a struct box, or the box reference (<c>ldloc</c>) for a heap
+    /// box. Loading a struct box with <c>ldloc</c> would copy it, so a subsequent <c>ldflda</c>
+    /// would yield an address into a throwaway copy and silently lose mutations.
+    /// </summary>
+    private void EmitLoadLiftedLocalBoxReference(LocalBuilder local)
+    {
+        if (_currentIL == null)
+            throw new InvalidOperationException("No IL generator context");
+
+        if (IsStructBoxStorageType(local.LocalType))
+        {
+            _currentIL.Emit(OpCodes.Ldloca, local);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Ldloc, local);
+        }
     }
 
     private void EmitStoreLiftedLocalValue(LocalBuilder local, Type valueType, bool leaveValueOnStack)
@@ -2176,6 +2303,22 @@ public partial class ILCompiler
 
         var tempLocal = _currentIL.DeclareLocal(valueType);
         _currentIL.Emit(OpCodes.Stloc, tempLocal);
+
+        if (IsStructBoxStorageType(local.LocalType))
+        {
+            // A struct box always has its storage present (value types have no null state), so
+            // there is no lazy allocation: store straight through the slot address.
+            _currentIL.Emit(OpCodes.Ldloca, local);
+            _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+            _currentIL.Emit(OpCodes.Stfld, GetStrongBoxValueField(local.LocalType));
+
+            if (leaveValueOnStack)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+            }
+
+            return;
+        }
 
         var initializedLabel = _currentIL.DefineLabel();
         _currentIL.Emit(OpCodes.Ldloc, local);
@@ -2244,7 +2387,8 @@ public partial class ILCompiler
             returnType,
             captureStorage.LocalsToLiftIntoBoxes.Count > 0,
             captureStorage.LocalsToLiftIntoBoxes,
-            captureStorage.CapturedLocals);
+            captureStorage.CapturedLocals,
+            captureStorage.StructBoxableLocals);
     }
 
     private LocalCaptureStorageInfo GetLocalCaptureStorageInfo(
@@ -2257,6 +2401,7 @@ public partial class ILCompiler
         if (!containsNestedFunction)
         {
             return new LocalCaptureStorageInfo(
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
         }
@@ -2286,6 +2431,7 @@ public partial class ILCompiler
         {
             return new LocalCaptureStorageInfo(
                 captured,
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
         }
 
@@ -2299,9 +2445,37 @@ public partial class ILCompiler
             CollectMutatedCapturedStorageNames(expressionBody, captured, mutated);
         }
 
-        CollectEscapingLocalFunctionCapturedStorageNames(body, candidates, mutated);
+        // Names whose box reference must survive past the current frame because they are
+        // captured by an escaping local function. Such names require a heap box; the struct-box
+        // optimisation must never apply to them.
+        var escapesFrame = new HashSet<string>(StringComparer.Ordinal);
+        CollectEscapingLocalFunctionCapturedStorageNames(body, candidates, escapesFrame);
 
-        return new LocalCaptureStorageInfo(captured, mutated);
+        foreach (var escapingName in escapesFrame)
+        {
+            mutated.Add(escapingName);
+        }
+
+        // A boxed capture is struct-boxable when it needs a box (it is mutated through a nested
+        // function) yet never escapes the current frame, so its only consumers are direct,
+        // by-reference local-function calls. Those receive the box by managed pointer, which
+        // preserves shared-mutation semantics with no heap allocation.
+        //
+        // Lambdas are lowered either to delegates (a heap display class) or to direct
+        // function-value locals, both of which can outlive the defining frame. Capture analysis
+        // of those forms is more involved, so to stay conservative we disable the struct-box
+        // optimisation for the whole body whenever it contains any lambda. Named local
+        // functions invoked directly remain eligible.
+        var structBoxable = new HashSet<string>(StringComparer.Ordinal);
+        var bodyContainsLambda = (body != null && ContainsLambda(body))
+            || (expressionBody != null && ContainsLambda(expressionBody));
+        if (!bodyContainsLambda)
+        {
+            structBoxable.UnionWith(mutated);
+            structBoxable.ExceptWith(escapesFrame);
+        }
+
+        return new LocalCaptureStorageInfo(captured, mutated, structBoxable);
     }
 
     private void CollectEscapingLocalFunctionCapturedStorageNames(
@@ -4020,6 +4194,105 @@ public partial class ILCompiler
             PositionalPattern positionalPattern => positionalPattern.Patterns.Any(ContainsNestedFunction),
             ObjectPattern objectPattern => objectPattern.Properties.Any(property => property.Pattern != null && ContainsNestedFunction(property.Pattern)),
             ListPattern listPattern => listPattern.Elements.Any(ContainsNestedFunction),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Whether <paramref name="block"/> contains a lambda expression anywhere in its subtree.
+    /// Mirrors <see cref="ContainsNestedFunction(Statement)"/> but matches only
+    /// <see cref="LambdaExpression"/> (not named local functions), and additionally descends
+    /// into nested local-function bodies so a lambda hidden inside one is still detected.
+    /// Used to keep the struct-box capture optimisation conservative.
+    /// </summary>
+    private static bool ContainsLambda(BlockStatement? block)
+    {
+        return block != null && ContainsLambda((Statement)block);
+    }
+
+    private static bool ContainsLambda(Statement statement)
+    {
+        return statement switch
+        {
+            LocalFunctionStatement localFunction =>
+                (localFunction.Function.Body != null && ContainsLambda(localFunction.Function.Body))
+                || (localFunction.Function.ExpressionBody != null && ContainsLambda(localFunction.Function.ExpressionBody)),
+            BlockStatement block => block.Statements.Any(ContainsLambda),
+            ExpressionStatement expressionStatement => ContainsLambda(expressionStatement.Expression),
+            VariableDeclarationStatement variableDeclaration => variableDeclaration.Initializer != null && ContainsLambda(variableDeclaration.Initializer),
+            TupleDeconstructionStatement tupleDeconstruction => ContainsLambda(tupleDeconstruction.Initializer),
+            IfStatement ifStatement => ContainsLambda(ifStatement.Condition)
+                || ContainsLambda(ifStatement.ThenStatement)
+                || (ifStatement.ElseStatement != null && ContainsLambda(ifStatement.ElseStatement)),
+            ForStatement forStatement => (forStatement.Initializer != null && ContainsLambda(forStatement.Initializer))
+                || (forStatement.Condition != null && ContainsLambda(forStatement.Condition))
+                || (forStatement.Iterator != null && ContainsLambda(forStatement.Iterator))
+                || ContainsLambda(forStatement.Body),
+            ForeachStatement foreachStatement => ContainsLambda(foreachStatement.Collection) || ContainsLambda(foreachStatement.Body),
+            AwaitForEachStatement awaitForEachStatement => ContainsLambda(awaitForEachStatement.Collection) || ContainsLambda(awaitForEachStatement.Body),
+            WhileStatement whileStatement => ContainsLambda(whileStatement.Condition) || ContainsLambda(whileStatement.Body),
+            ReturnStatement returnStatement => returnStatement.Value != null && ContainsLambda(returnStatement.Value),
+            YieldStatement yieldStatement => yieldStatement.Value != null && ContainsLambda(yieldStatement.Value),
+            ThrowStatement throwStatement => ContainsLambda(throwStatement.Expression),
+            TryStatement tryStatement => ContainsLambda(tryStatement.TryBlock)
+                || tryStatement.CatchClauses.Any(catchClause => ContainsLambda(catchClause.Block))
+                || (tryStatement.FinallyBlock != null && ContainsLambda(tryStatement.FinallyBlock)),
+            UsingStatement usingStatement => (usingStatement.Declaration?.Initializer != null && ContainsLambda(usingStatement.Declaration.Initializer))
+                || (usingStatement.Expression != null && ContainsLambda(usingStatement.Expression))
+                || (usingStatement.Body != null && ContainsLambda(usingStatement.Body)),
+            LockStatement lockStatement => ContainsLambda(lockStatement.LockObject) || ContainsLambda(lockStatement.Body),
+            SwitchStatement switchStatement => ContainsLambda(switchStatement.Value)
+                || switchStatement.Cases.Any(switchCase => switchCase.Statements.Any(ContainsLambda)),
+            PrintStatement printStatement => ContainsLambda(printStatement.Value),
+            AssertStatement assertStatement => ContainsLambda(assertStatement.Condition)
+                || (assertStatement.Message != null && ContainsLambda(assertStatement.Message)),
+            AssertThrowsStatement assertThrowsStatement => ContainsLambda(assertThrowsStatement.Body),
+            _ => false
+        };
+    }
+
+    private static bool ContainsLambda(Expression expression)
+    {
+        return expression switch
+        {
+            LambdaExpression => true,
+            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
+                .OfType<InterpolatedStringHole>()
+                .Any(hole => ContainsLambda(hole.Expression)),
+            RangeExpression range => (range.Start != null && ContainsLambda(range.Start))
+                || (range.End != null && ContainsLambda(range.End)),
+            BinaryExpression binary => ContainsLambda(binary.Left) || ContainsLambda(binary.Right),
+            UnaryExpression unary => ContainsLambda(unary.Operand),
+            MustExpression mustExpression => ContainsLambda(mustExpression.Expression),
+            MemberAccessExpression memberAccess => ContainsLambda(memberAccess.Object),
+            IndexAccessExpression indexAccess => ContainsLambda(indexAccess.Object) || ContainsLambda(indexAccess.Index),
+            CallExpression call => ContainsLambda(call.Callee) || call.Arguments.Any(argument => ContainsLambda(argument.Value)),
+            AssignmentExpression assignment => ContainsLambda(assignment.Target) || ContainsLambda(assignment.Value),
+            TernaryExpression ternary => ContainsLambda(ternary.Condition)
+                || ContainsLambda(ternary.ThenExpression)
+                || ContainsLambda(ternary.ElseExpression),
+            ArrayLiteralExpression arrayLiteral => arrayLiteral.Elements.Any(ContainsLambda),
+            TupleExpression tupleExpression => tupleExpression.Elements.Any(element => ContainsLambda(element.Value)),
+            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
+                (property.IndexExpression != null && ContainsLambda(property.IndexExpression)) || ContainsLambda(property.Value)),
+            NewExpression newExpression => newExpression.ConstructorArguments.Any(argument => ContainsLambda(argument.Value))
+                || (newExpression.Initializer != null && ContainsLambda(newExpression.Initializer)),
+            CastExpression castExpression => ContainsLambda(castExpression.Expression),
+            IsExpression isExpression => ContainsLambda(isExpression.Expression),
+            MatchExpression matchExpression => ContainsLambda(matchExpression.Value)
+                || matchExpression.Cases.Any(matchCase =>
+                    (matchCase.Guard != null && ContainsLambda(matchCase.Guard))
+                    || ContainsLambda(matchCase.Expression)),
+            SpreadExpression spreadExpression => ContainsLambda(spreadExpression.Expression),
+            WithExpression withExpression => ContainsLambda(withExpression.Target)
+                || withExpression.Properties.Any(property =>
+                    (property.IndexExpression != null && ContainsLambda(property.IndexExpression)) || ContainsLambda(property.Value)),
+            AwaitExpression awaitExpression => ContainsLambda(awaitExpression.Expression),
+            ThrowExpression throwExpression => ContainsLambda(throwExpression.Expression),
+            NameofExpression nameofExpression => ContainsLambda(nameofExpression.Target),
+            CheckedExpression checkedExpression => ContainsLambda(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => ContainsLambda(uncheckedExpression.Expression),
+            ParenthesizedExpression parenthesizedExpression => ContainsLambda(parenthesizedExpression.Inner),
             _ => false
         };
     }
