@@ -2180,8 +2180,13 @@ public partial class ILCompiler
             throw new InvalidOperationException("No IL generator context");
 
         var shouldLift = ShouldLiftLocalIntoBox(name);
+        // A by-ref-like value type (ref struct, e.g. Span<T>) cannot be a field of a generated
+        // struct box: that would produce a non-ref-struct type with a by-ref-like field, which is
+        // invalid. Fall back to the heap-box path for such captures so behaviour matches the
+        // pre-struct-box pipeline rather than emitting unverifiable IL.
+        var useStructBox = ShouldStructBoxLocal(name) && !valueType.IsByRefLike;
         var storageType = shouldLift
-            ? (ShouldStructBoxLocal(name) ? CreateStructBoxType(valueType) : CreateStrongBoxType(valueType))
+            ? (useStructBox ? CreateStructBoxType(valueType) : CreateStrongBoxType(valueType))
             : valueType;
         var local = _currentIL.DeclareLocal(storageType);
         _locals[name] = local;
@@ -4293,6 +4298,7 @@ public partial class ILCompiler
             LockStatement lockStatement => ContainsReturnlessLocalFunction(lockStatement.Body),
             SwitchStatement switchStatement => switchStatement.Cases.Any(
                 switchCase => switchCase.Statements.Any(ContainsReturnlessLocalFunction)),
+            AssertThrowsStatement assertThrowsStatement => ContainsReturnlessLocalFunction(assertThrowsStatement.Body),
             _ => false
         };
     }
@@ -12301,6 +12307,22 @@ public partial class ILCompiler
 
         if (_parameters.TryGetValue(ident.Name, out var paramIndex))
         {
+            if (_byRefParameters != null && _byRefParameters.Contains(ident.Name))
+            {
+                // A by-ref parameter (e.g. a captured local lifted into a struct box and passed
+                // to a direct local-function call as `ref T`) must be written through the managed
+                // pointer with stind, not starg. The new value is already on the stack, so spill
+                // it, push the pointer, reload the value, then store indirectly. Using starg here
+                // would overwrite the pointer argument with an int and corrupt the reference.
+                var valueType = GetIdentifierType(ident);
+                var pendingValue = _currentIL.DeclareLocal(valueType);
+                _currentIL.Emit(OpCodes.Stloc, pendingValue);
+                EmitLoadArgument(paramIndex);
+                _currentIL.Emit(OpCodes.Ldloc, pendingValue);
+                EmitStoreIndirect(valueType);
+                return;
+            }
+
             if (paramIndex <= 255)
             {
                 _currentIL.Emit(OpCodes.Starg_S, (byte)paramIndex);

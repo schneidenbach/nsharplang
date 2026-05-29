@@ -3151,6 +3151,30 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_StructClosureIncrementMutatesSharedCapture()
+    {
+        // A captured local incremented (counter++) inside a directly-invoked local function
+        // must write through the managed reference, not via starg. Regression test: starg on a
+        // by-ref capture parameter previously produced invalid IL (NullReferenceException at JIT).
+        var source = @"
+func main(): int {
+    counter := 0
+
+    func bump(): int {
+        counter++
+        return counter
+    }
+
+    bump()
+    bump()
+    return counter
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(2, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_StructClosureMutationFromEnclosingFrameIsObservedByLocalFunction()
     {
         // Mutating the captured local directly in the enclosing frame after the local
