@@ -9,12 +9,6 @@
 #
 # Generated 2026-05-29T17:00:31Z
 #
-ConstructorChaining.dll | IL:CallCtor | Employee::.ctor(string, int32, string, string, string)
-ConstructorChaining.dll | IL:CallCtor | Employee::.ctor(string, string)
-ConstructorChaining.dll | IL:CallCtor | Employee::.ctor(string, string, string)
-ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, int32, string, string, string)
-ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, string)
-ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, string, string)
 GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
 IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker
 IssueTracker.dll | IL:MethodAccess | IssueTracker.IssueService::TransitionIssue(int32, [IssueTracker

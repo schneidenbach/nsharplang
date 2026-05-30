@@ -20408,18 +20408,24 @@ public partial class ILCompiler
         // ilverify ([StackUnexpected] found address of 'T', expected ref 'object').
         // Roslyn emits no base call for struct constructors; we match that here.
         var isValueType = typeBuilder.BaseType == typeof(ValueType);
+
+        // A `this(...)` initializer delegates to a sibling constructor, which is solely
+        // responsible for running the base-constructor chain and the field initializers.
+        // A `base(...)` initializer (or the implicit default) runs the base chain here and
+        // then the field initializers. Emitting these correctly is what keeps the IL
+        // verifiable: the verifier requires the *direct* base constructor (or a sibling
+        // `this` constructor) to run before `this` may be observed or returned.
+        var delegatesToThis = !isValueType
+            && ctorDecl.Initializer is CallExpression { Callee: ThisExpression };
+
         if (!isValueType)
         {
-            // Call base constructor
-            _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
-            var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
-            if (objectCtor != null)
-            {
-                _currentIL.Emit(OpCodes.Call, objectCtor);
-            }
+            EmitConstructorInitializerCall(typeBuilder, ctorDecl.Initializer);
         }
 
-        if (members != null)
+        // When a `this(...)` initializer is present, the delegated constructor already ran
+        // the field initializers; running them again here would double-initialize fields.
+        if (members != null && !delegatesToThis)
         {
             EmitDeclaredInstanceFieldInitializers(typeBuilder, members, isValueType ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
         }
@@ -20433,6 +20439,134 @@ public partial class ILCompiler
         // Clear context
         ClearMethodContext();
         _currentGenericParameters = null;
+    }
+
+    /// <summary>
+    /// Emits the constructor-initializer call (the `: this(...)` / `: base(...)` clause) for a
+    /// reference-type constructor. When no initializer is present, the implicit base
+    /// parameterless constructor is invoked. The emitted shape is always
+    /// <c>ldarg.0; &lt;args&gt;; call ctor</c>, which initializes <c>this</c> for the verifier.
+    /// </summary>
+    private void EmitConstructorInitializerCall(TypeBuilder typeBuilder, Expression? initializer)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (initializer is CallExpression initializerCall
+            && initializerCall.Callee is ThisExpression or BaseExpression)
+        {
+            var targetType = initializerCall.Callee is ThisExpression
+                ? (Type)typeBuilder
+                : typeBuilder.BaseType ?? typeof(object);
+
+            var constructor = ResolveConstructorForInitializer(targetType, initializerCall.Arguments, out var boundArguments)
+                ?? throw new InvalidOperationException(
+                    $"No matching constructor found for {(initializerCall.Callee is ThisExpression ? "this" : "base")}(...) " +
+                    $"on type {targetType.Name} with arguments ({DescribeCallArgumentTypes(initializerCall.Arguments)})");
+
+            _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this' as the receiver of the chained ctor
+
+            if (boundArguments != null)
+            {
+                EmitBoundCallArguments(boundArguments);
+            }
+            else
+            {
+                foreach (var argument in initializerCall.Arguments)
+                {
+                    EmitExpression(argument.Value);
+                }
+            }
+
+            _currentIL.Emit(OpCodes.Call, constructor);
+            return;
+        }
+
+        // No explicit initializer: invoke the direct base type's parameterless constructor.
+        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+        var baseType = typeBuilder.BaseType ?? typeof(object);
+        var baseCtor = ResolveParameterlessConstructor(baseType)
+            ?? typeof(object).GetConstructor(Type.EmptyTypes);
+        if (baseCtor != null)
+        {
+            _currentIL.Emit(OpCodes.Call, baseCtor);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the constructor targeted by a <c>this(...)</c>/<c>base(...)</c> initializer,
+    /// handling both N#-declared types and runtime/imported base types.
+    /// </summary>
+    private ConstructorInfo? ResolveConstructorForInitializer(
+        Type targetType,
+        IReadOnlyList<Argument> arguments,
+        out IReadOnlyList<BoundCallArgument>? boundArguments)
+    {
+        boundArguments = null;
+
+        if (TryGetUserTypeDefinition(targetType, out _))
+        {
+            var boundDeclaredCall = BindDeclaredConstructorCall(targetType, arguments);
+            if (boundDeclaredCall != null)
+            {
+                boundArguments = boundDeclaredCall.Arguments;
+                return boundDeclaredCall.Constructor;
+            }
+
+            // A user type with no explicit constructors exposes only the synthesized
+            // parameterless constructor.
+            if (arguments.Count == 0)
+            {
+                return ResolveUserDefinedConstructor(targetType);
+            }
+
+            return null;
+        }
+
+        var boundRuntimeCall = BindRuntimeConstructorCall(targetType, arguments);
+        if (boundRuntimeCall != null)
+        {
+            boundArguments = boundRuntimeCall.Arguments;
+            return boundRuntimeCall.Constructor;
+        }
+
+        return arguments.Count == 0 ? ResolveParameterlessConstructor(targetType) : null;
+    }
+
+    /// <summary>
+    /// Resolves the parameterless constructor for a base type, whether it is an N#-declared
+    /// type or a runtime/imported type.
+    /// </summary>
+    private ConstructorInfo? ResolveParameterlessConstructor(Type type)
+    {
+        if (TryGetUserTypeDefinition(type, out var typeBuilder))
+        {
+            var boundDeclaredCall = BindDeclaredConstructorCall(type, Array.Empty<Argument>());
+            if (boundDeclaredCall != null)
+            {
+                return boundDeclaredCall.Constructor;
+            }
+
+            // No declared overloads → the synthesized parameterless constructor (if any).
+            if (!_declaredConstructorOverloads.ContainsKey(GetConstructorKey(typeBuilder)))
+            {
+                return ResolveUserDefinedConstructor(type);
+            }
+
+            return null;
+        }
+
+        try
+        {
+            return type.GetConstructor(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                Type.EmptyTypes,
+                modifiers: null);
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private void EmitAnonymousUnionParameterShims(FunctionDeclaration function)
