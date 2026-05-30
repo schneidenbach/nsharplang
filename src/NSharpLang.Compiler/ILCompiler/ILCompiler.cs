@@ -13267,8 +13267,11 @@ public partial class ILCompiler
                         // AppendFormatted<T> over a builder type emits an unresolvable MethodSpec, so box
                         // and route through the non-generic object overload. Value types box here (only
                         // these holes pay the box; BCL primitives keep the generic path); reference types
-                        // are already object-assignable.
-                        if (exprType.IsValueType)
+                        // are already object-assignable. Generic type parameters (e.g. a hole of type T
+                        // from a method's type argument) are not statically object-assignable in verified
+                        // IL, so they must be boxed too — `box !!T` boxes value-type instantiations and is
+                        // a no-op for reference-type instantiations, yielding `object` on the stack.
+                        if (exprType.IsValueType || exprType.IsGenericParameter)
                         {
                             _currentIL.Emit(OpCodes.Box, exprType);
                         }
@@ -13994,9 +13997,10 @@ public partial class ILCompiler
             return;
         }
 
-        // Emit left and right operands
-        EmitExpression(binary.Left);
-        EmitExpression(binary.Right);
+        // Emit left and right operands, applying binary numeric promotion so the
+        // verifier sees matching operand types (e.g. `double / int` widens the int
+        // to double before `div`). Non-numeric operands fall through unchanged.
+        EmitBinaryOperands(binary);
 
         // Emit operator
         switch (binary.Operator)
@@ -14063,6 +14067,118 @@ public partial class ILCompiler
                 break;
             default:
                 throw new NotImplementedException($"Binary operator {binary.Operator} not yet implemented in IL compiler");
+        }
+    }
+
+    /// <summary>
+    /// Operators that perform arithmetic/relational computation on numeric operands and therefore
+    /// require both operands to share a representation on the IL stack (ECMA-335 §III.1.5). Logical
+    /// <c>and</c>/<c>or</c>, bitwise ops, and shifts are excluded: booleans never mix with numerics
+    /// and shift amounts are intentionally <c>int32</c> regardless of the shifted value's width.
+    /// </summary>
+    private static bool BinaryOperatorRequiresNumericPromotion(BinaryOperator op) => op switch
+    {
+        BinaryOperator.Add
+        or BinaryOperator.Subtract
+        or BinaryOperator.Multiply
+        or BinaryOperator.Divide
+        or BinaryOperator.Modulo
+        or BinaryOperator.Equal
+        or BinaryOperator.NotEqual
+        or BinaryOperator.Less
+        or BinaryOperator.Greater
+        or BinaryOperator.LessOrEqual
+        or BinaryOperator.GreaterOrEqual => true,
+        _ => false
+    };
+
+    /// <summary>
+    /// Maps a numeric type to its IL stack representation for binary numeric promotion. Integral
+    /// types narrower than 32 bits (byte/sbyte/short/ushort/char) are loaded as <c>int32</c> on the
+    /// evaluation stack, so they share <see cref="int"/>'s slot. Returns null for non-numeric types
+    /// (including <c>decimal</c>, which is a value type with operator methods rather than a primitive)
+    /// and a promotion rank where wider types rank higher.
+    /// </summary>
+    private (Type StackType, int Rank)? GetNumericStackType(Type type)
+    {
+        if (!IsNumericConversionType(type))
+        {
+            return null;
+        }
+
+        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+        if (TryGetEnumUnderlyingType(underlying) is { } enumUnderlying)
+        {
+            underlying = enumUnderlying;
+        }
+
+        // decimal is not an IL primitive; it flows through operator methods, never raw arithmetic.
+        if (underlying == typeof(decimal))
+        {
+            return null;
+        }
+
+        // ECMA-335 promotion rank. Sub-int integral types live in int32's slot (rank 0).
+        return Type.GetTypeCode(underlying) switch
+        {
+            TypeCode.Byte or TypeCode.SByte or TypeCode.Int16 or TypeCode.UInt16
+                or TypeCode.Char or TypeCode.Int32 => (typeof(int), 0),
+            TypeCode.UInt32 => (typeof(uint), 1),
+            TypeCode.Int64 => (typeof(long), 2),
+            TypeCode.UInt64 => (typeof(ulong), 3),
+            TypeCode.Single => (typeof(float), 4),
+            TypeCode.Double => (typeof(double), 5),
+            _ => null
+        };
+    }
+
+    /// <summary>
+    /// Emits both operands of a binary expression, inserting a numeric widening conversion on the
+    /// narrower operand so both share an IL stack type. Without this, mixed-width arithmetic such as
+    /// <c>doubleValue / array.Length</c> (double / int32) emits <c>div</c> over mismatched stack
+    /// types, which is unverifiable IL. Non-numeric or equally-ranked operands are emitted unchanged.
+    /// </summary>
+    private void EmitBinaryOperands(BinaryExpression binary)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (BinaryOperatorRequiresNumericPromotion(binary.Operator)
+            && GetNumericStackType(GetExpressionType(binary.Left)) is { } left
+            && GetNumericStackType(GetExpressionType(binary.Right)) is { } right
+            && left.Rank != right.Rank)
+        {
+            var promotedType = left.Rank > right.Rank ? left.StackType : right.StackType;
+
+            EmitExpression(binary.Left);
+            if (left.StackType != promotedType)
+            {
+                EmitNumericStackConversion(promotedType);
+            }
+
+            EmitExpression(binary.Right);
+            if (right.StackType != promotedType)
+            {
+                EmitNumericStackConversion(promotedType);
+            }
+
+            return;
+        }
+
+        EmitExpression(binary.Left);
+        EmitExpression(binary.Right);
+    }
+
+    /// <summary>
+    /// Emits the conversion opcode that widens the value on top of the stack to the given promoted
+    /// numeric stack type. Honors checked-context overflow semantics for integral targets.
+    /// </summary>
+    private void EmitNumericStackConversion(Type promotedType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (TryGetNumericConversionOpcode(promotedType, out var opcode))
+        {
+            _currentIL.Emit(opcode);
         }
     }
 
