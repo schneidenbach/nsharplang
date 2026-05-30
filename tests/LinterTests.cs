@@ -611,6 +611,67 @@ func handler(event: int, _context: int) {
         var diagnostics = Lint(source);
         Assert.DoesNotContain(diagnostics, d => d.Code == "NL012" && d.Message.Contains("_context"));
     }
+    [Fact]
+    public void NL012_NoError_WhenParameterReadOnlyInNestedLocalFunction()
+    {
+        // Regression: a parameter read only inside a nested local function is still a use.
+        var source = @"
+func outer(value: int): int {
+    func inner(): int {
+        return value
+    }
+    return inner()
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012");
+    }
+
+    [Fact]
+    public void NL012_NoError_WhenParameterReadOnlyInLambda()
+    {
+        // Regression: a parameter captured and read only inside a lambda is still a use.
+        var source = @"
+func outer(value: int): int {
+    var f = () => value
+    return f()
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012");
+    }
+
+    [Fact]
+    public void NL012_StillFlags_GenuinelyUnusedParameter_WithNestedLocalFunction()
+    {
+        // A parameter never read anywhere (even via a nested function) is still flagged,
+        // so the nested-function fix does not over-suppress real unused parameters.
+        var source = @"
+func outer(used: int, unused: int): int {
+    func inner(): int {
+        return used
+    }
+    return inner()
+}";
+        var diagnostics = Lint(source);
+        Assert.Contains(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'unused'"));
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'used'"));
+    }
+
+    [Fact]
+    public void NL012_StillFlags_Parameter_ShadowedByLocalInNestedFunction()
+    {
+        // Over-suppression guard: the nested function reads its OWN local 'value', not the
+        // enclosing parameter, so the parameter is genuinely unused and must still be flagged.
+        var source = @"
+func outer(value: int): int {
+    func inner(): int {
+        value := 1
+        return value
+    }
+    return inner()
+}";
+        var diagnostics = Lint(source);
+        Assert.Contains(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'value'"));
+    }
 
     #endregion
 
@@ -681,6 +742,33 @@ func Main() {
         // x and y are unused (NL001), but the import NL010 should also fire
         Assert.Contains(diagnostics, d => d.Code == "NL010");
         Assert.Equal(DiagnosticSeverity.Error, diagnostics.First(d => d.Code == "NL010").Severity);
+    }
+
+    [Fact]
+    public void NL010_UnusedImport_SquiggleCoversNamespacePathNotKeyword()
+    {
+        // Regression for the strictness/squiggle audit (PR #160): the NL010 span
+        // must underline the imported namespace path (`System.Linq`), not the
+        // `import` keyword. The directive only records the statement column, so
+        // the linter steps past the keyword to land on the path.
+        var source = @"
+import System.Linq
+
+func Main() {
+    x := 5
+    y := x + 1
+}";
+        // LintWithSource so the linter has the source line to resolve the span against
+        // (matches how the CLI and language server always supply source text).
+        var diagnostics = LintWithSource(source);
+        var nl010 = diagnostics.Single(d => d.Code == "NL010");
+
+        // `import System.Linq` is the second line; the path starts after `import `.
+        var importLine = source.Replace("\r\n", "\n").Split('\n')[nl010.Location.Line - 1];
+        var covered = importLine.Substring(nl010.Location.Column - 1, nl010.Length);
+
+        Assert.Equal("System.Linq", covered);
+        Assert.Equal("System.Linq".Length, nl010.Length);
     }
 
     [Fact]

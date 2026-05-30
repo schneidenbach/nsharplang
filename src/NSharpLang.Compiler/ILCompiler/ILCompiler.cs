@@ -91,6 +91,7 @@ public partial class ILCompiler
     private readonly Dictionary<string, TypeBuilder> _stringEnumContainers = new();
     private Dictionary<string, FieldBuilder> _fields = new();
     private readonly Dictionary<string, object?> _fieldConstants = new();
+    private readonly Dictionary<TypeBuilder, MethodBuilder> _recordStructEqualityOperators = new();
     private readonly Dictionary<string, FieldBuilder> _primaryConstructorFields = new();
     private readonly Dictionary<string, PropertyBuilder> _indexers = new();
     private readonly Dictionary<string, IReadOnlyList<Parameter>> _declaredMethodParameters = new();
@@ -177,6 +178,14 @@ public partial class ILCompiler
     private bool _liftLocalsIntoBoxes;
     private HashSet<string>? _localsToLiftIntoBoxes;
     private HashSet<string>? _structBoxableLocals;
+    // Captured locals whose MEMBER/ELEMENT is mutated inside a nested function (e.g. `s.Field = ...`,
+    // `s.field++`, `s.arr[i] = ...`). These must be lifted into a shared box so the mutation is visible
+    // across the call boundary, but ONLY when the local is a value type (struct). For reference types a
+    // member write already goes through the shared heap object, so no lifting is needed.
+    private HashSet<string>? _localsToLiftIntoBoxesIfValueType;
+    // Scratch accumulator used only while CollectMutatedCapturedStorageNames walks a body: receives the
+    // names of captured locals whose member/element is mutated. Nested-walk safe via save/restore.
+    private HashSet<string>? _memberMutatedCaptureAccumulator;
     private HashSet<string>? _localsToPredeclareForCapture;
     private HashSet<string>? _liftedIdentifiers;
     private HashSet<string>? _liftedClosureFields;
@@ -221,7 +230,8 @@ public partial class ILCompiler
     private sealed record LocalCaptureStorageInfo(
         HashSet<string> CapturedLocals,
         HashSet<string> LocalsToLiftIntoBoxes,
-        HashSet<string> StructBoxableLocals);
+        HashSet<string> StructBoxableLocals,
+        HashSet<string> ValueTypeLocalsToLiftIntoBoxes);
     private sealed class DelegateSignatureKey(Type[] parameterTypes, Type returnType) : IEquatable<DelegateSignatureKey>
     {
         private readonly Type[] _parameterTypes = parameterTypes.ToArray();
@@ -1217,6 +1227,7 @@ public partial class ILCompiler
         _liftLocalsIntoBoxes = false;
         _localsToLiftIntoBoxes = null;
         _structBoxableLocals = null;
+        _localsToLiftIntoBoxesIfValueType = null;
         _localsToPredeclareForCapture = null;
         _liftedIdentifiers = null;
         _liftedClosureFields = null;
@@ -1242,7 +1253,8 @@ public partial class ILCompiler
         bool liftLocalsIntoBoxes,
         HashSet<string>? localsToLiftIntoBoxes = null,
         HashSet<string>? localsToPredeclareForCapture = null,
-        HashSet<string>? structBoxableLocals = null)
+        HashSet<string>? structBoxableLocals = null,
+        HashSet<string>? valueTypeLocalsToLiftIntoBoxes = null)
     {
         _locals = new Dictionary<string, LocalBuilder>();
         _parameters = new Dictionary<string, int>();
@@ -1254,6 +1266,7 @@ public partial class ILCompiler
         _structBoxableLocals = liftLocalsIntoBoxes && structBoxableLocals is { Count: > 0 }
             ? structBoxableLocals
             : null;
+        _localsToLiftIntoBoxesIfValueType = liftLocalsIntoBoxes ? valueTypeLocalsToLiftIntoBoxes : null;
         _localsToPredeclareForCapture = localsToPredeclareForCapture is { Count: > 0 }
             ? localsToPredeclareForCapture
             : null;
@@ -2184,6 +2197,21 @@ public partial class ILCompiler
             && (_localsToLiftIntoBoxes == null || _localsToLiftIntoBoxes.Contains(name));
     }
 
+    // Lift decision that incorporates the local's type. A captured local whose member/element is mutated
+    // in a nested function (recorded in _localsToLiftIntoBoxesIfValueType) is lifted only when it is a
+    // value type — for a reference type the member write already mutates the shared heap object.
+    private bool ShouldLiftIntoBox(string name, Type valueType)
+    {
+        if (ShouldLiftLocalIntoBox(name))
+        {
+            return true;
+        }
+
+        return _liftLocalsIntoBoxes
+            && _localsToLiftIntoBoxesIfValueType?.Contains(name) == true
+            && IsValueTypeLike(valueType);
+    }
+
     private bool ShouldPredeclareLocalForCapture(string name)
     {
         return ShouldLiftLocalIntoBox(name)
@@ -2222,7 +2250,12 @@ public partial class ILCompiler
         if (_currentIL == null || _locals == null)
             throw new InvalidOperationException("No IL generator context");
 
-        var shouldLift = ShouldLiftLocalIntoBox(name);
+        // Lift decision incorporates main's value-type-gated member-mutation case (ShouldLiftIntoBox
+        // is a superset of ShouldLiftLocalIntoBox). When a lifted capture is also struct-boxable
+        // (mutated only through non-escaping direct-call local functions) we use a stack value-type
+        // box instead of a heap StrongBox. These two sets are disjoint: member-mutation-only locals
+        // are never in _structBoxableLocals, so they correctly take the heap-box path here.
+        var shouldLift = ShouldLiftIntoBox(name, valueType);
         // A by-ref-like value type (ref struct, e.g. Span<T>) cannot be a field of a generated
         // struct box: that would produce a non-ref-struct type with a by-ref-like field, which is
         // invalid. Fall back to the heap-box path for such captures so behaviour matches the
@@ -2433,10 +2466,12 @@ public partial class ILCompiler
         var captureStorage = GetLocalCaptureStorageInfo(body, expressionBody, parameters);
         InitializeBodyContext(
             returnType,
-            captureStorage.LocalsToLiftIntoBoxes.Count > 0,
+            captureStorage.LocalsToLiftIntoBoxes.Count > 0
+                || captureStorage.ValueTypeLocalsToLiftIntoBoxes.Count > 0,
             captureStorage.LocalsToLiftIntoBoxes,
             captureStorage.CapturedLocals,
-            captureStorage.StructBoxableLocals);
+            captureStorage.StructBoxableLocals,
+            captureStorage.ValueTypeLocalsToLiftIntoBoxes);
     }
 
     private LocalCaptureStorageInfo GetLocalCaptureStorageInfo(
@@ -2449,6 +2484,7 @@ public partial class ILCompiler
         if (!containsNestedFunction)
         {
             return new LocalCaptureStorageInfo(
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
@@ -2480,17 +2516,28 @@ public partial class ILCompiler
             return new LocalCaptureStorageInfo(
                 captured,
                 new HashSet<string>(StringComparer.Ordinal),
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
         }
 
         var mutated = new HashSet<string>(StringComparer.Ordinal);
-        if (body != null)
+        var memberMutated = new HashSet<string>(StringComparer.Ordinal);
+        var previousMemberMutatedAccumulator = _memberMutatedCaptureAccumulator;
+        _memberMutatedCaptureAccumulator = memberMutated;
+        try
         {
-            CollectMutatedCapturedStorageNames(body, captured, mutated);
+            if (body != null)
+            {
+                CollectMutatedCapturedStorageNames(body, captured, mutated);
+            }
+            if (expressionBody != null)
+            {
+                CollectMutatedCapturedStorageNames(expressionBody, captured, mutated);
+            }
         }
-        if (expressionBody != null)
+        finally
         {
-            CollectMutatedCapturedStorageNames(expressionBody, captured, mutated);
+            _memberMutatedCaptureAccumulator = previousMemberMutatedAccumulator;
         }
 
         // Names whose box reference must survive past the current frame because they are
@@ -2531,7 +2578,11 @@ public partial class ILCompiler
             structBoxable.ExceptWith(escapesFrame);
         }
 
-        return new LocalCaptureStorageInfo(captured, mutated, structBoxable);
+        // A local that is reassigned wholesale (in `mutated`) is already lifted unconditionally, so it
+        // never needs the value-type-gated treatment. Keep only the member-mutation-only candidates here.
+        memberMutated.ExceptWith(mutated);
+
+        return new LocalCaptureStorageInfo(captured, mutated, structBoxable, memberMutated);
     }
 
     private void CollectEscapingLocalFunctionCapturedStorageNames(
@@ -2814,7 +2865,7 @@ public partial class ILCompiler
         }
     }
 
-    private static void CollectMutatedCapturedStorageNames(
+    private void CollectMutatedCapturedStorageNames(
         Statement statement,
         HashSet<string> captured,
         HashSet<string> mutated)
@@ -2948,7 +2999,7 @@ public partial class ILCompiler
         }
     }
 
-    private static void CollectMutatedCapturedStorageNames(
+    private void CollectMutatedCapturedStorageNames(
         Expression expression,
         HashSet<string> captured,
         HashSet<string> mutated)
@@ -3118,7 +3169,7 @@ public partial class ILCompiler
         }
     }
 
-    private static void AddMutatedTargetName(
+    private void AddMutatedTargetName(
         Expression target,
         HashSet<string> captured,
         HashSet<string> mutated)
@@ -3136,6 +3187,39 @@ public partial class ILCompiler
                 {
                     AddMutatedTargetName(element.Value, captured, mutated);
                 }
+                break;
+            // A member or element write (`s.Field = ...`, `s.field++`, `s.arr[i] = ...`) mutates the
+            // storage of the underlying captured local. For a struct local that mutation is lost unless
+            // the local is lifted into a shared box, so record the base. The actual lift is gated on the
+            // local being a value type at declaration time (see ShouldLiftIntoBox); reference-type bases
+            // mutate through the shared heap object and never need lifting.
+            case MemberAccessExpression memberAccess:
+                AddMemberMutatedBaseName(memberAccess.Object, captured);
+                break;
+            case IndexAccessExpression indexAccess:
+                AddMemberMutatedBaseName(indexAccess.Object, captured);
+                break;
+        }
+    }
+
+    // Walks the base of a member/element assignment target down to the captured local it ultimately
+    // writes through. Stops at the first identifier; only the captured root matters. A method call,
+    // `new`, or any other base means the write does not target a captured local's own storage.
+    private void AddMemberMutatedBaseName(Expression baseExpression, HashSet<string> captured)
+    {
+        switch (baseExpression)
+        {
+            case IdentifierExpression identifier when captured.Contains(identifier.Name):
+                _memberMutatedCaptureAccumulator?.Add(identifier.Name);
+                break;
+            case ParenthesizedExpression parenthesized:
+                AddMemberMutatedBaseName(parenthesized.Inner, captured);
+                break;
+            case MemberAccessExpression memberAccess:
+                AddMemberMutatedBaseName(memberAccess.Object, captured);
+                break;
+            case IndexAccessExpression indexAccess:
+                AddMemberMutatedBaseName(indexAccess.Object, captured);
                 break;
         }
     }
@@ -5309,6 +5393,36 @@ public partial class ILCompiler
         catch (NotSupportedException)
         {
             return Type.EmptyTypes;
+        }
+    }
+
+    /// <summary>
+    /// Enumerates a type together with every interface it transitively extends or
+    /// implements, breadth-first. Two call sites rely on this: constrained dispatch,
+    /// so a method declared on a <em>base</em> interface of a generic constraint
+    /// (e.g. <c>T : Shape</c> where <c>Shape : HasArea</c>, calling <c>s.Area()</c>)
+    /// still binds; and interface-override wiring, so a type satisfies the inherited
+    /// members of every interface in the hierarchy, not just the directly named one.
+    /// </summary>
+    private IEnumerable<Type> EnumerateTypeWithBaseInterfaces(Type type)
+    {
+        var seen = new HashSet<Type>();
+        var queue = new Queue<Type>();
+        queue.Enqueue(type);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!seen.Add(current))
+            {
+                continue;
+            }
+
+            yield return current;
+
+            foreach (var baseInterface in GetInterfacesSafe(current))
+            {
+                queue.Enqueue(baseInterface);
+            }
         }
     }
 
@@ -8044,7 +8158,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (ShouldLiftLocalIntoBox(parameter.Name))
+            if (ShouldLiftIntoBox(parameter.Name, parameterType))
             {
                 var local = DeclareNamedLocal(parameter.Name, parameterType);
                 EmitLoadArgument(startIndex + i);
@@ -8077,7 +8191,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (ShouldLiftLocalIntoBox(parameter.Name))
+            if (ShouldLiftIntoBox(parameter.Name, parameterType))
             {
                 var local = DeclareNamedLocal(parameter.Name, parameterType);
                 EmitLoadArgument(startIndex + i);
@@ -8678,7 +8792,13 @@ public partial class ILCompiler
             }
         }
 
+        // Expand each directly named interface with the interfaces it transitively
+        // extends, so a type implementing `Shape : HasArea` also satisfies the
+        // inherited `HasArea` members (the method-override wiring in DeclareMethod
+        // matches against every interface returned here).
         return implementedInterfaces
+            .SelectMany(EnumerateTypeWithBaseInterfaces)
+            .Where(type => type.IsInterface)
             .GroupBy(GetTypeKey, StringComparer.Ordinal)
             .Select(group => group.First())
             .ToList();
@@ -13750,10 +13870,22 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        EmitExpression(memberAccess.Object);
+        var objectType = GetExpressionType(memberAccess.Object);
+
+        // A value-type receiver needs its ADDRESS on the stack: the receiver is loaded once, Dup'd, and
+        // shared by the field read and the field write-back. Pushing a copy (EmitExpression) would leave
+        // the Stfld writing into a discarded temporary — the increment would be lost, or invalid IL for a
+        // by-ref struct parameter. Reference-type receivers keep value (object reference) semantics.
+        if (IsValueTypeLike(objectType))
+        {
+            EmitAddressableExpression(memberAccess.Object, objectType);
+        }
+        else
+        {
+            EmitExpression(memberAccess.Object);
+        }
         _currentIL.Emit(OpCodes.Dup);
 
-        var objectType = GetExpressionType(memberAccess.Object);
         EmitMemberLoadValue(objectType, memberAccess.MemberName);
 
         LocalBuilder? originalLocal = null;
@@ -13852,6 +13984,11 @@ public partial class ILCompiler
             return;
         }
 
+        if (TryEmitRecordStructEquality(binary))
+        {
+            return;
+        }
+
         if (TryEmitNullEqualityComparison(binary))
         {
             return;
@@ -13927,6 +14064,40 @@ public partial class ILCompiler
             default:
                 throw new NotImplementedException($"Binary operator {binary.Operator} not yet implemented in IL compiler");
         }
+    }
+
+    /// <summary>
+    /// Emits structural equality for `==`/`!=` on a user-defined record struct by calling its
+    /// synthesized op_Equality operator (matching Roslyn). Returns false when the operands are not
+    /// the same record struct, so the caller can fall through to the default comparison.
+    /// </summary>
+    private bool TryEmitRecordStructEquality(BinaryExpression binary)
+    {
+        if (binary.Operator is not (BinaryOperator.Equal or BinaryOperator.NotEqual))
+        {
+            return false;
+        }
+
+        var leftType = GetExpressionType(binary.Left);
+        var rightType = GetExpressionType(binary.Right);
+        if (leftType != rightType
+            || leftType is not TypeBuilder typeBuilder
+            || !_recordStructEqualityOperators.TryGetValue(typeBuilder, out var equalityOperator))
+        {
+            return false;
+        }
+
+        EmitExpression(binary.Left);
+        EmitExpression(binary.Right);
+        _currentIL!.Emit(OpCodes.Call, equalityOperator);
+
+        if (binary.Operator == BinaryOperator.NotEqual)
+        {
+            _currentIL.Emit(OpCodes.Ldc_I4_0);
+            _currentIL.Emit(OpCodes.Ceq);
+        }
+
+        return true;
     }
 
     private bool TryEmitNullEqualityComparison(BinaryExpression binary)
@@ -14268,41 +14439,47 @@ public partial class ILCompiler
 
                 // Prefer declared/duck interface (or class) constraints that are
                 // defined in this compilation: their methods live in TypeBuilders
-                // and cannot be resolved through runtime reflection binding.
+                // and cannot be resolved through runtime reflection binding. Walk
+                // each constraint's interface hierarchy so a method declared on a
+                // base interface (e.g. `T : Shape` where `Shape : HasArea`) is still
+                // dispatched with a `constrained.` prefix instead of failing to bind.
                 foreach (var constraint in constraints)
                 {
-                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    foreach (var constraintInterface in EnumerateTypeWithBaseInterfaces(constraint))
                     {
-                        continue;
-                    }
+                        if (!TryGetUserTypeDefinition(constraintInterface, out var constraintBuilder))
+                        {
+                            continue;
+                        }
 
-                    var boundDeclaredCall = BindDeclaredMethodCall(
-                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
-                        call,
-                        targetType: constraint,
-                        predicate: overload => !overload.Builder.IsStatic);
-                    if (boundDeclaredCall != null)
-                    {
-                        EmitBoundCallArguments(boundDeclaredCall.Arguments);
+                        var boundDeclaredCall = BindDeclaredMethodCall(
+                            GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                            call,
+                            targetType: constraintInterface,
+                            predicate: overload => !overload.Builder.IsStatic);
+                        if (boundDeclaredCall != null)
+                        {
+                            EmitBoundCallArguments(boundDeclaredCall.Arguments);
 
-                        // constrained. on the type parameter avoids boxing the
-                        // receiver when the method is dispatched virtually.
-                        _currentIL.Emit(OpCodes.Constrained, objectType);
-                        _currentIL.Emit(OpCodes.Callvirt, boundDeclaredCall.Method);
-                        return;
-                    }
+                            // constrained. on the type parameter avoids boxing the
+                            // receiver when the method is dispatched virtually.
+                            _currentIL.Emit(OpCodes.Constrained, objectType);
+                            _currentIL.Emit(OpCodes.Callvirt, boundDeclaredCall.Method);
+                            return;
+                        }
 
-                    // Interface declarations only register their members in the
-                    // method table (not the overload table), so fall back to a
-                    // direct lookup and bind the call arguments positionally.
-                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
-                    if (declaredMethod != null)
-                    {
-                        EmitCallArguments(call.Arguments, declaredMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray());
+                        // Interface declarations only register their members in the
+                        // method table (not the overload table), so fall back to a
+                        // direct lookup and bind the call arguments positionally.
+                        var declaredMethod = ResolveUserDefinedMethod(constraintInterface, memberAccess.MemberName);
+                        if (declaredMethod != null)
+                        {
+                            EmitCallArguments(call.Arguments, declaredMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray());
 
-                        _currentIL.Emit(OpCodes.Constrained, objectType);
-                        _currentIL.Emit(OpCodes.Callvirt, declaredMethod);
-                        return;
+                            _currentIL.Emit(OpCodes.Constrained, objectType);
+                            _currentIL.Emit(OpCodes.Callvirt, declaredMethod);
+                            return;
+                        }
                     }
                 }
 
@@ -14710,7 +14887,11 @@ public partial class ILCompiler
                 return;
             }
 
-            // Emit the object
+            // Emit the object. For a value-type receiver we need its ADDRESS on the stack so the
+            // trailing Stfld writes back into the original storage (a struct local, a lifted box's
+            // Value field, or a by-ref struct parameter). Using EmitExpression here would push a
+            // copy (and, for a by-ref struct parameter, an ldobj-dereferenced value), making the
+            // Stfld invalid and silently dropping the mutation. Mirror the member-read path.
             var cacheReceiver = !IsValueTypeLike(objectType);
             LocalBuilder? receiverLocal = null;
             if (cacheReceiver)
@@ -14722,7 +14903,7 @@ public partial class ILCompiler
             }
             else
             {
-                EmitExpression(memberAccess.Object);
+                EmitAddressableExpression(memberAccess.Object, objectType);
             }
 
             // Handle compound assignment
@@ -17625,28 +17806,33 @@ public partial class ILCompiler
                 var genericConstraints = objectType.GetGenericParameterConstraints();
 
                 // Declared/duck interface (or class) constraints defined in this
-                // compilation resolve through the TypeBuilder method tables.
+                // compilation resolve through the TypeBuilder method tables. Walk
+                // each constraint's interface hierarchy so a method inherited from a
+                // base interface resolves the same way it dispatches at emission time.
                 foreach (var constraint in genericConstraints)
                 {
-                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    foreach (var constraintInterface in EnumerateTypeWithBaseInterfaces(constraint))
                     {
-                        continue;
-                    }
+                        if (!TryGetUserTypeDefinition(constraintInterface, out var constraintBuilder))
+                        {
+                            continue;
+                        }
 
-                    var boundDeclaredCall = BindDeclaredMethodCall(
-                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
-                        call,
-                        targetType: constraint,
-                        predicate: overload => !overload.Builder.IsStatic);
-                    if (boundDeclaredCall != null)
-                    {
-                        return GetBoundDeclaredMethodReturnType(boundDeclaredCall);
-                    }
+                        var boundDeclaredCall = BindDeclaredMethodCall(
+                            GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                            call,
+                            targetType: constraintInterface,
+                            predicate: overload => !overload.Builder.IsStatic);
+                        if (boundDeclaredCall != null)
+                        {
+                            return GetBoundDeclaredMethodReturnType(boundDeclaredCall);
+                        }
 
-                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
-                    if (declaredMethod != null)
-                    {
-                        return declaredMethod.ReturnType;
+                        var declaredMethod = ResolveUserDefinedMethod(constraintInterface, memberAccess.MemberName);
+                        if (declaredMethod != null)
+                        {
+                            return declaredMethod.ReturnType;
+                        }
                     }
                 }
 
@@ -20141,17 +20327,26 @@ public partial class ILCompiler
 
         RegisterParameterContext(ctorDecl.Parameters, 1, typeGenericParameters);
 
-        // Call base constructor
-        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
-        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
-        if (objectCtor != null)
+        // Value types must not chain to a base constructor. For a struct, `ldarg.0`
+        // loads the managed address of `this` (`&T`), and `call object::.ctor(object)`
+        // expects an object reference — emitting it produces type-unsafe IL that fails
+        // ilverify ([StackUnexpected] found address of 'T', expected ref 'object').
+        // Roslyn emits no base call for struct constructors; we match that here.
+        var isValueType = typeBuilder.BaseType == typeof(ValueType);
+        if (!isValueType)
         {
-            _currentIL.Emit(OpCodes.Call, objectCtor);
+            // Call base constructor
+            _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+            var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
+            if (objectCtor != null)
+            {
+                _currentIL.Emit(OpCodes.Call, objectCtor);
+            }
         }
 
         if (members != null)
         {
-            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, typeBuilder.BaseType == typeof(ValueType) ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
+            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, isValueType ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
         }
 
         // Emit constructor body
@@ -21978,6 +22173,36 @@ public partial class ILCompiler
 
         _methods[GetMethodKey(typeBuilder, "Equals")] = equalsMethod;
 
+        // Record structs additionally get a strongly-typed Equals(T) and == / != operators
+        // so that `==` performs structural equality (matching Roslyn's record struct behavior).
+        if (recordDecl.IsStruct)
+        {
+            var typedEqualsMethod = typeBuilder.DefineMethod(
+                "Equals",
+                MethodAttributes.Public | MethodAttributes.HideBySig,
+                typeof(bool),
+                new[] { (Type)typeBuilder });
+
+            _methods[GetMethodKey(typeBuilder, "Equals(self)")] = typedEqualsMethod;
+
+            var equalityOperator = typeBuilder.DefineMethod(
+                "op_Equality",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(bool),
+                new[] { (Type)typeBuilder, typeBuilder });
+
+            _methods[GetMethodKey(typeBuilder, "op_Equality")] = equalityOperator;
+            _recordStructEqualityOperators[typeBuilder] = equalityOperator;
+
+            var inequalityOperator = typeBuilder.DefineMethod(
+                "op_Inequality",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(bool),
+                new[] { (Type)typeBuilder, typeBuilder });
+
+            _methods[GetMethodKey(typeBuilder, "op_Inequality")] = inequalityOperator;
+        }
+
         // Declare GetHashCode override
         var getHashCodeMethod = typeBuilder.DefineMethod(
             "GetHashCode",
@@ -22118,6 +22343,12 @@ public partial class ILCompiler
         // Emit Equals method
         EmitRecordEquals(recordDecl, typeBuilder);
 
+        // Emit strongly-typed Equals(T) and == / != operators for record structs
+        if (recordDecl.IsStruct)
+        {
+            EmitRecordStructEqualityMembers(recordDecl, typeBuilder);
+        }
+
         // Emit GetHashCode method
         EmitRecordGetHashCode(recordDecl, typeBuilder);
 
@@ -22177,6 +22408,14 @@ public partial class ILCompiler
         // RecordType other = (RecordType)obj;
         il.MarkLabel(compareFields);
         var otherLocal = il.DeclareLocal(typeBuilder);
+        // After `isinst` of a value type the stack holds a *boxed* reference, so it
+        // must be unboxed back to the value type before storing into a value-type
+        // local. Skipping this produces unverifiable IL (StackUnexpected: found ref,
+        // expected value). Reference-type records can store the reference directly.
+        if (recordDecl.IsStruct)
+        {
+            il.Emit(OpCodes.Unbox_Any, typeBuilder);
+        }
         il.Emit(OpCodes.Stloc, otherLocal);
 
         // Compare each field
@@ -22222,6 +22461,87 @@ public partial class ILCompiler
         il.MarkLabel(returnFalse);
         il.Emit(OpCodes.Ldc_I4_0);
         il.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>
+    /// Emit the strongly-typed Equals(T), op_Equality and op_Inequality members for a record struct.
+    /// This makes `==`/`!=` perform structural equality, matching Roslyn's record struct behavior.
+    /// </summary>
+    private void EmitRecordStructEqualityMembers(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
+    {
+        // bool Equals(T other) => field-by-field structural comparison.
+        if (_methods.TryGetValue(GetMethodKey(typeBuilder, "Equals(self)"), out var typedEqualsMethod))
+        {
+            var il = typedEqualsMethod.GetILGenerator();
+            var returnFalse = il.DefineLabel();
+
+            if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+            {
+                foreach (var param in recordDecl.PrimaryConstructorParameters)
+                {
+                    var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+                    if (!_fields.TryGetValue(backingFieldKey, out var backingField))
+                    {
+                        continue;
+                    }
+
+                    var fieldType = backingField.FieldType;
+
+                    // this.field
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, backingField);
+                    // other.field
+                    il.Emit(OpCodes.Ldarga_S, (byte)1);
+                    il.Emit(OpCodes.Ldfld, backingField);
+
+                    if (fieldType.IsValueType)
+                    {
+                        il.Emit(OpCodes.Ceq);
+                        il.Emit(OpCodes.Brfalse, returnFalse);
+                    }
+                    else
+                    {
+                        var objectEqualsMethod = typeof(object).GetMethod("Equals", new[] { typeof(object), typeof(object) });
+                        if (objectEqualsMethod != null)
+                        {
+                            il.Emit(OpCodes.Call, objectEqualsMethod);
+                            il.Emit(OpCodes.Brfalse, returnFalse);
+                        }
+                    }
+                }
+            }
+
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Ret);
+
+            il.MarkLabel(returnFalse);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ret);
+        }
+
+        // static bool op_Equality(T left, T right) => left.Equals(right);
+        if (_methods.TryGetValue(GetMethodKey(typeBuilder, "op_Equality"), out var equalityOperator)
+            && _methods.TryGetValue(GetMethodKey(typeBuilder, "Equals(self)"), out var typedEqualsForOperator))
+        {
+            var il = equalityOperator.GetILGenerator();
+            il.Emit(OpCodes.Ldarga_S, (byte)0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, typedEqualsForOperator);
+            il.Emit(OpCodes.Ret);
+        }
+
+        // static bool op_Inequality(T left, T right) => !(left == right);
+        if (_methods.TryGetValue(GetMethodKey(typeBuilder, "op_Inequality"), out var inequalityOperator)
+            && _methods.TryGetValue(GetMethodKey(typeBuilder, "op_Equality"), out var equalityForInequality))
+        {
+            var il = inequalityOperator.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, equalityForInequality);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ceq);
+            il.Emit(OpCodes.Ret);
+        }
     }
 
     /// <summary>

@@ -126,6 +126,7 @@ public partial class ILCompiler
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
         var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
         var savedStructBoxableLocals = _structBoxableLocals;
+        var savedLocalsToLiftIntoBoxesIfValueType = _localsToLiftIntoBoxesIfValueType;
         var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
@@ -252,6 +253,7 @@ public partial class ILCompiler
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
         _structBoxableLocals = savedStructBoxableLocals;
+        _localsToLiftIntoBoxesIfValueType = savedLocalsToLiftIntoBoxesIfValueType;
         _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
@@ -327,6 +329,13 @@ public partial class ILCompiler
             case BinaryExpression binary:
                 FindCapturedVariablesInExpression(binary.Left, parameterNames, captured);
                 FindCapturedVariablesInExpression(binary.Right, parameterNames, captured);
+                break;
+
+            case UnaryExpression unary:
+                // Covers logical/arithmetic unaries and ++/-- — e.g. `!flag`, `-x`, `s.field++`.
+                // Without this a variable referenced only inside a unary would be missed and left
+                // unresolved when the nested function body is emitted.
+                FindCapturedVariablesInExpression(unary.Operand, parameterNames, captured);
                 break;
 
             case CallExpression call:
@@ -657,6 +666,7 @@ public partial class ILCompiler
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
         var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
         var savedStructBoxableLocals = _structBoxableLocals;
+        var savedLocalsToLiftIntoBoxesIfValueType = _localsToLiftIntoBoxesIfValueType;
         var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
@@ -778,6 +788,7 @@ public partial class ILCompiler
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
         _structBoxableLocals = savedStructBoxableLocals;
+        _localsToLiftIntoBoxesIfValueType = savedLocalsToLiftIntoBoxesIfValueType;
         _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;
@@ -864,6 +875,7 @@ public partial class ILCompiler
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
         var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
         var savedStructBoxableLocals = _structBoxableLocals;
+        var savedLocalsToLiftIntoBoxesIfValueType = _localsToLiftIntoBoxesIfValueType;
         var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
@@ -992,6 +1004,7 @@ public partial class ILCompiler
         _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
         _structBoxableLocals = savedStructBoxableLocals;
+        _localsToLiftIntoBoxesIfValueType = savedLocalsToLiftIntoBoxesIfValueType;
         _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
         _liftedIdentifiers = savedLiftedIdentifiers;
         _liftedClosureFields = savedLiftedClosureFields;

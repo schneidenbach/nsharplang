@@ -2078,6 +2078,59 @@ record struct Vector2D(x: int, y: int) {}";
     }
 
     [Fact]
+    public void ILCompiler_RecordStructEquals_IsVerifiableAndStructural()
+    {
+        // Regression: the synthesized Equals(object) on a record struct used to store
+        // the boxed `isinst` result straight into a value-type local, producing
+        // unverifiable IL (ilverify StackUnexpected: found ref, expected value). The
+        // boxed reference must be unboxed back to the value type first. This test
+        // guards both the verifiability (Unbox.Any present, no leftover box) and the
+        // structural-equality semantics.
+        var source = @"
+record struct Point(x: int, y: int) {
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var pointType = assembly.GetType("Point");
+            Assert.NotNull(pointType);
+            Assert.True(pointType!.IsValueType, "Point should be emitted as a value type.");
+
+            var equals = pointType.GetMethod(
+                "Equals",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(object) },
+                modifiers: null);
+            Assert.NotNull(equals);
+
+            var opCodes = GetMethodOpCodes(equals!);
+
+            var a = Activator.CreateInstance(pointType, 1, 2);
+            var sameAsA = Activator.CreateInstance(pointType, 1, 2);
+            var differentX = Activator.CreateInstance(pointType, 9, 2);
+            var differentY = Activator.CreateInstance(pointType, 1, 9);
+
+            return new
+            {
+                HasUnboxAny = opCodes.Contains(OpCodes.Unbox_Any),
+                EqualToSame = (bool)equals!.Invoke(a, new[] { sameAsA })!,
+                NotEqualX = (bool)equals.Invoke(a, new[] { differentX })!,
+                NotEqualY = (bool)equals.Invoke(a, new[] { differentY })!,
+                NotEqualNull = (bool)equals.Invoke(a, new object?[] { null })!,
+                NotEqualOtherType = (bool)equals.Invoke(a, new object?[] { "not a point" })!
+            };
+        });
+
+        Assert.True(result.HasUnboxAny, "Record struct Equals(object) must unbox the boxed argument before comparison.");
+        Assert.True(result.EqualToSame, "Record structs with identical fields should be equal.");
+        Assert.False(result.NotEqualX, "Differing fields should not be equal.");
+        Assert.False(result.NotEqualY, "Differing fields should not be equal.");
+        Assert.False(result.NotEqualNull, "A record struct should never equal null.");
+        Assert.False(result.NotEqualOtherType, "A record struct should never equal an unrelated type.");
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileRecordWithMethods()
     {
         var source = @"
@@ -2219,6 +2272,200 @@ func main(): int {
 
         var result = CompileAndInvoke(source);
         Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructFieldAssignment_IsObservedAcrossCallBoundary()
+    {
+        // A local function captures a struct local and writes one of its fields. Because a field
+        // write mutates the struct's storage, the local must be lifted into a shared box so the
+        // mutation is visible to the enclosing frame. Previously the local was misclassified as
+        // not-mutated and the write was lost (or produced invalid IL).
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    c := new Counter { Value: 10 }
+
+    func Bump(): void {
+        c.Value = c.Value + 5
+    }
+
+    Bump()
+    return c.Value
+}");
+
+        Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructFieldCompoundAssignment_AccumulatesAcrossCalls()
+    {
+        var result = CompileAndInvoke(@"
+struct Acc {
+    Total: int
+}
+
+func main(): int {
+    a := new Acc { Total: 0 }
+
+    func Add(n: int): void {
+        a.Total += n
+    }
+
+    Add(3)
+    Add(4)
+    Add(5)
+    return a.Total
+}");
+
+        Assert.Equal(12, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructFieldIncrement_IsObserved()
+    {
+        // `c.Value++` only references `c` through a unary/member target. The capture analysis must
+        // both recognize the reference (capture detection) and the mutation (lifting).
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    c := new Counter { Value: 10 }
+
+    func Bump(): void {
+        c.Value++
+    }
+
+    Bump()
+    Bump()
+    return c.Value
+}");
+
+        Assert.Equal(12, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructElementMutation_IsObserved()
+    {
+        // A struct holding an array, captured and mutated through `h.Data[i] = ...`.
+        var result = CompileAndInvoke(@"
+struct Holder {
+    Data: int[]
+}
+
+func main(): int {
+    h := new Holder { Data: [1, 2, 3] }
+
+    func Mutate(): void {
+        h.Data[1] = 50
+    }
+
+    Mutate()
+    return h.Data[1]
+}");
+
+        Assert.Equal(50, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructFieldMutation_ViaBlockLambdaLocal()
+    {
+        var result = CompileAndInvoke(@"
+struct P {
+    X: int
+}
+
+func main(): int {
+    p := new P { X: 1 }
+
+    setter := () => {
+        p.X = 99
+    }
+
+    setter()
+    return p.X
+}");
+
+        Assert.Equal(99, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedReferenceTypeFieldMutation_StillWorks()
+    {
+        // Reference-type member mutation already worked (the write goes through the shared heap
+        // object). This guards against a regression where it would be needlessly boxed or broken.
+        var result = CompileAndInvoke(@"
+class Box {
+    Value: int
+}
+
+func main(): int {
+    b := new Box { Value: 100 }
+
+    func Set(): void {
+        b.Value = 42
+    }
+
+    Set()
+    return b.Value
+}");
+
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructMutation_SurvivesEarlierSiblingLambda()
+    {
+        // Guards the body-context save/restore: a sibling lambda emitted earlier in the function must
+        // not clobber the value-type lift set used when a later nested block declares and mutates a
+        // captured struct local. Before the fix this returned 10 (mutation lost) instead of 15.
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    noise := () => { return 1 }
+    n := noise()
+    result := 0
+    if n == 1 {
+        c := new Counter { Value: 10 }
+
+        func Bump(): void {
+            c.Value = c.Value + 5
+        }
+
+        Bump()
+        result = c.Value
+    }
+    return result
+}");
+
+        Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_StructFieldIncrement_WithoutClosure_IsObserved()
+    {
+        // Regression for a pre-existing emit defect: incrementing a struct local's field needs the
+        // struct's ADDRESS as the Stfld receiver. Emitting a copy lost the increment / NRE'd.
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    c := new Counter { Value: 10 }
+    c.Value++
+    return c.Value
+}");
+
+        Assert.Equal(11, Assert.IsType<int>(result));
     }
 
     [Fact]
@@ -6639,5 +6886,100 @@ func main(): int {
         Assert.DoesNotContain("box", opCodes);
 
         Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericConstraintViaBaseInterface_DispatchesValueTypeWithoutBoxing()
+    {
+        // The called method (Area) is declared on a *base* interface of the named
+        // constraint. Constrained dispatch must walk the constraint's interface
+        // hierarchy, still emit a `constrained.` prefix on the value-type receiver,
+        // and never box it.
+        var source = @"
+interface HasArea {
+    func Area(): int
+}
+
+interface Shape : HasArea {
+    func Name(): string
+}
+
+struct Square : Shape {
+    side: int
+
+    func Area(): int {
+        return side * side
+    }
+
+    func Name(): string {
+        return ""square""
+    }
+}
+
+func totalArea<T>(s: T): int where T : Shape {
+    return s.Area()
+}
+
+func main(): int {
+    sq := new Square { side: 3 }
+    return totalArea(sq)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var totalArea = program.GetMethod("totalArea", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(totalArea);
+            return GetMethodOpCodes(totalArea!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        // 3 * 3 == 9, dispatched through the inherited interface method.
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericConstraintWithMethodArgument_DispatchesValueTypeWithoutBoxing()
+    {
+        // A constrained interface method that takes an argument must still dispatch
+        // through `constrained.` without boxing the value-type receiver.
+        var source = @"
+interface Shape {
+    func Scaled(factor: int): int
+}
+
+struct Square : Shape {
+    side: int
+
+    func Scaled(factor: int): int {
+        return side * side * factor
+    }
+}
+
+func scaledArea<T>(s: T, factor: int): int where T : Shape {
+    return s.Scaled(factor)
+}
+
+func main(): int {
+    sq := new Square { side: 3 }
+    return scaledArea(sq, 2)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var scaledArea = program.GetMethod("scaledArea", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(scaledArea);
+            return GetMethodOpCodes(scaledArea!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        Assert.Equal(18, Assert.IsType<int>(CompileAndInvoke(source)));
     }
 }
