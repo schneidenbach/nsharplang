@@ -11317,12 +11317,17 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldloc, lockLocal);
         _currentIL.Emit(OpCodes.Call, monitorEnter);
 
+        // The body lives inside a protected (try) region. A `return` inside it must not
+        // emit a raw `ret` (illegal out of a try) — tracking the exception-block depth makes
+        // EmitReturn lower returns to a structured `leave` to the method's return label.
         _currentIL.BeginExceptionBlock();
+        _exceptionBlockDepth++;
         EmitStatement(lockStmt.Body);
         _currentIL.BeginFinallyBlock();
         _currentIL.Emit(OpCodes.Ldloc, lockLocal);
         _currentIL.Emit(OpCodes.Call, monitorExit);
         _currentIL.EndExceptionBlock();
+        _exceptionBlockDepth--;
     }
 
     /// <summary>
@@ -12091,6 +12096,9 @@ public partial class ILCompiler
 
         // Begin try-finally block
         _currentIL.BeginExceptionBlock();
+        // Track the protected region so a `return` inside the body lowers to a structured
+        // `leave` (see EmitReturn) instead of an illegal `ret` out of the try block.
+        _exceptionBlockDepth++;
 
         // Emit the body
         if (usingStmt.Body != null)
@@ -12183,6 +12191,7 @@ public partial class ILCompiler
 
         // End exception block
         _currentIL.EndExceptionBlock();
+        _exceptionBlockDepth--;
     }
 
     private MethodInfo? ResolveDisposePatternMethod(Type type)

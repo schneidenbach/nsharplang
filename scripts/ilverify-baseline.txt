@@ -24,7 +24,6 @@ ExtensionMethods.dll | IL:StackUnexpected | Program::Main()
 GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
 IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker
 IssueTracker.dll | IL:MethodAccess | IssueTracker.IssueService::TransitionIssue(int32, [IssueTracker
-LockStatement.dll | CRASH | System.IndexOutOfRangeException
 ParamsArrays.dll | IL:StackUnexpected | Calculator::Average(float64[
 ParamsArrays.dll | IL:StackUnexpected | Program::PrintAll(string, !!0[
 PropertiesAndNestedTypes.dll | IL:InitOnly | BankAccount::.ctor(string, float64)
