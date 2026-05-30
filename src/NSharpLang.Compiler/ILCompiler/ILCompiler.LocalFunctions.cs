@@ -843,6 +843,7 @@ public partial class ILCompiler
         var savedClosureFields = _closureFields;
         var savedLiftLocalsIntoBoxes = _liftLocalsIntoBoxes;
         var savedLocalsToLiftIntoBoxes = _localsToLiftIntoBoxes;
+        var savedStructBoxableLocals = _structBoxableLocals;
         var savedLocalsToPredeclareForCapture = _localsToPredeclareForCapture;
         var savedLiftedIdentifiers = _liftedIdentifiers;
         var savedLiftedClosureFields = _liftedClosureFields;
@@ -972,6 +973,7 @@ public partial class ILCompiler
             _closureFields = savedClosureFields;
             _liftLocalsIntoBoxes = savedLiftLocalsIntoBoxes;
             _localsToLiftIntoBoxes = savedLocalsToLiftIntoBoxes;
+            _structBoxableLocals = savedStructBoxableLocals;
             _localsToPredeclareForCapture = savedLocalsToPredeclareForCapture;
             _liftedIdentifiers = savedLiftedIdentifiers;
             _liftedClosureFields = savedLiftedClosureFields;
