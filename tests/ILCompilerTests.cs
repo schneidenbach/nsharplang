@@ -6355,4 +6355,99 @@ func main(): int {
 
         Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source)));
     }
+
+    [Fact]
+    public void ILCompiler_GenericConstraintViaBaseInterface_DispatchesValueTypeWithoutBoxing()
+    {
+        // The called method (Area) is declared on a *base* interface of the named
+        // constraint. Constrained dispatch must walk the constraint's interface
+        // hierarchy, still emit a `constrained.` prefix on the value-type receiver,
+        // and never box it.
+        var source = @"
+interface HasArea {
+    func Area(): int
+}
+
+interface Shape : HasArea {
+    func Name(): string
+}
+
+struct Square : Shape {
+    side: int
+
+    func Area(): int {
+        return side * side
+    }
+
+    func Name(): string {
+        return ""square""
+    }
+}
+
+func totalArea<T>(s: T): int where T : Shape {
+    return s.Area()
+}
+
+func main(): int {
+    sq := new Square { side: 3 }
+    return totalArea(sq)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var totalArea = program.GetMethod("totalArea", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(totalArea);
+            return GetMethodOpCodes(totalArea!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        // 3 * 3 == 9, dispatched through the inherited interface method.
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericConstraintWithMethodArgument_DispatchesValueTypeWithoutBoxing()
+    {
+        // A constrained interface method that takes an argument must still dispatch
+        // through `constrained.` without boxing the value-type receiver.
+        var source = @"
+interface Shape {
+    func Scaled(factor: int): int
+}
+
+struct Square : Shape {
+    side: int
+
+    func Scaled(factor: int): int {
+        return side * side * factor
+    }
+}
+
+func scaledArea<T>(s: T, factor: int): int where T : Shape {
+    return s.Scaled(factor)
+}
+
+func main(): int {
+    sq := new Square { side: 3 }
+    return scaledArea(sq, 2)
+}";
+
+        var opCodes = CompileAndInspect(source, assembly =>
+        {
+            var program = assembly.GetType("Program")!;
+            var scaledArea = program.GetMethod("scaledArea", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(scaledArea);
+            return GetMethodOpCodes(scaledArea!).Select(opCode => opCode.Name).ToArray();
+        });
+
+        Assert.Contains("constrained.", opCodes);
+        Assert.Contains("callvirt", opCodes);
+        Assert.DoesNotContain("box", opCodes);
+
+        Assert.Equal(18, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
 }
