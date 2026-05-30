@@ -13070,6 +13070,16 @@ public partial class ILCompiler
                 && m.GetParameters().Length == 2
                 && m.GetParameters()[1].ParameterType == typeof(string))
             ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted<T>(T, string)");
+        // Holes whose type is defined in THIS compilation (enums/structs as TypeBuilder/EnumBuilder)
+        // cannot flow through the generic AppendFormatted<T>: instantiating it over a builder type emits
+        // a MethodSpec token that does not resolve (unverifiable IL — caught by ilverify). For those we
+        // box the value and use the non-generic AppendFormatted(object, int, string) overload, which
+        // formats identically (object.ToString(), e.g. the enum member name) and emits a verifiable
+        // MemberRef. BCL value types keep the zero-alloc generic path.
+        var appendFormattedObject = handlerType.GetMethod(
+                "AppendFormatted",
+                new[] { typeof(object), typeof(int), typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(object, int, string)");
         var toStringAndClear = handlerType.GetMethod("ToStringAndClear", Type.EmptyTypes)
             ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.ToStringAndClear()");
 
@@ -13130,6 +13140,30 @@ public partial class ILCompiler
                         {
                             _currentIL.Emit(OpCodes.Call, appendFormattedSpan);
                         }
+                    }
+                    else if (RequiresTypeBuilderMemberResolution(exprType))
+                    {
+                        // Same-compilation user type (enum/struct/class TypeBuilder): the generic
+                        // AppendFormatted<T> over a builder type emits an unresolvable MethodSpec, so box
+                        // and route through the non-generic object overload. Value types box here (only
+                        // these holes pay the box; BCL primitives keep the generic path); reference types
+                        // are already object-assignable.
+                        if (exprType.IsValueType)
+                        {
+                            _currentIL.Emit(OpCodes.Box, exprType);
+                        }
+
+                        _currentIL.Emit(OpCodes.Ldc_I4_0); // alignment
+                        if (hasFormat)
+                        {
+                            _currentIL.Emit(OpCodes.Ldstr, hole.FormatClause!);
+                        }
+                        else
+                        {
+                            _currentIL.Emit(OpCodes.Ldnull);
+                        }
+
+                        _currentIL.Emit(OpCodes.Call, appendFormattedObject);
                     }
                     else if (hasFormat)
                     {

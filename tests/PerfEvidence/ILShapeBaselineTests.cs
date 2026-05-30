@@ -198,4 +198,45 @@ func main(): string {
             return 0;
         });
     }
+
+    [Fact]
+    public void Interpolation_EnumHole_BoxesThroughObjectOverload_AndVerifies()
+    {
+        // Regression: a hole whose type is defined in THIS compilation (an enum is an
+        // EnumBuilder/TypeBuilder) must NOT flow through the generic AppendFormatted<T> — instantiating
+        // that generic over a builder type emits an unresolvable MethodSpec token (unverifiable IL,
+        // caught by ilverify and the integration ILVerify gate). Such holes are boxed and routed through
+        // the non-generic AppendFormatted(object, ...) overload, which formats identically (the enum
+        // member name). Executing the assembly proves the token resolves at runtime.
+        const string source = @"
+enum Priority { Low = 0, High = 2 }
+
+func main(): string {
+    p := Priority.High
+    return $""Priority: {p}""
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            // The enum hole is boxed (the builder-type fallback), not passed unboxed to a generic.
+            Assert.True(
+                ILShapeInspector.CountOpcode(main, OpCodes.Box) >= 1,
+                "Expected the enum interpolation hole to box for the AppendFormatted(object) overload.");
+
+            // Exactly one AppendFormatted call, and the handler still constructed/finalised once.
+            Assert.Equal(
+                1,
+                ILShapeInspector.CountCallsTo(main, typeof(DefaultInterpolatedStringHandler), "AppendFormatted"));
+            Assert.Equal(
+                1,
+                ILShapeInspector.CountCallsTo(main, typeof(DefaultInterpolatedStringHandler), ".ctor"));
+
+            // Token resolves and formatting is the member name, not the underlying value.
+            var result = (string)main.Invoke(null, null)!;
+            Assert.Equal("Priority: High", result);
+            return 0;
+        });
+    }
 }
