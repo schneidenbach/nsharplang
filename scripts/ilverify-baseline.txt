@@ -11,13 +11,9 @@
 #
 GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
 IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker
-IssueTracker.dll | IL:MethodAccess | IssueTracker.IssueService::TransitionIssue(int32, [IssueTracker
 ParamsArrays.dll | IL:StackUnexpected | Calculator::Average(float64[
 PropertiesAndNestedTypes.dll | IL:InitOnly | BankAccount::.ctor(string, float64)
-RecordsAndInterfaces.dll | IL:MethodAccess | Program::Main()
 RecordsAndInterfaces.dll | IL:StackUnexpected | Square::CalculatePerimeter()
 RecordsAndInterfaces.dll | MD | Class implements interface but not method, Class: '[RecordsAndInterfaces]Circle' Interface: '[RecordsAndInterfaces]IShape' Missing method: '[RecordsAndInterfaces]IShape.Describe()'.
 SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Concatenate(string, string[
 SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Format(string, string, int32[
-TaskCli.dll | IL:MethodAccess | TaskCli.Services.TaskService::MarkDone(int32)
-TaskCli.dll | IL:MethodAccess | TaskCli.Services.TaskService::MarkInProgress(int32)
