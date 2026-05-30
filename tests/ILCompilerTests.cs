@@ -2205,6 +2205,200 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CapturedStructFieldAssignment_IsObservedAcrossCallBoundary()
+    {
+        // A local function captures a struct local and writes one of its fields. Because a field
+        // write mutates the struct's storage, the local must be lifted into a shared box so the
+        // mutation is visible to the enclosing frame. Previously the local was misclassified as
+        // not-mutated and the write was lost (or produced invalid IL).
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    c := new Counter { Value: 10 }
+
+    func Bump(): void {
+        c.Value = c.Value + 5
+    }
+
+    Bump()
+    return c.Value
+}");
+
+        Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructFieldCompoundAssignment_AccumulatesAcrossCalls()
+    {
+        var result = CompileAndInvoke(@"
+struct Acc {
+    Total: int
+}
+
+func main(): int {
+    a := new Acc { Total: 0 }
+
+    func Add(n: int): void {
+        a.Total += n
+    }
+
+    Add(3)
+    Add(4)
+    Add(5)
+    return a.Total
+}");
+
+        Assert.Equal(12, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructFieldIncrement_IsObserved()
+    {
+        // `c.Value++` only references `c` through a unary/member target. The capture analysis must
+        // both recognize the reference (capture detection) and the mutation (lifting).
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    c := new Counter { Value: 10 }
+
+    func Bump(): void {
+        c.Value++
+    }
+
+    Bump()
+    Bump()
+    return c.Value
+}");
+
+        Assert.Equal(12, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructElementMutation_IsObserved()
+    {
+        // A struct holding an array, captured and mutated through `h.Data[i] = ...`.
+        var result = CompileAndInvoke(@"
+struct Holder {
+    Data: int[]
+}
+
+func main(): int {
+    h := new Holder { Data: [1, 2, 3] }
+
+    func Mutate(): void {
+        h.Data[1] = 50
+    }
+
+    Mutate()
+    return h.Data[1]
+}");
+
+        Assert.Equal(50, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructFieldMutation_ViaBlockLambdaLocal()
+    {
+        var result = CompileAndInvoke(@"
+struct P {
+    X: int
+}
+
+func main(): int {
+    p := new P { X: 1 }
+
+    setter := () => {
+        p.X = 99
+    }
+
+    setter()
+    return p.X
+}");
+
+        Assert.Equal(99, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedReferenceTypeFieldMutation_StillWorks()
+    {
+        // Reference-type member mutation already worked (the write goes through the shared heap
+        // object). This guards against a regression where it would be needlessly boxed or broken.
+        var result = CompileAndInvoke(@"
+class Box {
+    Value: int
+}
+
+func main(): int {
+    b := new Box { Value: 100 }
+
+    func Set(): void {
+        b.Value = 42
+    }
+
+    Set()
+    return b.Value
+}");
+
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CapturedStructMutation_SurvivesEarlierSiblingLambda()
+    {
+        // Guards the body-context save/restore: a sibling lambda emitted earlier in the function must
+        // not clobber the value-type lift set used when a later nested block declares and mutates a
+        // captured struct local. Before the fix this returned 10 (mutation lost) instead of 15.
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    noise := () => { return 1 }
+    n := noise()
+    result := 0
+    if n == 1 {
+        c := new Counter { Value: 10 }
+
+        func Bump(): void {
+            c.Value = c.Value + 5
+        }
+
+        Bump()
+        result = c.Value
+    }
+    return result
+}");
+
+        Assert.Equal(15, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_StructFieldIncrement_WithoutClosure_IsObserved()
+    {
+        // Regression for a pre-existing emit defect: incrementing a struct local's field needs the
+        // struct's ADDRESS as the Stfld receiver. Emitting a copy lost the increment / NRE'd.
+        var result = CompileAndInvoke(@"
+struct Counter {
+    Value: int
+}
+
+func main(): int {
+    c := new Counter { Value: 10 }
+    c.Value++
+    return c.Value
+}");
+
+        Assert.Equal(11, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileLambdaWithVoidReturn()
     {
         var source = @"

@@ -134,6 +134,14 @@ public partial class ILCompiler
     private readonly List<TypeBuilder> _closureTypes = new();
     private bool _liftLocalsIntoBoxes;
     private HashSet<string>? _localsToLiftIntoBoxes;
+    // Captured locals whose MEMBER/ELEMENT is mutated inside a nested function (e.g. `s.Field = ...`,
+    // `s.field++`, `s.arr[i] = ...`). These must be lifted into a shared box so the mutation is visible
+    // across the call boundary, but ONLY when the local is a value type (struct). For reference types a
+    // member write already goes through the shared heap object, so no lifting is needed.
+    private HashSet<string>? _localsToLiftIntoBoxesIfValueType;
+    // Scratch accumulator used only while CollectMutatedCapturedStorageNames walks a body: receives the
+    // names of captured locals whose member/element is mutated. Nested-walk safe via save/restore.
+    private HashSet<string>? _memberMutatedCaptureAccumulator;
     private HashSet<string>? _localsToPredeclareForCapture;
     private HashSet<string>? _liftedIdentifiers;
     private HashSet<string>? _liftedClosureFields;
@@ -177,7 +185,8 @@ public partial class ILCompiler
         Type[] ShimParameterTypes);
     private sealed record LocalCaptureStorageInfo(
         HashSet<string> CapturedLocals,
-        HashSet<string> LocalsToLiftIntoBoxes);
+        HashSet<string> LocalsToLiftIntoBoxes,
+        HashSet<string> ValueTypeLocalsToLiftIntoBoxes);
     private sealed class DelegateSignatureKey(Type[] parameterTypes, Type returnType) : IEquatable<DelegateSignatureKey>
     {
         private readonly Type[] _parameterTypes = parameterTypes.ToArray();
@@ -1164,6 +1173,7 @@ public partial class ILCompiler
         _currentReturnType = null;
         _liftLocalsIntoBoxes = false;
         _localsToLiftIntoBoxes = null;
+        _localsToLiftIntoBoxesIfValueType = null;
         _localsToPredeclareForCapture = null;
         _liftedIdentifiers = null;
         _liftedClosureFields = null;
@@ -1186,7 +1196,8 @@ public partial class ILCompiler
         Type? returnType,
         bool liftLocalsIntoBoxes,
         HashSet<string>? localsToLiftIntoBoxes = null,
-        HashSet<string>? localsToPredeclareForCapture = null)
+        HashSet<string>? localsToPredeclareForCapture = null,
+        HashSet<string>? valueTypeLocalsToLiftIntoBoxes = null)
     {
         _locals = new Dictionary<string, LocalBuilder>();
         _parameters = new Dictionary<string, int>();
@@ -1195,6 +1206,7 @@ public partial class ILCompiler
         _currentReturnType = returnType;
         _liftLocalsIntoBoxes = liftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = liftLocalsIntoBoxes ? localsToLiftIntoBoxes : null;
+        _localsToLiftIntoBoxesIfValueType = liftLocalsIntoBoxes ? valueTypeLocalsToLiftIntoBoxes : null;
         _localsToPredeclareForCapture = localsToPredeclareForCapture is { Count: > 0 }
             ? localsToPredeclareForCapture
             : null;
@@ -2079,6 +2091,21 @@ public partial class ILCompiler
             && (_localsToLiftIntoBoxes == null || _localsToLiftIntoBoxes.Contains(name));
     }
 
+    // Lift decision that incorporates the local's type. A captured local whose member/element is mutated
+    // in a nested function (recorded in _localsToLiftIntoBoxesIfValueType) is lifted only when it is a
+    // value type — for a reference type the member write already mutates the shared heap object.
+    private bool ShouldLiftIntoBox(string name, Type valueType)
+    {
+        if (ShouldLiftLocalIntoBox(name))
+        {
+            return true;
+        }
+
+        return _liftLocalsIntoBoxes
+            && _localsToLiftIntoBoxesIfValueType?.Contains(name) == true
+            && IsValueTypeLike(valueType);
+    }
+
     private bool ShouldPredeclareLocalForCapture(string name)
     {
         return ShouldLiftLocalIntoBox(name)
@@ -2090,7 +2117,7 @@ public partial class ILCompiler
         if (_currentIL == null || _locals == null)
             throw new InvalidOperationException("No IL generator context");
 
-        var shouldLift = ShouldLiftLocalIntoBox(name);
+        var shouldLift = ShouldLiftIntoBox(name, valueType);
         var storageType = shouldLift ? CreateStrongBoxType(valueType) : valueType;
         var local = _currentIL.DeclareLocal(storageType);
         _locals[name] = local;
@@ -2242,9 +2269,11 @@ public partial class ILCompiler
         var captureStorage = GetLocalCaptureStorageInfo(body, expressionBody, parameters);
         InitializeBodyContext(
             returnType,
-            captureStorage.LocalsToLiftIntoBoxes.Count > 0,
+            captureStorage.LocalsToLiftIntoBoxes.Count > 0
+                || captureStorage.ValueTypeLocalsToLiftIntoBoxes.Count > 0,
             captureStorage.LocalsToLiftIntoBoxes,
-            captureStorage.CapturedLocals);
+            captureStorage.CapturedLocals,
+            captureStorage.ValueTypeLocalsToLiftIntoBoxes);
     }
 
     private LocalCaptureStorageInfo GetLocalCaptureStorageInfo(
@@ -2257,6 +2286,7 @@ public partial class ILCompiler
         if (!containsNestedFunction)
         {
             return new LocalCaptureStorageInfo(
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
         }
@@ -2286,22 +2316,37 @@ public partial class ILCompiler
         {
             return new LocalCaptureStorageInfo(
                 captured,
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
         }
 
         var mutated = new HashSet<string>(StringComparer.Ordinal);
-        if (body != null)
+        var memberMutated = new HashSet<string>(StringComparer.Ordinal);
+        var previousMemberMutatedAccumulator = _memberMutatedCaptureAccumulator;
+        _memberMutatedCaptureAccumulator = memberMutated;
+        try
         {
-            CollectMutatedCapturedStorageNames(body, captured, mutated);
+            if (body != null)
+            {
+                CollectMutatedCapturedStorageNames(body, captured, mutated);
+            }
+            if (expressionBody != null)
+            {
+                CollectMutatedCapturedStorageNames(expressionBody, captured, mutated);
+            }
         }
-        if (expressionBody != null)
+        finally
         {
-            CollectMutatedCapturedStorageNames(expressionBody, captured, mutated);
+            _memberMutatedCaptureAccumulator = previousMemberMutatedAccumulator;
         }
 
         CollectEscapingLocalFunctionCapturedStorageNames(body, candidates, mutated);
 
-        return new LocalCaptureStorageInfo(captured, mutated);
+        // A local that is reassigned wholesale (in `mutated`) is already lifted unconditionally, so it
+        // never needs the value-type-gated treatment. Keep only the member-mutation-only candidates here.
+        memberMutated.ExceptWith(mutated);
+
+        return new LocalCaptureStorageInfo(captured, mutated, memberMutated);
     }
 
     private void CollectEscapingLocalFunctionCapturedStorageNames(
@@ -2584,7 +2629,7 @@ public partial class ILCompiler
         }
     }
 
-    private static void CollectMutatedCapturedStorageNames(
+    private void CollectMutatedCapturedStorageNames(
         Statement statement,
         HashSet<string> captured,
         HashSet<string> mutated)
@@ -2718,7 +2763,7 @@ public partial class ILCompiler
         }
     }
 
-    private static void CollectMutatedCapturedStorageNames(
+    private void CollectMutatedCapturedStorageNames(
         Expression expression,
         HashSet<string> captured,
         HashSet<string> mutated)
@@ -2888,7 +2933,7 @@ public partial class ILCompiler
         }
     }
 
-    private static void AddMutatedTargetName(
+    private void AddMutatedTargetName(
         Expression target,
         HashSet<string> captured,
         HashSet<string> mutated)
@@ -2906,6 +2951,39 @@ public partial class ILCompiler
                 {
                     AddMutatedTargetName(element.Value, captured, mutated);
                 }
+                break;
+            // A member or element write (`s.Field = ...`, `s.field++`, `s.arr[i] = ...`) mutates the
+            // storage of the underlying captured local. For a struct local that mutation is lost unless
+            // the local is lifted into a shared box, so record the base. The actual lift is gated on the
+            // local being a value type at declaration time (see ShouldLiftIntoBox); reference-type bases
+            // mutate through the shared heap object and never need lifting.
+            case MemberAccessExpression memberAccess:
+                AddMemberMutatedBaseName(memberAccess.Object, captured);
+                break;
+            case IndexAccessExpression indexAccess:
+                AddMemberMutatedBaseName(indexAccess.Object, captured);
+                break;
+        }
+    }
+
+    // Walks the base of a member/element assignment target down to the captured local it ultimately
+    // writes through. Stops at the first identifier; only the captured root matters. A method call,
+    // `new`, or any other base means the write does not target a captured local's own storage.
+    private void AddMemberMutatedBaseName(Expression baseExpression, HashSet<string> captured)
+    {
+        switch (baseExpression)
+        {
+            case IdentifierExpression identifier when captured.Contains(identifier.Name):
+                _memberMutatedCaptureAccumulator?.Add(identifier.Name);
+                break;
+            case ParenthesizedExpression parenthesized:
+                AddMemberMutatedBaseName(parenthesized.Inner, captured);
+                break;
+            case MemberAccessExpression memberAccess:
+                AddMemberMutatedBaseName(memberAccess.Object, captured);
+                break;
+            case IndexAccessExpression indexAccess:
+                AddMemberMutatedBaseName(indexAccess.Object, captured);
                 break;
         }
     }
@@ -7201,7 +7279,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (ShouldLiftLocalIntoBox(parameter.Name))
+            if (ShouldLiftIntoBox(parameter.Name, parameterType))
             {
                 var local = DeclareNamedLocal(parameter.Name, parameterType);
                 EmitLoadArgument(startIndex + i);
@@ -7234,7 +7312,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            if (ShouldLiftLocalIntoBox(parameter.Name))
+            if (ShouldLiftIntoBox(parameter.Name, parameterType))
             {
                 var local = DeclareNamedLocal(parameter.Name, parameterType);
                 EmitLoadArgument(startIndex + i);
@@ -12048,10 +12126,22 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        EmitExpression(memberAccess.Object);
+        var objectType = GetExpressionType(memberAccess.Object);
+
+        // A value-type receiver needs its ADDRESS on the stack: the receiver is loaded once, Dup'd, and
+        // shared by the field read and the field write-back. Pushing a copy (EmitExpression) would leave
+        // the Stfld writing into a discarded temporary — the increment would be lost, or invalid IL for a
+        // by-ref struct parameter. Reference-type receivers keep value (object reference) semantics.
+        if (IsValueTypeLike(objectType))
+        {
+            EmitAddressableExpression(memberAccess.Object, objectType);
+        }
+        else
+        {
+            EmitExpression(memberAccess.Object);
+        }
         _currentIL.Emit(OpCodes.Dup);
 
-        var objectType = GetExpressionType(memberAccess.Object);
         EmitMemberLoadValue(objectType, memberAccess.MemberName);
 
         LocalBuilder? originalLocal = null;
@@ -13014,7 +13104,11 @@ public partial class ILCompiler
                 return;
             }
 
-            // Emit the object
+            // Emit the object. For a value-type receiver we need its ADDRESS on the stack so the
+            // trailing Stfld writes back into the original storage (a struct local, a lifted box's
+            // Value field, or a by-ref struct parameter). Using EmitExpression here would push a
+            // copy (and, for a by-ref struct parameter, an ldobj-dereferenced value), making the
+            // Stfld invalid and silently dropping the mutation. Mirror the member-read path.
             var cacheReceiver = !IsValueTypeLike(objectType);
             LocalBuilder? receiverLocal = null;
             if (cacheReceiver)
@@ -13026,7 +13120,7 @@ public partial class ILCompiler
             }
             else
             {
-                EmitExpression(memberAccess.Object);
+                EmitAddressableExpression(memberAccess.Object, objectType);
             }
 
             // Handle compound assignment
