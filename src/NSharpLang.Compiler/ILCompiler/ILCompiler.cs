@@ -14255,6 +14255,51 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Call, concatMethod);
     }
 
+    /// <summary>
+    /// Emit the arithmetic/concat operation for a compound assignment (<c>+=</c>, <c>-=</c>,
+    /// <c>*=</c>, <c>/=</c>). Both the current value and the right-hand side must already be on
+    /// the evaluation stack. When the target is a <see cref="string"/> and the operator is
+    /// <c>+=</c>, this lowers to <c>string.Concat(string, string)</c> instead of the numeric
+    /// <c>add</c> opcode — emitting <c>add</c> on object references produces unverifiable IL
+    /// (IL:ExpectedNumericType).
+    /// </summary>
+    private void EmitCompoundAssignmentOperation(AssignmentOperator op, Type operandType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (op == AssignmentOperator.AddAssign && operandType == typeof(string))
+        {
+            var concatMethod = typeof(string).GetMethod(
+                nameof(string.Concat),
+                new[] { typeof(string), typeof(string) });
+            if (concatMethod == null)
+            {
+                throw new InvalidOperationException("Could not resolve string.Concat(string, string)");
+            }
+
+            _currentIL.Emit(OpCodes.Call, concatMethod);
+            return;
+        }
+
+        switch (op)
+        {
+            case AssignmentOperator.AddAssign:
+                _currentIL.Emit(OpCodes.Add);
+                break;
+            case AssignmentOperator.SubtractAssign:
+                _currentIL.Emit(OpCodes.Sub);
+                break;
+            case AssignmentOperator.MultiplyAssign:
+                _currentIL.Emit(OpCodes.Mul);
+                break;
+            case AssignmentOperator.DivideAssign:
+                _currentIL.Emit(OpCodes.Div);
+                break;
+            default:
+                throw new NotImplementedException($"Assignment operator {op} not yet implemented in IL compiler");
+        }
+    }
+
     private void EmitNullCoalesce(BinaryExpression binary)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
@@ -14848,23 +14893,7 @@ public partial class ILCompiler
                         EmitExpressionWithExpectedType(assignment.Value, staticMemberType);
                     }
 
-                    switch (assignment.Operator)
-                    {
-                        case AssignmentOperator.AddAssign:
-                            _currentIL.Emit(OpCodes.Add);
-                            break;
-                        case AssignmentOperator.SubtractAssign:
-                            _currentIL.Emit(OpCodes.Sub);
-                            break;
-                        case AssignmentOperator.MultiplyAssign:
-                            _currentIL.Emit(OpCodes.Mul);
-                            break;
-                        case AssignmentOperator.DivideAssign:
-                            _currentIL.Emit(OpCodes.Div);
-                            break;
-                        default:
-                            throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                    }
+                    EmitCompoundAssignmentOperation(assignment.Operator, staticMemberType);
                 }
 
                 var assignedValueLocal = _currentIL.DeclareLocal(staticMemberType);
@@ -14977,23 +15006,7 @@ public partial class ILCompiler
                 }
 
                 // Perform operation
-                switch (assignment.Operator)
-                {
-                    case AssignmentOperator.AddAssign:
-                        _currentIL.Emit(OpCodes.Add);
-                        break;
-                    case AssignmentOperator.SubtractAssign:
-                        _currentIL.Emit(OpCodes.Sub);
-                        break;
-                    case AssignmentOperator.MultiplyAssign:
-                        _currentIL.Emit(OpCodes.Mul);
-                        break;
-                    case AssignmentOperator.DivideAssign:
-                        _currentIL.Emit(OpCodes.Div);
-                        break;
-                    default:
-                        throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                }
+                EmitCompoundAssignmentOperation(assignment.Operator, GetMemberAccessType(memberAccess));
             }
             else
             {
@@ -15129,23 +15142,7 @@ public partial class ILCompiler
                 EmitIndexLoadValue(indexAccess, objectType);
                 EmitExpressionWithExpectedType(assignment.Value, valueType);
 
-                switch (assignment.Operator)
-                {
-                    case AssignmentOperator.AddAssign:
-                        _currentIL.Emit(OpCodes.Add);
-                        break;
-                    case AssignmentOperator.SubtractAssign:
-                        _currentIL.Emit(OpCodes.Sub);
-                        break;
-                    case AssignmentOperator.MultiplyAssign:
-                        _currentIL.Emit(OpCodes.Mul);
-                        break;
-                    case AssignmentOperator.DivideAssign:
-                        _currentIL.Emit(OpCodes.Div);
-                        break;
-                    default:
-                        throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                }
+                EmitCompoundAssignmentOperation(assignment.Operator, valueType);
             }
 
             var valueLocal = _currentIL.DeclareLocal(valueType);
@@ -15217,23 +15214,7 @@ public partial class ILCompiler
             EmitExpressionWithExpectedType(assignment.Value, GetIdentifierType(ident));
 
             // Perform the operation based on the assignment operator
-            switch (assignment.Operator)
-            {
-                case AssignmentOperator.AddAssign:
-                    _currentIL.Emit(OpCodes.Add);
-                    break;
-                case AssignmentOperator.SubtractAssign:
-                    _currentIL.Emit(OpCodes.Sub);
-                    break;
-                case AssignmentOperator.MultiplyAssign:
-                    _currentIL.Emit(OpCodes.Mul);
-                    break;
-                case AssignmentOperator.DivideAssign:
-                    _currentIL.Emit(OpCodes.Div);
-                    break;
-                default:
-                    throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented in IL compiler");
-            }
+            EmitCompoundAssignmentOperation(assignment.Operator, GetIdentifierType(ident));
         }
         else
         {
@@ -17801,7 +17782,12 @@ public partial class ILCompiler
 
             var objectType = GetExpressionType(memberAccess.Object);
 
-            // Check user-defined methods first
+            // Check user-defined instance methods first. If the member is not an
+            // instance member of the user type, fall through to the shared
+            // extension-method resolution below — an extension `func Foo(this p: Person)`
+            // is NOT a member of the TypeBuilder, so returning typeof(object) here would
+            // mis-type a void extension call as object and make statement lowering emit a
+            // spurious pop (StackUnderflow).
             if (TryGetUserTypeDefinition(objectType, out var typeBuilder))
             {
                 var boundInstanceCall = BindDeclaredMethodCall(
@@ -17822,6 +17808,25 @@ public partial class ILCompiler
                 if (_methods.TryGetValue(GetMethodKey(typeBuilder, memberAccess.MemberName), out var methodBuilder))
                 {
                     return methodBuilder.ReturnType;
+                }
+
+                var userTypeExtensionCall = BindDeclaredExtensionMethodCall(
+                    memberAccess.MemberName,
+                    call,
+                    memberAccess.Object);
+                if (userTypeExtensionCall != null)
+                {
+                    return GetBoundDeclaredMethodReturnType(userTypeExtensionCall);
+                }
+
+                var userTypeRuntimeExtensionCall = BindRuntimeExtensionMethodCall(
+                    objectType,
+                    memberAccess.MemberName,
+                    memberAccess.Object,
+                    call);
+                if (userTypeRuntimeExtensionCall != null)
+                {
+                    return userTypeRuntimeExtensionCall.ReturnType;
                 }
 
                 return typeof(object);

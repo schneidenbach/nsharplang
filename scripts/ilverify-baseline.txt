@@ -18,9 +18,7 @@ ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, string, 
 ConversionOperators.dll | IL:StackUnexpected | Fraction::FromDouble(float64, int32)
 ConversionOperators.dll | IL:StackUnexpected | Fraction::op_Explicit([ConversionOperators
 ExpressionBodiedMembers.dll | IL:StackUnexpected | Rectangle::get_Perimeter()
-ExtensionMethods.dll | IL:ExpectedNumericType | Program::Repeat(string, int32)
-ExtensionMethods.dll | IL:StackUnderflow | Program::Main()
-ExtensionMethods.dll | IL:StackUnexpected | Program::Main()
+GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
 IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker
 IssueTracker.dll | IL:MethodAccess | IssueTracker.IssueService::TransitionIssue(int32, [IssueTracker
 LockStatement.dll | CRASH | System.IndexOutOfRangeException
