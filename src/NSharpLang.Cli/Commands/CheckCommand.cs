@@ -16,6 +16,7 @@ public static class CheckCommand
             return ShowHelp();
 
         var useText = args.Contains("--text");
+        var aot = args.Contains("--aot");
         var projectDir = GetProjectDir(args);
 
         if (!Directory.Exists(projectDir))
@@ -52,6 +53,18 @@ public static class CheckCommand
                 if (verificationDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(verificationDiagnostics);
+                    diagnostics = DeduplicateAndSort(diagnostics);
+                }
+            }
+
+            // `--aot` promotes Native AOT blockers to errors so `nlc check --aot` mirrors
+            // `nlc build --aot`. Analysis-only: no IL is emitted for this gate.
+            if (aot)
+            {
+                var aotDiagnostics = CollectAotDiagnostics(projectDir, projectConfig);
+                if (aotDiagnostics.Count > 0)
+                {
+                    diagnostics.AddRange(aotDiagnostics);
                     diagnostics = DeduplicateAndSort(diagnostics);
                 }
             }
@@ -130,6 +143,19 @@ public static class CheckCommand
         return results;
     }
 
+    /// <summary>
+    /// Runs the AOT-blocker analysis pass and returns the blockers as build-blocking
+    /// diagnostics. Analysis-only — no IL is emitted.
+    /// </summary>
+    private static List<DiagnosticResult> CollectAotDiagnostics(string projectDir, ProjectConfig? config)
+    {
+        var compiler = new MultiFileCompiler(projectDir, config);
+        compiler.CompileForAnalysis();
+        return compiler.BuildAotDiagnostics(asError: true)
+            .Select(error => CodeIntelligenceService.ToDiagnosticResult(error, projectDir))
+            .ToList();
+    }
+
     private static List<DiagnosticResult> DeduplicateAndSort(List<DiagnosticResult> diagnostics)
     {
         return diagnostics
@@ -154,6 +180,7 @@ Options:
   --backend <mode>  Compilation backend: il
   --json        Output as JSON (default)
   --text        Output as human-readable diagnostics
+  --aot         Report Native AOT blockers as errors
   --project     Project root directory (default: current directory)
   --help, -h    Show this help text
 
@@ -161,6 +188,7 @@ Examples:
   nlc check
   nlc check --backend il
   nlc check --text
+  nlc check --aot
   nlc check --project examples/16-task-cli
 
 Exit codes:

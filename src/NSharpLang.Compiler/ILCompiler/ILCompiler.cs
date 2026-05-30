@@ -287,6 +287,14 @@ public partial class ILCompiler
         }
     }
 
+    /// <summary>
+    /// AOT-safety annotations to stamp on public methods that contain AOT blockers. Defaults to
+    /// <see cref="AotRequirements.Empty"/>, so attribute emission is opt-in and ordinary builds
+    /// are unaffected. Set by <see cref="MultiFileCompiler"/> when <c>--aot</c> analysis is on.
+    /// Attribute emission is metadata-only and does not affect IL bodies (verifiable, GC-safe).
+    /// </summary>
+    public AotRequirements AotRequirements { get; init; } = AotRequirements.Empty;
+
     private bool UsesNUnitTestFramework =>
         string.Equals(_projectConfig?.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase);
 
@@ -4160,6 +4168,64 @@ public partial class ILCompiler
         {
             applyAttribute(BuildCustomAttribute(attribute));
         }
+    }
+
+    // Cached attribute constructors so we resolve the BCL types at most once per compile.
+    private ConstructorInfo? _requiresUnreferencedCodeCtor;
+    private ConstructorInfo? _requiresDynamicCodeCtor;
+    private bool _aotAttributeTypesResolved;
+
+    /// <summary>
+    /// Stamps <c>[RequiresUnreferencedCode]</c> / <c>[RequiresDynamicCode]</c> onto a public
+    /// method that the AOT analysis found to contain blockers. These are the same BCL attributes
+    /// the .NET libraries use to propagate AOT/trim warnings to consumers. Emission is purely
+    /// additive metadata — it never changes the method's IL body — so verifiability and GC-safety
+    /// are preserved. No-op when <see cref="AotRequirements"/> is empty or the BCL attribute types
+    /// are unavailable in the target framework.
+    /// </summary>
+    private void ApplyAotRequirementAttributes(Action<CustomAttributeBuilder> applyAttribute, string declarationName)
+    {
+        if (AotRequirements.IsEmpty || !AotRequirements.TryGet(declarationName, out var annotation))
+        {
+            return;
+        }
+
+        ResolveAotAttributeTypes();
+
+        if (annotation.RequiresUnreferencedCode && _requiresUnreferencedCodeCtor != null)
+        {
+            applyAttribute(new CustomAttributeBuilder(_requiresUnreferencedCodeCtor, new object[] { annotation.Message }));
+        }
+
+        if (annotation.RequiresDynamicCode && _requiresDynamicCodeCtor != null)
+        {
+            applyAttribute(new CustomAttributeBuilder(_requiresDynamicCodeCtor, new object[] { annotation.Message }));
+        }
+    }
+
+    private void ResolveAotAttributeTypes()
+    {
+        if (_aotAttributeTypesResolved)
+        {
+            return;
+        }
+
+        _aotAttributeTypesResolved = true;
+
+        // RequiresUnreferencedCodeAttribute ships since .NET 5; RequiresDynamicCodeAttribute since
+        // .NET 7. Resolve by full name so we only emit what the target framework actually defines.
+        _requiresUnreferencedCodeCtor = ResolveSingleStringAttributeConstructor(
+            "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute");
+        _requiresDynamicCodeCtor = ResolveSingleStringAttributeConstructor(
+            "System.Diagnostics.CodeAnalysis.RequiresDynamicCodeAttribute");
+    }
+
+    private static ConstructorInfo? ResolveSingleStringAttributeConstructor(string fullName)
+    {
+        var type = Type.GetType($"{fullName}, System.Private.CoreLib")
+            ?? Type.GetType($"{fullName}, System.Runtime")
+            ?? Type.GetType(fullName);
+        return type?.GetConstructor(new[] { typeof(string) });
     }
 
     private void EnsureNullableMetadataAttributeTypes()
@@ -9313,6 +9379,7 @@ public partial class ILCompiler
         // builder API that can carry per-parameter required modifiers.
         SetMethodSignatureWithInModifiers(methodBuilder, function.Parameters, returnType, parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, function.Attributes);
+        ApplyAotRequirementAttributes(methodBuilder.SetCustomAttribute, function.Name);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
         if (function.ReturnType != null)
         {
@@ -18851,7 +18918,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, classDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
@@ -18903,7 +18970,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, structDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
@@ -19331,7 +19398,7 @@ public partial class ILCompiler
     /// <summary>
     /// Declare a method (instance or static)
     /// </summary>
-    private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl, IReadOnlyList<Type>? implementedInterfaces = null)
+    private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl, IReadOnlyList<Type>? implementedInterfaces = null, string? declaringTypeName = null)
     {
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
         var returnType = funcDecl.ReturnType != null
@@ -19380,6 +19447,9 @@ public partial class ILCompiler
             returnType,
             parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
+        ApplyAotRequirementAttributes(
+            methodBuilder.SetCustomAttribute,
+            declaringTypeName != null ? $"{declaringTypeName}.{funcDecl.Name}" : funcDecl.Name);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
         if (funcDecl.ReturnType != null)
         {
@@ -21491,7 +21561,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, recordDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
