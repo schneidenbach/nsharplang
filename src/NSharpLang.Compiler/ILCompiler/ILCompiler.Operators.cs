@@ -865,4 +865,73 @@ public partial class ILCompiler
         _currentIL!.Emit(opcode);
         return true;
     }
+
+    /// <summary>
+    /// Returns true when an unsigned-aware numeric type's CLR stack representation differs from the
+    /// canonical signed type at the same width, i.e. types whose only built-in promotion target is
+    /// the next wider type. We treat these as plain primitives for binary numeric promotion.
+    /// </summary>
+    private static bool IsPrimitiveNumericForPromotion(Type type)
+    {
+        return Type.GetTypeCode(type) switch
+        {
+            TypeCode.SByte or TypeCode.Byte or TypeCode.Int16 or TypeCode.UInt16
+                or TypeCode.Int32 or TypeCode.UInt32 or TypeCode.Int64 or TypeCode.UInt64
+                or TypeCode.Char or TypeCode.Single or TypeCode.Double => true,
+            _ => false
+        };
+    }
+
+    private static int GetNumericPromotionRank(Type type)
+    {
+        // Higher rank == wider/preferred common type, following C#/ECMA-335 binary numeric
+        // promotion. Sub-int integral types are promoted to int when combined with another
+        // sub-int or int operand.
+        return Type.GetTypeCode(type) switch
+        {
+            TypeCode.SByte or TypeCode.Byte or TypeCode.Int16 or TypeCode.UInt16
+                or TypeCode.Char or TypeCode.Int32 => 1,   // int
+            TypeCode.UInt32 => 2,                          // uint
+            TypeCode.Int64 => 3,                           // long
+            TypeCode.UInt64 => 4,                          // ulong
+            TypeCode.Single => 5,                          // float
+            TypeCode.Double => 6,                          // double
+            _ => 0
+        };
+    }
+
+    /// <summary>
+    /// Computes the common type that both operands of a built-in binary numeric operation must be
+    /// converted to before the arithmetic/comparison opcode is emitted (C# binary numeric
+    /// promotion). Returns null when promotion does not apply (non-numeric operands, decimal, or
+    /// operands that are handled by an operator method elsewhere).
+    /// </summary>
+    private bool TryGetBinaryNumericPromotionType(Type leftType, Type rightType, out Type commonType)
+    {
+        commonType = typeof(void);
+        if (!IsPrimitiveNumericForPromotion(leftType) || !IsPrimitiveNumericForPromotion(rightType))
+        {
+            return false;
+        }
+
+        var leftRank = GetNumericPromotionRank(leftType);
+        var rightRank = GetNumericPromotionRank(rightType);
+        if (leftRank == 0 || rightRank == 0)
+        {
+            return false;
+        }
+
+        var rank = Math.Max(leftRank, rightRank);
+        commonType = rank switch
+        {
+            1 => typeof(int),
+            2 => typeof(uint),
+            3 => typeof(long),
+            4 => typeof(ulong),
+            5 => typeof(float),
+            6 => typeof(double),
+            _ => typeof(int)
+        };
+        return true;
+    }
 }

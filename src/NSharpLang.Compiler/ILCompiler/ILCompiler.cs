@@ -13994,9 +13994,44 @@ public partial class ILCompiler
             return;
         }
 
-        // Emit left and right operands
-        EmitExpression(binary.Left);
-        EmitExpression(binary.Right);
+        // Built-in arithmetic and relational operators require binary numeric promotion: when the
+        // operands have different primitive numeric types (e.g. `int * double`), both must be
+        // converted to a common type before the opcode runs. Without this the CLR leaves a
+        // wrong-typed value on the stack (unverifiable IL: StackUnexpected). Operator methods and
+        // string/equality-with-null paths are handled above, so only the built-in numeric forms
+        // reach here.
+        var promote = binary.Operator is
+            BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply or
+            BinaryOperator.Divide or BinaryOperator.Modulo or
+            BinaryOperator.Less or BinaryOperator.LessOrEqual or
+            BinaryOperator.Greater or BinaryOperator.GreaterOrEqual or
+            BinaryOperator.Equal or BinaryOperator.NotEqual;
+
+        Type? commonType = null;
+        if (promote)
+        {
+            var leftOperandType = GetExpressionType(binary.Left);
+            var rightOperandType = GetExpressionType(binary.Right);
+            if (leftOperandType != rightOperandType
+                && TryGetBinaryNumericPromotionType(leftOperandType, rightOperandType, out var resolvedCommonType))
+            {
+                commonType = resolvedCommonType;
+            }
+        }
+
+        // Emit left and right operands, promoting each to the common numeric type when required.
+        if (commonType != null)
+        {
+            EmitExpression(binary.Left);
+            EmitValueCoercion(GetExpressionType(binary.Left), commonType, allowExplicitUserDefinedConversions: false);
+            EmitExpression(binary.Right);
+            EmitValueCoercion(GetExpressionType(binary.Right), commonType, allowExplicitUserDefinedConversions: false);
+        }
+        else
+        {
+            EmitExpression(binary.Left);
+            EmitExpression(binary.Right);
+        }
 
         // Emit operator
         switch (binary.Operator)
@@ -17443,16 +17478,35 @@ public partial class ILCompiler
             return operatorMethod.ReturnType;
         }
 
-        return binary.Operator switch
+        switch (binary.Operator)
         {
-            BinaryOperator.Equal or BinaryOperator.NotEqual or
-            BinaryOperator.Less or BinaryOperator.LessOrEqual or
-            BinaryOperator.Greater or BinaryOperator.GreaterOrEqual or
-            BinaryOperator.And or BinaryOperator.Or => typeof(bool),
-            BinaryOperator.NullCoalesce => GetNullCoalesceExpressionType(binary),
-            BinaryOperator.Range => typeof(Range),
-            _ => GetExpressionType(binary.Left)
-        };
+            case BinaryOperator.Equal or BinaryOperator.NotEqual or
+                BinaryOperator.Less or BinaryOperator.LessOrEqual or
+                BinaryOperator.Greater or BinaryOperator.GreaterOrEqual or
+                BinaryOperator.And or BinaryOperator.Or:
+                return typeof(bool);
+            case BinaryOperator.NullCoalesce:
+                return GetNullCoalesceExpressionType(binary);
+            case BinaryOperator.Range:
+                return typeof(Range);
+        }
+
+        // Arithmetic operators undergo binary numeric promotion: the result type is the common
+        // type of both operands (e.g. `int * double` yields `double`), not simply the left type.
+        if (binary.Operator is
+            BinaryOperator.Add or BinaryOperator.Subtract or BinaryOperator.Multiply or
+            BinaryOperator.Divide or BinaryOperator.Modulo)
+        {
+            var leftType = GetExpressionType(binary.Left);
+            var rightType = GetExpressionType(binary.Right);
+            if (leftType != rightType
+                && TryGetBinaryNumericPromotionType(leftType, rightType, out var commonType))
+            {
+                return commonType;
+            }
+        }
+
+        return GetExpressionType(binary.Left);
     }
 
     private Type GetNullCoalesceExpressionType(BinaryExpression binary)
@@ -19410,8 +19464,16 @@ public partial class ILCompiler
             .Select(p => ResolveParameterType(p, typeGenericParameters))
             .ToArray();
 
-        // Interface methods are always public, abstract, and virtual
-        var methodAttributes = MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+        // An interface method with a body is a C# 8 default interface method (DIM): it is virtual
+        // but concrete, so implementing types are not required to override it. Without a body the
+        // method is abstract and every implementer must provide it.
+        var hasDefaultImplementation = funcDecl.Body != null || funcDecl.ExpressionBody != null;
+
+        var methodAttributes = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+        if (!hasDefaultImplementation)
+        {
+            methodAttributes |= MethodAttributes.Abstract;
+        }
         if (funcDecl.IsOperatorOverload || funcDecl.IsConversionOperator)
         {
             methodAttributes |= MethodAttributes.SpecialName;
@@ -19437,9 +19499,15 @@ public partial class ILCompiler
             ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i], typeGenericParameters);
         }
 
-        // Store method for reference (interface methods don't have bodies)
+        // Store method for reference.
         _methods[GetMethodKey(typeBuilder, funcDecl.Name)] = methodBuilder;
         _declaredMethodParameters[GetMethodKey(typeBuilder, funcDecl.Name)] = funcDecl.Parameters;
+
+        // Register as a declared overload so unqualified calls within the interface (e.g. a default
+        // method body invoking another interface member) resolve through the standard overload
+        // binder. RegisterDeclaredMethodOverload also records the builder for body emission, which
+        // the EmitInterfaceBodies pass uses for default interface methods.
+        RegisterDeclaredMethodOverload(GetMethodKey(typeBuilder, funcDecl.Name), funcDecl, methodBuilder);
     }
 
     /// <summary>

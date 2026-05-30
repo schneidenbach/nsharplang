@@ -216,7 +216,26 @@ public partial class ILCompiler
 
     private void EmitInterfaceBodies(InterfaceDeclaration interfaceDeclaration, string? declaredTypeName = null)
     {
-        EmitNestedTypeBodies(interfaceDeclaration.Members, declaredTypeName ?? interfaceDeclaration.Name);
+        var typeName = declaredTypeName ?? interfaceDeclaration.Name;
+
+        // Emit IL for default interface methods (methods declared with a body). Abstract interface
+        // methods are skipped because they were never registered for body emission.
+        if (_types.TryGetValue(typeName, out var typeBuilder))
+        {
+            _currentTypeBuilder = typeBuilder;
+            foreach (var member in interfaceDeclaration.Members)
+            {
+                if (member is FunctionDeclaration funcDecl
+                    && (funcDecl.Body != null || funcDecl.ExpressionBody != null))
+                {
+                    EmitMethodBody(typeBuilder, funcDecl);
+                }
+            }
+
+            _currentTypeBuilder = null;
+        }
+
+        EmitNestedTypeBodies(interfaceDeclaration.Members, typeName);
     }
 
     private void DeclareClass(TypeBuilder containingTypeBuilder, ClassDeclaration classDeclaration, string typeName)

@@ -35,8 +35,6 @@ RecordStructs.dll | IL:StackUnexpected | Point::Equals(object)
 RecordStructs.dll | IL:StackUnexpected | Vector2D::Equals(object)
 RecordStructs.dll | IL:StackUnexpected | Vector2D::Normalize()
 RecordsAndInterfaces.dll | IL:MethodAccess | Program::Main()
-RecordsAndInterfaces.dll | IL:StackUnexpected | Square::CalculatePerimeter()
-RecordsAndInterfaces.dll | MD | Class implements interface but not method, Class: '[RecordsAndInterfaces]Circle' Interface: '[RecordsAndInterfaces]IShape' Missing method: '[RecordsAndInterfaces]IShape.Describe()'.
 SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Concatenate(string, string[
 SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Format(string, string, int32[
 TaskCli.dll | IL:MethodAccess | TaskCli.Services.TaskService::MarkDone(int32)
