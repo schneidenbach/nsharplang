@@ -61,11 +61,15 @@ jobs:
       with:
         global-json-file: global.json
 
-    - name: Restore dependencies
-      run: dotnet restore
+    # Scope the restore to the CLI/compiler graph. The gate builds every example
+    # with `nlc build` (the CLI DLL) and never touches NSharpLang.Playground.Wasm,
+    # so a solution-wide `dotnet restore` would needlessly require the wasm-tools
+    # workload (NETSDK1147) and fail this job before it ever runs ilverify.
+    - name: Restore dependencies (CLI/compiler only)
+      run: dotnet restore src/NSharpLang.Cli/Cli.csproj
 
     - name: Build CLI (compiler)
-      run: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug
+      run: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug --no-restore
 
     - name: Install dotnet-ilverify
       run: dotnet tool install --global dotnet-ilverify
