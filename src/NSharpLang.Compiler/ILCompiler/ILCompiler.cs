@@ -14008,10 +14008,12 @@ public partial class ILCompiler
             BinaryOperator.Equal or BinaryOperator.NotEqual;
 
         Type? commonType = null;
+        Type? leftOperandType = null;
+        Type? rightOperandType = null;
         if (promote)
         {
-            var leftOperandType = GetExpressionType(binary.Left);
-            var rightOperandType = GetExpressionType(binary.Right);
+            leftOperandType = GetExpressionType(binary.Left);
+            rightOperandType = GetExpressionType(binary.Right);
             if (leftOperandType != rightOperandType
                 && TryGetBinaryNumericPromotionType(leftOperandType, rightOperandType, out var resolvedCommonType))
             {
@@ -14023,9 +14025,9 @@ public partial class ILCompiler
         if (commonType != null)
         {
             EmitExpression(binary.Left);
-            EmitValueCoercion(GetExpressionType(binary.Left), commonType, allowExplicitUserDefinedConversions: false);
+            EmitValueCoercion(leftOperandType!, commonType, allowExplicitUserDefinedConversions: false);
             EmitExpression(binary.Right);
-            EmitValueCoercion(GetExpressionType(binary.Right), commonType, allowExplicitUserDefinedConversions: false);
+            EmitValueCoercion(rightOperandType!, commonType, allowExplicitUserDefinedConversions: false);
         }
         else
         {

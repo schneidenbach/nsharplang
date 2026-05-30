@@ -867,9 +867,11 @@ public partial class ILCompiler
     }
 
     /// <summary>
-    /// Returns true when an unsigned-aware numeric type's CLR stack representation differs from the
-    /// canonical signed type at the same width, i.e. types whose only built-in promotion target is
-    /// the next wider type. We treat these as plain primitives for binary numeric promotion.
+    /// Returns true when <paramref name="type"/>'s CLR type code is a primitive integral or
+    /// floating-point kind eligible for built-in binary numeric promotion. Excludes <c>bool</c>,
+    /// <c>decimal</c> (handled via operator methods), and reference/user types. Enums report their
+    /// underlying integral type code, which is the correct promotion behavior; the caller only
+    /// promotes when the two operand types differ, so same-enum comparisons are untouched.
     /// </summary>
     private static bool IsPrimitiveNumericForPromotion(Type type)
     {
