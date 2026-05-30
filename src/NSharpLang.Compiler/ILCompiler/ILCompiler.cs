@@ -7419,6 +7419,31 @@ public partial class ILCompiler
         return best;
     }
 
+    /// <summary>
+    /// Emits constructor arguments when overload binding did not produce a
+    /// <see cref="BoundCallArgument"/> list (e.g. a primary-constructor or other
+    /// synthesized constructor that is not registered as a declared overload).
+    /// Each argument is coerced to its corresponding parameter type so that, for
+    /// example, an integer literal passed to a <c>double</c> parameter emits the
+    /// required <c>conv.r8</c> instead of leaving an <c>Int32</c> on the stack
+    /// (which produces unverifiable IL).
+    /// </summary>
+    private void EmitUnboundConstructorArguments(ConstructorInfo? constructor, IReadOnlyList<Argument> arguments)
+    {
+        var parameters = constructor?.GetParameters();
+        for (int i = 0; i < arguments.Count; i++)
+        {
+            if (parameters != null && i < parameters.Length)
+            {
+                EmitExpressionWithExpectedType(arguments[i].Value, parameters[i].ParameterType);
+            }
+            else
+            {
+                EmitExpression(arguments[i].Value);
+            }
+        }
+    }
+
     private void EmitBoundCallArguments(IReadOnlyList<BoundCallArgument> arguments)
     {
         foreach (var argument in arguments)
@@ -15376,10 +15401,7 @@ public partial class ILCompiler
                 }
                 else
                 {
-                    foreach (var arg in newExpr.ConstructorArguments)
-                    {
-                        EmitExpression(arg.Value);
-                    }
+                    EmitUnboundConstructorArguments(constructor, newExpr.ConstructorArguments);
                 }
 
                 _currentIL.Emit(OpCodes.Newobj, constructor);
@@ -15409,10 +15431,7 @@ public partial class ILCompiler
         }
         else
         {
-            foreach (var arg in newExpr.ConstructorArguments)
-            {
-                EmitExpression(arg.Value);
-            }
+            EmitUnboundConstructorArguments(constructor, newExpr.ConstructorArguments);
         }
 
         // Call constructor

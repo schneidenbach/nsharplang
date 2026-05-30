@@ -2131,6 +2131,65 @@ record struct Point(x: int, y: int) {
     }
 
     [Fact]
+    public void ILCompiler_RecordStructMethodReturningNewStruct_CoercesLiteralArgsAndIsVerifiable()
+    {
+        // Regression (ilverify StackUnexpected on Vector2D::Normalize): a record-struct
+        // method that returns `new Vector2D(0, 0)` constructed the value via a synthesized
+        // primary constructor whose parameters are `double`. Because the primary constructor
+        // is not registered as a declared-overload, EmitNewObject fell back to a raw
+        // `EmitExpression(arg)` loop that ignored the parameter type, leaving an `Int32`
+        // (`ldc.i4.0`) on the stack where the `.ctor(float64, float64)` expected a `Double`.
+        // The fix coerces each unbound constructor argument to its parameter type, emitting
+        // the required `conv.r8`. Guard both the IL shape (Conv_R8 present) and semantics.
+        var source = @"
+record struct Vec(x: double, y: double) {
+    func Zero(): Vec {
+        return new Vec(0, 0)
+    }
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var vecType = assembly.GetType("Vec");
+            Assert.NotNull(vecType);
+            Assert.True(vecType!.IsValueType, "Vec should be emitted as a value type.");
+
+            var zero = vecType.GetMethod(
+                "Zero",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            Assert.NotNull(zero);
+
+            var opCodes = GetMethodOpCodes(zero!);
+
+            var instance = Activator.CreateInstance(vecType, 3.0, 4.0)!;
+            var produced = zero!.Invoke(instance, Array.Empty<object>())!;
+
+            var xProp = vecType.GetProperty("x")!;
+            var yProp = vecType.GetProperty("y")!;
+
+            return new
+            {
+                // Each integer literal fed to a double parameter must be widened.
+                ConvR8Count = opCodes.Count(op => op == OpCodes.Conv_R8),
+                // The constructed value must be returned (no dangling address/box).
+                EndsWithRet = opCodes.Count > 0 && opCodes[^1] == OpCodes.Ret,
+                ReturnsVec = produced.GetType() == vecType,
+                X = (double)xProp.GetValue(produced)!,
+                Y = (double)yProp.GetValue(produced)!,
+            };
+        });
+
+        Assert.True(result.ConvR8Count >= 2, "Both integer-literal constructor arguments must be coerced to double (conv.r8).");
+        Assert.True(result.EndsWithRet, "The struct-returning method must end with ret.");
+        Assert.True(result.ReturnsVec, "Zero() must return a Vec value.");
+        Assert.Equal(0.0, result.X);
+        Assert.Equal(0.0, result.Y);
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileRecordWithMethods()
     {
         var source = @"
