@@ -27,6 +27,76 @@ public class ParserErrorTests
         return parser.ParseCompilationUnit();
     }
 
+    #region Reserved Keyword As Name (NL109)
+
+    [Fact]
+    public void Parser_ReportsError_ReservedKeyword_AsFieldName()
+    {
+        // `base` is a reserved keyword; it cannot name a field. Regression test for the
+        // class of bug where a keyword-named field flowed into the IL backend as an
+        // `<error>` placeholder and emitted unverifiable IL (InvalidProgramException).
+        var source = @"
+class Counter {
+    base: int
+}";
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        var error = Assert.Single(result.Errors);
+        Assert.Equal(ErrorCode.ReservedKeywordAsName, error.Code);
+        Assert.Equal("NL109", error.DiagnosticId);
+        Assert.Equal(3, error.Line);
+        Assert.NotNull(error.HumanExplanation);
+        Assert.Contains("reserved keyword", error.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("base", error.HumanExplanation, StringComparison.Ordinal);
+        Assert.NotNull(error.Suggestions);
+        Assert.NotEmpty(error.Suggestions);
+    }
+
+    [Fact]
+    public void Parser_ReportsError_ReservedKeyword_AsMemberNameAfterDot()
+    {
+        var source = @"
+func test() {
+    x := obj.base
+}";
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.ReservedKeywordAsName);
+        var error = result.Errors.First(e => e.Code == ErrorCode.ReservedKeywordAsName);
+        Assert.NotNull(error.HumanExplanation);
+        Assert.Contains("reserved keyword", error.HumanExplanation, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Parser_ReportsError_ReservedKeyword_AsFunctionParameterName()
+    {
+        var source = "func test(base: int) {}";
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.ReservedKeywordAsName);
+    }
+
+    [Fact]
+    public void Parser_AcceptsNonKeywordIdentifiers_ThatAreIlAsmReserved()
+    {
+        // `value` and `method` are reserved words in ILAsm textual syntax but are NOT N#
+        // keywords and are valid field names in CLR metadata. They must parse cleanly.
+        var source = @"
+class Box {
+    value: int
+    method: int
+}";
+        var result = Parse(source);
+
+        Assert.True(result.Success, "value/method are valid N# identifiers and must parse");
+        Assert.Empty(result.Errors);
+    }
+
+    #endregion
+
     #region Single Line Errors
 
     [Fact]

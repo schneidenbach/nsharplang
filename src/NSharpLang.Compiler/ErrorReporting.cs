@@ -19,6 +19,7 @@ public enum ErrorCode
     MissingClosingBrace = 106,
     MissingClosingParen = 107,
     MissingClosingBracket = 108,
+    ReservedKeywordAsName = 109,
 
     // Type errors (200-299)
     TypeNotFound = 201,
