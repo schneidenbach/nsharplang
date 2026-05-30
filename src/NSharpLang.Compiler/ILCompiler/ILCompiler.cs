@@ -4886,6 +4886,36 @@ public partial class ILCompiler
         }
     }
 
+    /// <summary>
+    /// Enumerates a type together with every interface it transitively extends or
+    /// implements, breadth-first. Two call sites rely on this: constrained dispatch,
+    /// so a method declared on a <em>base</em> interface of a generic constraint
+    /// (e.g. <c>T : Shape</c> where <c>Shape : HasArea</c>, calling <c>s.Area()</c>)
+    /// still binds; and interface-override wiring, so a type satisfies the inherited
+    /// members of every interface in the hierarchy, not just the directly named one.
+    /// </summary>
+    private IEnumerable<Type> EnumerateTypeWithBaseInterfaces(Type type)
+    {
+        var seen = new HashSet<Type>();
+        var queue = new Queue<Type>();
+        queue.Enqueue(type);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            if (!seen.Add(current))
+            {
+                continue;
+            }
+
+            yield return current;
+
+            foreach (var baseInterface in GetInterfacesSafe(current))
+            {
+                queue.Enqueue(baseInterface);
+            }
+        }
+    }
+
     private ConstructorInfo? ResolveUserDefinedConstructor(Type type)
     {
         if (!TryGetUserTypeDefinition(type, out var typeBuilder))
@@ -7805,7 +7835,13 @@ public partial class ILCompiler
             }
         }
 
+        // Expand each directly named interface with the interfaces it transitively
+        // extends, so a type implementing `Shape : HasArea` also satisfies the
+        // inherited `HasArea` members (the method-override wiring in DeclareMethod
+        // matches against every interface returned here).
         return implementedInterfaces
+            .SelectMany(EnumerateTypeWithBaseInterfaces)
+            .Where(type => type.IsInterface)
             .GroupBy(GetTypeKey, StringComparer.Ordinal)
             .Select(group => group.First())
             .ToList();
@@ -12530,41 +12566,47 @@ public partial class ILCompiler
 
                 // Prefer declared/duck interface (or class) constraints that are
                 // defined in this compilation: their methods live in TypeBuilders
-                // and cannot be resolved through runtime reflection binding.
+                // and cannot be resolved through runtime reflection binding. Walk
+                // each constraint's interface hierarchy so a method declared on a
+                // base interface (e.g. `T : Shape` where `Shape : HasArea`) is still
+                // dispatched with a `constrained.` prefix instead of failing to bind.
                 foreach (var constraint in constraints)
                 {
-                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    foreach (var constraintInterface in EnumerateTypeWithBaseInterfaces(constraint))
                     {
-                        continue;
-                    }
+                        if (!TryGetUserTypeDefinition(constraintInterface, out var constraintBuilder))
+                        {
+                            continue;
+                        }
 
-                    var boundDeclaredCall = BindDeclaredMethodCall(
-                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
-                        call,
-                        targetType: constraint,
-                        predicate: overload => !overload.Builder.IsStatic);
-                    if (boundDeclaredCall != null)
-                    {
-                        EmitBoundCallArguments(boundDeclaredCall.Arguments);
+                        var boundDeclaredCall = BindDeclaredMethodCall(
+                            GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                            call,
+                            targetType: constraintInterface,
+                            predicate: overload => !overload.Builder.IsStatic);
+                        if (boundDeclaredCall != null)
+                        {
+                            EmitBoundCallArguments(boundDeclaredCall.Arguments);
 
-                        // constrained. on the type parameter avoids boxing the
-                        // receiver when the method is dispatched virtually.
-                        _currentIL.Emit(OpCodes.Constrained, objectType);
-                        _currentIL.Emit(OpCodes.Callvirt, boundDeclaredCall.Method);
-                        return;
-                    }
+                            // constrained. on the type parameter avoids boxing the
+                            // receiver when the method is dispatched virtually.
+                            _currentIL.Emit(OpCodes.Constrained, objectType);
+                            _currentIL.Emit(OpCodes.Callvirt, boundDeclaredCall.Method);
+                            return;
+                        }
 
-                    // Interface declarations only register their members in the
-                    // method table (not the overload table), so fall back to a
-                    // direct lookup and bind the call arguments positionally.
-                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
-                    if (declaredMethod != null)
-                    {
-                        EmitCallArguments(call.Arguments, declaredMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray());
+                        // Interface declarations only register their members in the
+                        // method table (not the overload table), so fall back to a
+                        // direct lookup and bind the call arguments positionally.
+                        var declaredMethod = ResolveUserDefinedMethod(constraintInterface, memberAccess.MemberName);
+                        if (declaredMethod != null)
+                        {
+                            EmitCallArguments(call.Arguments, declaredMethod.GetParameters().Select(parameter => parameter.ParameterType).ToArray());
 
-                        _currentIL.Emit(OpCodes.Constrained, objectType);
-                        _currentIL.Emit(OpCodes.Callvirt, declaredMethod);
-                        return;
+                            _currentIL.Emit(OpCodes.Constrained, objectType);
+                            _currentIL.Emit(OpCodes.Callvirt, declaredMethod);
+                            return;
+                        }
                     }
                 }
 
@@ -15846,28 +15888,33 @@ public partial class ILCompiler
                 var genericConstraints = objectType.GetGenericParameterConstraints();
 
                 // Declared/duck interface (or class) constraints defined in this
-                // compilation resolve through the TypeBuilder method tables.
+                // compilation resolve through the TypeBuilder method tables. Walk
+                // each constraint's interface hierarchy so a method inherited from a
+                // base interface resolves the same way it dispatches at emission time.
                 foreach (var constraint in genericConstraints)
                 {
-                    if (!TryGetUserTypeDefinition(constraint, out var constraintBuilder))
+                    foreach (var constraintInterface in EnumerateTypeWithBaseInterfaces(constraint))
                     {
-                        continue;
-                    }
+                        if (!TryGetUserTypeDefinition(constraintInterface, out var constraintBuilder))
+                        {
+                            continue;
+                        }
 
-                    var boundDeclaredCall = BindDeclaredMethodCall(
-                        GetMethodKey(constraintBuilder, memberAccess.MemberName),
-                        call,
-                        targetType: constraint,
-                        predicate: overload => !overload.Builder.IsStatic);
-                    if (boundDeclaredCall != null)
-                    {
-                        return GetBoundDeclaredMethodReturnType(boundDeclaredCall);
-                    }
+                        var boundDeclaredCall = BindDeclaredMethodCall(
+                            GetMethodKey(constraintBuilder, memberAccess.MemberName),
+                            call,
+                            targetType: constraintInterface,
+                            predicate: overload => !overload.Builder.IsStatic);
+                        if (boundDeclaredCall != null)
+                        {
+                            return GetBoundDeclaredMethodReturnType(boundDeclaredCall);
+                        }
 
-                    var declaredMethod = ResolveUserDefinedMethod(constraint, memberAccess.MemberName);
-                    if (declaredMethod != null)
-                    {
-                        return declaredMethod.ReturnType;
+                        var declaredMethod = ResolveUserDefinedMethod(constraintInterface, memberAccess.MemberName);
+                        if (declaredMethod != null)
+                        {
+                            return declaredMethod.ReturnType;
+                        }
                     }
                 }
 
