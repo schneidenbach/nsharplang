@@ -25,6 +25,14 @@ public partial class ILCompiler
 {
     private const string ThisCaptureName = "<>this";
 
+    /// <summary>
+    /// Name of the synthesized public clone method emitted on reference-type records.
+    /// `with` expressions invoke this instead of the protected <c>object.MemberwiseClone</c>,
+    /// which cannot be legally called across types (ECMA-335 family access -> IL:MethodAccess).
+    /// Matches the C# compiler's record clone member name.
+    /// </summary>
+    private const string RecordCloneMethodName = "<Clone>$";
+
     private static string GetNuGetPackagesRoot()
     {
         var configuredRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
@@ -7419,6 +7427,31 @@ public partial class ILCompiler
         return best;
     }
 
+    /// <summary>
+    /// Emits constructor arguments when overload binding did not produce a
+    /// <see cref="BoundCallArgument"/> list (e.g. a primary-constructor or other
+    /// synthesized constructor that is not registered as a declared overload).
+    /// Each argument is coerced to its corresponding parameter type so that, for
+    /// example, an integer literal passed to a <c>double</c> parameter emits the
+    /// required <c>conv.r8</c> instead of leaving an <c>Int32</c> on the stack
+    /// (which produces unverifiable IL).
+    /// </summary>
+    private void EmitUnboundConstructorArguments(ConstructorInfo? constructor, IReadOnlyList<Argument> arguments)
+    {
+        var parameters = constructor?.GetParameters();
+        for (int i = 0; i < arguments.Count; i++)
+        {
+            if (parameters != null && i < parameters.Length)
+            {
+                EmitExpressionWithExpectedType(arguments[i].Value, parameters[i].ParameterType);
+            }
+            else
+            {
+                EmitExpression(arguments[i].Value);
+            }
+        }
+    }
+
     private void EmitBoundCallArguments(IReadOnlyList<BoundCallArgument> arguments)
     {
         foreach (var argument in arguments)
@@ -10107,7 +10140,13 @@ public partial class ILCompiler
             }
             else
             {
-                EmitExpression(function.ExpressionBody);
+                // Convert the body value to the declared return type before `ret`, mirroring
+                // `EmitReturn`. Without this, an expression whose natural type differs from the
+                // return type (e.g. an int expression for a `double` property getter) leaves a
+                // value of the wrong type on the stack at `ret`, producing unverifiable IL
+                // (IL:StackUnexpected). For a void return type EmitExpressionWithExpectedType
+                // discards the computed value, matching the statement form `{ expr; return }`.
+                EmitExpressionWithExpectedType(function.ExpressionBody, bodyReturnType);
                 _currentIL.Emit(OpCodes.Ret);
             }
         }
@@ -11317,12 +11356,17 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldloc, lockLocal);
         _currentIL.Emit(OpCodes.Call, monitorEnter);
 
+        // The body lives inside a protected (try) region. A `return` inside it must not
+        // emit a raw `ret` (illegal out of a try) — tracking the exception-block depth makes
+        // EmitReturn lower returns to a structured `leave` to the method's return label.
         _currentIL.BeginExceptionBlock();
+        _exceptionBlockDepth++;
         EmitStatement(lockStmt.Body);
         _currentIL.BeginFinallyBlock();
         _currentIL.Emit(OpCodes.Ldloc, lockLocal);
         _currentIL.Emit(OpCodes.Call, monitorExit);
         _currentIL.EndExceptionBlock();
+        _exceptionBlockDepth--;
     }
 
     /// <summary>
@@ -12091,6 +12135,9 @@ public partial class ILCompiler
 
         // Begin try-finally block
         _currentIL.BeginExceptionBlock();
+        // Track the protected region so a `return` inside the body lowers to a structured
+        // `leave` (see EmitReturn) instead of an illegal `ret` out of the try block.
+        _exceptionBlockDepth++;
 
         // Emit the body
         if (usingStmt.Body != null)
@@ -12183,6 +12230,7 @@ public partial class ILCompiler
 
         // End exception block
         _currentIL.EndExceptionBlock();
+        _exceptionBlockDepth--;
     }
 
     private MethodInfo? ResolveDisposePatternMethod(Type type)
@@ -13263,12 +13311,20 @@ public partial class ILCompiler
                     }
                     else if (RequiresTypeBuilderMemberResolution(exprType))
                     {
-                        // Same-compilation user type (enum/struct/class TypeBuilder): the generic
-                        // AppendFormatted<T> over a builder type emits an unresolvable MethodSpec, so box
-                        // and route through the non-generic object overload. Value types box here (only
-                        // these holes pay the box; BCL primitives keep the generic path); reference types
-                        // are already object-assignable.
-                        if (exprType.IsValueType)
+                        // Same-compilation user type (enum/struct/class TypeBuilder) or a generic type
+                        // parameter: the generic AppendFormatted<T> over a builder/generic-parameter type
+                        // emits an unresolvable MethodSpec, so box and route through the non-generic object
+                        // overload. Value types box here (only these holes pay the box; BCL primitives keep
+                        // the generic path); concrete reference types are already object-assignable.
+                        //
+                        // Generic type parameters are a distinct case: an unconstrained (or struct-
+                        // constrained) parameter !!T is NOT reported as IsValueType, yet the verifier
+                        // requires an explicit `box !!T` to turn it into an `object` reference. `box` over a
+                        // generic parameter is verifiable for value, reference, AND unconstrained params
+                        // alike (a no-op cast-to-object at runtime for reference types), so we always box
+                        // generic-parameter holes. Without this, passing `!!T` straight to the object
+                        // overload produces unverifiable IL (StackUnexpected: found 'T', expected 'object').
+                        if (exprType.IsValueType || exprType.IsGenericParameter)
                         {
                             _currentIL.Emit(OpCodes.Box, exprType);
                         }
@@ -13994,9 +14050,24 @@ public partial class ILCompiler
             return;
         }
 
-        // Emit left and right operands
-        EmitExpression(binary.Left);
-        EmitExpression(binary.Right);
+        // Emit left and right operands, applying binary numeric promotion so the
+        // raw arithmetic/comparison opcode below sees two operands of the SAME
+        // CLI stack type. Without this, mixed int/double operands (e.g.
+        // `intField / (double)other`) emit a `div` over Int32+Double, which the
+        // ECMA-335 verifier rejects (IL:StackUnexpected) and which produces wrong
+        // results at runtime.
+        if (TryGetBinaryNumericPromotionType(binary.Operator, GetExpressionType(binary.Left), GetExpressionType(binary.Right), out var promotedType))
+        {
+            EmitExpression(binary.Left);
+            EmitValueCoercion(GetExpressionType(binary.Left), promotedType, allowExplicitUserDefinedConversions: false);
+            EmitExpression(binary.Right);
+            EmitValueCoercion(GetExpressionType(binary.Right), promotedType, allowExplicitUserDefinedConversions: false);
+        }
+        else
+        {
+            EmitExpression(binary.Left);
+            EmitExpression(binary.Right);
+        }
 
         // Emit operator
         switch (binary.Operator)
@@ -14220,6 +14291,51 @@ public partial class ILCompiler
         }
 
         _currentIL.Emit(OpCodes.Call, concatMethod);
+    }
+
+    /// <summary>
+    /// Emit the arithmetic/concat operation for a compound assignment (<c>+=</c>, <c>-=</c>,
+    /// <c>*=</c>, <c>/=</c>). Both the current value and the right-hand side must already be on
+    /// the evaluation stack. When the target is a <see cref="string"/> and the operator is
+    /// <c>+=</c>, this lowers to <c>string.Concat(string, string)</c> instead of the numeric
+    /// <c>add</c> opcode — emitting <c>add</c> on object references produces unverifiable IL
+    /// (IL:ExpectedNumericType).
+    /// </summary>
+    private void EmitCompoundAssignmentOperation(AssignmentOperator op, Type operandType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (op == AssignmentOperator.AddAssign && operandType == typeof(string))
+        {
+            var concatMethod = typeof(string).GetMethod(
+                nameof(string.Concat),
+                new[] { typeof(string), typeof(string) });
+            if (concatMethod == null)
+            {
+                throw new InvalidOperationException("Could not resolve string.Concat(string, string)");
+            }
+
+            _currentIL.Emit(OpCodes.Call, concatMethod);
+            return;
+        }
+
+        switch (op)
+        {
+            case AssignmentOperator.AddAssign:
+                _currentIL.Emit(OpCodes.Add);
+                break;
+            case AssignmentOperator.SubtractAssign:
+                _currentIL.Emit(OpCodes.Sub);
+                break;
+            case AssignmentOperator.MultiplyAssign:
+                _currentIL.Emit(OpCodes.Mul);
+                break;
+            case AssignmentOperator.DivideAssign:
+                _currentIL.Emit(OpCodes.Div);
+                break;
+            default:
+                throw new NotImplementedException($"Assignment operator {op} not yet implemented in IL compiler");
+        }
     }
 
     private void EmitNullCoalesce(BinaryExpression binary)
@@ -14815,23 +14931,7 @@ public partial class ILCompiler
                         EmitExpressionWithExpectedType(assignment.Value, staticMemberType);
                     }
 
-                    switch (assignment.Operator)
-                    {
-                        case AssignmentOperator.AddAssign:
-                            _currentIL.Emit(OpCodes.Add);
-                            break;
-                        case AssignmentOperator.SubtractAssign:
-                            _currentIL.Emit(OpCodes.Sub);
-                            break;
-                        case AssignmentOperator.MultiplyAssign:
-                            _currentIL.Emit(OpCodes.Mul);
-                            break;
-                        case AssignmentOperator.DivideAssign:
-                            _currentIL.Emit(OpCodes.Div);
-                            break;
-                        default:
-                            throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                    }
+                    EmitCompoundAssignmentOperation(assignment.Operator, staticMemberType);
                 }
 
                 var assignedValueLocal = _currentIL.DeclareLocal(staticMemberType);
@@ -14887,12 +14987,27 @@ public partial class ILCompiler
                 return;
             }
 
+            // Is this a plain `=` store into a FIELD (not a property setter) of a reference-type
+            // receiver? That case takes a fast, verifiable path below: the receiver expression is
+            // emitted DIRECTLY before the Stfld and the assigned value is preserved via `dup`, so we
+            // never round-trip the receiver through a local. This matters for `initonly` (readonly)
+            // fields: ECMA-335 only permits writing an initonly field when the receiver on the stack
+            // is the constructor's own `this` (a direct `ldarg.0`). Caching `this` into a local and
+            // reloading it (`stloc; ldloc`) defeats ILVerify's `this`-identity check and yields the
+            // "Cannot change initonly field outside its .ctor" error. Emitting the receiver directly
+            // keeps the write verifiable and also removes a wasteful reload of the just-stored member.
+            var storesToReferenceTypeField =
+                assignment.Operator == AssignmentOperator.Assign
+                && !IsValueTypeLike(objectType)
+                && objectType is TypeBuilder fieldOwnerCandidate
+                && _fields.ContainsKey(GetFieldKey(fieldOwnerCandidate, memberAccess.MemberName));
+
             // Emit the object. For a value-type receiver we need its ADDRESS on the stack so the
             // trailing Stfld writes back into the original storage (a struct local, a lifted box's
             // Value field, or a by-ref struct parameter). Using EmitExpression here would push a
             // copy (and, for a by-ref struct parameter, an ldobj-dereferenced value), making the
             // Stfld invalid and silently dropping the mutation. Mirror the member-read path.
-            var cacheReceiver = !IsValueTypeLike(objectType);
+            var cacheReceiver = !IsValueTypeLike(objectType) && !storesToReferenceTypeField;
             LocalBuilder? receiverLocal = null;
             if (cacheReceiver)
             {
@@ -14900,6 +15015,12 @@ public partial class ILCompiler
                 receiverLocal = _currentIL.DeclareLocal(objectType);
                 _currentIL.Emit(OpCodes.Stloc, receiverLocal);
                 _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
+            }
+            else if (storesToReferenceTypeField)
+            {
+                // Reference-type field store: emit the receiver expression directly so the Stfld
+                // receiver is exactly what the source named (e.g. `ldarg.0` for `this`).
+                EmitExpression(memberAccess.Object);
             }
             else
             {
@@ -14944,23 +15065,7 @@ public partial class ILCompiler
                 }
 
                 // Perform operation
-                switch (assignment.Operator)
-                {
-                    case AssignmentOperator.AddAssign:
-                        _currentIL.Emit(OpCodes.Add);
-                        break;
-                    case AssignmentOperator.SubtractAssign:
-                        _currentIL.Emit(OpCodes.Sub);
-                        break;
-                    case AssignmentOperator.MultiplyAssign:
-                        _currentIL.Emit(OpCodes.Mul);
-                        break;
-                    case AssignmentOperator.DivideAssign:
-                        _currentIL.Emit(OpCodes.Div);
-                        break;
-                    default:
-                        throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                }
+                EmitCompoundAssignmentOperation(assignment.Operator, GetMemberAccessType(memberAccess));
             }
             else
             {
@@ -14973,6 +15078,22 @@ public partial class ILCompiler
                 {
                     EmitExpressionWithExpectedType(assignment.Value, GetMemberAccessType(memberAccess));
                 }
+            }
+
+            // Direct reference-type field store: stack is `receiver, value`. Preserve the assigned
+            // value as the expression result via `dup` + a temp, leaving the receiver untouched
+            // (a direct `ldarg.0` for `this`) so the Stfld stays initonly-verifiable. We must NOT
+            // reload the member from a cached receiver here (the receiver was emitted directly, not
+            // cached), and reusing the assigned value matches assignment-expression semantics.
+            if (storesToReferenceTypeField)
+            {
+                var fb = _fields[GetFieldKey((TypeBuilder)objectType, memberAccess.MemberName)];
+                var resultLocal = _currentIL.DeclareLocal(fb.FieldType);
+                _currentIL.Emit(OpCodes.Dup);
+                _currentIL.Emit(OpCodes.Stloc, resultLocal);
+                _currentIL.Emit(OpCodes.Stfld, fb);
+                _currentIL.Emit(OpCodes.Ldloc, resultLocal);
+                return;
             }
 
             // Store to field/property
@@ -15096,23 +15217,7 @@ public partial class ILCompiler
                 EmitIndexLoadValue(indexAccess, objectType);
                 EmitExpressionWithExpectedType(assignment.Value, valueType);
 
-                switch (assignment.Operator)
-                {
-                    case AssignmentOperator.AddAssign:
-                        _currentIL.Emit(OpCodes.Add);
-                        break;
-                    case AssignmentOperator.SubtractAssign:
-                        _currentIL.Emit(OpCodes.Sub);
-                        break;
-                    case AssignmentOperator.MultiplyAssign:
-                        _currentIL.Emit(OpCodes.Mul);
-                        break;
-                    case AssignmentOperator.DivideAssign:
-                        _currentIL.Emit(OpCodes.Div);
-                        break;
-                    default:
-                        throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                }
+                EmitCompoundAssignmentOperation(assignment.Operator, valueType);
             }
 
             var valueLocal = _currentIL.DeclareLocal(valueType);
@@ -15184,23 +15289,7 @@ public partial class ILCompiler
             EmitExpressionWithExpectedType(assignment.Value, GetIdentifierType(ident));
 
             // Perform the operation based on the assignment operator
-            switch (assignment.Operator)
-            {
-                case AssignmentOperator.AddAssign:
-                    _currentIL.Emit(OpCodes.Add);
-                    break;
-                case AssignmentOperator.SubtractAssign:
-                    _currentIL.Emit(OpCodes.Sub);
-                    break;
-                case AssignmentOperator.MultiplyAssign:
-                    _currentIL.Emit(OpCodes.Mul);
-                    break;
-                case AssignmentOperator.DivideAssign:
-                    _currentIL.Emit(OpCodes.Div);
-                    break;
-                default:
-                    throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented in IL compiler");
-            }
+            EmitCompoundAssignmentOperation(assignment.Operator, GetIdentifierType(ident));
         }
         else
         {
@@ -15368,10 +15457,7 @@ public partial class ILCompiler
                 }
                 else
                 {
-                    foreach (var arg in newExpr.ConstructorArguments)
-                    {
-                        EmitExpression(arg.Value);
-                    }
+                    EmitUnboundConstructorArguments(constructor, newExpr.ConstructorArguments);
                 }
 
                 _currentIL.Emit(OpCodes.Newobj, constructor);
@@ -15401,10 +15487,7 @@ public partial class ILCompiler
         }
         else
         {
-            foreach (var arg in newExpr.ConstructorArguments)
-            {
-                EmitExpression(arg.Value);
-            }
+            EmitUnboundConstructorArguments(constructor, newExpr.ConstructorArguments);
         }
 
         // Call constructor
@@ -15628,14 +15711,27 @@ public partial class ILCompiler
         else
         {
             EmitExpressionWithExpectedType(withExpr.Target, targetType);
-            var memberwiseClone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (memberwiseClone == null)
-            {
-                throw new InvalidOperationException("Could not resolve object.MemberwiseClone");
-            }
 
-            _currentIL.Emit(OpCodes.Call, memberwiseClone);
-            _currentIL.Emit(OpCodes.Castclass, targetType);
+            // For user-defined reference types we synthesize a public clone method on the
+            // type itself (see DeclareRecordMembers/EmitRecordBodies). Calling that method is
+            // verifiable from any call site, whereas calling the protected object.MemberwiseClone
+            // directly across types produces unverifiable IL (IL:MethodAccess).
+            if (targetType is TypeBuilder withCloneTypeBuilder &&
+                _methods.TryGetValue(GetMethodKey(withCloneTypeBuilder, RecordCloneMethodName), out var cloneMethod))
+            {
+                _currentIL.Emit(OpCodes.Callvirt, cloneMethod);
+            }
+            else
+            {
+                var memberwiseClone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (memberwiseClone == null)
+                {
+                    throw new InvalidOperationException("Could not resolve object.MemberwiseClone");
+                }
+
+                _currentIL.Emit(OpCodes.Call, memberwiseClone);
+                _currentIL.Emit(OpCodes.Castclass, targetType);
+            }
         }
 
         _currentIL.Emit(OpCodes.Stloc, cloneLocal);
@@ -17443,16 +17539,38 @@ public partial class ILCompiler
             return operatorMethod.ReturnType;
         }
 
-        return binary.Operator switch
+        switch (binary.Operator)
         {
-            BinaryOperator.Equal or BinaryOperator.NotEqual or
-            BinaryOperator.Less or BinaryOperator.LessOrEqual or
-            BinaryOperator.Greater or BinaryOperator.GreaterOrEqual or
-            BinaryOperator.And or BinaryOperator.Or => typeof(bool),
-            BinaryOperator.NullCoalesce => GetNullCoalesceExpressionType(binary),
-            BinaryOperator.Range => typeof(Range),
-            _ => GetExpressionType(binary.Left)
-        };
+            case BinaryOperator.Equal:
+            case BinaryOperator.NotEqual:
+            case BinaryOperator.Less:
+            case BinaryOperator.LessOrEqual:
+            case BinaryOperator.Greater:
+            case BinaryOperator.GreaterOrEqual:
+            case BinaryOperator.And:
+            case BinaryOperator.Or:
+                return typeof(bool);
+            case BinaryOperator.NullCoalesce:
+                return GetNullCoalesceExpressionType(binary);
+            case BinaryOperator.Range:
+                return typeof(Range);
+        }
+
+        // Arithmetic operators: the result type is the binary-numeric-promotion
+        // common type of the operands (e.g. int / double => double), matching the
+        // operand coercion performed in EmitBinaryExpression. Falling back to the
+        // left operand's type here would mis-report mixed-numeric results and
+        // cause a spurious return/store coercion over an already-promoted value.
+        if (TryGetBinaryNumericPromotionType(
+                binary.Operator,
+                GetExpressionType(binary.Left),
+                GetExpressionType(binary.Right),
+                out var promotedType))
+        {
+            return promotedType;
+        }
+
+        return GetExpressionType(binary.Left);
     }
 
     private Type GetNullCoalesceExpressionType(BinaryExpression binary)
@@ -17774,7 +17892,12 @@ public partial class ILCompiler
 
             var objectType = GetExpressionType(memberAccess.Object);
 
-            // Check user-defined methods first
+            // Check user-defined instance methods first. If the member is not an
+            // instance member of the user type, fall through to the shared
+            // extension-method resolution below — an extension `func Foo(this p: Person)`
+            // is NOT a member of the TypeBuilder, so returning typeof(object) here would
+            // mis-type a void extension call as object and make statement lowering emit a
+            // spurious pop (StackUnderflow).
             if (TryGetUserTypeDefinition(objectType, out var typeBuilder))
             {
                 var boundInstanceCall = BindDeclaredMethodCall(
@@ -17795,6 +17918,25 @@ public partial class ILCompiler
                 if (_methods.TryGetValue(GetMethodKey(typeBuilder, memberAccess.MemberName), out var methodBuilder))
                 {
                     return methodBuilder.ReturnType;
+                }
+
+                var userTypeExtensionCall = BindDeclaredExtensionMethodCall(
+                    memberAccess.MemberName,
+                    call,
+                    memberAccess.Object);
+                if (userTypeExtensionCall != null)
+                {
+                    return GetBoundDeclaredMethodReturnType(userTypeExtensionCall);
+                }
+
+                var userTypeRuntimeExtensionCall = BindRuntimeExtensionMethodCall(
+                    objectType,
+                    memberAccess.MemberName,
+                    memberAccess.Object,
+                    call);
+                if (userTypeRuntimeExtensionCall != null)
+                {
+                    return userTypeRuntimeExtensionCall.ReturnType;
                 }
 
                 return typeof(object);
@@ -19410,8 +19552,16 @@ public partial class ILCompiler
             .Select(p => ResolveParameterType(p, typeGenericParameters))
             .ToArray();
 
-        // Interface methods are always public, abstract, and virtual
-        var methodAttributes = MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+        // An interface method with a body is a C# 8 default interface method (DIM): it is virtual
+        // but concrete, so implementing types are not required to override it. Without a body the
+        // method is abstract and every implementer must provide it.
+        var hasDefaultImplementation = funcDecl.Body != null || funcDecl.ExpressionBody != null;
+
+        var methodAttributes = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+        if (!hasDefaultImplementation)
+        {
+            methodAttributes |= MethodAttributes.Abstract;
+        }
         if (funcDecl.IsOperatorOverload || funcDecl.IsConversionOperator)
         {
             methodAttributes |= MethodAttributes.SpecialName;
@@ -19437,9 +19587,15 @@ public partial class ILCompiler
             ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i], typeGenericParameters);
         }
 
-        // Store method for reference (interface methods don't have bodies)
+        // Store method for reference.
         _methods[GetMethodKey(typeBuilder, funcDecl.Name)] = methodBuilder;
         _declaredMethodParameters[GetMethodKey(typeBuilder, funcDecl.Name)] = funcDecl.Parameters;
+
+        // Register as a declared overload so unqualified calls within the interface (e.g. a default
+        // method body invoking another interface member) resolve through the standard overload
+        // binder. RegisterDeclaredMethodOverload also records the builder for body emission, which
+        // the EmitInterfaceBodies pass uses for default interface methods.
+        RegisterDeclaredMethodOverload(GetMethodKey(typeBuilder, funcDecl.Name), funcDecl, methodBuilder);
     }
 
     /// <summary>
@@ -20333,18 +20489,24 @@ public partial class ILCompiler
         // ilverify ([StackUnexpected] found address of 'T', expected ref 'object').
         // Roslyn emits no base call for struct constructors; we match that here.
         var isValueType = typeBuilder.BaseType == typeof(ValueType);
+
+        // A `this(...)` initializer delegates to a sibling constructor, which is solely
+        // responsible for running the base-constructor chain and the field initializers.
+        // A `base(...)` initializer (or the implicit default) runs the base chain here and
+        // then the field initializers. Emitting these correctly is what keeps the IL
+        // verifiable: the verifier requires the *direct* base constructor (or a sibling
+        // `this` constructor) to run before `this` may be observed or returned.
+        var delegatesToThis = !isValueType
+            && ctorDecl.Initializer is CallExpression { Callee: ThisExpression };
+
         if (!isValueType)
         {
-            // Call base constructor
-            _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
-            var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
-            if (objectCtor != null)
-            {
-                _currentIL.Emit(OpCodes.Call, objectCtor);
-            }
+            EmitConstructorInitializerCall(typeBuilder, ctorDecl.Initializer);
         }
 
-        if (members != null)
+        // When a `this(...)` initializer is present, the delegated constructor already ran
+        // the field initializers; running them again here would double-initialize fields.
+        if (members != null && !delegatesToThis)
         {
             EmitDeclaredInstanceFieldInitializers(typeBuilder, members, isValueType ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
         }
@@ -20358,6 +20520,134 @@ public partial class ILCompiler
         // Clear context
         ClearMethodContext();
         _currentGenericParameters = null;
+    }
+
+    /// <summary>
+    /// Emits the constructor-initializer call (the `: this(...)` / `: base(...)` clause) for a
+    /// reference-type constructor. When no initializer is present, the implicit base
+    /// parameterless constructor is invoked. The emitted shape is always
+    /// <c>ldarg.0; &lt;args&gt;; call ctor</c>, which initializes <c>this</c> for the verifier.
+    /// </summary>
+    private void EmitConstructorInitializerCall(TypeBuilder typeBuilder, Expression? initializer)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (initializer is CallExpression initializerCall
+            && initializerCall.Callee is ThisExpression or BaseExpression)
+        {
+            var targetType = initializerCall.Callee is ThisExpression
+                ? (Type)typeBuilder
+                : typeBuilder.BaseType ?? typeof(object);
+
+            var constructor = ResolveConstructorForInitializer(targetType, initializerCall.Arguments, out var boundArguments)
+                ?? throw new InvalidOperationException(
+                    $"No matching constructor found for {(initializerCall.Callee is ThisExpression ? "this" : "base")}(...) " +
+                    $"on type {targetType.Name} with arguments ({DescribeCallArgumentTypes(initializerCall.Arguments)})");
+
+            _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this' as the receiver of the chained ctor
+
+            if (boundArguments != null)
+            {
+                EmitBoundCallArguments(boundArguments);
+            }
+            else
+            {
+                foreach (var argument in initializerCall.Arguments)
+                {
+                    EmitExpression(argument.Value);
+                }
+            }
+
+            _currentIL.Emit(OpCodes.Call, constructor);
+            return;
+        }
+
+        // No explicit initializer: invoke the direct base type's parameterless constructor.
+        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+        var baseType = typeBuilder.BaseType ?? typeof(object);
+        var baseCtor = ResolveParameterlessConstructor(baseType)
+            ?? typeof(object).GetConstructor(Type.EmptyTypes);
+        if (baseCtor != null)
+        {
+            _currentIL.Emit(OpCodes.Call, baseCtor);
+        }
+    }
+
+    /// <summary>
+    /// Resolves the constructor targeted by a <c>this(...)</c>/<c>base(...)</c> initializer,
+    /// handling both N#-declared types and runtime/imported base types.
+    /// </summary>
+    private ConstructorInfo? ResolveConstructorForInitializer(
+        Type targetType,
+        IReadOnlyList<Argument> arguments,
+        out IReadOnlyList<BoundCallArgument>? boundArguments)
+    {
+        boundArguments = null;
+
+        if (TryGetUserTypeDefinition(targetType, out _))
+        {
+            var boundDeclaredCall = BindDeclaredConstructorCall(targetType, arguments);
+            if (boundDeclaredCall != null)
+            {
+                boundArguments = boundDeclaredCall.Arguments;
+                return boundDeclaredCall.Constructor;
+            }
+
+            // A user type with no explicit constructors exposes only the synthesized
+            // parameterless constructor.
+            if (arguments.Count == 0)
+            {
+                return ResolveUserDefinedConstructor(targetType);
+            }
+
+            return null;
+        }
+
+        var boundRuntimeCall = BindRuntimeConstructorCall(targetType, arguments);
+        if (boundRuntimeCall != null)
+        {
+            boundArguments = boundRuntimeCall.Arguments;
+            return boundRuntimeCall.Constructor;
+        }
+
+        return arguments.Count == 0 ? ResolveParameterlessConstructor(targetType) : null;
+    }
+
+    /// <summary>
+    /// Resolves the parameterless constructor for a base type, whether it is an N#-declared
+    /// type or a runtime/imported type.
+    /// </summary>
+    private ConstructorInfo? ResolveParameterlessConstructor(Type type)
+    {
+        if (TryGetUserTypeDefinition(type, out var typeBuilder))
+        {
+            var boundDeclaredCall = BindDeclaredConstructorCall(type, Array.Empty<Argument>());
+            if (boundDeclaredCall != null)
+            {
+                return boundDeclaredCall.Constructor;
+            }
+
+            // No declared overloads → the synthesized parameterless constructor (if any).
+            if (!_declaredConstructorOverloads.ContainsKey(GetConstructorKey(typeBuilder)))
+            {
+                return ResolveUserDefinedConstructor(type);
+            }
+
+            return null;
+        }
+
+        try
+        {
+            return type.GetConstructor(
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance,
+                binder: null,
+                Type.EmptyTypes,
+                modifiers: null);
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
     }
 
     private void EmitAnonymousUnionParameterShims(FunctionDeclaration function)
@@ -20571,15 +20861,19 @@ public partial class ILCompiler
             if (propDecl.GetBody != null)
             {
                 EmitStatement(propDecl.GetBody);
+                // Ensure block-bodied getters end with a return (covers fall-through paths).
+                _currentIL.Emit(OpCodes.Ret);
             }
             else if (propDecl.ExpressionBody != null)
             {
-                EmitExpression(propDecl.ExpressionBody);
+                // Convert the body value to the declared property type before `ret`, mirroring
+                // `EmitReturn`. Without this, an expression whose natural type differs from the
+                // property type (e.g. `Perimeter: double => 2 * (Width + Height)` where the int
+                // literal `2` makes the product subject to conversion) leaves a value of the
+                // wrong type on the stack at `ret`, producing unverifiable IL (IL:StackUnexpected).
+                EmitExpressionWithExpectedType(propDecl.ExpressionBody, propertyType);
                 _currentIL.Emit(OpCodes.Ret);
             }
-
-            // Ensure getter ends with a return
-            _currentIL.Emit(OpCodes.Ret);
 
             ClearMethodContext();
             _currentGenericParameters = null;
@@ -22221,6 +22515,19 @@ public partial class ILCompiler
 
         _methods[GetMethodKey(typeBuilder, "ToString")] = toStringMethod;
 
+        // Reference-type records get a synthesized public clone method used to lower `with`
+        // expressions verifiably. Struct records are copied by value, so they need no clone.
+        if (!recordDecl.IsStruct)
+        {
+            var cloneMethod = typeBuilder.DefineMethod(
+                RecordCloneMethodName,
+                MethodAttributes.Public | MethodAttributes.HideBySig,
+                typeBuilder,
+                Type.EmptyTypes);
+
+            _methods[GetMethodKey(typeBuilder, RecordCloneMethodName)] = cloneMethod;
+        }
+
         DeclareNestedTypeMembers(recordDecl.Members, typeName);
 
         _currentTypeBuilder = null;
@@ -22354,6 +22661,9 @@ public partial class ILCompiler
 
         // Emit ToString method
         EmitRecordToString(recordDecl, typeBuilder);
+
+        // Emit the synthesized clone method body for reference-type records.
+        EmitRecordCloneMethod(recordDecl, typeBuilder);
 
         // Emit other member bodies
         foreach (var member in recordDecl.Members)
@@ -22598,6 +22908,39 @@ public partial class ILCompiler
         }
 
         il.Emit(OpCodes.Ldloc, hashCodeLocal);
+        il.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>
+    /// Emit the synthesized public clone method for a reference-type record.
+    /// The body calls <c>object.MemberwiseClone</c> on <c>this</c> (a verifiable family
+    /// access, since the call site is inside the declaring type) and returns the strongly
+    /// typed copy. `with` expressions invoke this method so that cross-type cloning is
+    /// verifiable IL rather than an illegal access to the protected MemberwiseClone.
+    /// </summary>
+    private void EmitRecordCloneMethod(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
+    {
+        if (recordDecl.IsStruct)
+        {
+            return;
+        }
+
+        var cloneKey = GetMethodKey(typeBuilder, RecordCloneMethodName);
+        if (!_methods.TryGetValue(cloneKey, out var cloneMethod) || cloneMethod is not MethodBuilder cloneBuilder)
+        {
+            return;
+        }
+
+        var memberwiseClone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (memberwiseClone == null)
+        {
+            throw new InvalidOperationException("Could not resolve object.MemberwiseClone");
+        }
+
+        var il = cloneBuilder.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, memberwiseClone);
+        il.Emit(OpCodes.Castclass, typeBuilder);
         il.Emit(OpCodes.Ret);
     }
 

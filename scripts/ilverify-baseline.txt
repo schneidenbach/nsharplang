@@ -1,43 +1,15 @@
 # ilverify baseline allowlist for N#
 #
 # Each non-comment line is a KNOWN/EXPECTED IL verification finding,
-# normalized as:  <Assembly.dll> | <ErrorCode> | <Type::Member>
+# normalized as:  <Assembly.dll> | <kind> | <detail>
+#   kind = IL:<Code>  ECMA-335 verification error (e.g. IL:StackUnexpected)
+#   kind = MD          metadata error (e.g. missing interface method)
+#   kind = CRASH       ilverify itself crashed importing this assembly
 #
-# The gate (scripts/ilverify.sh) fails only on findings NOT listed here.
-# Keep this file as close to EMPTY as possible: every entry is debt.
-# Regenerate with: scripts/ilverify.sh --update-baseline
+# The gate (scripts/ilverify.sh) fails only on findings NOT listed here,
+# so it blocks NEW unverifiable IL (the PR #160 regression class).
+# Keep this file as close to EMPTY as possible: every entry is real debt.
+# Regenerate with: scripts/ilverify.sh --update-baseline (review the diff!).
 #
-# Generated 2026-05-29T17:00:31Z
+# Generated 2026-05-30T16:06:42Z
 #
-ConstructorChaining.dll | IL:CallCtor | Employee::.ctor(string, int32, string, string, string)
-ConstructorChaining.dll | IL:CallCtor | Employee::.ctor(string, string)
-ConstructorChaining.dll | IL:CallCtor | Employee::.ctor(string, string, string)
-ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, int32, string, string, string)
-ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, string)
-ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, string, string)
-ConversionOperators.dll | IL:StackUnexpected | Fraction::FromDouble(float64, int32)
-ConversionOperators.dll | IL:StackUnexpected | Fraction::op_Explicit([ConversionOperators
-ExpressionBodiedMembers.dll | IL:StackUnexpected | Rectangle::get_Perimeter()
-ExtensionMethods.dll | IL:ExpectedNumericType | Program::Repeat(string, int32)
-ExtensionMethods.dll | IL:StackUnderflow | Program::Main()
-ExtensionMethods.dll | IL:StackUnexpected | Program::Main()
-GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
-IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker
-IssueTracker.dll | IL:MethodAccess | IssueTracker.IssueService::TransitionIssue(int32, [IssueTracker
-LockStatement.dll | CRASH | System.IndexOutOfRangeException
-ParamsArrays.dll | IL:StackUnexpected | Calculator::Average(float64[
-ParamsArrays.dll | IL:StackUnexpected | Program::PrintAll(string, !!0[
-PropertiesAndNestedTypes.dll | IL:InitOnly | BankAccount::.ctor(string, float64)
-RecordStructs.dll | IL:StackUnexpected | Color::Equals(object)
-RecordStructs.dll | IL:StackUnexpected | Dimensions::Equals(object)
-RecordStructs.dll | IL:StackUnexpected | Duration::Equals(object)
-RecordStructs.dll | IL:StackUnexpected | Point::Equals(object)
-RecordStructs.dll | IL:StackUnexpected | Vector2D::Equals(object)
-RecordStructs.dll | IL:StackUnexpected | Vector2D::Normalize()
-RecordsAndInterfaces.dll | IL:MethodAccess | Program::Main()
-RecordsAndInterfaces.dll | IL:StackUnexpected | Square::CalculatePerimeter()
-RecordsAndInterfaces.dll | MD | Class implements interface but not method, Class: '[RecordsAndInterfaces]Circle' Interface: '[RecordsAndInterfaces]IShape' Missing method: '[RecordsAndInterfaces]IShape.Describe()'.
-SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Concatenate(string, string[
-SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Format(string, string, int32[
-TaskCli.dll | IL:MethodAccess | TaskCli.Services.TaskService::MarkDone(int32)
-TaskCli.dll | IL:MethodAccess | TaskCli.Services.TaskService::MarkInProgress(int32)
