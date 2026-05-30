@@ -10522,20 +10522,27 @@ public partial class ILCompiler
         var switchLocal = _currentIL.DeclareLocal(switchValueType);
         _currentIL.Emit(OpCodes.Stloc, switchLocal);
 
+        // Fast path: a dense int/enum jump table or string hash dispatch routes directly to each
+        // case body. Falls back to the linear test chain below when arms aren't dispatchable.
+        var usedDispatch = TryEmitSwitchDispatch(switchStmt, switchValueType, switchLocal, bodyLabels, endLabel);
+
         _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
         try
         {
             for (int i = 0; i < switchStmt.Cases.Count; i++)
             {
                 var switchCase = switchStmt.Cases[i];
-                if (switchCase.Pattern == null)
+                if (!usedDispatch)
                 {
-                    _currentIL.Emit(OpCodes.Br, bodyLabels[i]);
-                }
-                else
-                {
-                    _currentIL.Emit(OpCodes.Ldloc, switchLocal);
-                    EmitPatternTest(switchCase.Pattern, switchValueType, bodyLabels[i], nextCaseLabels[i]);
+                    if (switchCase.Pattern == null)
+                    {
+                        _currentIL.Emit(OpCodes.Br, bodyLabels[i]);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, switchLocal);
+                        EmitPatternTest(switchCase.Pattern, switchValueType, bodyLabels[i], nextCaseLabels[i]);
+                    }
                 }
 
                 _currentIL.MarkLabel(bodyLabels[i]);
@@ -10545,7 +10552,10 @@ public partial class ILCompiler
                 }
                 _currentIL.Emit(OpCodes.Br, endLabel);
 
-                _currentIL.MarkLabel(nextCaseLabels[i]);
+                if (!usedDispatch)
+                {
+                    _currentIL.MarkLabel(nextCaseLabels[i]);
+                }
             }
         }
         finally
@@ -10554,6 +10564,78 @@ public partial class ILCompiler
         }
 
         _currentIL.MarkLabel(endLabel);
+    }
+
+    /// <summary>
+    /// Attempts to lower a <see cref="SwitchStatement"/>'s case selection to a jump table (dense
+    /// int/enum) or string hash dispatch that branches directly to each case's body label. Returns
+    /// true when the router was emitted (the caller then emits bodies but skips the per-case tests),
+    /// false when the cases aren't dispatchable (caller emits the linear chain). The scrutinee has
+    /// already been evaluated once into <paramref name="switchLocal"/>.
+    /// </summary>
+    private bool TryEmitSwitchDispatch(
+        SwitchStatement switchStmt,
+        Type switchValueType,
+        LocalBuilder switchLocal,
+        Label[] bodyLabels,
+        Label endLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (Nullable.GetUnderlyingType(switchValueType) != null)
+        {
+            return false;
+        }
+
+        var isIntKind = IsIntegralDispatchType(switchValueType);
+        var isStringKind = switchValueType == typeof(string);
+        if (!isIntKind && !isStringKind)
+        {
+            return false;
+        }
+
+        var constantArms = new List<DispatchArm>();
+        var defaultBodyIndex = -1;
+
+        for (var i = 0; i < switchStmt.Cases.Count; i++)
+        {
+            var switchCase = switchStmt.Cases[i];
+            if (switchCase.Pattern == null)
+            {
+                if (defaultBodyIndex >= 0)
+                {
+                    return false; // More than one default: keep the linear path's exact behavior.
+                }
+                defaultBodyIndex = i;
+                continue;
+            }
+
+            // A default that is not the final case makes later cases unreachable in the linear
+            // emission; preserve that quirk by declining dispatch in that situation.
+            if (defaultBodyIndex >= 0)
+            {
+                return false;
+            }
+
+            var isConstant = isIntKind
+                ? TryResolveConstantIntKey(switchCase.Pattern, switchValueType, out _)
+                : TryResolveConstantStringKey(switchCase.Pattern, switchValueType, out _);
+            if (!isConstant)
+            {
+                return false;
+            }
+
+            constantArms.Add(new DispatchArm(switchCase.Pattern, bodyLabels[i]));
+        }
+
+        var defaultLabel = defaultBodyIndex >= 0 ? bodyLabels[defaultBodyIndex] : endLabel;
+
+        if (isIntKind)
+        {
+            return TryEmitIntJumpTable(switchLocal, switchValueType, constantArms, defaultLabel);
+        }
+
+        return TryEmitStringHashDispatch(switchLocal, constantArms, defaultLabel);
     }
 
     /// <summary>
@@ -11510,6 +11592,479 @@ public partial class ILCompiler
                 }
                 break;
         }
+    }
+
+    // ==================== match/switch dispatch lowering ====================
+    //
+    // A "case arm" abstracts a single guardless arm of a match expression or switch
+    // statement so the dispatch lowering can be shared. <see cref="Body"/> is the label
+    // that should receive control when the arm's constant key is selected.
+    private readonly struct DispatchArm
+    {
+        public DispatchArm(Pattern pattern, Label body)
+        {
+            Pattern = pattern;
+            Body = body;
+        }
+
+        public Pattern Pattern { get; }
+        public Label Body { get; }
+    }
+
+    /// <summary>
+    /// Resolves the constant 32-bit integer key of a pattern when it is a literal
+    /// int/char/bool pattern or an identifier pattern naming an enum member compatible
+    /// with <paramref name="matchValueType"/>. Returns false for anything that is not a
+    /// compile-time integer constant (variable bindings, relational patterns, guards, etc.).
+    /// </summary>
+    private bool TryResolveConstantIntKey(Pattern pattern, Type matchValueType, out int key)
+    {
+        key = 0;
+        var underlying = Nullable.GetUnderlyingType(matchValueType) ?? matchValueType;
+
+        switch (pattern)
+        {
+            case LiteralPattern literalPattern:
+                switch (literalPattern.Literal)
+                {
+                    case IntLiteralExpression intLiteral when IsIntegralDispatchType(underlying):
+                        if (!TryParseIntLiteralMagnitude(intLiteral.Value, out var magnitude)
+                            || magnitude < int.MinValue || magnitude > int.MaxValue)
+                        {
+                            return false;
+                        }
+                        key = (int)magnitude;
+                        return true;
+                    case CharLiteralExpression charLiteral when underlying == typeof(char):
+                        key = ParseCharLiteralValue(charLiteral.Value);
+                        return true;
+                    case BoolLiteralExpression boolLiteral when underlying == typeof(bool):
+                        key = boolLiteral.Value ? 1 : 0;
+                        return true;
+                    default:
+                        return false;
+                }
+
+            case IdentifierPattern identifierPattern when underlying.IsEnum && identifierPattern.Name.Contains('.'):
+                return TryResolveEnumMemberConstant(identifierPattern.Name, underlying, out key);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// True for integer-typed scrutinees whose values fit in an <c>int</c> jump-table key.
+    /// Int-backed enums are dispatched via their underlying constants. Uses the
+    /// builder-safe enum helper so it never throws on type/enum builders or generic parameters.
+    /// </summary>
+    private static bool IsIntegralDispatchType(Type type)
+    {
+        if (IsEnumType(type))
+        {
+            return TryGetEnumUnderlyingType(type) == typeof(int);
+        }
+
+        return type == typeof(int) || type == typeof(short) || type == typeof(sbyte)
+            || type == typeof(byte) || type == typeof(ushort) || type == typeof(char);
+    }
+
+    /// <summary>
+    /// Resolves a qualified enum-member pattern name (e.g. <c>Color.Red</c>) to its int
+    /// constant for an int-backed enum scrutinee. Uses the compiler's recorded field
+    /// constants for project enums and reflection for external enums.
+    /// </summary>
+    private bool TryResolveEnumMemberConstant(string qualifiedName, Type enumType, out int value)
+    {
+        value = 0;
+        if (Enum.GetUnderlyingType(enumType) != typeof(int))
+        {
+            return false;
+        }
+
+        var lastDot = qualifiedName.LastIndexOf('.');
+        if (lastDot <= 0 || lastDot == qualifiedName.Length - 1)
+        {
+            return false;
+        }
+
+        var memberName = qualifiedName[(lastDot + 1)..];
+        var qualifier = qualifiedName[..lastDot];
+
+        // The qualifier (the part before the final dot) must name the SAME enum as the scrutinee.
+        // A member of a different enum (e.g. `Other.Red` against a `Color` scrutinee) is not a
+        // constant of this scrutinee's type and must not preempt the correct arm. We accept either
+        // the simple enum name (`Color`) or a namespace-qualified form ending in it (`Ns.Color`).
+        if (!QualifierNamesEnum(qualifier, enumType))
+        {
+            return false;
+        }
+
+        // Project enums record their literal values keyed by "EnumName.Member".
+        if (_fieldConstants.TryGetValue($"{enumType.Name}.{memberName}", out var recorded))
+        {
+            if (recorded is int recordedInt)
+            {
+                value = recordedInt;
+                return true;
+            }
+        }
+
+        // External enums (or enums already baked into a runtime type) resolve via reflection.
+        if (enumType is not TypeBuilder && enumType is not EnumBuilder)
+        {
+            try
+            {
+                var parsed = Enum.Parse(enumType, memberName);
+                value = Convert.ToInt32(parsed, System.Globalization.CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or OverflowException or FormatException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="qualifier"/> (the portion of a qualified enum-member pattern
+    /// before its final dot) names <paramref name="enumType"/> — either by its simple name
+    /// (<c>Color</c>) or a namespace-qualified form ending in it (<c>Ns.Color</c>). Guards the
+    /// dispatch path against resolving a member of a different enum to this scrutinee's type.
+    /// </summary>
+    private static bool QualifierNamesEnum(string qualifier, Type enumType)
+    {
+        if (qualifier == enumType.Name)
+        {
+            return true;
+        }
+
+        if (qualifier.EndsWith("." + enumType.Name, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // Match the fully-qualified type name when available (covers namespaced project enums).
+        var fullName = enumType.FullName;
+        return fullName != null && (qualifier == fullName || fullName.EndsWith("." + qualifier, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Resolves the constant string key of a string-literal pattern when the scrutinee is a
+    /// <see cref="string"/>. Returns false for anything else.
+    /// </summary>
+    private static bool TryResolveConstantStringKey(Pattern pattern, Type matchValueType, out string key)
+    {
+        key = string.Empty;
+        if (matchValueType != typeof(string))
+        {
+            return false;
+        }
+
+        if (pattern is LiteralPattern { Literal: StringLiteralExpression stringLiteral })
+        {
+            key = stringLiteral.Value.Trim('"');
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Loads a constant integer onto the stack using the most compact opcode.
+    /// </summary>
+    private void EmitLoadConstantInt(int value)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        switch (value)
+        {
+            case -1: _currentIL.Emit(OpCodes.Ldc_I4_M1); break;
+            case 0: _currentIL.Emit(OpCodes.Ldc_I4_0); break;
+            case 1: _currentIL.Emit(OpCodes.Ldc_I4_1); break;
+            case 2: _currentIL.Emit(OpCodes.Ldc_I4_2); break;
+            case 3: _currentIL.Emit(OpCodes.Ldc_I4_3); break;
+            case 4: _currentIL.Emit(OpCodes.Ldc_I4_4); break;
+            case 5: _currentIL.Emit(OpCodes.Ldc_I4_5); break;
+            case 6: _currentIL.Emit(OpCodes.Ldc_I4_6); break;
+            case 7: _currentIL.Emit(OpCodes.Ldc_I4_7); break;
+            case 8: _currentIL.Emit(OpCodes.Ldc_I4_8); break;
+            default:
+                if (value >= sbyte.MinValue && value <= sbyte.MaxValue)
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4_S, (sbyte)value);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4, value);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Density heuristic: a jump table is worthwhile only when the constant keys are dense
+    /// enough that the resulting table is not dominated by empty (default) slots. Requires at
+    /// least four distinct keys and a span no larger than four times the key count.
+    /// </summary>
+    private static bool IsDenseEnoughForJumpTable(int distinctKeyCount, long span)
+    {
+        if (distinctKeyCount < 4)
+        {
+            return false;
+        }
+
+        // span is (max - min); the table holds (span + 1) slots.
+        return span >= 0 && (span + 1) <= (long)distinctKeyCount * 4;
+    }
+
+    /// <summary>
+    /// Attempts to lower a set of guardless integer/enum arms to a range-biased
+    /// <see cref="OpCodes.Switch"/> jump table over the (already spilled) scrutinee local,
+    /// branching to <paramref name="defaultLabel"/> for any unmatched value. Returns false
+    /// (emitting nothing) when the arms are not dense enough to benefit from a table, leaving
+    /// the caller to fall back to linear branching.
+    /// </summary>
+    private bool TryEmitIntJumpTable(
+        LocalBuilder scrutineeLocal,
+        Type matchValueType,
+        IReadOnlyList<DispatchArm> arms,
+        Label defaultLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var underlying = Nullable.GetUnderlyingType(matchValueType) ?? matchValueType;
+        if (!IsIntegralDispatchType(underlying))
+        {
+            return false;
+        }
+
+        // First-match-wins: keep only the first arm for each key, preserving source order.
+        var keyToLabel = new Dictionary<int, Label>();
+        var min = long.MaxValue;
+        var max = long.MinValue;
+        foreach (var arm in arms)
+        {
+            if (!TryResolveConstantIntKey(arm.Pattern, matchValueType, out var key))
+            {
+                return false;
+            }
+
+            if (keyToLabel.TryAdd(key, arm.Body))
+            {
+                min = Math.Min(min, key);
+                max = Math.Max(max, key);
+            }
+        }
+
+        var span = max - min;
+        if (!IsDenseEnoughForJumpTable(keyToLabel.Count, span))
+        {
+            return false;
+        }
+
+        // A nullable scrutinee must be a present value before the underlying compares.
+        // The dispatch path here only runs for non-nullable integer/enum scrutinees;
+        // nullable matches keep the linear path (handled by the caller's gating).
+        var tableSize = checked((int)(span + 1));
+        var table = new Label[tableSize];
+        for (var i = 0; i < tableSize; i++)
+        {
+            table[i] = defaultLabel;
+        }
+
+        foreach (var (key, label) in keyToLabel)
+        {
+            table[key - min] = label;
+        }
+
+        _currentIL.Emit(OpCodes.Ldloc, scrutineeLocal);
+        if (min != 0)
+        {
+            EmitLoadConstantInt(checked((int)min));
+            _currentIL.Emit(OpCodes.Sub);
+        }
+
+        _currentIL.Emit(OpCodes.Switch, table);
+        _currentIL.Emit(OpCodes.Br, defaultLabel);
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts to lower a set of guardless string arms to hash-bucketed dispatch: the
+    /// scrutinee's hash code is computed once and used as a <see cref="OpCodes.Switch"/>
+    /// selector into per-bucket verification (string equality) chains. Returns false when the
+    /// arms are too few to benefit, leaving the caller to fall back to linear branching.
+    /// </summary>
+    private bool TryEmitStringHashDispatch(
+        LocalBuilder scrutineeLocal,
+        IReadOnlyList<DispatchArm> arms,
+        Label defaultLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // First-match-wins per distinct key; preserve source order within each bucket.
+        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+        var entries = new List<(string Key, Label Label)>();
+        foreach (var arm in arms)
+        {
+            if (!TryResolveConstantStringKey(arm.Pattern, typeof(string), out var key))
+            {
+                return false;
+            }
+
+            if (seenKeys.Add(key))
+            {
+                entries.Add((key, arm.Body));
+            }
+        }
+
+        // Hashing only pays off once the linear-compare chain gets long.
+        if (entries.Count < 4)
+        {
+            return false;
+        }
+
+        var stringEquals = typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) });
+        if (stringEquals == null)
+        {
+            return false;
+        }
+
+        // Bucket keys by a deterministic, content-based hash so the dispatch is stable across
+        // runs and platforms (String.GetHashCode is randomized per-process and unusable here).
+        var bucketCount = entries.Count;
+        var buckets = new List<(string Key, Label Label)>[bucketCount];
+        foreach (var entry in entries)
+        {
+            var bucket = (int)(StableStringHash(entry.Key) % (uint)bucketCount);
+            (buckets[bucket] ??= new List<(string, Label)>()).Add(entry);
+        }
+
+        // Compute the scrutinee hash once and store it in a local.
+        var hashLocal = _currentIL.DeclareLocal(typeof(uint));
+        _currentIL.Emit(OpCodes.Ldloc, scrutineeLocal);
+        var nullCheckDone = _currentIL.DefineLabel();
+
+        // A null scrutinee can never equal a (non-null) string-literal key, so route it to default.
+        _currentIL.Emit(OpCodes.Dup);
+        _currentIL.Emit(OpCodes.Brtrue, nullCheckDone);
+        _currentIL.Emit(OpCodes.Pop);
+        _currentIL.Emit(OpCodes.Br, defaultLabel);
+
+        _currentIL.MarkLabel(nullCheckDone);
+        EmitStableStringHashComputation();
+        _currentIL.Emit(OpCodes.Stloc, hashLocal);
+
+        // switch over (hash % bucketCount).
+        var bucketLabels = new Label[bucketCount];
+        for (var i = 0; i < bucketCount; i++)
+        {
+            bucketLabels[i] = _currentIL.DefineLabel();
+        }
+
+        _currentIL.Emit(OpCodes.Ldloc, hashLocal);
+        EmitLoadConstantInt(bucketCount);
+        _currentIL.Emit(OpCodes.Rem_Un);
+        _currentIL.Emit(OpCodes.Switch, bucketLabels);
+        _currentIL.Emit(OpCodes.Br, defaultLabel);
+
+        for (var i = 0; i < bucketCount; i++)
+        {
+            _currentIL.MarkLabel(bucketLabels[i]);
+            var bucket = buckets[i];
+            if (bucket == null)
+            {
+                _currentIL.Emit(OpCodes.Br, defaultLabel);
+                continue;
+            }
+
+            foreach (var (key, label) in bucket)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, scrutineeLocal);
+                _currentIL.Emit(OpCodes.Ldstr, key);
+                _currentIL.Emit(OpCodes.Call, stringEquals);
+                _currentIL.Emit(OpCodes.Brtrue, label);
+            }
+
+            _currentIL.Emit(OpCodes.Br, defaultLabel);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Content-based, process-stable FNV-1a hash used to bucket string match keys at compile
+    /// time. The emitted IL (<see cref="EmitStableStringHashComputation"/>) computes the
+    /// identical value at run time, so a key always lands in the bucket it was assigned to.
+    /// </summary>
+    private static uint StableStringHash(string value)
+    {
+        const uint offsetBasis = 2166136261;
+        const uint prime = 16777619;
+        var hash = offsetBasis;
+        foreach (var ch in value)
+        {
+            hash = unchecked((hash ^ ch) * prime);
+        }
+
+        return hash;
+    }
+
+    /// <summary>
+    /// Emits IL that computes <see cref="StableStringHash"/> for the string reference currently
+    /// on top of the stack, leaving the resulting <c>uint</c> hash on the stack. Verifiable and
+    /// allocation-free: it indexes the string via <c>get_Chars</c>/<c>get_Length</c>.
+    /// </summary>
+    private void EmitStableStringHashComputation()
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var getChars = typeof(string).GetMethod("get_Chars", new[] { typeof(int) })
+            ?? throw new InvalidOperationException("Could not resolve String.get_Chars");
+        var getLength = typeof(string).GetMethod("get_Length", Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve String.get_Length");
+
+        // Stack on entry: [str]
+        var strLocal = _currentIL.DeclareLocal(typeof(string));
+        var hashLocal = _currentIL.DeclareLocal(typeof(uint));
+        var indexLocal = _currentIL.DeclareLocal(typeof(int));
+        _currentIL.Emit(OpCodes.Stloc, strLocal);
+
+        _currentIL.Emit(OpCodes.Ldc_I4, unchecked((int)2166136261u));
+        _currentIL.Emit(OpCodes.Stloc, hashLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        var loopCondition = _currentIL.DefineLabel();
+        var loopBody = _currentIL.DefineLabel();
+        _currentIL.Emit(OpCodes.Br, loopCondition);
+
+        _currentIL.MarkLabel(loopBody);
+        // hash = (hash ^ str[index]) * prime
+        _currentIL.Emit(OpCodes.Ldloc, hashLocal);
+        _currentIL.Emit(OpCodes.Ldloc, strLocal);
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Callvirt, getChars);
+        _currentIL.Emit(OpCodes.Xor);
+        _currentIL.Emit(OpCodes.Ldc_I4, unchecked((int)16777619u));
+        _currentIL.Emit(OpCodes.Mul);
+        _currentIL.Emit(OpCodes.Stloc, hashLocal);
+        // index++
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4_1);
+        _currentIL.Emit(OpCodes.Add);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        _currentIL.MarkLabel(loopCondition);
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldloc, strLocal);
+        _currentIL.Emit(OpCodes.Callvirt, getLength);
+        _currentIL.Emit(OpCodes.Blt, loopBody);
+
+        _currentIL.Emit(OpCodes.Ldloc, hashLocal);
     }
 
     /// <summary>
@@ -18996,11 +19551,19 @@ public partial class ILCompiler
             nextCaseLabels[i] = _currentIL.DefineLabel();
         }
 
-        // Store the matched value in a local (we'll need it for multiple comparisons)
+        // Store the matched value in a local (evaluated exactly once; reused for every test).
         var matchValueType = GetExpressionType(match.Value);
         EmitExpression(match.Value);
         var matchLocal = _currentIL.DeclareLocal(matchValueType);
         _currentIL.Emit(OpCodes.Stloc, matchLocal);
+
+        // Fast path: dense integer/enum jump table or string hash dispatch when every arm is a
+        // guardless constant (plus an optional catch-all). Falls back to the linear chain below.
+        if (TryEmitMatchViaDispatch(match, matchValueType, matchLocal, caseLabels, resultType, endLabel))
+        {
+            _currentIL.MarkLabel(endLabel);
+            return;
+        }
 
         // Generate code for each case
         for (int i = 0; i < match.Cases.Count; i++)
@@ -19046,6 +19609,187 @@ public partial class ILCompiler
 
         // Mark the end label
         _currentIL.MarkLabel(endLabel);
+    }
+
+    /// <summary>
+    /// True when a pattern unconditionally matches and is safe to use as the catch-all/default
+    /// target of a dispatch table: the discard <c>_</c> or a plain variable binding (not a type
+    /// pattern, enum member, or qualified union case). The optional <paramref name="bindingName"/>
+    /// is the variable the scrutinee must be bound to (null for the discard).
+    /// </summary>
+    private bool IsCatchAllPattern(Pattern pattern, Type matchValueType, out string? bindingName)
+    {
+        bindingName = null;
+        if (pattern is not IdentifierPattern identifier)
+        {
+            return false;
+        }
+
+        if (identifier.Name == "_")
+        {
+            return true;
+        }
+
+        // A name that resolves to a type, a qualified member, or an enum member is a test, not a
+        // catch-all binding.
+        if (identifier.Name.Contains('.'))
+        {
+            return false;
+        }
+
+        // A bare identifier that names a type (e.g. `int`) is a type-test pattern in every
+        // scrutinee position, including against an enum scrutinee. It must NOT be treated as a
+        // catch-all binding, or the dispatch path would diverge from the linear fallback (which
+        // emits a real type test). Check this before the enum-binding assumption below.
+        if (TryResolvePatternType(identifier.Name, out _))
+        {
+            return false;
+        }
+
+        // A remaining bare identifier (enum members are always qualified) is a variable binding
+        // that captures the scrutinee.
+        bindingName = identifier.Name;
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts to lower a <see cref="MatchExpression"/> to a jump table (dense int/enum) or
+    /// string hash dispatch when every arm is guardless and is either a dispatchable constant of
+    /// a single kind or a single trailing catch-all. Emits the complete dispatch and all arm
+    /// bodies and returns true; otherwise emits nothing and returns false so the caller falls back
+    /// to the linear chain. The scrutinee has already been evaluated once into
+    /// <paramref name="matchLocal"/>.
+    /// </summary>
+    private bool TryEmitMatchViaDispatch(
+        MatchExpression match,
+        Type matchValueType,
+        LocalBuilder matchLocal,
+        Label[] caseLabels,
+        Type resultType,
+        Label endLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Nullable scrutinees keep the linear path (their null handling is arm-specific).
+        if (Nullable.GetUnderlyingType(matchValueType) != null)
+        {
+            return false;
+        }
+
+        var underlying = matchValueType;
+        var isIntKind = IsIntegralDispatchType(underlying);
+        var isStringKind = underlying == typeof(string);
+        if (!isIntKind && !isStringKind)
+        {
+            return false;
+        }
+
+        var constantArms = new List<DispatchArm>();
+        var catchAllIndex = -1;
+        string? catchAllBinding = null;
+
+        for (var i = 0; i < match.Cases.Count; i++)
+        {
+            var matchCase = match.Cases[i];
+            if (matchCase.Guard != null)
+            {
+                return false;
+            }
+
+            if (catchAllIndex >= 0)
+            {
+                // A catch-all already consumed all remaining values; later arms would be dead.
+                // Bail to the linear path rather than silently drop them.
+                return false;
+            }
+
+            if (IsCatchAllPattern(matchCase.Pattern, matchValueType, out var binding))
+            {
+                catchAllIndex = i;
+                catchAllBinding = binding;
+                continue;
+            }
+
+            var isConstant = isIntKind
+                ? TryResolveConstantIntKey(matchCase.Pattern, matchValueType, out _)
+                : TryResolveConstantStringKey(matchCase.Pattern, matchValueType, out _);
+            if (!isConstant)
+            {
+                return false;
+            }
+
+            constantArms.Add(new DispatchArm(matchCase.Pattern, caseLabels[i]));
+        }
+
+        // The dispatch helpers gate their own density/length thresholds; below them, the linear
+        // chain is just as good and avoids table overhead.
+        var defaultLabel = _currentIL.DefineLabel();
+
+        if (isIntKind)
+        {
+            if (!TryEmitIntJumpTable(matchLocal, matchValueType, constantArms, defaultLabel))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!TryEmitStringHashDispatch(matchLocal, constantArms, defaultLabel))
+            {
+                return false;
+            }
+        }
+
+        // Default arm: bind (if needed) and run the catch-all body, or throw when non-exhaustive.
+        _currentIL.MarkLabel(defaultLabel);
+        if (catchAllIndex >= 0)
+        {
+            if (catchAllBinding != null)
+            {
+                var savedLocals = _locals != null ? new Dictionary<string, LocalBuilder>(_locals) : null;
+                _currentIL.Emit(OpCodes.Ldloc, matchLocal);
+                EmitStorePatternBinding(catchAllBinding, matchValueType);
+                EmitExpressionWithExpectedType(match.Cases[catchAllIndex].Expression, resultType);
+                _locals = savedLocals;
+            }
+            else
+            {
+                EmitExpressionWithExpectedType(match.Cases[catchAllIndex].Expression, resultType);
+            }
+        }
+        else
+        {
+            EmitNoMatchThrow();
+        }
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        // Emit each constant arm's body at its case label.
+        for (var i = 0; i < match.Cases.Count; i++)
+        {
+            if (i == catchAllIndex)
+            {
+                continue;
+            }
+
+            _currentIL.MarkLabel(caseLabels[i]);
+            EmitExpressionWithExpectedType(match.Cases[i].Expression, resultType);
+            _currentIL.Emit(OpCodes.Br, endLabel);
+        }
+
+        return true;
+    }
+
+    private void EmitNoMatchThrow()
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        _currentIL.Emit(OpCodes.Ldstr, "No matching case in match expression");
+        var matchExceptionCtor = typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) });
+        if (matchExceptionCtor != null)
+        {
+            _currentIL.Emit(OpCodes.Newobj, matchExceptionCtor);
+            _currentIL.Emit(OpCodes.Throw);
+        }
     }
 
     /// <summary>
@@ -19131,6 +19875,27 @@ public partial class ILCompiler
                     EmitNullableValue(nullableLocal, nullableIdentifierUnderlyingType);
                     EmitStorePatternBinding(identPattern.Name, nullableIdentifierUnderlyingType);
                     _currentIL.Emit(OpCodes.Br, successLabel);
+                }
+                else if (identPattern.Name.Contains('.')
+                         && (Nullable.GetUnderlyingType(matchValueType) ?? matchValueType).IsEnum
+                         && TryResolveConstantIntKey(identPattern, matchValueType, out var enumMemberKey))
+                {
+                    // Enum-member pattern (e.g. `Color.Red`): compare the (int-backed) enum
+                    // value against the member's constant. Without this the name would be
+                    // misread as a variable binding that always matches.
+                    var enumUnderlying = Nullable.GetUnderlyingType(matchValueType);
+                    if (enumUnderlying != null)
+                    {
+                        var nullableEnumLocal = _currentIL.DeclareLocal(matchValueType);
+                        _currentIL.Emit(OpCodes.Stloc, nullableEnumLocal);
+                        EmitNullableHasValue(nullableEnumLocal);
+                        _currentIL.Emit(OpCodes.Brfalse, failLabel);
+                        EmitNullableValue(nullableEnumLocal, enumUnderlying);
+                    }
+
+                    EmitLoadConstantInt(enumMemberKey);
+                    _currentIL.Emit(OpCodes.Beq, successLabel);
+                    _currentIL.Emit(OpCodes.Br, failLabel);
                 }
                 else if (identPattern.Name.Contains('.') && _types.TryGetValue(identPattern.Name, out var qualifiedCaseType))
                 {
