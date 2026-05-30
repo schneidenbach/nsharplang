@@ -205,9 +205,16 @@ internal class LintVisitor
     private readonly HashSet<string> _allMemberAccessNames = new();
     private readonly Stack<HashSet<string>> _typeMemberNameScopes = new();
 
-    // NL012: Track parameters separately so we can report them without polluting the unused-variable check
+    // NL012: Track parameters separately so we can report them without polluting the unused-variable check.
+    // _currentFunctionParams/_currentFunctionParamUsages always refer to the innermost (current) function's frame.
     private List<(string Name, int Line, int Column)> _currentFunctionParams = new();
     private HashSet<string> _currentFunctionParamUsages = new();
+
+    // NL012: A stack of parameter frames for every enclosing function. Reads inside a nested local
+    // function or lambda must be able to credit a captured parameter of any *enclosing* function — not
+    // just the innermost one — or valid closures wrongly trip the build-blocking "parameter never read".
+    // The last element is the innermost frame (mirrors _currentFunctionParams/_currentFunctionParamUsages).
+    private readonly List<(List<(string Name, int Line, int Column)> Params, HashSet<string> Usages, Dictionary<string, (int Line, int Column, bool Used)>? Scope)> _paramFrames = new();
 
     public List<Diagnostic> Diagnostics => _diagnostics;
 
@@ -584,11 +591,12 @@ internal class LintVisitor
         if (_inAsyncFunction)
             _allCodeIdentifiers.Add("Task");
 
-        // NL012: Save outer param tracking state
+        // NL012: Save outer param tracking state and push a fresh frame for this function.
         var outerParams = _currentFunctionParams;
         var outerParamUsages = _currentFunctionParamUsages;
         _currentFunctionParams = new List<(string Name, int Line, int Column)>();
         _currentFunctionParamUsages = new HashSet<string>();
+        _paramFrames.Add((_currentFunctionParams, _currentFunctionParamUsages, null));
 
         if (func.Body != null)
         {
@@ -600,9 +608,14 @@ internal class LintVisitor
                 var paramLine = param.Line > 0 ? param.Line : func.Line;
                 var paramColumn = param.Column > 0 ? param.Column : func.Column;
                 DeclareVariable(param.Name, paramLine, paramColumn);
-                MarkVariableUsed(param.Name); // Parameters exempt from NL001
+                MarkVariableUsed(param.Name, creditEnclosingParameter: false); // Parameters exempt from NL001
                 _currentFunctionParams.Add((param.Name, paramLine, paramColumn));
             }
+
+            // NL012: record the scope that holds this function's parameters so a read can be
+            // attributed to the parameter it lexically resolves to (a shadowing local binds the
+            // name in a nearer scope and must not credit this parameter).
+            _paramFrames[_paramFrames.Count - 1] = (_currentFunctionParams, _currentFunctionParamUsages, _declaredVariables);
 
             VisitStatement(func.Body);
 
@@ -619,9 +632,11 @@ internal class LintVisitor
                 var paramLine = param.Line > 0 ? param.Line : func.Line;
                 var paramColumn = param.Column > 0 ? param.Column : func.Column;
                 DeclareVariable(param.Name, paramLine, paramColumn);
-                MarkVariableUsed(param.Name);
+                MarkVariableUsed(param.Name, creditEnclosingParameter: false);
                 _currentFunctionParams.Add((param.Name, paramLine, paramColumn));
             }
+            // NL012: record the parameter scope (see the func.Body branch for rationale).
+            _paramFrames[_paramFrames.Count - 1] = (_currentFunctionParams, _currentFunctionParamUsages, _declaredVariables);
             VisitExpression(func.ExpressionBody);
 
             // NL012: Report unused parameters
@@ -652,6 +667,7 @@ internal class LintVisitor
         // Restore state
         _inAsyncFunction = wasInAsync;
         _hasAwaitInFunction = hadAwait;
+        _paramFrames.RemoveAt(_paramFrames.Count - 1);
         _currentFunctionParams = outerParams;
         _currentFunctionParamUsages = outerParamUsages;
     }
@@ -846,7 +862,7 @@ internal class LintVisitor
                 VisitExpression(foreachStmt.Collection); // Visit collection in outer scope FIRST
                 PushScope();
                 DeclareVariable(foreachStmt.VariableName, foreachStmt.Line, foreachStmt.Column);
-                MarkVariableUsed(foreachStmt.VariableName); // Loop variables are considered used
+                MarkVariableUsed(foreachStmt.VariableName, creditEnclosingParameter: false); // Loop variables are considered used
                 VisitStatement(foreachStmt.Body);
                 PopScope();
                 break;
@@ -891,7 +907,7 @@ internal class LintVisitor
                     if (catchClause.VariableName != null)
                     {
                         DeclareVariable(catchClause.VariableName, catchClause.Block.Line, catchClause.Block.Column);
-                        MarkVariableUsed(catchClause.VariableName); // Exception variables are considered used
+                        MarkVariableUsed(catchClause.VariableName, creditEnclosingParameter: false); // Exception variables are considered used
                     }
                     if (!catchBlockIsEmpty)
                         VisitStatement(catchClause.Block);
@@ -977,7 +993,7 @@ internal class LintVisitor
                 VisitExpression(awaitForeach.Collection); // Visit collection in outer scope FIRST
                 PushScope();
                 DeclareVariable(awaitForeach.VariableName, awaitForeach.Line, awaitForeach.Column);
-                MarkVariableUsed(awaitForeach.VariableName);
+                MarkVariableUsed(awaitForeach.VariableName, creditEnclosingParameter: false);
                 VisitStatement(awaitForeach.Body);
                 PopScope();
                 break;
@@ -1162,7 +1178,7 @@ internal class LintVisitor
                 foreach (var param in lambda.Parameters)
                 {
                     DeclareVariable(param.Name, lambda.Line, lambda.Column);
-                    MarkVariableUsed(param.Name);
+                    MarkVariableUsed(param.Name, creditEnclosingParameter: false);
                 }
                 if (lambda.BlockBody != null)
                     VisitStatement(lambda.BlockBody);
@@ -1342,11 +1358,52 @@ internal class LintVisitor
         }
     }
 
-    private void MarkVariableUsed(string name)
+    private void MarkVariableUsed(string name, bool creditEnclosingParameter = true)
     {
-        // NL012: Track parameter usages
-        if (_currentFunctionParams.Any(p => p.Name == name))
+        // NL012: Track parameter usages.
+        if (creditEnclosingParameter)
+        {
+            // A genuine read of 'name' counts as a use of the parameter it lexically resolves to —
+            // including a parameter captured by a nested local function or lambda. Resolve to the
+            // nearest scope that binds the name (innermost first), then credit only the parameter
+            // frame whose dedicated parameter scope IS that resolved scope. This makes captured-
+            // parameter reads count (fixing the build-blocking "parameter never read" false
+            // positive) while a shadowing local/loop/catch/lambda binding — which lives in a nearer
+            // scope — correctly prevents the enclosing parameter from being marked read.
+            Dictionary<string, (int Line, int Column, bool Used)>? resolvedScope =
+                _declaredVariables.ContainsKey(name) ? _declaredVariables : null;
+            if (resolvedScope == null)
+            {
+                foreach (var scope in _scopeStack)
+                {
+                    if (scope.ContainsKey(name))
+                    {
+                        resolvedScope = scope;
+                        break;
+                    }
+                }
+            }
+            if (resolvedScope != null)
+            {
+                for (int i = _paramFrames.Count - 1; i >= 0; i--)
+                {
+                    if (ReferenceEquals(_paramFrames[i].Scope, resolvedScope)
+                        && _paramFrames[i].Params.Any(p => p.Name == name))
+                    {
+                        _paramFrames[i].Usages.Add(name);
+                        break;
+                    }
+                }
+            }
+        }
+        else if (_currentFunctionParams.Any(p => p.Name == name))
+        {
+            // Binding/declaration site (a parameter, loop variable, catch variable, or lambda
+            // parameter being introduced). Preserve the original behavior of only consulting the
+            // current function's parameter table, so re-declaring a name never marks an enclosing
+            // parameter as read.
             _currentFunctionParamUsages.Add(name);
+        }
 
         // Check current scope
         if (_declaredVariables.ContainsKey(name))
