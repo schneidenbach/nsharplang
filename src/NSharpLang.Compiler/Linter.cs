@@ -225,7 +225,8 @@ internal class LintVisitor
         foreach (var import in unit.Imports)
         {
             _importedNamespaces.Add(import.Namespace);
-            _allImports.Add((import.Namespace, import.Line, import.Column, 0, false, null));
+            var (nsColumn, nsLength) = ResolveNamespaceImportSpan(import);
+            _allImports.Add((import.Namespace, import.Line, nsColumn, nsLength, false, null));
         }
 
         foreach (var fileImport in unit.FileImports.OfType<FileImport>())
@@ -316,6 +317,33 @@ internal class LintVisitor
         => oneBasedLine > 0 && oneBasedLine <= _sourceLines.Length
             ? _sourceLines[oneBasedLine - 1]
             : string.Empty;
+
+    // NL010: resolve the diagnostic span for a namespace import to the imported
+    // namespace path (e.g. `System.Linq`) rather than the `import` keyword. The
+    // directive only records the statement (keyword) column, so we step past the
+    // keyword and any whitespace to land on the first character of the path.
+    private (int Column, int Length) ResolveNamespaceImportSpan(ImportDirective import)
+    {
+        const string keyword = "import";
+        var sourceLine = SourceLine(import.Line);
+        var keywordStart = import.Column - 1;
+
+        // Without the source line we cannot locate the path. Defer to the resolver
+        // (length 0) so it underlines a token rather than overshooting a short line.
+        if (sourceLine.Length == 0 || keywordStart < 0 || keywordStart >= sourceLine.Length)
+            return (import.Column, 0);
+
+        var pathStart = keywordStart + keyword.Length;
+        while (pathStart < sourceLine.Length && char.IsWhiteSpace(sourceLine[pathStart]))
+            pathStart++;
+
+        // Fall back to the keyword position if the line is malformed (e.g. the
+        // path wraps to the next line); the resolver still underlines a token.
+        if (pathStart >= sourceLine.Length)
+            return (import.Column, 0);
+
+        return (pathStart + 1, import.Namespace.Length);
+    }
 
     private (Location Location, int Length) GetBlockOwnerDiagnosticSpan(BlockStatement block)
     {
