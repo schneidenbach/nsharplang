@@ -20156,6 +20156,14 @@ public partial class ILCompiler
         // RecordType other = (RecordType)obj;
         il.MarkLabel(compareFields);
         var otherLocal = il.DeclareLocal(typeBuilder);
+        // After `isinst` of a value type the stack holds a *boxed* reference, so it
+        // must be unboxed back to the value type before storing into a value-type
+        // local. Skipping this produces unverifiable IL (StackUnexpected: found ref,
+        // expected value). Reference-type records can store the reference directly.
+        if (recordDecl.IsStruct)
+        {
+            il.Emit(OpCodes.Unbox_Any, typeBuilder);
+        }
         il.Emit(OpCodes.Stloc, otherLocal);
 
         // Compare each field
