@@ -96,4 +96,42 @@ func main(): int {
             return 0;
         });
     }
+
+    [Fact]
+    public void Baseline_ParamsSpanCall_UsesVerifiableHeapArrayNotLocalloc()
+    {
+        // Pins the CURRENT lowering of a `params Span<int>` argument: the call materializes the
+        // arguments into a heap `int[]` (`newarr`) wrapped in a Span<int> via the verifiable
+        // Span(T[]) constructor, and emits NO `localloc`. This keeps the emitted IL ilverify-clean.
+        //
+        // A future optimization may stack-allocate the buffer, but must do so with a verifiable
+        // lowering (e.g. a synthesized [InlineArray] struct local, as the C# 13 compiler does) —
+        // NOT a `localloc` + Span(void*, int), which ilverify rejects as an unmanaged pointer. When
+        // that lands, tighten this assertion accordingly.
+        const string source = @"
+func sum(params numbers: Span<int>): int {
+    total := 0
+    for i := 0; i < numbers.Length; i++ {
+        total += numbers[i]
+    }
+
+    return total
+}
+
+func main(): int {
+    result := sum(1, 2, 3)
+    return result
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(0, ILShapeInspector.CountOpcode(main, OpCodes.Localloc));
+            Assert.True(
+                ILShapeInspector.CountOpcode(main, OpCodes.Newarr) >= 1,
+                "Expected the params Span<int> call to lower to a verifiable heap array (newarr).");
+            return 0;
+        });
+    }
 }
