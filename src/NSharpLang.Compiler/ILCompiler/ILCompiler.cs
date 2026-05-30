@@ -25,6 +25,14 @@ public partial class ILCompiler
 {
     private const string ThisCaptureName = "<>this";
 
+    /// <summary>
+    /// Name of the synthesized public clone method emitted on reference-type records.
+    /// `with` expressions invoke this instead of the protected <c>object.MemberwiseClone</c>,
+    /// which cannot be legally called across types (ECMA-335 family access -> IL:MethodAccess).
+    /// Matches the C# compiler's record clone member name.
+    /// </summary>
+    private const string RecordCloneMethodName = "<Clone>$";
+
     private static string GetNuGetPackagesRoot()
     {
         var configuredRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
@@ -15628,14 +15636,27 @@ public partial class ILCompiler
         else
         {
             EmitExpressionWithExpectedType(withExpr.Target, targetType);
-            var memberwiseClone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
-            if (memberwiseClone == null)
-            {
-                throw new InvalidOperationException("Could not resolve object.MemberwiseClone");
-            }
 
-            _currentIL.Emit(OpCodes.Call, memberwiseClone);
-            _currentIL.Emit(OpCodes.Castclass, targetType);
+            // For user-defined reference types we synthesize a public clone method on the
+            // type itself (see DeclareRecordMembers/EmitRecordBodies). Calling that method is
+            // verifiable from any call site, whereas calling the protected object.MemberwiseClone
+            // directly across types produces unverifiable IL (IL:MethodAccess).
+            if (targetType is TypeBuilder withCloneTypeBuilder &&
+                _methods.TryGetValue(GetMethodKey(withCloneTypeBuilder, RecordCloneMethodName), out var cloneMethod))
+            {
+                _currentIL.Emit(OpCodes.Callvirt, cloneMethod);
+            }
+            else
+            {
+                var memberwiseClone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
+                if (memberwiseClone == null)
+                {
+                    throw new InvalidOperationException("Could not resolve object.MemberwiseClone");
+                }
+
+                _currentIL.Emit(OpCodes.Call, memberwiseClone);
+                _currentIL.Emit(OpCodes.Castclass, targetType);
+            }
         }
 
         _currentIL.Emit(OpCodes.Stloc, cloneLocal);
@@ -22221,6 +22242,19 @@ public partial class ILCompiler
 
         _methods[GetMethodKey(typeBuilder, "ToString")] = toStringMethod;
 
+        // Reference-type records get a synthesized public clone method used to lower `with`
+        // expressions verifiably. Struct records are copied by value, so they need no clone.
+        if (!recordDecl.IsStruct)
+        {
+            var cloneMethod = typeBuilder.DefineMethod(
+                RecordCloneMethodName,
+                MethodAttributes.Public | MethodAttributes.HideBySig,
+                typeBuilder,
+                Type.EmptyTypes);
+
+            _methods[GetMethodKey(typeBuilder, RecordCloneMethodName)] = cloneMethod;
+        }
+
         DeclareNestedTypeMembers(recordDecl.Members, typeName);
 
         _currentTypeBuilder = null;
@@ -22354,6 +22388,9 @@ public partial class ILCompiler
 
         // Emit ToString method
         EmitRecordToString(recordDecl, typeBuilder);
+
+        // Emit the synthesized clone method body for reference-type records.
+        EmitRecordCloneMethod(recordDecl, typeBuilder);
 
         // Emit other member bodies
         foreach (var member in recordDecl.Members)
@@ -22598,6 +22635,39 @@ public partial class ILCompiler
         }
 
         il.Emit(OpCodes.Ldloc, hashCodeLocal);
+        il.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>
+    /// Emit the synthesized public clone method for a reference-type record.
+    /// The body calls <c>object.MemberwiseClone</c> on <c>this</c> (a verifiable family
+    /// access, since the call site is inside the declaring type) and returns the strongly
+    /// typed copy. `with` expressions invoke this method so that cross-type cloning is
+    /// verifiable IL rather than an illegal access to the protected MemberwiseClone.
+    /// </summary>
+    private void EmitRecordCloneMethod(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
+    {
+        if (recordDecl.IsStruct)
+        {
+            return;
+        }
+
+        var cloneKey = GetMethodKey(typeBuilder, RecordCloneMethodName);
+        if (!_methods.TryGetValue(cloneKey, out var cloneMethod) || cloneMethod is not MethodBuilder cloneBuilder)
+        {
+            return;
+        }
+
+        var memberwiseClone = typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic);
+        if (memberwiseClone == null)
+        {
+            throw new InvalidOperationException("Could not resolve object.MemberwiseClone");
+        }
+
+        var il = cloneBuilder.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, memberwiseClone);
+        il.Emit(OpCodes.Castclass, typeBuilder);
         il.Emit(OpCodes.Ret);
     }
 
