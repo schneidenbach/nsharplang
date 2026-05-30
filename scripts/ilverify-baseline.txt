@@ -10,9 +10,6 @@
 # Generated 2026-05-29T17:00:31Z
 #
 GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
-IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker
-ParamsArrays.dll | IL:StackUnexpected | Calculator::Average(float64[
-PropertiesAndNestedTypes.dll | IL:InitOnly | BankAccount::.ctor(string, float64)
 RecordsAndInterfaces.dll | IL:StackUnexpected | Square::CalculatePerimeter()
 RecordsAndInterfaces.dll | MD | Class implements interface but not method, Class: '[RecordsAndInterfaces]Circle' Interface: '[RecordsAndInterfaces]IShape' Missing method: '[RecordsAndInterfaces]IShape.Describe()'.
 SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Concatenate(string, string[

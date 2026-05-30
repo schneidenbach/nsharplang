@@ -14987,12 +14987,27 @@ public partial class ILCompiler
                 return;
             }
 
+            // Is this a plain `=` store into a FIELD (not a property setter) of a reference-type
+            // receiver? That case takes a fast, verifiable path below: the receiver expression is
+            // emitted DIRECTLY before the Stfld and the assigned value is preserved via `dup`, so we
+            // never round-trip the receiver through a local. This matters for `initonly` (readonly)
+            // fields: ECMA-335 only permits writing an initonly field when the receiver on the stack
+            // is the constructor's own `this` (a direct `ldarg.0`). Caching `this` into a local and
+            // reloading it (`stloc; ldloc`) defeats ILVerify's `this`-identity check and yields the
+            // "Cannot change initonly field outside its .ctor" error. Emitting the receiver directly
+            // keeps the write verifiable and also removes a wasteful reload of the just-stored member.
+            var storesToReferenceTypeField =
+                assignment.Operator == AssignmentOperator.Assign
+                && !IsValueTypeLike(objectType)
+                && objectType is TypeBuilder fieldOwnerCandidate
+                && _fields.ContainsKey(GetFieldKey(fieldOwnerCandidate, memberAccess.MemberName));
+
             // Emit the object. For a value-type receiver we need its ADDRESS on the stack so the
             // trailing Stfld writes back into the original storage (a struct local, a lifted box's
             // Value field, or a by-ref struct parameter). Using EmitExpression here would push a
             // copy (and, for a by-ref struct parameter, an ldobj-dereferenced value), making the
             // Stfld invalid and silently dropping the mutation. Mirror the member-read path.
-            var cacheReceiver = !IsValueTypeLike(objectType);
+            var cacheReceiver = !IsValueTypeLike(objectType) && !storesToReferenceTypeField;
             LocalBuilder? receiverLocal = null;
             if (cacheReceiver)
             {
@@ -15000,6 +15015,12 @@ public partial class ILCompiler
                 receiverLocal = _currentIL.DeclareLocal(objectType);
                 _currentIL.Emit(OpCodes.Stloc, receiverLocal);
                 _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
+            }
+            else if (storesToReferenceTypeField)
+            {
+                // Reference-type field store: emit the receiver expression directly so the Stfld
+                // receiver is exactly what the source named (e.g. `ldarg.0` for `this`).
+                EmitExpression(memberAccess.Object);
             }
             else
             {
@@ -15057,6 +15078,22 @@ public partial class ILCompiler
                 {
                     EmitExpressionWithExpectedType(assignment.Value, GetMemberAccessType(memberAccess));
                 }
+            }
+
+            // Direct reference-type field store: stack is `receiver, value`. Preserve the assigned
+            // value as the expression result via `dup` + a temp, leaving the receiver untouched
+            // (a direct `ldarg.0` for `this`) so the Stfld stays initonly-verifiable. We must NOT
+            // reload the member from a cached receiver here (the receiver was emitted directly, not
+            // cached), and reusing the assigned value matches assignment-expression semantics.
+            if (storesToReferenceTypeField)
+            {
+                var fb = _fields[GetFieldKey((TypeBuilder)objectType, memberAccess.MemberName)];
+                var resultLocal = _currentIL.DeclareLocal(fb.FieldType);
+                _currentIL.Emit(OpCodes.Dup);
+                _currentIL.Emit(OpCodes.Stloc, resultLocal);
+                _currentIL.Emit(OpCodes.Stfld, fb);
+                _currentIL.Emit(OpCodes.Ldloc, resultLocal);
+                return;
             }
 
             // Store to field/property
