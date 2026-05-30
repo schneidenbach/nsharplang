@@ -13263,12 +13263,20 @@ public partial class ILCompiler
                     }
                     else if (RequiresTypeBuilderMemberResolution(exprType))
                     {
-                        // Same-compilation user type (enum/struct/class TypeBuilder): the generic
-                        // AppendFormatted<T> over a builder type emits an unresolvable MethodSpec, so box
-                        // and route through the non-generic object overload. Value types box here (only
-                        // these holes pay the box; BCL primitives keep the generic path); reference types
-                        // are already object-assignable.
-                        if (exprType.IsValueType)
+                        // Same-compilation user type (enum/struct/class TypeBuilder) or a generic type
+                        // parameter: the generic AppendFormatted<T> over a builder/generic-parameter type
+                        // emits an unresolvable MethodSpec, so box and route through the non-generic object
+                        // overload. Value types box here (only these holes pay the box; BCL primitives keep
+                        // the generic path); concrete reference types are already object-assignable.
+                        //
+                        // Generic type parameters are a distinct case: an unconstrained (or struct-
+                        // constrained) parameter !!T is NOT reported as IsValueType, yet the verifier
+                        // requires an explicit `box !!T` to turn it into an `object` reference. `box` over a
+                        // generic parameter is verifiable for value, reference, AND unconstrained params
+                        // alike (a no-op cast-to-object at runtime for reference types), so we always box
+                        // generic-parameter holes. Without this, passing `!!T` straight to the object
+                        // overload produces unverifiable IL (StackUnexpected: found 'T', expected 'object').
+                        if (exprType.IsValueType || exprType.IsGenericParameter)
                         {
                             _currentIL.Emit(OpCodes.Box, exprType);
                         }
