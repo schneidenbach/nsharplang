@@ -10132,7 +10132,13 @@ public partial class ILCompiler
             }
             else
             {
-                EmitExpression(function.ExpressionBody);
+                // Convert the body value to the declared return type before `ret`, mirroring
+                // `EmitReturn`. Without this, an expression whose natural type differs from the
+                // return type (e.g. an int expression for a `double` property getter) leaves a
+                // value of the wrong type on the stack at `ret`, producing unverifiable IL
+                // (IL:StackUnexpected). For a void return type EmitExpressionWithExpectedType
+                // discards the computed value, matching the statement form `{ expr; return }`.
+                EmitExpressionWithExpectedType(function.ExpressionBody, bodyReturnType);
                 _currentIL.Emit(OpCodes.Ret);
             }
         }
@@ -20640,15 +20646,19 @@ public partial class ILCompiler
             if (propDecl.GetBody != null)
             {
                 EmitStatement(propDecl.GetBody);
+                // Ensure block-bodied getters end with a return (covers fall-through paths).
+                _currentIL.Emit(OpCodes.Ret);
             }
             else if (propDecl.ExpressionBody != null)
             {
-                EmitExpression(propDecl.ExpressionBody);
+                // Convert the body value to the declared property type before `ret`, mirroring
+                // `EmitReturn`. Without this, an expression whose natural type differs from the
+                // property type (e.g. `Perimeter: double => 2 * (Width + Height)` where the int
+                // literal `2` makes the product subject to conversion) leaves a value of the
+                // wrong type on the stack at `ret`, producing unverifiable IL (IL:StackUnexpected).
+                EmitExpressionWithExpectedType(propDecl.ExpressionBody, propertyType);
                 _currentIL.Emit(OpCodes.Ret);
             }
-
-            // Ensure getter ends with a return
-            _currentIL.Emit(OpCodes.Ret);
 
             ClearMethodContext();
             _currentGenericParameters = null;
