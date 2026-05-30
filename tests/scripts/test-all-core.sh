@@ -587,6 +587,25 @@ else
     handle_error "nlc check on examples (unexpected errors found)"
 fi
 
+section "Step 10b: IL Verification Gate"
+echo "Running ECMA-335 IL verification over emitted example/fixture assemblies..."
+echo "(scripts/ilverify.sh is the single source of truth, shared with CI.)"
+if command -v ilverify >/dev/null 2>&1 || [ -x "$HOME/.dotnet/tools/ilverify" ]; then
+    ILVERIFY_OUTPUT=$(mktemp)
+    if "$REPO_ROOT/scripts/ilverify.sh" > "$ILVERIFY_OUTPUT" 2>&1; then
+        tail -1 "$ILVERIFY_OUTPUT"
+        handle_success "IL verification gate"
+    else
+        cat "$ILVERIFY_OUTPUT"
+        handle_error "IL verification gate"
+    fi
+    rm -f "$ILVERIFY_OUTPUT"
+else
+    echo -e "${RED}ERROR: dotnet-ilverify is not installed.${NC}"
+    echo "Install it with: dotnet tool install --global dotnet-ilverify"
+    handle_error "IL verification gate (dotnet-ilverify not installed)"
+fi
+
 section "Step 11: Summary"
 echo
 if [ $FAILURES -eq 0 ]; then

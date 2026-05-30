@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.ILCompiler;
+using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Compiler;
 
@@ -33,6 +34,7 @@ public class MultiFileCompiler
     private readonly HashSet<string> _reportedImportCycles = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _filesInReportedImportCycles = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _resolvedFileImportDiagnosticKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly PerformanceFactStore _performanceFacts = new();
 
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
@@ -54,6 +56,29 @@ public class MultiFileCompiler
     /// or <see cref="CompileToIlAssembly"/> completes.
     /// </summary>
     public ProjectIndex ProjectIndex => new(_projectBindings, _projectTypeDeclarationFiles);
+
+    /// <summary>
+    /// Performance facts (including AOT-blocker facts) recorded during analysis, keyed by
+    /// source position. Populated by <see cref="CompileForAnalysis"/>, <see cref="ExportToCSharp"/>,
+    /// and <see cref="CompileToIlAssembly"/>. See docs/design/performance-compiler-refactor.md.
+    /// </summary>
+    public PerformanceFactStore PerformanceFacts => _performanceFacts;
+
+    /// <summary>
+    /// AOT/trimming blockers discovered across all parsed files, in deterministic
+    /// (file, line, column) order. Available after any analysis pass has run.
+    /// </summary>
+    public IReadOnlyList<AotBlocker> AotBlockers => _aotBlockers;
+
+    private readonly List<AotBlocker> _aotBlockers = new();
+
+    /// <summary>
+    /// When true, AOT-blocker facts are promoted to build-blocking errors and the IL emitter
+    /// is told to annotate public APIs containing blockers with <c>[Requires*]</c> attributes.
+    /// Set by <c>nlc build --aot</c> / <c>nlc check --aot</c>. Off by default so ordinary
+    /// builds are never affected.
+    /// </summary>
+    public bool AotMode { get; set; }
 
     public MultiFileCompiler(string projectRoot, ProjectConfig? config = null)
         : this(projectRoot, config, sourceTextOverrides: null)
@@ -534,6 +559,56 @@ public class MultiFileCompiler
                 ));
             }
         }
+
+        // AOT-blocker analysis is a pure pass over the parsed ASTs. It always runs so the
+        // facts are available to the perf report and the `--aot` diagnostic gate.
+        AnalyzeAotBlockers();
+    }
+
+    /// <summary>
+    /// AOT-blocker analysis pass: classifies each file's ABI surface, walks every compilation
+    /// unit for reflection / dynamic-code / runtime-generic / expression-tree constructs, and
+    /// records both <see cref="AotBlocker"/> facts and the corresponding
+    /// <see cref="Performance.PerformanceFacts"/> into the shared store. Pure analysis — emits
+    /// no IL and changes no other behavior. Deterministic by (file, line, column).
+    /// </summary>
+    private void AnalyzeAotBlockers()
+    {
+        _aotBlockers.Clear();
+
+        foreach (var sourceFile in _compilationUnits.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+        {
+            var compilationUnit = _compilationUnits[sourceFile];
+            var abi = new AbiClassifier(sourceFile).Classify(compilationUnit);
+            var analyzer = new AotBlockerAnalyzer(sourceFile, abi).Analyze(compilationUnit, _performanceFacts);
+            _aotBlockers.AddRange(analyzer.Blockers);
+        }
+
+        _aotBlockers.Sort(static (a, b) =>
+        {
+            var byFile = string.Compare(a.File, b.File, StringComparison.OrdinalIgnoreCase);
+            if (byFile != 0) return byFile;
+            var byLine = a.Line.CompareTo(b.Line);
+            return byLine != 0 ? byLine : a.Column.CompareTo(b.Column);
+        });
+    }
+
+    /// <summary>
+    /// Read a single source line (1-based) for diagnostic snippets, honoring source overrides.
+    /// </summary>
+    public string? TryReadSourceSnippet(string file, int line)
+    {
+        return TryReadSourceLine(file, line)?.TrimEnd();
+    }
+
+    /// <summary>
+    /// Build Elm-quality diagnostics for the AOT blockers found during analysis.
+    /// <paramref name="asError"/> emits them as build-blocking errors (under <c>--aot</c>);
+    /// otherwise they are advisory warnings.
+    /// </summary>
+    public List<CompilerError> BuildAotDiagnostics(bool asError)
+    {
+        return AotDiagnostics.ToDiagnostics(_aotBlockers, TryReadSourceSnippet, asError);
     }
 
     /// <summary>
@@ -643,6 +718,12 @@ public class MultiFileCompiler
         DetectCircularFileImports();
         AnalyzeAllFiles();
 
+        // Under `--aot`, every AOT blocker becomes a build-blocking error before emission.
+        if (AotMode)
+        {
+            _allErrors.AddRange(BuildAotDiagnostics(asError: true));
+        }
+
         if (_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
         {
             return new MultiFileCompilationResult(
@@ -656,7 +737,10 @@ public class MultiFileCompiler
             var mergedCompilationUnit = CreateMergedCompilationUnit();
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
 
-            var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config);
+            var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config)
+            {
+                AotRequirements = AotRequirements.FromBlockers(_aotBlockers),
+            };
             compiler.Compile();
         }
         catch (Exception ex)

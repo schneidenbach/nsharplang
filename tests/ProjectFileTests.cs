@@ -192,6 +192,53 @@ language:
     }
 
     [Fact]
+    public void TestParseWithPooledAsync()
+    {
+        var yaml = @"name: PooledProject
+language:
+  asyncDefaultType: ValueTask
+  pooledAsync: true
+";
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+
+            var config = ProjectFileParser.Parse(tempFile);
+
+            Assert.True(config.Language.PooledAsync);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TestPooledAsyncDefaultsFalse()
+    {
+        var yaml = @"name: DefaultProject
+";
+
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, yaml);
+
+            var config = ProjectFileParser.Parse(tempFile);
+
+            Assert.False(config.Language.PooledAsync);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+                File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
     public void TestInvalidOutputType()
     {
         var yaml = @"name: BadProject

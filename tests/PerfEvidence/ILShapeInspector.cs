@@ -281,6 +281,71 @@ public static class ILShapeInspector
         return count;
     }
 
+    /// <summary>
+    /// Counts <c>call</c>/<c>callvirt</c> instructions whose target method is declared on
+    /// <paramref name="declaringType"/> and named <paramref name="methodName"/>. Generic method
+    /// instantiations (e.g. <c>AppendFormatted&lt;int&gt;</c>) are matched by their open definition's
+    /// declaring type and name. <paramref name="method"/> must be a <see cref="MethodInfo"/> declared on
+    /// a runtime type so tokens can be resolved via its module.
+    /// </summary>
+    public static int CountCallsTo(MethodInfo method, Type declaringType, string methodName)
+    {
+        var module = method.Module;
+        var genericTypeArgs = method.DeclaringType?.GetGenericArguments() ?? Type.EmptyTypes;
+        var genericMethodArgs = method.IsGenericMethod ? method.GetGenericArguments() : Type.EmptyTypes;
+
+        var count = 0;
+        foreach (var instruction in Decode(method))
+        {
+            if (instruction.OpCode != OpCodes.Call && instruction.OpCode != OpCodes.Callvirt)
+            {
+                continue;
+            }
+
+            if (instruction.MetadataToken is not { } token)
+            {
+                continue;
+            }
+
+            var resolved = ResolveMethodBase(module, token, genericTypeArgs, genericMethodArgs);
+            if (resolved is null)
+            {
+                continue;
+            }
+
+            // Normalise generic instantiations to their open definition so the declaring type matches.
+            var resolvedDeclaringType = resolved.DeclaringType;
+            if (resolvedDeclaringType is { IsGenericType: true } && !resolvedDeclaringType.IsGenericTypeDefinition)
+            {
+                resolvedDeclaringType = resolvedDeclaringType.GetGenericTypeDefinition();
+            }
+
+            var targetDeclaringType = declaringType is { IsGenericType: true } && !declaringType.IsGenericTypeDefinition
+                ? declaringType.GetGenericTypeDefinition()
+                : declaringType;
+
+            if (resolvedDeclaringType == targetDeclaringType
+                && string.Equals(resolved.Name, methodName, StringComparison.Ordinal))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static MethodBase? ResolveMethodBase(Module module, int token, Type[] typeArgs, Type[] methodArgs)
+    {
+        try
+        {
+            return module.ResolveMethod(token, typeArgs, methodArgs);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
     private static ConstructorInfo? ResolveConstructor(Module module, int token, Type[] typeArgs, Type[] methodArgs)
     {
         try

@@ -43,3 +43,36 @@ jobs:
 
     - name: Lint
       run: dotnet src/NSharpLang.Cli/bin/Release/net10.0/Cli.dll lint
+
+  # Blocking IL-verification gate. PR #160 shipped GC-unsafe IL that only
+  # crashed on Linux x64 because nothing verified the emitted assemblies and CI
+  # never ran ilverify. This job runs `scripts/ilverify.sh` (the single source
+  # of truth, shared with the local full-suite gate), which builds the example
+  # and fixture assemblies with `nlc build` and runs `dotnet ilverify` over each
+  # one, failing on any NEW unverifiable IL versus the committed baseline.
+  ilverify:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: global.json
+
+    # Scope the restore to the CLI/compiler graph. The gate builds every example
+    # with `nlc build` (the CLI DLL) and never touches NSharpLang.Playground.Wasm,
+    # so a solution-wide `dotnet restore` would needlessly require the wasm-tools
+    # workload (NETSDK1147) and fail this job before it ever runs ilverify.
+    - name: Restore dependencies (CLI/compiler only)
+      run: dotnet restore src/NSharpLang.Cli/Cli.csproj
+
+    - name: Build CLI (compiler)
+      run: dotnet build src/NSharpLang.Cli/Cli.csproj -c Debug --no-restore
+
+    - name: Install dotnet-ilverify
+      run: dotnet tool install --global dotnet-ilverify
+
+    - name: IL verification gate
+      run: scripts/ilverify.sh

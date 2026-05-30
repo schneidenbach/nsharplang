@@ -106,6 +106,15 @@ public enum ErrorCode
     VirtualDispatchNotDevirtualized = 952,
     ClosureAllocation = 953,
     DelegateAllocation = 954,
+
+    // AOT/trimming safety diagnostics (960-969)
+    // Emitted by the AOT-blocker analysis pass to explain constructs that prevent
+    // Native AOT or trimming. Advisory by default; promoted to build-blocking errors
+    // under `nlc build --aot` / `nlc check --aot`.
+    AotReflectionUse = 960,
+    AotDynamicCode = 961,
+    AotMakeGenericType = 962,
+    AotExpressionTree = 963,
 }
 
 /// <summary>

@@ -247,12 +247,30 @@ public static class OutputFormatter
     }
 
     /// <summary>
-    /// Emits the versioned performance report envelope for <c>nlc build --perf-report</c>.
-    /// The report groups performance facts by category. Until the compiler wires up a
-    /// performance-fact source, the categories are emitted as empty arrays so the
-    /// envelope shape is stable for downstream consumers.
+    /// A single AOT blocker as rendered into the perf report's <c>aotBlockers</c> array.
+    /// The schema is stable and versioned via the report envelope's <c>schemaVersion</c>.
     /// </summary>
-    public static string BuildPerfReportToJson(string? projectRoot, bool ok = true)
+    public sealed record PerfReportAotBlocker(
+        string Code,
+        string Kind,
+        string File,
+        int Line,
+        int Column,
+        string Construct,
+        string EnclosingBoundary,
+        string? EnclosingDeclaration,
+        bool OnPublicSurface);
+
+    /// <summary>
+    /// Emits the versioned performance report envelope for <c>nlc build --perf-report</c>.
+    /// The report groups performance facts by category. Categories without a wired fact source
+    /// are emitted as empty arrays so the envelope shape is stable for downstream consumers;
+    /// <c>aotBlockers</c> is populated from the AOT-blocker analysis pass.
+    /// </summary>
+    public static string BuildPerfReportToJson(
+        string? projectRoot,
+        bool ok = true,
+        IReadOnlyList<PerfReportAotBlocker>? aotBlockers = null)
     {
         var envelope = new
         {
@@ -267,7 +285,9 @@ public static class OutputFormatter
                 boxingSites = Array.Empty<object>(),
                 dispatchSites = Array.Empty<object>(),
                 closureCaptures = Array.Empty<object>(),
-                aotBlockers = Array.Empty<object>()
+                aotBlockers = (aotBlockers ?? Array.Empty<PerfReportAotBlocker>())
+                    .Select(blocker => blocker with { File = NormalizePath(blocker.File) ?? blocker.File })
+                    .ToArray()
             }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);

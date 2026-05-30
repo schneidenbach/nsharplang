@@ -9,6 +9,7 @@ using System.Runtime.Loader;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Performance;
 using BlobBuilder = System.Reflection.Metadata.BlobBuilder;
 using MetadataTokens = System.Reflection.Metadata.Ecma335.MetadataTokens;
 using MetadataRootBuilder = System.Reflection.Metadata.Ecma335.MetadataRootBuilder;
@@ -58,6 +59,11 @@ public partial class ILCompiler
     private Dictionary<string, Type>? _inferredLocalTypes;
     private HashSet<string>? _byRefParameters;
     private GenericTypeParameterBuilder[]? _currentGenericParameters;
+
+    // When emitting a specialized (monomorphized) generic body, this maps the generic type
+    // parameter names to the concrete value types they are bound to. ResolveType consults it
+    // first so every emitted token resolves to the concrete type, keeping the IL verifiable.
+    private IReadOnlyDictionary<string, Type>? _activeGenericSpecialization;
     private Type? _currentReturnType;
     private Type? _expectedExpressionType;
     private Type? _currentAsyncReturnType;
@@ -90,7 +96,26 @@ public partial class ILCompiler
     private readonly Dictionary<string, PropertyBuilder> _indexers = new();
     private readonly Dictionary<string, IReadOnlyList<Parameter>> _declaredMethodParameters = new();
     private readonly Dictionary<FunctionDeclaration, MethodBuilder> _methodBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
+
+    // Selective generic specialization (monomorphization) of private/local generics over
+    // value types. The specializer owns policy + registry; ILCompiler emits the bodies.
+    private readonly GenericSpecializer _genericSpecializer = new();
+
+    // Declarations that sit at compilation-unit scope (top level), used to classify the ABI
+    // boundary of a generic function before deciding whether it may be specialized.
+    private readonly HashSet<FunctionDeclaration> _topLevelFunctionDeclarations = new(ReferenceEqualityComparer.Instance);
+
+    // Specialized bodies that still need to be emitted, captured in declaration order.
+    private readonly List<GenericSpecialization> _pendingSpecializationBodies = new();
+    private readonly HashSet<GenericSpecialization> _emittedSpecializationBodies = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<FunctionDeclaration, List<AnonymousUnionShim>> _anonymousUnionShimsByDeclaration = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Functions whose by-value struct parameters were lowered to pass-by-<c>in</c> during
+    /// signature emission (struct-copy elimination). Recorded so the body-emission pass can mark
+    /// the same parameters as byref, keeping the signature and the body in exact agreement.
+    /// </summary>
+    private readonly HashSet<FunctionDeclaration> _copyElidedFunctions = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<ConstructorDeclaration, ConstructorBuilder> _constructorBuildersByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<string, List<DeclaredMethodOverload>> _declaredMethodOverloads = new();
     private readonly Dictionary<string, List<DeclaredConstructorOverload>> _declaredConstructorOverloads = new();
@@ -104,6 +129,23 @@ public partial class ILCompiler
     private readonly Dictionary<Type, ConstructorInfo> _liftedStorageConstructors = new();
     private readonly Dictionary<Type, FieldInfo> _liftedStorageValueFields = new();
     private readonly Dictionary<Type, Type> _liftedStorageValueTypes = new();
+    // Stack-buffer promotion (Performance Unit 7): non-escaping fixed-size local array literals
+    // of unmanaged primitive elements are stored as stack-allocated [InlineArray] structs instead
+    // of heap arrays. _stackBufferStructTypes caches one synthesized struct per (length, element)
+    // pair; _promotedBuffers holds the per-method-body promotion decisions populated by
+    // StackBufferPromotionAnalysis. See docs/design/performance-compiler-refactor.md "Stack buffers".
+    private readonly Dictionary<(int Length, Type ElementType), TypeBuilder> _stackBufferStructTypes = new();
+    private int _stackBufferStructCounter = 0;
+    private Dictionary<string, PromotedStackBufferStorage>? _promotedBuffers;
+    // Struct (value-type) lifted boxes, used for captured locals that are mutated only by
+    // non-escaping direct-call local functions. The box lives on the stack and is passed by
+    // managed reference, so shared mutation is preserved without a heap allocation. These are
+    // keyed by value type separately from the heap boxes above so both representations can
+    // coexist for the same value type across different methods. The generated struct's value
+    // field / value type are registered in the shared _liftedStorageValueFields /
+    // _liftedStorageValueTypes maps (keyed by the unique box type, so there is no collision).
+    private readonly Dictionary<Type, Type> _structLiftedStorageTypes = new();
+    private readonly Dictionary<Type, ConstructorInfo> _structLiftedStorageConstructors = new();
     // Value-struct (allocation-free) union support. For unions classified as
     // value-struct-emittable by NSharpLang.Compiler.Performance.UnionValueLayout, we
     // emit a readonly struct carrying an integer tag instead of the class hierarchy.
@@ -135,6 +177,7 @@ public partial class ILCompiler
     private readonly List<TypeBuilder> _closureTypes = new();
     private bool _liftLocalsIntoBoxes;
     private HashSet<string>? _localsToLiftIntoBoxes;
+    private HashSet<string>? _structBoxableLocals;
     // Captured locals whose MEMBER/ELEMENT is mutated inside a nested function (e.g. `s.Field = ...`,
     // `s.field++`, `s.arr[i] = ...`). These must be lifted into a shared box so the mutation is visible
     // across the call boundary, but ONLY when the local is a value type (struct). For reference types a
@@ -187,6 +230,7 @@ public partial class ILCompiler
     private sealed record LocalCaptureStorageInfo(
         HashSet<string> CapturedLocals,
         HashSet<string> LocalsToLiftIntoBoxes,
+        HashSet<string> StructBoxableLocals,
         HashSet<string> ValueTypeLocalsToLiftIntoBoxes);
     private sealed class DelegateSignatureKey(Type[] parameterTypes, Type returnType) : IEquatable<DelegateSignatureKey>
     {
@@ -263,6 +307,14 @@ public partial class ILCompiler
             _typeAliases[alias.Name] = alias.Type;
         }
     }
+
+    /// <summary>
+    /// AOT-safety annotations to stamp on public methods that contain AOT blockers. Defaults to
+    /// <see cref="AotRequirements.Empty"/>, so attribute emission is opt-in and ordinary builds
+    /// are unaffected. Set by <see cref="MultiFileCompiler"/> when <c>--aot</c> analysis is on.
+    /// Attribute emission is metadata-only and does not affect IL bodies (verifiable, GC-safe).
+    /// </summary>
+    public AotRequirements AotRequirements { get; init; } = AotRequirements.Empty;
 
     private bool UsesNUnitTestFramework =>
         string.Equals(_projectConfig?.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase);
@@ -1174,6 +1226,7 @@ public partial class ILCompiler
         _currentReturnType = null;
         _liftLocalsIntoBoxes = false;
         _localsToLiftIntoBoxes = null;
+        _structBoxableLocals = null;
         _localsToLiftIntoBoxesIfValueType = null;
         _localsToPredeclareForCapture = null;
         _liftedIdentifiers = null;
@@ -1186,11 +1239,13 @@ public partial class ILCompiler
         _currentReturnLocal = null;
         _usesStructuredReturn = false;
         _exceptionBlockDepth = 0;
+        _asyncFaultGuardCompletionEmitted = false;
         _currentYieldElementType = null;
         _currentYieldListLocal = null;
         _currentYieldBreakLabel = null;
         _localFunctionDeclarations = null;
         _currentHasThis = false;
+        _promotedBuffers = null;
     }
 
     private void InitializeBodyContext(
@@ -1198,6 +1253,7 @@ public partial class ILCompiler
         bool liftLocalsIntoBoxes,
         HashSet<string>? localsToLiftIntoBoxes = null,
         HashSet<string>? localsToPredeclareForCapture = null,
+        HashSet<string>? structBoxableLocals = null,
         HashSet<string>? valueTypeLocalsToLiftIntoBoxes = null)
     {
         _locals = new Dictionary<string, LocalBuilder>();
@@ -1207,6 +1263,9 @@ public partial class ILCompiler
         _currentReturnType = returnType;
         _liftLocalsIntoBoxes = liftLocalsIntoBoxes;
         _localsToLiftIntoBoxes = liftLocalsIntoBoxes ? localsToLiftIntoBoxes : null;
+        _structBoxableLocals = liftLocalsIntoBoxes && structBoxableLocals is { Count: > 0 }
+            ? structBoxableLocals
+            : null;
         _localsToLiftIntoBoxesIfValueType = liftLocalsIntoBoxes ? valueTypeLocalsToLiftIntoBoxes : null;
         _localsToPredeclareForCapture = localsToPredeclareForCapture is { Count: > 0 }
             ? localsToPredeclareForCapture
@@ -1271,6 +1330,52 @@ public partial class ILCompiler
         }
 
         return typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(valueType);
+    }
+
+    /// <summary>
+    /// Creates (or returns the cached) value-type "struct box" used to lift a captured local
+    /// that is mutated only by non-escaping, direct-call local functions. The box is a generated
+    /// value type with a single public <c>Value</c> field; the local that holds it lives on the
+    /// stack and is passed by managed reference to the local-function method, so mutation through
+    /// the reference is observed by all call sites with no heap allocation. Generating a dedicated
+    /// type (rather than reusing <see cref="System.Runtime.CompilerServices.StrongBox{T}"/>, which
+    /// is a reference type) is what removes the closure allocation.
+    /// </summary>
+    private Type CreateStructBoxType(Type valueType)
+    {
+        if (_structLiftedStorageTypes.TryGetValue(valueType, out var existing))
+        {
+            return existing;
+        }
+
+        if (_moduleBuilder == null)
+        {
+            throw new InvalidOperationException("Module builder has not been initialized");
+        }
+
+        var boxType = _moduleBuilder.DefineType(
+            $"<>LiftedStruct{_liftedStorageCounter++}",
+            TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.SequentialLayout | TypeAttributes.BeforeFieldInit,
+            typeof(ValueType));
+        var valueField = boxType.DefineField("Value", valueType, FieldAttributes.Public);
+        var constructor = boxType.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            new[] { valueType });
+        var constructorIl = constructor.GetILGenerator();
+        // A value-type constructor receives a managed pointer to the instance in arg0 and must
+        // not chain to a base constructor; it simply stores the supplied value into the field.
+        constructorIl.Emit(OpCodes.Ldarg_0);
+        constructorIl.Emit(OpCodes.Ldarg_1);
+        constructorIl.Emit(OpCodes.Stfld, valueField);
+        constructorIl.Emit(OpCodes.Ret);
+
+        _generatedHelperTypes.Add(boxType);
+        _structLiftedStorageTypes[valueType] = boxType;
+        _structLiftedStorageConstructors[boxType] = constructor;
+        _liftedStorageValueFields[boxType] = valueField;
+        _liftedStorageValueTypes[boxType] = valueType;
+        return boxType;
     }
 
     private static bool RequiresGeneratedLiftedStorageType(Type type)
@@ -2113,13 +2218,52 @@ public partial class ILCompiler
             || _localsToPredeclareForCapture?.Contains(name) == true;
     }
 
+    /// <summary>
+    /// Whether the lifted box for the captured local <paramref name="name"/> may be a stack
+    /// value type rather than a heap box. True only for locals whose box never escapes the
+    /// current frame (mutated solely through non-escaping, direct-call local functions).
+    /// </summary>
+    private bool ShouldStructBoxLocal(string name)
+    {
+        return _structBoxableLocals?.Contains(name) == true;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="storageType"/> is one of the generated value-type struct boxes.
+    /// Such boxes are addressed with <c>ldloca</c> (the box lives in the local slot) rather than
+    /// <c>ldloc</c> (which would copy the struct and break shared mutation).
+    /// </summary>
+    private bool IsStructBoxStorageType(Type storageType)
+    {
+        return _structLiftedStorageConstructors.ContainsKey(storageType);
+    }
+
+    private ConstructorInfo GetLiftedStorageConstructor(Type storageType, Type valueType)
+    {
+        return _structLiftedStorageConstructors.TryGetValue(storageType, out var structConstructor)
+            ? structConstructor
+            : GetStrongBoxConstructor(valueType);
+    }
+
     private LocalBuilder DeclareNamedLocal(string name, Type valueType)
     {
         if (_currentIL == null || _locals == null)
             throw new InvalidOperationException("No IL generator context");
 
+        // Lift decision incorporates main's value-type-gated member-mutation case (ShouldLiftIntoBox
+        // is a superset of ShouldLiftLocalIntoBox). When a lifted capture is also struct-boxable
+        // (mutated only through non-escaping direct-call local functions) we use a stack value-type
+        // box instead of a heap StrongBox. These two sets are disjoint: member-mutation-only locals
+        // are never in _structBoxableLocals, so they correctly take the heap-box path here.
         var shouldLift = ShouldLiftIntoBox(name, valueType);
-        var storageType = shouldLift ? CreateStrongBoxType(valueType) : valueType;
+        // A by-ref-like value type (ref struct, e.g. Span<T>) cannot be a field of a generated
+        // struct box: that would produce a non-ref-struct type with a by-ref-like field, which is
+        // invalid. Fall back to the heap-box path for such captures so behaviour matches the
+        // pre-struct-box pipeline rather than emitting unverifiable IL.
+        var useStructBox = ShouldStructBoxLocal(name) && !valueType.IsByRefLike;
+        var storageType = shouldLift
+            ? (useStructBox ? CreateStructBoxType(valueType) : CreateStrongBoxType(valueType))
+            : valueType;
         var local = _currentIL.DeclareLocal(storageType);
         _locals[name] = local;
 
@@ -2156,9 +2300,22 @@ public partial class ILCompiler
             throw new InvalidOperationException("Initializer was required but not provided");
         }
 
+        if (IsStructBoxStorageType(local.LocalType))
+        {
+            // Initialise the value-type box in place with no allocation: spill the initial value,
+            // then store it through the box's slot address. The local slot is already zeroed by
+            // the method's locals-init flag, so the box needs no separate construction.
+            var initialValue = _currentIL.DeclareLocal(valueType);
+            _currentIL.Emit(OpCodes.Stloc, initialValue);
+            _currentIL.Emit(OpCodes.Ldloca, local);
+            _currentIL.Emit(OpCodes.Ldloc, initialValue);
+            _currentIL.Emit(OpCodes.Stfld, GetStrongBoxValueField(local.LocalType));
+            return;
+        }
+
         if (IsLiftedStorageType(local.LocalType, valueType))
         {
-            var storageConstructor = GetStrongBoxConstructor(valueType);
+            var storageConstructor = GetLiftedStorageConstructor(local.LocalType, valueType);
             try
             {
                 _currentIL.Emit(OpCodes.Newobj, storageConstructor);
@@ -2184,7 +2341,9 @@ public partial class ILCompiler
         if (_currentIL == null)
             throw new InvalidOperationException("No IL generator context");
 
-        _currentIL.Emit(OpCodes.Ldloc, local);
+        // A struct box lives in the local slot, so its field is reached through the slot
+        // address (ldloca). A heap box is a reference, reached through the reference (ldloc).
+        EmitLoadLiftedLocalBoxReference(local);
         _currentIL.Emit(OpCodes.Ldfld, GetStrongBoxValueField(local.LocalType));
     }
 
@@ -2193,8 +2352,29 @@ public partial class ILCompiler
         if (_currentIL == null)
             throw new InvalidOperationException("No IL generator context");
 
-        _currentIL.Emit(OpCodes.Ldloc, local);
+        EmitLoadLiftedLocalBoxReference(local);
         _currentIL.Emit(OpCodes.Ldflda, GetStrongBoxValueField(local.LocalType));
+    }
+
+    /// <summary>
+    /// Pushes the receiver used to access the lifted box's <c>Value</c> field: the box's slot
+    /// address (<c>ldloca</c>) for a struct box, or the box reference (<c>ldloc</c>) for a heap
+    /// box. Loading a struct box with <c>ldloc</c> would copy it, so a subsequent <c>ldflda</c>
+    /// would yield an address into a throwaway copy and silently lose mutations.
+    /// </summary>
+    private void EmitLoadLiftedLocalBoxReference(LocalBuilder local)
+    {
+        if (_currentIL == null)
+            throw new InvalidOperationException("No IL generator context");
+
+        if (IsStructBoxStorageType(local.LocalType))
+        {
+            _currentIL.Emit(OpCodes.Ldloca, local);
+        }
+        else
+        {
+            _currentIL.Emit(OpCodes.Ldloc, local);
+        }
     }
 
     private void EmitStoreLiftedLocalValue(LocalBuilder local, Type valueType, bool leaveValueOnStack)
@@ -2204,6 +2384,22 @@ public partial class ILCompiler
 
         var tempLocal = _currentIL.DeclareLocal(valueType);
         _currentIL.Emit(OpCodes.Stloc, tempLocal);
+
+        if (IsStructBoxStorageType(local.LocalType))
+        {
+            // A struct box always has its storage present (value types have no null state), so
+            // there is no lazy allocation: store straight through the slot address.
+            _currentIL.Emit(OpCodes.Ldloca, local);
+            _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+            _currentIL.Emit(OpCodes.Stfld, GetStrongBoxValueField(local.LocalType));
+
+            if (leaveValueOnStack)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, tempLocal);
+            }
+
+            return;
+        }
 
         var initializedLabel = _currentIL.DefineLabel();
         _currentIL.Emit(OpCodes.Ldloc, local);
@@ -2274,6 +2470,7 @@ public partial class ILCompiler
                 || captureStorage.ValueTypeLocalsToLiftIntoBoxes.Count > 0,
             captureStorage.LocalsToLiftIntoBoxes,
             captureStorage.CapturedLocals,
+            captureStorage.StructBoxableLocals,
             captureStorage.ValueTypeLocalsToLiftIntoBoxes);
     }
 
@@ -2287,6 +2484,7 @@ public partial class ILCompiler
         if (!containsNestedFunction)
         {
             return new LocalCaptureStorageInfo(
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
@@ -2318,6 +2516,7 @@ public partial class ILCompiler
             return new LocalCaptureStorageInfo(
                 captured,
                 new HashSet<string>(StringComparer.Ordinal),
+                new HashSet<string>(StringComparer.Ordinal),
                 new HashSet<string>(StringComparer.Ordinal));
         }
 
@@ -2341,13 +2540,49 @@ public partial class ILCompiler
             _memberMutatedCaptureAccumulator = previousMemberMutatedAccumulator;
         }
 
-        CollectEscapingLocalFunctionCapturedStorageNames(body, candidates, mutated);
+        // Names whose box reference must survive past the current frame because they are
+        // captured by an escaping local function. Such names require a heap box; the struct-box
+        // optimisation must never apply to them.
+        var escapesFrame = new HashSet<string>(StringComparer.Ordinal);
+        CollectEscapingLocalFunctionCapturedStorageNames(body, candidates, escapesFrame);
+
+        foreach (var escapingName in escapesFrame)
+        {
+            mutated.Add(escapingName);
+        }
+
+        // A boxed capture is struct-boxable when it needs a box (it is mutated through a nested
+        // function) yet never escapes the current frame, so its only consumers are direct,
+        // by-reference local-function calls. Those receive the box by managed pointer, which
+        // preserves shared-mutation semantics with no heap allocation.
+        //
+        // Lambdas are lowered either to delegates (a heap display class) or to direct
+        // function-value locals, both of which can outlive the defining frame. Capture analysis
+        // of those forms is more involved, so to stay conservative we disable the struct-box
+        // optimisation for the whole body whenever it contains any lambda. Named local
+        // functions invoked directly remain eligible.
+        //
+        // A named local function is only lowered to a direct, by-reference call when it has an
+        // explicit return type (see GetDirectLocalFunctionDeclarations). A return-type-less local
+        // function is instead lowered through a heap display class + delegate, which captures the
+        // box by field rather than by managed reference; mixing that with a stack struct box
+        // produces invalid IL. So the struct-box optimisation is also disabled for the whole body
+        // whenever any return-type-less local function is present.
+        var structBoxable = new HashSet<string>(StringComparer.Ordinal);
+        var bodyContainsLambda = (body != null && ContainsLambda(body))
+            || (expressionBody != null && ContainsLambda(expressionBody));
+        var bodyContainsReturnlessLocalFunction = ContainsReturnlessLocalFunction(body);
+        if (!bodyContainsLambda && !bodyContainsReturnlessLocalFunction)
+        {
+            structBoxable.UnionWith(mutated);
+            structBoxable.ExceptWith(escapesFrame);
+        }
 
         // A local that is reassigned wholesale (in `mutated`) is already lifted unconditionally, so it
         // never needs the value-type-gated treatment. Keep only the member-mutation-only candidates here.
         memberMutated.ExceptWith(mutated);
 
-        return new LocalCaptureStorageInfo(captured, mutated, memberMutated);
+        return new LocalCaptureStorageInfo(captured, mutated, structBoxable, memberMutated);
     }
 
     private void CollectEscapingLocalFunctionCapturedStorageNames(
@@ -4103,6 +4338,144 @@ public partial class ILCompiler
         };
     }
 
+    /// <summary>
+    /// Whether <paramref name="block"/> contains a lambda expression anywhere in its subtree.
+    /// Mirrors <see cref="ContainsNestedFunction(Statement)"/> but matches only
+    /// <see cref="LambdaExpression"/> (not named local functions), and additionally descends
+    /// into nested local-function bodies so a lambda hidden inside one is still detected.
+    /// Used to keep the struct-box capture optimisation conservative.
+    /// </summary>
+    private static bool ContainsLambda(BlockStatement? block)
+    {
+        return block != null && ContainsLambda((Statement)block);
+    }
+
+    private static bool ContainsLambda(Statement statement)
+    {
+        return statement switch
+        {
+            LocalFunctionStatement localFunction =>
+                (localFunction.Function.Body != null && ContainsLambda(localFunction.Function.Body))
+                || (localFunction.Function.ExpressionBody != null && ContainsLambda(localFunction.Function.ExpressionBody)),
+            BlockStatement block => block.Statements.Any(ContainsLambda),
+            ExpressionStatement expressionStatement => ContainsLambda(expressionStatement.Expression),
+            VariableDeclarationStatement variableDeclaration => variableDeclaration.Initializer != null && ContainsLambda(variableDeclaration.Initializer),
+            TupleDeconstructionStatement tupleDeconstruction => ContainsLambda(tupleDeconstruction.Initializer),
+            IfStatement ifStatement => ContainsLambda(ifStatement.Condition)
+                || ContainsLambda(ifStatement.ThenStatement)
+                || (ifStatement.ElseStatement != null && ContainsLambda(ifStatement.ElseStatement)),
+            ForStatement forStatement => (forStatement.Initializer != null && ContainsLambda(forStatement.Initializer))
+                || (forStatement.Condition != null && ContainsLambda(forStatement.Condition))
+                || (forStatement.Iterator != null && ContainsLambda(forStatement.Iterator))
+                || ContainsLambda(forStatement.Body),
+            ForeachStatement foreachStatement => ContainsLambda(foreachStatement.Collection) || ContainsLambda(foreachStatement.Body),
+            AwaitForEachStatement awaitForEachStatement => ContainsLambda(awaitForEachStatement.Collection) || ContainsLambda(awaitForEachStatement.Body),
+            WhileStatement whileStatement => ContainsLambda(whileStatement.Condition) || ContainsLambda(whileStatement.Body),
+            ReturnStatement returnStatement => returnStatement.Value != null && ContainsLambda(returnStatement.Value),
+            YieldStatement yieldStatement => yieldStatement.Value != null && ContainsLambda(yieldStatement.Value),
+            ThrowStatement throwStatement => ContainsLambda(throwStatement.Expression),
+            TryStatement tryStatement => ContainsLambda(tryStatement.TryBlock)
+                || tryStatement.CatchClauses.Any(catchClause => ContainsLambda(catchClause.Block))
+                || (tryStatement.FinallyBlock != null && ContainsLambda(tryStatement.FinallyBlock)),
+            UsingStatement usingStatement => (usingStatement.Declaration?.Initializer != null && ContainsLambda(usingStatement.Declaration.Initializer))
+                || (usingStatement.Expression != null && ContainsLambda(usingStatement.Expression))
+                || (usingStatement.Body != null && ContainsLambda(usingStatement.Body)),
+            LockStatement lockStatement => ContainsLambda(lockStatement.LockObject) || ContainsLambda(lockStatement.Body),
+            SwitchStatement switchStatement => ContainsLambda(switchStatement.Value)
+                || switchStatement.Cases.Any(switchCase => switchCase.Statements.Any(ContainsLambda)),
+            PrintStatement printStatement => ContainsLambda(printStatement.Value),
+            AssertStatement assertStatement => ContainsLambda(assertStatement.Condition)
+                || (assertStatement.Message != null && ContainsLambda(assertStatement.Message)),
+            AssertThrowsStatement assertThrowsStatement => ContainsLambda(assertThrowsStatement.Body),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// Whether <paramref name="block"/> contains a named local function with no explicit return
+    /// type anywhere in its subtree. Such local functions are lowered through a heap display class
+    /// + delegate (see <see cref="GetDirectLocalFunctionDeclarations"/>, which requires a non-null
+    /// <c>ReturnType</c> for direct, by-reference lowering), so their captured boxes must remain
+    /// heap boxes. The struct-box optimisation is disabled for the whole body when one is present.
+    /// </summary>
+    private static bool ContainsReturnlessLocalFunction(BlockStatement? block)
+    {
+        return block != null && ContainsReturnlessLocalFunction((Statement)block);
+    }
+
+    private static bool ContainsReturnlessLocalFunction(Statement statement)
+    {
+        return statement switch
+        {
+            LocalFunctionStatement localFunction =>
+                localFunction.Function.ReturnType == null
+                || (localFunction.Function.Body != null && ContainsReturnlessLocalFunction(localFunction.Function.Body)),
+            BlockStatement block => block.Statements.Any(ContainsReturnlessLocalFunction),
+            IfStatement ifStatement => ContainsReturnlessLocalFunction(ifStatement.ThenStatement)
+                || (ifStatement.ElseStatement != null && ContainsReturnlessLocalFunction(ifStatement.ElseStatement)),
+            ForStatement forStatement => (forStatement.Initializer != null && ContainsReturnlessLocalFunction(forStatement.Initializer))
+                || ContainsReturnlessLocalFunction(forStatement.Body),
+            ForeachStatement foreachStatement => ContainsReturnlessLocalFunction(foreachStatement.Body),
+            AwaitForEachStatement awaitForEachStatement => ContainsReturnlessLocalFunction(awaitForEachStatement.Body),
+            WhileStatement whileStatement => ContainsReturnlessLocalFunction(whileStatement.Body),
+            TryStatement tryStatement => ContainsReturnlessLocalFunction(tryStatement.TryBlock)
+                || tryStatement.CatchClauses.Any(catchClause => ContainsReturnlessLocalFunction(catchClause.Block))
+                || (tryStatement.FinallyBlock != null && ContainsReturnlessLocalFunction(tryStatement.FinallyBlock)),
+            UsingStatement usingStatement => usingStatement.Body != null && ContainsReturnlessLocalFunction(usingStatement.Body),
+            LockStatement lockStatement => ContainsReturnlessLocalFunction(lockStatement.Body),
+            SwitchStatement switchStatement => switchStatement.Cases.Any(
+                switchCase => switchCase.Statements.Any(ContainsReturnlessLocalFunction)),
+            AssertThrowsStatement assertThrowsStatement => ContainsReturnlessLocalFunction(assertThrowsStatement.Body),
+            _ => false
+        };
+    }
+
+    private static bool ContainsLambda(Expression expression)
+    {
+        return expression switch
+        {
+            LambdaExpression => true,
+            InterpolatedStringExpression interpolatedString => interpolatedString.Parts
+                .OfType<InterpolatedStringHole>()
+                .Any(hole => ContainsLambda(hole.Expression)),
+            RangeExpression range => (range.Start != null && ContainsLambda(range.Start))
+                || (range.End != null && ContainsLambda(range.End)),
+            BinaryExpression binary => ContainsLambda(binary.Left) || ContainsLambda(binary.Right),
+            UnaryExpression unary => ContainsLambda(unary.Operand),
+            MustExpression mustExpression => ContainsLambda(mustExpression.Expression),
+            MemberAccessExpression memberAccess => ContainsLambda(memberAccess.Object),
+            IndexAccessExpression indexAccess => ContainsLambda(indexAccess.Object) || ContainsLambda(indexAccess.Index),
+            CallExpression call => ContainsLambda(call.Callee) || call.Arguments.Any(argument => ContainsLambda(argument.Value)),
+            AssignmentExpression assignment => ContainsLambda(assignment.Target) || ContainsLambda(assignment.Value),
+            TernaryExpression ternary => ContainsLambda(ternary.Condition)
+                || ContainsLambda(ternary.ThenExpression)
+                || ContainsLambda(ternary.ElseExpression),
+            ArrayLiteralExpression arrayLiteral => arrayLiteral.Elements.Any(ContainsLambda),
+            TupleExpression tupleExpression => tupleExpression.Elements.Any(element => ContainsLambda(element.Value)),
+            ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
+                (property.IndexExpression != null && ContainsLambda(property.IndexExpression)) || ContainsLambda(property.Value)),
+            NewExpression newExpression => newExpression.ConstructorArguments.Any(argument => ContainsLambda(argument.Value))
+                || (newExpression.Initializer != null && ContainsLambda(newExpression.Initializer)),
+            CastExpression castExpression => ContainsLambda(castExpression.Expression),
+            IsExpression isExpression => ContainsLambda(isExpression.Expression),
+            MatchExpression matchExpression => ContainsLambda(matchExpression.Value)
+                || matchExpression.Cases.Any(matchCase =>
+                    (matchCase.Guard != null && ContainsLambda(matchCase.Guard))
+                    || ContainsLambda(matchCase.Expression)),
+            SpreadExpression spreadExpression => ContainsLambda(spreadExpression.Expression),
+            WithExpression withExpression => ContainsLambda(withExpression.Target)
+                || withExpression.Properties.Any(property =>
+                    (property.IndexExpression != null && ContainsLambda(property.IndexExpression)) || ContainsLambda(property.Value)),
+            AwaitExpression awaitExpression => ContainsLambda(awaitExpression.Expression),
+            ThrowExpression throwExpression => ContainsLambda(throwExpression.Expression),
+            NameofExpression nameofExpression => ContainsLambda(nameofExpression.Target),
+            CheckedExpression checkedExpression => ContainsLambda(checkedExpression.Expression),
+            UncheckedExpression uncheckedExpression => ContainsLambda(uncheckedExpression.Expression),
+            ParenthesizedExpression parenthesizedExpression => ContainsLambda(parenthesizedExpression.Inner),
+            _ => false
+        };
+    }
+
     private static bool ContainsAwait(Statement statement)
     {
         return statement switch
@@ -4205,6 +4578,64 @@ public partial class ILCompiler
         {
             applyAttribute(BuildCustomAttribute(attribute));
         }
+    }
+
+    // Cached attribute constructors so we resolve the BCL types at most once per compile.
+    private ConstructorInfo? _requiresUnreferencedCodeCtor;
+    private ConstructorInfo? _requiresDynamicCodeCtor;
+    private bool _aotAttributeTypesResolved;
+
+    /// <summary>
+    /// Stamps <c>[RequiresUnreferencedCode]</c> / <c>[RequiresDynamicCode]</c> onto a public
+    /// method that the AOT analysis found to contain blockers. These are the same BCL attributes
+    /// the .NET libraries use to propagate AOT/trim warnings to consumers. Emission is purely
+    /// additive metadata — it never changes the method's IL body — so verifiability and GC-safety
+    /// are preserved. No-op when <see cref="AotRequirements"/> is empty or the BCL attribute types
+    /// are unavailable in the target framework.
+    /// </summary>
+    private void ApplyAotRequirementAttributes(Action<CustomAttributeBuilder> applyAttribute, string declarationName)
+    {
+        if (AotRequirements.IsEmpty || !AotRequirements.TryGet(declarationName, out var annotation))
+        {
+            return;
+        }
+
+        ResolveAotAttributeTypes();
+
+        if (annotation.RequiresUnreferencedCode && _requiresUnreferencedCodeCtor != null)
+        {
+            applyAttribute(new CustomAttributeBuilder(_requiresUnreferencedCodeCtor, new object[] { annotation.Message }));
+        }
+
+        if (annotation.RequiresDynamicCode && _requiresDynamicCodeCtor != null)
+        {
+            applyAttribute(new CustomAttributeBuilder(_requiresDynamicCodeCtor, new object[] { annotation.Message }));
+        }
+    }
+
+    private void ResolveAotAttributeTypes()
+    {
+        if (_aotAttributeTypesResolved)
+        {
+            return;
+        }
+
+        _aotAttributeTypesResolved = true;
+
+        // RequiresUnreferencedCodeAttribute ships since .NET 5; RequiresDynamicCodeAttribute since
+        // .NET 7. Resolve by full name so we only emit what the target framework actually defines.
+        _requiresUnreferencedCodeCtor = ResolveSingleStringAttributeConstructor(
+            "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute");
+        _requiresDynamicCodeCtor = ResolveSingleStringAttributeConstructor(
+            "System.Diagnostics.CodeAnalysis.RequiresDynamicCodeAttribute");
+    }
+
+    private static ConstructorInfo? ResolveSingleStringAttributeConstructor(string fullName)
+    {
+        var type = Type.GetType($"{fullName}, System.Private.CoreLib")
+            ?? Type.GetType($"{fullName}, System.Runtime")
+            ?? Type.GetType(fullName);
+        return type?.GetConstructor(new[] { typeof(string) });
     }
 
     private void EnsureNullableMetadataAttributeTypes()
@@ -6327,7 +6758,213 @@ public partial class ILCompiler
             return (null, null);
         }
 
+        if (TryGetSpecializedMethod(overload, typeArguments) is { } specializedMethod)
+        {
+            return (specializedMethod, typeArguments);
+        }
+
         return (overload.Builder.MakeGenericMethod(typeArguments), typeArguments);
+    }
+
+    /// <summary>
+    /// Attempts to redirect a closed generic instantiation to a monomorphized, non-generic
+    /// specialization. Returns the specialized <see cref="MethodInfo"/> when one is registered
+    /// (or can be registered) for the exact value-type arguments, otherwise <c>null</c> so the
+    /// caller falls back to the shared generic path.
+    /// </summary>
+    /// <remarks>
+    /// Conservative gating (GC-safety critical): only static top-level functions on the
+    /// program type whose ABI boundary is non-public are eligible, and only when every type
+    /// argument is a concrete, finalized value type. The specialized body is emitted by
+    /// re-driving the ordinary body emitter against a concrete-type substitution, so the IL
+    /// stays verifiable.
+    /// </remarks>
+    private MethodInfo? TryGetSpecializedMethod(DeclaredMethodOverload overload, Type[] typeArguments)
+    {
+        var declaration = overload.Declaration;
+
+        // Only top-level static functions are specialized today. Instance/extension generics,
+        // and any non-static shape, stay on the shared generic path.
+        if (!_topLevelFunctionDeclarations.Contains(declaration)
+            || !overload.Builder.IsStatic
+            || overload.Builder.DeclaringType != _programType)
+        {
+            return null;
+        }
+
+        if (declaration.TypeParameters is not { Count: > 0 }
+            || typeArguments.Length != declaration.TypeParameters.Count)
+        {
+            return null;
+        }
+
+        if (!GenericSpecializer.AreSpecializableValueTypeArguments(typeArguments))
+        {
+            return null;
+        }
+
+        // GC-safety / correctness gate: type arguments may be inferred from a prefix of the
+        // call's arguments before the overload is fully accepted. If the declaration constrains
+        // its type parameters to a base type / interface (or to `class`), an arbitrary value
+        // type may not satisfy the constraint — specializing over it would emit a monomorphic
+        // body that resolves constrained member calls against the concrete type and can fail to
+        // compile (e.g. T : IShape with T = int -> int.Area() not found). Only specialize when
+        // every constraint on the type parameters is one a value type provably satisfies
+        // (`struct` / `new()`); otherwise stay on the shared generic path.
+        if (!HasOnlySpecializationSafeConstraints(declaration))
+        {
+            return null;
+        }
+
+        if (_genericSpecializer.TryGet(declaration, typeArguments, out var existing))
+        {
+            return existing.Builder;
+        }
+
+        var boundary = AbiClassifier.ClassifyFunctionBoundary(declaration, isTopLevel: true);
+        var specialization = _genericSpecializer.Register(
+            declaration,
+            boundary,
+            typeArguments,
+            () => DeclareGenericSpecialization(declaration, overload.Builder, typeArguments));
+
+        if (specialization == null)
+        {
+            return null;
+        }
+
+        if (_emittedSpecializationBodies.Add(specialization))
+        {
+            _pendingSpecializationBodies.Add(specialization);
+        }
+
+        return specialization.Builder;
+    }
+
+    /// <summary>
+    /// Returns <c>true</c> when every generic constraint on <paramref name="declaration"/> is one
+    /// that a value type provably satisfies (<c>struct</c> / <c>new()</c>). A type-argument
+    /// constraint (base type or interface) or a <c>class</c> constraint means an arbitrary value
+    /// type may not be a legal instantiation, so the declaration must not be specialized.
+    /// </summary>
+    private static bool HasOnlySpecializationSafeConstraints(FunctionDeclaration declaration)
+    {
+        if (declaration.Constraints is not { Count: > 0 } constraints)
+        {
+            return true;
+        }
+
+        foreach (var constraint in constraints)
+        {
+            // A `class` constraint can never be satisfied by a value type.
+            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
+            {
+                return false;
+            }
+
+            // Any base-type / interface constraint means member calls in the body are resolved
+            // against that bound; a value type may not satisfy it. Stay on the shared path.
+            if (constraint.Constraints is { Count: > 0 })
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Declares the non-generic <see cref="MethodBuilder"/> that carries a specialized generic
+    /// body. The signature is the open generic signature with the type parameters substituted
+    /// by the concrete value-type arguments. No body is emitted here.
+    /// </summary>
+    private MethodBuilder DeclareGenericSpecialization(
+        FunctionDeclaration declaration,
+        MethodBuilder genericDefinition,
+        Type[] typeArguments)
+    {
+        if (_programType == null)
+        {
+            throw new InvalidOperationException("Program type is not initialized.");
+        }
+
+        var substitution = BuildSpecializationSubstitution(declaration, typeArguments);
+
+        // Resolve return/parameter types through the concrete substitution. We temporarily
+        // install the substitution so ResolveType maps the type-parameter names to concrete
+        // value types exactly as it will during body emission.
+        var savedSpecialization = _activeGenericSpecialization;
+        var savedGenericParameters = _currentGenericParameters;
+        _activeGenericSpecialization = substitution;
+        _currentGenericParameters = null;
+
+        Type returnType;
+        Type[] parameterTypes;
+        try
+        {
+            returnType = GetDeclaredFunctionReturnType(declaration, null);
+            parameterTypes = declaration.Parameters
+                .Select(parameter => ResolveParameterType(parameter, (GenericTypeParameterBuilder[]?)null))
+                .ToArray();
+        }
+        finally
+        {
+            _activeGenericSpecialization = savedSpecialization;
+            _currentGenericParameters = savedGenericParameters;
+        }
+
+        var methodName = BuildSpecializationName(genericDefinition.Name, typeArguments);
+
+        // Private so the specialization never widens the assembly's public surface, static to
+        // mirror the top-level function shape, HideBySig to match ordinary method emission.
+        var methodBuilder = _programType.DefineMethod(
+            methodName,
+            MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
+            returnType,
+            parameterTypes);
+
+        for (var i = 0; i < declaration.Parameters.Count; i++)
+        {
+            methodBuilder.DefineParameter(i + 1, GetParameterAttributes(declaration.Parameters[i]), declaration.Parameters[i].Name);
+        }
+
+        return methodBuilder;
+    }
+
+    private static Dictionary<string, Type> BuildSpecializationSubstitution(
+        FunctionDeclaration declaration,
+        Type[] typeArguments)
+    {
+        var typeParameters = declaration.TypeParameters
+            ?? throw new InvalidOperationException($"Function '{declaration.Name}' is not generic.");
+
+        var substitution = new Dictionary<string, Type>(StringComparer.Ordinal);
+        for (var i = 0; i < typeParameters.Count; i++)
+        {
+            substitution[typeParameters[i].Name] = typeArguments[i];
+        }
+
+        return substitution;
+    }
+
+    private static string BuildSpecializationName(string baseName, Type[] typeArguments)
+    {
+        // Use a '$'-delimited suffix that cannot collide with a valid N# identifier so the
+        // specialized method never clashes with a user-declared method.
+        var suffix = string.Join("_", typeArguments.Select(type => SanitizeTypeNameForMethod(type)));
+        return $"{baseName}${suffix}";
+    }
+
+    private static string SanitizeTypeNameForMethod(Type type)
+    {
+        var name = type.FullName ?? type.Name;
+        var builder = new System.Text.StringBuilder(name.Length);
+        foreach (var ch in name)
+        {
+            builder.Append(char.IsLetterOrDigit(ch) ? ch : '_');
+        }
+
+        return builder.ToString();
     }
 
     private bool TryBindDeclaredParameters(
@@ -6475,7 +7112,17 @@ public partial class ILCompiler
                 {
                     var expectsByRef = parameterType.IsByRef;
                     var suppliedByRef = supplied.Argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out;
-                    if (expectsByRef != suppliedByRef)
+
+                    // A parameter the compiler lowered to pass-by-`in` (struct-copy elimination)
+                    // is byref at the IL level but takes an ordinary by-value argument at the
+                    // source level, exactly like a C# `in` parameter. Only enforce the strict
+                    // ref/out match when the parameter is byref because the *source* declared it
+                    // `ref`/`out`; a synthesized `in` accepts a value argument.
+                    var parameterDeclaredByRef = i < declaredParameters.Count
+                        && declaredParameters[i].Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out;
+                    var isSynthesizedInParameter = expectsByRef && !parameterDeclaredByRef;
+
+                    if (expectsByRef != suppliedByRef && !(isSynthesizedInParameter && !suppliedByRef))
                     {
                         boundArguments = Array.Empty<BoundCallArgument>();
                         return false;
@@ -6781,7 +7428,10 @@ public partial class ILCompiler
                 case SuppliedBoundCallArgument supplied:
                     if (supplied.ParameterType.IsByRef)
                     {
-                        EmitArgumentAddress(supplied.Argument.Value, GetByRefElementType(supplied.ParameterType));
+                        // A byref parameter fed by an argument the source did NOT mark `ref`/`out`
+                        // is a pass-by-`in` lowering: tolerate an rvalue by spilling to a temp.
+                        var allowRvalueCopy = supplied.Argument.Modifier is not (ArgumentModifier.Ref or ArgumentModifier.Out);
+                        EmitArgumentAddress(supplied.Argument.Value, GetByRefElementType(supplied.ParameterType), allowRvalueCopy);
                     }
                     else
                     {
@@ -7228,12 +7878,223 @@ public partial class ILCompiler
         };
     }
 
+    private static ParameterAttributes GetParameterAttributes(Parameter parameter, Type resolvedParameterType)
+    {
+        var attributes = GetParameterAttributes(parameter);
+
+        // A parameter lowered to pass-by-`in` carries the `[In]` parameter flag, matching how
+        // C# emits `in` parameters (byref + In + modreq(InAttribute) + [IsReadOnly]).
+        if (IsSynthesizedInParameter(parameter, resolvedParameterType))
+        {
+            attributes |= ParameterAttributes.In;
+        }
+
+        return attributes;
+    }
+
+    /// <summary>
+    /// True when the parameter type is byref purely because struct-copy elimination lowered an
+    /// otherwise by-value parameter to pass-by-<c>in</c> (i.e. the source did not declare
+    /// <c>ref</c>/<c>out</c>).
+    /// </summary>
+    private static bool IsSynthesizedInParameter(Parameter parameter, Type resolvedParameterType)
+    {
+        return resolvedParameterType.IsByRef
+            && parameter.Modifier is not (Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out);
+    }
+
+    /// <summary>
+    /// Marks a pass-by-<c>in</c> parameter with <see cref="System.Runtime.CompilerServices.IsReadOnlyAttribute"/>
+    /// so C# sees it as <c>in</c> rather than <c>ref</c>. The <c>modreq(InAttribute)</c> on the
+    /// signature (see <see cref="SetMethodSignatureWithInModifiers"/>) is what the C# binder keys on;
+    /// the attribute keeps language services and decompilers in agreement.
+    /// </summary>
+    private void ApplyInParameterAttributes(ParameterBuilder parameterBuilder, Parameter parameter, Type resolvedParameterType)
+    {
+        if (IsSynthesizedInParameter(parameter, resolvedParameterType))
+        {
+            ApplyIsReadOnlyAttribute(parameterBuilder.SetCustomAttribute);
+        }
+    }
+
+    /// <summary>
+    /// Sets a method's signature, attaching <c>modreq(InAttribute)</c> to every parameter that
+    /// struct-copy elimination lowered to pass-by-<c>in</c>. Falls back to the simpler
+    /// <see cref="MethodBuilder.SetReturnType"/>/<see cref="MethodBuilder.SetParameters"/> pair
+    /// when there are no <c>in</c> parameters so the common case keeps its existing metadata shape.
+    /// </summary>
+    private void SetMethodSignatureWithInModifiers(
+        MethodBuilder methodBuilder,
+        IReadOnlyList<Parameter> parameters,
+        Type returnType,
+        Type[] parameterTypes)
+    {
+        var hasInParameter = false;
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            if (i < parameters.Count && IsSynthesizedInParameter(parameters[i], parameterTypes[i]))
+            {
+                hasInParameter = true;
+                break;
+            }
+        }
+
+        if (!hasInParameter)
+        {
+            methodBuilder.SetReturnType(returnType);
+            methodBuilder.SetParameters(parameterTypes);
+            return;
+        }
+
+        var inModifiers = GetInParameterRequiredCustomModifiers();
+        var parameterRequiredModifiers = new Type[parameterTypes.Length][];
+        for (int i = 0; i < parameterTypes.Length; i++)
+        {
+            parameterRequiredModifiers[i] = i < parameters.Count
+                && IsSynthesizedInParameter(parameters[i], parameterTypes[i])
+                    ? inModifiers
+                    : Type.EmptyTypes;
+        }
+
+        methodBuilder.SetSignature(
+            returnType,
+            returnTypeRequiredCustomModifiers: null,
+            returnTypeOptionalCustomModifiers: null,
+            parameterTypes,
+            parameterTypeRequiredCustomModifiers: parameterRequiredModifiers,
+            parameterTypeOptionalCustomModifiers: null);
+    }
+
     private Type ResolveParameterType(Parameter parameter, GenericTypeParameterBuilder[]? genericParameters = null)
     {
         var parameterType = ResolveType(parameter.Type, genericParameters);
         return parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out
             ? parameterType.MakeByRefType()
             : parameterType;
+    }
+
+    /// <summary>
+    /// Like <see cref="ResolveParameterType(Parameter, GenericTypeParameterBuilder[])"/> but, for a
+    /// function whose body declares no closures (so no parameter can escape via capture), lowers a
+    /// large readonly-struct parameter to pass-by-<c>in</c> for struct-copy elimination. This is the
+    /// same lowering C# performs for <c>in</c> parameters and is ABI-compatible — callers still pass
+    /// by value at the source level. See Performance/StructCopyAnalysis.cs.
+    /// </summary>
+    private Type ResolveParameterTypeWithCopyElision(
+        Parameter parameter,
+        FunctionDeclaration owningFunction,
+        bool ownerDeclaresClosures,
+        GenericTypeParameterBuilder[]? genericParameters = null)
+    {
+        var resolved = ResolveParameterType(parameter, genericParameters);
+        return ShouldLowerParameterToReadOnlyReference(parameter, owningFunction, ownerDeclaresClosures, resolved)
+            ? GetByRefElementType(resolved).MakeByRefType()
+            : resolved;
+    }
+
+    /// <summary>
+    /// Decides whether a by-value parameter should be lowered to pass-by-<c>in</c>. Only applies to
+    /// parameters with no explicit <c>ref</c>/<c>out</c>/<c>params</c> modifier, on a non-generic,
+    /// closure-free function, whose resolved type clears every
+    /// <see cref="Performance.StructCopyAnalysis"/> safety gate (large, provably readonly,
+    /// non-generic value type).
+    /// </summary>
+    private bool ShouldLowerParameterToReadOnlyReference(
+        Parameter parameter,
+        FunctionDeclaration owningFunction,
+        bool ownerDeclaresClosures,
+        Type resolvedType)
+    {
+        if (parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params)
+        {
+            return false;
+        }
+
+        // `this` extension receivers and defaulted parameters keep their by-value shape: extension
+        // `this` interacts with C# extension-method binding, and an `in` parameter cannot carry an
+        // optional default through metadata the way a by-value parameter does.
+        if (parameter.IsThis || parameter.DefaultValue != null)
+        {
+            return false;
+        }
+
+        // Generic functions are left untouched: their binding path re-resolves parameter types and
+        // the extra consistency surface is not worth it for the first iteration.
+        if (owningFunction.TypeParameters is { Count: > 0 })
+        {
+            return false;
+        }
+
+        // Escape gate: only lower when no closure in the body can capture (and thus outlive) the
+        // parameter. A captured parameter is copied into a display class by value, and the lifting
+        // emit path expects a by-value argument slot, so we must not hand it a byref.
+        if (ownerDeclaresClosures)
+        {
+            return false;
+        }
+
+        // Mutation gate: a by-value parameter is a mutable local. If the body assigns to it
+        // (`p = …`, `p += …`, `p++`), lowering to byref would store *through* the caller's
+        // reference and corrupt the caller's value. Such a parameter keeps its by-value ABI.
+        if (Performance.StructCopyAnalysis.ParameterIsAssignedInBody(owningFunction, parameter.Name))
+        {
+            return false;
+        }
+
+        var elementType = GetByRefElementType(resolvedType);
+        return Performance.StructCopyAnalysis.ShouldPassByReadOnlyReference(
+            elementType,
+            GetDeclaredStructFields(elementType));
+    }
+
+    /// <summary>
+    /// Collects the instance fields of an in-flight <see cref="TypeBuilder"/> struct from the
+    /// compiler's field registry so <see cref="Performance.StructCopyAnalysis"/> can measure its
+    /// size and immutability before <c>CreateType()</c> (where reflection over fields would throw).
+    /// Returns <c>null</c> for fully baked runtime types, which describe themselves.
+    /// </summary>
+    private IReadOnlyList<Performance.StructCopyAnalysis.StructFieldDescriptor>? GetDeclaredStructFields(Type type)
+    {
+        if (type is not TypeBuilder)
+        {
+            return null;
+        }
+
+        var prefix = GetTypeKey(type) + ".";
+        var descriptors = new List<Performance.StructCopyAnalysis.StructFieldDescriptor>();
+        foreach (var entry in _fields)
+        {
+            if (!entry.Key.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            // Only direct members of this type, not a nested type whose key shares the prefix.
+            if (entry.Key.IndexOf('.', prefix.Length) >= 0)
+            {
+                continue;
+            }
+
+            var field = entry.Value;
+            descriptors.Add(new Performance.StructCopyAnalysis.StructFieldDescriptor(
+                field.FieldType,
+                field.IsInitOnly,
+                field.IsStatic));
+        }
+
+        return descriptors;
+    }
+
+    /// <summary>
+    /// The required custom modifier the CLR uses to mark a byref parameter as <c>in</c>
+    /// (read-only) so that C# binds it as <c>in</c> rather than <c>ref</c>. Returns an empty
+    /// array when the runtime type is unavailable, which degrades to a plain byref (still
+    /// verifiable, still copy-free) rather than failing the build.
+    /// </summary>
+    private Type[] GetInParameterRequiredCustomModifiers()
+    {
+        var inAttribute = ResolveOptionalRuntimeType("System.Runtime.InteropServices.InAttribute");
+        return inAttribute is null ? Type.EmptyTypes : new[] { inAttribute };
     }
 
     private Type ResolveParameterType(Parameter parameter, IReadOnlyDictionary<string, Type> genericTypeArguments)
@@ -7262,7 +8123,11 @@ public partial class ILCompiler
             .ToArray();
     }
 
-    private void RegisterParameterContext(IReadOnlyList<Parameter> parameters, int startIndex, GenericTypeParameterBuilder[]? genericParameters = null)
+    private void RegisterParameterContext(
+        IReadOnlyList<Parameter> parameters,
+        int startIndex,
+        GenericTypeParameterBuilder[]? genericParameters = null,
+        FunctionDeclaration? copyElisionOwner = null)
     {
         if (_currentIL == null || _locals == null || _parameters == null || _parameterTypes == null || _byRefParameters == null)
             throw new InvalidOperationException("No parameter context available");
@@ -7272,9 +8137,22 @@ public partial class ILCompiler
             var parameter = parameters[i];
             var parameterType = ResolveType(parameter.Type, genericParameters);
             _parameters[parameter.Name] = startIndex + i;
+            // The logical type seen by the body is always the value type; an `in`-lowered
+            // parameter is read by dereferencing the managed reference (see _byRefParameters).
             _parameterTypes[parameter.Name] = parameterType;
 
             if (parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out)
+            {
+                _byRefParameters.Add(parameter.Name);
+                continue;
+            }
+
+            // Mirror the struct-copy-elimination decision made when the signature was emitted: a
+            // parameter lowered to pass-by-`in` is a managed reference at the IL level, so reads
+            // of it must dereference. Closure-free elision guarantees the parameter is never
+            // captured, so the lift path below is unreachable for these parameters.
+            if (copyElisionOwner != null
+                && ShouldLowerParameterToReadOnlyReference(parameter, copyElisionOwner, ownerDeclaresClosures: false, parameterType))
             {
                 _byRefParameters.Add(parameter.Name);
                 continue;
@@ -7932,6 +8810,11 @@ public partial class ILCompiler
             ?? throw new InvalidOperationException($"Could not resolve required runtime type {fullName}");
     }
 
+    private Type? ResolveOptionalRuntimeType(string fullName)
+    {
+        return ResolveExternalType(fullName);
+    }
+
     private void ApplyRequiredMemberAttribute(Action<CustomAttributeBuilder> applyAttribute)
     {
         var requiredMemberAttribute = ResolveRequiredRuntimeType("System.Runtime.CompilerServices.RequiredMemberAttribute");
@@ -8304,7 +9187,7 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldloca_S, tempLocal);
     }
 
-    private void EmitArgumentAddress(Expression expression, Type elementType)
+    private void EmitArgumentAddress(Expression expression, Type elementType, bool allowReadOnlyRvalueCopy = false)
     {
         if (_currentIL == null || _locals == null || _parameters == null)
             throw new InvalidOperationException("No IL generator context");
@@ -8345,6 +9228,20 @@ public partial class ILCompiler
             case IndexAccessExpression indexAccess:
                 EmitIndexArgumentAddress(indexAccess);
                 return;
+        }
+
+        // For a parameter the compiler lowered to pass-by-`in`, the argument may be an rvalue
+        // (a literal, `new T(...)`, a method result, an arithmetic expression). The CLR requires
+        // a managed reference, so we spill the value into a fresh local and take its address —
+        // exactly the temporary C# materializes for an `in` argument. This is never reached for a
+        // genuine `ref`/`out` argument, where an rvalue would be a source error.
+        if (allowReadOnlyRvalueCopy)
+        {
+            EmitExpressionWithExpectedType(expression, elementType);
+            var temp = _currentIL.DeclareLocal(elementType);
+            _currentIL.Emit(OpCodes.Stloc, temp);
+            _currentIL.Emit(OpCodes.Ldloca_S, temp);
+            return;
         }
 
         throw new NotImplementedException($"ref/out arguments for {expression.GetType().Name} are not yet supported in IL compiler");
@@ -8496,6 +9393,12 @@ public partial class ILCompiler
             {
                 EmitArgumentAddress(argument.Value, parameterElementType);
             }
+            else if (parameterType.IsByRef)
+            {
+                // The parameter is byref but the argument is not `ref`/`out`: a pass-by-`in`
+                // lowering. Hand the callee a readonly reference, spilling rvalues to a temp.
+                EmitArgumentAddress(argument.Value, parameterElementType, allowReadOnlyRvalueCopy: true);
+            }
             else
             {
                 EmitExpressionWithExpectedType(argument.Value, parameterElementType);
@@ -8596,6 +9499,7 @@ public partial class ILCompiler
         {
             if (declaration is FunctionDeclaration funcDecl)
             {
+                _topLevelFunctionDeclarations.Add(funcDecl);
                 DeclareFunction(_programType, funcDecl);
             }
             else if (declaration is ClassDeclaration classDecl)
@@ -8662,6 +9566,11 @@ public partial class ILCompiler
         {
             EmitTestBodies();
         }
+
+        // Emit monomorphized generic specializations requested while emitting the bodies above.
+        // Done after the main third pass so all generic definitions are declared and bindable,
+        // and before any type is baked.
+        EmitPendingSpecializationBodies();
 
         EnsureRuntimeEntryPointWrapper();
 
@@ -8889,15 +9798,34 @@ public partial class ILCompiler
         // Determine return type (may reference generic parameters)
         var returnType = GetDeclaredFunctionReturnType(function, genericParameters);
 
+        // Struct-copy elimination is only applied when the function declares no closures (so no
+        // parameter can be captured and outlive the call) and produces no anonymous-union shims
+        // (whose forwarding signatures would otherwise need to be kept in lock-step). When neither
+        // gate holds we fall back to plain by-value parameter resolution.
+        var enableCopyElision = !DeclaresAnonymousUnionShims(function, methodAttributes)
+            && !Performance.StructCopyAnalysis.BodyContainsClosure(function);
+
         // Determine parameter types (may reference generic parameters)
         var parameterTypes = function.Parameters
-            .Select(p => ResolveParameterType(p, genericParameters))
+            .Select(p => enableCopyElision
+                ? ResolveParameterTypeWithCopyElision(p, function, ownerDeclaresClosures: false, genericParameters)
+                : ResolveParameterType(p, genericParameters))
             .ToArray();
 
-        // Set return type and parameter types
-        methodBuilder.SetReturnType(returnType);
-        methodBuilder.SetParameters(parameterTypes);
+        // Record the elision decision so the body-emission pass can dereference the same
+        // parameters. Only record when at least one parameter was actually lowered.
+        if (enableCopyElision && parameterTypes.Where((type, index) =>
+                IsSynthesizedInParameter(function.Parameters[index], type)).Any())
+        {
+            _copyElidedFunctions.Add(function);
+        }
+
+        // Set the signature, attaching the `in` required custom modifier to any parameter the
+        // struct-copy elimination pass lowered to pass-by-reference. SetSignature is the only
+        // builder API that can carry per-parameter required modifiers.
+        SetMethodSignatureWithInModifiers(methodBuilder, function.Parameters, returnType, parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, function.Attributes);
+        ApplyAotRequirementAttributes(methodBuilder.SetCustomAttribute, function.Name);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
         if (function.ReturnType != null)
         {
@@ -8908,8 +9836,9 @@ public partial class ILCompiler
         // Define parameter names
         for (int i = 0; i < function.Parameters.Count; i++)
         {
-            var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(function.Parameters[i]), function.Parameters[i].Name);
+            var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(function.Parameters[i], parameterTypes[i]), function.Parameters[i].Name);
             ApplyParameterAttributes(parameterBuilder, function.Parameters[i], genericParameters);
+            ApplyInParameterAttributes(parameterBuilder, function.Parameters[i], parameterTypes[i]);
         }
 
         // Store method builder for later reference
@@ -8924,6 +9853,33 @@ public partial class ILCompiler
             returnType,
             parameterTypes,
             genericParameters);
+    }
+
+    /// <summary>
+    /// Predicts whether <see cref="DeclareAnonymousUnionParameterShims"/> would emit forwarding
+    /// shims for this function. Struct-copy elimination is disabled for such functions so that the
+    /// shim signatures never drift out of sync with the elided primary signature.
+    /// </summary>
+    private static bool DeclaresAnonymousUnionShims(FunctionDeclaration function, MethodAttributes targetAttributes)
+    {
+        if (function.IsOperatorOverload
+            || function.IsConversionOperator
+            || function.Modifiers.HasFlag(Modifiers.Abstract)
+            || function.TypeParameters is { Count: > 0 }
+            || (targetAttributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
+        {
+            return false;
+        }
+
+        var unionParameters = function.Parameters
+            .Where(parameter => TryGetTwoArmAnonymousUnion(parameter.Type) != null)
+            .ToList();
+
+        if (unionParameters.Count == 0)
+            return false;
+
+        return unionParameters.All(parameter =>
+            parameter.Modifier is not (Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params));
     }
 
     private void DeclareAnonymousUnionParameterShims(
@@ -9045,9 +10001,28 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Method {function.Name} not declared");
         }
 
-        // Get generic parameters if the method is generic
+        EmitFunctionBody(function, methodBuilder, specialization: null);
+    }
+
+    /// <summary>
+    /// Emits a function body into <paramref name="methodBuilder"/>. When
+    /// <paramref name="specialization"/> is non-null this is a monomorphized specialization:
+    /// the generic type parameter names are bound to concrete value types via the active
+    /// substitution, the target method is non-generic, and the anonymous-union shim emission
+    /// (which is only generated for non-generic public functions) is skipped.
+    /// </summary>
+    private void EmitFunctionBody(
+        FunctionDeclaration function,
+        MethodBuilder methodBuilder,
+        IReadOnlyDictionary<string, Type>? specialization)
+    {
+        var savedSpecialization = _activeGenericSpecialization;
+        _activeGenericSpecialization = specialization;
+
+        // Get generic parameters if the method is generic. A specialized method is non-generic;
+        // its open type parameters are resolved through the substitution instead.
         _currentGenericParameters = null;
-        if (methodBuilder.IsGenericMethodDefinition)
+        if (specialization == null && methodBuilder.IsGenericMethodDefinition)
         {
             _currentGenericParameters = methodBuilder.GetGenericArguments()
                 .Cast<GenericTypeParameterBuilder>()
@@ -9064,6 +10039,9 @@ public partial class ILCompiler
             _currentAsyncResultType = asyncResultType;
             _currentAsyncReturnsValueTask = returnsValueTask;
             bodyReturnType = asyncResultType ?? typeof(void);
+
+            // Selection point for pooled async builders (inert until real state machines land).
+            ApplyAsyncMethodBuilderAttribute(methodBuilder, returnType);
         }
 
         InitializeBodyContextForBody(bodyReturnType, function.Body, function.ExpressionBody, function.Parameters);
@@ -9086,7 +10064,21 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
         }
 
-        RegisterParameterContext(function.Parameters, 0, _currentGenericParameters);
+        RegisterParameterContext(
+            function.Parameters,
+            0,
+            _currentGenericParameters,
+            copyElisionOwner: _copyElidedFunctions.Contains(function) ? function : null);
+
+        InitializeStackBufferPromotions(
+            function.Body,
+            function.Parameters,
+            function.Modifiers.HasFlag(Modifiers.Async),
+            function.Modifiers.HasFlag(Modifiers.Generator));
+
+        // Wrap async bodies in a fault guard so a synchronously-thrown exception is surfaced as a
+        // faulted task (C# async semantics), rather than escaping the method synchronously.
+        var asyncFaultGuard = BeginAsyncFaultGuard();
 
         // Emit function body
         if (function.Body != null)
@@ -9111,7 +10103,7 @@ public partial class ILCompiler
                 }
 
                 EmitWrapCurrentAsyncReturn();
-                _currentIL.Emit(OpCodes.Ret);
+                EmitAsyncReturnFromValueOnStack(asyncFaultGuard);
             }
             else
             {
@@ -9120,8 +10112,12 @@ public partial class ILCompiler
             }
         }
 
+        if (asyncFaultGuard)
+        {
+            EndAsyncFaultGuard();
+        }
         // Ensure function ends with a return
-        if (_usesStructuredReturn)
+        else if (_usesStructuredReturn)
         {
             EmitStructuredReturnTarget();
         }
@@ -9144,7 +10140,32 @@ public partial class ILCompiler
         // Clear context
         ClearMethodContext();
         _currentGenericParameters = null;
-        EmitAnonymousUnionParameterShims(function);
+        _activeGenericSpecialization = savedSpecialization;
+
+        // Anonymous-union parameter shims are only emitted for ordinary (non-specialized)
+        // declarations; a specialized body reuses the original declaration's shims, if any.
+        if (specialization == null)
+        {
+            EmitAnonymousUnionParameterShims(function);
+        }
+    }
+
+    /// <summary>
+    /// Drains the queue of pending specialized generic bodies, emitting each one. Emission of a
+    /// specialized body can itself request further specializations (e.g. a generic that calls
+    /// another generic over the same value type), so this loops until the queue is empty.
+    /// Runs after the main third pass so all generic definitions are already declared.
+    /// </summary>
+    private void EmitPendingSpecializationBodies()
+    {
+        while (_pendingSpecializationBodies.Count > 0)
+        {
+            var specialization = _pendingSpecializationBodies[0];
+            _pendingSpecializationBodies.RemoveAt(0);
+
+            var substitution = specialization.CreateSubstitution();
+            EmitFunctionBody(specialization.Declaration, specialization.Builder, substitution);
+        }
     }
 
     /// <summary>
@@ -9635,6 +10656,18 @@ public partial class ILCompiler
     private void EmitVariableDeclaration(VariableDeclarationStatement varDecl)
     {
         if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Stack-buffer promotion: a non-escaping fixed-size local array literal of unmanaged
+        // primitives is stored as an [InlineArray] stack buffer instead of a heap array. The
+        // buffer local was already declared in InitializeStackBufferPromotions; here we emit its
+        // initialization from the literal. All later reads/writes route through the promoted-buffer
+        // emit paths keyed on the name.
+        if (varDecl.Initializer is ArrayLiteralExpression bufferLiteral
+            && TryGetPromotedBuffer(varDecl.Name, out var bufferStorage))
+        {
+            EmitPromotedBufferDeclaration(bufferStorage, bufferLiteral);
+            return;
+        }
 
         // Determine type from initializer or explicit type
         Type varType;
@@ -10314,20 +11347,27 @@ public partial class ILCompiler
         var switchLocal = _currentIL.DeclareLocal(switchValueType);
         _currentIL.Emit(OpCodes.Stloc, switchLocal);
 
+        // Fast path: a dense int/enum jump table or string hash dispatch routes directly to each
+        // case body. Falls back to the linear test chain below when arms aren't dispatchable.
+        var usedDispatch = TryEmitSwitchDispatch(switchStmt, switchValueType, switchLocal, bodyLabels, endLabel);
+
         _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
         try
         {
             for (int i = 0; i < switchStmt.Cases.Count; i++)
             {
                 var switchCase = switchStmt.Cases[i];
-                if (switchCase.Pattern == null)
+                if (!usedDispatch)
                 {
-                    _currentIL.Emit(OpCodes.Br, bodyLabels[i]);
-                }
-                else
-                {
-                    _currentIL.Emit(OpCodes.Ldloc, switchLocal);
-                    EmitPatternTest(switchCase.Pattern, switchValueType, bodyLabels[i], nextCaseLabels[i]);
+                    if (switchCase.Pattern == null)
+                    {
+                        _currentIL.Emit(OpCodes.Br, bodyLabels[i]);
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, switchLocal);
+                        EmitPatternTest(switchCase.Pattern, switchValueType, bodyLabels[i], nextCaseLabels[i]);
+                    }
                 }
 
                 _currentIL.MarkLabel(bodyLabels[i]);
@@ -10337,7 +11377,10 @@ public partial class ILCompiler
                 }
                 _currentIL.Emit(OpCodes.Br, endLabel);
 
-                _currentIL.MarkLabel(nextCaseLabels[i]);
+                if (!usedDispatch)
+                {
+                    _currentIL.MarkLabel(nextCaseLabels[i]);
+                }
             }
         }
         finally
@@ -10349,11 +11392,92 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Attempts to lower a <see cref="SwitchStatement"/>'s case selection to a jump table (dense
+    /// int/enum) or string hash dispatch that branches directly to each case's body label. Returns
+    /// true when the router was emitted (the caller then emits bodies but skips the per-case tests),
+    /// false when the cases aren't dispatchable (caller emits the linear chain). The scrutinee has
+    /// already been evaluated once into <paramref name="switchLocal"/>.
+    /// </summary>
+    private bool TryEmitSwitchDispatch(
+        SwitchStatement switchStmt,
+        Type switchValueType,
+        LocalBuilder switchLocal,
+        Label[] bodyLabels,
+        Label endLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (Nullable.GetUnderlyingType(switchValueType) != null)
+        {
+            return false;
+        }
+
+        var isIntKind = IsIntegralDispatchType(switchValueType);
+        var isStringKind = switchValueType == typeof(string);
+        if (!isIntKind && !isStringKind)
+        {
+            return false;
+        }
+
+        var constantArms = new List<DispatchArm>();
+        var defaultBodyIndex = -1;
+
+        for (var i = 0; i < switchStmt.Cases.Count; i++)
+        {
+            var switchCase = switchStmt.Cases[i];
+            if (switchCase.Pattern == null)
+            {
+                if (defaultBodyIndex >= 0)
+                {
+                    return false; // More than one default: keep the linear path's exact behavior.
+                }
+                defaultBodyIndex = i;
+                continue;
+            }
+
+            // A default that is not the final case makes later cases unreachable in the linear
+            // emission; preserve that quirk by declining dispatch in that situation.
+            if (defaultBodyIndex >= 0)
+            {
+                return false;
+            }
+
+            var isConstant = isIntKind
+                ? TryResolveConstantIntKey(switchCase.Pattern, switchValueType, out _)
+                : TryResolveConstantStringKey(switchCase.Pattern, switchValueType, out _);
+            if (!isConstant)
+            {
+                return false;
+            }
+
+            constantArms.Add(new DispatchArm(switchCase.Pattern, bodyLabels[i]));
+        }
+
+        var defaultLabel = defaultBodyIndex >= 0 ? bodyLabels[defaultBodyIndex] : endLabel;
+
+        if (isIntKind)
+        {
+            return TryEmitIntJumpTable(switchLocal, switchValueType, constantArms, defaultLabel);
+        }
+
+        return TryEmitStringHashDispatch(switchLocal, constantArms, defaultLabel);
+    }
+
+    /// <summary>
     /// Emit IL for a foreach statement
     /// </summary>
     private void EmitForeach(ForeachStatement foreachStmt)
     {
         if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Stack-buffer promotion: foreach over a promoted local iterates the stack buffer directly
+        // with a counted index loop (no enumerator, no heap array).
+        if (foreachStmt.Collection is IdentifierExpression bufferIdentifier
+            && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+        {
+            EmitForeachForPromotedBuffer(foreachStmt, bufferStorage);
+            return;
+        }
 
         // Get the collection type
         var collectionType = GetExpressionType(foreachStmt.Collection);
@@ -11304,6 +12428,479 @@ public partial class ILCompiler
         }
     }
 
+    // ==================== match/switch dispatch lowering ====================
+    //
+    // A "case arm" abstracts a single guardless arm of a match expression or switch
+    // statement so the dispatch lowering can be shared. <see cref="Body"/> is the label
+    // that should receive control when the arm's constant key is selected.
+    private readonly struct DispatchArm
+    {
+        public DispatchArm(Pattern pattern, Label body)
+        {
+            Pattern = pattern;
+            Body = body;
+        }
+
+        public Pattern Pattern { get; }
+        public Label Body { get; }
+    }
+
+    /// <summary>
+    /// Resolves the constant 32-bit integer key of a pattern when it is a literal
+    /// int/char/bool pattern or an identifier pattern naming an enum member compatible
+    /// with <paramref name="matchValueType"/>. Returns false for anything that is not a
+    /// compile-time integer constant (variable bindings, relational patterns, guards, etc.).
+    /// </summary>
+    private bool TryResolveConstantIntKey(Pattern pattern, Type matchValueType, out int key)
+    {
+        key = 0;
+        var underlying = Nullable.GetUnderlyingType(matchValueType) ?? matchValueType;
+
+        switch (pattern)
+        {
+            case LiteralPattern literalPattern:
+                switch (literalPattern.Literal)
+                {
+                    case IntLiteralExpression intLiteral when IsIntegralDispatchType(underlying):
+                        if (!TryParseIntLiteralMagnitude(intLiteral.Value, out var magnitude)
+                            || magnitude < int.MinValue || magnitude > int.MaxValue)
+                        {
+                            return false;
+                        }
+                        key = (int)magnitude;
+                        return true;
+                    case CharLiteralExpression charLiteral when underlying == typeof(char):
+                        key = ParseCharLiteralValue(charLiteral.Value);
+                        return true;
+                    case BoolLiteralExpression boolLiteral when underlying == typeof(bool):
+                        key = boolLiteral.Value ? 1 : 0;
+                        return true;
+                    default:
+                        return false;
+                }
+
+            case IdentifierPattern identifierPattern when underlying.IsEnum && identifierPattern.Name.Contains('.'):
+                return TryResolveEnumMemberConstant(identifierPattern.Name, underlying, out key);
+
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// True for integer-typed scrutinees whose values fit in an <c>int</c> jump-table key.
+    /// Int-backed enums are dispatched via their underlying constants. Uses the
+    /// builder-safe enum helper so it never throws on type/enum builders or generic parameters.
+    /// </summary>
+    private static bool IsIntegralDispatchType(Type type)
+    {
+        if (IsEnumType(type))
+        {
+            return TryGetEnumUnderlyingType(type) == typeof(int);
+        }
+
+        return type == typeof(int) || type == typeof(short) || type == typeof(sbyte)
+            || type == typeof(byte) || type == typeof(ushort) || type == typeof(char);
+    }
+
+    /// <summary>
+    /// Resolves a qualified enum-member pattern name (e.g. <c>Color.Red</c>) to its int
+    /// constant for an int-backed enum scrutinee. Uses the compiler's recorded field
+    /// constants for project enums and reflection for external enums.
+    /// </summary>
+    private bool TryResolveEnumMemberConstant(string qualifiedName, Type enumType, out int value)
+    {
+        value = 0;
+        if (Enum.GetUnderlyingType(enumType) != typeof(int))
+        {
+            return false;
+        }
+
+        var lastDot = qualifiedName.LastIndexOf('.');
+        if (lastDot <= 0 || lastDot == qualifiedName.Length - 1)
+        {
+            return false;
+        }
+
+        var memberName = qualifiedName[(lastDot + 1)..];
+        var qualifier = qualifiedName[..lastDot];
+
+        // The qualifier (the part before the final dot) must name the SAME enum as the scrutinee.
+        // A member of a different enum (e.g. `Other.Red` against a `Color` scrutinee) is not a
+        // constant of this scrutinee's type and must not preempt the correct arm. We accept either
+        // the simple enum name (`Color`) or a namespace-qualified form ending in it (`Ns.Color`).
+        if (!QualifierNamesEnum(qualifier, enumType))
+        {
+            return false;
+        }
+
+        // Project enums record their literal values keyed by "EnumName.Member".
+        if (_fieldConstants.TryGetValue($"{enumType.Name}.{memberName}", out var recorded))
+        {
+            if (recorded is int recordedInt)
+            {
+                value = recordedInt;
+                return true;
+            }
+        }
+
+        // External enums (or enums already baked into a runtime type) resolve via reflection.
+        if (enumType is not TypeBuilder && enumType is not EnumBuilder)
+        {
+            try
+            {
+                var parsed = Enum.Parse(enumType, memberName);
+                value = Convert.ToInt32(parsed, System.Globalization.CultureInfo.InvariantCulture);
+                return true;
+            }
+            catch (Exception ex) when (ex is ArgumentException or OverflowException or FormatException)
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when <paramref name="qualifier"/> (the portion of a qualified enum-member pattern
+    /// before its final dot) names <paramref name="enumType"/> — either by its simple name
+    /// (<c>Color</c>) or a namespace-qualified form ending in it (<c>Ns.Color</c>). Guards the
+    /// dispatch path against resolving a member of a different enum to this scrutinee's type.
+    /// </summary>
+    private static bool QualifierNamesEnum(string qualifier, Type enumType)
+    {
+        if (qualifier == enumType.Name)
+        {
+            return true;
+        }
+
+        if (qualifier.EndsWith("." + enumType.Name, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        // Match the fully-qualified type name when available (covers namespaced project enums).
+        var fullName = enumType.FullName;
+        return fullName != null && (qualifier == fullName || fullName.EndsWith("." + qualifier, StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Resolves the constant string key of a string-literal pattern when the scrutinee is a
+    /// <see cref="string"/>. Returns false for anything else.
+    /// </summary>
+    private static bool TryResolveConstantStringKey(Pattern pattern, Type matchValueType, out string key)
+    {
+        key = string.Empty;
+        if (matchValueType != typeof(string))
+        {
+            return false;
+        }
+
+        if (pattern is LiteralPattern { Literal: StringLiteralExpression stringLiteral })
+        {
+            key = stringLiteral.Value.Trim('"');
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Loads a constant integer onto the stack using the most compact opcode.
+    /// </summary>
+    private void EmitLoadConstantInt(int value)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        switch (value)
+        {
+            case -1: _currentIL.Emit(OpCodes.Ldc_I4_M1); break;
+            case 0: _currentIL.Emit(OpCodes.Ldc_I4_0); break;
+            case 1: _currentIL.Emit(OpCodes.Ldc_I4_1); break;
+            case 2: _currentIL.Emit(OpCodes.Ldc_I4_2); break;
+            case 3: _currentIL.Emit(OpCodes.Ldc_I4_3); break;
+            case 4: _currentIL.Emit(OpCodes.Ldc_I4_4); break;
+            case 5: _currentIL.Emit(OpCodes.Ldc_I4_5); break;
+            case 6: _currentIL.Emit(OpCodes.Ldc_I4_6); break;
+            case 7: _currentIL.Emit(OpCodes.Ldc_I4_7); break;
+            case 8: _currentIL.Emit(OpCodes.Ldc_I4_8); break;
+            default:
+                if (value >= sbyte.MinValue && value <= sbyte.MaxValue)
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4_S, (sbyte)value);
+                }
+                else
+                {
+                    _currentIL.Emit(OpCodes.Ldc_I4, value);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Density heuristic: a jump table is worthwhile only when the constant keys are dense
+    /// enough that the resulting table is not dominated by empty (default) slots. Requires at
+    /// least four distinct keys and a span no larger than four times the key count.
+    /// </summary>
+    private static bool IsDenseEnoughForJumpTable(int distinctKeyCount, long span)
+    {
+        if (distinctKeyCount < 4)
+        {
+            return false;
+        }
+
+        // span is (max - min); the table holds (span + 1) slots.
+        return span >= 0 && (span + 1) <= (long)distinctKeyCount * 4;
+    }
+
+    /// <summary>
+    /// Attempts to lower a set of guardless integer/enum arms to a range-biased
+    /// <see cref="OpCodes.Switch"/> jump table over the (already spilled) scrutinee local,
+    /// branching to <paramref name="defaultLabel"/> for any unmatched value. Returns false
+    /// (emitting nothing) when the arms are not dense enough to benefit from a table, leaving
+    /// the caller to fall back to linear branching.
+    /// </summary>
+    private bool TryEmitIntJumpTable(
+        LocalBuilder scrutineeLocal,
+        Type matchValueType,
+        IReadOnlyList<DispatchArm> arms,
+        Label defaultLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var underlying = Nullable.GetUnderlyingType(matchValueType) ?? matchValueType;
+        if (!IsIntegralDispatchType(underlying))
+        {
+            return false;
+        }
+
+        // First-match-wins: keep only the first arm for each key, preserving source order.
+        var keyToLabel = new Dictionary<int, Label>();
+        var min = long.MaxValue;
+        var max = long.MinValue;
+        foreach (var arm in arms)
+        {
+            if (!TryResolveConstantIntKey(arm.Pattern, matchValueType, out var key))
+            {
+                return false;
+            }
+
+            if (keyToLabel.TryAdd(key, arm.Body))
+            {
+                min = Math.Min(min, key);
+                max = Math.Max(max, key);
+            }
+        }
+
+        var span = max - min;
+        if (!IsDenseEnoughForJumpTable(keyToLabel.Count, span))
+        {
+            return false;
+        }
+
+        // A nullable scrutinee must be a present value before the underlying compares.
+        // The dispatch path here only runs for non-nullable integer/enum scrutinees;
+        // nullable matches keep the linear path (handled by the caller's gating).
+        var tableSize = checked((int)(span + 1));
+        var table = new Label[tableSize];
+        for (var i = 0; i < tableSize; i++)
+        {
+            table[i] = defaultLabel;
+        }
+
+        foreach (var (key, label) in keyToLabel)
+        {
+            table[key - min] = label;
+        }
+
+        _currentIL.Emit(OpCodes.Ldloc, scrutineeLocal);
+        if (min != 0)
+        {
+            EmitLoadConstantInt(checked((int)min));
+            _currentIL.Emit(OpCodes.Sub);
+        }
+
+        _currentIL.Emit(OpCodes.Switch, table);
+        _currentIL.Emit(OpCodes.Br, defaultLabel);
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts to lower a set of guardless string arms to hash-bucketed dispatch: the
+    /// scrutinee's hash code is computed once and used as a <see cref="OpCodes.Switch"/>
+    /// selector into per-bucket verification (string equality) chains. Returns false when the
+    /// arms are too few to benefit, leaving the caller to fall back to linear branching.
+    /// </summary>
+    private bool TryEmitStringHashDispatch(
+        LocalBuilder scrutineeLocal,
+        IReadOnlyList<DispatchArm> arms,
+        Label defaultLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // First-match-wins per distinct key; preserve source order within each bucket.
+        var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+        var entries = new List<(string Key, Label Label)>();
+        foreach (var arm in arms)
+        {
+            if (!TryResolveConstantStringKey(arm.Pattern, typeof(string), out var key))
+            {
+                return false;
+            }
+
+            if (seenKeys.Add(key))
+            {
+                entries.Add((key, arm.Body));
+            }
+        }
+
+        // Hashing only pays off once the linear-compare chain gets long.
+        if (entries.Count < 4)
+        {
+            return false;
+        }
+
+        var stringEquals = typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) });
+        if (stringEquals == null)
+        {
+            return false;
+        }
+
+        // Bucket keys by a deterministic, content-based hash so the dispatch is stable across
+        // runs and platforms (String.GetHashCode is randomized per-process and unusable here).
+        var bucketCount = entries.Count;
+        var buckets = new List<(string Key, Label Label)>[bucketCount];
+        foreach (var entry in entries)
+        {
+            var bucket = (int)(StableStringHash(entry.Key) % (uint)bucketCount);
+            (buckets[bucket] ??= new List<(string, Label)>()).Add(entry);
+        }
+
+        // Compute the scrutinee hash once and store it in a local.
+        var hashLocal = _currentIL.DeclareLocal(typeof(uint));
+        _currentIL.Emit(OpCodes.Ldloc, scrutineeLocal);
+        var nullCheckDone = _currentIL.DefineLabel();
+
+        // A null scrutinee can never equal a (non-null) string-literal key, so route it to default.
+        _currentIL.Emit(OpCodes.Dup);
+        _currentIL.Emit(OpCodes.Brtrue, nullCheckDone);
+        _currentIL.Emit(OpCodes.Pop);
+        _currentIL.Emit(OpCodes.Br, defaultLabel);
+
+        _currentIL.MarkLabel(nullCheckDone);
+        EmitStableStringHashComputation();
+        _currentIL.Emit(OpCodes.Stloc, hashLocal);
+
+        // switch over (hash % bucketCount).
+        var bucketLabels = new Label[bucketCount];
+        for (var i = 0; i < bucketCount; i++)
+        {
+            bucketLabels[i] = _currentIL.DefineLabel();
+        }
+
+        _currentIL.Emit(OpCodes.Ldloc, hashLocal);
+        EmitLoadConstantInt(bucketCount);
+        _currentIL.Emit(OpCodes.Rem_Un);
+        _currentIL.Emit(OpCodes.Switch, bucketLabels);
+        _currentIL.Emit(OpCodes.Br, defaultLabel);
+
+        for (var i = 0; i < bucketCount; i++)
+        {
+            _currentIL.MarkLabel(bucketLabels[i]);
+            var bucket = buckets[i];
+            if (bucket == null)
+            {
+                _currentIL.Emit(OpCodes.Br, defaultLabel);
+                continue;
+            }
+
+            foreach (var (key, label) in bucket)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, scrutineeLocal);
+                _currentIL.Emit(OpCodes.Ldstr, key);
+                _currentIL.Emit(OpCodes.Call, stringEquals);
+                _currentIL.Emit(OpCodes.Brtrue, label);
+            }
+
+            _currentIL.Emit(OpCodes.Br, defaultLabel);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Content-based, process-stable FNV-1a hash used to bucket string match keys at compile
+    /// time. The emitted IL (<see cref="EmitStableStringHashComputation"/>) computes the
+    /// identical value at run time, so a key always lands in the bucket it was assigned to.
+    /// </summary>
+    private static uint StableStringHash(string value)
+    {
+        const uint offsetBasis = 2166136261;
+        const uint prime = 16777619;
+        var hash = offsetBasis;
+        foreach (var ch in value)
+        {
+            hash = unchecked((hash ^ ch) * prime);
+        }
+
+        return hash;
+    }
+
+    /// <summary>
+    /// Emits IL that computes <see cref="StableStringHash"/> for the string reference currently
+    /// on top of the stack, leaving the resulting <c>uint</c> hash on the stack. Verifiable and
+    /// allocation-free: it indexes the string via <c>get_Chars</c>/<c>get_Length</c>.
+    /// </summary>
+    private void EmitStableStringHashComputation()
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var getChars = typeof(string).GetMethod("get_Chars", new[] { typeof(int) })
+            ?? throw new InvalidOperationException("Could not resolve String.get_Chars");
+        var getLength = typeof(string).GetMethod("get_Length", Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve String.get_Length");
+
+        // Stack on entry: [str]
+        var strLocal = _currentIL.DeclareLocal(typeof(string));
+        var hashLocal = _currentIL.DeclareLocal(typeof(uint));
+        var indexLocal = _currentIL.DeclareLocal(typeof(int));
+        _currentIL.Emit(OpCodes.Stloc, strLocal);
+
+        _currentIL.Emit(OpCodes.Ldc_I4, unchecked((int)2166136261u));
+        _currentIL.Emit(OpCodes.Stloc, hashLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4_0);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        var loopCondition = _currentIL.DefineLabel();
+        var loopBody = _currentIL.DefineLabel();
+        _currentIL.Emit(OpCodes.Br, loopCondition);
+
+        _currentIL.MarkLabel(loopBody);
+        // hash = (hash ^ str[index]) * prime
+        _currentIL.Emit(OpCodes.Ldloc, hashLocal);
+        _currentIL.Emit(OpCodes.Ldloc, strLocal);
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Callvirt, getChars);
+        _currentIL.Emit(OpCodes.Xor);
+        _currentIL.Emit(OpCodes.Ldc_I4, unchecked((int)16777619u));
+        _currentIL.Emit(OpCodes.Mul);
+        _currentIL.Emit(OpCodes.Stloc, hashLocal);
+        // index++
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4_1);
+        _currentIL.Emit(OpCodes.Add);
+        _currentIL.Emit(OpCodes.Stloc, indexLocal);
+
+        _currentIL.MarkLabel(loopCondition);
+        _currentIL.Emit(OpCodes.Ldloc, indexLocal);
+        _currentIL.Emit(OpCodes.Ldloc, strLocal);
+        _currentIL.Emit(OpCodes.Callvirt, getLength);
+        _currentIL.Emit(OpCodes.Blt, loopBody);
+
+        _currentIL.Emit(OpCodes.Ldloc, hashLocal);
+    }
+
     /// <summary>
     /// Emit IL for a float literal
     /// </summary>
@@ -11514,71 +13111,201 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        // Simple approach: convert each part to a string and concatenate
-        var parts = new List<InterpolatedStringPart>(interpolated.Parts);
+        var parts = interpolated.Parts;
+
+        // Empty interpolation collapses to the empty string literal.
         if (parts.Count == 0)
         {
             _currentIL.Emit(OpCodes.Ldstr, "");
             return;
         }
 
-        _currentIL.Emit(OpCodes.Ldc_I4, parts.Count);
-        _currentIL.Emit(OpCodes.Newarr, typeof(string));
-
-        for (int index = 0; index < parts.Count; index++)
+        // An interpolation with no holes (pure text) is a constant string: emit it directly
+        // and skip the handler entirely so we never allocate a builder for a literal.
+        if (!parts.OfType<InterpolatedStringHole>().Any())
         {
-            _currentIL.Emit(OpCodes.Dup);
-            _currentIL.Emit(OpCodes.Ldc_I4, index);
-            EmitInterpolatedStringPart(parts[index]);
-            _currentIL.Emit(OpCodes.Stelem_Ref);
+            var literal = string.Concat(parts.OfType<InterpolatedStringText>().Select(t => t.Text));
+            _currentIL.Emit(OpCodes.Ldstr, literal);
+            return;
         }
 
-        var concatArrayMethod = typeof(string).GetMethod("Concat", new[] { typeof(string[]) })
-            ?? throw new InvalidOperationException("Could not resolve string.Concat(string[])");
-        _currentIL.Emit(OpCodes.Call, concatArrayMethod);
+        EmitInterpolatedStringViaHandler(parts);
     }
 
-    private void EmitInterpolatedStringPart(InterpolatedStringPart part)
+    /// <summary>
+    /// Lowers an interpolated string to <see cref="System.Runtime.CompilerServices.DefaultInterpolatedStringHandler"/>,
+    /// matching the C# compiler's lowering. This is a stack-allocated ref struct: literal segments go through
+    /// <c>AppendLiteral</c> and holes through the generic <c>AppendFormatted&lt;T&gt;</c> (avoiding boxing of value-type
+    /// arguments), then the result is produced via <c>ToStringAndClear</c>. The handler local never escapes; all
+    /// instance calls use <c>ldloca</c> so the byref-internal ref struct stays verifiable and GC-safe.
+    /// </summary>
+    private void EmitInterpolatedStringViaHandler(IReadOnlyList<InterpolatedStringPart> parts)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        switch (part)
-        {
-            case InterpolatedStringText text:
-                _currentIL.Emit(OpCodes.Ldstr, text.Text);
-                break;
-            case InterpolatedStringHole hole:
-                var exprType = GetExpressionType(hole.Expression);
+        var handlerType = typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler);
 
-                if (!string.IsNullOrEmpty(hole.FormatClause))
+        // Compute literalLength (total length of all literal text) and formattedCount (number of holes),
+        // mirroring the constants the C# compiler passes to the handler constructor.
+        int literalLength = 0;
+        int formattedCount = 0;
+        foreach (var part in parts)
+        {
+            switch (part)
+            {
+                case InterpolatedStringText text:
+                    literalLength += text.Text.Length;
+                    break;
+                case InterpolatedStringHole:
+                    formattedCount++;
+                    break;
+            }
+        }
+
+        var ctor = handlerType.GetConstructor(new[] { typeof(int), typeof(int) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler(int, int)");
+        var appendLiteral = handlerType.GetMethod("AppendLiteral", new[] { typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendLiteral(string)");
+        var appendFormattedString = handlerType.GetMethod("AppendFormatted", new[] { typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(string)");
+        // ReadOnlySpan<char> holes cannot flow through the generic AppendFormatted<T> (a byref-like
+        // ref struct can never satisfy a generic type argument). C# routes them to the dedicated
+        // span overloads instead, so we resolve those here. Span<char> is handled by emitting its
+        // implicit conversion to ReadOnlySpan<char> before the call.
+        var roSpanOfChar = typeof(ReadOnlySpan<char>);
+        var appendFormattedSpan = handlerType.GetMethod("AppendFormatted", new[] { roSpanOfChar })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(ReadOnlySpan<char>)");
+        var appendFormattedSpanWithFormat = handlerType.GetMethod(
+                "AppendFormatted",
+                new[] { roSpanOfChar, typeof(int), typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(ReadOnlySpan<char>, int, string)");
+        var appendFormattedGenericDef = handlerType.GetMethods()
+            .FirstOrDefault(m => m.Name == "AppendFormatted"
+                && m.IsGenericMethodDefinition
+                && m.GetParameters().Length == 1)
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted<T>(T)");
+        var appendFormattedGenericWithFormatDef = handlerType.GetMethods()
+            .FirstOrDefault(m => m.Name == "AppendFormatted"
+                && m.IsGenericMethodDefinition
+                && m.GetParameters().Length == 2
+                && m.GetParameters()[1].ParameterType == typeof(string))
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted<T>(T, string)");
+        // Holes whose type is defined in THIS compilation (enums/structs as TypeBuilder/EnumBuilder)
+        // cannot flow through the generic AppendFormatted<T>: instantiating it over a builder type emits
+        // a MethodSpec token that does not resolve (unverifiable IL — caught by ilverify). For those we
+        // box the value and use the non-generic AppendFormatted(object, int, string) overload, which
+        // formats identically (object.ToString(), e.g. the enum member name) and emits a verifiable
+        // MemberRef. BCL value types keep the zero-alloc generic path.
+        var appendFormattedObject = handlerType.GetMethod(
+                "AppendFormatted",
+                new[] { typeof(object), typeof(int), typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(object, int, string)");
+        var toStringAndClear = handlerType.GetMethod("ToStringAndClear", Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.ToStringAndClear()");
+
+        // Stack-local handler. It is a ref struct and must never escape; we only ever take its address.
+        var handlerLocal = _currentIL.DeclareLocal(handlerType);
+
+        // new DefaultInterpolatedStringHandler(literalLength, formattedCount)
+        _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4, literalLength);
+        _currentIL.Emit(OpCodes.Ldc_I4, formattedCount);
+        _currentIL.Emit(OpCodes.Call, ctor);
+
+        foreach (var part in parts)
+        {
+            switch (part)
+            {
+                case InterpolatedStringText text:
+                    _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
+                    _currentIL.Emit(OpCodes.Ldstr, text.Text);
+                    _currentIL.Emit(OpCodes.Call, appendLiteral);
+                    break;
+
+                case InterpolatedStringHole hole:
                 {
-                    var stringFormatMethod = typeof(string).GetMethod("Format", new[] { typeof(string), typeof(object) })
-                        ?? throw new InvalidOperationException("Could not resolve string.Format(string, object)");
-                    _currentIL.Emit(OpCodes.Ldstr, "{0:" + hole.FormatClause + "}");
+                    var exprType = GetExpressionType(hole.Expression);
+                    var hasFormat = !string.IsNullOrEmpty(hole.FormatClause);
+                    var isReadOnlySpanOfChar = exprType == roSpanOfChar;
+                    var isSpanOfChar = exprType == typeof(Span<char>);
+
+                    _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
                     EmitExpression(hole.Expression);
-                    if (exprType.IsValueType)
+
+                    if (isSpanOfChar)
                     {
-                        _currentIL.Emit(OpCodes.Box, exprType);
+                        // Span<char> has an implicit conversion to ReadOnlySpan<char>; emit it so the
+                        // value matches the dedicated span overload (a ref struct cannot be a generic arg).
+                        var spanToReadOnlySpan = typeof(Span<char>).GetMethod("op_Implicit", new[] { typeof(Span<char>) })
+                            ?? throw new InvalidOperationException("Could not resolve Span<char>.op_Implicit(Span<char>) -> ReadOnlySpan<char>");
+                        _currentIL.Emit(OpCodes.Call, spanToReadOnlySpan);
                     }
 
-                    _currentIL.Emit(OpCodes.Call, stringFormatMethod);
+                    if (!hasFormat && exprType == typeof(string))
+                    {
+                        // Use the dedicated string overload (no generic instantiation, no boxing).
+                        _currentIL.Emit(OpCodes.Call, appendFormattedString);
+                    }
+                    else if (isReadOnlySpanOfChar || isSpanOfChar)
+                    {
+                        // ReadOnlySpan<char>/Span<char> route to the dedicated span overloads.
+                        if (hasFormat)
+                        {
+                            // AppendFormatted(ReadOnlySpan<char>, int alignment, string format): alignment 0.
+                            _currentIL.Emit(OpCodes.Ldc_I4_0);
+                            _currentIL.Emit(OpCodes.Ldstr, hole.FormatClause!);
+                            _currentIL.Emit(OpCodes.Call, appendFormattedSpanWithFormat);
+                        }
+                        else
+                        {
+                            _currentIL.Emit(OpCodes.Call, appendFormattedSpan);
+                        }
+                    }
+                    else if (RequiresTypeBuilderMemberResolution(exprType))
+                    {
+                        // Same-compilation user type (enum/struct/class TypeBuilder): the generic
+                        // AppendFormatted<T> over a builder type emits an unresolvable MethodSpec, so box
+                        // and route through the non-generic object overload. Value types box here (only
+                        // these holes pay the box; BCL primitives keep the generic path); reference types
+                        // are already object-assignable.
+                        if (exprType.IsValueType)
+                        {
+                            _currentIL.Emit(OpCodes.Box, exprType);
+                        }
+
+                        _currentIL.Emit(OpCodes.Ldc_I4_0); // alignment
+                        if (hasFormat)
+                        {
+                            _currentIL.Emit(OpCodes.Ldstr, hole.FormatClause!);
+                        }
+                        else
+                        {
+                            _currentIL.Emit(OpCodes.Ldnull);
+                        }
+
+                        _currentIL.Emit(OpCodes.Call, appendFormattedObject);
+                    }
+                    else if (hasFormat)
+                    {
+                        var appendFormatted = appendFormattedGenericWithFormatDef.MakeGenericMethod(exprType);
+                        _currentIL.Emit(OpCodes.Ldstr, hole.FormatClause!);
+                        _currentIL.Emit(OpCodes.Call, appendFormatted);
+                    }
+                    else
+                    {
+                        // Generic AppendFormatted<T>(T): keeps value-type arguments unboxed.
+                        var appendFormatted = appendFormattedGenericDef.MakeGenericMethod(exprType);
+                        _currentIL.Emit(OpCodes.Call, appendFormatted);
+                    }
+
                     break;
                 }
-
-                EmitExpression(hole.Expression);
-                if (exprType != typeof(string))
-                {
-                    if (exprType.IsValueType)
-                    {
-                        _currentIL.Emit(OpCodes.Box, exprType);
-                    }
-
-                    var concatObjectMethod = typeof(string).GetMethod("Concat", new[] { typeof(object) })
-                        ?? throw new InvalidOperationException("Could not resolve string.Concat(object)");
-                    _currentIL.Emit(OpCodes.Call, concatObjectMethod);
-                }
-                break;
+            }
         }
+
+        // string result = handler.ToStringAndClear();
+        _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
+        _currentIL.Emit(OpCodes.Call, toStringAndClear);
     }
 
     /// <summary>
@@ -12097,6 +13824,22 @@ public partial class ILCompiler
 
         if (_parameters.TryGetValue(ident.Name, out var paramIndex))
         {
+            if (_byRefParameters != null && _byRefParameters.Contains(ident.Name))
+            {
+                // A by-ref parameter (e.g. a captured local lifted into a struct box and passed
+                // to a direct local-function call as `ref T`) must be written through the managed
+                // pointer with stind, not starg. The new value is already on the stack, so spill
+                // it, push the pointer, reload the value, then store indirectly. Using starg here
+                // would overwrite the pointer argument with an int and corrupt the reference.
+                var valueType = GetIdentifierType(ident);
+                var pendingValue = _currentIL.DeclareLocal(valueType);
+                _currentIL.Emit(OpCodes.Stloc, pendingValue);
+                EmitLoadArgument(paramIndex);
+                _currentIL.Emit(OpCodes.Ldloc, pendingValue);
+                EmitStoreIndirect(valueType);
+                return;
+            }
+
             if (paramIndex <= 255)
             {
                 _currentIL.Emit(OpCodes.Starg_S, (byte)paramIndex);
@@ -13271,6 +15014,18 @@ public partial class ILCompiler
         // Handle indexed assignments (obj[index] = value)
         if (assignment.Target is IndexAccessExpression indexAccess)
         {
+            // Stack-buffer promotion: `buf[i] = v` / `buf[i] op= v` on a promoted local stores
+            // through an interior byref with an explicit bounds check. The promoted result value
+            // is left on the stack to match the expression-statement contract.
+            if (!indexAccess.IsNullConditional
+                && assignment.Operator != AssignmentOperator.NullCoalesceAssign
+                && indexAccess.Object is IdentifierExpression bufferIdentifier
+                && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+            {
+                EmitPromotedBufferAssignment(assignment, indexAccess, bufferStorage);
+                return;
+            }
+
             var objectType = GetExpressionType(indexAccess.Object);
             var indexType = GetExpressionType(indexAccess.Index);
             var valueType = GetIndexAccessType(indexAccess);
@@ -14098,6 +15853,15 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        // Stack-buffer promotion: `buf[i]` on a promoted local loads through an interior byref.
+        if (!indexAccess.IsNullConditional
+            && indexAccess.Object is IdentifierExpression bufferIdentifier
+            && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+        {
+            EmitPromotedBufferIndexLoad(bufferStorage, indexAccess.Index);
+            return;
+        }
+
         if (indexAccess.IsNullConditional)
         {
             var nonNullIndexAccess = indexAccess with { IsNullConditional = false };
@@ -14736,6 +16500,16 @@ public partial class ILCompiler
     private void EmitMemberAccess(MemberAccessExpression memberAccess)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Stack-buffer promotion: `buf.Length` is the constant element count of a promoted buffer.
+        if (!memberAccess.IsNullConditional
+            && memberAccess.MemberName == "Length"
+            && memberAccess.Object is IdentifierExpression bufferIdentifier
+            && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+        {
+            EmitPromotedBufferLength(bufferStorage);
+            return;
+        }
 
         if (memberAccess.IsNullConditional)
         {
@@ -15617,6 +17391,16 @@ public partial class ILCompiler
             return patternBindingType;
         }
 
+        // Stack-buffer promotion: a promoted buffer is stored as an [InlineArray] struct but stays
+        // logically a `T[]` to the type system. Reads of `buf` (for index-element / .Length type
+        // inference) must resolve to the array type, not the synthesized struct, so return-value and
+        // index coercions stay correct. The promoted buffer is never loaded as a bare identifier
+        // (the analysis disqualifies that), so this only feeds type queries.
+        if (TryGetPromotedBuffer(ident.Name, out var promotedBuffer))
+        {
+            return promotedBuffer.ElementType.MakeArrayType();
+        }
+
         if (_inferredLocalTypes != null && _inferredLocalTypes.TryGetValue(ident.Name, out var inferredLocalType))
         {
             return inferredLocalType;
@@ -16385,12 +18169,27 @@ public partial class ILCompiler
     {
         if (typeRef is SimpleTypeReference simpleType)
         {
-            // Check for generic type parameters first
+            // Check for generic type parameters first. These belong to a more-local scope
+            // (e.g. a nested generic local function inside a specialized body) and MUST take
+            // precedence over the specialization map: a nested `<T>` that shadows the outer
+            // type parameter name must resolve to its own open parameter, not the outer
+            // concrete type. Resolving the map first would erase the nested parameter and emit
+            // wrong tokens / unverifiable IL.
             if (genericParameters != null)
             {
                 var genericParam = genericParameters.FirstOrDefault(gp => gp.Name == simpleType.Name);
                 if (genericParam != null)
                     return genericParam;
+            }
+
+            // When emitting a specialized (monomorphized) body, the generic type parameter
+            // names are bound to concrete value types. Resolve them after the local generic
+            // parameters so every remaining open token in the specialized body refers to the
+            // concrete type rather than an open parameter.
+            if (_activeGenericSpecialization != null
+                && _activeGenericSpecialization.TryGetValue(simpleType.Name, out var specializedType))
+            {
+                return specializedType;
             }
 
             if (_typeAliases.TryGetValue(simpleType.Name, out var aliasedType))
@@ -17692,7 +19491,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, classDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
@@ -17744,7 +19543,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, structDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
@@ -18172,7 +19971,7 @@ public partial class ILCompiler
     /// <summary>
     /// Declare a method (instance or static)
     /// </summary>
-    private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl, IReadOnlyList<Type>? implementedInterfaces = null)
+    private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl, IReadOnlyList<Type>? implementedInterfaces = null, string? declaringTypeName = null)
     {
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
         var returnType = funcDecl.ReturnType != null
@@ -18221,6 +20020,9 @@ public partial class ILCompiler
             returnType,
             parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
+        ApplyAotRequirementAttributes(
+            methodBuilder.SetCustomAttribute,
+            declaringTypeName != null ? $"{declaringTypeName}.{funcDecl.Name}" : funcDecl.Name);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
         if (funcDecl.ReturnType != null)
         {
@@ -18655,6 +20457,16 @@ public partial class ILCompiler
         int startIndex = methodBuilder.IsStatic ? 0 : 1;
         RegisterParameterContext(funcDecl.Parameters, startIndex, typeGenericParameters);
 
+        InitializeStackBufferPromotions(
+            funcDecl.Body,
+            funcDecl.Parameters,
+            funcDecl.Modifiers.HasFlag(Modifiers.Async),
+            funcDecl.Modifiers.HasFlag(Modifiers.Generator));
+
+        // Wrap async bodies in a fault guard so a synchronously-thrown exception is surfaced as a
+        // faulted task (C# async semantics), rather than escaping the method synchronously.
+        var asyncFaultGuard = BeginAsyncFaultGuard();
+
         // Emit method body
         if (funcDecl.Body != null)
         {
@@ -18678,7 +20490,7 @@ public partial class ILCompiler
                 }
 
                 EmitWrapCurrentAsyncReturn();
-                _currentIL.Emit(OpCodes.Ret);
+                EmitAsyncReturnFromValueOnStack(asyncFaultGuard);
             }
             else
             {
@@ -18687,8 +20499,12 @@ public partial class ILCompiler
             }
         }
 
+        if (asyncFaultGuard)
+        {
+            EndAsyncFaultGuard();
+        }
         // Ensure method ends with a return
-        if (_usesStructuredReturn)
+        else if (_usesStructuredReturn)
         {
             EmitStructuredReturnTarget();
         }
@@ -18863,11 +20679,19 @@ public partial class ILCompiler
             nextCaseLabels[i] = _currentIL.DefineLabel();
         }
 
-        // Store the matched value in a local (we'll need it for multiple comparisons)
+        // Store the matched value in a local (evaluated exactly once; reused for every test).
         var matchValueType = GetExpressionType(match.Value);
         EmitExpression(match.Value);
         var matchLocal = _currentIL.DeclareLocal(matchValueType);
         _currentIL.Emit(OpCodes.Stloc, matchLocal);
+
+        // Fast path: dense integer/enum jump table or string hash dispatch when every arm is a
+        // guardless constant (plus an optional catch-all). Falls back to the linear chain below.
+        if (TryEmitMatchViaDispatch(match, matchValueType, matchLocal, caseLabels, resultType, endLabel))
+        {
+            _currentIL.MarkLabel(endLabel);
+            return;
+        }
 
         // Generate code for each case
         for (int i = 0; i < match.Cases.Count; i++)
@@ -18913,6 +20737,187 @@ public partial class ILCompiler
 
         // Mark the end label
         _currentIL.MarkLabel(endLabel);
+    }
+
+    /// <summary>
+    /// True when a pattern unconditionally matches and is safe to use as the catch-all/default
+    /// target of a dispatch table: the discard <c>_</c> or a plain variable binding (not a type
+    /// pattern, enum member, or qualified union case). The optional <paramref name="bindingName"/>
+    /// is the variable the scrutinee must be bound to (null for the discard).
+    /// </summary>
+    private bool IsCatchAllPattern(Pattern pattern, Type matchValueType, out string? bindingName)
+    {
+        bindingName = null;
+        if (pattern is not IdentifierPattern identifier)
+        {
+            return false;
+        }
+
+        if (identifier.Name == "_")
+        {
+            return true;
+        }
+
+        // A name that resolves to a type, a qualified member, or an enum member is a test, not a
+        // catch-all binding.
+        if (identifier.Name.Contains('.'))
+        {
+            return false;
+        }
+
+        // A bare identifier that names a type (e.g. `int`) is a type-test pattern in every
+        // scrutinee position, including against an enum scrutinee. It must NOT be treated as a
+        // catch-all binding, or the dispatch path would diverge from the linear fallback (which
+        // emits a real type test). Check this before the enum-binding assumption below.
+        if (TryResolvePatternType(identifier.Name, out _))
+        {
+            return false;
+        }
+
+        // A remaining bare identifier (enum members are always qualified) is a variable binding
+        // that captures the scrutinee.
+        bindingName = identifier.Name;
+        return true;
+    }
+
+    /// <summary>
+    /// Attempts to lower a <see cref="MatchExpression"/> to a jump table (dense int/enum) or
+    /// string hash dispatch when every arm is guardless and is either a dispatchable constant of
+    /// a single kind or a single trailing catch-all. Emits the complete dispatch and all arm
+    /// bodies and returns true; otherwise emits nothing and returns false so the caller falls back
+    /// to the linear chain. The scrutinee has already been evaluated once into
+    /// <paramref name="matchLocal"/>.
+    /// </summary>
+    private bool TryEmitMatchViaDispatch(
+        MatchExpression match,
+        Type matchValueType,
+        LocalBuilder matchLocal,
+        Label[] caseLabels,
+        Type resultType,
+        Label endLabel)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Nullable scrutinees keep the linear path (their null handling is arm-specific).
+        if (Nullable.GetUnderlyingType(matchValueType) != null)
+        {
+            return false;
+        }
+
+        var underlying = matchValueType;
+        var isIntKind = IsIntegralDispatchType(underlying);
+        var isStringKind = underlying == typeof(string);
+        if (!isIntKind && !isStringKind)
+        {
+            return false;
+        }
+
+        var constantArms = new List<DispatchArm>();
+        var catchAllIndex = -1;
+        string? catchAllBinding = null;
+
+        for (var i = 0; i < match.Cases.Count; i++)
+        {
+            var matchCase = match.Cases[i];
+            if (matchCase.Guard != null)
+            {
+                return false;
+            }
+
+            if (catchAllIndex >= 0)
+            {
+                // A catch-all already consumed all remaining values; later arms would be dead.
+                // Bail to the linear path rather than silently drop them.
+                return false;
+            }
+
+            if (IsCatchAllPattern(matchCase.Pattern, matchValueType, out var binding))
+            {
+                catchAllIndex = i;
+                catchAllBinding = binding;
+                continue;
+            }
+
+            var isConstant = isIntKind
+                ? TryResolveConstantIntKey(matchCase.Pattern, matchValueType, out _)
+                : TryResolveConstantStringKey(matchCase.Pattern, matchValueType, out _);
+            if (!isConstant)
+            {
+                return false;
+            }
+
+            constantArms.Add(new DispatchArm(matchCase.Pattern, caseLabels[i]));
+        }
+
+        // The dispatch helpers gate their own density/length thresholds; below them, the linear
+        // chain is just as good and avoids table overhead.
+        var defaultLabel = _currentIL.DefineLabel();
+
+        if (isIntKind)
+        {
+            if (!TryEmitIntJumpTable(matchLocal, matchValueType, constantArms, defaultLabel))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            if (!TryEmitStringHashDispatch(matchLocal, constantArms, defaultLabel))
+            {
+                return false;
+            }
+        }
+
+        // Default arm: bind (if needed) and run the catch-all body, or throw when non-exhaustive.
+        _currentIL.MarkLabel(defaultLabel);
+        if (catchAllIndex >= 0)
+        {
+            if (catchAllBinding != null)
+            {
+                var savedLocals = _locals != null ? new Dictionary<string, LocalBuilder>(_locals) : null;
+                _currentIL.Emit(OpCodes.Ldloc, matchLocal);
+                EmitStorePatternBinding(catchAllBinding, matchValueType);
+                EmitExpressionWithExpectedType(match.Cases[catchAllIndex].Expression, resultType);
+                _locals = savedLocals;
+            }
+            else
+            {
+                EmitExpressionWithExpectedType(match.Cases[catchAllIndex].Expression, resultType);
+            }
+        }
+        else
+        {
+            EmitNoMatchThrow();
+        }
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        // Emit each constant arm's body at its case label.
+        for (var i = 0; i < match.Cases.Count; i++)
+        {
+            if (i == catchAllIndex)
+            {
+                continue;
+            }
+
+            _currentIL.MarkLabel(caseLabels[i]);
+            EmitExpressionWithExpectedType(match.Cases[i].Expression, resultType);
+            _currentIL.Emit(OpCodes.Br, endLabel);
+        }
+
+        return true;
+    }
+
+    private void EmitNoMatchThrow()
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        _currentIL.Emit(OpCodes.Ldstr, "No matching case in match expression");
+        var matchExceptionCtor = typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) });
+        if (matchExceptionCtor != null)
+        {
+            _currentIL.Emit(OpCodes.Newobj, matchExceptionCtor);
+            _currentIL.Emit(OpCodes.Throw);
+        }
     }
 
     /// <summary>
@@ -18998,6 +21003,27 @@ public partial class ILCompiler
                     EmitNullableValue(nullableLocal, nullableIdentifierUnderlyingType);
                     EmitStorePatternBinding(identPattern.Name, nullableIdentifierUnderlyingType);
                     _currentIL.Emit(OpCodes.Br, successLabel);
+                }
+                else if (identPattern.Name.Contains('.')
+                         && (Nullable.GetUnderlyingType(matchValueType) ?? matchValueType).IsEnum
+                         && TryResolveConstantIntKey(identPattern, matchValueType, out var enumMemberKey))
+                {
+                    // Enum-member pattern (e.g. `Color.Red`): compare the (int-backed) enum
+                    // value against the member's constant. Without this the name would be
+                    // misread as a variable binding that always matches.
+                    var enumUnderlying = Nullable.GetUnderlyingType(matchValueType);
+                    if (enumUnderlying != null)
+                    {
+                        var nullableEnumLocal = _currentIL.DeclareLocal(matchValueType);
+                        _currentIL.Emit(OpCodes.Stloc, nullableEnumLocal);
+                        EmitNullableHasValue(nullableEnumLocal);
+                        _currentIL.Emit(OpCodes.Brfalse, failLabel);
+                        EmitNullableValue(nullableEnumLocal, enumUnderlying);
+                    }
+
+                    EmitLoadConstantInt(enumMemberKey);
+                    _currentIL.Emit(OpCodes.Beq, successLabel);
+                    _currentIL.Emit(OpCodes.Br, failLabel);
                 }
                 else if (identPattern.Name.Contains('.') && _types.TryGetValue(identPattern.Name, out var qualifiedCaseType))
                 {
@@ -20125,7 +22151,7 @@ public partial class ILCompiler
                     DeclareConstructor(typeBuilder, ctorDecl);
                     break;
                 case FunctionDeclaration funcDecl:
-                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces);
+                    DeclareMethod(typeBuilder, funcDecl, implementedInterfaces, recordDecl.Name);
                     break;
                 case PropertyDeclaration propDecl:
                     DeclareProperty(typeBuilder, propDecl);
