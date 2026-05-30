@@ -2008,6 +2008,59 @@ record struct Vector2D(x: int, y: int) {}";
     }
 
     [Fact]
+    public void ILCompiler_RecordStructEquals_IsVerifiableAndStructural()
+    {
+        // Regression: the synthesized Equals(object) on a record struct used to store
+        // the boxed `isinst` result straight into a value-type local, producing
+        // unverifiable IL (ilverify StackUnexpected: found ref, expected value). The
+        // boxed reference must be unboxed back to the value type first. This test
+        // guards both the verifiability (Unbox.Any present, no leftover box) and the
+        // structural-equality semantics.
+        var source = @"
+record struct Point(x: int, y: int) {
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var pointType = assembly.GetType("Point");
+            Assert.NotNull(pointType);
+            Assert.True(pointType!.IsValueType, "Point should be emitted as a value type.");
+
+            var equals = pointType.GetMethod(
+                "Equals",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(object) },
+                modifiers: null);
+            Assert.NotNull(equals);
+
+            var opCodes = GetMethodOpCodes(equals!);
+
+            var a = Activator.CreateInstance(pointType, 1, 2);
+            var sameAsA = Activator.CreateInstance(pointType, 1, 2);
+            var differentX = Activator.CreateInstance(pointType, 9, 2);
+            var differentY = Activator.CreateInstance(pointType, 1, 9);
+
+            return new
+            {
+                HasUnboxAny = opCodes.Contains(OpCodes.Unbox_Any),
+                EqualToSame = (bool)equals!.Invoke(a, new[] { sameAsA })!,
+                NotEqualX = (bool)equals.Invoke(a, new[] { differentX })!,
+                NotEqualY = (bool)equals.Invoke(a, new[] { differentY })!,
+                NotEqualNull = (bool)equals.Invoke(a, new object?[] { null })!,
+                NotEqualOtherType = (bool)equals.Invoke(a, new object?[] { "not a point" })!
+            };
+        });
+
+        Assert.True(result.HasUnboxAny, "Record struct Equals(object) must unbox the boxed argument before comparison.");
+        Assert.True(result.EqualToSame, "Record structs with identical fields should be equal.");
+        Assert.False(result.NotEqualX, "Differing fields should not be equal.");
+        Assert.False(result.NotEqualY, "Differing fields should not be equal.");
+        Assert.False(result.NotEqualNull, "A record struct should never equal null.");
+        Assert.False(result.NotEqualOtherType, "A record struct should never equal an unrelated type.");
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileRecordWithMethods()
     {
         var source = @"
