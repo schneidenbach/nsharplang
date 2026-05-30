@@ -1,4 +1,5 @@
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using Xunit;
 
 namespace NSharpLang.Tests.PerfEvidence;
@@ -97,6 +98,7 @@ func main(): int {
         });
     }
 
+
     [Fact]
     public void Baseline_ParamsSpanCall_UsesVerifiableHeapArrayNotLocalloc()
     {
@@ -131,6 +133,68 @@ func main(): int {
             Assert.True(
                 ILShapeInspector.CountOpcode(main, OpCodes.Newarr) >= 1,
                 "Expected the params Span<int> call to lower to a verifiable heap array (newarr).");
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Interpolation_ValueTypeHoles_UseHandlerWithoutBoxingOrArrays()
+    {
+        // String interpolation lowers to DefaultInterpolatedStringHandler (stack-allocated ref struct).
+        // Value-type holes must flow through the generic AppendFormatted<T>, never boxing and never
+        // allocating the old string[] for string.Concat.
+        const string source = @"
+func main(): string {
+    count := 7
+    ratio := 3.14
+    return $""items {count} ratio {ratio}""
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            // Zero boxing: value-type holes go through AppendFormatted<T>(T).
+            ILShapeInspector.AssertNoBoxing(main);
+
+            // The legacy concat path allocated a string[] (newarr) and called string.Concat.
+            // The handler path does neither.
+            Assert.Equal(0, ILShapeInspector.CountOpcode(main, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountCallsTo(main, typeof(string), "Concat"));
+
+            // The handler is constructed and finalised exactly once.
+            Assert.Equal(
+                1,
+                ILShapeInspector.CountCallsTo(main, typeof(DefaultInterpolatedStringHandler), ".ctor"));
+            Assert.Equal(
+                1,
+                ILShapeInspector.CountCallsTo(main, typeof(DefaultInterpolatedStringHandler), "ToStringAndClear"));
+
+            // Two value-type holes -> two AppendFormatted calls.
+            Assert.Equal(
+                2,
+                ILShapeInspector.CountCallsTo(main, typeof(DefaultInterpolatedStringHandler), "AppendFormatted"));
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void Interpolation_NoHoles_FoldsToStringLiteralWithoutHandler()
+    {
+        // A purely literal interpolation is a constant string and must not allocate a handler at all.
+        const string source = @"
+func main(): string {
+    return $""just literal text""
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+
+            Assert.Equal(
+                0,
+                ILShapeInspector.CountCallsTo(main, typeof(DefaultInterpolatedStringHandler), ".ctor"));
+            Assert.Equal(1, ILShapeInspector.CountOpcode(main, OpCodes.Ldstr));
             return 0;
         });
     }

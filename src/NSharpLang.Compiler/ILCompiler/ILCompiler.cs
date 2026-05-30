@@ -12587,71 +12587,167 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        // Simple approach: convert each part to a string and concatenate
-        var parts = new List<InterpolatedStringPart>(interpolated.Parts);
+        var parts = interpolated.Parts;
+
+        // Empty interpolation collapses to the empty string literal.
         if (parts.Count == 0)
         {
             _currentIL.Emit(OpCodes.Ldstr, "");
             return;
         }
 
-        _currentIL.Emit(OpCodes.Ldc_I4, parts.Count);
-        _currentIL.Emit(OpCodes.Newarr, typeof(string));
-
-        for (int index = 0; index < parts.Count; index++)
+        // An interpolation with no holes (pure text) is a constant string: emit it directly
+        // and skip the handler entirely so we never allocate a builder for a literal.
+        if (!parts.OfType<InterpolatedStringHole>().Any())
         {
-            _currentIL.Emit(OpCodes.Dup);
-            _currentIL.Emit(OpCodes.Ldc_I4, index);
-            EmitInterpolatedStringPart(parts[index]);
-            _currentIL.Emit(OpCodes.Stelem_Ref);
+            var literal = string.Concat(parts.OfType<InterpolatedStringText>().Select(t => t.Text));
+            _currentIL.Emit(OpCodes.Ldstr, literal);
+            return;
         }
 
-        var concatArrayMethod = typeof(string).GetMethod("Concat", new[] { typeof(string[]) })
-            ?? throw new InvalidOperationException("Could not resolve string.Concat(string[])");
-        _currentIL.Emit(OpCodes.Call, concatArrayMethod);
+        EmitInterpolatedStringViaHandler(parts);
     }
 
-    private void EmitInterpolatedStringPart(InterpolatedStringPart part)
+    /// <summary>
+    /// Lowers an interpolated string to <see cref="System.Runtime.CompilerServices.DefaultInterpolatedStringHandler"/>,
+    /// matching the C# compiler's lowering. This is a stack-allocated ref struct: literal segments go through
+    /// <c>AppendLiteral</c> and holes through the generic <c>AppendFormatted&lt;T&gt;</c> (avoiding boxing of value-type
+    /// arguments), then the result is produced via <c>ToStringAndClear</c>. The handler local never escapes; all
+    /// instance calls use <c>ldloca</c> so the byref-internal ref struct stays verifiable and GC-safe.
+    /// </summary>
+    private void EmitInterpolatedStringViaHandler(IReadOnlyList<InterpolatedStringPart> parts)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        switch (part)
-        {
-            case InterpolatedStringText text:
-                _currentIL.Emit(OpCodes.Ldstr, text.Text);
-                break;
-            case InterpolatedStringHole hole:
-                var exprType = GetExpressionType(hole.Expression);
+        var handlerType = typeof(System.Runtime.CompilerServices.DefaultInterpolatedStringHandler);
 
-                if (!string.IsNullOrEmpty(hole.FormatClause))
+        // Compute literalLength (total length of all literal text) and formattedCount (number of holes),
+        // mirroring the constants the C# compiler passes to the handler constructor.
+        int literalLength = 0;
+        int formattedCount = 0;
+        foreach (var part in parts)
+        {
+            switch (part)
+            {
+                case InterpolatedStringText text:
+                    literalLength += text.Text.Length;
+                    break;
+                case InterpolatedStringHole:
+                    formattedCount++;
+                    break;
+            }
+        }
+
+        var ctor = handlerType.GetConstructor(new[] { typeof(int), typeof(int) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler(int, int)");
+        var appendLiteral = handlerType.GetMethod("AppendLiteral", new[] { typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendLiteral(string)");
+        var appendFormattedString = handlerType.GetMethod("AppendFormatted", new[] { typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(string)");
+        // ReadOnlySpan<char> holes cannot flow through the generic AppendFormatted<T> (a byref-like
+        // ref struct can never satisfy a generic type argument). C# routes them to the dedicated
+        // span overloads instead, so we resolve those here. Span<char> is handled by emitting its
+        // implicit conversion to ReadOnlySpan<char> before the call.
+        var roSpanOfChar = typeof(ReadOnlySpan<char>);
+        var appendFormattedSpan = handlerType.GetMethod("AppendFormatted", new[] { roSpanOfChar })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(ReadOnlySpan<char>)");
+        var appendFormattedSpanWithFormat = handlerType.GetMethod(
+                "AppendFormatted",
+                new[] { roSpanOfChar, typeof(int), typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted(ReadOnlySpan<char>, int, string)");
+        var appendFormattedGenericDef = handlerType.GetMethods()
+            .FirstOrDefault(m => m.Name == "AppendFormatted"
+                && m.IsGenericMethodDefinition
+                && m.GetParameters().Length == 1)
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted<T>(T)");
+        var appendFormattedGenericWithFormatDef = handlerType.GetMethods()
+            .FirstOrDefault(m => m.Name == "AppendFormatted"
+                && m.IsGenericMethodDefinition
+                && m.GetParameters().Length == 2
+                && m.GetParameters()[1].ParameterType == typeof(string))
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.AppendFormatted<T>(T, string)");
+        var toStringAndClear = handlerType.GetMethod("ToStringAndClear", Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve DefaultInterpolatedStringHandler.ToStringAndClear()");
+
+        // Stack-local handler. It is a ref struct and must never escape; we only ever take its address.
+        var handlerLocal = _currentIL.DeclareLocal(handlerType);
+
+        // new DefaultInterpolatedStringHandler(literalLength, formattedCount)
+        _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
+        _currentIL.Emit(OpCodes.Ldc_I4, literalLength);
+        _currentIL.Emit(OpCodes.Ldc_I4, formattedCount);
+        _currentIL.Emit(OpCodes.Call, ctor);
+
+        foreach (var part in parts)
+        {
+            switch (part)
+            {
+                case InterpolatedStringText text:
+                    _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
+                    _currentIL.Emit(OpCodes.Ldstr, text.Text);
+                    _currentIL.Emit(OpCodes.Call, appendLiteral);
+                    break;
+
+                case InterpolatedStringHole hole:
                 {
-                    var stringFormatMethod = typeof(string).GetMethod("Format", new[] { typeof(string), typeof(object) })
-                        ?? throw new InvalidOperationException("Could not resolve string.Format(string, object)");
-                    _currentIL.Emit(OpCodes.Ldstr, "{0:" + hole.FormatClause + "}");
+                    var exprType = GetExpressionType(hole.Expression);
+                    var hasFormat = !string.IsNullOrEmpty(hole.FormatClause);
+                    var isReadOnlySpanOfChar = exprType == roSpanOfChar;
+                    var isSpanOfChar = exprType == typeof(Span<char>);
+
+                    _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
                     EmitExpression(hole.Expression);
-                    if (exprType.IsValueType)
+
+                    if (isSpanOfChar)
                     {
-                        _currentIL.Emit(OpCodes.Box, exprType);
+                        // Span<char> has an implicit conversion to ReadOnlySpan<char>; emit it so the
+                        // value matches the dedicated span overload (a ref struct cannot be a generic arg).
+                        var spanToReadOnlySpan = typeof(Span<char>).GetMethod("op_Implicit", new[] { typeof(Span<char>) })
+                            ?? throw new InvalidOperationException("Could not resolve Span<char>.op_Implicit(Span<char>) -> ReadOnlySpan<char>");
+                        _currentIL.Emit(OpCodes.Call, spanToReadOnlySpan);
                     }
 
-                    _currentIL.Emit(OpCodes.Call, stringFormatMethod);
+                    if (!hasFormat && exprType == typeof(string))
+                    {
+                        // Use the dedicated string overload (no generic instantiation, no boxing).
+                        _currentIL.Emit(OpCodes.Call, appendFormattedString);
+                    }
+                    else if (isReadOnlySpanOfChar || isSpanOfChar)
+                    {
+                        // ReadOnlySpan<char>/Span<char> route to the dedicated span overloads.
+                        if (hasFormat)
+                        {
+                            // AppendFormatted(ReadOnlySpan<char>, int alignment, string format): alignment 0.
+                            _currentIL.Emit(OpCodes.Ldc_I4_0);
+                            _currentIL.Emit(OpCodes.Ldstr, hole.FormatClause!);
+                            _currentIL.Emit(OpCodes.Call, appendFormattedSpanWithFormat);
+                        }
+                        else
+                        {
+                            _currentIL.Emit(OpCodes.Call, appendFormattedSpan);
+                        }
+                    }
+                    else if (hasFormat)
+                    {
+                        var appendFormatted = appendFormattedGenericWithFormatDef.MakeGenericMethod(exprType);
+                        _currentIL.Emit(OpCodes.Ldstr, hole.FormatClause!);
+                        _currentIL.Emit(OpCodes.Call, appendFormatted);
+                    }
+                    else
+                    {
+                        // Generic AppendFormatted<T>(T): keeps value-type arguments unboxed.
+                        var appendFormatted = appendFormattedGenericDef.MakeGenericMethod(exprType);
+                        _currentIL.Emit(OpCodes.Call, appendFormatted);
+                    }
+
                     break;
                 }
-
-                EmitExpression(hole.Expression);
-                if (exprType != typeof(string))
-                {
-                    if (exprType.IsValueType)
-                    {
-                        _currentIL.Emit(OpCodes.Box, exprType);
-                    }
-
-                    var concatObjectMethod = typeof(string).GetMethod("Concat", new[] { typeof(object) })
-                        ?? throw new InvalidOperationException("Could not resolve string.Concat(object)");
-                    _currentIL.Emit(OpCodes.Call, concatObjectMethod);
-                }
-                break;
+            }
         }
+
+        // string result = handler.ToStringAndClear();
+        _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
+        _currentIL.Emit(OpCodes.Call, toStringAndClear);
     }
 
     /// <summary>
