@@ -13,6 +13,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.ILCompiler;
+using NSharpLang.Tests.PerfEvidence;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -2783,6 +2784,143 @@ async func main(): Task<int> {
 
         var result = await CompileAndInvokeTaskResult(source);
         Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_AsyncWithoutAwait_ThatThrows_ReturnsFaultedTask()
+    {
+        // C# semantics: an async method that throws surfaces the exception through the returned
+        // (faulted) task, NOT synchronously at the call site. N# async is sync-lowered, so this
+        // guards the fault-wrapping that preserves that behavior.
+        var source = @"
+import System.Threading.Tasks
+
+async func boom(): Task<int> {
+    throw new System.InvalidOperationException(""boom"")
+}";
+
+        var result = CompileAndInvoke(source, "boom");
+        var task = Assert.IsAssignableFrom<Task>(result);
+        var aggregate = Assert.Throws<AggregateException>(() => task.Wait());
+        Assert.IsType<InvalidOperationException>(aggregate.InnerException);
+        Assert.Equal("boom", aggregate.InnerException!.Message);
+        Assert.True(task.IsFaulted);
+    }
+
+    [Fact]
+    public void ILCompiler_AsyncWithoutAwait_UnitTask_ThatThrows_ReturnsFaultedTask()
+    {
+        var source = @"
+import System.Threading.Tasks
+
+async func boom(): Task {
+    throw new System.InvalidOperationException(""boom"")
+}";
+
+        var result = CompileAndInvoke(source, "boom");
+        var task = Assert.IsAssignableFrom<Task>(result);
+        var aggregate = Assert.Throws<AggregateException>(() => task.Wait());
+        Assert.IsType<InvalidOperationException>(aggregate.InnerException);
+        Assert.True(task.IsFaulted);
+    }
+
+    [Fact]
+    public async Task ILCompiler_AsyncWithoutAwait_ValueTaskOfT_ThatThrows_ReturnsFaultedTask()
+    {
+        var source = @"
+import System.Threading.Tasks
+
+async func boom(): ValueTask<int> {
+    throw new System.InvalidOperationException(""boom"")
+}";
+
+        var result = CompileAndInvoke(source, "boom");
+        var asTask = result!.GetType().GetMethod(nameof(ValueTask<int>.AsTask), BindingFlags.Public | BindingFlags.Instance);
+        Assert.NotNull(asTask);
+        var task = Assert.IsAssignableFrom<Task>(asTask!.Invoke(result, null));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        Assert.True(task.IsFaulted);
+    }
+
+    [Fact]
+    public async Task ILCompiler_AsyncWithoutAwait_UnitValueTask_ThatThrows_ReturnsFaultedTask()
+    {
+        var source = @"
+import System.Threading.Tasks
+
+async func boom(): ValueTask {
+    throw new System.InvalidOperationException(""boom"")
+}";
+
+        var result = CompileAndInvoke(source, "boom");
+        var valueTask = Assert.IsType<ValueTask>(result);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await valueTask);
+    }
+
+    [Fact]
+    public async Task ILCompiler_AsyncWithoutAwait_ReturnsCompletedTaskWithResult()
+    {
+        // Behavioral parity: an await-free async method completes successfully and returns its value.
+        var source = @"
+import System.Threading.Tasks
+
+async func answer(): Task<int> {
+    return 42
+}
+
+async func main(): Task<int> {
+    return await answer()
+}";
+
+        var result = await CompileAndInvokeTaskResult(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public async Task ILCompiler_AsyncWithoutAwait_ThatThrowsAfterSideEffect_PreservesOrdering()
+    {
+        // The side effect runs before the throw, and the throw still surfaces as a faulted task
+        // (the body executes synchronously up to the throw, matching C# async semantics).
+        var source = @"
+import System.Threading.Tasks
+import System.Collections.Generic
+
+async func work(log: List<int>): Task<int> {
+    log.Add(1)
+    throw new System.InvalidOperationException(""boom"")
+}";
+
+        var log = new System.Collections.Generic.List<int>();
+        var result = CompileAndInvoke(source, "work", log);
+        var task = Assert.IsAssignableFrom<Task>(result);
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        Assert.Equal(new[] { 1 }, log);
+        Assert.True(task.IsFaulted);
+    }
+
+    [Fact]
+    public void ILCompiler_AsyncWithoutAwait_EmitsNoStateMachineType()
+    {
+        // IL-shape proof: the await-free async path emits no compiler-generated state-machine /
+        // display class. (N# does not emit state machines at all today; this pins that the
+        // fault-wrapping change did not introduce one.)
+        var source = @"
+import System.Threading.Tasks
+
+async func answer(): Task<int> {
+    return 42
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            ILShapeInspector.AssertNoDisplayClass(assembly);
+
+            var stateMachines = assembly.GetTypes()
+                .Where(type => typeof(System.Runtime.CompilerServices.IAsyncStateMachine).IsAssignableFrom(type))
+                .ToArray();
+            Assert.Empty(stateMachines);
+            return 0;
+        });
     }
 
     [Fact]

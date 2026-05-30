@@ -1228,6 +1228,7 @@ public partial class ILCompiler
         _currentReturnLocal = null;
         _usesStructuredReturn = false;
         _exceptionBlockDepth = 0;
+        _asyncFaultGuardCompletionEmitted = false;
         _currentYieldElementType = null;
         _currentYieldListLocal = null;
         _currentYieldBreakLabel = null;
@@ -9918,6 +9919,9 @@ public partial class ILCompiler
             _currentAsyncResultType = asyncResultType;
             _currentAsyncReturnsValueTask = returnsValueTask;
             bodyReturnType = asyncResultType ?? typeof(void);
+
+            // Selection point for pooled async builders (inert until real state machines land).
+            ApplyAsyncMethodBuilderAttribute(methodBuilder, returnType);
         }
 
         InitializeBodyContextForBody(bodyReturnType, function.Body, function.ExpressionBody, function.Parameters);
@@ -9952,6 +9956,10 @@ public partial class ILCompiler
             function.Modifiers.HasFlag(Modifiers.Async),
             function.Modifiers.HasFlag(Modifiers.Generator));
 
+        // Wrap async bodies in a fault guard so a synchronously-thrown exception is surfaced as a
+        // faulted task (C# async semantics), rather than escaping the method synchronously.
+        var asyncFaultGuard = BeginAsyncFaultGuard();
+
         // Emit function body
         if (function.Body != null)
         {
@@ -9975,7 +9983,7 @@ public partial class ILCompiler
                 }
 
                 EmitWrapCurrentAsyncReturn();
-                _currentIL.Emit(OpCodes.Ret);
+                EmitAsyncReturnFromValueOnStack(asyncFaultGuard);
             }
             else
             {
@@ -9984,8 +9992,12 @@ public partial class ILCompiler
             }
         }
 
+        if (asyncFaultGuard)
+        {
+            EndAsyncFaultGuard();
+        }
         // Ensure function ends with a return
-        if (_usesStructuredReturn)
+        else if (_usesStructuredReturn)
         {
             EmitStructuredReturnTarget();
         }
@@ -20222,6 +20234,10 @@ public partial class ILCompiler
             funcDecl.Modifiers.HasFlag(Modifiers.Async),
             funcDecl.Modifiers.HasFlag(Modifiers.Generator));
 
+        // Wrap async bodies in a fault guard so a synchronously-thrown exception is surfaced as a
+        // faulted task (C# async semantics), rather than escaping the method synchronously.
+        var asyncFaultGuard = BeginAsyncFaultGuard();
+
         // Emit method body
         if (funcDecl.Body != null)
         {
@@ -20245,7 +20261,7 @@ public partial class ILCompiler
                 }
 
                 EmitWrapCurrentAsyncReturn();
-                _currentIL.Emit(OpCodes.Ret);
+                EmitAsyncReturnFromValueOnStack(asyncFaultGuard);
             }
             else
             {
@@ -20254,8 +20270,12 @@ public partial class ILCompiler
             }
         }
 
+        if (asyncFaultGuard)
+        {
+            EndAsyncFaultGuard();
+        }
         // Ensure method ends with a return
-        if (_usesStructuredReturn)
+        else if (_usesStructuredReturn)
         {
             EmitStructuredReturnTarget();
         }

@@ -851,6 +851,7 @@ public partial class ILCompiler
         var savedLocalFunctionDeclarations = _localFunctionDeclarations;
         var savedCurrentHasThis = _currentHasThis;
 
+        var savedNestedReturnContext = SaveAndResetNestedMethodReturnContext();
         try
         {
             _currentIL = methodBuilder.GetILGenerator();
@@ -875,6 +876,9 @@ public partial class ILCompiler
             }
 
             InitializeBodyContextForBody(bodyReturnType, localFunction.Function.Body, localFunction.Function.ExpressionBody, localFunction.Function.Parameters);
+            // Give the nested body its own structured-return target so a `return` inside a try/catch
+            // routes through this generator (not the enclosing method's).
+            InitializeStructuredReturnContext(bodyReturnType);
             _currentHasThis = !methodBuilder.IsStatic;
             _liftedClosureFields = methodBuilder.IsStatic ? null : savedLiftedClosureFields;
 
@@ -942,6 +946,10 @@ public partial class ILCompiler
                 EmitGeneratorReturnValue(_currentGeneratorReturnType, _currentYieldListLocal!);
                 _currentIL.Emit(OpCodes.Ret);
             }
+            else if (TryCloseNestedStructuredReturn())
+            {
+                // A return inside a try/catch routed through the structured-return target.
+            }
             else if (_currentAsyncReturnType != null && _currentAsyncResultType == null)
             {
                 EmitWrapCurrentAsyncReturn();
@@ -980,6 +988,7 @@ public partial class ILCompiler
             _pendingLocalFunctionDefinition = savedPendingLocalFunctionDefinition;
             _localFunctionDeclarations = savedLocalFunctionDeclarations;
             _currentHasThis = savedCurrentHasThis;
+            RestoreNestedMethodReturnContext(savedNestedReturnContext);
         }
     }
 

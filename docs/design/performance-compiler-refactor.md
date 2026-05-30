@@ -391,6 +391,60 @@ Recommendation: public APIs should stay explicit; internal compiler-generated as
 | Always `ValueTask<T>` | More complex consumption rules for C# users | Better sync-completion cases | Too broad for public default. |
 | Evidence-based internal `ValueTask<T>` | Minimal interop impact | Wins in known hot paths | Recommended. |
 
+### Implementation Status
+
+The IL backend (`System.Reflection.Emit`) does **not** emit real async state machines today.
+`EmitAwaitExpression` lowers `await` to a synchronous `GetAwaiter().GetResult()`, and the whole
+`async` body runs synchronously; the result is wrapped into a completed `Task`/`ValueTask` at each
+return (`EmitWrapCurrentAsyncReturn`). This means item (2) above — "no state machine for an async
+method without `await`" — is already satisfied structurally: no `IAsyncStateMachine`/`MoveNext`
+type is generated for any async method, and the await-free path adds no Task allocation beyond the
+unavoidable result carrier (`Task.CompletedTask` is cached; `ValueTask` is allocation-free; a
+result-typed `Task<T>` uses `Task.FromResult`).
+
+Landed in this workstream (`ILCompiler.Async.cs`):
+
+- **Exception-as-faulted-task parity.** Because the body runs synchronously, a thrown exception
+  would otherwise escape the method synchronously. C# instead captures it and returns a *faulted*
+  task. Async method bodies are now wrapped in a `try/catch(Exception)` fault guard
+  (`BeginAsyncFaultGuard`/`EndAsyncFaultGuard`) that converts a thrown exception into a faulted
+  `Task`/`Task<T>`/`ValueTask`/`ValueTask<T>` (`Task.FromException[<T>]`), routed through the
+  structured-return mechanism. Side-effect ordering up to the throw is preserved. Verifiable,
+  GC-safe IL.
+- **Nested-body return-context isolation.** Lambdas and local functions emit into their own IL
+  generators. The fault guard sets the protected-region depth, which previously leaked into nested
+  bodies and bound their returns to the wrong generator. `SaveAndResetNestedMethodReturnContext` /
+  `RestoreNestedMethodReturnContext` now isolate the structured-return + exception-depth context
+  around every nested method body (in `LambdaEmitter` and `EmitGenericLocalFunctionBody`). Each
+  nested emitter also establishes its *own* structured-return context
+  (`InitializeStructuredReturnContext`) and closes it (`TryCloseNestedStructuredReturn`), so a
+  `return` inside a `try`/`catch` within a lambda or local function routes through the nested
+  generator. Previously this either crashed codegen ("No structured return context") or emitted a
+  cross-generator `stloc`/`leave` (invalid IL).
+- **Pooled-builder selection plumbing.** `language.pooledAsync` (project.yml) +
+  `ResolveAsyncMethodBuilderType` select `PoolingAsyncValueTaskMethodBuilder[<T>]` for
+  ValueTask-returning async methods; `ApplyAsyncMethodBuilderAttribute` is the single wiring point
+  that would attach `[AsyncMethodBuilder(...)]`.
+
+**DEFERRED (not implemented):**
+
+- Real async state machines (`IAsyncStateMachine`/`MoveNext`, suspension/resumption at `await`,
+  builders actually driving the machine). `EmitAwaitExpression` remains synchronous.
+- Actually emitting `[AsyncMethodBuilder]`: gated off (`EmitAsyncMethodBuilderAttribute => false`)
+  because the attribute is inert without a state machine to drive. Flip it on when state machines
+  land. Until then `pooledAsync` is accepted and validated but has no codegen effect.
+- The fault guard is applied to top-level functions and type methods only. Async **lambdas** and
+  async **local functions** still surface a thrown exception synchronously (pre-existing behavior);
+  wrapping them is follow-up work once the shared body-emission paths are unified.
+- **`OperationCanceledException` → canceled task.** C#'s async builder reports a thrown
+  `OperationCanceledException` by completing the task as *canceled* (via
+  `TrySetCanceled(oce.CancellationToken)`), not faulted. The fault guard currently routes *all*
+  exceptions through `Task.FromException`, so a thrown OCE becomes a *faulted* task carrying the
+  OCE rather than a canceled one. Matching C# exactly requires `TrySetCanceled` semantics —
+  `Task.FromCanceled` is stricter (it throws unless the token is already canceled, so it cannot be
+  used for a bare `new OperationCanceledException()`). Deferred until the async builder path is
+  fleshed out; the common throw-an-exception case is correct today.
+
 ## Error Handling And Exceptions
 
 CLR exceptions are expensive when thrown. N# already has Go-inspired result/error patterns; the compiler should make those cheap.

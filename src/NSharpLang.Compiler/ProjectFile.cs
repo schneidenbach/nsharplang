@@ -361,6 +361,16 @@ public class LanguageConfig
     /// Default async return type wrapper: "Task" or "ValueTask"
     /// </summary>
     public string AsyncDefaultType { get; set; } = "ValueTask";
+
+    /// <summary>
+    /// Opt in to pooled async value-task builders
+    /// (<c>PoolingAsyncValueTaskMethodBuilder</c>) for ValueTask-returning async methods.
+    ///
+    /// This selects the builder at codegen time but only takes effect once real async state
+    /// machines are emitted for the IL backend to drive; until then it is inert plumbing. See
+    /// docs/design/performance-compiler-refactor.md (Async &amp; Iterators).
+    /// </summary>
+    public bool PooledAsync { get; set; }
 }
 
 /// <summary>
