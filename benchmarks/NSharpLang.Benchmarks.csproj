@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Matched N#-vs-C# benchmark corpus for the patterns optimized in PR #160.
+
+    This project is DELIBERATELY OUTSIDE the default `dotnet test` path and is not part of
+    NSharpLang.sln: it produces manual, wall-clock before/after numbers for PRs, not CI gates.
+    The deterministic CI ratchet that pins the IL shape these benchmarks depend on lives in
+    tests/PerfEvidence/IlShapeRegressionTests.cs (part of tests/Tests.csproj).
+
+    Run it manually (see benchmarks usage in docs/design/performance-compiler-refactor.md).
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- Benchmarks must build in Release for meaningful numbers; allow Debug runs for smoke checks. -->
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+    <RootNamespace>NSharpLang.Benchmarks</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../src/NSharpLang.Compiler/Compiler.csproj" />
+    <ProjectReference Include="../src/NSharpLang.Runtime/NSharpLang.Runtime.csproj" />
+  </ItemGroup>
+
+</Project>

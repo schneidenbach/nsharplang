@@ -6,6 +6,9 @@ obj/
 *.g.cs
 *.g.csproj
 
+# BenchmarkDotNet output (manual perf runs from benchmarks/)
+BenchmarkDotNet.Artifacts/
+
 # Debug/test files
 .context/
 debug_*.cs
