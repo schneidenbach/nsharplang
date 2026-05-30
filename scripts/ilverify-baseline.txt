@@ -1,16 +1,15 @@
 # ilverify baseline allowlist for N#
 #
 # Each non-comment line is a KNOWN/EXPECTED IL verification finding,
-# normalized as:  <Assembly.dll> | <ErrorCode> | <Type::Member>
+# normalized as:  <Assembly.dll> | <kind> | <detail>
+#   kind = IL:<Code>  ECMA-335 verification error (e.g. IL:StackUnexpected)
+#   kind = MD          metadata error (e.g. missing interface method)
+#   kind = CRASH       ilverify itself crashed importing this assembly
 #
-# The gate (scripts/ilverify.sh) fails only on findings NOT listed here.
-# Keep this file as close to EMPTY as possible: every entry is debt.
-# Regenerate with: scripts/ilverify.sh --update-baseline
+# The gate (scripts/ilverify.sh) fails only on findings NOT listed here,
+# so it blocks NEW unverifiable IL (the PR #160 regression class).
+# Keep this file as close to EMPTY as possible: every entry is real debt.
+# Regenerate with: scripts/ilverify.sh --update-baseline (review the diff!).
 #
-# Generated 2026-05-29T17:00:31Z
+# Generated 2026-05-30T16:06:42Z
 #
-GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
-RecordsAndInterfaces.dll | IL:StackUnexpected | Square::CalculatePerimeter()
-RecordsAndInterfaces.dll | MD | Class implements interface but not method, Class: '[RecordsAndInterfaces]Circle' Interface: '[RecordsAndInterfaces]IShape' Missing method: '[RecordsAndInterfaces]IShape.Describe()'.
-SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Concatenate(string, string[
-SpreadInFunctionCalls.dll | IL:ExpectedNumericType | Program::Format(string, string, int32[
