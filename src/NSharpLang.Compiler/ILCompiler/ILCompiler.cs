@@ -110,6 +110,14 @@ public partial class ILCompiler
     private readonly Dictionary<Type, ConstructorInfo> _liftedStorageConstructors = new();
     private readonly Dictionary<Type, FieldInfo> _liftedStorageValueFields = new();
     private readonly Dictionary<Type, Type> _liftedStorageValueTypes = new();
+    // Stack-buffer promotion (Performance Unit 7): non-escaping fixed-size local array literals
+    // of unmanaged primitive elements are stored as stack-allocated [InlineArray] structs instead
+    // of heap arrays. _stackBufferStructTypes caches one synthesized struct per (length, element)
+    // pair; _promotedBuffers holds the per-method-body promotion decisions populated by
+    // StackBufferPromotionAnalysis. See docs/design/performance-compiler-refactor.md "Stack buffers".
+    private readonly Dictionary<(int Length, Type ElementType), TypeBuilder> _stackBufferStructTypes = new();
+    private int _stackBufferStructCounter = 0;
+    private Dictionary<string, PromotedStackBufferStorage>? _promotedBuffers;
     // Value-struct (allocation-free) union support. For unions classified as
     // value-struct-emittable by NSharpLang.Compiler.Performance.UnionValueLayout, we
     // emit a readonly struct carrying an integer tag instead of the class hierarchy.
@@ -1187,6 +1195,7 @@ public partial class ILCompiler
         _currentYieldBreakLabel = null;
         _localFunctionDeclarations = null;
         _currentHasThis = false;
+        _promotedBuffers = null;
     }
 
     private void InitializeBodyContext(
@@ -9296,6 +9305,12 @@ public partial class ILCompiler
             _currentGenericParameters,
             copyElisionOwner: _copyElidedFunctions.Contains(function) ? function : null);
 
+        InitializeStackBufferPromotions(
+            function.Body,
+            function.Parameters,
+            function.Modifiers.HasFlag(Modifiers.Async),
+            function.Modifiers.HasFlag(Modifiers.Generator));
+
         // Emit function body
         if (function.Body != null)
         {
@@ -9843,6 +9858,18 @@ public partial class ILCompiler
     private void EmitVariableDeclaration(VariableDeclarationStatement varDecl)
     {
         if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Stack-buffer promotion: a non-escaping fixed-size local array literal of unmanaged
+        // primitives is stored as an [InlineArray] stack buffer instead of a heap array. The
+        // buffer local was already declared in InitializeStackBufferPromotions; here we emit its
+        // initialization from the literal. All later reads/writes route through the promoted-buffer
+        // emit paths keyed on the name.
+        if (varDecl.Initializer is ArrayLiteralExpression bufferLiteral
+            && TryGetPromotedBuffer(varDecl.Name, out var bufferStorage))
+        {
+            EmitPromotedBufferDeclaration(bufferStorage, bufferLiteral);
+            return;
+        }
 
         // Determine type from initializer or explicit type
         Type varType;
@@ -10644,6 +10671,15 @@ public partial class ILCompiler
     private void EmitForeach(ForeachStatement foreachStmt)
     {
         if (_currentIL == null || _locals == null) throw new InvalidOperationException("No IL generator context");
+
+        // Stack-buffer promotion: foreach over a promoted local iterates the stack buffer directly
+        // with a counted index loop (no enumerator, no heap array).
+        if (foreachStmt.Collection is IdentifierExpression bufferIdentifier
+            && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+        {
+            EmitForeachForPromotedBuffer(foreachStmt, bufferStorage);
+            return;
+        }
 
         // Get the collection type
         var collectionType = GetExpressionType(foreachStmt.Collection);
@@ -13973,6 +14009,18 @@ public partial class ILCompiler
         // Handle indexed assignments (obj[index] = value)
         if (assignment.Target is IndexAccessExpression indexAccess)
         {
+            // Stack-buffer promotion: `buf[i] = v` / `buf[i] op= v` on a promoted local stores
+            // through an interior byref with an explicit bounds check. The promoted result value
+            // is left on the stack to match the expression-statement contract.
+            if (!indexAccess.IsNullConditional
+                && assignment.Operator != AssignmentOperator.NullCoalesceAssign
+                && indexAccess.Object is IdentifierExpression bufferIdentifier
+                && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+            {
+                EmitPromotedBufferAssignment(assignment, indexAccess, bufferStorage);
+                return;
+            }
+
             var objectType = GetExpressionType(indexAccess.Object);
             var indexType = GetExpressionType(indexAccess.Index);
             var valueType = GetIndexAccessType(indexAccess);
@@ -14800,6 +14848,15 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        // Stack-buffer promotion: `buf[i]` on a promoted local loads through an interior byref.
+        if (!indexAccess.IsNullConditional
+            && indexAccess.Object is IdentifierExpression bufferIdentifier
+            && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+        {
+            EmitPromotedBufferIndexLoad(bufferStorage, indexAccess.Index);
+            return;
+        }
+
         if (indexAccess.IsNullConditional)
         {
             var nonNullIndexAccess = indexAccess with { IsNullConditional = false };
@@ -15438,6 +15495,16 @@ public partial class ILCompiler
     private void EmitMemberAccess(MemberAccessExpression memberAccess)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        // Stack-buffer promotion: `buf.Length` is the constant element count of a promoted buffer.
+        if (!memberAccess.IsNullConditional
+            && memberAccess.MemberName == "Length"
+            && memberAccess.Object is IdentifierExpression bufferIdentifier
+            && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
+        {
+            EmitPromotedBufferLength(bufferStorage);
+            return;
+        }
 
         if (memberAccess.IsNullConditional)
         {
@@ -16317,6 +16384,16 @@ public partial class ILCompiler
         if (_patternBindingTypeHints != null && _patternBindingTypeHints.TryGetValue(ident.Name, out var patternBindingType))
         {
             return patternBindingType;
+        }
+
+        // Stack-buffer promotion: a promoted buffer is stored as an [InlineArray] struct but stays
+        // logically a `T[]` to the type system. Reads of `buf` (for index-element / .Length type
+        // inference) must resolve to the array type, not the synthesized struct, so return-value and
+        // index coercions stay correct. The promoted buffer is never loaded as a bare identifier
+        // (the analysis disqualifies that), so this only feeds type queries.
+        if (TryGetPromotedBuffer(ident.Name, out var promotedBuffer))
+        {
+            return promotedBuffer.ElementType.MakeArrayType();
         }
 
         if (_inferredLocalTypes != null && _inferredLocalTypes.TryGetValue(ident.Name, out var inferredLocalType))
@@ -19342,6 +19419,12 @@ public partial class ILCompiler
         // For static methods, parameters start at index 0
         int startIndex = methodBuilder.IsStatic ? 0 : 1;
         RegisterParameterContext(funcDecl.Parameters, startIndex, typeGenericParameters);
+
+        InitializeStackBufferPromotions(
+            funcDecl.Body,
+            funcDecl.Parameters,
+            funcDecl.Modifiers.HasFlag(Modifiers.Async),
+            funcDecl.Modifiers.HasFlag(Modifiers.Generator));
 
         // Emit method body
         if (funcDecl.Body != null)

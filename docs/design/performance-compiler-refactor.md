@@ -269,6 +269,47 @@ Recommendation: yes, but with honest restrictions.
 
 Language tradeoff: first-class spans require restrictions: no field storage in normal classes, no async capture, no heap escape, and careful closure rules.
 
+### Stack buffers
+
+A fixed-size local array literal of unmanaged primitive elements that never escapes its
+frame is stored as a stack-allocated `[InlineArray]` value-type struct instead of a heap
+array. The local stays semantically a `T[]` to the rest of the type system; only its
+storage and the IL for its reads/writes change. This removes the heap allocation and the
+GC tracking for the common "scratch buffer" pattern.
+
+Mechanism (emitter):
+
+- A synthesized `[InlineArray(N)]` struct with a single element field of type `T` backs the
+  buffer; the runtime lays out `N` contiguous copies. The buffer lives in a plain stack slot.
+- Element access uses an interior managed pointer
+  (`Unsafe.Add<T>(ref Unsafe.As<TBuffer,T>(ref buffer), index)`) followed by an immediate
+  `ldind`/`stind`. The byref only ever lives on the evaluation stack for a single load/store,
+  so the IL stays verifiable and GC-safe (a stack-local struct is never relocated).
+- Index access emits an explicit `(uint)index < (uint)N` bounds check that throws
+  `IndexOutOfRangeException`, preserving array element-access semantics. `foreach` lowers to a
+  counted index loop with no enumerator.
+
+Eligibility is decided by a deliberately **fail-closed** escape analysis
+(`StackBufferPromotionAnalysis`). A local is promoted only when ALL hold:
+
+1. Element type is an unmanaged primitive (`int`/`double`/etc.) — never a managed reference,
+   so the stack buffer has no GC references.
+2. Size is a known small compile-time constant (`<= 32` elements, no spreads).
+3. It is a single declaration at the top level of the function body (promotion storage is
+   method-wide and string-keyed; restricting to top-level keeps that model sound).
+4. Its name does not collide with a parameter or a current-type member (field/property).
+5. Every use is on the small whitelist the emitter can lower: index get/set (including
+   compound assignment), `.Length`, and `foreach`. Any other use — bare identifier load,
+   return, argument pass, `ref`/`out` of an element, cast, capture in a lambda/local function,
+   increment/decrement of an element, use inside a pattern, or any shape the walker does not
+   recognise — disqualifies the local, which then stays a heap array.
+
+Because the fallback is a heap array (always valid), no diagnostic is required on escape:
+promotion is a transparent optimization, not a checked language feature.
+
+Deferred: buffers declared inside nested blocks (would require scope-restored promotion
+state), non-constant sizes, and managed/struct element types.
+
 ## Async And Iterators
 
 Async and iterator lowering can dominate allocations. N# should make the cheap path explicit without making async interop weird.
