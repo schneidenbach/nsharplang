@@ -312,6 +312,71 @@ Recommendation: defer. Let RyuJIT and explicit .NET vector APIs carry this initi
 
 Language tradeoff: no new syntax. Performance tradeoff: users write explicit vector code for peak SIMD until evidence justifies language support.
 
+### Decision: Arithmetic Overflow Semantics And Bounds-Check-Elision-Friendly Loops
+
+N#'s language-level default overflow semantics are **unchecked** (wraparound), matching C#'s
+default. This is fixed by the language spec (`docs/DESIGN.md`) and the
+`examples/11-advanced-features/CheckedUnchecked` example: integer arithmetic outside an explicit
+`checked(...)` region wraps on overflow and emits the plain CLR opcodes (`add`/`sub`/`mul`), never
+the `*.ovf` variants. An explicit `checked(...)` region is honored exactly — it emits the `*.ovf`
+opcode and throws `OverflowException` at runtime. `unchecked(...)` is the explicit opt-out and is
+the same as the default.
+
+Because the default is already unchecked, the performance-relevant guarantee is narrow but
+load-bearing for hot loops:
+
+1. **Compiler-introduced induction arithmetic stays unchecked unconditionally.** The index
+   increment (`i++`) emitted by the array and span foreach fast paths is always a plain `add`,
+   independent of `_overflowCheckingEnabled`. Even when the loop *body* contains a `checked(...)`
+   expression, only that user expression gets `*.ovf`; the induction must not.
+   A poisoned induction (`add.ovf`) would defeat RyuJIT's loop optimizations and add a per-iteration
+   overflow check that the language never asked for.
+
+2. **Array index loops use the RyuJIT range-check-elimination idiom.** The array foreach fast path
+   emits: index initialized to `0`; a loop test that compares the index against the array's *own*
+   length via a fresh `ldlen` (deliberately not cached in a local — caching defeats array BCE);
+   monotonic `i++`; and `ldelem*` on the same array. This is the canonical
+   `for (int i = 0; i < arr.Length; i++) arr[i]` shape that RyuJIT proves `0 <= i < arr.Length` for
+   and elides the per-element bounds check. The span fast path caches `Length` once (spans have no
+   `ldlen`) and reads elements through `GetReference` + `Unsafe.Add` + `ldind`, the same shape the
+   span indexer lowers to.
+
+Note that N#'s `checked`/`unchecked` are **expression-scoped** (`checked(expr)`); there is no
+`checked { block }` statement form, so a `for` loop can never be syntactically wrapped in a checked
+context. A `checked(...)` expression appearing in a loop body affects only its own arithmetic; the
+generated induction and bounds-check shape around it stay unchecked.
+
+All emitted IL stays fully verifiable (ILVerify clean) and GC-safe.
+
+**Status: already correct, now regression-locked.** This unit found no codegen gap. The
+default-unchecked arithmetic emission (`ILCompiler.Operators.cs` / `ILCompiler.cs` `EmitBinary`),
+the `checked(...)`-only `*.ovf` path (`TryEmitCheckedBinaryOperator`, gated on the `false`-default
+`_overflowCheckingEnabled` flag), and the array foreach BCE idiom (`EmitForeachForArray`, with the
+induction's plain `add` emitted unconditionally — never under the overflow flag) were already
+implemented as described above. The truth was confirmed by disassembling the IL of a compiled
+probe (`sumArray`/`checkedAdd`/`plainAdd`): `sumArray` shows `ldc.i4.0`-init,
+`ldloc ; ldloc ; ldlen ; conv.i4 ; bge` per-iteration test (exactly one `ldlen`, length not cached),
+`ldelem.i4`, plain user `add`, and a plain `ldc.i4.1 ; add` induction with zero `*.ovf`;
+`checkedAdd` emits a lone `add.ovf`; `plainAdd` emits a lone `add`. ILVerify reports the probe DLL
+clean (zero errors). No `ILCompiler` source change was made — this unit adds only the regression
+tests below.
+
+Regression coverage: `tests/PerfEvidence/ArithmeticAndLoopShapeTests.cs` pins both the IL shape and
+the behavior:
+
+- **IL shape (contiguous-sequence assertions, not bare opcode counts):** the array loop test reads
+  the length fresh per iteration (`ldlen ; conv.i4 ; bge`, with exactly one `ldlen`, proving the
+  length is not cached in a local), loads elements via `ldelem.i4 ; stloc`, and increments
+  monotonically (`ldc.i4.1 ; add`). Unchecked paths contain zero `*.ovf` opcodes; an explicit
+  `checked(x + y)` emits exactly one `add.ovf` (and zero plain `add`); a `checked(...)` expression
+  inside a loop body emits exactly one overflow opcode total (the user add) and leaves the induction
+  and BCE shape intact.
+- **Behavior:** `checked(int.MaxValue + 1)` throws `OverflowException`; the default unchecked
+  `int.MaxValue + 1` wraps to `int.MinValue`; array-foreach sums are numerically correct.
+
+Language tradeoff: none — this matches the existing spec. Performance tradeoff: none on the safety
+side; the win is keeping hot loops free of spurious overflow checks and bounds checks.
+
 ## Diagnostics And Tooling
 
 A performance-by-default language still needs explainability. Developers should be able to ask why code allocated or dispatched virtually.
