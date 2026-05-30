@@ -14193,6 +14193,59 @@ public partial class ILCompiler
         _currentIL.Emit(value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0);
     }
 
+    /// <summary>
+    /// Emit the binary operation for a compound assignment (<c>+=</c>, <c>-=</c>, …) given that
+    /// both operands are already on the evaluation stack (current value, then right-hand side).
+    /// <para>
+    /// For <c>+=</c> on a <see cref="string"/> target this lowers to
+    /// <c>string.Concat(object, object)</c> rather than the <c>add</c> arithmetic opcode. Emitting
+    /// <c>add</c> on two object references produces unverifiable IL (ECMA-335
+    /// <c>ExpectedNumericType</c>) and was the root cause of the SpreadInFunctionCalls findings.
+    /// All compound-assignment emission sites route through here so string concatenation is handled
+    /// uniformly regardless of the storage kind (local, parameter, field, property, or index).
+    /// </para>
+    /// </summary>
+    /// <param name="op">The compound assignment operator.</param>
+    /// <param name="resultType">The static type of the assignment target (and of both operands).</param>
+    private void EmitCompoundAssignmentOperation(AssignmentOperator op, Type resultType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (op == AssignmentOperator.AddAssign && resultType == typeof(string))
+        {
+            var concatMethod = typeof(string).GetMethod(
+                nameof(string.Concat),
+                new[] { typeof(object), typeof(object) });
+            if (concatMethod == null)
+            {
+                throw new InvalidOperationException("Could not resolve string.Concat(object, object)");
+            }
+
+            // Both operands were emitted with `resultType` (string) as their expected type, so each
+            // is already a string reference on the stack — directly usable as `object` arguments.
+            _currentIL.Emit(OpCodes.Call, concatMethod);
+            return;
+        }
+
+        switch (op)
+        {
+            case AssignmentOperator.AddAssign:
+                _currentIL.Emit(OpCodes.Add);
+                break;
+            case AssignmentOperator.SubtractAssign:
+                _currentIL.Emit(OpCodes.Sub);
+                break;
+            case AssignmentOperator.MultiplyAssign:
+                _currentIL.Emit(OpCodes.Mul);
+                break;
+            case AssignmentOperator.DivideAssign:
+                _currentIL.Emit(OpCodes.Div);
+                break;
+            default:
+                throw new NotImplementedException($"Assignment operator {op} not yet implemented in IL compiler");
+        }
+    }
+
     private void EmitStringConcatenation(BinaryExpression binary)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
@@ -14815,23 +14868,7 @@ public partial class ILCompiler
                         EmitExpressionWithExpectedType(assignment.Value, staticMemberType);
                     }
 
-                    switch (assignment.Operator)
-                    {
-                        case AssignmentOperator.AddAssign:
-                            _currentIL.Emit(OpCodes.Add);
-                            break;
-                        case AssignmentOperator.SubtractAssign:
-                            _currentIL.Emit(OpCodes.Sub);
-                            break;
-                        case AssignmentOperator.MultiplyAssign:
-                            _currentIL.Emit(OpCodes.Mul);
-                            break;
-                        case AssignmentOperator.DivideAssign:
-                            _currentIL.Emit(OpCodes.Div);
-                            break;
-                        default:
-                            throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                    }
+                    EmitCompoundAssignmentOperation(assignment.Operator, staticMemberType);
                 }
 
                 var assignedValueLocal = _currentIL.DeclareLocal(staticMemberType);
@@ -14944,23 +14981,7 @@ public partial class ILCompiler
                 }
 
                 // Perform operation
-                switch (assignment.Operator)
-                {
-                    case AssignmentOperator.AddAssign:
-                        _currentIL.Emit(OpCodes.Add);
-                        break;
-                    case AssignmentOperator.SubtractAssign:
-                        _currentIL.Emit(OpCodes.Sub);
-                        break;
-                    case AssignmentOperator.MultiplyAssign:
-                        _currentIL.Emit(OpCodes.Mul);
-                        break;
-                    case AssignmentOperator.DivideAssign:
-                        _currentIL.Emit(OpCodes.Div);
-                        break;
-                    default:
-                        throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                }
+                EmitCompoundAssignmentOperation(assignment.Operator, GetMemberAccessType(memberAccess));
             }
             else
             {
@@ -15096,23 +15117,7 @@ public partial class ILCompiler
                 EmitIndexLoadValue(indexAccess, objectType);
                 EmitExpressionWithExpectedType(assignment.Value, valueType);
 
-                switch (assignment.Operator)
-                {
-                    case AssignmentOperator.AddAssign:
-                        _currentIL.Emit(OpCodes.Add);
-                        break;
-                    case AssignmentOperator.SubtractAssign:
-                        _currentIL.Emit(OpCodes.Sub);
-                        break;
-                    case AssignmentOperator.MultiplyAssign:
-                        _currentIL.Emit(OpCodes.Mul);
-                        break;
-                    case AssignmentOperator.DivideAssign:
-                        _currentIL.Emit(OpCodes.Div);
-                        break;
-                    default:
-                        throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented");
-                }
+                EmitCompoundAssignmentOperation(assignment.Operator, valueType);
             }
 
             var valueLocal = _currentIL.DeclareLocal(valueType);
@@ -15184,23 +15189,7 @@ public partial class ILCompiler
             EmitExpressionWithExpectedType(assignment.Value, GetIdentifierType(ident));
 
             // Perform the operation based on the assignment operator
-            switch (assignment.Operator)
-            {
-                case AssignmentOperator.AddAssign:
-                    _currentIL.Emit(OpCodes.Add);
-                    break;
-                case AssignmentOperator.SubtractAssign:
-                    _currentIL.Emit(OpCodes.Sub);
-                    break;
-                case AssignmentOperator.MultiplyAssign:
-                    _currentIL.Emit(OpCodes.Mul);
-                    break;
-                case AssignmentOperator.DivideAssign:
-                    _currentIL.Emit(OpCodes.Div);
-                    break;
-                default:
-                    throw new NotImplementedException($"Assignment operator {assignment.Operator} not yet implemented in IL compiler");
-            }
+            EmitCompoundAssignmentOperation(assignment.Operator, GetIdentifierType(ident));
         }
         else
         {

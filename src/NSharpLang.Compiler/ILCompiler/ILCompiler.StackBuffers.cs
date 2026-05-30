@@ -323,23 +323,7 @@ public partial class ILCompiler
             EmitLoadIndirect(storage.ElementType);
             EmitExpressionWithExpectedType(assignment.Value, storage.ElementType);
 
-            switch (assignment.Operator)
-            {
-                case AssignmentOperator.AddAssign:
-                    _currentIL.Emit(OpCodes.Add);
-                    break;
-                case AssignmentOperator.SubtractAssign:
-                    _currentIL.Emit(OpCodes.Sub);
-                    break;
-                case AssignmentOperator.MultiplyAssign:
-                    _currentIL.Emit(OpCodes.Mul);
-                    break;
-                case AssignmentOperator.DivideAssign:
-                    _currentIL.Emit(OpCodes.Div);
-                    break;
-                default:
-                    throw new NotImplementedException($"Assignment operator {assignment.Operator} not supported for stack buffers");
-            }
+            EmitCompoundAssignmentOperation(assignment.Operator, storage.ElementType);
 
             _currentIL.Emit(OpCodes.Stloc, resultLocal);
         }
