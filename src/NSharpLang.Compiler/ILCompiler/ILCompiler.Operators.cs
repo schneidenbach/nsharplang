@@ -877,8 +877,16 @@ public partial class ILCompiler
                 return false;
         }
 
-        var left = Nullable.GetUnderlyingType(leftType) ?? leftType;
-        var right = Nullable.GetUnderlyingType(rightType) ?? rightType;
+        // A nullable operand holds a Nullable<T> struct on the evaluation stack, not a bare T, so the
+        // raw numeric conv opcode the caller would emit against it is invalid. Lifted nullable
+        // arithmetic is handled on its own path; leave those operands untouched here.
+        if (Nullable.GetUnderlyingType(leftType) != null || Nullable.GetUnderlyingType(rightType) != null)
+        {
+            return false;
+        }
+
+        var left = leftType;
+        var right = rightType;
 
         if (left == right)
         {
