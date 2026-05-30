@@ -838,6 +838,150 @@ public partial class ILCompiler
             || type == typeof(decimal);
     }
 
+    /// <summary>
+    /// Computes the C#-style binary numeric promotion target type for a primitive
+    /// arithmetic/relational operator over two operands. Returns false (and leaves
+    /// <paramref name="promotedType"/> null) when promotion does not apply: the
+    /// operands aren't both primitive numerics, they're already the same type, the
+    /// operator is a user-defined overload / shift / boolean-logical op, or either
+    /// side is <see cref="decimal"/> (which is handled via its op_* methods).
+    ///
+    /// This mirrors ECMA-335 §III.1.5: the raw add/sub/mul/div/rem and compare
+    /// opcodes require both operands to share a CLI stack type, so a mixed
+    /// int/double (or short/long, etc.) expression must coerce the narrower side
+    /// up to the common type before the opcode is emitted.
+    /// </summary>
+    private bool TryGetBinaryNumericPromotionType(BinaryOperator op, Type leftType, Type rightType, out Type promotedType)
+    {
+        promotedType = null!;
+
+        // Only the arithmetic and relational operators lower to raw numeric
+        // opcodes here. Shifts only promote the left operand (the shift amount
+        // stays an int), boolean And/Or are logical, and bitwise ops on enums
+        // have their own handling — so we keep this conservative.
+        switch (op)
+        {
+            case BinaryOperator.Add:
+            case BinaryOperator.Subtract:
+            case BinaryOperator.Multiply:
+            case BinaryOperator.Divide:
+            case BinaryOperator.Modulo:
+            case BinaryOperator.Less:
+            case BinaryOperator.Greater:
+            case BinaryOperator.LessOrEqual:
+            case BinaryOperator.GreaterOrEqual:
+            case BinaryOperator.Equal:
+            case BinaryOperator.NotEqual:
+                break;
+            default:
+                return false;
+        }
+
+        var left = Nullable.GetUnderlyingType(leftType) ?? leftType;
+        var right = Nullable.GetUnderlyingType(rightType) ?? rightType;
+
+        if (left == right)
+        {
+            return false;
+        }
+
+        // Enums/user types/decimal are not handled by the raw opcode path.
+        if (TryGetEnumUnderlyingType(left) != null || TryGetEnumUnderlyingType(right) != null)
+        {
+            return false;
+        }
+
+        if (!IsPrimitiveNumericType(left) || !IsPrimitiveNumericType(right))
+        {
+            return false;
+        }
+
+        if (left == typeof(decimal) || right == typeof(decimal))
+        {
+            return false;
+        }
+
+        var common = GetBinaryNumericCommonType(left, right);
+        if (common == null)
+        {
+            return false;
+        }
+
+        promotedType = common;
+        return true;
+    }
+
+    private static bool IsPrimitiveNumericType(Type type)
+    {
+        return type == typeof(byte)
+            || type == typeof(sbyte)
+            || type == typeof(short)
+            || type == typeof(ushort)
+            || type == typeof(int)
+            || type == typeof(uint)
+            || type == typeof(long)
+            || type == typeof(ulong)
+            || type == typeof(char)
+            || type == typeof(float)
+            || type == typeof(double);
+    }
+
+    /// <summary>
+    /// Returns the C# binary-numeric-promotion result type for two primitive
+    /// numeric operand types, or null if no well-defined common type applies
+    /// (e.g. ulong combined with a signed type, which C# also rejects).
+    /// </summary>
+    private static Type? GetBinaryNumericCommonType(Type left, Type right)
+    {
+        // Floating point dominates.
+        if (left == typeof(double) || right == typeof(double))
+        {
+            return typeof(double);
+        }
+        if (left == typeof(float) || right == typeof(float))
+        {
+            return typeof(float);
+        }
+
+        // ulong: only combinable with other unsigned/known-non-negative types.
+        if (left == typeof(ulong) || right == typeof(ulong))
+        {
+            var other = left == typeof(ulong) ? right : left;
+            if (other == typeof(ulong)
+                || other == typeof(uint)
+                || other == typeof(ushort)
+                || other == typeof(byte)
+                || other == typeof(char))
+            {
+                return typeof(ulong);
+            }
+            return null;
+        }
+
+        if (left == typeof(long) || right == typeof(long))
+        {
+            return typeof(long);
+        }
+
+        // uint with a signed type that doesn't fit (int/short/sbyte) promotes to
+        // long; uint with unsigned/char stays uint.
+        if (left == typeof(uint) || right == typeof(uint))
+        {
+            var other = left == typeof(uint) ? right : left;
+            if (other == typeof(uint)
+                || other == typeof(ushort)
+                || other == typeof(byte)
+                || other == typeof(char))
+            {
+                return typeof(uint);
+            }
+            return typeof(long);
+        }
+
+        // Everything narrower (int/uint/short/ushort/sbyte/byte/char) promotes to int.
+        return typeof(int);
+    }
+
     private bool TryEmitNumericConversion(Type sourceType, Type targetType)
     {
         if (!IsNumericConversionType(sourceType) || !IsNumericConversionType(targetType))

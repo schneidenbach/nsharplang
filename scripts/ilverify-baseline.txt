@@ -15,8 +15,6 @@ ConstructorChaining.dll | IL:CallCtor | Employee::.ctor(string, string, string)
 ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, int32, string, string, string)
 ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, string)
 ConstructorChaining.dll | IL:ThisUninitReturn | Employee::.ctor(string, string, string)
-ConversionOperators.dll | IL:StackUnexpected | Fraction::FromDouble(float64, int32)
-ConversionOperators.dll | IL:StackUnexpected | Fraction::op_Explicit([ConversionOperators
 ExpressionBodiedMembers.dll | IL:StackUnexpected | Rectangle::get_Perimeter()
 GenericMethods.dll | IL:StackUnexpected | Program::Pair(!!0, !!1)
 IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker

@@ -14027,9 +14027,24 @@ public partial class ILCompiler
             return;
         }
 
-        // Emit left and right operands
-        EmitExpression(binary.Left);
-        EmitExpression(binary.Right);
+        // Emit left and right operands, applying binary numeric promotion so the
+        // raw arithmetic/comparison opcode below sees two operands of the SAME
+        // CLI stack type. Without this, mixed int/double operands (e.g.
+        // `intField / (double)other`) emit a `div` over Int32+Double, which the
+        // ECMA-335 verifier rejects (IL:StackUnexpected) and which produces wrong
+        // results at runtime.
+        if (TryGetBinaryNumericPromotionType(binary.Operator, GetExpressionType(binary.Left), GetExpressionType(binary.Right), out var promotedType))
+        {
+            EmitExpression(binary.Left);
+            EmitValueCoercion(GetExpressionType(binary.Left), promotedType, allowExplicitUserDefinedConversions: false);
+            EmitExpression(binary.Right);
+            EmitValueCoercion(GetExpressionType(binary.Right), promotedType, allowExplicitUserDefinedConversions: false);
+        }
+        else
+        {
+            EmitExpression(binary.Left);
+            EmitExpression(binary.Right);
+        }
 
         // Emit operator
         switch (binary.Operator)
@@ -17451,16 +17466,38 @@ public partial class ILCompiler
             return operatorMethod.ReturnType;
         }
 
-        return binary.Operator switch
+        switch (binary.Operator)
         {
-            BinaryOperator.Equal or BinaryOperator.NotEqual or
-            BinaryOperator.Less or BinaryOperator.LessOrEqual or
-            BinaryOperator.Greater or BinaryOperator.GreaterOrEqual or
-            BinaryOperator.And or BinaryOperator.Or => typeof(bool),
-            BinaryOperator.NullCoalesce => GetNullCoalesceExpressionType(binary),
-            BinaryOperator.Range => typeof(Range),
-            _ => GetExpressionType(binary.Left)
-        };
+            case BinaryOperator.Equal:
+            case BinaryOperator.NotEqual:
+            case BinaryOperator.Less:
+            case BinaryOperator.LessOrEqual:
+            case BinaryOperator.Greater:
+            case BinaryOperator.GreaterOrEqual:
+            case BinaryOperator.And:
+            case BinaryOperator.Or:
+                return typeof(bool);
+            case BinaryOperator.NullCoalesce:
+                return GetNullCoalesceExpressionType(binary);
+            case BinaryOperator.Range:
+                return typeof(Range);
+        }
+
+        // Arithmetic operators: the result type is the binary-numeric-promotion
+        // common type of the operands (e.g. int / double => double), matching the
+        // operand coercion performed in EmitBinaryExpression. Falling back to the
+        // left operand's type here would mis-report mixed-numeric results and
+        // cause a spurious return/store coercion over an already-promoted value.
+        if (TryGetBinaryNumericPromotionType(
+                binary.Operator,
+                GetExpressionType(binary.Left),
+                GetExpressionType(binary.Right),
+                out var promotedType))
+        {
+            return promotedType;
+        }
+
+        return GetExpressionType(binary.Left);
     }
 
     private Type GetNullCoalesceExpressionType(BinaryExpression binary)
