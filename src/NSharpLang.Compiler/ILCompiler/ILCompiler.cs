@@ -85,6 +85,7 @@ public partial class ILCompiler
     private readonly Dictionary<string, TypeBuilder> _stringEnumContainers = new();
     private Dictionary<string, FieldBuilder> _fields = new();
     private readonly Dictionary<string, object?> _fieldConstants = new();
+    private readonly Dictionary<TypeBuilder, MethodBuilder> _recordStructEqualityOperators = new();
     private readonly Dictionary<string, FieldBuilder> _primaryConstructorFields = new();
     private readonly Dictionary<string, PropertyBuilder> _indexers = new();
     private readonly Dictionary<string, IReadOnlyList<Parameter>> _declaredMethodParameters = new();
@@ -12240,6 +12241,11 @@ public partial class ILCompiler
             return;
         }
 
+        if (TryEmitRecordStructEquality(binary))
+        {
+            return;
+        }
+
         if (TryEmitNullEqualityComparison(binary))
         {
             return;
@@ -12315,6 +12321,40 @@ public partial class ILCompiler
             default:
                 throw new NotImplementedException($"Binary operator {binary.Operator} not yet implemented in IL compiler");
         }
+    }
+
+    /// <summary>
+    /// Emits structural equality for `==`/`!=` on a user-defined record struct by calling its
+    /// synthesized op_Equality operator (matching Roslyn). Returns false when the operands are not
+    /// the same record struct, so the caller can fall through to the default comparison.
+    /// </summary>
+    private bool TryEmitRecordStructEquality(BinaryExpression binary)
+    {
+        if (binary.Operator is not (BinaryOperator.Equal or BinaryOperator.NotEqual))
+        {
+            return false;
+        }
+
+        var leftType = GetExpressionType(binary.Left);
+        var rightType = GetExpressionType(binary.Right);
+        if (leftType != rightType
+            || leftType is not TypeBuilder typeBuilder
+            || !_recordStructEqualityOperators.TryGetValue(typeBuilder, out var equalityOperator))
+        {
+            return false;
+        }
+
+        EmitExpression(binary.Left);
+        EmitExpression(binary.Right);
+        _currentIL!.Emit(OpCodes.Call, equalityOperator);
+
+        if (binary.Operator == BinaryOperator.NotEqual)
+        {
+            _currentIL.Emit(OpCodes.Ldc_I4_0);
+            _currentIL.Emit(OpCodes.Ceq);
+        }
+
+        return true;
     }
 
     private bool TryEmitNullEqualityComparison(BinaryExpression binary)
@@ -20107,6 +20147,36 @@ public partial class ILCompiler
 
         _methods[GetMethodKey(typeBuilder, "Equals")] = equalsMethod;
 
+        // Record structs additionally get a strongly-typed Equals(T) and == / != operators
+        // so that `==` performs structural equality (matching Roslyn's record struct behavior).
+        if (recordDecl.IsStruct)
+        {
+            var typedEqualsMethod = typeBuilder.DefineMethod(
+                "Equals",
+                MethodAttributes.Public | MethodAttributes.HideBySig,
+                typeof(bool),
+                new[] { (Type)typeBuilder });
+
+            _methods[GetMethodKey(typeBuilder, "Equals(self)")] = typedEqualsMethod;
+
+            var equalityOperator = typeBuilder.DefineMethod(
+                "op_Equality",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(bool),
+                new[] { (Type)typeBuilder, typeBuilder });
+
+            _methods[GetMethodKey(typeBuilder, "op_Equality")] = equalityOperator;
+            _recordStructEqualityOperators[typeBuilder] = equalityOperator;
+
+            var inequalityOperator = typeBuilder.DefineMethod(
+                "op_Inequality",
+                MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                typeof(bool),
+                new[] { (Type)typeBuilder, typeBuilder });
+
+            _methods[GetMethodKey(typeBuilder, "op_Inequality")] = inequalityOperator;
+        }
+
         // Declare GetHashCode override
         var getHashCodeMethod = typeBuilder.DefineMethod(
             "GetHashCode",
@@ -20247,6 +20317,12 @@ public partial class ILCompiler
         // Emit Equals method
         EmitRecordEquals(recordDecl, typeBuilder);
 
+        // Emit strongly-typed Equals(T) and == / != operators for record structs
+        if (recordDecl.IsStruct)
+        {
+            EmitRecordStructEqualityMembers(recordDecl, typeBuilder);
+        }
+
         // Emit GetHashCode method
         EmitRecordGetHashCode(recordDecl, typeBuilder);
 
@@ -20359,6 +20435,87 @@ public partial class ILCompiler
         il.MarkLabel(returnFalse);
         il.Emit(OpCodes.Ldc_I4_0);
         il.Emit(OpCodes.Ret);
+    }
+
+    /// <summary>
+    /// Emit the strongly-typed Equals(T), op_Equality and op_Inequality members for a record struct.
+    /// This makes `==`/`!=` perform structural equality, matching Roslyn's record struct behavior.
+    /// </summary>
+    private void EmitRecordStructEqualityMembers(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
+    {
+        // bool Equals(T other) => field-by-field structural comparison.
+        if (_methods.TryGetValue(GetMethodKey(typeBuilder, "Equals(self)"), out var typedEqualsMethod))
+        {
+            var il = typedEqualsMethod.GetILGenerator();
+            var returnFalse = il.DefineLabel();
+
+            if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+            {
+                foreach (var param in recordDecl.PrimaryConstructorParameters)
+                {
+                    var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+                    if (!_fields.TryGetValue(backingFieldKey, out var backingField))
+                    {
+                        continue;
+                    }
+
+                    var fieldType = backingField.FieldType;
+
+                    // this.field
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, backingField);
+                    // other.field
+                    il.Emit(OpCodes.Ldarga_S, (byte)1);
+                    il.Emit(OpCodes.Ldfld, backingField);
+
+                    if (fieldType.IsValueType)
+                    {
+                        il.Emit(OpCodes.Ceq);
+                        il.Emit(OpCodes.Brfalse, returnFalse);
+                    }
+                    else
+                    {
+                        var objectEqualsMethod = typeof(object).GetMethod("Equals", new[] { typeof(object), typeof(object) });
+                        if (objectEqualsMethod != null)
+                        {
+                            il.Emit(OpCodes.Call, objectEqualsMethod);
+                            il.Emit(OpCodes.Brfalse, returnFalse);
+                        }
+                    }
+                }
+            }
+
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Ret);
+
+            il.MarkLabel(returnFalse);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ret);
+        }
+
+        // static bool op_Equality(T left, T right) => left.Equals(right);
+        if (_methods.TryGetValue(GetMethodKey(typeBuilder, "op_Equality"), out var equalityOperator)
+            && _methods.TryGetValue(GetMethodKey(typeBuilder, "Equals(self)"), out var typedEqualsForOperator))
+        {
+            var il = equalityOperator.GetILGenerator();
+            il.Emit(OpCodes.Ldarga_S, (byte)0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, typedEqualsForOperator);
+            il.Emit(OpCodes.Ret);
+        }
+
+        // static bool op_Inequality(T left, T right) => !(left == right);
+        if (_methods.TryGetValue(GetMethodKey(typeBuilder, "op_Inequality"), out var inequalityOperator)
+            && _methods.TryGetValue(GetMethodKey(typeBuilder, "op_Equality"), out var equalityForInequality))
+        {
+            var il = inequalityOperator.GetILGenerator();
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Call, equalityForInequality);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Ceq);
+            il.Emit(OpCodes.Ret);
+        }
     }
 
     /// <summary>

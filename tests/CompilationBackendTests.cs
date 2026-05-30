@@ -1429,6 +1429,59 @@ class Program {
         }
     }
 
+    [Fact]
+    public void RecordStruct_EqualityOperators_UseStructuralEquality()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: RecordStructEquality
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+record struct Named(id: int, name: string) {
+}
+
+func main(): void {
+    a := new Named(1, "x")
+    b := new Named(1, "x")
+    c := new Named(2, "x")
+    print $"a.Equals(c)={a.Equals(c)}"
+    print $"a==c={a == c}"
+    print $"a==b={a == b}"
+    print $"a!=c={a != c}"
+    print $"a!=b={a != b}"
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "RecordStructEquality.dll");
+            var result = compiler.CompileToIlAssembly("RecordStructEquality", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("a.Equals(c)=False", runResult.Stdout);
+            Assert.Contains("a==c=False", runResult.Stdout);
+            Assert.Contains("a==b=True", runResult.Stdout);
+            Assert.Contains("a!=c=True", runResult.Stdout);
+            Assert.Contains("a!=b=False", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     private static int ExecuteProgram(params string[] args)
     {
         var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
