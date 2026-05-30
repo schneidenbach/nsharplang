@@ -25,7 +25,6 @@ IssueTracker.dll | IL:InitOnly | IssueTracker.IssueService::.ctor([IssueTracker
 IssueTracker.dll | IL:MethodAccess | IssueTracker.IssueService::TransitionIssue(int32, [IssueTracker
 LockStatement.dll | CRASH | System.IndexOutOfRangeException
 ParamsArrays.dll | IL:StackUnexpected | Calculator::Average(float64[
-ParamsArrays.dll | IL:StackUnexpected | Program::PrintAll(string, !!0[
 PropertiesAndNestedTypes.dll | IL:InitOnly | BankAccount::.ctor(string, float64)
 RecordStructs.dll | IL:StackUnexpected | Color::Equals(object)
 RecordStructs.dll | IL:StackUnexpected | Dimensions::Equals(object)
