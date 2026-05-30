@@ -611,6 +611,67 @@ func handler(event: int, _context: int) {
         var diagnostics = Lint(source);
         Assert.DoesNotContain(diagnostics, d => d.Code == "NL012" && d.Message.Contains("_context"));
     }
+    [Fact]
+    public void NL012_NoError_WhenParameterReadOnlyInNestedLocalFunction()
+    {
+        // Regression: a parameter read only inside a nested local function is still a use.
+        var source = @"
+func outer(value: int): int {
+    func inner(): int {
+        return value
+    }
+    return inner()
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012");
+    }
+
+    [Fact]
+    public void NL012_NoError_WhenParameterReadOnlyInLambda()
+    {
+        // Regression: a parameter captured and read only inside a lambda is still a use.
+        var source = @"
+func outer(value: int): int {
+    var f = () => value
+    return f()
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012");
+    }
+
+    [Fact]
+    public void NL012_StillFlags_GenuinelyUnusedParameter_WithNestedLocalFunction()
+    {
+        // A parameter never read anywhere (even via a nested function) is still flagged,
+        // so the nested-function fix does not over-suppress real unused parameters.
+        var source = @"
+func outer(used: int, unused: int): int {
+    func inner(): int {
+        return used
+    }
+    return inner()
+}";
+        var diagnostics = Lint(source);
+        Assert.Contains(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'unused'"));
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'used'"));
+    }
+
+    [Fact]
+    public void NL012_StillFlags_Parameter_ShadowedByLocalInNestedFunction()
+    {
+        // Over-suppression guard: the nested function reads its OWN local 'value', not the
+        // enclosing parameter, so the parameter is genuinely unused and must still be flagged.
+        var source = @"
+func outer(value: int): int {
+    func inner(): int {
+        value := 1
+        return value
+    }
+    return inner()
+}";
+        var diagnostics = Lint(source);
+        Assert.Contains(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'value'"));
+    }
 
     #endregion
 
