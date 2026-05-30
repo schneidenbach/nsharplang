@@ -18344,17 +18344,26 @@ public partial class ILCompiler
 
         RegisterParameterContext(ctorDecl.Parameters, 1, typeGenericParameters);
 
-        // Call base constructor
-        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
-        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
-        if (objectCtor != null)
+        // Value types must not chain to a base constructor. For a struct, `ldarg.0`
+        // loads the managed address of `this` (`&T`), and `call object::.ctor(object)`
+        // expects an object reference — emitting it produces type-unsafe IL that fails
+        // ilverify ([StackUnexpected] found address of 'T', expected ref 'object').
+        // Roslyn emits no base call for struct constructors; we match that here.
+        var isValueType = typeBuilder.BaseType == typeof(ValueType);
+        if (!isValueType)
         {
-            _currentIL.Emit(OpCodes.Call, objectCtor);
+            // Call base constructor
+            _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+            var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
+            if (objectCtor != null)
+            {
+                _currentIL.Emit(OpCodes.Call, objectCtor);
+            }
         }
 
         if (members != null)
         {
-            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, typeBuilder.BaseType == typeof(ValueType) ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
+            EmitDeclaredInstanceFieldInitializers(typeBuilder, members, isValueType ? FieldOwnerKind.Struct : FieldOwnerKind.Class);
         }
 
         // Emit constructor body
