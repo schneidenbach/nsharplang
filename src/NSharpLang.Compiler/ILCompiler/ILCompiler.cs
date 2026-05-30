@@ -19552,8 +19552,16 @@ public partial class ILCompiler
             .Select(p => ResolveParameterType(p, typeGenericParameters))
             .ToArray();
 
-        // Interface methods are always public, abstract, and virtual
-        var methodAttributes = MethodAttributes.Public | MethodAttributes.Abstract | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+        // An interface method with a body is a C# 8 default interface method (DIM): it is virtual
+        // but concrete, so implementing types are not required to override it. Without a body the
+        // method is abstract and every implementer must provide it.
+        var hasDefaultImplementation = funcDecl.Body != null || funcDecl.ExpressionBody != null;
+
+        var methodAttributes = MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot;
+        if (!hasDefaultImplementation)
+        {
+            methodAttributes |= MethodAttributes.Abstract;
+        }
         if (funcDecl.IsOperatorOverload || funcDecl.IsConversionOperator)
         {
             methodAttributes |= MethodAttributes.SpecialName;
@@ -19579,9 +19587,15 @@ public partial class ILCompiler
             ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i], typeGenericParameters);
         }
 
-        // Store method for reference (interface methods don't have bodies)
+        // Store method for reference.
         _methods[GetMethodKey(typeBuilder, funcDecl.Name)] = methodBuilder;
         _declaredMethodParameters[GetMethodKey(typeBuilder, funcDecl.Name)] = funcDecl.Parameters;
+
+        // Register as a declared overload so unqualified calls within the interface (e.g. a default
+        // method body invoking another interface member) resolve through the standard overload
+        // binder. RegisterDeclaredMethodOverload also records the builder for body emission, which
+        // the EmitInterfaceBodies pass uses for default interface methods.
+        RegisterDeclaredMethodOverload(GetMethodKey(typeBuilder, funcDecl.Name), funcDecl, methodBuilder);
     }
 
     /// <summary>
