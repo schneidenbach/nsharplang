@@ -97,6 +97,20 @@ public class Lexer
     };
 
     /// <summary>
+    /// The set of <see cref="TokenType"/> values produced for reserved keywords (the
+    /// values of <see cref="Keywords"/>). Used by the parser to give a keyword-specific
+    /// diagnostic when a reserved word appears where an identifier is required.
+    /// </summary>
+    private static readonly HashSet<TokenType> ReservedKeywordTokenTypes = new(Keywords.Values);
+
+    /// <summary>
+    /// Returns <c>true</c> if <paramref name="type"/> is the token type of a reserved N#
+    /// keyword (e.g. <c>base</c>, <c>this</c>, <c>new</c>). Reserved keywords cannot be used
+    /// as identifiers (field, variable, parameter, type, or member names).
+    /// </summary>
+    public static bool IsReservedKeyword(TokenType type) => ReservedKeywordTokenTypes.Contains(type);
+
+    /// <summary>
     /// Comments extracted during tokenization, preserved for the formatter.
     /// </summary>
     public List<CommentTrivia> Comments { get; } = new();

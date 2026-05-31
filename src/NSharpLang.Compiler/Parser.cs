@@ -4142,6 +4142,15 @@ public class Parser
                 {
                     memberName = Advance().Value;
                 }
+                else if (Current.Line == dotToken.Line && Lexer.IsReservedKeyword(Current.Type))
+                {
+                    // `obj.base`, `this.new`, etc. — the member name is a reserved keyword. Report
+                    // a keyword-specific diagnostic and consume it so we don't re-parse the keyword
+                    // as a standalone expression and emit cascading errors.
+                    ReportReservedKeywordAsName("Expected member name", DiagnosticSpanFromToken(Current), isDotAccess: true);
+                    Advance();
+                    memberName = "<error>";
+                }
                 else
                 {
                     ReportMissingMemberNameAfterDot(dotToken, expr);
@@ -6132,6 +6141,34 @@ public class Parser
         };
     }
 
+    /// <summary>
+    /// Reports that a reserved keyword (e.g. <c>base</c>, <c>this</c>, <c>new</c>) was used where
+    /// an identifier is required. N# reserves these words, so they cannot name a field, variable,
+    /// parameter, type, or member. The diagnostic names the offending keyword and offers concrete,
+    /// non-keyword renames.
+    /// </summary>
+    private void ReportReservedKeywordAsName(string contextMessage, DiagnosticSpan span, bool isDotAccess)
+    {
+        var keyword = Current.Value;
+        var suggestions = new List<string>
+        {
+            $"Rename it to '{keyword}Value' or '_{keyword}'",
+            "Pick any name that isn't a reserved N# keyword"
+        };
+
+        ReportError(
+            ErrorCode.ReservedKeywordAsName,
+            $"{contextMessage}. Got the reserved keyword '{keyword}'",
+            span.Line,
+            span.Column,
+            humanExplanation: $"'{keyword}' is a reserved keyword in N#, so it can't be used as a name here.",
+            hint: isDotAccess
+                ? $"After a member access, the name must not be a reserved keyword. To reach a C# member literally named '{keyword}', access it through a differently-named alias."
+                : $"Choose a name that isn't a reserved keyword (for example '{keyword}Value' or '_{keyword}').",
+            suggestions: suggestions,
+            length: span.Length);
+    }
+
     private void ReportMissingMemberNameAfterDot(Token dotToken, Expression receiver)
     {
         var operatorText = dotToken.Value;
@@ -6476,6 +6513,17 @@ public class Parser
             // Check if this is incomplete member access (dot with no member)
             var previous = _position > 0 ? _tokens[_position - 1] : _tokens[0];
             var isDotAccess = previous.Type == TokenType.Dot || previous.Type == TokenType.QuestionDot;
+
+            // A reserved keyword (e.g. `base`, `this`, `new`) appearing where an identifier
+            // is required gets a precise, keyword-specific diagnostic rather than the generic
+            // "I was expecting an identifier" message. We consume the keyword so error recovery
+            // continues past it instead of re-parsing it as an expression.
+            if (!IsAtEnd() && Lexer.IsReservedKeyword(Current.Type))
+            {
+                ReportReservedKeywordAsName(message, diagnosticSpan ?? DiagnosticSpanFromToken(Current), isDotAccess);
+                Advance();
+                return "<error>";
+            }
 
             if (IsAtEnd())
             {

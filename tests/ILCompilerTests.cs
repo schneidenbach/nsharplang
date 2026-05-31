@@ -744,6 +744,32 @@ func main() {
     }
 
     [Fact]
+    public void ILCompiler_EmitsVerifiableIl_ForFieldsNamedLikeIlAsmKeywords()
+    {
+        // `value` and `method` are reserved words in ILAsm textual syntax but are valid
+        // field names in CLR metadata and are NOT N# keywords. They must compile to
+        // verifiable IL and round-trip correctly through field load/store (no
+        // InvalidProgramException). Regression guard alongside NL109, which rejects the
+        // genuinely-reserved N# keywords (base/this/...) at parse time instead.
+        var source = @"
+class Box {
+    value: int
+    method: int
+    constructor(v: int, m: int) {
+        this.value = v
+        this.method = m
+    }
+    func sum(): int { return this.value + this.method }
+}
+
+func main(): int {
+    b := new Box(7, 3)
+    return b.sum()
+}";
+        Assert.Equal(10, Assert.IsType<int>(CompileAndInvoke(source, "main")));
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileInstanceMethodCall()
     {
         var source = @"
