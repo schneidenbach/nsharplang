@@ -14023,8 +14023,23 @@ public partial class ILCompiler
             return;
         }
 
+        if (binary.Operator == BinaryOperator.And)
+        {
+            EmitLogicalAnd(binary);
+            return;
+        }
+
+        if (binary.Operator == BinaryOperator.Or)
+        {
+            EmitLogicalOr(binary);
+            return;
+        }
+
+        var leftType = GetExpressionType(binary.Left);
+        var rightType = GetExpressionType(binary.Right);
+
         if (binary.Operator == BinaryOperator.Add &&
-            (GetExpressionType(binary.Left) == typeof(string) || GetExpressionType(binary.Right) == typeof(string)))
+            (leftType == typeof(string) || rightType == typeof(string)))
         {
             EmitStringConcatenation(binary);
             return;
@@ -14056,12 +14071,14 @@ public partial class ILCompiler
         // `intField / (double)other`) emit a `div` over Int32+Double, which the
         // ECMA-335 verifier rejects (IL:StackUnexpected) and which produces wrong
         // results at runtime.
-        if (TryGetBinaryNumericPromotionType(binary.Operator, GetExpressionType(binary.Left), GetExpressionType(binary.Right), out var promotedType))
+        var opcodeOperandType = leftType;
+        if (TryGetBinaryNumericPromotionType(binary.Operator, leftType, rightType, out var promotedType))
         {
+            opcodeOperandType = promotedType;
             EmitExpression(binary.Left);
-            EmitValueCoercion(GetExpressionType(binary.Left), promotedType, allowExplicitUserDefinedConversions: false);
+            EmitValueCoercion(leftType, promotedType, allowExplicitUserDefinedConversions: false);
             EmitExpression(binary.Right);
-            EmitValueCoercion(GetExpressionType(binary.Right), promotedType, allowExplicitUserDefinedConversions: false);
+            EmitValueCoercion(rightType, promotedType, allowExplicitUserDefinedConversions: false);
         }
         else
         {
@@ -14082,10 +14099,10 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Mul);
                 break;
             case BinaryOperator.Divide:
-                _currentIL.Emit(OpCodes.Div);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Div_Un : OpCodes.Div);
                 break;
             case BinaryOperator.Modulo:
-                _currentIL.Emit(OpCodes.Rem);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Rem_Un : OpCodes.Rem);
                 break;
             case BinaryOperator.Equal:
                 _currentIL.Emit(OpCodes.Ceq);
@@ -14096,18 +14113,18 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Ceq);
                 break;
             case BinaryOperator.Less:
-                _currentIL.Emit(OpCodes.Clt);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Clt_Un : OpCodes.Clt);
                 break;
             case BinaryOperator.Greater:
-                _currentIL.Emit(OpCodes.Cgt);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Cgt_Un : OpCodes.Cgt);
                 break;
             case BinaryOperator.LessOrEqual:
-                _currentIL.Emit(OpCodes.Cgt);
+                _currentIL.Emit(UsesUnsignedOrUnorderedComparisonOpcode(opcodeOperandType) ? OpCodes.Cgt_Un : OpCodes.Cgt);
                 _currentIL.Emit(OpCodes.Ldc_I4_0);
                 _currentIL.Emit(OpCodes.Ceq);
                 break;
             case BinaryOperator.GreaterOrEqual:
-                _currentIL.Emit(OpCodes.Clt);
+                _currentIL.Emit(UsesUnsignedOrUnorderedComparisonOpcode(opcodeOperandType) ? OpCodes.Clt_Un : OpCodes.Clt);
                 _currentIL.Emit(OpCodes.Ldc_I4_0);
                 _currentIL.Emit(OpCodes.Ceq);
                 break;
@@ -14130,11 +14147,71 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Shl);
                 break;
             case BinaryOperator.RightShift:
-                _currentIL.Emit(OpCodes.Shr);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(leftType) ? OpCodes.Shr_Un : OpCodes.Shr);
                 break;
             default:
                 throw new NotImplementedException($"Binary operator {binary.Operator} not yet implemented in IL compiler");
         }
+    }
+
+    private void EmitLogicalAnd(BinaryExpression binary)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var falseLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        EmitExpression(binary.Left);
+        _currentIL.Emit(OpCodes.Brfalse, falseLabel);
+
+        EmitExpression(binary.Right);
+        _currentIL.Emit(OpCodes.Brfalse, falseLabel);
+
+        EmitBooleanConstant(true);
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        _currentIL.MarkLabel(falseLabel);
+        EmitBooleanConstant(false);
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    private void EmitLogicalOr(BinaryExpression binary)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var trueLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        EmitExpression(binary.Left);
+        _currentIL.Emit(OpCodes.Brtrue, trueLabel);
+
+        EmitExpression(binary.Right);
+        _currentIL.Emit(OpCodes.Brtrue, trueLabel);
+
+        EmitBooleanConstant(false);
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        _currentIL.MarkLabel(trueLabel);
+        EmitBooleanConstant(true);
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    private bool UsesUnsignedNumericOpcode(Type type)
+    {
+        type = NormalizeOverflowCheckedType(type);
+        return type == typeof(byte)
+            || type == typeof(ushort)
+            || type == typeof(uint)
+            || type == typeof(ulong)
+            || type == typeof(char);
+    }
+
+    private bool UsesUnsignedOrUnorderedComparisonOpcode(Type type)
+    {
+        type = NormalizeOverflowCheckedType(type);
+        return UsesUnsignedNumericOpcode(type)
+            || type == typeof(float)
+            || type == typeof(double);
     }
 
     /// <summary>
