@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
 
@@ -18,6 +19,90 @@ namespace NSharpLang.Tests;
 public class CodeIntelligenceOutputTests
 {
     // ── OutputFormatter JSON Tests ──────────────────────────────────────
+
+    [Fact]
+    public void GetDiagnostics_KeepsNonShadowingLintsWhenCompilerErrorExists()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-codeintel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var filePath = Path.Combine(tempDir, "Program.nl");
+            var source = """
+                func Main(unused: int) {
+                    Console.WriteLine(undefined)
+                }
+                """;
+
+            var snapshot = CreateDiagnosticSnapshot(
+                tempDir,
+                filePath,
+                source,
+                CompilerError.Create(
+                    ErrorCode.UndefinedVariable,
+                    "Undefined variable 'undefined'",
+                    2,
+                    23) with
+                {
+                    FileName = filePath,
+                    SourceSnippet = "    Console.WriteLine(undefined)",
+                    Length = "undefined".Length
+                });
+
+            var diagnostics = new CodeIntelligenceService().GetDiagnostics(snapshot);
+
+            Assert.Contains(diagnostics, diagnostic => diagnostic.Code == "NL301");
+            Assert.Contains(diagnostics, diagnostic => diagnostic.Code == "NL012");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GetDiagnostics_SuppressesOnlyLinterShadowingWhenCompilerShadowingExists()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-codeintel-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var filePath = Path.Combine(tempDir, "Program.nl");
+            var source = """
+                func Main(value: int) {
+                    if true {
+                        value := 1
+                    }
+                }
+                """;
+
+            var snapshot = CreateDiagnosticSnapshot(
+                tempDir,
+                filePath,
+                source,
+                CompilerError.Create(
+                    ErrorCode.ShadowedDeclaration,
+                    "Local variable 'value' shadows an existing declaration",
+                    3,
+                    9) with
+                {
+                    FileName = filePath,
+                    SourceSnippet = "        value := 1",
+                    Length = "value".Length
+                });
+
+            var diagnostics = new CodeIntelligenceService().GetDiagnostics(snapshot);
+
+            Assert.Contains(diagnostics, diagnostic => diagnostic.Code == "NL316");
+            Assert.DoesNotContain(diagnostics, diagnostic => diagnostic.Code == "NL020");
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
 
     [Fact]
     public void SymbolsToJson_HasVersionedEnvelope()
@@ -429,6 +514,28 @@ public class CodeIntelligenceOutputTests
                 22),
             expected);
 
+        AssertJsonContract("perf",
+            OutputFormatter.PerfToJson("Program.nl", 5, 12, "/project"),
+            expected);
+
+        AssertJsonContract("buildPerfReport",
+            OutputFormatter.BuildPerfReportToJson(
+                "/project",
+                aotBlockers: new[]
+                {
+                    new OutputFormatter.PerfReportAotBlocker(
+                        "NL960",
+                        "metadata-required",
+                        "Program.nl",
+                        5,
+                        12,
+                        "GetType",
+                        "ClrPublic",
+                        "Main",
+                        true)
+                }),
+            expected);
+
         AssertJsonContract("check",
             OutputFormatter.CheckToJson(
                 new List<DiagnosticResult>
@@ -686,6 +793,42 @@ public class CodeIntelligenceOutputTests
         Assert.Equal(3, summary.Errors);
         Assert.Equal(2, summary.Warnings);
         Assert.Equal(1, summary.Info);
+    }
+
+    private static ProjectSnapshot CreateDiagnosticSnapshot(
+        string projectRoot,
+        string filePath,
+        string source,
+        CompilerError compilerError)
+    {
+        var fullPath = Path.GetFullPath(filePath);
+        var unit = ParseCompilationUnit(source, fullPath);
+        return new ProjectSnapshot(
+            projectRoot,
+            new Dictionary<string, CompilationUnit>(StringComparer.OrdinalIgnoreCase)
+            {
+                [fullPath] = unit
+            },
+            new Dictionary<string, SemanticModel>(StringComparer.OrdinalIgnoreCase),
+            new[] { compilerError },
+            new Analyzer(),
+            new[] { fullPath },
+            index: null,
+            sourceTexts: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [fullPath] = source
+            });
+    }
+
+    private static CompilationUnit ParseCompilationUnit(string source, string filePath)
+    {
+        var lexer = new Lexer(source, filePath);
+        var tokens = lexer.Tokenize();
+        var parser = new Parser(tokens, filePath, source);
+        var result = parser.ParseCompilationUnit();
+
+        Assert.NotNull(result.CompilationUnit);
+        return result.CompilationUnit!;
     }
 
     private static void AssertJsonContract(string name, string json, IReadOnlyDictionary<string, string[]> expected)

@@ -318,7 +318,7 @@ Scoring: `5` means essentially at parity for the workflow, `3` means usable but 
 | Setup blocks | `TestMain` | `#[fixture]` | `4` | `setup { }` — one per file, runs before each test |
 | JSON output | `-json` | `cargo test -- --format json` | `4` | `nlc test --json` structured envelope |
 | Test coverage | `-cover` | external tools | Planned | `nlc test --coverage` exits 1 with unsupported-feature guidance today |
-| Benchmark | `-bench` | `cargo bench` | `1` | Future work |
+| Benchmark | `-bench` | `cargo bench` | `n/a` | No built-in runner by design: use BenchmarkDotNet directly on the compiled N# assembly. `nlc build --perf-report` and `nlc query perf` provide stable performance-fact envelopes. |
 | Lint | `go vet` | `cargo clippy` | `5` | `nlc lint` with `--json`/`--text`; lints also in `nlc check` |
 | Suppress lint | `//nolint` | `#[allow]` | `5` | `// nlc:ignore NL001` |
 | API docs | `godoc` | `cargo doc` | `4` | `nlc doc` now generates project HTML docs |
@@ -332,5 +332,5 @@ These remain intentionally out of scope for this pass:
 - A separate IL optimizer for release builds
 - Dependency tree visualization, including nested package-to-package edges for csproj-free `project.yml` dependency trees without an MSBuild project file
 - Native coverage reporting
-- Benchmark execution
+- Built-in cross-language benchmark execution
 - Machine-readable build timing reports

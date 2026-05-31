@@ -22691,8 +22691,79 @@ public partial class ILCompiler
     }
 
     /// <summary>
-    /// Emit Equals method for record
+    /// Emit EqualityComparer&lt;T&gt; calls for synthesized record equality and hashing.
     /// </summary>
+    private static void EmitEqualityComparerEquals(ILGenerator il, Type fieldType, Action emitLeft, Action emitRight)
+    {
+        var comparerType = typeof(EqualityComparer<>).MakeGenericType(fieldType);
+        var defaultGetter = ResolveEqualityComparerDefaultGetter(comparerType);
+        var equalsMethod = ResolveEqualityComparerMethod(
+            comparerType,
+            method => method.Name == nameof(EqualityComparer<int>.Equals)
+                && method.GetParameters().Length == 2);
+
+        il.Emit(OpCodes.Call, defaultGetter);
+        emitLeft();
+        emitRight();
+        il.Emit(OpCodes.Callvirt, equalsMethod);
+    }
+
+    private static void EmitEqualityComparerGetHashCode(ILGenerator il, Type fieldType, Action emitValue)
+    {
+        var comparerType = typeof(EqualityComparer<>).MakeGenericType(fieldType);
+        var defaultGetter = ResolveEqualityComparerDefaultGetter(comparerType);
+        var getHashCodeMethod = ResolveEqualityComparerMethod(
+            comparerType,
+            method => method.Name == nameof(EqualityComparer<int>.GetHashCode)
+                && method.GetParameters().Length == 1);
+
+        il.Emit(OpCodes.Call, defaultGetter);
+        emitValue();
+        il.Emit(OpCodes.Callvirt, getHashCodeMethod);
+    }
+
+    private static MethodInfo ResolveEqualityComparerDefaultGetter(Type comparerType)
+    {
+        var openGetter = typeof(EqualityComparer<>).GetProperty(nameof(EqualityComparer<int>.Default))?.GetMethod
+            ?? throw new InvalidOperationException("Could not resolve EqualityComparer<T>.Default getter");
+
+        return ResolveConstructedGenericMember(
+            comparerType,
+            openGetter,
+            type => type.GetProperty(nameof(EqualityComparer<int>.Default))?.GetMethod);
+    }
+
+    private static MethodInfo ResolveEqualityComparerMethod(Type comparerType, Func<MethodInfo, bool> predicate)
+    {
+        var openMethod = typeof(EqualityComparer<>).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Single(predicate);
+
+        return ResolveConstructedGenericMember(
+            comparerType,
+            openMethod,
+            type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance).Single(predicate));
+    }
+
+    private static MethodInfo ResolveConstructedGenericMember(
+        Type constructedType,
+        MethodInfo openMember,
+        Func<Type, MethodInfo?> runtimeResolver)
+    {
+        try
+        {
+            return TypeBuilder.GetMethod(constructedType, openMember);
+        }
+        catch (ArgumentException)
+        {
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        return runtimeResolver(constructedType)
+            ?? throw new InvalidOperationException($"Could not resolve constructed generic member '{openMember.Name}' on '{constructedType}'");
+    }
+
     private void EmitRecordEquals(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
     {
         var equalsKey = GetMethodKey(typeBuilder, "Equals");
@@ -22738,27 +22809,20 @@ public partial class ILCompiler
                 {
                     var fieldType = backingField.FieldType;
 
-                    il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Ldfld, backingField);
-                    il.Emit(OpCodes.Ldloc, otherLocal);
-                    il.Emit(OpCodes.Ldfld, backingField);
-
-                    // Use Equals for reference types and == for value types
-                    if (fieldType.IsValueType)
-                    {
-                        il.Emit(OpCodes.Ceq);
-                        il.Emit(OpCodes.Brfalse, returnFalse);
-                    }
-                    else
-                    {
-                        // Call static Object.Equals for proper null handling
-                        var objectEqualsMethod = typeof(object).GetMethod("Equals", new[] { typeof(object), typeof(object) });
-                        if (objectEqualsMethod != null)
+                    EmitEqualityComparerEquals(
+                        il,
+                        fieldType,
+                        () =>
                         {
-                            il.Emit(OpCodes.Call, objectEqualsMethod);
-                            il.Emit(OpCodes.Brfalse, returnFalse);
-                        }
-                    }
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Ldfld, backingField);
+                        },
+                        () =>
+                        {
+                            il.Emit(OpCodes.Ldloc, otherLocal);
+                            il.Emit(OpCodes.Ldfld, backingField);
+                        });
+                    il.Emit(OpCodes.Brfalse, returnFalse);
                 }
             }
         }
@@ -22797,27 +22861,20 @@ public partial class ILCompiler
 
                     var fieldType = backingField.FieldType;
 
-                    // this.field
-                    il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Ldfld, backingField);
-                    // other.field
-                    il.Emit(OpCodes.Ldarga_S, (byte)1);
-                    il.Emit(OpCodes.Ldfld, backingField);
-
-                    if (fieldType.IsValueType)
-                    {
-                        il.Emit(OpCodes.Ceq);
-                        il.Emit(OpCodes.Brfalse, returnFalse);
-                    }
-                    else
-                    {
-                        var objectEqualsMethod = typeof(object).GetMethod("Equals", new[] { typeof(object), typeof(object) });
-                        if (objectEqualsMethod != null)
+                    EmitEqualityComparerEquals(
+                        il,
+                        fieldType,
+                        () =>
                         {
-                            il.Emit(OpCodes.Call, objectEqualsMethod);
-                            il.Emit(OpCodes.Brfalse, returnFalse);
-                        }
-                    }
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Ldfld, backingField);
+                        },
+                        () =>
+                        {
+                            il.Emit(OpCodes.Ldarga_S, (byte)1);
+                            il.Emit(OpCodes.Ldfld, backingField);
+                        });
+                    il.Emit(OpCodes.Brfalse, returnFalse);
                 }
             }
 
@@ -22885,21 +22942,14 @@ public partial class ILCompiler
                     il.Emit(OpCodes.Ldc_I4, 23);
                     il.Emit(OpCodes.Mul);
 
-                    il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Ldfld, backingField);
-
-                    if (fieldType.IsValueType)
-                    {
-                        // For value types, box and call GetHashCode
-                        il.Emit(OpCodes.Box, fieldType);
-                    }
-
-                    // Call GetHashCode (handles null for reference types)
-                    var getHashCodeMethodInfo = typeof(object).GetMethod("GetHashCode", Type.EmptyTypes);
-                    if (getHashCodeMethodInfo != null)
-                    {
-                        il.Emit(OpCodes.Callvirt, getHashCodeMethodInfo);
-                    }
+                    EmitEqualityComparerGetHashCode(
+                        il,
+                        fieldType,
+                        () =>
+                        {
+                            il.Emit(OpCodes.Ldarg_0);
+                            il.Emit(OpCodes.Ldfld, backingField);
+                        });
 
                     il.Emit(OpCodes.Add);
                     il.Emit(OpCodes.Stloc, hashCodeLocal);

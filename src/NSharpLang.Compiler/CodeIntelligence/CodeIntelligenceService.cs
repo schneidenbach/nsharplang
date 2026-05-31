@@ -184,8 +184,8 @@ public class CodeIntelligenceService
         var sourceTexts = snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
 
         var results = new List<DiagnosticResult>();
-        var filesWithCompilerErrors = snapshot.AllErrors
-            .Where(error => error.Severity == ErrorSeverity.Error && !string.IsNullOrWhiteSpace(error.FileName))
+        var filesWithCompilerShadowingErrors = snapshot.AllErrors
+            .Where(error => error.Code == ErrorCode.ShadowedDeclaration && !string.IsNullOrWhiteSpace(error.FileName))
             .Select(error => GetRelativePath(snapshot.ProjectRoot, error.FileName!))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
@@ -228,10 +228,10 @@ public class CodeIntelligenceService
         }
 
         var lintDiagnostics = GetLintDiagnostics(snapshot.ProjectRoot, snapshot.SourceFiles, snapshot.CompilationUnits, sourceTexts, file);
-        if (filesWithCompilerErrors.Count > 0)
+        if (filesWithCompilerShadowingErrors.Count > 0)
         {
             lintDiagnostics = lintDiagnostics
-                .Where(diagnostic => !filesWithCompilerErrors.Contains(diagnostic.File))
+                .Where(diagnostic => diagnostic.Code != "NL020" || !filesWithCompilerShadowingErrors.Contains(diagnostic.File))
                 .ToList();
         }
 

@@ -126,6 +126,79 @@ public class AotBlockerAnalyzerTests
     }
 
     [Fact]
+    public void SemanticMode_DoesNotFlagUserMethodNamedCompile()
+    {
+        var unit = Parse("""
+            class Worker {
+                func Compile(): int {
+                    return 1
+                }
+            }
+
+            func Run(): int {
+                let worker := new Worker()
+                return worker.Compile()
+            }
+            """);
+        var abi = new AbiClassifier("test.nl").Classify(unit);
+        var semanticModel = new SemanticModel();
+
+        var blockers = new AotBlockerAnalyzer("test.nl", abi, semanticModel)
+            .Analyze(unit)
+            .Blockers;
+
+        Assert.Empty(blockers);
+    }
+
+    [Fact]
+    public void SemanticMode_FlagsResolvedObjectGetType()
+    {
+        var unit = Parse("""
+            func Describe(value: object): void {
+                let t := value.GetType()
+            }
+            """);
+        var call = FindSingleInitializerCall(unit);
+        var semanticModel = new SemanticModel();
+        semanticModel.RecordReflectionCallTarget(
+            call.Line,
+            call.Column,
+            typeof(object).GetMethod(nameof(object.GetType))!);
+        var abi = new AbiClassifier("test.nl").Classify(unit);
+
+        var blocker = Assert.Single(new AotBlockerAnalyzer("test.nl", abi, semanticModel)
+            .Analyze(unit)
+            .Blockers);
+
+        Assert.Equal(AotSafetyKind.MetadataRequired, blocker.Kind);
+        Assert.Equal("GetType", blocker.Construct);
+    }
+
+    [Fact]
+    public void SemanticMode_UsesAnalyzerRecordedClrCallTargets()
+    {
+        var source = """
+            func Describe(value: object): void {
+                let t := value.GetType()
+            }
+            """;
+        var unit = Parse(source);
+        var call = FindSingleInitializerCall(unit);
+        var analyzer = new Analyzer();
+        analyzer.LoadSystemAssemblies();
+        var analysis = analyzer.Analyze(unit, "test.nl", projectRoot: null, source);
+        var abi = new AbiClassifier("test.nl").Classify(unit);
+
+        Assert.NotNull(analysis.SemanticModel.LookupReflectionCallTarget(call.Line, call.Column));
+        var blocker = Assert.Single(new AotBlockerAnalyzer("test.nl", abi, analysis.SemanticModel)
+            .Analyze(unit)
+            .Blockers);
+
+        Assert.Equal(AotSafetyKind.MetadataRequired, blocker.Kind);
+        Assert.Equal("GetType", blocker.Construct);
+    }
+
+    [Fact]
     public void NameofIsNotReflection()
     {
         // nameof is compile-time and must never be flagged.
@@ -181,6 +254,15 @@ public class AotBlockerAnalyzerTests
         Assert.NotNull(facts);
         Assert.Equal(AotSafetyKind.MetadataRequired, facts!.AotSafety);
         Assert.Equal(EscapeKind.ReflectionBoundary, facts.Escape);
+    }
+
+    private static CallExpression FindSingleInitializerCall(CompilationUnit unit)
+    {
+        var function = Assert.IsType<FunctionDeclaration>(Assert.Single(unit.Declarations));
+        Assert.NotNull(function.Body);
+        var body = function.Body!;
+        var statement = Assert.IsType<VariableDeclarationStatement>(Assert.Single(body.Statements));
+        return Assert.IsType<CallExpression>(statement.Initializer);
     }
 
     [Fact]

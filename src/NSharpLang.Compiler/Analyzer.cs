@@ -6839,6 +6839,11 @@ public class Analyzer : IDisposable
             var boundDecl = BindNSharpCall(nsharpGroup, call, argTypes);
             if (boundDecl != null)
             {
+                // Keep the semantic model pinned to the selected overload, not just the
+                // pre-bind method group. Later checks such as [MustUse] enforcement need
+                // the exact declaration that this call resolved to.
+                _semanticModel.RecordExpressionType(call.Callee.Line, call.Callee.Column, CreateFunctionTypeInfo(boundDecl));
+
                 // Validate arguments against the selected overload
                 ValidateNSharpCallArguments(boundDecl, call, argTypes);
                 return boundDecl.ReturnType != null
@@ -12081,7 +12086,7 @@ public class Analyzer : IDisposable
     }
 
     /// <summary>
-    /// Compiler-level shadowing guarantee (NL315). A local or parameter declaration
+    /// Compiler-level shadowing guarantee (NL316). A local or parameter declaration
     /// that shadows a local/parameter from an enclosing function/block scope is a hard,
     /// build-blocking error. This is authoritative: when it fires the file has a compiler
     /// error, which suppresses the linter's NL020 for the same file (see

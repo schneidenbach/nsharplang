@@ -35,6 +35,22 @@ public class LinterTests
         Assert.Empty(diagnostics);
     }
 
+    [Fact]
+    public void DiagnosticCatalog_RegistersReservedKeywordAsSyntaxDiagnostic()
+    {
+        Assert.True(DiagnosticCatalog.TryGetDescriptor("NL109", out var descriptor));
+        Assert.Equal(DiagnosticSource.Compiler, descriptor.Source);
+        Assert.Equal(DiagnosticCategory.Syntax, descriptor.Category);
+        Assert.Equal(DiagnosticSeverity.Error, descriptor.DefaultSeverity);
+        Assert.True(descriptor.BlocksBuildByDefault);
+    }
+
+    [Fact]
+    public void DiagnosticCatalog_FallbackDocsUrlUsesPublicDocsDomain()
+    {
+        Assert.Equal("https://docs.n-sharp.dev/errors/NL9999", DiagnosticCatalog.DocsUrlFor("NL9999"));
+    }
+
     #region NL001: Unused Variable Tests
 
     [Fact]

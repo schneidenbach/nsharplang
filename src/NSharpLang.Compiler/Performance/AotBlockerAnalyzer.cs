@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler.Performance;
@@ -44,16 +45,18 @@ public sealed record AotBlocker(
 /// construct that blocks Native AOT or trimming: runtime reflection, dynamic code generation,
 /// runtime generic instantiation (MakeGenericType/MakeGenericMethod), and expression trees.
 ///
-/// Detection is shape/name-based over the AST — N# has no dedicated reflection syntax, so the
-/// pass recognizes the well-known BCL entry points that force a JIT or runtime metadata. It
-/// performs NO emitter changes; it only produces <see cref="AotBlocker"/> facts and records
-/// the corresponding <see cref="PerformanceFacts"/> into a <see cref="PerformanceFactStore"/>.
-/// See docs/design/performance-compiler-refactor.md "Native AOT".
+/// When a semantic model is available, detection uses the resolved CLR method selected by
+/// the analyzer; the AST-name fallback is reserved for standalone tests and legacy callers
+/// without semantic binding. The pass performs NO emitter changes; it only produces
+/// <see cref="AotBlocker"/> facts and records the corresponding <see cref="PerformanceFacts"/>
+/// into a <see cref="PerformanceFactStore"/>. See docs/design/performance-compiler-refactor.md
+/// "Native AOT".
 /// </summary>
 public sealed class AotBlockerAnalyzer
 {
     private readonly string _file;
     private readonly AbiClassifier _abi;
+    private readonly SemanticModel? _semanticModel;
     private readonly List<AotBlocker> _blockers = new();
 
     // Member names that, when invoked on any receiver, read runtime metadata reflectively.
@@ -93,10 +96,11 @@ public sealed class AotBlockerAnalyzer
         "Activator",
     };
 
-    public AotBlockerAnalyzer(string file, AbiClassifier abi)
+    public AotBlockerAnalyzer(string file, AbiClassifier abi, SemanticModel? semanticModel = null)
     {
         _file = file ?? string.Empty;
         _abi = abi ?? new AbiClassifier(file ?? string.Empty);
+        _semanticModel = semanticModel;
     }
 
     /// <summary>All AOT blockers discovered during <see cref="Analyze"/>, in source order.</summary>
@@ -490,6 +494,20 @@ public sealed class AotBlockerAnalyzer
 
         var name = member.MemberName;
 
+        if (_semanticModel != null)
+        {
+            if (_semanticModel.LookupReflectionCallTarget(call.Line, call.Column) is { } target
+                && TryClassifyResolvedCall(target, name, out var resolvedKind, out var resolvedConstruct))
+            {
+                Record(resolvedKind, member, resolvedConstruct, context);
+            }
+
+            // In semantic mode, do not fall back to string matching. A user-defined
+            // `Compile`, `GetType`, or `Activator` member must not become an AOT blocker
+            // just because it shares a BCL name.
+            return;
+        }
+
         if (MakeGenericMembers.Contains(name))
         {
             Record(AotSafetyKind.DynamicCodeRequired, member, name, context);
@@ -531,6 +549,128 @@ public sealed class AotBlockerAnalyzer
             Record(AotSafetyKind.ExpressionTreeRequired, member, "Compile", context);
         }
     }
+
+    private static bool TryClassifyResolvedCall(
+        MethodInfo method,
+        string sourceMemberName,
+        out AotSafetyKind kind,
+        out string construct)
+    {
+        kind = AotSafetyKind.NoReflection;
+        construct = sourceMemberName;
+
+        var declaringType = method.DeclaringType;
+        var declaringFullName = declaringType?.FullName ?? string.Empty;
+
+        if (method.Name == "MakeGenericType" && IsTypeLike(declaringType))
+        {
+            kind = AotSafetyKind.DynamicCodeRequired;
+            construct = method.Name;
+            return true;
+        }
+
+        if (method.Name == "MakeGenericMethod" && IsMethodInfoLike(declaringType))
+        {
+            kind = AotSafetyKind.DynamicCodeRequired;
+            construct = method.Name;
+            return true;
+        }
+
+        if (method.Name == "CreateInstance" && HasClrFullName(declaringType, "System.Activator"))
+        {
+            kind = AotSafetyKind.DynamicCodeRequired;
+            construct = "Activator.CreateInstance";
+            return true;
+        }
+
+        if (method.Name == "DynamicInvoke" && IsDelegateLike(declaringType))
+        {
+            kind = AotSafetyKind.DynamicCodeRequired;
+            construct = method.Name;
+            return true;
+        }
+
+        if (method.Name == "CreateDelegate" && declaringType != null
+            && (IsMethodInfoLike(declaringType) || IsDelegateLike(declaringType)))
+        {
+            kind = AotSafetyKind.DynamicCodeRequired;
+            construct = method.Name;
+            return true;
+        }
+
+        if (IsReflectionMetadataMethod(method, declaringType, declaringFullName))
+        {
+            kind = AotSafetyKind.MetadataRequired;
+            construct = method.Name;
+            return true;
+        }
+
+        if (declaringFullName == "System.Linq.Expressions.Expression"
+            || declaringFullName.StartsWith("System.Linq.Expressions.", StringComparison.Ordinal))
+        {
+            kind = AotSafetyKind.ExpressionTreeRequired;
+            construct = declaringFullName == "System.Linq.Expressions.Expression"
+                ? $"Expression.{method.Name}"
+                : method.Name;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsReflectionMetadataMethod(MethodInfo method, Type? declaringType, string declaringFullName)
+    {
+        if (!ReflectionMembers.Contains(method.Name))
+        {
+            return false;
+        }
+
+        if (method.Name == "GetType"
+            && method.GetParameters().Length == 0
+            && HasClrFullName(method.ReturnType, "System.Type"))
+        {
+            return true;
+        }
+
+        return IsTypeLike(declaringType)
+            || IsMemberInfoLike(declaringType)
+            || declaringFullName.StartsWith("System.Reflection.", StringComparison.Ordinal);
+    }
+
+    private static bool IsTypeLike(Type? type) => HasClrTypeInBaseChain(type, "System.Type");
+
+    private static bool IsMemberInfoLike(Type? type) => HasClrTypeInBaseChain(type, "System.Reflection.MemberInfo");
+
+    private static bool IsMethodInfoLike(Type? type) => HasClrTypeInBaseChain(type, "System.Reflection.MethodInfo");
+
+    private static bool IsDelegateLike(Type? type)
+        => HasClrTypeInBaseChain(type, "System.Delegate")
+            || HasClrTypeInBaseChain(type, "System.MulticastDelegate");
+
+    private static bool HasClrTypeInBaseChain(Type? type, string fullName)
+    {
+        while (type != null)
+        {
+            if (HasClrFullName(type, fullName))
+            {
+                return true;
+            }
+
+            try
+            {
+                type = type.BaseType;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool HasClrFullName(Type? type, string fullName)
+        => string.Equals(type?.FullName, fullName, StringComparison.Ordinal);
 
     private void InspectNew(NewExpression newExpr, DeclarationContext context)
     {

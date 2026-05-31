@@ -96,72 +96,76 @@ public sealed class AbiClassifier
     }
 
     private void ClassifyTopLevel(Declaration declaration)
+        => ClassifyDeclaration(declaration, containingBoundary: null, isTopLevel: true);
+
+    private void ClassifyDeclaration(Declaration declaration, AbiBoundary? containingBoundary, bool isTopLevel)
     {
         switch (declaration)
         {
             case FunctionDeclaration func:
-                Record(func.Name, func.Modifiers, func.Line, func.Column, isTopLevel: true);
+                Record(func.Name, func.Modifiers, func.Line, func.Column, isTopLevel, containingBoundary);
                 WalkFunctionBody(func);
                 break;
 
             case ClassDeclaration cls:
-                Record(cls.Name, cls.Modifiers, cls.Line, cls.Column, isTopLevel: true);
-                ClassifyMembers(cls.Members);
+                var classBoundary = Record(cls.Name, cls.Modifiers, cls.Line, cls.Column, isTopLevel, containingBoundary);
+                ClassifyMembers(cls.Members, classBoundary);
                 break;
 
             case StructDeclaration st:
-                Record(st.Name, st.Modifiers, st.Line, st.Column, isTopLevel: true);
-                ClassifyMembers(st.Members);
+                var structBoundary = Record(st.Name, st.Modifiers, st.Line, st.Column, isTopLevel, containingBoundary);
+                ClassifyMembers(st.Members, structBoundary);
                 break;
 
             case RecordDeclaration rec:
-                Record(rec.Name, rec.Modifiers, rec.Line, rec.Column, isTopLevel: true);
-                ClassifyMembers(rec.Members);
+                var recordBoundary = Record(rec.Name, rec.Modifiers, rec.Line, rec.Column, isTopLevel, containingBoundary);
+                ClassifyMembers(rec.Members, recordBoundary);
                 break;
 
             case InterfaceDeclaration iface:
-                Record(iface.Name, iface.Modifiers, iface.Line, iface.Column, isTopLevel: true);
-                ClassifyMembers(iface.Members);
+                var interfaceBoundary = Record(iface.Name, iface.Modifiers, iface.Line, iface.Column, isTopLevel, containingBoundary);
+                ClassifyMembers(iface.Members, interfaceBoundary);
                 break;
 
             case UnionDeclaration union:
-                Record(union.Name, union.Modifiers, union.Line, union.Column, isTopLevel: true);
+                Record(union.Name, union.Modifiers, union.Line, union.Column, isTopLevel, containingBoundary);
                 break;
 
             case EnumDeclaration en:
-                Record(en.Name, en.Modifiers, en.Line, en.Column, isTopLevel: true);
+                Record(en.Name, en.Modifiers, en.Line, en.Column, isTopLevel, containingBoundary);
                 break;
         }
     }
 
-    private void ClassifyMembers(List<Declaration> members)
+    private void ClassifyMembers(List<Declaration> members, AbiBoundary containingBoundary)
     {
         foreach (var member in members)
         {
             switch (member)
             {
                 case FunctionDeclaration func:
-                    Record(func.Name, func.Modifiers, func.Line, func.Column, isTopLevel: false);
+                    Record(func.Name, func.Modifiers, func.Line, func.Column, isTopLevel: false, containingBoundary);
                     WalkFunctionBody(func);
                     break;
 
                 case FieldDeclaration field:
-                    Record(field.Name, field.Modifiers, field.Line, field.Column, isTopLevel: false);
+                    Record(field.Name, field.Modifiers, field.Line, field.Column, isTopLevel: false, containingBoundary);
                     break;
 
                 case PropertyDeclaration prop:
-                    Record(prop.Name, prop.Modifiers, prop.Line, prop.Column, isTopLevel: false);
+                    Record(prop.Name, prop.Modifiers, prop.Line, prop.Column, isTopLevel: false, containingBoundary);
                     break;
 
                 // Nested types are themselves type declarations; recurse so their
-                // members (and any nested local functions) are classified too.
+                // members (and any nested local functions) are classified too. A nested
+                // declaration can never be more visible than its containing type.
                 case ClassDeclaration:
                 case StructDeclaration:
                 case RecordDeclaration:
                 case InterfaceDeclaration:
                 case UnionDeclaration:
                 case EnumDeclaration:
-                    ClassifyTopLevel(member);
+                    ClassifyDeclaration(member, containingBoundary, isTopLevel: false);
                     break;
             }
         }
@@ -260,10 +264,15 @@ public sealed class AbiClassifier
         }
     }
 
-    private void Record(string name, Modifiers modifiers, int line, int column, bool isTopLevel)
+    private AbiBoundary Record(string name, Modifiers modifiers, int line, int column, bool isTopLevel, AbiBoundary? containingBoundary = null)
     {
         var boundary = ClassifyBoundary(name, modifiers, isTopLevel);
+        if (containingBoundary is { } container)
+        {
+            boundary = MoreRestrictive(boundary, container);
+        }
         Add(new AbiClassification(name, boundary, line, column));
+        return boundary;
     }
 
     private void RecordLocal(string name, int line, int column)
@@ -325,4 +334,7 @@ public sealed class AbiClassifier
 
         return AbiBoundary.ClrInternal;
     }
+
+    private static AbiBoundary MoreRestrictive(AbiBoundary declared, AbiBoundary container)
+        => (AbiBoundary)Math.Max((int)declared, (int)container);
 }

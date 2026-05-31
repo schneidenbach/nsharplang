@@ -580,7 +580,8 @@ public class MultiFileCompiler
         {
             var compilationUnit = _compilationUnits[sourceFile];
             var abi = new AbiClassifier(sourceFile).Classify(compilationUnit);
-            var analyzer = new AotBlockerAnalyzer(sourceFile, abi).Analyze(compilationUnit, _performanceFacts);
+            _semanticModels.TryGetValue(sourceFile, out var semanticModel);
+            var analyzer = new AotBlockerAnalyzer(sourceFile, abi, semanticModel).Analyze(compilationUnit, _performanceFacts);
             _aotBlockers.AddRange(analyzer.Blockers);
         }
 

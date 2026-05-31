@@ -22,8 +22,9 @@ public sealed record IlShapeSummary(
 /// Deterministic IL-shape inspection: the first-class way N# asserts and reports
 /// codegen quality (allocation-free hot paths, no boxing, devirtualized calls). Unlike
 /// wall-clock benchmarking it needs nothing to run, is noise-free, and is suitable as a
-/// CI regression gate. Consumed by <c>nlc build --perf-report</c>, <c>nlc query perf</c>,
-/// and the IL-shape evidence tests.
+/// CI regression gate. The public perf-report/query JSON envelopes are in place today;
+/// this decoder currently backs focused IL-shape evidence tests until those CLI paths are
+/// wired to per-method IL summaries.
 /// </summary>
 public static class IlShapeInspector
 {
