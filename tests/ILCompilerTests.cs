@@ -2157,6 +2157,72 @@ record struct Point(x: int, y: int) {
     }
 
     [Fact]
+    public void ILCompiler_RecordStructEquality_UsesEqualityComparerSemantics()
+    {
+        var source = @"
+record struct Measurement(value: double) {
+}";
+
+        var result = CompileAndInspect(source, assembly =>
+        {
+            var measurementType = assembly.GetType("Measurement");
+            Assert.NotNull(measurementType);
+            Assert.True(measurementType!.IsValueType, "Measurement should be emitted as a value type.");
+
+            var equality = measurementType.GetMethod(
+                "op_Equality",
+                BindingFlags.Public | BindingFlags.Static);
+            var equals = measurementType.GetMethod(
+                "Equals",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: new[] { typeof(object) },
+                modifiers: null);
+            Assert.NotNull(equality);
+            Assert.NotNull(equals);
+
+            var left = Activator.CreateInstance(measurementType, double.NaN);
+            var right = Activator.CreateInstance(measurementType, double.NaN);
+
+            return new
+            {
+                OperatorEqual = (bool)equality!.Invoke(null, new[] { left, right })!,
+                ObjectEquals = (bool)equals!.Invoke(left, new[] { right })!
+            };
+        });
+
+        Assert.True(result.OperatorEqual, "Record struct == should match EqualityComparer<double>.Default for NaN.");
+        Assert.True(result.ObjectEquals, "Record struct Equals(object) should match EqualityComparer<double>.Default for NaN.");
+    }
+
+    [Fact]
+    public void ILCompiler_RecordGetHashCode_AllowsNullReferenceFields()
+    {
+        var source = @"
+record Person(name: string) {
+}";
+
+        var hashCode = CompileAndInspect(source, assembly =>
+        {
+            var personType = assembly.GetType("Person");
+            Assert.NotNull(personType);
+
+            var person = Activator.CreateInstance(personType!, new object?[] { null });
+            var getHashCode = personType!.GetMethod(
+                "GetHashCode",
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                types: Type.EmptyTypes,
+                modifiers: null);
+            Assert.NotNull(getHashCode);
+
+            return getHashCode!.Invoke(person, null);
+        });
+
+        Assert.IsType<int>(hashCode);
+    }
+
+    [Fact]
     public void ILCompiler_RecordStructMethodReturningNewStruct_CoercesLiteralArgsAndIsVerifiable()
     {
         // Regression (ilverify StackUnexpected on Vector2D::Normalize): a record-struct

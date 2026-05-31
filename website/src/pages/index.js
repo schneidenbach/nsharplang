@@ -124,7 +124,7 @@ const toolingItems = [
   {
     icon: '\u2318',
     title: 'nlc CLI',
-    desc: 'A broad pre-release CLI surface modeled on Go/Rust inner loops: check, format, lint, test, benchmark, and related project commands.',
+    desc: 'A broad pre-release CLI surface modeled on Go/Rust inner loops: check, format, lint, test, perf reports, and related project commands.',
     code: 'nlc check && nlc format --check && nlc lint',
   },
   {

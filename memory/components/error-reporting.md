@@ -71,7 +71,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Declaration diagnostics should underline the duplicate or invalid declaration token, not a one-character fallback: duplicate symbols/types/cases/members underline the duplicate name, duplicate test lifecycle blocks underline the full `setup` or `teardown` keyword, invalid local variable declarations such as `const answer: int` or `let value` underline the full variable name, `params` ordering/type errors underline the params parameter name, required-after-optional errors underline the required parameter name, and invalid default values underline the default expression.
 - Missing declaration names underline the visible declaration keyword, such as `func`, `class`, `struct`, `record`, `interface`, `union`, `enum`, or `type`, instead of punctuation like `(`, `{`, or `=`.
 - Assignment diagnostics should underline the target or value token that must change: readonly field reassignment (`NL309`) underlines the assigned field name, whether the assignment is direct (`id = ...`) or qualified (`this.id = ...`).
-- Shadowing diagnostics (`NL315`) underline the shadowing declaration's NAME (the inner local/parameter), not the `:=`/`let` keyword. Definite-assignment diagnostics for locals (`NL304`) underline the READ of the unassigned variable, not its declaration.
+- Shadowing diagnostics (`NL316`) underline the shadowing declaration's NAME (the inner local/parameter), not the `:=`/`let` keyword. Definite-assignment diagnostics for locals (`NL304`) underline the READ of the unassigned variable, not its declaration.
 
 ## Error Codes
 

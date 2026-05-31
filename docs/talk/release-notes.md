@@ -28,7 +28,7 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- query help
 
 Expected evidence snippets:
 ```text
-build run restore publish pack clean check fix query daemon format lint test bench ...
+build run restore publish pack clean check fix query daemon format lint test build --perf-report ...
 ```
 
 ```text

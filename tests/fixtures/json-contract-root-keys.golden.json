@@ -145,13 +145,21 @@
     "results",
     "summary"
   ],
-  "bench": [
+  "perf": [
     "schemaVersion",
     "command",
     "ok",
     "projectRoot",
-    "benchmarkCount",
-    "benchmarks"
+    "file",
+    "position",
+    "facts"
+  ],
+  "buildPerfReport": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "perfReport"
   ],
   "pack": [
     "schemaVersion",

@@ -130,7 +130,7 @@ Enforced by Analyzer:
 - `camelCase` identifiers → private
 - Explicit modifiers override convention
 
-Warnings (not errors) for non-conforming names.
+Non-conforming names report build-blocking compiler diagnostics (`NL903`) unless the declaration uses an explicit visibility modifier that makes the intent unambiguous.
 
 ## Pattern Matching Analysis
 

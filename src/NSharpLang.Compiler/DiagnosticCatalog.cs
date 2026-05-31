@@ -59,7 +59,7 @@ public static class DiagnosticCatalog
     public static string DocsUrlFor(string code)
         => TryGetDescriptor(code, out var descriptor) && !string.IsNullOrWhiteSpace(descriptor.DocsUrl)
             ? descriptor.DocsUrl
-            : $"https://docs.nsharp.dev/errors/{code}";
+            : $"https://docs.n-sharp.dev/errors/{code}";
 
     private static IReadOnlyDictionary<string, DiagnosticDescriptor> BuildDescriptorMap()
     {
@@ -94,7 +94,7 @@ public static class DiagnosticCatalog
             var diagnosticCode = $"NL{(int)code:D3}";
             var category = code switch
             {
-                >= ErrorCode.UnexpectedToken and <= ErrorCode.MissingClosingBracket => DiagnosticCategory.Syntax,
+                >= ErrorCode.UnexpectedToken and <= ErrorCode.ReservedKeywordAsName => DiagnosticCategory.Syntax,
                 >= ErrorCode.TypeNotFound and <= ErrorCode.GenericConstraintViolation => DiagnosticCategory.Type,
                 >= ErrorCode.UndefinedVariable and <= ErrorCode.ShadowedDeclaration => DiagnosticCategory.Semantic,
                 >= ErrorCode.WrongArgumentCount and <= ErrorCode.UndefinedFunction => DiagnosticCategory.Function,

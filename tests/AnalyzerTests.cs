@@ -375,6 +375,47 @@ func main(): int {
     }
 
     [Fact]
+    public void DiscardedMustUseSelectedOverload_IsRejected()
+    {
+        var result = Analyze(@"
+            [MustUse]
+            func Compute(): int {
+                return 42
+            }
+
+            func Compute(value: int): int {
+                return value
+            }
+
+            func Main() {
+                Compute()
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.DiscardedMustUseResult);
+        Assert.Contains("'Compute'", error.Message);
+    }
+
+    [Fact]
+    public void DiscardedNonMustUseSelectedOverload_IsAllowed()
+    {
+        AssertNoErrors(@"
+            [MustUse]
+            func Compute(value: int): int {
+                return value
+            }
+
+            func Compute(): int {
+                return 42
+            }
+
+            func Main() {
+                Compute()
+            }
+        ");
+    }
+
+    [Fact]
     public void ExplicitDiscardOfMustUseResult_IsAllowed()
     {
         AssertNoErrors(@"
@@ -767,7 +808,7 @@ func Main() {
     public void ScopeNesting_NestedRedeclarationShadowsOuter_IsError()
     {
         // N# forbids shadowing: a nested block re-declaring an outer local is an
-        // error (NL315), not the silently-permitted re-binding of older languages.
+        // error (NL316), not the silently-permitted re-binding of older languages.
         AssertHasErrorCode(@"
             func Main() {
                 x := 1
@@ -8580,7 +8621,7 @@ func Describe(value: int | string): int {
         ");
     }
 
-    // ── NL315: shadowing is a hard compiler error ──────────────────────────
+    // ── NL316: shadowing is a hard compiler error ──────────────────────────
 
     private CompilerError AssertHasErrorCode(string source, ErrorCode code)
     {

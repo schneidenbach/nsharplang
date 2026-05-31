@@ -165,6 +165,49 @@ public class AbiClassifierTests
     }
 
     [Fact]
+    public void PublicMemberInsideInternalType_IsClrInternal()
+    {
+        var classifier = ClassifyFromSource("""
+            internal class Container {
+                func Helper(): int {
+                    return 3
+                }
+            }
+            """);
+
+        Assert.Equal(AbiBoundary.ClrInternal, FindByName(classifier, "Container").Boundary);
+        Assert.Equal(AbiBoundary.ClrInternal, FindByName(classifier, "Helper").Boundary);
+    }
+
+    [Fact]
+    public void NestedPublicTypeInsideInternalType_IsClrInternal()
+    {
+        var classifier = ClassifyFromSource("""
+            internal class Container {
+                class Nested {
+                }
+            }
+            """);
+
+        Assert.Equal(AbiBoundary.ClrInternal, FindByName(classifier, "Container").Boundary);
+        Assert.Equal(AbiBoundary.ClrInternal, FindByName(classifier, "Nested").Boundary);
+    }
+
+    [Fact]
+    public void NestedPublicTypeInsideFilePrivateType_IsFilePrivate()
+    {
+        var classifier = ClassifyFromSource("""
+            file class Container {
+                class Nested {
+                }
+            }
+            """);
+
+        Assert.Equal(AbiBoundary.FilePrivate, FindByName(classifier, "Container").Boundary);
+        Assert.Equal(AbiBoundary.FilePrivate, FindByName(classifier, "Nested").Boundary);
+    }
+
+    [Fact]
     public void TryGet_ResolvesBySourcePosition()
     {
         var unit = Parse("""
