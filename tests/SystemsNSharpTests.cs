@@ -900,20 +900,93 @@ class Box {}
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
+        var executableProofProjects = new[] { "44-ci-allocation-gate", "45-trusted-audit" };
+        var designOnlyProjects = proofProjects.Except(executableProofProjects, StringComparer.Ordinal).ToArray();
 
         Assert.Equal(25, proofProjects.Length);
         Assert.True(File.Exists(auditPath), "Systems proof projects must have an explicit audit artifact.");
 
         var readme = File.ReadAllText(readmePath);
-        Assert.Contains("Status: design proof samples", readme, StringComparison.Ordinal);
-        Assert.Contains("not executable examples", Regex.Replace(readme, @"\s+", " "), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Status: mixed executable and design proof samples", readme, StringComparison.Ordinal);
+        Assert.Contains("Executable proof projects", readme, StringComparison.Ordinal);
 
         var audit = File.ReadAllText(auditPath);
-        Assert.Contains("Status: current compiler audit, not a pass report", audit, StringComparison.Ordinal);
-        foreach (var project in proofProjects)
+        Assert.Contains("Status: mixed executable proof report and compiler audit", audit, StringComparison.Ordinal);
+        foreach (var project in executableProofProjects)
+        {
+            Assert.Contains($"`{project}` | executable", audit, StringComparison.Ordinal);
+        }
+
+        foreach (var project in designOnlyProjects)
         {
             Assert.Contains($"`{project}`", audit, StringComparison.Ordinal);
         }
+    }
+
+    [Fact]
+    public void ExecutableSystemsProofProjects_CheckBuildPerfAndQueryEvidence()
+    {
+        var repoRoot = FindRepoRoot();
+        var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
+        var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
+        var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
+
+        AssertSystemsProofCheckPasses(allocationGate, expectedWarnings: 2);
+        var allocationBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", allocationGate, "--perf-report"));
+        Assert.Equal(0, allocationBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(allocationBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Contains(perf.GetProperty("allocationSites").EnumerateArray(),
+                site => site.GetProperty("function").GetString() == "Main"
+                        && site.GetProperty("code").GetString() == "NSYS001");
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+        }
+
+        AssertSystemsProofCheckPasses(trustedAudit, expectedWarnings: 0);
+        var trustedBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", trustedAudit, "--perf-report"));
+        Assert.Equal(0, trustedBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(trustedBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var trustedSite = Assert.Single(doc.RootElement
+                .GetProperty("perfReport")
+                .GetProperty("trustedSites")
+                .EnumerateArray());
+            Assert.Equal("UnsafeAuditSurface.WrapHandle", trustedSite.GetProperty("function").GetString());
+            Assert.Equal("interop", trustedSite.GetProperty("owner").GetString());
+            Assert.True(trustedSite.GetProperty("hasUnsafe").GetBoolean());
+        }
+
+        var trustedQuery = CaptureConsole(() =>
+            QueryCommand.Execute(new[] { "trusted", "--project", trustedAudit }));
+        Assert.Equal(0, trustedQuery.ExitCode);
+        using (var doc = JsonDocument.Parse(trustedQuery.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var result = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray());
+            Assert.Equal("UnsafeAuditSurface.WrapHandle", result.GetProperty("function").GetString());
+            Assert.Equal("2027-06-01", result.GetProperty("expires").GetString());
+        }
+    }
+
+    private static void AssertSystemsProofCheckPasses(string projectDir, int expectedWarnings)
+    {
+        var result = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", projectDir, "--systems-report" }));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(result.Stderr));
+        using var doc = JsonDocument.Parse(result.Stdout);
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+        Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+        Assert.Equal(expectedWarnings, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
+        Assert.Equal(0, doc.RootElement.GetProperty("systemsReport").GetProperty("summary").GetProperty("errors").GetInt32());
     }
 
     [Fact]
@@ -990,6 +1063,7 @@ func Copy(): int {
         var benchmarkClasses = new[]
         {
             "SystemsHotPathBenchmarks",
+            "SystemsSpanHandoffBenchmarks",
             "SystemsCallerBufferBenchmarks",
             "SystemsResultBenchmarks",
             "SystemsPooledBoundaryBenchmarks",
@@ -1014,6 +1088,15 @@ func Copy(): int {
         Assert.Contains("HotPathWorkload.CountAscii", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int>>", hotPathBenchmark, StringComparison.Ordinal);
 
+        var spanHandoffBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsSpanHandoffBenchmarks.cs"));
+        Assert.Contains("SpanHandoffWorkload.SumSpan", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("SpanHandoffWorkload.CountEven", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("SpanHandoffWorkload.CopyUntilNegative", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("SpanHandoffWorkload.ArrayToSpanCaller", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("[Params(64, 4096)]", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("NSharpCompiledMethod.Bind<ReadOnlySpanIntDelegate>", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("NSharpCompiledMethod.Bind<SpanCopyDelegate>", spanHandoffBenchmark, StringComparison.Ordinal);
+
         var callerBufferBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCallerBufferBenchmarks.cs"));
         Assert.Contains("CallerBufferWorkload.CopyPositive", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("CallerBufferWorkload.WriteFrame", callerBufferBenchmark, StringComparison.Ordinal);
@@ -1026,12 +1109,25 @@ func Copy(): int {
         Assert.Contains("RuntimeResult", resultBenchmark, StringComparison.Ordinal);
         Assert.DoesNotContain("MatchDelegate", resultBenchmark, StringComparison.Ordinal);
 
+        var pooledBoundaryBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsPooledBoundaryBenchmarks.cs"));
+        Assert.Contains("PooledBoundaryWorkload.CountNonZero", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("PooledBoundaryWorkload.ScorePooledFrame", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("PooledBoundaryWorkload.ClampAndScore", pooledBoundaryBenchmark, StringComparison.Ordinal);
+
+        var combinationBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCombinationBenchmarks.cs"));
+        Assert.Contains("CombinationWorkload.ScanDigitsResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.WriteChecksumResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.CopyDigitsResult", combinationBenchmark, StringComparison.Ordinal);
+
         var script = File.ReadAllText(Path.Combine(root, "scripts", "benchmark-systems.sh"));
         Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 4", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 8", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 3", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 3", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 2", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 2", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 3", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 3", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 1.25", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 1.25", script, StringComparison.Ordinal);
         Assert.Contains("allocated != 0", script, StringComparison.Ordinal);
         Assert.Contains("ratio > limit", script, StringComparison.Ordinal);
     }
@@ -1087,6 +1183,29 @@ func Run(): int {
 """, "Run");
 
         Assert.Equal(4, result);
+    }
+
+    [Fact]
+    public void ArrayCanFlowToReadOnlySpanParameter()
+    {
+        var result = CompileAndInvoke("""
+import System
+
+func Sum(values: ReadOnlySpan<int>): int {
+    total := 0
+    for i := 0; i < values.Length; i++ {
+        total = total + values[i]
+    }
+    return total
+}
+
+func Run(): int {
+    values := [1, 2, 3]
+    return Sum(values)
+}
+""", "Run");
+
+        Assert.Equal(6, result);
     }
 
     private static SystemsReport Analyze(string source, string profile = "default", string mode = "strict", Action<ProjectConfig>? configure = null)

@@ -10871,6 +10871,8 @@ public class Analyzer : IDisposable
         // Everything is assignable to object, except bare method references which are not values.
         if (resolvedTarget == BuiltInTypes.Object) return true;
 
+        if (IsArrayToSpanAssignable(resolvedTarget, resolvedSource)) return true;
+
         // Nullable widening: T -> T? and T? -> U? (inner type widening)
         if (resolvedTarget is NullableTypeInfo nullableTarget)
         {
@@ -11008,6 +11010,23 @@ public class Analyzer : IDisposable
 
         return true;
     }
+
+    private bool IsArrayToSpanAssignable(TypeInfo target, TypeInfo source)
+    {
+        if (source is not ArrayTypeInfo array || target is not GenericTypeInfo targetGeneric)
+            return false;
+
+        if (targetGeneric.TypeArguments.Count != 1)
+            return false;
+
+        if (!IsSpanTypeName(targetGeneric.Name))
+            return false;
+
+        return TypesEqual(ResolveTypeAlias(targetGeneric.TypeArguments[0]), ResolveTypeAlias(array.ElementType));
+    }
+
+    private static bool IsSpanTypeName(string name)
+        => name is "Span" or "ReadOnlySpan" or "System.Span" or "System.ReadOnlySpan";
 
     private bool IsReferenceLikeForVariance(TypeInfo type)
     {

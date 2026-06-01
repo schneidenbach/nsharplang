@@ -14,7 +14,7 @@ func Sum(values: ReadOnlySpan<int>): int {
 
 [boundary]
 func Main() {
-    values := alloc new int[] { 1, 2, 3 }
+    values := alloc [1, 2, 3]
     print Sum(values)
 }
 

@@ -37,19 +37,40 @@ func scorePooledFrame(values: int[], len: int): int {
 
     return score
 }
+
+[hot]
+func clampAndScore(values: int[], len: int): int {
+    score := 0
+    for i := 0; i < len; i++ {
+        value := values[i]
+        if value < 0 {
+            value = 0
+        }
+
+        values[i] = value
+        score = score + value
+    }
+
+    return score
+}
 """;
 
     private int[] _seed = Array.Empty<int>();
     private Func<int[], int, int> _countNonZero = null!;
     private Func<int[], int, int> _scorePooledFrame = null!;
+    private Func<int[], int, int> _clampAndScore = null!;
 
     public enum PooledBoundaryWorkload
     {
         CountNonZero,
         ScorePooledFrame,
+        ClampAndScore,
     }
 
-    [Params(PooledBoundaryWorkload.CountNonZero, PooledBoundaryWorkload.ScorePooledFrame)]
+    [Params(
+        PooledBoundaryWorkload.CountNonZero,
+        PooledBoundaryWorkload.ScorePooledFrame,
+        PooledBoundaryWorkload.ClampAndScore)]
     public PooledBoundaryWorkload Workload { get; set; }
 
     [GlobalSetup]
@@ -58,7 +79,7 @@ func scorePooledFrame(values: int[], len: int): int {
         _seed = new int[4096];
         for (var i = 0; i < _seed.Length; i++)
         {
-            _seed[i] = i % 11 == 0 ? 0 : i;
+            _seed[i] = i % 11 == 0 ? 0 : i - 64;
         }
 
         for (var i = 0; i < 8; i++)
@@ -69,6 +90,7 @@ func scorePooledFrame(values: int[], len: int): int {
 
         _countNonZero = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "countNonZero");
         _scorePooledFrame = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "scorePooledFrame");
+        _clampAndScore = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "clampAndScore");
     }
 
     [Benchmark(Baseline = true)]
@@ -82,6 +104,7 @@ func scorePooledFrame(values: int[], len: int): int {
             {
                 PooledBoundaryWorkload.CountNonZero => CSharpCountNonZero(buffer, _seed.Length),
                 PooledBoundaryWorkload.ScorePooledFrame => CSharpScorePooledFrame(buffer, _seed.Length),
+                PooledBoundaryWorkload.ClampAndScore => CSharpClampAndScore(buffer, _seed.Length),
                 _ => throw new InvalidOperationException()
             };
         }
@@ -102,6 +125,7 @@ func scorePooledFrame(values: int[], len: int): int {
             {
                 PooledBoundaryWorkload.CountNonZero => _countNonZero(buffer, _seed.Length),
                 PooledBoundaryWorkload.ScorePooledFrame => _scorePooledFrame(buffer, _seed.Length),
+                PooledBoundaryWorkload.ClampAndScore => _clampAndScore(buffer, _seed.Length),
                 _ => throw new InvalidOperationException()
             };
         }
@@ -136,6 +160,24 @@ func scorePooledFrame(values: int[], len: int): int {
         for (var i = 4; i < len; i++)
         {
             score += values[i];
+        }
+
+        return score;
+    }
+
+    private static int CSharpClampAndScore(int[] values, int len)
+    {
+        var score = 0;
+        for (var i = 0; i < len; i++)
+        {
+            var value = values[i];
+            if (value < 0)
+            {
+                value = 0;
+            }
+
+            values[i] = value;
+            score += value;
         }
 
         return score;

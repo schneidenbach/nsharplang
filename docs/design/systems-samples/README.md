@@ -1,15 +1,24 @@
 # Systems N# Sample Proofs
 
-Status: design proof samples
+Status: mixed executable and design proof samples
 
 These samples challenge the Systems N# use-case appendix in
 `../systems-nsharp.md`. They are intentionally stored under `docs/design/`
-instead of `examples/` because many files use proposed Systems N# syntax and
-contracts that are not yet current compiler fixtures. They are design-only, not
-executable examples, and must not be cited as passing implementation evidence.
+instead of `examples/` because most files still use proposed Systems N# syntax
+and contracts that are not yet current compiler fixtures.
 
 Current compiler audit status is tracked in
 `../../audits/systems-proof-project-audit.md`.
+
+Executable proof projects can be cited only for the exact command gates they
+pass. Current executable proof projects:
+
+- `proofs/44-ci-allocation-gate`: `nlc check --systems-report` and
+  `nlc build --perf-report`.
+- `proofs/45-trusted-audit`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and `nlc query trusted`.
+
+All other proof projects remain design-only until migrated and verified.
 
 The sample set is split in two:
 

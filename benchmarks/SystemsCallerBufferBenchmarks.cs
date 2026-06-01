@@ -14,7 +14,8 @@ public class SystemsCallerBufferBenchmarks
 [hot]
 func copyPositive(src: int[], dst: int[]): int {
     written := 0
-    for i := 0; i < src.Length; i++ {
+    len := src.Length
+    for i := 0; i < len; i++ {
         value := src[i]
         if value >= 0 {
             dst[written] = value
@@ -47,7 +48,8 @@ func writeFrame(src: int[], dst: int[]): int {
 [hot]
 func transform(src: int[], dst: int[]): int {
     sum := 0
-    for i := 0; i < src.Length; i++ {
+    len := src.Length
+    for i := 0; i < len; i++ {
         value := (src[i] * 31) + 7
         dst[i] = value
         sum = sum + value
@@ -112,7 +114,8 @@ func transform(src: int[], dst: int[]): int {
     private static int CSharpCopyPositive(int[] source, int[] destination)
     {
         var written = 0;
-        for (var i = 0; i < source.Length; i++)
+        var len = source.Length;
+        for (var i = 0; i < len; i++)
         {
             var value = source[i];
             if (value >= 0)
@@ -149,7 +152,8 @@ func transform(src: int[], dst: int[]): int {
     private static int CSharpTransform(int[] source, int[] destination)
     {
         var sum = 0;
-        for (var i = 0; i < source.Length; i++)
+        var len = source.Length;
+        for (var i = 0; i < len; i++)
         {
             var value = (source[i] * 31) + 7;
             destination[i] = value;

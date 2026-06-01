@@ -71,24 +71,27 @@ root = sys.argv[1]
 expected_counts = {
     ("SystemsHotPathBenchmarks", "CSharp"): 4,
     ("SystemsHotPathBenchmarks", "NSharp"): 4,
+    ("SystemsSpanHandoffBenchmarks", "CSharp"): 8,
+    ("SystemsSpanHandoffBenchmarks", "NSharp"): 8,
     ("SystemsCallerBufferBenchmarks", "CSharp"): 3,
     ("SystemsCallerBufferBenchmarks", "NSharp"): 3,
     ("SystemsResultBenchmarks", "CSharpTaggedStruct"): 3,
     ("SystemsResultBenchmarks", "RuntimeResult"): 3,
-    ("SystemsPooledBoundaryBenchmarks", "CSharp"): 2,
-    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 2,
-    ("SystemsCombinationBenchmarks", "CSharp"): 2,
-    ("SystemsCombinationBenchmarks", "NSharp"): 2,
+    ("SystemsPooledBoundaryBenchmarks", "CSharp"): 3,
+    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 3,
+    ("SystemsCombinationBenchmarks", "CSharp"): 3,
+    ("SystemsCombinationBenchmarks", "NSharp"): 3,
 }
 
-# Keep this loose enough to avoid benchmarking noise but tight enough to catch the
-# old Result.Match delegate shape, which was over 3x slower than the direct C# ABI.
+# Keep this loose enough to avoid normal BenchmarkDotNet noise but tight enough
+# to catch source-shape/codegen regressions before they become launch claims.
 ratio_limits = {
-    ("SystemsHotPathBenchmarks", "NSharp"): 1.50,
-    ("SystemsCallerBufferBenchmarks", "NSharp"): 1.50,
-    ("SystemsResultBenchmarks", "RuntimeResult"): 1.50,
-    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 1.50,
-    ("SystemsCombinationBenchmarks", "NSharp"): 1.50,
+    ("SystemsHotPathBenchmarks", "NSharp"): 1.25,
+    ("SystemsSpanHandoffBenchmarks", "NSharp"): 1.25,
+    ("SystemsCallerBufferBenchmarks", "NSharp"): 1.25,
+    ("SystemsResultBenchmarks", "RuntimeResult"): 1.25,
+    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 1.25,
+    ("SystemsCombinationBenchmarks", "NSharp"): 1.25,
 }
 
 def class_name_from_path(path: str) -> str:
@@ -129,7 +132,7 @@ def parse_ratio(value):
 
 def parameter_suffix(row):
     parts = []
-    for name in ("Workload",):
+    for name in ("Workload", "Size"):
         value = row.get(name)
         if value:
             parts.append(f"{name}={value}")

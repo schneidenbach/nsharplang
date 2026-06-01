@@ -662,6 +662,11 @@ public partial class ILCompiler
             return;
         }
 
+        if (TryEmitArrayToSpanConversion(sourceType, targetType))
+        {
+            return;
+        }
+
         var sourceIsUnsupported = IsUnsupportedRuntimeLookupType(sourceType) && !TryGetUserTypeDefinition(sourceType, out _);
         var targetIsUnsupported = IsUnsupportedRuntimeLookupType(targetType) && !TryGetUserTypeDefinition(targetType, out _);
         if (sourceIsUnsupported || targetIsUnsupported)
@@ -720,6 +725,36 @@ public partial class ILCompiler
         }
 
         _currentIL.Emit(OpCodes.Castclass, targetType);
+    }
+
+    private bool TryEmitArrayToSpanConversion(Type sourceType, Type targetType)
+    {
+        if (_currentIL == null || !sourceType.IsArray || !targetType.IsGenericType)
+        {
+            return false;
+        }
+
+        var genericDefinition = targetType.GetGenericTypeDefinition();
+        if (genericDefinition != typeof(Span<>) && genericDefinition != typeof(ReadOnlySpan<>))
+        {
+            return false;
+        }
+
+        var sourceElementType = sourceType.GetElementType();
+        var targetElementType = targetType.GetGenericArguments()[0];
+        if (sourceElementType != targetElementType)
+        {
+            return false;
+        }
+
+        var constructor = targetType.GetConstructor(new[] { sourceType });
+        if (constructor == null)
+        {
+            return false;
+        }
+
+        _currentIL.Emit(OpCodes.Newobj, constructor);
+        return true;
     }
 
     private bool TryEmitRuntimeUnionConversion(Type sourceType, Type targetType, bool allowExplicitUserDefinedConversions)

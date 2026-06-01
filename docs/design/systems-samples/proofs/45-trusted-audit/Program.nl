@@ -1,7 +1,5 @@
 namespace SystemsProofs.TrustedAudit
 
-import System
-
 public class UnsafeAuditSurface {
     [memory(safe)]
     [trusted(
@@ -12,8 +10,9 @@ public class UnsafeAuditSurface {
     )]
     public static func WrapHandle(raw: IntPtr): SafeDevice {
         unsafe {
-            return SafeDevice { Raw: raw }
+            marker := raw
         }
+        return new SafeDevice { Raw: raw }
     }
 }
 
