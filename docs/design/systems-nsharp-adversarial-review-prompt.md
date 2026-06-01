@@ -1,10 +1,3 @@
-# Systems N# Adversarial Review Prompt
-
-Use this prompt with Claude or another external reviewer. The requested review is
-intentionally adversarial: the goal is to find product, language-design, .NET,
-and systems-engineering failures before implementation.
-
-~~~~text
 You are reviewing a proposed "Systems N#" design for N#, a pragmatic .NET/CLR
 language positioned as "Go for .NET."
 
@@ -210,21 +203,10 @@ Output required:
 2. Top 10 ways this spec could fail in the real systems world.
 3. Top 10 ways it could fail in the .NET ecosystem.
 4. Top 10 ways it could corrupt N# simplicity/purity.
-5. At least 12 realistic pseudo-N# systems examples that stress the design.
+5. At least 25 realistic pseudo-N# systems examples that stress the design.
 6. For each example, say whether the spec handles it well, poorly, or
    ambiguously.
 7. Identify features to cut from v1.
 8. Identify missing features that real systems engineers would expect.
 9. Propose a tighter v1 spec.
 10. List unresolved questions the N# team must answer before implementation.
-~~~~
-
-After receiving the external review, run a second adversarial pass against both
-the review and the original proposal. Challenge:
-
-- whether the reviewer overfits to non-.NET systems languages
-- whether the reviewer underestimates CLR realities
-- whether the original proposal overpromises guarantees the compiler cannot
-  prove
-- whether the proposed v1 is small enough to ship
-- whether the examples map to actual acceptance tests
