@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -261,6 +262,16 @@ public static class OutputFormatter
         string? EnclosingDeclaration,
         bool OnPublicSurface);
 
+    public sealed record PerfReportSite(
+        string Code,
+        string Effect,
+        string File,
+        int Line,
+        int Column,
+        string Message,
+        string? Function,
+        string? Suggestion);
+
     /// <summary>
     /// Emits the versioned performance report envelope for <c>nlc build --perf-report</c>.
     /// The report groups performance facts by category. Categories without a wired fact source
@@ -270,7 +281,12 @@ public static class OutputFormatter
     public static string BuildPerfReportToJson(
         string? projectRoot,
         bool ok = true,
-        IReadOnlyList<PerfReportAotBlocker>? aotBlockers = null)
+        IReadOnlyList<PerfReportAotBlocker>? aotBlockers = null,
+        IReadOnlyList<PerfReportSite>? allocationSites = null,
+        IReadOnlyList<PerfReportSite>? delegateSites = null,
+        IReadOnlyList<PerfReportSite>? boxingSites = null,
+        IReadOnlyList<PerfReportSite>? dispatchSites = null,
+        IReadOnlyList<PerfReportSite>? closureCaptures = null)
     {
         var envelope = new
         {
@@ -280,17 +296,90 @@ public static class OutputFormatter
             projectRoot = NormalizePath(projectRoot),
             perfReport = new
             {
-                allocationSites = Array.Empty<object>(),
-                delegateSites = Array.Empty<object>(),
-                boxingSites = Array.Empty<object>(),
-                dispatchSites = Array.Empty<object>(),
-                closureCaptures = Array.Empty<object>(),
+                allocationSites = NormalizePerfSites(allocationSites),
+                delegateSites = NormalizePerfSites(delegateSites),
+                boxingSites = NormalizePerfSites(boxingSites),
+                dispatchSites = NormalizePerfSites(dispatchSites),
+                closureCaptures = NormalizePerfSites(closureCaptures),
                 aotBlockers = (aotBlockers ?? Array.Empty<PerfReportAotBlocker>())
                     .Select(blocker => blocker with { File = NormalizePath(blocker.File) ?? blocker.File })
                     .ToArray()
             }
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    private static IReadOnlyList<PerfReportSite> NormalizePerfSites(IReadOnlyList<PerfReportSite>? sites)
+        => (sites ?? Array.Empty<PerfReportSite>())
+            .Select(site => site with { File = NormalizePath(site.File) ?? site.File })
+            .ToArray();
+
+    public static string CheckSystemsReportToJson(
+        List<DiagnosticResult> diagnostics,
+        string? projectRoot,
+        int checkedFiles,
+        SystemsReport report)
+    {
+        var summary = new DiagnosticSummary(
+            Errors: diagnostics.Count(d => d.Severity == "error"),
+            Warnings: diagnostics.Count(d => d.Severity == "warning"),
+            Info: diagnostics.Count(d => d.Severity == "info")
+        );
+
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "check.systemsReport",
+            projectRoot = NormalizePath(projectRoot),
+            checkedFiles,
+            ok = summary.Errors == 0,
+            diagnostics = diagnostics.Select(Normalize).ToList(),
+            summary,
+            systemsReport = NormalizeSystemsReport(report)
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    public static string TrustedToJson(SystemsReport report, string? projectRoot)
+    {
+        var envelope = new
+        {
+            schemaVersion = SchemaVersion,
+            command = "trusted",
+            ok = true,
+            projectRoot = NormalizePath(projectRoot),
+            results = report.TrustedSites.Select(site => site with
+            {
+                File = NormalizePath(site.File) ?? site.File
+            }).ToArray(),
+            summary = new { trustedSites = report.TrustedSites.Count }
+        };
+        return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    private static object NormalizeSystemsReport(SystemsReport report)
+    {
+        return new
+        {
+            report.SchemaVersion,
+            report.Profile,
+            report.Mode,
+            report.AotTarget,
+            warmup = report.Warmup,
+            functions = report.Functions.Select(function => function with
+            {
+                File = NormalizePath(function.File) ?? function.File
+            }).ToArray(),
+            findings = report.Findings.Select(finding => finding with
+            {
+                File = NormalizePath(finding.File) ?? finding.File
+            }).ToArray(),
+            trustedSites = report.TrustedSites.Select(site => site with
+            {
+                File = NormalizePath(site.File) ?? site.File
+            }).ToArray(),
+            report.Summary
+        };
     }
 
     public static string PerfToJson(string file, int line, int col, string? projectRoot,

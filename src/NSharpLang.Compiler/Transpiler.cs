@@ -1912,7 +1912,7 @@ public class Transpiler
     {
         // Don't emit #line for block statements — they are structural braces,
         // and the individual statements inside will have their own directives.
-        if (statement is not BlockStatement)
+        if (statement is not BlockStatement and not AllocBlockStatement and not AllowStatement)
             EmitLineDirective(statement.Line);
 
         switch (statement)
@@ -1928,6 +1928,12 @@ public class Transpiler
                 break;
             case BlockStatement block:
                 TranspileBlockStatement(block);
+                break;
+            case AllocBlockStatement allocBlock:
+                TranspileBlockStatement(allocBlock.Body);
+                break;
+            case AllowStatement allow:
+                TranspileBlockStatement(allow.Body);
                 break;
             case IfStatement ifStmt:
                 TranspileIfStatement(ifStmt);
@@ -2706,6 +2712,8 @@ public class Transpiler
             TernaryExpression ternary => $"({TranspileExpression(ternary.Condition)} ? {TranspileExpression(ternary.ThenExpression)} : {TranspileExpression(ternary.ElseExpression)})",
             ArrayLiteralExpression array => TranspileArrayLiteral(array),
             NewExpression newExpr => TranspileNewExpression(newExpr),
+            AllocExpression alloc => TranspileExpression(alloc.Expression),
+            StackAllocExpression stackAlloc => $"stackalloc {TranspileTypeReference(stackAlloc.ElementType)}[{TranspileExpression(stackAlloc.LengthExpression)}]",
             LambdaExpression lambda => TranspileLambdaExpression(lambda),
             CastExpression cast => TranspileCastExpression(cast),
             IsExpression isExpr => TranspileIsExpression(isExpr),
@@ -3566,8 +3574,29 @@ public class Transpiler
     {
         foreach (var attr in attributes)
         {
+            if (IsSystemsPolicyAttribute(attr))
+            {
+                continue;
+            }
+
             WriteLine(TranspileAttributeInline(attr));
         }
+    }
+
+    private static bool IsSystemsPolicyAttribute(AttributeNode attribute)
+    {
+        var name = attribute.Name;
+        if (name.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            name = name[..^"Attribute".Length];
+        }
+
+        return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory";
     }
 
     private string TranspileAttributeInline(AttributeNode attr)
@@ -3866,6 +3895,8 @@ public class Transpiler
             BoolLiteralExpression => "bool",
             NullLiteralExpression => "object", // Null literal - should be caught by analyzer
             MustExpression must => InferTypeFromExpression(must.Expression),
+            AllocExpression alloc => InferTypeFromExpression(alloc.Expression),
+            StackAllocExpression stackAlloc => $"Span<{TranspileTypeReference(stackAlloc.ElementType)}>",
 
             // Array literals
             ArrayLiteralExpression array when array.Elements.Count > 0 =>
@@ -3900,6 +3931,8 @@ public class Transpiler
         return stmt switch
         {
             BlockStatement block => block.Statements.Any(ContainsAwait),
+            AllocBlockStatement allocBlock => ContainsAwait(allocBlock.Body),
+            AllowStatement allow => ContainsAwait(allow.Body),
             ExpressionStatement exprStmt => ContainsAwaitInExpression(exprStmt.Expression),
             VariableDeclarationStatement varDecl => varDecl.Initializer != null && ContainsAwaitInExpression(varDecl.Initializer),
             ReturnStatement retStmt => retStmt.Value != null && ContainsAwaitInExpression(retStmt.Value),
@@ -3927,6 +3960,8 @@ public class Transpiler
             MemberAccessExpression member => ContainsAwaitInExpression(member.Object),
             AssignmentExpression assign => ContainsAwaitInExpression(assign.Target) || ContainsAwaitInExpression(assign.Value),
             NewExpression newExpr => newExpr.Initializer != null && ContainsAwaitInExpression(newExpr.Initializer),
+            AllocExpression alloc => ContainsAwaitInExpression(alloc.Expression),
+            StackAllocExpression stackAlloc => ContainsAwaitInExpression(stackAlloc.LengthExpression),
             _ => false
         };
     }

@@ -6,6 +6,7 @@ using System.Text.Json;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.Performance;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -545,6 +546,20 @@ public class CodeIntelligenceOutputTests
                 },
                 "/project",
                 3),
+            expected);
+
+        AssertJsonContract("checkSystemsReport",
+            OutputFormatter.CheckSystemsReportToJson(
+                new List<DiagnosticResult>(),
+                "/project",
+                1,
+                SystemsReport.Empty(ProjectFileParser.CreateDefault("JsonContract"))),
+            expected);
+
+        AssertJsonContract("trusted",
+            OutputFormatter.TrustedToJson(
+                SystemsReport.Empty(ProjectFileParser.CreateDefault("JsonContract")),
+                "/project"),
             expected);
     }
 

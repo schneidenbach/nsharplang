@@ -46,7 +46,7 @@ Updated: 2026-05-27
 
 N# does **not** ship a wall-clock benchmark runner. Because N# assemblies interop with C#, you can point [BenchmarkDotNet](https://benchmarkdotnet.org/) directly at a compiled N# assembly for timing numbers; re-wrapping it in the toolchain added fragility without adding value.
 
-What the toolchain *does* provide is **deterministic IL-shape inspection** — the codegen-quality signal a performance-focused language should guarantee. The compiler has an `IlShapeInspector` that reads a method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports counts that dominate N# performance: total IL byte length plus `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions. It needs nothing to run and is stable enough to use as a CI regression gate. The public CLI exposes stable performance JSON envelopes today: `nlc build --perf-report` includes AOT blockers when present and keeps the allocation/delegate/boxing/dispatch/closure arrays stable; `nlc query perf` returns the versioned position-based facts envelope. Per-method `ilShape` data is not wired into those CLI responses yet. For fair cross-language claims, pair IL-shape evidence with an external matched-shape N#/C# harness, idiomatic C# baselines, and separated wrapper-overhead accounting.
+What the toolchain *does* provide is **deterministic IL-shape inspection** — the codegen-quality signal a performance-focused language should guarantee. The compiler has an `IlShapeInspector` that reads a method's `MethodBody.GetILAsByteArray()`, decodes opcodes against `System.Reflection.Emit.OpCodes`, and reports counts that dominate N# performance: total IL byte length plus `newobj` (heap allocations), `box` (value-to-reference conversions), `callvirt` (virtual dispatch) versus `call` (direct dispatch), and delegate constructions. It needs nothing to run and is stable enough to use as a CI regression gate. The public CLI exposes stable performance JSON envelopes today: `nlc build --perf-report` includes AOT blockers and Systems N# effect sites when present; `nlc query perf` returns versioned position-based performance and systems facts. Per-method `ilShape` data is not wired into those CLI responses yet. For fair cross-language claims, pair IL-shape evidence with an external matched-shape N#/C# BenchmarkDotNet harness, idiomatic C# baselines, and separated wrapper-overhead accounting.
 
 ## Query Commands
 
@@ -67,7 +67,8 @@ What the toolchain *does* provide is **deterministic IL-shape inspection** — t
 | `nlc query hover` | Signature and docs at a position | `nlc query hover --file Program.nl --pos 5:12` |
 | `nlc query call-graph` | Callers and callees of a function | `nlc query call-graph --function Main` |
 | `nlc query implementors` | Concrete types implementing an interface | `nlc query implementors --name IShape` |
-| `nlc query perf` | Explain allocation/dispatch/capture/ABI facts at a position | `nlc query perf --file Program.nl --pos 5:12` |
+| `nlc query perf` | Explain allocation/dispatch/capture/ABI and systems effect facts at a position | `nlc query perf --file Program.nl --pos 5:12` |
+| `nlc query trusted` | Report governed Systems N# `[trusted]` wrappers | `nlc query trusted` |
 | `nlc query help` | Show query command help | `nlc query help` |
 
 ## Browser Playground

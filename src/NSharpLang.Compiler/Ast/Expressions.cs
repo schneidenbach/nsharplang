@@ -189,6 +189,19 @@ public record NewExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
+// Explicit systems allocation marker: alloc new Foo(), alloc [1, 2], alloc $"..."
+public record AllocExpression(
+    Expression Expression,
+    int Line,
+    int Column) : Expression(Line, Column);
+
+// Safe systems stack allocation: stackalloc byte[64] -> Span<byte>.
+public record StackAllocExpression(
+    TypeReference ElementType,
+    Expression LengthExpression,
+    int Line,
+    int Column) : Expression(Line, Column);
+
 // Type casting
 public record CastExpression(
     Expression Expression,

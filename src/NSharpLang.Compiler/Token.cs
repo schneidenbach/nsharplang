@@ -93,6 +93,9 @@ public enum TokenType
     Implicit,
     Explicit,
     Newtype,
+    Alloc,
+    Allow,
+    Stackalloc,
 
     // Operators
     Plus,           // +

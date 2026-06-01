@@ -141,8 +141,9 @@ public record CompilerError
     public string? DocsUrl { get; init; }
     public List<string>? Suggestions { get; init; }
     public Dictionary<string, string>? RelatedInfo { get; init; }
+    public string? DiagnosticIdOverride { get; init; }
 
-    public string DiagnosticId => $"NL{(int)Code:D3}";
+    public string DiagnosticId => DiagnosticIdOverride ?? $"NL{(int)Code:D3}";
 
     public CompilerError(ErrorCode code, string message, int line, int column, ErrorSeverity severity)
     {

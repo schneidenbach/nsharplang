@@ -112,6 +112,16 @@
     "results",
     "summary"
   ],
+  "checkSystemsReport": [
+    "schemaVersion",
+    "command",
+    "projectRoot",
+    "checkedFiles",
+    "ok",
+    "diagnostics",
+    "summary",
+    "systemsReport"
+  ],
   "fix": [
     "schemaVersion",
     "command",
@@ -153,6 +163,14 @@
     "file",
     "position",
     "facts"
+  ],
+  "trusted": [
+    "schemaVersion",
+    "command",
+    "ok",
+    "projectRoot",
+    "results",
+    "summary"
   ],
   "buildPerfReport": [
     "schemaVersion",

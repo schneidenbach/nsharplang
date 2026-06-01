@@ -44,6 +44,11 @@ public class ExpressionTypeResolver
             BoolLiteralExpression => BuiltInTypes.Bool,
             NullLiteralExpression => BuiltInTypes.Object,
             NewExpression newExpr when newExpr.Type != null => ResolveTypeReference(newExpr.Type),
+            AllocExpression alloc => ResolveExpressionTypeInfo(alloc.Expression),
+            StackAllocExpression stackAlloc => new GenericTypeInfo("Span", new List<TypeInfo>
+            {
+                ResolveTypeReference(stackAlloc.ElementType) ?? BuiltInTypes.Unknown
+            }),
             ArrayLiteralExpression => new ReflectionTypeInfo(typeof(Array)), // Simplified fallback
             _ => null
         };
@@ -249,6 +254,9 @@ public class ExpressionTypeResolver
             InterpolatedStringExpression => typeof(string),
             BoolLiteralExpression => typeof(bool),
             NullLiteralExpression => typeof(object),
+            AllocExpression alloc => ResolveExpressionTypeFallback(alloc.Expression),
+            StackAllocExpression stackAlloc => typeof(Span<>).MakeGenericType(
+                ResolveTypeInfoToClrType(ResolveTypeReference(stackAlloc.ElementType) ?? BuiltInTypes.Unknown) ?? typeof(object)),
             ArrayLiteralExpression => typeof(Array),
             _ => null
         };

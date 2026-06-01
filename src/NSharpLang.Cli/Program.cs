@@ -141,7 +141,7 @@ Exit codes:
                     perfReport,
                     projectRoot,
                     () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot),
-                    () => CollectProjectAotBlockers(projectRoot, currentProjectConfig));
+                    () => CollectProjectPerfFacts(projectRoot, currentProjectConfig));
                 return buildResult;
             }
 
@@ -158,7 +158,7 @@ Exit codes:
                 perfReport,
                 sourceDir,
                 () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot),
-                () => CollectSingleFileAotBlockers(sourceFile, sourceProjectConfig));
+                () => CollectSingleFilePerfFacts(sourceFile, sourceProjectConfig));
             return singleFileResult;
         }
         catch (Exception ex)
@@ -177,7 +177,7 @@ Exit codes:
         bool perfReport,
         string projectRoot,
         Func<int> build,
-        Func<IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>> collectAotBlockers)
+        Func<BuildPerfReportFacts> collectPerfFacts)
     {
         if (!perfReport)
         {
@@ -186,13 +186,13 @@ Exit codes:
 
         var originalOut = Console.Out;
         int exitCode;
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> aotBlockers;
+        BuildPerfReportFacts perfFacts;
         try
         {
             // Keep stdout reserved for the JSON report; send build logs to stderr.
             Console.SetOut(Console.Error);
             exitCode = build();
-            aotBlockers = SafeCollectAotBlockers(collectAotBlockers);
+            perfFacts = SafeCollectPerfFacts(collectPerfFacts);
         }
         finally
         {
@@ -200,12 +200,36 @@ Exit codes:
         }
 
         Console.WriteLine(
-            NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(projectRoot, exitCode == 0, aotBlockers));
+            NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(
+                projectRoot,
+                exitCode == 0,
+                perfFacts.AotBlockers,
+                perfFacts.AllocationSites,
+                perfFacts.DelegateSites,
+                perfFacts.BoxingSites,
+                perfFacts.DispatchSites,
+                perfFacts.ClosureCaptures));
         return exitCode;
     }
 
-    private static IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> SafeCollectAotBlockers(
-        Func<IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>> collect)
+    private sealed record BuildPerfReportFacts(
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker> AotBlockers,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> AllocationSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> DelegateSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> BoxingSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> DispatchSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ClosureCaptures)
+    {
+        public static BuildPerfReportFacts Empty { get; } = new(
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>());
+    }
+
+    private static BuildPerfReportFacts SafeCollectPerfFacts(Func<BuildPerfReportFacts> collect)
     {
         try
         {
@@ -214,7 +238,7 @@ Exit codes:
         catch
         {
             // The perf report is best-effort instrumentation; never fail the build over it.
-            return Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>();
+            return BuildPerfReportFacts.Empty;
         }
     }
 

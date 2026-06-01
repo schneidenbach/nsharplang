@@ -43,6 +43,7 @@ public static class QueryCommand
             "hover" => HoverCommand(positionalArgs, options),
             "call-graph" => CallGraphCommand(positionalArgs, options),
             "perf" => PerformanceCommand(positionalArgs, options),
+            "trusted" => TrustedCommand(positionalArgs, options),
             "implementors" => ImplementorsCommand(positionalArgs, options),
             "help" or "--help" or "-h" => ShowQueryHelp(),
             _ => QueryError($"Unknown query subcommand: {subcommand}. Run 'nlc query help' for usage.")
@@ -202,11 +203,97 @@ public static class QueryCommand
             return QueryError("Performance facts are only available as JSON output.");
         }
 
-        // Performance facts (allocation/dispatch/capture/ABI) are not yet wired into
-        // the analyzer; a separate unit adds the data model. For now emit a
-        // well-formed envelope with no facts, echoing the resolved file/position.
-        Console.Write(OutputFormatter.PerfToJson(file, line, col, GetProjectRoot(options)));
+        var snapshot = LoadProjectOrFail(options);
+        if (snapshot == null) return 1;
+
+        var facts = new List<object>();
+        if (snapshot.PerformanceFacts != null)
+        {
+            foreach (var (key, value) in snapshot.PerformanceFacts.All)
+            {
+                if (MatchesFile(key.File, file) && key.Line == line && key.Column == col)
+                {
+                    facts.Add(new
+                    {
+                        source = "performanceFacts",
+                        file = NormalizePath(key.File ?? file),
+                        line = key.Line,
+                        column = key.Column,
+                        allocation = value.Allocation.ToString(),
+                        capture = value.Capture.ToString(),
+                        dispatch = value.Dispatch.ToString(),
+                        escape = value.Escape.ToString(),
+                        valueLayout = value.ValueLayout.ToString(),
+                        aotSafety = value.AotSafety.ToString()
+                    });
+                }
+            }
+        }
+
+        foreach (var finding in snapshot.SystemsReport.Findings)
+        {
+            if (MatchesFile(finding.File, file) && finding.Line == line)
+            {
+                facts.Add(new
+                {
+                    source = "systems",
+                    finding.Code,
+                    finding.Severity,
+                    finding.Effect,
+                    finding.Message,
+                    finding.Function,
+                    finding.Policy,
+                    finding.Suggestion
+                });
+            }
+        }
+
+        foreach (var function in snapshot.SystemsReport.Functions)
+        {
+            if (MatchesFile(function.File, file) && function.Line == line)
+            {
+                facts.Add(new
+                {
+                    source = "systemsFunction",
+                    function.Name,
+                    function.IsHot,
+                    function.IsBoundary,
+                    function.AllocNone,
+                    function.SummarySource,
+                    function.Effects,
+                    function.Calls
+                });
+            }
+        }
+
+        Console.Write(OutputFormatter.PerfToJson(file, line, col, snapshot.ProjectRoot, facts));
         return 0;
+    }
+
+    private static int TrustedCommand(string[] args, QueryOptions options)
+    {
+        if (options.UseText)
+        {
+            return QueryError("Trusted-site reports are only available as JSON output.");
+        }
+
+        var snapshot = LoadProjectOrFail(options);
+        if (snapshot == null) return 1;
+
+        Console.Write(OutputFormatter.TrustedToJson(snapshot.SystemsReport, snapshot.ProjectRoot));
+        return 0;
+    }
+
+    private static bool MatchesFile(string? candidate, string query)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+            return false;
+
+        var normalizedCandidate = NormalizePath(candidate);
+        var normalizedQuery = NormalizePath(query);
+        return string.Equals(normalizedCandidate, normalizedQuery, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.EndsWith("/" + normalizedQuery, StringComparison.OrdinalIgnoreCase)
+            || normalizedCandidate.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ImplementorsCommand(string[] args, QueryOptions options)
@@ -1095,6 +1182,7 @@ Examples:
   nlc query implementors --name IShape           # Types implementing IShape
   nlc query implementors --file Program.nl --pos 10:11
   nlc query perf --file Program.nl --pos 5:4     # Allocation/dispatch/ABI facts
+  nlc query trusted                              # Governed [trusted] wrappers
   nlc query doc Console                          # Type documentation
   nlc query doc Console.WriteLine                # Method documentation
   nlc query doc List                             # Generic type docs

@@ -358,6 +358,12 @@ public class PackageConfig
 public class LanguageConfig
 {
     /// <summary>
+    /// Optional language profile. "default" keeps ordinary N# policy; "systems"
+    /// enables whole-project systems diagnostics.
+    /// </summary>
+    public string Profile { get; set; } = "default";
+
+    /// <summary>
     /// Default async return type wrapper: "Task" or "ValueTask"
     /// </summary>
     public string AsyncDefaultType { get; set; } = "ValueTask";
@@ -371,6 +377,37 @@ public class LanguageConfig
     /// docs/design/performance-compiler-refactor.md (Async &amp; Iterators).
     /// </summary>
     public bool PooledAsync { get; set; }
+
+    /// <summary>
+    /// Systems-profile policy. Used when <see cref="Profile"/> is "systems";
+    /// local [hot] checks are still enforced in default projects.
+    /// </summary>
+    public SystemsConfig Systems { get; set; } = new();
+}
+
+public class SystemsConfig
+{
+    /// <summary>
+    /// Systems policy mode: "audit" reports facts without failing builds; "strict"
+    /// promotes policy violations to errors.
+    /// </summary>
+    public string Mode { get; set; } = "strict";
+
+    /// <summary>
+    /// Unknown external call policy outside [hot]: "allow", "warn", or "error".
+    /// [hot] always fails closed for unknown external calls.
+    /// </summary>
+    public string UnknownExternalCalls { get; set; } = "warn";
+
+    /// <summary>
+    /// Target used for target-qualified AOT/trimming facts.
+    /// </summary>
+    public string AotTarget { get; set; } = "nativeaot";
+
+    /// <summary>
+    /// User-authored warmup functions that make hot paths warm-ready.
+    /// </summary>
+    public List<string> Warmup { get; set; } = new();
 }
 
 /// <summary>
@@ -592,6 +629,30 @@ public class ProjectFileParser
                 $"Invalid language.asyncDefaultType: '{config.Language.AsyncDefaultType}'. Must be 'Task' or 'ValueTask'.");
         }
 
+        if (config.Language.Profile != "default" && config.Language.Profile != "systems")
+        {
+            throw new InvalidOperationException(
+                $"Invalid language.profile: '{config.Language.Profile}'. Must be 'default' or 'systems'.");
+        }
+
+        if (config.Language.Systems.Mode != "audit" && config.Language.Systems.Mode != "strict")
+        {
+            throw new InvalidOperationException(
+                $"Invalid language.systems.mode: '{config.Language.Systems.Mode}'. Must be 'audit' or 'strict'.");
+        }
+
+        if (config.Language.Systems.UnknownExternalCalls is not ("allow" or "warn" or "error"))
+        {
+            throw new InvalidOperationException(
+                $"Invalid language.systems.unknownExternalCalls: '{config.Language.Systems.UnknownExternalCalls}'. Must be 'allow', 'warn', or 'error'.");
+        }
+
+        if (config.Language.Systems.AotTarget is not ("nativeaot" or "coreclr" or "mono-wasm"))
+        {
+            throw new InvalidOperationException(
+                $"Invalid language.systems.aotTarget: '{config.Language.Systems.AotTarget}'. Must be 'nativeaot', 'coreclr', or 'mono-wasm'.");
+        }
+
         // Validate entry file exists (if specified and outputType is exe)
         if (!string.IsNullOrEmpty(config.Entry))
         {
@@ -655,6 +716,7 @@ targetFramework: net10.0
 #     version: 13.0.3
 
 language:
+  profile: default
   asyncDefaultType: ValueTask
 
 # package:

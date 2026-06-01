@@ -1,0 +1,12 @@
+name: SystemsProof46DapperBoundary
+version: 0.1.0
+targetFramework: net10.0
+outputType: exe
+entry: Program.nl
+language:
+  profile: systems
+  systems:
+    mode: audit
+    aotTarget: coreclr
+dependencies:
+  - Dapper: 2.1.35

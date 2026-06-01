@@ -17,6 +17,7 @@ public static class CheckCommand
 
         var useText = args.Contains("--text");
         var aot = args.Contains("--aot");
+        var systemsReport = args.Contains("--systems-report");
         var projectDir = GetProjectDir(args);
 
         if (!Directory.Exists(projectDir))
@@ -69,6 +70,11 @@ public static class CheckCommand
                 }
             }
 
+            if (systemsReport && useText)
+            {
+                return EmitError(useText, "--systems-report is only available as JSON output.", projectDir);
+            }
+
             if (useText)
             {
                 var errors = diagnostics.Count(d => d.Severity == "error");
@@ -83,6 +89,14 @@ public static class CheckCommand
                     Console.Error.Write(OutputFormatter.DiagnosticsToText(diagnostics));
                     Console.Error.WriteLine($"  Checked in {FormatElapsed(sw.Elapsed)}");
                 }
+            }
+            else if (systemsReport)
+            {
+                Console.Write(OutputFormatter.CheckSystemsReportToJson(
+                    diagnostics,
+                    snapshot.ProjectRoot,
+                    snapshot.SourceFiles.Count,
+                    snapshot.SystemsReport));
             }
             else
             {
@@ -181,6 +195,8 @@ Options:
   --json        Output as JSON (default)
   --text        Output as human-readable diagnostics
   --aot         Report Native AOT blockers as errors
+  --systems-report
+                Output the versioned Systems N# effect/policy report as JSON
   --project     Project root directory (default: current directory)
   --help, -h    Show this help text
 

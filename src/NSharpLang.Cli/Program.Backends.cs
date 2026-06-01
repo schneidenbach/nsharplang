@@ -323,20 +323,43 @@ Build timings:
     /// Run the AOT-blocker analysis pass over a project and project the blockers into the
     /// stable perf-report shape. Analysis-only: emits no IL and never blocks the build.
     /// </summary>
-    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> CollectProjectAotBlockers(string projectRoot, ProjectConfig? config)
+    private static BuildPerfReportFacts CollectProjectPerfFacts(string projectRoot, ProjectConfig? config)
     {
         var compiler = new MultiFileCompiler(projectRoot, config);
         compiler.CompileForAnalysis();
-        return ToPerfReportBlockers(compiler.AotBlockers);
+        return ToPerfReportFacts(compiler);
     }
 
-    private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> CollectSingleFileAotBlockers(string sourceFile, ProjectConfig? projectConfig)
+    private static BuildPerfReportFacts CollectSingleFilePerfFacts(string sourceFile, ProjectConfig? projectConfig)
     {
         var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
         var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
         var compiler = new MultiFileCompiler(new[] { sourceFile }, sourceDir, config);
         compiler.CompileForAnalysis();
-        return ToPerfReportBlockers(compiler.AotBlockers);
+        return ToPerfReportFacts(compiler);
+    }
+
+    private static BuildPerfReportFacts ToPerfReportFacts(MultiFileCompiler compiler)
+    {
+        var sites = compiler.SystemsReport.Findings
+            .Select(finding => new OutputFormatter.PerfReportSite(
+                finding.Code,
+                finding.Effect,
+                finding.File,
+                finding.Line,
+                finding.Column,
+                finding.Message,
+                finding.Function,
+                finding.Suggestion))
+            .ToArray();
+
+        return new BuildPerfReportFacts(
+            ToPerfReportBlockers(compiler.AotBlockers),
+            sites.Where(site => site.Effect is "allocation").ToArray(),
+            sites.Where(site => site.Effect is "delegate").ToArray(),
+            sites.Where(site => site.Effect is "boxing").ToArray(),
+            sites.Where(site => site.Effect is "dispatch").ToArray(),
+            sites.Where(site => site.Effect is "closure").ToArray());
     }
 
     private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> ToPerfReportBlockers(IReadOnlyList<AotBlocker> blockers)

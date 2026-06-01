@@ -300,11 +300,11 @@ public class Parser
         {
             Advance();
             // Support qualified attribute names (e.g., System.Runtime.CompilerServices.InlineArray)
-            var name = ConsumeIdentifier("Expected attribute name");
+            var name = ConsumeAttributeIdentifier("Expected attribute name");
             while (Check(TokenType.Dot))
             {
                 Advance(); // consume '.'
-                name += "." + ConsumeIdentifier("Expected identifier after '.'");
+                name += "." + ConsumeAttributeIdentifier("Expected identifier after '.'");
             }
             var args = new List<Argument>();
 
@@ -2130,6 +2130,10 @@ public class Parser
             return ParseLockStatement();
         if (Check(TokenType.Switch))
             return ParseSwitchStatement();
+        if (Check(TokenType.Allow))
+            return ParseAllowStatement();
+        if (Check(TokenType.Alloc) && LookAhead(1).Type == TokenType.LeftBrace)
+            return ParseAllocBlockStatement();
         if (Check(TokenType.Print))
             return ParsePrintStatement();
         if (Check(TokenType.Assert))
@@ -2149,6 +2153,66 @@ public class Parser
 
         // Expression statement (or shorthand declaration with :=)
         return ParseExpressionStatement();
+    }
+
+    private AllocBlockStatement ParseAllocBlockStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Alloc, "Expected 'alloc'");
+        var body = ParseBlock(new DiagnosticSpan(line, column, "alloc".Length));
+        return new AllocBlockStatement(body, line, column);
+    }
+
+    private AllowStatement ParseAllowStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Allow, "Expected 'allow'");
+        Consume(TokenType.LeftParen, "Expected '(' after 'allow'");
+
+        var effects = new List<string>();
+        string? reason = null;
+        string? owner = null;
+
+        while (!Check(TokenType.RightParen) && !IsAtEnd())
+        {
+            var nameToken = Current;
+            var name = ConsumeSystemsIdentifier("Expected allow effect or named argument");
+            if (Check(TokenType.Colon))
+            {
+                Advance();
+                var value = ParseExpression();
+                if (string.Equals(name, "reason", StringComparison.OrdinalIgnoreCase))
+                {
+                    reason = TryGetStringLiteralValue(value);
+                }
+                else if (string.Equals(name, "owner", StringComparison.OrdinalIgnoreCase))
+                {
+                    owner = TryGetStringLiteralValue(value);
+                }
+                else
+                {
+                    effects.Add($"{name}:{FormatAllowValue(value)}");
+                }
+            }
+            else
+            {
+                effects.Add(name);
+            }
+
+            if (!Check(TokenType.RightParen))
+            {
+                Consume(TokenType.Comma, "Expected ',' between allow arguments");
+            }
+
+            if (Current == nameToken)
+                Advance();
+        }
+
+        Consume(TokenType.RightParen, "Expected ')' after allow arguments");
+        var body = ParseBlock(new DiagnosticSpan(line, column, "allow".Length));
+        return new AllowStatement(effects, reason, owner, body, line, column);
     }
 
     private Statement ParseAssertStatement()
@@ -2617,6 +2681,8 @@ public class Parser
             TokenType.False or
             TokenType.Null or
             TokenType.New or
+            TokenType.Alloc or
+            TokenType.Stackalloc or
             TokenType.Match or
             TokenType.This or
             TokenType.Base or
@@ -4308,6 +4374,12 @@ public class Parser
                     var spreadExpr = ParseExpression();
                     argValue = new SpreadExpression(spreadExpr, spreadLine, spreadColumn);
                 }
+                else if ((Check(TokenType.Alloc) || Check(TokenType.Allow) || Check(TokenType.Stackalloc))
+                         && (LookAhead(1).Type == TokenType.Comma || LookAhead(1).Type == TokenType.RightParen))
+                {
+                    var token = Advance();
+                    argValue = new IdentifierExpression(token.Value, token.Line, token.Column);
+                }
                 else
                 {
                     argValue = ParseExpression();
@@ -4452,6 +4524,16 @@ public class Parser
             var expr = ParseExpression();
             Consume(TokenType.RightParen, "Expected ')'");
             return new UncheckedExpression(expr, line, column);
+        }
+
+        if (Check(TokenType.Alloc))
+        {
+            return ParseAllocExpression();
+        }
+
+        if (Check(TokenType.Stackalloc))
+        {
+            return ParseStackAllocExpression();
         }
 
         // New expression
@@ -4986,6 +5068,37 @@ public class Parser
         return -1;
     }
 
+    private Expression ParseAllocExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Alloc, "Expected 'alloc'");
+
+        if (Check(TokenType.New))
+            return new AllocExpression(ParseNewExpression(), line, column);
+
+        if (Check(TokenType.LeftBracket))
+            return new AllocExpression(ParseArrayLiteral(), line, column);
+
+        if (Check(TokenType.StringLiteral) || Check(TokenType.TripleQuoteStringLiteral) || Check(TokenType.InterpolatedRawStringLiteral))
+            return new AllocExpression(ParsePrimaryExpression(), line, column);
+
+        var expression = ParseUnaryExpression();
+        return new AllocExpression(expression, line, column);
+    }
+
+    private Expression ParseStackAllocExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Stackalloc, "Expected 'stackalloc'");
+        var elementType = ParseTypeReference();
+        Consume(TokenType.LeftBracket, "Expected '[' after stackalloc element type");
+        var length = ParseExpression();
+        Consume(TokenType.RightBracket, "Expected ']' after stackalloc length");
+        return new StackAllocExpression(elementType, length, line, column);
+    }
+
     private Expression ParseNewExpression()
     {
         var line = Current.Line;
@@ -5514,6 +5627,8 @@ public class Parser
             TokenType.Null or
             TokenType.Default or
             TokenType.New or
+            TokenType.Alloc or
+            TokenType.Stackalloc or
             TokenType.This or
             TokenType.Base or
             TokenType.LeftParen or
@@ -6571,6 +6686,62 @@ public class Parser
         }
         return Advance().Value;
     }
+
+    private string ConsumeSystemsIdentifier(string message)
+    {
+        if (Check(TokenType.Identifier)
+            || Check(TokenType.Alloc)
+            || Check(TokenType.Allow)
+            || Check(TokenType.Stackalloc)
+            || Check(TokenType.Interface)
+            || Check(TokenType.Ref)
+            || Check(TokenType.Out)
+            || Check(TokenType.Throw))
+        {
+            return Advance().Value;
+        }
+
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"{message}. Got '{Current.Value}'",
+            Current.Line,
+            Current.Column,
+            humanExplanation: "Systems policy lists use effect names such as alloc, trap, dispatch, delegate, closure, or a named argument such as reason.",
+            hint: "Write allow(alloc, reason: \"...\") { ... } or remove this allow block.",
+            length: TokenLengthOrFallback(Current));
+        return "<error>";
+    }
+
+    private string ConsumeAttributeIdentifier(string message)
+    {
+        if (Check(TokenType.Identifier)
+            || Check(TokenType.Alloc)
+            || Check(TokenType.Allow))
+        {
+            return Advance().Value;
+        }
+
+        return ConsumeIdentifier(message);
+    }
+
+    private static string? TryGetStringLiteralValue(Expression expression)
+    {
+        if (expression is not StringLiteralExpression literal)
+            return null;
+
+        var value = literal.Value;
+        if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+            return value[1..^1];
+
+        return value;
+    }
+
+    private static string FormatAllowValue(Expression expression) => expression switch
+    {
+        IdentifierExpression identifier => identifier.Name,
+        StringLiteralExpression literal => TryGetStringLiteralValue(literal) ?? literal.Value,
+        _ => expression.GetType().Name.Replace("Expression", "", StringComparison.Ordinal)
+    };
 
     /// <summary>
     /// Report a parse error with rich context

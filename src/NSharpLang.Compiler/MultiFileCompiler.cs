@@ -71,6 +71,12 @@ public class MultiFileCompiler
     public IReadOnlyList<AotBlocker> AotBlockers => _aotBlockers;
 
     private readonly List<AotBlocker> _aotBlockers = new();
+    private SystemsReport _systemsReport = SystemsReport.Empty(null);
+
+    /// <summary>
+    /// Systems N# effect/policy report discovered during analysis.
+    /// </summary>
+    public SystemsReport SystemsReport => _systemsReport;
 
     /// <summary>
     /// When true, AOT-blocker facts are promoted to build-blocking errors and the IL emitter
@@ -563,6 +569,7 @@ public class MultiFileCompiler
         // AOT-blocker analysis is a pure pass over the parsed ASTs. It always runs so the
         // facts are available to the perf report and the `--aot` diagnostic gate.
         AnalyzeAotBlockers();
+        AnalyzeSystemsPolicy();
     }
 
     /// <summary>
@@ -610,6 +617,15 @@ public class MultiFileCompiler
     public List<CompilerError> BuildAotDiagnostics(bool asError)
     {
         return AotDiagnostics.ToDiagnostics(_aotBlockers, TryReadSourceSnippet, asError);
+    }
+
+    private void AnalyzeSystemsPolicy()
+    {
+        _systemsReport = new SystemsAnalyzer(_projectRoot, _config).Analyze(_compilationUnits, _performanceFacts);
+        foreach (var finding in _systemsReport.Findings)
+        {
+            _allErrors.Add(finding.ToCompilerError());
+        }
     }
 
     /// <summary>

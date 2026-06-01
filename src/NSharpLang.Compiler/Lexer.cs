@@ -94,6 +94,9 @@ public class Lexer
         { "implicit", TokenType.Implicit },
         { "explicit", TokenType.Explicit },
         { "newtype", TokenType.Newtype },
+        { "alloc", TokenType.Alloc },
+        { "allow", TokenType.Allow },
+        { "stackalloc", TokenType.Stackalloc },
     };
 
     /// <summary>

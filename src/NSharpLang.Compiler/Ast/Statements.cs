@@ -41,6 +41,21 @@ public record BlockStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
+// Explicit systems allocation zone: alloc { ... }
+public record AllocBlockStatement(
+    BlockStatement Body,
+    int Line,
+    int Column) : Statement(Line, Column);
+
+// Systems policy escape zone: allow(alloc, reason: "...") { ... }
+public record AllowStatement(
+    List<string> Effects,
+    string? Reason,
+    string? Owner,
+    BlockStatement Body,
+    int Line,
+    int Column) : Statement(Line, Column);
+
 // If statement
 public record IfStatement(
     Expression Condition,

@@ -4489,6 +4489,8 @@ public partial class ILCompiler
         return statement switch
         {
             BlockStatement block => block.Statements.Any(ContainsAwait),
+            AllocBlockStatement allocBlock => ContainsAwait(allocBlock.Body),
+            AllowStatement allow => ContainsAwait(allow.Body),
             ExpressionStatement expressionStatement => ContainsAwait(expressionStatement.Expression),
             VariableDeclarationStatement variableDeclaration => variableDeclaration.Initializer != null && ContainsAwait(variableDeclaration.Initializer),
             TupleDeconstructionStatement tupleDeconstruction => ContainsAwait(tupleDeconstruction.Initializer),
@@ -4542,6 +4544,8 @@ public partial class ILCompiler
                 || ContainsAwait(property.Value)),
             NewExpression newExpression => newExpression.ConstructorArguments.Any(argument => ContainsAwait(argument.Value))
                 || (newExpression.Initializer != null && ContainsAwait(newExpression.Initializer)),
+            AllocExpression allocExpression => ContainsAwait(allocExpression.Expression),
+            StackAllocExpression stackAllocExpression => ContainsAwait(stackAllocExpression.LengthExpression),
             CastExpression castExpression => ContainsAwait(castExpression.Expression),
             IsExpression isExpression => ContainsAwait(isExpression.Expression),
             MatchExpression matchExpression => ContainsAwait(matchExpression.Value)
@@ -4584,8 +4588,29 @@ public partial class ILCompiler
 
         foreach (var attribute in attributes)
         {
+            if (IsSystemsPolicyAttribute(attribute))
+            {
+                continue;
+            }
+
             applyAttribute(BuildCustomAttribute(attribute));
         }
+    }
+
+    private static bool IsSystemsPolicyAttribute(AttributeNode attribute)
+    {
+        var name = attribute.Name;
+        if (name.Contains('.', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            name = name[..^"Attribute".Length];
+        }
+
+        return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory";
     }
 
     // Cached attribute constructors so we resolve the BCL types at most once per compile.
@@ -10220,6 +10245,14 @@ public partial class ILCompiler
                 EmitBlock(block);
                 break;
 
+            case AllocBlockStatement allocBlock:
+                EmitBlock(allocBlock.Body);
+                break;
+
+            case AllowStatement allow:
+                EmitBlock(allow.Body);
+                break;
+
             case VariableDeclarationStatement varDecl:
                 EmitVariableDeclaration(varDecl);
                 break;
@@ -12338,6 +12371,14 @@ public partial class ILCompiler
 
             case NewExpression newExpr:
                 EmitNewObject(newExpr);
+                break;
+
+            case AllocExpression alloc:
+                EmitExpression(alloc.Expression);
+                break;
+
+            case StackAllocExpression stackAlloc:
+                EmitStackAllocExpression(stackAlloc);
                 break;
 
             case WithExpression withExpr:
@@ -17194,6 +17235,27 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Conv_I4);
     }
 
+    private void EmitStackAllocExpression(StackAllocExpression stackAlloc)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var elementType = ResolveType(stackAlloc.ElementType, _currentGenericParameters);
+        var spanType = typeof(Span<>).MakeGenericType(elementType);
+        var spanCtor = spanType.GetConstructor(new[] { typeof(void).MakePointerType(), typeof(int) })
+            ?? throw new InvalidOperationException($"Could not resolve Span<{elementType.Name}>(void*, int) constructor.");
+
+        var lengthLocal = _currentIL.DeclareLocal(typeof(int));
+        EmitExpression(stackAlloc.LengthExpression);
+        _currentIL.Emit(OpCodes.Dup);
+        _currentIL.Emit(OpCodes.Stloc, lengthLocal);
+        _currentIL.Emit(OpCodes.Sizeof, elementType);
+        _currentIL.Emit(OpCodes.Mul);
+        _currentIL.Emit(OpCodes.Conv_U);
+        _currentIL.Emit(OpCodes.Localloc);
+        _currentIL.Emit(OpCodes.Ldloc, lengthLocal);
+        _currentIL.Emit(OpCodes.Newobj, spanCtor);
+    }
+
     /// <summary>
     /// Get the .NET type of an expression (simplified type inference)
     /// </summary>
@@ -17221,6 +17283,8 @@ public partial class ILCompiler
             NewExpression newExpr => newExpr.Type != null || _expectedExpressionType != null || IsAnonymousObjectCreation(newExpr)
                 ? MapValueStructUnionCaseToUnion(ResolveNewExpressionType(newExpr))
                 : typeof(object),
+            AllocExpression alloc => GetExpressionType(alloc.Expression),
+            StackAllocExpression stackAlloc => typeof(Span<>).MakeGenericType(ResolveType(stackAlloc.ElementType, _currentGenericParameters)),
             WithExpression withExpr => GetExpressionType(withExpr.Target),
             AwaitExpression awaitExpression => GetAwaitResultType(GetExpressionType(awaitExpression.Expression)),
             MemberAccessExpression memberAccess => GetMemberAccessType(memberAccess),

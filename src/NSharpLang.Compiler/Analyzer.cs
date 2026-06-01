@@ -753,6 +753,12 @@ public class Analyzer : IDisposable
                 }
                 return false;
 
+            case AllocBlockStatement allocBlock:
+                return StatementAlwaysReturns(allocBlock.Body);
+
+            case AllowStatement allow:
+                return StatementAlwaysReturns(allow.Body);
+
             case IfStatement ifStmt:
                 return ifStmt.ElseStatement != null &&
                        StatementAlwaysReturns(ifStmt.ThenStatement) &&
@@ -1378,6 +1384,12 @@ public class Analyzer : IDisposable
             case BlockStatement block:
                 return AnalyzeDefiniteAssignmentBlock(block, state);
 
+            case AllocBlockStatement allocBlock:
+                return AnalyzeDefiniteAssignmentBlock(allocBlock.Body, state);
+
+            case AllowStatement allow:
+                return AnalyzeDefiniteAssignmentBlock(allow.Body, state);
+
             case VariableDeclarationStatement varDecl:
                 if (varDecl.Initializer != null)
                 {
@@ -1737,6 +1749,14 @@ public class Analyzer : IDisposable
                 AnalyzeDefiniteAssignmentExpression(uncheckedExpr.Expression, state);
                 return;
 
+            case AllocExpression alloc:
+                AnalyzeDefiniteAssignmentExpression(alloc.Expression, state);
+                return;
+
+            case StackAllocExpression stackAlloc:
+                AnalyzeDefiniteAssignmentExpression(stackAlloc.LengthExpression, state);
+                return;
+
             case RangeExpression range:
                 AnalyzeDefiniteAssignmentExpression(range.Start, state);
                 AnalyzeDefiniteAssignmentExpression(range.End, state);
@@ -1857,6 +1877,12 @@ public class Analyzer : IDisposable
                 PushScope(new Scope(ScopeKind.Block), block.Line, block.Column);
                 AnalyzeStatements(block.Statements);
                 PopScope();
+                break;
+            case AllocBlockStatement allocBlock:
+                AnalyzeStatement(allocBlock.Body);
+                break;
+            case AllowStatement allow:
+                AnalyzeStatement(allow.Body);
                 break;
             case IfStatement ifStmt:
                 AnalyzeIfStatement(ifStmt);
@@ -2105,6 +2131,8 @@ public class Analyzer : IDisposable
             ParenthesizedExpression parenthesized => ContainsParserErrorPlaceholder(parenthesized.Inner),
             CheckedExpression checkedExpression => ContainsParserErrorPlaceholder(checkedExpression.Expression),
             UncheckedExpression uncheckedExpression => ContainsParserErrorPlaceholder(uncheckedExpression.Expression),
+            AllocExpression allocExpression => ContainsParserErrorPlaceholder(allocExpression.Expression),
+            StackAllocExpression stackAllocExpression => ContainsParserErrorPlaceholder(stackAllocExpression.LengthExpression),
             IndexAccessExpression indexAccess => ContainsParserErrorPlaceholder(indexAccess.Object) ||
                                                  ContainsParserErrorPlaceholder(indexAccess.Index),
             CastExpression cast => ContainsParserErrorPlaceholder(cast.Expression),
@@ -2165,6 +2193,7 @@ public class Analyzer : IDisposable
             AssignmentExpression => true,
             CallExpression => true,
             NewExpression => true,
+            AllocExpression alloc => IsValidExpressionStatement(alloc.Expression),
             AwaitExpression => true,
             UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
                 or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement } => true,
@@ -2265,6 +2294,7 @@ public class Analyzer : IDisposable
             ParenthesizedExpression parenthesized => GetExpressionDiagnosticSpan(parenthesized.Inner),
             CheckedExpression checkedExpression => GetExpressionDiagnosticSpan(checkedExpression.Expression),
             UncheckedExpression uncheckedExpression => GetExpressionDiagnosticSpan(uncheckedExpression.Expression),
+            AllocExpression allocExpression => GetExpressionDiagnosticSpan(allocExpression.Expression),
             CallExpression call => GetCallDiagnosticSpan(call, GetCallTargetName(call) ?? "call"),
             _ => (expression.Line, expression.Column, GetTokenLength(expression.Line, expression.Column))
         };
@@ -3819,6 +3849,8 @@ public class Analyzer : IDisposable
             TernaryExpression ternary => AnalyzeTernary(ternary),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
+            AllocExpression alloc => AnalyzeExpression(alloc.Expression),
+            StackAllocExpression stackAlloc => new GenericTypeInfo("Span", new List<TypeInfo> { ResolveType(stackAlloc.ElementType) }),
             CastExpression cast => ResolveType(cast.TargetType),
             IsExpression isExpr => AnalyzeIsExpression(isExpr),
             AwaitExpression await => AnalyzeAwaitExpression(await),

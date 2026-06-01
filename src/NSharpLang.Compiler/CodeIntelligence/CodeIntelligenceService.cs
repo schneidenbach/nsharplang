@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -52,7 +53,9 @@ public class CodeIntelligenceService
             compiler.SharedAnalyzer,
             compiler.SourceFiles,
             compiler.ProjectIndex,
-            compiler.SourceTexts
+            compiler.SourceTexts,
+            compiler.PerformanceFacts,
+            compiler.SystemsReport
         );
     }
 
@@ -2662,6 +2665,8 @@ public class ProjectSnapshot
     public Analyzer SharedAnalyzer { get; }
     public IReadOnlyList<string> SourceFiles { get; }
     public IReadOnlyDictionary<string, string> SourceTexts { get; }
+    public PerformanceFactStore? PerformanceFacts { get; }
+    public SystemsReport SystemsReport { get; }
 
     /// <summary>
     /// The project-level semantic index: merged BindingMap plus type-declaration-to-file mapping.
@@ -2682,7 +2687,9 @@ public class ProjectSnapshot
         Analyzer sharedAnalyzer,
         IReadOnlyList<string> sourceFiles,
         ProjectIndex? index = null,
-        IReadOnlyDictionary<string, string>? sourceTexts = null)
+        IReadOnlyDictionary<string, string>? sourceTexts = null,
+        PerformanceFactStore? performanceFacts = null,
+        SystemsReport? systemsReport = null)
     {
         ProjectRoot = projectRoot;
         CompilationUnits = compilationUnits;
@@ -2692,6 +2699,8 @@ public class ProjectSnapshot
         SourceFiles = sourceFiles;
         Index = index;
         SourceTexts = sourceTexts ?? new Dictionary<string, string>();
+        PerformanceFacts = performanceFacts;
+        SystemsReport = systemsReport ?? SystemsReport.Empty(null);
     }
 }
 

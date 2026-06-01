@@ -61,6 +61,7 @@ public static class CommandRegistry
         new CliCommandSpec("call-graph", "Callers and callees of a function"),
         new CliCommandSpec("implementors", "Concrete types implementing an interface"),
         new CliCommandSpec("perf", "Explain allocation/dispatch/capture/ABI facts at a position"),
+        new CliCommandSpec("trusted", "List governed Systems N# trusted wrappers"),
         new CliCommandSpec("help", "Show query help")
     };
 
