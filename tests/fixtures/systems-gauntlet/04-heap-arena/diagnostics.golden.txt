@@ -1,0 +1,1 @@
+PASS: arena span return carries the parameter lifetime instead of local stack lifetime.

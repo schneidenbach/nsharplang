@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "case": "Native interop boundary using source-generated shape",
+  "expected": {
+    "boundary": "OpenDevice",
+    "hot": "UseDevice",
+    "aotTarget": "nativeaot"
+  }
+}

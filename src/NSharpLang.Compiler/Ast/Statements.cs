@@ -56,6 +56,13 @@ public record AllowStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
+// Restricted unsafe zone for systems code. The analyzer decides whether the
+// block is permitted directly or must be wrapped by a [trusted] API.
+public record UnsafeBlockStatement(
+    BlockStatement Body,
+    int Line,
+    int Column) : Statement(Line, Column);
+
 // If statement
 public record IfStatement(
     Expression Condition,

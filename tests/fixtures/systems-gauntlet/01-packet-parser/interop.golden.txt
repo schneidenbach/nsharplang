@@ -1,0 +1,1 @@
+C# callers see ParseHeader(ReadOnlySpan<byte>) returning NSharpLang.Runtime.Result<Header, HeaderError>.

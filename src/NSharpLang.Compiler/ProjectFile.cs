@@ -408,6 +408,25 @@ public class SystemsConfig
     /// User-authored warmup functions that make hot paths warm-ready.
     /// </summary>
     public List<string> Warmup { get; set; } = new();
+
+    /// <summary>
+    /// Maximum stackalloc reservation accepted by systems analysis without a
+    /// stronger proof. Defaults to 4096 bytes.
+    /// </summary>
+    public int StackBudgetBytes { get; set; } = 4096;
+
+    /// <summary>
+    /// Explicit HotSummary sidecar files, relative to project.yml unless
+    /// absolute. Sidecars are accepted for ordinary systems analysis.
+    /// </summary>
+    public List<string> HotSummaryFiles { get; set; } = new();
+
+    /// <summary>
+    /// Whether sidecar HotSummary entries may satisfy [hot] calls. The default
+    /// is fail-closed; the compiler-owned BCL pack and source inference remain
+    /// hot-callable.
+    /// </summary>
+    public bool AllowHotSidecars { get; set; }
 }
 
 /// <summary>
@@ -651,6 +670,12 @@ public class ProjectFileParser
         {
             throw new InvalidOperationException(
                 $"Invalid language.systems.aotTarget: '{config.Language.Systems.AotTarget}'. Must be 'nativeaot', 'coreclr', or 'mono-wasm'.");
+        }
+
+        if (config.Language.Systems.StackBudgetBytes <= 0)
+        {
+            throw new InvalidOperationException(
+                $"Invalid language.systems.stackBudgetBytes: '{config.Language.Systems.StackBudgetBytes}'. Must be greater than zero.");
         }
 
         // Validate entry file exists (if specified and outputType is exe)

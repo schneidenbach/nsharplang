@@ -1,0 +1,1 @@
+C# interop should expose a fixed/preallocated storage shape for the hot loop, not Dictionary mutation.

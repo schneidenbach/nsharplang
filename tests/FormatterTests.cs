@@ -76,6 +76,32 @@ return x + y
     }
 
     [Fact]
+    public void Format_SystemsPolicyBlocks()
+    {
+        var input = @"func Test(): void {
+allow(alloc, dispatch:interface, reason: ""diagnostic path"") {
+alloc {
+unsafe {
+print 1
+}
+}
+}
+}";
+        var expected = @"func Test(): void {
+    allow(alloc, dispatch: interface, reason: ""diagnostic path"") {
+        alloc {
+            unsafe {
+                print 1
+            }
+        }
+    }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_FunctionWithMultipleStatements()
     {
         var input = @"func Calculate(x: int): int {

@@ -1521,6 +1521,7 @@ internal class LintVisitor
             NullableTypeReference nullable => GetBaseTypeName(nullable.InnerType),
             ArrayTypeReference array => GetBaseTypeName(array.ElementType),
             UnionTypeReference union => union.Arms.Select(GetBaseTypeName).FirstOrDefault(name => name != null),
+            ByRefTypeReference byRef => GetBaseTypeName(byRef.InnerType),
             _ => null
         };
 
@@ -1573,6 +1574,7 @@ internal class LintVisitor
             NullableTypeReference nullable => GetBaseTypeName(nullable.InnerType),
             ArrayTypeReference array => GetBaseTypeName(array.ElementType),
             UnionTypeReference union => union.Arms.Select(GetBaseTypeName).FirstOrDefault(name => name != null),
+            ByRefTypeReference byRef => GetBaseTypeName(byRef.InnerType),
             _ => null
         };
     }
@@ -1613,6 +1615,9 @@ internal class LintVisitor
                 TrackTypeReference(funcType.ReturnType);
                 foreach (var paramType in funcType.ParameterTypes)
                     TrackTypeReference(paramType);
+                break;
+            case ByRefTypeReference byRef:
+                TrackTypeReference(byRef.InnerType);
                 break;
         }
     }

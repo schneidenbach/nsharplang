@@ -604,6 +604,75 @@ func Main() {
         Assert.Contains("library", stdout);
         Assert.Contains("test", stdout);
         Assert.Contains("webapi", stdout);
+        Assert.Contains("systems-cli", stdout);
+        Assert.Contains("systems-lib", stdout);
+        Assert.Contains("--systems", stdout);
+    }
+
+    [Theory]
+    [InlineData("systems-cli", "Program.nl", "Systems.tests.nl")]
+    [InlineData("systems-lib", "PacketCore.nl", "PacketCore.tests.nl")]
+    public void NewCommand_CreatesSystemsProjectShape(string template, string sourceFile, string testFile)
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var projectName = $"Demo{template.Replace("-", "", StringComparison.Ordinal)}";
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", template, projectName));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var projectDir = Path.Combine(parentDir, projectName);
+            Assert.True(File.Exists(Path.Combine(projectDir, sourceFile)));
+            Assert.True(File.Exists(Path.Combine(projectDir, testFile)));
+            Assert.Empty(Directory.GetFiles(projectDir, "*.csproj", SearchOption.TopDirectoryOnly));
+
+            var projectYaml = File.ReadAllText(Path.Combine(projectDir, "project.yml"));
+            Assert.Contains($"name: {projectName}", projectYaml);
+            Assert.Contains("profile: systems", projectYaml);
+            Assert.Contains("mode: strict", projectYaml);
+            Assert.Contains("aotTarget: nativeaot", projectYaml);
+            Assert.Contains("warmup:", projectYaml);
+            Assert.Contains("project.yml", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
+    public void NewCommand_CreatesSystemsProjectShapeFromTemplateFlag()
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, _, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "library", "PacketCore", "--systems"));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.True(File.Exists(Path.Combine(parentDir, "PacketCore", "PacketCore.nl")));
+            var projectYaml = File.ReadAllText(Path.Combine(parentDir, "PacketCore", "project.yml"));
+            Assert.Contains("profile: systems", projectYaml);
+            Assert.Contains("outputType: library", projectYaml);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
     }
 
     // ── nlc pack ─────────────────────────────────────────────────────────────

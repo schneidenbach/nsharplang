@@ -759,6 +759,9 @@ public class Analyzer : IDisposable
             case AllowStatement allow:
                 return StatementAlwaysReturns(allow.Body);
 
+            case UnsafeBlockStatement unsafeBlock:
+                return StatementAlwaysReturns(unsafeBlock.Body);
+
             case IfStatement ifStmt:
                 return ifStmt.ElseStatement != null &&
                        StatementAlwaysReturns(ifStmt.ThenStatement) &&
@@ -1390,6 +1393,9 @@ public class Analyzer : IDisposable
             case AllowStatement allow:
                 return AnalyzeDefiniteAssignmentBlock(allow.Body, state);
 
+            case UnsafeBlockStatement unsafeBlock:
+                return AnalyzeDefiniteAssignmentBlock(unsafeBlock.Body, state);
+
             case VariableDeclarationStatement varDecl:
                 if (varDecl.Initializer != null)
                 {
@@ -1883,6 +1889,9 @@ public class Analyzer : IDisposable
                 break;
             case AllowStatement allow:
                 AnalyzeStatement(allow.Body);
+                break;
+            case UnsafeBlockStatement unsafeBlock:
+                AnalyzeStatement(unsafeBlock.Body);
                 break;
             case IfStatement ifStmt:
                 AnalyzeIfStatement(ifStmt);
@@ -6511,6 +6520,8 @@ public class Analyzer : IDisposable
             "IDictionary" when genericType.TypeArguments.Count == 2 => wkt.IDictionaryOpen,
             "Task" when genericType.TypeArguments.Count == 1 => wkt.TaskOpen,
             "ValueTask" when genericType.TypeArguments.Count == 1 => wkt.ValueTaskOpen,
+            "Result" when genericType.TypeArguments.Count == 2 => wkt.RuntimeResultOpen,
+            "NSharpLang.Runtime.Result" when genericType.TypeArguments.Count == 2 => wkt.RuntimeResultOpen,
             "Func" when genericType.TypeArguments.Count == 1 => wkt.Func1,
             "Func" when genericType.TypeArguments.Count == 2 => wkt.Func2,
             "Func" when genericType.TypeArguments.Count == 3 => wkt.Func3,
@@ -6587,6 +6598,9 @@ public class Analyzer : IDisposable
 
     private TypeInfo AnalyzeCall(CallExpression call)
     {
+        if (TryAnalyzeResultConstructorCall(call, out var resultType))
+            return resultType;
+
         var calleeType = AnalyzeCallCallee(call.Callee);
         ReportPossibleNullAccess(call.Callee, calleeType, call.Line, call.Column, "call", isNullConditional: false);
 
@@ -7165,6 +7179,63 @@ public class Analyzer : IDisposable
             _currentExpectedType = previousExpectedType;
             _allowUnboundCallableReference = previousAllowUnboundCallableReference;
         }
+    }
+
+    private bool TryAnalyzeResultConstructorCall(CallExpression call, out TypeInfo resultType)
+    {
+        resultType = BuiltInTypes.Unknown;
+
+        if (call.Callee is not IdentifierExpression { Name: "Ok" or "Err" } identifier)
+            return false;
+
+        var isOk = identifier.Name == "Ok";
+        if (!TryGetResultArmTypes(_currentExpectedType, out var okType, out var errType))
+            return false;
+
+        if (call.Arguments.Count != 1)
+        {
+            Error(
+                ErrorCode.WrongArgumentCount,
+                $"{identifier.Name} needs exactly 1 argument, but you passed {call.Arguments.Count}",
+                call.Line,
+                call.Column,
+                length: identifier.Name.Length);
+            resultType = _currentExpectedType ?? BuiltInTypes.Unknown;
+            return true;
+        }
+
+        var expectedArm = isOk ? okType : errType;
+        var actualArm = AnalyzeExpressionWithExpectedType(call.Arguments[0].Value, expectedArm);
+        if (!IsAssignable(expectedArm, actualArm))
+        {
+            Error(
+                ErrorCode.TypeMismatch,
+                $"{identifier.Name} expects '{expectedArm}', but this argument has type '{actualArm}'",
+                call.Arguments[0].Value.Line,
+                call.Arguments[0].Value.Column);
+        }
+
+        resultType = _currentExpectedType ?? new GenericTypeInfo("Result", new List<TypeInfo> { okType, errType });
+        return true;
+    }
+
+    private static bool TryGetResultArmTypes(TypeInfo? type, out TypeInfo okType, out TypeInfo errType)
+    {
+        okType = BuiltInTypes.Unknown;
+        errType = BuiltInTypes.Unknown;
+
+        if (type is not GenericTypeInfo { TypeArguments.Count: 2 } generic)
+            return false;
+
+        var name = generic.Name;
+        if (!string.Equals(name, "Result", StringComparison.Ordinal)
+            && !string.Equals(name, "NSharpLang.Runtime.Result", StringComparison.Ordinal)
+            && !string.Equals(name, "NSharpLang.Runtime.Result`2", StringComparison.Ordinal))
+            return false;
+
+        okType = generic.TypeArguments[0];
+        errType = generic.TypeArguments[1];
+        return true;
     }
 
     /// <summary>
@@ -7768,6 +7839,8 @@ public class Analyzer : IDisposable
     private bool TypesEqual(TypeInfo a, TypeInfo b)
     {
         if (a == b) return true;
+        if (a is ByRefTypeInfo aRef && b is ByRefTypeInfo bRef)
+            return TypesEqual(aRef.InnerType, bRef.InnerType);
         if (a.ToString() == b.ToString()) return true;
         return false;
     }
@@ -10125,6 +10198,7 @@ public class Analyzer : IDisposable
                 ParameterTypes = function.ParameterTypes.Select(ResolveType).ToList(),
                 ReturnType = ResolveType(function.ReturnType)
             },
+            ByRefTypeReference byRef => new ByRefTypeInfo(ResolveType(byRef.InnerType)),
             _ => BuiltInTypes.Unknown
         };
 
@@ -10217,6 +10291,7 @@ public class Analyzer : IDisposable
             UnionTypeReference union when union.Arms.Count > 0 => GetTypeReferenceStartSpan(union.Arms[0]),
             TupleTypeReference tuple when tuple.Elements.Count > 0 => GetTypeReferenceStartSpan(tuple.Elements[0].Type),
             FunctionTypeReference function => GetTypeReferenceStartSpan(function.ReturnType),
+            ByRefTypeReference byRef => GetTypeReferenceStartSpan(byRef.InnerType),
             _ => SourceSpan.None
         };
     }
@@ -10753,6 +10828,13 @@ public class Analyzer : IDisposable
         // ErrorRecovery: suppress follow-on errors (an error was already reported upstream)
         // InferenceHole/DeferredExternal: accept for now but distinguishable for future tightening
         if (resolvedSource is UnknownTypeInfo || resolvedTarget is UnknownTypeInfo) return true;
+
+        if (resolvedTarget is ByRefTypeInfo || resolvedSource is ByRefTypeInfo)
+        {
+            return resolvedTarget is ByRefTypeInfo targetByRef
+                && resolvedSource is ByRefTypeInfo sourceByRef
+                && TypesEqual(targetByRef.InnerType, sourceByRef.InnerType);
+        }
 
         if (resolvedSource is UnionTypeInfo { IsAnonymous: true } sourceUnion
             && resolvedTarget is UnionTypeInfo { IsAnonymous: true } targetUnion)
@@ -11563,7 +11645,7 @@ public class Analyzer : IDisposable
         if (type is RecordTypeInfo recordType)
             return !recordType.Declaration.IsStruct;
         // Structs and enums are value types
-        if (type is StructTypeInfo or EnumTypeInfo)
+        if (type is StructTypeInfo or EnumTypeInfo or ByRefTypeInfo)
             return false;
         // GenericTypeInfo could be a reference or value type — be conservative (don't claim reference)
         // This avoids incorrectly allowing null → Span<T>, Nullable<T>, etc.
@@ -12232,6 +12314,7 @@ public class Analyzer : IDisposable
             UnionTypeReference union => string.Join("|", union.Arms.Select(GetParameterTypeSignature)),
             TupleTypeReference tuple => $"({string.Join(",", tuple.Elements.Select(element => GetParameterTypeSignature(element.Type)))})",
             FunctionTypeReference function => $"({string.Join(",", function.ParameterTypes.Select(GetParameterTypeSignature))})->{GetParameterTypeSignature(function.ReturnType)}",
+            ByRefTypeReference byRef => $"&{GetParameterTypeSignature(byRef.InnerType)}",
             _ => typeRef.ToString() ?? "unknown"
         };
     }
@@ -12452,6 +12535,7 @@ public class Analyzer : IDisposable
             GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
             NullableTypeReference nullable => TranspileTypeReference(nullable.InnerType) + "?",
             UnionTypeReference union => string.Join(" | ", union.Arms.Select(TranspileTypeReference)),
+            ByRefTypeReference byRef => $"&{TranspileTypeReference(byRef.InnerType)}",
             _ => typeRef.ToString() ?? "unknown"
         };
     }
@@ -14205,6 +14289,7 @@ public class Analyzer : IDisposable
 
         // N# runtime
         public readonly Type? RuntimeUnionOpen;
+        public readonly Type? RuntimeResultOpen;
 
         // Action/Func delegates
         public readonly Type? Action;
@@ -14266,6 +14351,7 @@ public class Analyzer : IDisposable
             {
                 var runtime = mlc.LoadFromAssemblyName("NSharpLang.Runtime");
                 RuntimeUnionOpen = runtime.GetType("NSharpLang.Runtime.Union`2");
+                RuntimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
             }
             catch { /* runtime assembly not available in analysis-only contexts */ }
 
@@ -14449,6 +14535,11 @@ public record FunctionTypeInfo(FunctionDeclaration? Declaration) : TypeInfo
     public List<TypeInfo>? ParameterTypes { get; set; }
     public List<Ast.ParameterModifier>? ParameterModifiers { get; set; }
     public TypeInfo? ReturnType { get; set; }
+}
+
+public record ByRefTypeInfo(TypeInfo InnerType) : TypeInfo
+{
+    public override string ToString() => $"&{InnerType}";
 }
 
 public record ClassTypeInfo(ClassDeclaration Declaration) : TypeInfo

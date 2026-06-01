@@ -377,7 +377,8 @@ public static class CompilationStubEmitter
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
             var bases = declaration.Interfaces.Select(TranspileTypeReference).ToList();
 
-            Write($"{modifiers}struct {declaration.Name}{typeParameters}");
+            var keyword = declaration.IsRefStruct ? "ref struct" : "struct";
+            Write($"{modifiers}{keyword} {declaration.Name}{typeParameters}");
             if (declaration.PrimaryConstructorParameters != null && declaration.PrimaryConstructorParameters.Count > 0)
             {
                 _output.Append($"({string.Join(", ", declaration.PrimaryConstructorParameters.Select(FormatParameter))})");
@@ -998,18 +999,27 @@ public static class CompilationStubEmitter
                 ? string.Join(" ", parameter.Attributes.Select(FormatAttributeInline)) + " "
                 : string.Empty;
 
+            TypeReference parameterType = parameter.Type;
+            var hasByRefType = false;
+            if (parameterType is ByRefTypeReference byRefType)
+            {
+                hasByRefType = true;
+                parameterType = byRefType.InnerType;
+            }
+
+            var scopedPrefix = parameter.IsScoped ? "scoped " : string.Empty;
             var modifier = parameter.Modifier switch
             {
                 ParameterModifier.Ref => "ref ",
                 ParameterModifier.Out => "out ",
                 ParameterModifier.Params => "params ",
-                _ => parameter.IsThis ? "this " : string.Empty
+                _ => hasByRefType ? "ref " : parameter.IsThis ? "this " : string.Empty
             };
 
             var defaultValue = TryFormatConstantExpression(parameter.DefaultValue);
             return defaultValue == null
-                ? $"{attributePrefix}{modifier}{TranspileTypeReference(parameter.Type)} {parameter.Name}"
-                : $"{attributePrefix}{modifier}{TranspileTypeReference(parameter.Type)} {parameter.Name} = {defaultValue}";
+                ? $"{attributePrefix}{scopedPrefix}{modifier}{TranspileTypeReference(parameterType)} {parameter.Name}"
+                : $"{attributePrefix}{scopedPrefix}{modifier}{TranspileTypeReference(parameterType)} {parameter.Name} = {defaultValue}";
         }
 
         private static string FormatAttributeInline(AttributeNode attribute)
@@ -1109,12 +1119,13 @@ public static class CompilationStubEmitter
             return typeReference switch
             {
                 SimpleTypeReference simple => simple.Name,
-                GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
+                GenericTypeReference generic => $"{(generic.Name == "Result" ? "NSharpLang.Runtime.Result" : generic.Name)}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
                 ArrayTypeReference array => $"{TranspileTypeReference(array.ElementType)}[]",
                 NullableTypeReference nullable => $"{TranspileTypeReference(nullable.InnerType)}?",
                 UnionTypeReference union => TranspileUnionTypeReference(union),
                 TupleTypeReference tuple => $"({string.Join(", ", tuple.Elements.Select(element => element.Name != null ? $"{TranspileTypeReference(element.Type)} {element.Name}" : TranspileTypeReference(element.Type)))})",
                 FunctionTypeReference function => TranspileFunctionType(function),
+                ByRefTypeReference byRef => $"ref {TranspileTypeReference(byRef.InnerType)}",
                 _ => "object"
             };
         }

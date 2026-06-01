@@ -7,6 +7,7 @@ public enum TokenType
     IntLiteral,
     FloatLiteral,
     CharLiteral,
+    Lifetime,
     StringLiteral,
     TripleQuoteStringLiteral,
     InterpolatedRawStringLiteral,
@@ -96,6 +97,8 @@ public enum TokenType
     Alloc,
     Allow,
     Stackalloc,
+    Unsafe,
+    Scoped,
 
     // Operators
     Plus,           // +

@@ -15,6 +15,7 @@ Welcome to the N# compiler documentation. This folder contains technical documen
 |----------|--------|
 | Understand the architecture? | Read [architecture.md](architecture.md) |
 | Plan compiler performance work? | Read [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md) |
+| Work on Systems N#? | Read [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md) and [docs/audits/systems-nsharp-implementation-adversarial-review.md](../docs/audits/systems-nsharp-implementation-adversarial-review.md) |
 | Check IL backend parity status? | Read [il-compiler-parity-audit.md](il-compiler-parity-audit.md) |
 | Learn about a component? | See [components/](#components) folder |
 | Find a feature? | See [features/](#features) folder |
@@ -52,6 +53,9 @@ Performance-focused compiler refactor plan for Bound IR, escape/capture/allocati
 - Compiler pipeline refactor from AST-direct emission to Bound IR plus performance facts
 - Critical language and interop tradeoffs for each optimization family
 - Evidence gates for IL shape, BenchmarkDotNet, public claims, and rollback decisions
+
+### [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md)
+Canonical Systems N# proposal and v1 implementation target for hot-path cost visibility, HotSummary facts, BCL seed summaries, `Result<T,E>`, restricted unsafe, ref/lifetime safety, pooling, AOT/readiness reporting, templates, and acceptance gauntlet examples.
 
 ---
 

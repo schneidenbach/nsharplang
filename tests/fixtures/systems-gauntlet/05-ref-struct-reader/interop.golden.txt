@@ -1,0 +1,1 @@
+FrameReader emits a CLR byref-like type; BadReader is rejected before a heap-storable shape can be emitted.

@@ -691,6 +691,7 @@ public sealed class AotBlockerAnalyzer
     {
         SimpleTypeReference simple => simple.Name,
         GenericTypeReference generic => generic.Name,
+        ByRefTypeReference byRef => TypeName(byRef.InnerType),
         _ => null,
     };
 

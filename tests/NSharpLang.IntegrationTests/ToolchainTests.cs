@@ -35,6 +35,8 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
         Assert.Contains("nsharp-library", list.Stdout);
         Assert.Contains("nsharp-test", list.Stdout);
         Assert.Contains("nsharp-webapi", list.Stdout);
+        Assert.Contains("nsharp-systems-cli", list.Stdout);
+        Assert.Contains("nsharp-systems-lib", list.Stdout);
     }
 
     [DockerFact]
@@ -48,6 +50,8 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
             ("nsharp-library", UniqueDir("library-shape"), "Calculator.nl"),
             ("nsharp-test", UniqueDir("test-shape"), "Calculator.tests.nl"),
             ("nsharp-webapi", UniqueDir("webapi-shape"), "Controllers/WeatherController.nl"),
+            ("nsharp-systems-cli", UniqueDir("systems-cli-shape"), "Program.nl"),
+            ("nsharp-systems-lib", UniqueDir("systems-lib-shape"), "PacketCore.nl"),
         })
         {
             var create = await Bash($"dotnet new {shortName} -o {dir}");
@@ -75,6 +79,8 @@ public class ToolchainTests : IClassFixture<ToolchainFixture>
             ("library", "nsharp-library", new[] { "Calculator.nl" }),
             ("test", "nsharp-test", new[] { "Calculator.nl", "Calculator.tests.nl" }),
             ("webapi", "nsharp-webapi", new[] { "Program.nl", "Controllers/WeatherController.nl" }),
+            ("systems-cli", "nsharp-systems-cli", new[] { "Program.nl", "Systems.tests.nl" }),
+            ("systems-lib", "nsharp-systems-lib", new[] { "PacketCore.nl", "PacketCore.tests.nl" }),
         })
         {
             var nlcParent = UniqueDir($"nlc-new-{template}-parent");

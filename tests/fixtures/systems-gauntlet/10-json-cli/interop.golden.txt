@@ -1,0 +1,1 @@
+C# CLI hosts consume Result<string, CliError>; System.Text.Json source-generated metadata remains inside the boundary and outside the hot path.

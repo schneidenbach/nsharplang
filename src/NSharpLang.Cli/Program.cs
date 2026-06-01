@@ -634,21 +634,27 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         {
             Console.WriteLine(@"N# New Project
 
-Usage: nlc new <project-name> [--template <template>]
+Usage: nlc new <project-name> [--template <template>] [--systems]
+       nlc new systems-cli <project-name>
+       nlc new systems-lib <project-name>
 
 Create a new csproj-free N# project. Fresh projects are project.yml-first:
 `nlc build`, `nlc run`, and `nlc test` build directly from project.yml.
 Do not hand-author project build settings in .csproj.
 
 Options:
-  --template <template>  Project template: console, library, test, webapi (default: console)
+  --template <template>  Project template: console, library, test, webapi, systems-cli, systems-lib (default: console)
   --type <template>      Alias for --template
+  --systems              Enable the systems profile for console/library templates
   --help, -h             Show this help text
 
 Examples:
   nlc new MyApp
   nlc new MyLib --template library
   nlc new MyApi --template webapi
+  nlc new systems-cli PacketTool
+  nlc new PacketCore --template library --systems
+  nlc new lib PacketCore --systems
   cd MyApp && nlc build
 
 Exit codes:
@@ -663,11 +669,23 @@ Exit codes:
             return Error("Usage: nlc new <project-name> [--template <template>]");
         }
 
+        var requestedTemplate = GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type");
         var projectName = positional[0];
-        var template = NormalizeProjectTemplate(GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type") ?? "console");
+        if (positional.Length >= 2 && NormalizeProjectTemplate(positional[0]) is { } positionalTemplate)
+        {
+            requestedTemplate = positionalTemplate;
+            projectName = positional[1];
+        }
+
+        var systemsFlag = args.Contains("--systems");
+        var template = NormalizeProjectTemplate(requestedTemplate ?? "console");
+        if (systemsFlag && template is "console")
+            template = "systems-cli";
+        else if (systemsFlag && template is "library")
+            template = "systems-lib";
         if (template == null)
         {
-            return Error("Invalid template. Expected one of: console, library, test, webapi.");
+            return Error("Invalid template. Expected one of: console, library, test, webapi, systems-cli, systems-lib.");
         }
 
         var projectDir = Path.Combine(Directory.GetCurrentDirectory(), projectName);
@@ -694,22 +712,27 @@ Exit codes:
 
             Console.WriteLine();
             Console.WriteLine("Project shape: csproj-free source tree; nlc builds directly from project.yml.");
-            var nextCommand = template switch
-            {
-                "test" => "  nlc test",
-                "library" => null,
-                _ => "  nlc run",
-            };
             Console.WriteLine(template switch
             {
+                "systems-cli" or "systems-lib" => "To check systems policy and inspect performance facts:",
                 "test" => "To build and test your project:",
                 "library" => "To build your project:",
                 _ => "To build and run your project:",
             });
             Console.WriteLine($"  cd {projectName}");
-            Console.WriteLine("  nlc build");
-            if (nextCommand != null)
-                Console.WriteLine(nextCommand);
+            if (template is "systems-cli" or "systems-lib")
+            {
+                Console.WriteLine("  nlc check --systems-report");
+                Console.WriteLine("  nlc build --perf-report");
+            }
+            else
+            {
+                Console.WriteLine("  nlc build");
+                if (template == "test")
+                    Console.WriteLine("  nlc test");
+                else if (template != "library")
+                    Console.WriteLine("  nlc run");
+            }
             Console.WriteLine();
 
             return 0;
@@ -726,6 +749,8 @@ Exit codes:
         "library" => new[] { "Calculator.nl" },
         "test" => new[] { "Calculator.nl", "Calculator.tests.nl" },
         "webapi" => new[] { "Program.nl", "Controllers/WeatherController.nl" },
+        "systems-cli" => new[] { "Program.nl", "Systems.tests.nl" },
+        "systems-lib" => new[] { "PacketCore.nl", "PacketCore.tests.nl" },
         _ => Array.Empty<string>(),
     };
 
@@ -737,6 +762,8 @@ Exit codes:
             "library" or "lib" => "library",
             "test" or "tests" => "test",
             "webapi" or "web-api" or "web" => "webapi",
+            "systems-cli" or "systems-console" or "systems" => "systems-cli",
+            "systems-lib" or "systems-library" => "systems-lib",
             _ => null,
         };
     }
@@ -762,6 +789,14 @@ Exit codes:
                 Directory.CreateDirectory(Path.Combine(projectDir, "Controllers"));
                 File.WriteAllText(Path.Combine(projectDir, "Program.nl"), WebApiProgramSource);
                 File.WriteAllText(Path.Combine(projectDir, "Controllers", "WeatherController.nl"), WebApiControllerSource);
+                break;
+            case "systems-cli":
+                File.WriteAllText(Path.Combine(projectDir, "Program.nl"), SystemsCliSource);
+                File.WriteAllText(Path.Combine(projectDir, "Systems.tests.nl"), SystemsTestsSource);
+                break;
+            case "systems-lib":
+                File.WriteAllText(Path.Combine(projectDir, "PacketCore.nl"), SystemsLibrarySource);
+                File.WriteAllText(Path.Combine(projectDir, "PacketCore.tests.nl"), SystemsTestsSource);
                 break;
         }
     }
@@ -806,8 +841,32 @@ dependencies:
 language:
   asyncDefaultType: ValueTask
 ",
+            "systems-cli" => GenerateSystemsProjectYaml(projectName, outputType: "exe", entry: "Program.nl"),
+            "systems-lib" => GenerateSystemsProjectYaml(projectName, outputType: "library", entry: null),
             _ => ProjectFileParser.GenerateTemplate(projectName),
         };
+    }
+
+    static string GenerateSystemsProjectYaml(string projectName, string outputType, string? entry)
+    {
+        var entryLine = entry == null ? "" : $"entry: {entry}\n";
+        return $@"name: {projectName}
+version: 1.0.0
+{entryLine}backend: il
+outputType: {outputType}
+targetFramework: net10.0
+
+language:
+  profile: systems
+  asyncDefaultType: ValueTask
+  systems:
+    mode: strict
+    unknownExternalCalls: warn
+    aotTarget: nativeaot
+    stackBudgetBytes: 4096
+    warmup:
+      - Warmup
+";
     }
 
     const string GlobalJsonContent = @"{
@@ -905,6 +964,72 @@ class WeatherController: ControllerBase {
 class CreateWeatherRequest {
     Summary: string
     TemperatureC: int
+}
+";
+
+    const string SystemsCliSource = @"namespace SystemsTemplate
+
+import System
+import System.Buffers.Binary
+
+enum ParseError {
+    Short
+}
+
+[hot]
+func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {
+    if buf.Length < 4 {
+        return Err(ParseError.Short)
+    }
+
+    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))
+}
+
+[boundary]
+func Run(): Result<int, ParseError> {
+    allow(alloc, reason: ""CLI startup allocates outside the hot parser"") {
+        print ""Systems N# template""
+    }
+    return Ok(0)
+}
+
+func Warmup(): void {
+}
+
+func main(): void {
+    _ := Run()
+}
+";
+
+    const string SystemsLibrarySource = @"namespace SystemsTemplate
+
+import System
+import System.Buffers.Binary
+
+enum ParseError {
+    Short
+}
+
+[hot]
+public func ParseLength(buf: ReadOnlySpan<byte>): Result<uint, ParseError> {
+    if buf.Length < 4 {
+        return Err(ParseError.Short)
+    }
+
+    return Ok(BinaryPrimitives.ReadUInt32LittleEndian(buf.Slice(0, 4)))
+}
+
+[boundary]
+public func AdaptPacket(bytes: byte[]): Result<uint, ParseError> {
+    return ParseLength(bytes.AsSpan())
+}
+
+public func Warmup(): void {
+}
+";
+
+    const string SystemsTestsSource = @"test ""systems smoke"" {
+    assert true
 }
 ";
 
@@ -1307,7 +1432,7 @@ Exit codes:
                 continue;
             }
 
-            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose" or "--systems")
                 continue;
 
             if (!args[i].StartsWith("-", StringComparison.Ordinal))

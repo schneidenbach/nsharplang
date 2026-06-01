@@ -424,6 +424,9 @@ public partial class ILCompiler
                     && argumentType.GetElementType() is { } arrayElementType
                     && TryCollectGenericLocalFunctionBindings(arrayType.ElementType, arrayElementType, localTypeParameterNames, typeBindings);
 
+            case ByRefTypeReference byRefType:
+                return TryCollectGenericLocalFunctionBindings(byRefType.InnerType, argumentType, localTypeParameterNames, typeBindings);
+
             case NullableTypeReference nullableType:
                 var nullableArgumentType = Nullable.GetUnderlyingType(argumentType) ?? argumentType;
                 return TryCollectGenericLocalFunctionBindings(nullableType.InnerType, nullableArgumentType, localTypeParameterNames, typeBindings);
@@ -534,6 +537,9 @@ public partial class ILCompiler
             case ArrayTypeReference arrayType:
                 return ResolveGenericLocalFunctionTypeReference(arrayType.ElementType, typeBindings).MakeArrayType();
 
+            case ByRefTypeReference byRefType:
+                return ResolveGenericLocalFunctionTypeReference(byRefType.InnerType, typeBindings).MakeByRefType();
+
             case NullableTypeReference nullableType:
                 return typeof(Nullable<>).MakeGenericType(ResolveGenericLocalFunctionTypeReference(nullableType.InnerType, typeBindings));
 
@@ -599,7 +605,7 @@ public partial class ILCompiler
             {
                 var parameterType = ResolveGenericLocalFunctionTypeReference(parameter.Type, typeBindings);
                 return parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out
-                    ? parameterType.MakeByRefType()
+                    ? (parameterType.IsByRef ? parameterType : parameterType.MakeByRefType())
                     : parameterType;
             })
             .ToArray();

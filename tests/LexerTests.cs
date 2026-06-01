@@ -489,6 +489,25 @@ public class LexerTests
     }
 
     [Fact]
+    public void TestUnterminatedCharLiteralIsNotLifetime()
+    {
+        var source = "letter := 'a";
+        var tokens = Tokenize(source);
+        var literal = Assert.Single(tokens.Where(t => t.Type == TokenType.CharLiteral));
+        Assert.Equal("'a", literal.Value);
+        Assert.False(literal.IsTerminated);
+    }
+
+    [Fact]
+    public void TestLifetimeTokenInSystemsContexts()
+    {
+        var source = "func Slice<'a>(buf: ReadOnlySpan<byte> scoped 'a): ReadOnlySpan<byte> returns 'a {}";
+        var tokens = Tokenize(source);
+        Assert.Equal(3, tokens.Count(t => t.Type == TokenType.Lifetime));
+        Assert.DoesNotContain(tokens, t => t.Type == TokenType.CharLiteral);
+    }
+
+    [Fact]
     public void TestUnterminatedMultiLineComment()
     {
         var source = "/* unterminated";

@@ -97,6 +97,8 @@ public class Lexer
         { "alloc", TokenType.Alloc },
         { "allow", TokenType.Allow },
         { "stackalloc", TokenType.Stackalloc },
+        { "unsafe", TokenType.Unsafe },
+        { "scoped", TokenType.Scoped },
     };
 
     /// <summary>
@@ -318,6 +320,11 @@ public class Lexer
                 return ReadTripleQuoteString(startLine, startColumn);
             }
             return ReadString(startLine, startColumn);
+        }
+
+        if (ch == '\'' && IsLifetimeStart())
+        {
+            return ReadLifetime(startLine, startColumn);
         }
 
         if (ch == '\'')
@@ -891,6 +898,55 @@ public class Lexer
         }
 
         return new Token(TokenType.CharLiteral, sb.ToString(), startLine, startColumn, _fileName, IsTerminated: sb[^1] == '\'');
+    }
+
+    private bool IsLifetimeStart()
+        => PeekNext() is var next
+           && (char.IsLetter(next) || next == '_')
+           && PeekAhead(2) != '\''
+           && IsLifetimeContext();
+
+    private bool IsLifetimeContext()
+    {
+        var index = _position - 1;
+        while (index >= 0 && char.IsWhiteSpace(_source[index]))
+            index--;
+
+        if (index < 0)
+            return false;
+
+        var previous = _source[index];
+        if (previous is '<' or ',')
+            return true;
+
+        if (!char.IsLetterOrDigit(previous) && previous != '_')
+            return false;
+
+        var end = index + 1;
+        while (index >= 0 && (char.IsLetterOrDigit(_source[index]) || _source[index] == '_'))
+            index--;
+
+        var word = _source[(index + 1)..end];
+        return word is "scoped" or "returns";
+    }
+
+    private Token ReadLifetime(int startLine, int startColumn)
+    {
+        var sb = new StringBuilder();
+        sb.Append(Peek());
+        Advance(); // consume '
+
+        while (!IsAtEnd())
+        {
+            var ch = Peek();
+            if (!char.IsLetterOrDigit(ch) && ch != '_')
+                break;
+
+            sb.Append(ch);
+            Advance();
+        }
+
+        return new Token(TokenType.Lifetime, sb.ToString(), startLine, startColumn, _fileName);
     }
 
     private Token ReadTripleQuoteString(int startLine, int startColumn)

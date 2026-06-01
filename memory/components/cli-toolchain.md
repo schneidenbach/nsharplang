@@ -40,6 +40,7 @@ The executable toolchain is now IL-only:
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc check --aot` | Type-check plus Native AOT safety gate (AOT blockers become errors) | `nlc check --aot` |
+| `nlc check --systems-report` | Emit the versioned Systems N# policy/effect report | `nlc check --systems-report` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
 ### Code Intelligence (`nlc query`)
@@ -101,6 +102,10 @@ Type-use positions are first-class semantic navigation targets. `type`, `inspect
 | Command | Purpose | Example |
 |---------|---------|---------|
 | `nlc new <name>` | Create new N# project | `nlc new MyApp` |
+| `nlc new systems-cli <name>` | Create a systems-profile console app with strict policy, hot parser, boundary, warmup, and systems tests | `nlc new systems-cli PacketTool` |
+| `nlc new systems-lib <name>` | Create a systems-profile library with a public hot API, boundary adapter, warmup, and systems tests | `nlc new systems-lib PacketCore` |
+| `nlc new <name> --template console --systems` | Systems-profile console app via template flag | `nlc new PacketTool --template console --systems` |
+| `nlc new <name> --template library --systems` | Systems-profile library via template flag | `nlc new PacketCore --template library --systems` |
 | `nlc pack` | Generate a NuGet package from project.yml metadata | `nlc pack` |
 | `nlc pack --version <ver>` | Override package version | `nlc pack --version 2.0.0` |
 | `nlc pack --output <dir>` | Specify output directory for .nupkg | `nlc pack --output ./artifacts` |

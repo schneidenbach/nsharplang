@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "heap-backed arena returning a parameter-backed span",
+  "expected": {
+    "returnLifetime": "'self",
+    "resultAbi": "Result<Span<byte>, ArenaError>"
+  }
+}

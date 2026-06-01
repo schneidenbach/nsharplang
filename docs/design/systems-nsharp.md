@@ -97,6 +97,10 @@ language:
     mode: strict # audit | strict
     unknownExternalCalls: warn # allow | warn | error
     aotTarget: nativeaot # nativeaot | coreclr | mono-wasm
+    stackBudgetBytes: 4096
+    hotSummaryFiles:
+      - summaries/vendor.hotsummary.json
+    allowHotSidecars: false
 ```
 
 `language.profile: systems` defaults to `strict`.
@@ -176,6 +180,7 @@ Initial families:
 - `NSYS130`: pool rent/return imbalance
 - `NSYS140`: concurrency primitive summary failure
 - `NSYS150`: effect fact drift
+- `NSYS160`: result ABI / must-use violation
 
 Strict mode errors must include:
 
@@ -721,6 +726,8 @@ Rules:
   `ReadOnlySpan<T>` and `T` is unmanaged.
 - The length must be statically bounded by a project-configurable stack budget
   or guarded by a compiler-recognized maximum.
+- The initial implementation reads that budget from
+  `language.systems.stackBudgetBytes` and defaults it to 4096 bytes.
 - Stack-allocated spans are `local` lifetime and cannot be returned, captured,
   stored in heap fields, used across `await`, or used across iterator yield.
 - Arbitrary pointer access still requires restricted `unsafe`.
@@ -1161,6 +1168,9 @@ Rules:
   `benchmarks/SystemsHotPathBenchmarks.cs` as the v1 systems performance and
   allocation smoke benchmark; it uses `MemoryDiagnoser` and a matched C#
   baseline.
+- `benchmarks/SystemsResultBenchmarks.cs` covers the `Result<T,E>` tagged-struct
+  ABI with `MemoryDiagnoser` so throughput and allocation pressure stay visible
+  for both direct `TryGet*` use and delegate-based matching.
 
 Reasoning:
 

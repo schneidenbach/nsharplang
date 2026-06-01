@@ -1,0 +1,1 @@
+C# interop uses ordinary static methods and CLR atomic primitives; no N#-specific runtime wrapper is exposed.

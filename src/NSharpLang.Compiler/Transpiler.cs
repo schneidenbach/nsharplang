@@ -1152,7 +1152,8 @@ public class Transpiler
             ? $"<{string.Join(", ", str.TypeParameters.Select(tp => tp.Name))}>"
             : "";
 
-        Write($"{modifiers}struct {str.Name}{typeParams}");
+        var structKeyword = str.IsRefStruct ? "ref struct" : "struct";
+        Write($"{modifiers}{structKeyword} {str.Name}{typeParams}");
 
         // Emit primary constructor parameters (C# 12)
         if (str.PrimaryConstructorParameters != null && str.PrimaryConstructorParameters.Count > 0)
@@ -1536,6 +1537,7 @@ public class Transpiler
         { "Nullable", "System.Nullable" },
         { "IDisposable", "System.IDisposable" },
         { "IAsyncDisposable", "System.IAsyncDisposable" },
+        { "Result", "NSharpLang.Runtime.Result" },
         { "IComparable", "System.IComparable" },
         { "IEquatable", "System.IEquatable" },
         { "EventHandler", "System.EventHandler" },
@@ -1591,6 +1593,7 @@ public class Transpiler
             UnionTypeReference union => TranspileUnionTypeReference(union, TranspileTypeReferenceForUsing),
             TupleTypeReference tuple => TranspileTupleTypeForUsing(tuple),
             FunctionTypeReference func => TranspileFunctionTypeForUsing(func),
+            ByRefTypeReference byRef => $"ref {TranspileTypeReferenceForUsing(byRef.InnerType)}",
             _ => throw new Exception($"Unsupported type reference in using alias: {typeRef.GetType().Name}")
         };
     }
@@ -1873,10 +1876,18 @@ public class Transpiler
             }
         }
 
+        TypeReference parameterType = param.Type;
+        var hasByRefType = parameterType is ByRefTypeReference;
+        if (hasByRefType)
+            parameterType = ((ByRefTypeReference)parameterType).InnerType;
+
+        if (param.IsScoped)
+            result += "scoped ";
+
         // Add params/ref/out modifier
         if (param.Modifier == ParameterModifier.Params)
             result += "params ";
-        else if (param.Modifier == ParameterModifier.Ref)
+        else if (param.Modifier == ParameterModifier.Ref || hasByRefType)
             result += "ref ";
         else if (param.Modifier == ParameterModifier.Out)
             result += "out ";
@@ -1884,7 +1895,7 @@ public class Transpiler
         if (param.IsThis)
             result += "this ";
 
-        result += $"{TranspileTypeReference(param.Type)} {param.Name}";
+        result += $"{TranspileTypeReference(parameterType)} {param.Name}";
 
         if (param.DefaultValue != null)
         {
@@ -1912,7 +1923,7 @@ public class Transpiler
     {
         // Don't emit #line for block statements — they are structural braces,
         // and the individual statements inside will have their own directives.
-        if (statement is not BlockStatement and not AllocBlockStatement and not AllowStatement)
+        if (statement is not BlockStatement and not AllocBlockStatement and not AllowStatement and not UnsafeBlockStatement)
             EmitLineDirective(statement.Line);
 
         switch (statement)
@@ -1934,6 +1945,10 @@ public class Transpiler
                 break;
             case AllowStatement allow:
                 TranspileBlockStatement(allow.Body);
+                break;
+            case UnsafeBlockStatement unsafeBlock:
+                WriteLine("unsafe");
+                TranspileBlockStatement(unsafeBlock.Body);
                 break;
             case IfStatement ifStmt:
                 TranspileIfStatement(ifStmt);
@@ -3494,12 +3509,13 @@ public class Transpiler
         return typeRef switch
         {
             SimpleTypeReference simple => TranspileSimpleTypeReference(simple),
-            GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
+            GenericTypeReference generic => $"{TranspileGenericTypeName(generic.Name)}<{string.Join(", ", generic.TypeArguments.Select(TranspileTypeReference))}>",
             ArrayTypeReference array => $"{TranspileTypeReference(array.ElementType)}[]",
             NullableTypeReference nullable => $"{TranspileTypeReference(nullable.InnerType)}?",
             UnionTypeReference union => TranspileUnionTypeReference(union, TranspileTypeReference),
             TupleTypeReference tuple => TranspileTupleType(tuple),
             FunctionTypeReference func => TranspileFunctionType(func),
+            ByRefTypeReference byRef => $"ref {TranspileTypeReference(byRef.InnerType)}",
             _ => throw new Exception($"Unsupported type reference: {typeRef.GetType().Name}")
         };
     }
@@ -3536,6 +3552,9 @@ public class Transpiler
 
         return simple.Name;
     }
+
+    private static string TranspileGenericTypeName(string name)
+        => name == "Result" ? "NSharpLang.Runtime.Result" : name;
 
     private string TranspileTupleType(TupleTypeReference tuple)
     {
@@ -3933,6 +3952,7 @@ public class Transpiler
             BlockStatement block => block.Statements.Any(ContainsAwait),
             AllocBlockStatement allocBlock => ContainsAwait(allocBlock.Body),
             AllowStatement allow => ContainsAwait(allow.Body),
+            UnsafeBlockStatement unsafeBlock => ContainsAwait(unsafeBlock.Body),
             ExpressionStatement exprStmt => ContainsAwaitInExpression(exprStmt.Expression),
             VariableDeclarationStatement varDecl => varDecl.Initializer != null && ContainsAwaitInExpression(varDecl.Initializer),
             ReturnStatement retStmt => retStmt.Value != null && ContainsAwaitInExpression(retStmt.Value),

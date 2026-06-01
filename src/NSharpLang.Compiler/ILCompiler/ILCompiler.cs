@@ -4491,6 +4491,7 @@ public partial class ILCompiler
             BlockStatement block => block.Statements.Any(ContainsAwait),
             AllocBlockStatement allocBlock => ContainsAwait(allocBlock.Body),
             AllowStatement allow => ContainsAwait(allow.Body),
+            UnsafeBlockStatement unsafeBlock => ContainsAwait(unsafeBlock.Body),
             ExpressionStatement expressionStatement => ContainsAwait(expressionStatement.Expression),
             VariableDeclarationStatement variableDeclaration => variableDeclaration.Initializer != null && ContainsAwait(variableDeclaration.Initializer),
             TupleDeconstructionStatement tupleDeconstruction => ContainsAwait(tupleDeconstruction.Initializer),
@@ -4750,6 +4751,16 @@ public partial class ILCompiler
         applyAttribute(new CustomAttributeBuilder(constructor, Array.Empty<object>()));
     }
 
+    private void ApplyIsByRefLikeAttribute(Action<CustomAttributeBuilder> applyAttribute)
+    {
+        var attributeType = typeof(System.Runtime.CompilerServices.IsByRefLikeAttribute);
+        var constructor = attributeType.GetConstructor(Type.EmptyTypes);
+        if (constructor == null)
+            return;
+
+        applyAttribute(new CustomAttributeBuilder(constructor, Array.Empty<object>()));
+    }
+
     private void ApplyNullableAttribute(Action<CustomAttributeBuilder> applyAttribute, TypeReference typeReference, GenericTypeParameterBuilder[]? genericParameters = null)
     {
         var flags = GetNullableAttributeFlags(typeReference, genericParameters);
@@ -4795,6 +4806,9 @@ public partial class ILCompiler
                 flags.AddRange(GetNullableAttributeFlags(arrayType.ElementType, genericParameters));
                 return flags;
             }
+
+            case ByRefTypeReference byRefType:
+                return GetNullableAttributeFlags(byRefType.InnerType, genericParameters);
 
             case GenericTypeReference genericType:
             {
@@ -8802,6 +8816,7 @@ public partial class ILCompiler
             UnionTypeReference unionType => $"U:({string.Join("|", FlattenUnionTypeReference(unionType).Select(GetTypeReferenceIdentity))})",
             TupleTypeReference tupleType => $"T:({string.Join(",", tupleType.Elements.Select(element => GetTypeReferenceIdentity(element.Type)))})",
             FunctionTypeReference functionType => $"F:({string.Join(",", functionType.ParameterTypes.Select(GetTypeReferenceIdentity))})->{GetTypeReferenceIdentity(functionType.ReturnType)}",
+            ByRefTypeReference byRefType => $"R:{GetTypeReferenceIdentity(byRefType.InnerType)}",
             _ => typeReference.ToString() ?? string.Empty
         };
     }
@@ -8901,6 +8916,14 @@ public partial class ILCompiler
             if (expression is LambdaExpression)
             {
                 EmitLambda((LambdaExpression)expression, _expectedExpressionType);
+                return;
+            }
+
+            if (expression is CallExpression resultCall
+                && TryGetResultConstructorName(resultCall, out _)
+                && IsRuntimeResultType(_expectedExpressionType))
+            {
+                EmitResultConstructorCall(resultCall, _expectedExpressionType);
                 return;
             }
 
@@ -10253,6 +10276,10 @@ public partial class ILCompiler
                 EmitBlock(allow.Body);
                 break;
 
+            case UnsafeBlockStatement unsafeBlock:
+                EmitBlock(unsafeBlock.Body);
+                break;
+
             case VariableDeclarationStatement varDecl:
                 EmitVariableDeclaration(varDecl);
                 break;
@@ -11180,6 +11207,56 @@ public partial class ILCompiler
         }
 
         _currentIL.Emit(OpCodes.Ret);
+    }
+
+    private static bool IsRuntimeResultType(Type type)
+    {
+        if (!type.IsGenericType)
+            return false;
+
+        try
+        {
+            return type.GetGenericTypeDefinition() == typeof(NSharpLang.Runtime.Result<,>);
+        }
+        catch (NotSupportedException)
+        {
+            return (type.FullName ?? type.Name).StartsWith("NSharpLang.Runtime.Result", StringComparison.Ordinal);
+        }
+    }
+
+    private static bool TryGetResultConstructorName(CallExpression call, out string name)
+    {
+        if (call.Callee is IdentifierExpression { Name: "Ok" or "Err" } identifier)
+        {
+            name = identifier.Name;
+            return true;
+        }
+
+        name = string.Empty;
+        return false;
+    }
+
+    private void EmitResultConstructorCall(CallExpression call, Type expectedResultType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+        if (!TryGetResultConstructorName(call, out var constructorName))
+            throw new InvalidOperationException("Expected Ok or Err result constructor call");
+        if (call.Arguments.Count != 1)
+            throw new InvalidOperationException($"{constructorName} requires exactly one argument");
+
+        var typeArguments = expectedResultType.GetGenericArguments();
+        var armType = constructorName == "Ok" ? typeArguments[0] : typeArguments[1];
+        EmitExpressionWithExpectedType(call.Arguments[0].Value, armType);
+
+        var openMethod = typeof(NSharpLang.Runtime.Result<,>)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .SingleOrDefault(method => method.Name == constructorName && method.GetParameters().Length == 1)
+            ?? throw new InvalidOperationException($"Could not resolve Result.{constructorName} for {expectedResultType}");
+        var method = RequiresTypeBuilderMemberResolution(expectedResultType)
+            ? openMethod
+            : expectedResultType.GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Single(method => method.Name == constructorName && method.GetParameters().Length == 1);
+        _currentIL.Emit(OpCodes.Call, method);
     }
 
     private void EmitStructuredReturnValueOnStack()
@@ -14445,6 +14522,12 @@ public partial class ILCompiler
     private void EmitCall(CallExpression call)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (_expectedExpressionType != null && TryGetResultConstructorName(call, out _) && IsRuntimeResultType(_expectedExpressionType))
+        {
+            EmitResultConstructorCall(call, _expectedExpressionType);
+            return;
+        }
 
         var calleeType = GetExpressionType(call.Callee);
         if (call.Callee is not MemberAccessExpression &&
@@ -17908,6 +17991,9 @@ public partial class ILCompiler
     /// </summary>
     private Type GetCallExpressionType(CallExpression call)
     {
+        if (_expectedExpressionType != null && TryGetResultConstructorName(call, out _) && IsRuntimeResultType(_expectedExpressionType))
+            return _expectedExpressionType;
+
         var calleeType = GetExpressionType(call.Callee);
         if (call.Callee is not MemberAccessExpression &&
             TryGetDelegateInvokeMethod(calleeType, out var delegateInvokeMethod) &&
@@ -18318,6 +18404,11 @@ public partial class ILCompiler
             return ResolveType(arrayType.ElementType, genericTypeArguments).MakeArrayType();
         }
 
+        if (typeRef is ByRefTypeReference byRefType)
+        {
+            return ResolveType(byRefType.InnerType, genericTypeArguments).MakeByRefType();
+        }
+
         if (typeRef is NullableTypeReference nullableType)
         {
             var innerType = ResolveType(nullableType.InnerType, genericTypeArguments);
@@ -18472,6 +18563,11 @@ public partial class ILCompiler
         if (typeRef is ArrayTypeReference arrayType)
         {
             return ResolveType(arrayType.ElementType, genericParameters).MakeArrayType();
+        }
+
+        if (typeRef is ByRefTypeReference byRefType)
+        {
+            return ResolveType(byRefType.InnerType, genericParameters).MakeByRefType();
         }
 
         if (typeRef is NullableTypeReference nullableType)
@@ -18716,6 +18812,8 @@ public partial class ILCompiler
             ("IDictionary", 2) => typeof(IDictionary<,>),
             ("IReadOnlyDictionary", 2) => typeof(IReadOnlyDictionary<,>),
             ("KeyValuePair", 2) => typeof(KeyValuePair<,>),
+            ("Result", 2) => typeof(NSharpLang.Runtime.Result<,>),
+            ("NSharpLang.Runtime.Result", 2) => typeof(NSharpLang.Runtime.Result<,>),
             _ => null
         };
 
@@ -19114,12 +19212,16 @@ public partial class ILCompiler
         }
 
         var typeAttributes = GetTypeVisibilityAttributes(structDecl.Name, structDecl.Modifiers) | TypeAttributes.Sealed;
+        if (structDecl.IsRefStruct)
+            typeAttributes |= TypeAttributes.SequentialLayout;
 
         var typeBuilder = moduleBuilder.DefineType(
             structDecl.Name,
             typeAttributes,
             typeof(ValueType));
         ApplyCustomAttributes(typeBuilder.SetCustomAttribute, structDecl.Attributes);
+        if (structDecl.IsRefStruct)
+            ApplyIsByRefLikeAttribute(typeBuilder.SetCustomAttribute);
         ApplyNullableContextAttribute(typeBuilder.SetCustomAttribute);
 
         RegisterType(structDecl.Name, typeBuilder);

@@ -59,6 +59,8 @@ public record FunctionDeclaration(
     public SourceSpan OperatorKeywordSpan { get; init; } = SourceSpan.None;
 
     public SourceSpan OperatorSymbolSpan { get; init; } = SourceSpan.None;
+
+    public string? ReturnLifetime { get; init; }
 };
 
 public enum ParameterModifier
@@ -77,7 +79,9 @@ public record Parameter(
     ParameterModifier Modifier = ParameterModifier.None,
     List<AttributeNode>? Attributes = null,
     int Line = 0,
-    int Column = 0);
+    int Column = 0,
+    bool IsScoped = false,
+    string? Lifetime = null);
 
 public record TypeParameter(string Name);
 
@@ -118,7 +122,8 @@ public record StructDeclaration(
     Modifiers Modifiers,
     List<AttributeNode> Attributes,
     int Line,
-    int Column) : Declaration(Line, Column);
+    int Column,
+    bool IsRefStruct = false) : Declaration(Line, Column);
 
 // Record declaration (can be record class or record struct - C# 10)
 public record RecordDeclaration(
@@ -363,6 +368,8 @@ public record TupleTypeElement(TypeReference Type, string? Name);
 public record FunctionTypeReference(
     List<TypeReference> ParameterTypes,
     TypeReference ReturnType) : TypeReference;
+
+public record ByRefTypeReference(TypeReference InnerType) : TypeReference;
 
 // Test declaration (for .tests.nl files)
 public record TestDeclaration(

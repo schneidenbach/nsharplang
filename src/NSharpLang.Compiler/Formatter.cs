@@ -368,6 +368,11 @@ public class Formatter
             sb.Append(": ");
             sb.Append(FormatTypeReference(func.ReturnType));
         }
+        if (!string.IsNullOrEmpty(func.ReturnLifetime))
+        {
+            sb.Append(" returns ");
+            sb.Append(func.ReturnLifetime);
+        }
 
         // Format body
         if (func.ExpressionBody != null)
@@ -461,7 +466,7 @@ public class Formatter
             sb.Append(" ");
         }
 
-        sb.Append("struct ");
+        sb.Append(str.IsRefStruct ? "ref struct " : "struct ");
         sb.Append(str.Name);
 
         if (str.TypeParameters != null && str.TypeParameters.Count > 0)
@@ -1078,6 +1083,18 @@ public class Formatter
                 sb.AppendLine("}");
                 break;
 
+            case AllocBlockStatement allocBlock:
+                FormatKeywordBlock("alloc", allocBlock.Body, sb);
+                break;
+
+            case AllowStatement allow:
+                FormatKeywordBlock($"allow({FormatAllowArguments(allow)})", allow.Body, sb);
+                break;
+
+            case UnsafeBlockStatement unsafeBlock:
+                FormatKeywordBlock("unsafe", unsafeBlock.Body, sb);
+                break;
+
             case IfStatement ifStmt:
                 Indent(sb);
                 FormatIfStatement(ifStmt, sb);
@@ -1410,6 +1427,72 @@ public class Formatter
             default:
                 throw new InvalidOperationException($"Formatter does not handle statement type: {stmt.GetType().Name}");
         }
+    }
+
+    private void FormatKeywordBlock(string header, BlockStatement body, StringBuilder sb)
+    {
+        Indent(sb);
+        sb.Append(header);
+        sb.AppendLine(" {");
+        _indent++;
+        FormatBlock(body, sb);
+        _indent--;
+        Indent(sb);
+        sb.AppendLine("}");
+    }
+
+    private static string FormatAllowArguments(AllowStatement allow)
+    {
+        var args = new List<string>(allow.Effects.Select(FormatAllowEffect));
+        if (!string.IsNullOrWhiteSpace(allow.Reason))
+        {
+            args.Add($"reason: {FormatQuotedString(allow.Reason)}");
+        }
+        if (!string.IsNullOrWhiteSpace(allow.Owner))
+        {
+            args.Add($"owner: {FormatQuotedString(allow.Owner)}");
+        }
+
+        return string.Join(", ", args);
+    }
+
+    private static string FormatAllowEffect(string effect)
+    {
+        var colonIndex = effect.IndexOf(':', StringComparison.Ordinal);
+        if (colonIndex <= 0 || colonIndex >= effect.Length - 1)
+            return effect;
+
+        return $"{effect[..colonIndex]}: {effect[(colonIndex + 1)..].Trim()}";
+    }
+
+    private static string FormatQuotedString(string value)
+    {
+        var sb = new StringBuilder(value.Length + 2);
+        sb.Append('"');
+        for (var i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            switch (ch)
+            {
+                case '"' when i == 0 || value[i - 1] != '\\':
+                    sb.Append("\\\"");
+                    break;
+                case '\n':
+                    sb.Append("\\n");
+                    break;
+                case '\r':
+                    sb.Append("\\r");
+                    break;
+                case '\t':
+                    sb.Append("\\t");
+                    break;
+                default:
+                    sb.Append(ch);
+                    break;
+            }
+        }
+        sb.Append('"');
+        return sb.ToString();
     }
 
     private void FormatForeachBody(ForeachStatement foreachStmt, StringBuilder sb)
@@ -1956,6 +2039,15 @@ public class Formatter
         sb.Append(param.Name);
         sb.Append(": ");
         sb.Append(FormatTypeReference(param.Type));
+        if (param.IsScoped)
+        {
+            sb.Append(" scoped");
+            if (!string.IsNullOrEmpty(param.Lifetime))
+            {
+                sb.Append(" ");
+                sb.Append(param.Lifetime);
+            }
+        }
         if (param.DefaultValue != null)
         {
             sb.Append(" = ");
@@ -2012,6 +2104,7 @@ public class Formatter
             UnionTypeReference union => string.Join(" | ", union.Arms.Select(FormatTypeReference)),
             TupleTypeReference tuple => $"({string.Join(", ", tuple.Elements.Select(e => e.Name != null ? $"{e.Name}: {FormatTypeReference(e.Type)}" : FormatTypeReference(e.Type)))})",
             FunctionTypeReference func => $"Func<{string.Join(", ", func.ParameterTypes.Concat(new[] { func.ReturnType }).Select(FormatTypeReference))}>",
+            ByRefTypeReference byRef => $"&{FormatTypeReference(byRef.InnerType)}",
             _ => throw new InvalidOperationException($"Formatter does not handle type reference: {type.GetType().Name}")
         };
     }

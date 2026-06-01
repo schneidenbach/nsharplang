@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "command": "build.perfReport",
+  "expected": {
+    "allocationSites": [],
+    "boxingSites": [],
+    "dispatchSites": []
+  }
+}

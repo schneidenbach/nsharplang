@@ -365,6 +365,7 @@ public static class OutputFormatter
             report.Profile,
             report.Mode,
             report.AotTarget,
+            aot = report.Aot,
             warmup = report.Warmup,
             functions = report.Functions.Select(function => function with
             {

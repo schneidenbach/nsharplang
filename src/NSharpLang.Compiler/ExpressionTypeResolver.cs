@@ -284,6 +284,7 @@ public class ExpressionTypeResolver
             ArrayTypeReference a => new ArrayTypeInfo(ResolveTypeReference(a.ElementType)),
             NullableTypeReference n => new NullableTypeInfo(ResolveTypeReference(n.InnerType)),
             UnionTypeReference u => new UnionTypeInfo(FlattenUnionTypeReference(u).Select(ResolveTypeReference).ToList()),
+            ByRefTypeReference b => new ByRefTypeInfo(ResolveTypeReference(b.InnerType)),
             _ => new SimpleTypeInfo(typeRef.ToString() ?? "unknown")
         };
     }
@@ -297,6 +298,7 @@ public class ExpressionTypeResolver
             ArrayTypeInfo array => ResolveTypeInfoToClrType(array.ElementType)?.MakeArrayType(),
             NullableTypeInfo nullable => ResolveNullableTypeInfo(nullable.InnerType),
             ObliviousTypeInfo oblivious => ResolveTypeInfoToClrType(oblivious.InnerType),
+            ByRefTypeInfo byRef => ResolveTypeInfoToClrType(byRef.InnerType)?.MakeByRefType(),
             GenericTypeInfo generic => ResolveGenericTypeInfo(generic),
             UnionTypeInfo { IsAnonymous: true } union when union.Arms.Count == 2
                 => ResolveTypeInfoToClrType(union.Arms[0]) is { } arm0
@@ -320,7 +322,11 @@ public class ExpressionTypeResolver
 
     private Type? ResolveGenericTypeInfo(GenericTypeInfo generic)
     {
-        var typeDefinition = ResolveTypeFromString(generic.Name);
+        var typeDefinition = generic.Name switch
+        {
+            "Result" or "NSharpLang.Runtime.Result" when generic.TypeArguments.Count == 2 => typeof(NSharpLang.Runtime.Result<,>),
+            _ => ResolveTypeFromString(generic.Name)
+        };
         if (typeDefinition == null)
             return null;
 

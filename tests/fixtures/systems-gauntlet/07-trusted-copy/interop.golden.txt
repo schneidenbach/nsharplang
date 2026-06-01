@@ -1,0 +1,1 @@
+C# consumers call Copy as a normal static method; trust metadata remains in the N# systems report.

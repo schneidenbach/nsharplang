@@ -632,6 +632,10 @@ internal static class NamespaceQualifiedCompilationMerger
                     ParameterTypes = functionType.ParameterTypes.Select(typeReference => TransformTypeReference(typeReference)!).ToList(),
                     ReturnType = TransformTypeReference(functionType.ReturnType)!
                 },
+                ByRefTypeReference byRefType => byRefType with
+                {
+                    InnerType = TransformTypeReference(byRefType.InnerType)!
+                },
                 _ => typeReference
             };
         }

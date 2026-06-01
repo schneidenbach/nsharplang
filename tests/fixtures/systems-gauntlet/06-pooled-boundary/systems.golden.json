@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "case": "pooled boundary feeding hot parser",
+  "expected": {
+    "failure": "rent without return",
+    "code": "NSYS130"
+  }
+}

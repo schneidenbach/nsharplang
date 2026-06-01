@@ -1,6 +1,6 @@
 # N# CLI Reference
 
-Updated: 2026-05-27
+Updated: 2026-06-01
 
 `nlc` is the N# command-line interface. It is designed to feel familiar to Go and Rust developers:
 
@@ -15,7 +15,7 @@ Updated: 2026-05-27
 |---------|---------|-----------|---------|
 | `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--output` | `nlc build` |
 | `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
-| `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`) | `nlc new MyApp --template console` |
+| `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--systems` | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
 | `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
 | `nlc format [files...]` | Format N# source | `--project`, `--check`, `--diff`, `--stdin` | `nlc format --diff` |
@@ -70,6 +70,24 @@ What the toolchain *does* provide is **deterministic IL-shape inspection** — t
 | `nlc query perf` | Explain allocation/dispatch/capture/ABI and systems effect facts at a position | `nlc query perf --file Program.nl --pos 5:12` |
 | `nlc query trusted` | Report governed Systems N# `[trusted]` wrappers | `nlc query trusted` |
 | `nlc query help` | Show query command help | `nlc query help` |
+
+## Systems N# CLI Surface
+
+Systems N# is exposed through existing stable commands rather than a separate `nlc systems` command family:
+
+```bash
+nlc new systems-cli PacketTool
+nlc new systems-lib PacketCore
+nlc new PacketTool --template console --systems
+nlc new PacketCore --template library --systems
+
+nlc check --systems-report
+nlc build --perf-report
+nlc query perf --file Program.nl --pos 12:8
+nlc query trusted
+```
+
+Systems templates set `language.profile: systems`, strict mode, `aotTarget: nativeaot`, `stackBudgetBytes: 4096`, a warmup function, a sample `[hot]` span parser, a `[boundary]` adapter, `Result<T,E>` use, and `.tests.nl` smoke tests.
 
 ## Browser Playground
 

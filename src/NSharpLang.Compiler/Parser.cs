@@ -252,6 +252,11 @@ public class Parser
             return ParseFunctionDeclaration(attributes, modifiers);
         if (Check(TokenType.Class))
             return ParseClassDeclaration(attributes, modifiers);
+        if (Check(TokenType.Ref) && LookAhead(1).Type == TokenType.Struct)
+        {
+            Advance();
+            return ParseStructDeclaration(attributes, modifiers, isRefStruct: true);
+        }
         if (Check(TokenType.Struct))
             return ParseStructDeclaration(attributes, modifiers);
         if (Check(TokenType.Record))
@@ -524,6 +529,7 @@ public class Parser
             returnType = ParseTypeReference();
         }
 
+        var returnLifetime = ParseReturnLifetimeAnnotation();
         var constraints = ParseGenericConstraints();
 
         BlockStatement? body = null;
@@ -542,8 +548,29 @@ public class Parser
         return new FunctionDeclaration(name, parameters, returnType, body, expressionBody, typeParams, constraints, modifiers, attributes, isOperatorOverload, operatorSymbol, isConversionOperator, isImplicitConversion, line, column)
         {
             OperatorKeywordSpan = operatorKeywordSpan,
-            OperatorSymbolSpan = operatorSymbolSpan
+            OperatorSymbolSpan = operatorSymbolSpan,
+            ReturnLifetime = returnLifetime
         };
+    }
+
+    private string? ParseReturnLifetimeAnnotation()
+    {
+        if (!(Check(TokenType.Identifier) && Current.Value == "returns"))
+            return null;
+
+        Advance();
+        if (Check(TokenType.Lifetime))
+            return Advance().Value;
+
+        ReportError(
+            ErrorCode.ExpectedToken,
+            $"Expected lifetime label after 'returns'. Got '{Current.Value}'",
+            Current.Line,
+            Current.Column,
+            humanExplanation: "Systems lifetime annotations use `returns 'a` to tie a ref-like return to a scoped input lifetime.",
+            hint: "Write a lifetime such as `returns 'a`, or remove the `returns` annotation.",
+            length: TokenLengthOrFallback(Current));
+        return null;
     }
 
     private TestDeclaration ParseTestDeclaration()
@@ -713,7 +740,9 @@ public class Parser
                 break;
             }
 
-            var name = ConsumeIdentifier("Expected type parameter name");
+            var name = Check(TokenType.Lifetime)
+                ? Advance().Value
+                : ConsumeIdentifier("Expected type parameter name");
             typeParams.Add(new TypeParameter(name));
         } while (Match(TokenType.Comma));
 
@@ -772,6 +801,7 @@ public class Parser
                 var paramName = ConsumeIdentifier("Expected parameter name", GetMissingParameterNameDiagnosticSpan());
                 ConsumeParameterColon(paramName, paramLine, paramColumn);
                 var paramType = ParseParameterTypeReference(paramName, paramLine, paramColumn);
+                var (isScoped, lifetime) = ParseScopedLifetimeAnnotation();
 
                 Expression? defaultValue = null;
                 if (Check(TokenType.Assign))
@@ -781,7 +811,7 @@ public class Parser
                 }
 
                 parameters.Add(new Parameter(paramName, paramType, defaultValue, isThis, modifier,
-                    attributes.Count > 0 ? attributes : null, paramLine, paramColumn));
+                    attributes.Count > 0 ? attributes : null, paramLine, paramColumn, isScoped, lifetime));
 
                 if (paramName != "<error>")
                     lastParameterStartToken = paramStartToken;
@@ -790,6 +820,26 @@ public class Parser
 
         Consume(TokenType.RightParen, "Expected ')'");
         return parameters;
+    }
+
+    private (bool IsScoped, string? Lifetime) ParseScopedLifetimeAnnotation()
+    {
+        var isScoped = false;
+        string? lifetime = null;
+
+        if (Check(TokenType.Scoped))
+        {
+            isScoped = true;
+            Advance();
+        }
+
+        if (Check(TokenType.Lifetime))
+        {
+            isScoped = true;
+            lifetime = Advance().Value;
+        }
+
+        return (isScoped, lifetime);
     }
 
     private bool IsParameterListRecoveryBoundary(Token openingToken)
@@ -925,7 +975,7 @@ public class Parser
         return new ClassDeclaration(name, typeParams, baseClass, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
     }
 
-    private StructDeclaration ParseStructDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
+    private StructDeclaration ParseStructDeclaration(List<AttributeNode> attributes, Modifiers modifiers, bool isRefStruct = false)
     {
         var line = Current.Line;
         var column = Current.Column;
@@ -959,7 +1009,7 @@ public class Parser
         Consume(TokenType.LeftBrace, "Expected '{'");
         var members = ParseMemberList(typeBodyDiagnosticSpan);
 
-        return new StructDeclaration(name, typeParams, interfaces, members, primaryCtorParams, modifiers, attributes, line, column);
+        return new StructDeclaration(name, typeParams, interfaces, members, primaryCtorParams, modifiers, attributes, line, column, isRefStruct);
     }
 
     private RecordDeclaration ParseRecordDeclaration(List<AttributeNode> attributes, Modifiers modifiers)
@@ -1309,6 +1359,11 @@ public class Parser
         if (Check(TokenType.Class))
         {
             return ParseClassDeclaration(attributes, modifiers);
+        }
+        if (Check(TokenType.Ref) && LookAhead(1).Type == TokenType.Struct)
+        {
+            Advance();
+            return ParseStructDeclaration(attributes, modifiers, isRefStruct: true);
         }
         if (Check(TokenType.Struct))
         {
@@ -1755,6 +1810,18 @@ public class Parser
 
     private TypeReference ParseBaseTypeReference()
     {
+        if (Check(TokenType.BitwiseAnd))
+        {
+            var ampersand = Advance();
+            var inner = ParsePostfixTypeReference();
+            return new ByRefTypeReference(inner)
+            {
+                Span = inner.Span.IsValid
+                    ? new SourceSpan(ampersand.Line, ampersand.Column, inner.Span.EndLine, inner.Span.EndColumn)
+                    : SourceSpan.FromStartAndLength(ampersand.Line, ampersand.Column, 1)
+            };
+        }
+
         // Tuple type
         if (Check(TokenType.LeftParen))
         {
@@ -2134,6 +2201,8 @@ public class Parser
             return ParseAllowStatement();
         if (Check(TokenType.Alloc) && LookAhead(1).Type == TokenType.LeftBrace)
             return ParseAllocBlockStatement();
+        if (Check(TokenType.Unsafe))
+            return ParseUnsafeBlockStatement();
         if (Check(TokenType.Print))
             return ParsePrintStatement();
         if (Check(TokenType.Assert))
@@ -2182,18 +2251,19 @@ public class Parser
             if (Check(TokenType.Colon))
             {
                 Advance();
-                var value = ParseExpression();
                 if (string.Equals(name, "reason", StringComparison.OrdinalIgnoreCase))
                 {
+                    var value = ParseExpression();
                     reason = TryGetStringLiteralValue(value);
                 }
                 else if (string.Equals(name, "owner", StringComparison.OrdinalIgnoreCase))
                 {
+                    var value = ParseExpression();
                     owner = TryGetStringLiteralValue(value);
                 }
                 else
                 {
-                    effects.Add($"{name}:{FormatAllowValue(value)}");
+                    effects.Add($"{name}:{ParseAllowEffectValue()}");
                 }
             }
             else
@@ -2213,6 +2283,32 @@ public class Parser
         Consume(TokenType.RightParen, "Expected ')' after allow arguments");
         var body = ParseBlock(new DiagnosticSpan(line, column, "allow".Length));
         return new AllowStatement(effects, reason, owner, body, line, column);
+    }
+
+    private string ParseAllowEffectValue()
+    {
+        if (Check(TokenType.Identifier)
+            || Check(TokenType.Alloc)
+            || Check(TokenType.Allow)
+            || Check(TokenType.Stackalloc)
+            || Check(TokenType.Interface)
+            || Check(TokenType.Ref)
+            || Check(TokenType.Out)
+            || Check(TokenType.Throw))
+        {
+            return Advance().Value;
+        }
+
+        return FormatAllowValue(ParseExpression());
+    }
+
+    private UnsafeBlockStatement ParseUnsafeBlockStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Consume(TokenType.Unsafe, "Expected 'unsafe'");
+        var body = ParseBlock(new DiagnosticSpan(line, column, "unsafe".Length));
+        return new UnsafeBlockStatement(body, line, column);
     }
 
     private Statement ParseAssertStatement()
@@ -2326,6 +2422,7 @@ public class Parser
             returnType = ParseTypeReference();
         }
 
+        var returnLifetime = ParseReturnLifetimeAnnotation();
         var constraints = ParseGenericConstraints();
 
         BlockStatement? body = null;
@@ -2363,7 +2460,10 @@ public class Parser
         }
 
         var functionDecl = new FunctionDeclaration(name, parameters, returnType, body, expressionBody,
-            typeParams, constraints, modifiers, new List<AttributeNode>(), false, null, false, false, line, column);
+            typeParams, constraints, modifiers, new List<AttributeNode>(), false, null, false, false, line, column)
+        {
+            ReturnLifetime = returnLifetime
+        };
 
         return new LocalFunctionStatement(functionDecl, line, column);
     }
@@ -5553,6 +5653,12 @@ public class Parser
 
         bool ScanBaseTypeReference()
         {
+            if (CurrentType() == TokenType.BitwiseAnd)
+            {
+                AdvanceScan();
+                return ScanPostfixTypeReference();
+            }
+
             if (CurrentType() == TokenType.LeftParen)
             {
                 AdvanceScan();
@@ -6586,7 +6692,7 @@ public class Parser
 
     private static bool IsTypeReferenceStart(TokenType type)
     {
-        return type is TokenType.Identifier or TokenType.LeftParen;
+        return type is TokenType.Identifier or TokenType.LeftParen or TokenType.BitwiseAnd;
     }
 
     private void ReportMissingReturnTypeMarker(
@@ -6810,7 +6916,7 @@ public class Parser
     {
         return type == TokenType.Func || IsTypeDeclarationKeyword(type) ||
                type == TokenType.Test || type == TokenType.Implicit || type == TokenType.Explicit ||
-               type == TokenType.Duck;
+               type == TokenType.Duck || type == TokenType.Ref;
     }
 
     /// <summary>
@@ -6840,6 +6946,7 @@ public class Parser
                type == TokenType.Try || type == TokenType.Using ||
                type == TokenType.Lock || type == TokenType.Switch ||
                type == TokenType.Print || type == TokenType.Assert ||
+               type == TokenType.Unsafe || type == TokenType.Allow ||
                type == TokenType.Func || type == TokenType.Semicolon ||
                type == TokenType.LeftBrace;
     }
@@ -6914,6 +7021,9 @@ public class Parser
     {
         // Direct type declaration keywords
         if (IsTypeDeclarationKeyword(Current.Type))
+            return true;
+
+        if (Current.Type == TokenType.Ref && LookAhead(1).Type == TokenType.Struct)
             return true;
 
         // 'duck interface' declaration
