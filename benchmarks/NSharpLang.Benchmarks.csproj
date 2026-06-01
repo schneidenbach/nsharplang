@@ -3,10 +3,10 @@
   <!--
     Matched N#-vs-C# benchmark corpus for the patterns optimized in PR #160.
 
-    This project is DELIBERATELY OUTSIDE the default `dotnet test` path and is not part of
-    NSharpLang.sln: it produces manual, wall-clock before/after numbers for PRs, not CI gates.
-    The deterministic CI ratchet that pins the IL shape these benchmarks depend on lives in
-    tests/PerfEvidence/IlShapeRegressionTests.cs (part of tests/Tests.csproj).
+    Most benchmarks in this project are deliberately outside the default `dotnet test` path:
+    they produce manual, wall-clock before/after numbers for PRs. The Systems N# benchmark
+    family is also run by scripts/benchmark-systems.sh and the full commit gate because the
+    systems profile has an explicit throughput/allocation evidence requirement.
 
     Run it manually (see benchmarks usage in docs/design/performance-compiler-refactor.md).
   -->

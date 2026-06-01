@@ -160,6 +160,13 @@ else
 fi
 rm -f "$TEST_OUTPUT"
 
+section "Step 3a: Systems BenchmarkDotNet Gate"
+if "$REPO_ROOT/scripts/benchmark-systems.sh"; then
+    handle_success "Systems BenchmarkDotNet gate"
+else
+    handle_error "Systems BenchmarkDotNet gate"
+fi
+
 section "Step 3b: VS Code Integration Tests"
 # Determine whether to run full VS Code tests or the bounded smoke suite.
 # The full suite is intentionally opt-in: it is exhaustive, can exceed launch

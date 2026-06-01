@@ -272,6 +272,17 @@ public static class OutputFormatter
         string? Function,
         string? Suggestion);
 
+    public sealed record PerfReportTrustedSite(
+        string Function,
+        string File,
+        int Line,
+        int Column,
+        string? Owner,
+        string? Review,
+        string? Expires,
+        bool HasUnsafe,
+        int BodyStatementCount);
+
     /// <summary>
     /// Emits the versioned performance report envelope for <c>nlc build --perf-report</c>.
     /// The report groups performance facts by category. Categories without a wired fact source
@@ -286,7 +297,13 @@ public static class OutputFormatter
         IReadOnlyList<PerfReportSite>? delegateSites = null,
         IReadOnlyList<PerfReportSite>? boxingSites = null,
         IReadOnlyList<PerfReportSite>? dispatchSites = null,
-        IReadOnlyList<PerfReportSite>? closureCaptures = null)
+        IReadOnlyList<PerfReportSite>? closureCaptures = null,
+        IReadOnlyList<PerfReportSite>? poolSites = null,
+        IReadOnlyList<PerfReportSite>? resourceSites = null,
+        IReadOnlyList<PerfReportSite>? boundaryLeakSites = null,
+        IReadOnlyList<PerfReportSite>? hotReadinessSites = null,
+        IReadOnlyList<PerfReportSite>? implicitTrapSites = null,
+        IReadOnlyList<PerfReportTrustedSite>? trustedSites = null)
     {
         var envelope = new
         {
@@ -301,6 +318,12 @@ public static class OutputFormatter
                 boxingSites = NormalizePerfSites(boxingSites),
                 dispatchSites = NormalizePerfSites(dispatchSites),
                 closureCaptures = NormalizePerfSites(closureCaptures),
+                poolSites = NormalizePerfSites(poolSites),
+                resourceSites = NormalizePerfSites(resourceSites),
+                boundaryLeakSites = NormalizePerfSites(boundaryLeakSites),
+                hotReadinessSites = NormalizePerfSites(hotReadinessSites),
+                implicitTrapSites = NormalizePerfSites(implicitTrapSites),
+                trustedSites = NormalizeTrustedPerfSites(trustedSites),
                 aotBlockers = (aotBlockers ?? Array.Empty<PerfReportAotBlocker>())
                     .Select(blocker => blocker with { File = NormalizePath(blocker.File) ?? blocker.File })
                     .ToArray()
@@ -311,6 +334,11 @@ public static class OutputFormatter
 
     private static IReadOnlyList<PerfReportSite> NormalizePerfSites(IReadOnlyList<PerfReportSite>? sites)
         => (sites ?? Array.Empty<PerfReportSite>())
+            .Select(site => site with { File = NormalizePath(site.File) ?? site.File })
+            .ToArray();
+
+    private static IReadOnlyList<PerfReportTrustedSite> NormalizeTrustedPerfSites(IReadOnlyList<PerfReportTrustedSite>? sites)
+        => (sites ?? Array.Empty<PerfReportTrustedSite>())
             .Select(site => site with { File = NormalizePath(site.File) ?? site.File })
             .ToArray();
 

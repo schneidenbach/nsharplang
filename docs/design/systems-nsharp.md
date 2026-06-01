@@ -1164,13 +1164,15 @@ Rules:
   intrinsic calls.
 - Runtime benchmarking is done with BenchmarkDotNet against compiled N#
   assemblies; N# does not add a fragile wall-clock benchmark runner in v1.
-- The repository benchmark corpus includes
-  `benchmarks/SystemsHotPathBenchmarks.cs` as the v1 systems performance and
-  allocation smoke benchmark; it uses `MemoryDiagnoser` and a matched C#
-  baseline.
-- `benchmarks/SystemsResultBenchmarks.cs` covers the `Result<T,E>` tagged-struct
-  ABI with `MemoryDiagnoser` so throughput and allocation pressure stay visible
-  for both direct `TryGet*` use and delegate-based matching.
+- The repository benchmark corpus includes a Systems BenchmarkDotNet gate with
+  matched C# baselines, `MemoryDiagnoser`, zero-allocation enforcement, and a
+  throughput-ratio gate. It covers hot loops over caller-owned memory, caller
+  write buffers, direct `Result<T,E>` ABI use, pooled boundary handoff, and
+  hot+result combination paths.
+- `Result<T,E>` hot code uses direct `TryGet*`/`Is*` tag inspection. The
+  delegate-based `Match` helper remains a C# interop convenience, not the
+  systems-hot path, because delegate dispatch cannot match direct tagged-struct
+  dispatch.
 
 Reasoning:
 
@@ -1305,6 +1307,13 @@ Each example must have:
 The first 23 use cases are small enough to challenge inline as one-file samples
 in Appendix B. Use cases 24-48 are complex proof projects under
 `docs/design/systems-samples/proofs/`.
+
+Implementation note: Appendix B and the proof projects are proposal pressure
+tests. The current executable implementation evidence is the ten-case acceptance
+gauntlet under `tests/fixtures/systems-gauntlet/`, the Systems N# unit/CLI tests,
+and the Systems BenchmarkDotNet gate. The 24-48 proof projects remain
+design-only until migrated and audited in
+`docs/audits/systems-proof-project-audit.md`.
 
 | # | Use case | Systems features that address it | V1 posture | Sample |
 | ---: | --- | --- | --- | --- |

@@ -562,13 +562,28 @@ public class Parser
         if (Check(TokenType.Lifetime))
             return Advance().Value;
 
+        if (Check(TokenType.Identifier))
+        {
+            var kind = Advance().Value;
+            if (kind is "local" or "static" or "unknown")
+                return kind;
+
+            if (kind is "param" or "heap")
+            {
+                Consume(TokenType.LeftParen, $"Expected '(' after returns {kind}");
+                var owner = ConsumeIdentifier($"Expected owner name inside returns {kind}(...)");
+                Consume(TokenType.RightParen, $"Expected ')' after returns {kind}({owner})");
+                return $"{kind}({owner})";
+            }
+        }
+
         ReportError(
             ErrorCode.ExpectedToken,
             $"Expected lifetime label after 'returns'. Got '{Current.Value}'",
             Current.Line,
             Current.Column,
-            humanExplanation: "Systems lifetime annotations use `returns 'a` to tie a ref-like return to a scoped input lifetime.",
-            hint: "Write a lifetime such as `returns 'a`, or remove the `returns` annotation.",
+            humanExplanation: "Systems lifetime annotations use `returns 'a`, `returns param(name)`, or `returns heap(owner)` to describe a ref-like return.",
+            hint: "Write a lifetime such as `returns 'a`, `returns heap(owner)`, or remove the `returns` annotation.",
             length: TokenLengthOrFallback(Current));
         return null;
     }

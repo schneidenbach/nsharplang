@@ -1,1 +1,1 @@
-PASS: arena span return carries the parameter lifetime instead of local stack lifetime.
+PASS: arena span return carries the heap owner lifetime instead of local stack lifetime.

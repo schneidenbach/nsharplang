@@ -208,7 +208,13 @@ Exit codes:
                 perfFacts.DelegateSites,
                 perfFacts.BoxingSites,
                 perfFacts.DispatchSites,
-                perfFacts.ClosureCaptures));
+                perfFacts.ClosureCaptures,
+                perfFacts.PoolSites,
+                perfFacts.ResourceSites,
+                perfFacts.BoundaryLeakSites,
+                perfFacts.HotReadinessSites,
+                perfFacts.ImplicitTrapSites,
+                perfFacts.TrustedSites));
         return exitCode;
     }
 
@@ -218,7 +224,13 @@ Exit codes:
         IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> DelegateSites,
         IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> BoxingSites,
         IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> DispatchSites,
-        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ClosureCaptures)
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ClosureCaptures,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> PoolSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ResourceSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> BoundaryLeakSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> HotReadinessSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite> ImplicitTrapSites,
+        IReadOnlyList<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportTrustedSite> TrustedSites)
     {
         public static BuildPerfReportFacts Empty { get; } = new(
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportAotBlocker>(),
@@ -226,7 +238,13 @@ Exit codes:
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
             Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
-            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>());
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportSite>(),
+            Array.Empty<NSharpLang.Compiler.CodeIntelligence.OutputFormatter.PerfReportTrustedSite>());
     }
 
     private static BuildPerfReportFacts SafeCollectPerfFacts(Func<BuildPerfReportFacts> collect)

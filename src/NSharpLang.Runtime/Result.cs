@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 namespace NSharpLang.Runtime;
 
@@ -12,6 +13,7 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
     private readonly TErr? _err;
     private readonly byte _state;
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Result(TOk ok)
     {
         _ok = ok;
@@ -19,6 +21,7 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
         _state = 1;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private Result(TErr err)
     {
         _ok = default;
@@ -26,9 +29,17 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
         _state = 2;
     }
 
-    public bool IsOk => _state == 1;
+    public bool IsOk
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _state == 1;
+    }
 
-    public bool IsErr => _state == 2;
+    public bool IsErr
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => _state == 2;
+    }
 
     public TOk OkValue
     {
@@ -48,10 +59,13 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Result<TOk, TErr> Ok(TOk value) => new(value);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static Result<TOk, TErr> Err(TErr error) => new(error);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetOk(out TOk value)
     {
         if (IsOk)
@@ -64,6 +78,7 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
         return false;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetErr(out TErr error)
     {
         if (IsErr)
@@ -76,6 +91,7 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
         return false;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public TResult Match<TResult>(Func<TOk, TResult> ok, Func<TErr, TResult> err)
     {
         ArgumentNullException.ThrowIfNull(ok);

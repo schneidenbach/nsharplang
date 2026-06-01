@@ -1,1 +1,1 @@
-NSYS001 warning: source-generated JSON serialization allocates inside the boundary and is reported for systems handoff review.
+NSYS001 warning: boundary allocation reported for systems handoff review.

@@ -255,6 +255,25 @@ func Slice<'a>(buf: ReadOnlySpan<byte> scoped 'a, start: int, len: int): ReadOnl
     }
 
     [Fact]
+    public void LifetimeSyntax_ParsesHeapReturnLifetime()
+    {
+        var unit = Parse("""
+import System
+
+func Slice(arena: &Arena, start: int, len: int): Span<byte> returns heap(arena) {
+    return arena.backing.AsSpan(start, len)
+}
+
+struct Arena {
+    backing: byte[]
+}
+""");
+
+        var function = Assert.Single(unit.Declarations.OfType<FunctionDeclaration>());
+        Assert.Equal("heap(arena)", function.ReturnLifetime);
+    }
+
+    [Fact]
     public void HotRefLikeReturn_RequiresReturnLifetime()
     {
         var report = Analyze("""
@@ -543,7 +562,7 @@ func Emit(payload: Payload): string {
     }
 
     [Fact]
-    public void AcceptanceGauntlet_FixturesHaveArtifactsAndExpectedDiagnostics()
+    public void AcceptanceGauntlet_FixturesMatchSystemsPerfAndDiagnosticExpectations()
     {
         var root = Path.Combine(FindRepoRoot(), "tests", "fixtures", "systems-gauntlet");
         var cases = Directory.GetDirectories(root).OrderBy(path => path, StringComparer.Ordinal).ToArray();
@@ -559,16 +578,230 @@ func Emit(payload: Payload): string {
             Assert.True(File.Exists(Path.Combine(dir, "perf-report.golden.json")), $"{dir} is missing perf-report.golden.json");
             Assert.True(File.Exists(Path.Combine(dir, "interop.golden.txt")), $"{dir} is missing interop.golden.txt");
 
-            var report = Analyze(File.ReadAllText(sourcePath), profile: "systems");
-            var expectedCodes = Regex.Matches(File.ReadAllText(diagnosticsPath), "NSYS\\d{3}")
-                .Select(match => match.Value)
-                .Distinct(StringComparer.Ordinal)
-                .ToArray();
+            var source = File.ReadAllText(sourcePath);
+            var unit = Parse(source, sourcePath);
+            var report = Analyze(source, profile: "systems");
 
-            foreach (var code in expectedCodes)
-                Assert.Contains(report.Findings, finding => finding.Code == code);
+            AssertSystemsGolden(dir, unit, report, Path.Combine(dir, "systems.golden.json"));
+            AssertDiagnosticsGolden(dir, report, diagnosticsPath);
+            AssertPerfGolden(dir, report, Path.Combine(dir, "perf-report.golden.json"));
         }
     }
+
+    private static void AssertSystemsGolden(string caseDir, CompilationUnit unit, SystemsReport report, string goldenPath)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(goldenPath));
+        Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        var expected = doc.RootElement.GetProperty("expected");
+
+        foreach (var property in expected.EnumerateObject())
+        {
+            switch (property.Name)
+            {
+                case "errors":
+                    if (property.Value.ValueKind == JsonValueKind.Array && !property.Value.EnumerateArray().Any())
+                    {
+                        Assert.DoesNotContain(report.Findings, finding => finding.Severity == "error");
+                    }
+                    break;
+
+                case "hot":
+                    var hot = property.Value.GetString();
+                    if (hot == "pass")
+                    {
+                        Assert.DoesNotContain(report.Findings, finding => finding.Severity == "error");
+                    }
+                    else
+                    {
+                        Assert.Contains(report.Functions, function => function.Name == hot && function.IsHot);
+                    }
+                    break;
+
+                case "boundary":
+                    Assert.Contains(report.Functions, function => function.Name == property.Value.GetString() && function.IsBoundary);
+                    break;
+
+                case "bclHotSummary":
+                    foreach (var required in property.Value.EnumerateArray().Select(value => value.GetString()).Where(value => value != null))
+                    {
+                        var token = required!.Split('.').Last();
+                        Assert.Contains(report.Functions.SelectMany(function => function.Calls),
+                            call => call.Contains(token, StringComparison.Ordinal));
+                    }
+                    break;
+
+                case "boundsProof":
+                    Assert.DoesNotContain(report.Findings,
+                        finding => finding.Code == "NSYS120" && finding.Effect == "implicitTrap");
+                    break;
+
+                case "concurrencyPrimitive":
+                    Assert.True(report.Functions.Any(function => function.Effects.UsesConcurrencyPrimitive),
+                        $"{caseDir} expected a concurrency primitive in the generated systems report.");
+                    break;
+
+                case "returnLifetime":
+                    Assert.Contains(unit.Declarations.OfType<FunctionDeclaration>(),
+                        function => function.ReturnLifetime == property.Value.GetString());
+                    break;
+
+                case "resultAbi":
+                    Assert.Contains(unit.Declarations.OfType<FunctionDeclaration>(),
+                        function => TypeReferenceText(function.ReturnType) == property.Value.GetString());
+                    break;
+
+                case "refStruct":
+                    Assert.Contains(unit.Declarations.OfType<StructDeclaration>(),
+                        declaration => declaration.Name == property.Value.GetString() && declaration.IsRefStruct);
+                    break;
+
+                case "failure":
+                    Assert.NotEmpty(report.Findings);
+                    break;
+
+                case "code":
+                    Assert.Contains(report.Findings, finding => finding.Code == property.Value.GetString());
+                    break;
+
+                case "trustedSites":
+                    foreach (var site in property.Value.EnumerateArray().Select(value => value.GetString()).Where(value => value != null))
+                    {
+                        Assert.Contains(report.TrustedSites, trusted => trusted.Function == site);
+                    }
+                    break;
+
+                case "aotTarget":
+                    Assert.Equal(property.Value.GetString(), report.AotTarget);
+                    Assert.Equal(property.Value.GetString(), report.Aot.Target);
+                    break;
+
+                case "aot":
+                    Assert.DoesNotContain(report.Findings, finding => finding.Code == "NSYS060");
+                    break;
+
+                case "nativeImageEmitted":
+                    Assert.Equal(property.Value.GetBoolean(), report.Aot.NativeImageEmitted);
+                    break;
+
+                default:
+                    throw new InvalidOperationException($"Unhandled systems gauntlet expectation '{property.Name}' in {caseDir}.");
+            }
+        }
+    }
+
+    private static void AssertDiagnosticsGolden(string caseDir, SystemsReport report, string diagnosticsPath)
+    {
+        var text = File.ReadAllText(diagnosticsPath).Trim();
+        Assert.False(string.IsNullOrWhiteSpace(text), $"{caseDir} has an empty diagnostics golden.");
+
+        if (text.StartsWith("PASS:", StringComparison.Ordinal))
+        {
+            Assert.DoesNotContain(report.Findings, finding => finding.Severity == "error");
+            return;
+        }
+
+        var match = Regex.Match(text, @"^(NSYS\d{3})\s+(error|warning):\s+(.+)$", RegexOptions.Singleline);
+        Assert.True(match.Success, $"{caseDir} diagnostics golden must start with PASS or an NSYS finding line.");
+
+        var code = match.Groups[1].Value;
+        var severity = match.Groups[2].Value;
+        var expectedMessage = NormalizeDiagnosticText(match.Groups[3].Value);
+
+        Assert.Contains(report.Findings, finding =>
+            finding.Code == code
+            && finding.Severity == severity
+            && NormalizeDiagnosticText(finding.Message).Contains(expectedMessage, StringComparison.Ordinal));
+    }
+
+    private static void AssertPerfGolden(string caseDir, SystemsReport report, string goldenPath)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(goldenPath));
+        Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("build", doc.RootElement.GetProperty("command").GetString());
+        var expected = doc.RootElement.GetProperty("expected");
+
+        foreach (var property in expected.EnumerateObject())
+        {
+            switch (property.Name)
+            {
+                case "allocationSites":
+                    AssertPerfSites(caseDir, property.Value, SitesForEffect(report, "allocation"));
+                    break;
+                case "boxingSites":
+                    AssertPerfSites(caseDir, property.Value, SitesForEffect(report, "boxing"));
+                    break;
+                case "dispatchSites":
+                    AssertPerfSites(caseDir, property.Value, SitesForEffect(report, "dispatch"));
+                    break;
+                case "poolSites":
+                    AssertPerfSites(caseDir, property.Value, SitesForEffect(report, "pool"));
+                    break;
+                case "boundaryLeakSites":
+                    AssertPerfSites(caseDir, property.Value, SitesForEffect(report, "boundaryLeak"));
+                    break;
+                case "trustedSites":
+                    AssertStringSites(caseDir, property.Value, report.TrustedSites.Select(site => site.Function));
+                    break;
+                case "aotBlockers":
+                    if (property.Value.ValueKind == JsonValueKind.Array && !property.Value.EnumerateArray().Any())
+                    {
+                        Assert.DoesNotContain(report.Findings, finding => finding.Code == "NSYS060");
+                    }
+                    break;
+                case "aotAnalysis":
+                    Assert.Equal(property.Value.GetString(), report.Aot.Analysis);
+                    break;
+                default:
+                    throw new InvalidOperationException($"Unhandled perf gauntlet expectation '{property.Name}' in {caseDir}.");
+            }
+        }
+    }
+
+    private static IEnumerable<SystemsFinding> SitesForEffect(SystemsReport report, string effect)
+        => report.Findings.Where(finding => finding.Effect == effect);
+
+    private static void AssertPerfSites(string caseDir, JsonElement expected, IEnumerable<SystemsFinding> actualSites)
+    {
+        var sites = actualSites.ToArray();
+        if (expected.ValueKind == JsonValueKind.Array && !expected.EnumerateArray().Any())
+        {
+            Assert.Empty(sites);
+            return;
+        }
+
+        AssertStringSites(caseDir, expected, sites.Select(site =>
+            string.Join(" ", new[] { site.Code, site.Effect, site.Function, site.Message, site.Suggestion }
+                .Where(value => !string.IsNullOrWhiteSpace(value)))));
+    }
+
+    private static void AssertStringSites(string caseDir, JsonElement expected, IEnumerable<string?> actualSites)
+    {
+        var actual = actualSites
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => NormalizeDiagnosticText(value!))
+            .ToArray();
+
+        foreach (var expectedSite in expected.EnumerateArray().Select(value => value.GetString()).Where(value => value != null))
+        {
+            var normalized = NormalizeDiagnosticText(expectedSite!);
+            Assert.Contains(actual, site => site.Contains(normalized, StringComparison.Ordinal));
+        }
+    }
+
+    private static string TypeReferenceText(TypeReference? type) => type switch
+    {
+        null => "",
+        SimpleTypeReference simple => simple.Name,
+        GenericTypeReference generic => $"{generic.Name}<{string.Join(", ", generic.TypeArguments.Select(TypeReferenceText))}>",
+        ArrayTypeReference array => $"{TypeReferenceText(array.ElementType)}[]",
+        NullableTypeReference nullable => $"{TypeReferenceText(nullable.InnerType)}?",
+        ByRefTypeReference byRef => $"&{TypeReferenceText(byRef.InnerType)}",
+        UnionTypeReference union => string.Join(" | ", union.Arms.Select(TypeReferenceText)),
+        _ => type.ToString() ?? ""
+    };
+
+    private static string NormalizeDiagnosticText(string value)
+        => Regex.Replace(value.ToLowerInvariant(), @"[^a-z0-9]+", " ").Trim();
 
     [Fact]
     public void CheckCommand_SystemsReport_EmitsVersionedJson()
@@ -603,6 +836,83 @@ class Box {}
         finally
         {
             Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void BuildCommand_PerfReport_EmitsSystemsEffectSitesFromRealBuild()
+    {
+        var tempDir = CreateTempProject("""
+language:
+  profile: systems
+  systems:
+    mode: strict
+""", """
+[boundary]
+func Make(): object {
+    return new Box()
+}
+
+class Box {}
+""");
+
+        try
+        {
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--project", tempDir, "--perf-report"));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Build successful!", stderr);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("build", doc.RootElement.GetProperty("command").GetString());
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+
+            var perfReport = doc.RootElement.GetProperty("perfReport");
+            Assert.Contains(perfReport.GetProperty("allocationSites").EnumerateArray(),
+                site => site.GetProperty("code").GetString() == "NSYS001"
+                        && site.GetProperty("function").GetString() == "Make");
+            Assert.Contains(perfReport.GetProperty("boundaryLeakSites").EnumerateArray(),
+                site => site.GetProperty("code").GetString() == "NSYS070"
+                        && site.GetProperty("function").GetString() == "Make");
+            Assert.Equal(JsonValueKind.Array, perfReport.GetProperty("poolSites").ValueKind);
+            Assert.Equal(JsonValueKind.Array, perfReport.GetProperty("resourceSites").ValueKind);
+            Assert.Equal(JsonValueKind.Array, perfReport.GetProperty("hotReadinessSites").ValueKind);
+            Assert.Equal(JsonValueKind.Array, perfReport.GetProperty("implicitTrapSites").ValueKind);
+            Assert.Equal(JsonValueKind.Array, perfReport.GetProperty("trustedSites").ValueKind);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void SystemsProofProjects_AreDesignOnlyAndCoveredByAudit()
+    {
+        var repoRoot = FindRepoRoot();
+        var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
+        var auditPath = Path.Combine(repoRoot, "docs", "audits", "systems-proof-project-audit.md");
+        var readmePath = Path.Combine(repoRoot, "docs", "design", "systems-samples", "README.md");
+
+        var proofProjects = Directory.GetDirectories(proofsRoot)
+            .Select(Path.GetFileName)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Equal(25, proofProjects.Length);
+        Assert.True(File.Exists(auditPath), "Systems proof projects must have an explicit audit artifact.");
+
+        var readme = File.ReadAllText(readmePath);
+        Assert.Contains("Status: design proof samples", readme, StringComparison.Ordinal);
+        Assert.Contains("not executable examples", Regex.Replace(readme, @"\s+", " "), StringComparison.OrdinalIgnoreCase);
+
+        var audit = File.ReadAllText(auditPath);
+        Assert.Contains("Status: current compiler audit, not a pass report", audit, StringComparison.Ordinal);
+        foreach (var project in proofProjects)
+        {
+            Assert.Contains($"`{project}`", audit, StringComparison.Ordinal);
         }
     }
 
@@ -676,20 +986,54 @@ func Copy(): int {
     [Fact]
     public void SystemsBenchmark_UsesBenchmarkDotNetForPerformanceAndAllocationCoverage()
     {
-        var benchmarkPath = Path.Combine(FindRepoRoot(), "benchmarks", "SystemsHotPathBenchmarks.cs");
-        var source = File.ReadAllText(benchmarkPath);
+        var root = FindRepoRoot();
+        var benchmarkClasses = new[]
+        {
+            "SystemsHotPathBenchmarks",
+            "SystemsCallerBufferBenchmarks",
+            "SystemsResultBenchmarks",
+            "SystemsPooledBoundaryBenchmarks",
+            "SystemsCombinationBenchmarks",
+        };
 
-        Assert.Contains("class SystemsHotPathBenchmarks", source, StringComparison.Ordinal);
-        Assert.Contains("[MemoryDiagnoser]", source, StringComparison.Ordinal);
-        Assert.Contains("[Benchmark(Baseline = true)]", source, StringComparison.Ordinal);
-        Assert.Contains("[Benchmark]", source, StringComparison.Ordinal);
-        Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int>>", source, StringComparison.Ordinal);
+        foreach (var benchmarkClass in benchmarkClasses)
+        {
+            var benchmarkPath = Path.Combine(root, "benchmarks", $"{benchmarkClass}.cs");
+            var source = File.ReadAllText(benchmarkPath);
 
-        var resultBenchmark = File.ReadAllText(Path.Combine(FindRepoRoot(), "benchmarks", "SystemsResultBenchmarks.cs"));
-        Assert.Contains("class SystemsResultBenchmarks", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[MemoryDiagnoser]", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("Result<int, int>", resultBenchmark, StringComparison.Ordinal);
-        Assert.Contains("[Benchmark(Baseline = true)]", resultBenchmark, StringComparison.Ordinal);
+            Assert.Contains($"class {benchmarkClass}", source, StringComparison.Ordinal);
+            Assert.Contains("[MemoryDiagnoser]", source, StringComparison.Ordinal);
+            Assert.Contains("[Benchmark(Baseline = true)]", source, StringComparison.Ordinal);
+            Assert.Contains("[Benchmark]", source, StringComparison.Ordinal);
+        }
+
+        var hotPathBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsHotPathBenchmarks.cs"));
+        Assert.Contains("HotPathWorkload.Checksum", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("HotPathWorkload.ScoreFrame", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("HotPathWorkload.ScanTag", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("HotPathWorkload.CountAscii", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int>>", hotPathBenchmark, StringComparison.Ordinal);
+
+        var callerBufferBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCallerBufferBenchmarks.cs"));
+        Assert.Contains("CallerBufferWorkload.CopyPositive", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CallerBufferWorkload.WriteFrame", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CallerBufferWorkload.Transform", callerBufferBenchmark, StringComparison.Ordinal);
+
+        var resultBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsResultBenchmarks.cs"));
+        Assert.Contains("ResultWorkload.SumOkValues", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("ResultWorkload.SumErrValues", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("ResultWorkload.BranchAndCopy", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("RuntimeResult", resultBenchmark, StringComparison.Ordinal);
+        Assert.DoesNotContain("MatchDelegate", resultBenchmark, StringComparison.Ordinal);
+
+        var script = File.ReadAllText(Path.Combine(root, "scripts", "benchmark-systems.sh"));
+        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 4", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 3", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 3", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 2", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 2", script, StringComparison.Ordinal);
+        Assert.Contains("allocated != 0", script, StringComparison.Ordinal);
+        Assert.Contains("ratio > limit", script, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -879,6 +1223,17 @@ targetFramework: net10.0
             Console.SetOut(originalOut);
             Console.SetError(originalErr);
         }
+    }
+
+    private static int ExecuteProgram(params string[] args)
+    {
+        var programType = typeof(CheckCommand).Assembly.GetType("NSharpLang.Cli.Program");
+        Assert.NotNull(programType);
+
+        var method = programType!.GetMethod("Execute", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        return (int)(method!.Invoke(null, new object[] { args }) ?? -1);
     }
 
     private static string FindRepoRoot()

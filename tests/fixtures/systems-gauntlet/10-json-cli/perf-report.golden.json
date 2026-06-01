@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "command": "build.perfReport",
+  "command": "build",
   "expected": {
-    "allocationSites": [],
+    "allocationSites": ["EmitJson"],
     "aotAnalysis": "pass"
   }
 }

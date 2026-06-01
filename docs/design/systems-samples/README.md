@@ -5,7 +5,11 @@ Status: design proof samples
 These samples challenge the Systems N# use-case appendix in
 `../systems-nsharp.md`. They are intentionally stored under `docs/design/`
 instead of `examples/` because many files use proposed Systems N# syntax and
-contracts that are not yet current compiler fixtures.
+contracts that are not yet current compiler fixtures. They are design-only, not
+executable examples, and must not be cited as passing implementation evidence.
+
+Current compiler audit status is tracked in
+`../../audits/systems-proof-project-audit.md`.
 
 The sample set is split in two:
 

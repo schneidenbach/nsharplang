@@ -5,11 +5,12 @@ Scope: implementation pass for `docs/design/systems-nsharp.md`
 
 ## Review Position
 
-The implementation now covers the v1 product surface as an enforceable policy
-lane, but it should still be marketed carefully: Systems N# proves source-level
-and summarized hot-path effects. It does not prove process-wide pause freedom,
-native-image emission, arbitrary third-party package safety, or data-race
-freedom.
+The implementation covers a meaningful executable slice of the v1 product
+surface as an enforceable policy lane, but it does not cover the whole proposal.
+Systems N# currently proves source-level and summarized hot-path effects for the
+compiler fixtures and CLI gates listed below. It does not prove process-wide
+pause freedom, native-image emission, arbitrary third-party package safety,
+data-race freedom, or every design proof project in the use-case appendix.
 
 ## Concrete Coverage Added
 
@@ -37,10 +38,15 @@ freedom.
 - Systems templates for `nlc new`, `dotnet new`, and `--systems` flags.
 - Acceptance gauntlet fixtures under `tests/fixtures/systems-gauntlet/` with
   source, systems JSON golden, human diagnostic golden, perf-report golden, and
-  C# interop notes for the ten v1 scenarios.
-- BenchmarkDotNet coverage for hot-path throughput/allocation
-  (`SystemsHotPathBenchmarks`) and Result ABI throughput/allocation
-  (`SystemsResultBenchmarks`).
+  C# interop notes for the ten executable v1 scenarios.
+- BenchmarkDotNet coverage for hot-path throughput/allocation across
+  caller-owned loops, write buffers, direct Result ABI operations, pooled
+  boundary handoff, and hot+result combinations (`Systems*Benchmarks`). The
+  commit gate requires all Systems benchmark rows to allocate 0 B and keeps
+  N#/runtime rows under the configured ratio limit against matched C# baselines.
+- A proof-project audit for the design-only projects under
+  `docs/design/systems-samples/proofs/`, explicitly recording that they are not
+  passing executable evidence yet.
 
 ## Remaining Hard Edges
 
@@ -58,6 +64,9 @@ freedom.
 5. The acceptance gauntlet is intentionally source/analyzer focused. Full
    NativeAOT, source-generator, and C# consumer projects should become separate
    preview gates as those deployment surfaces mature.
+6. The complex proof projects for use cases 24-48 remain design proof inputs,
+   not current compiler examples. See
+   `docs/audits/systems-proof-project-audit.md`.
 
 ## Adversarial Smoke Cases
 

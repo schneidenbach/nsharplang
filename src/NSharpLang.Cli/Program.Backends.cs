@@ -359,7 +359,24 @@ Build timings:
             sites.Where(site => site.Effect is "delegate").ToArray(),
             sites.Where(site => site.Effect is "boxing").ToArray(),
             sites.Where(site => site.Effect is "dispatch").ToArray(),
-            sites.Where(site => site.Effect is "closure").ToArray());
+            sites.Where(site => site.Effect is "closure").ToArray(),
+            sites.Where(site => site.Effect is "pool").ToArray(),
+            sites.Where(site => site.Effect is "resource").ToArray(),
+            sites.Where(site => site.Effect is "boundaryLeak").ToArray(),
+            sites.Where(site => site.Effect is "hotReadiness").ToArray(),
+            sites.Where(site => site.Effect is "implicitTrap").ToArray(),
+            compiler.SystemsReport.TrustedSites
+                .Select(site => new OutputFormatter.PerfReportTrustedSite(
+                    site.Function,
+                    site.File,
+                    site.Line,
+                    site.Column,
+                    site.Owner,
+                    site.Review,
+                    site.Expires,
+                    site.HasUnsafe,
+                    site.BodyStatementCount))
+                .ToArray());
     }
 
     private static IReadOnlyList<OutputFormatter.PerfReportAotBlocker> ToPerfReportBlockers(IReadOnlyList<AotBlocker> blockers)

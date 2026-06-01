@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "command": "build.perfReport",
+  "command": "build",
   "expected": {
-    "dispatchSites": ["Dictionary"]
+    "boundaryLeakSites": ["Dictionary"]
   }
 }

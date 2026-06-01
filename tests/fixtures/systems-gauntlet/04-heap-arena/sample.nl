@@ -10,7 +10,7 @@ enum ArenaError {
 }
 
 [hot]
-func Allocate(self: &Arena scoped 'self, n: int): Result<Span<byte>, ArenaError> returns 'self {
+func Allocate(self: &Arena scoped 'self, n: int): Result<Span<byte>, ArenaError> returns heap(self) {
     if n == 0 {
         return Err(ArenaError.Full)
     }

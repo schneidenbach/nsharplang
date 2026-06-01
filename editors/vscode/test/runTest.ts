@@ -7,6 +7,9 @@ async function main() {
     try {
         const extensionDevelopmentPath = path.resolve(__dirname, '../../');
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
+        const vscodeExecutablePath = resolveMachineVSCodeExecutable();
+        const vscodeCachePath = process.env.NSHARP_VSCODE_CACHE_PATH
+            ?? path.join(resolveCacheRoot(), 'NSharpLang', 'vscode-test');
 
         // Default to the simple fixture workspace
         const testWorkspace = process.env.TEST_WORKSPACE
@@ -43,6 +46,8 @@ async function main() {
             extensionDevelopmentPath,
             extensionTestsPath,
             extensionTestsEnv,
+            ...(vscodeExecutablePath ? { vscodeExecutablePath } : { cachePath: vscodeCachePath }),
+            reuseMachineInstall: true,
             launchArgs: [
                 testWorkspace,
                 '--disable-workspace-trust',
@@ -76,6 +81,39 @@ async function main() {
         console.error('Failed to run tests:', err);
         process.exit(1);
     }
+}
+
+function resolveMachineVSCodeExecutable(): string | undefined {
+    const explicit = process.env.NSHARP_VSCODE_EXECUTABLE_PATH;
+    if (explicit && fs.existsSync(explicit)) {
+        return explicit;
+    }
+
+    if (process.platform === 'darwin') {
+        for (const candidate of [
+            '/Applications/Visual Studio Code.app/Contents/MacOS/Code',
+            '/Applications/Visual Studio Code.app/Contents/MacOS/Electron'
+        ]) {
+            if (fs.existsSync(candidate)) {
+                return candidate;
+            }
+        }
+    }
+
+    return undefined;
+}
+
+function resolveCacheRoot(): string {
+    if (process.env.XDG_CACHE_HOME) {
+        return process.env.XDG_CACHE_HOME;
+    }
+    if (process.platform === 'darwin') {
+        return path.join(os.homedir(), 'Library', 'Caches');
+    }
+    if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
+        return process.env.LOCALAPPDATA;
+    }
+    return path.join(os.homedir(), '.cache');
 }
 
 main();
