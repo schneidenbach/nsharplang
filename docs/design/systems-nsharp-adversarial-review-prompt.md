@@ -1,3 +1,5 @@
+## GOLDEN RULE: ALWAYS use codex-review to adversarially debate your proposals!
+
 You are reviewing a proposed "Systems N#" design for N#, a pragmatic .NET/CLR
 language positioned as "Go for .NET."
 
@@ -203,7 +205,7 @@ Output required:
 2. Top 10 ways this spec could fail in the real systems world.
 3. Top 10 ways it could fail in the .NET ecosystem.
 4. Top 10 ways it could corrupt N# simplicity/purity.
-5. At least 25 realistic pseudo-N# systems examples that stress the design.
+5. At least 12 realistic pseudo-N# systems examples that stress the design.
 6. For each example, say whether the spec handles it well, poorly, or
    ambiguously.
 7. Identify features to cut from v1.
