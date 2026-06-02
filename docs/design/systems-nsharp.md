@@ -1321,11 +1321,10 @@ in Appendix B. Use cases 24-48 are complex proof projects under
 Implementation note: Appendix B and the proof projects are proposal pressure
 tests. The current executable implementation evidence is the ten-case acceptance
 gauntlet under `tests/fixtures/systems-gauntlet/`, executable proof projects
-24, 25, 26, 27, 30, 31, 32, 33, 34, 36, 37, 40, 41, 42, 43, 44, 45, and 48 under
-`docs/design/systems-samples/proofs/`, the Systems N# unit/CLI tests, and the
-fast Systems BenchmarkDotNet gate, and the detailed 196-row matrix available via
-`NSHARP_SYSTEMS_BENCH_MODE=matrix`. The remaining proof projects are
-design-only until migrated and audited in
+24-27, 29-46, and 48 under `docs/design/systems-samples/proofs/`, the Systems
+N# unit/CLI tests, and the fast Systems BenchmarkDotNet gate, and the detailed
+196-row matrix available via `NSHARP_SYSTEMS_BENCH_MODE=matrix`. Proof projects
+28 and 47 remain design-only until migrated and audited in
 `docs/audits/systems-proof-project-audit.md`.
 
 | # | Use case | Systems features that address it | V1 posture | Sample |
@@ -1358,7 +1357,7 @@ design-only until migrated and audited in
 | 26 | Open a native device handle. | `[boundary]`, `LibraryImport`, explicit handle owner/disposal, `Result<T,E>`. | Executable analysis/build proof; real native device run remains deployment-specific. | [Project](systems-samples/proofs/26-native-device-handle/) |
 | 27 | Call a C library from a systems CLI. | source-generated P/Invoke, AOT facts, boundary adaptation. | Executable analysis/build proof; real native library run remains deployment-specific. | [Project](systems-samples/proofs/27-c-library-cli/) |
 | 28 | Parse command-line options and emit JSON in NativeAOT. | Boundary allocation, `System.Text.Json` source-gen, target-qualified AOT facts. | Analysis in scope now; native image waits for publish implementation. | [Project](systems-samples/proofs/28-nativeaot-json-cli/) |
-| 29 | Use generated regex in a boundary parser. | `[GeneratedRegex]` summary, boundary allocation report, AOT/trimming facts. | In scope with generated-code summary. | [Project](systems-samples/proofs/29-generated-regex-boundary/) |
+| 29 | Use generated regex in a boundary parser. | `[GeneratedRegex]` summary, boundary allocation report, AOT/trimming facts. | Executable proof covers an IL-backend generated-regex factory with preserved `[GeneratedRegex]` metadata, cached `Regex` behavior, reviewed boundary allocation, and no delegate, closure, boxing, dispatch, trap, hot-readiness, or AOT blocker sites. Native image publication and arbitrary source-generator execution remain separate deployment work. | [Project](systems-samples/proofs/29-generated-regex-boundary/) |
 | 30 | Log diagnostic details only on cold failures. | `[hot]` success path, narrow `allow(alloc)` in cold branch, allocation report. | In scope. | [Project](systems-samples/proofs/30-cold-failure-logging/) |
 | 31 | Emit metrics from hot code. | `Interlocked`, no string formatting in hot path, boundary exporter. | In scope. | [Project](systems-samples/proofs/31-hot-metrics/) |
 | 32 | Prewarm caches before accepting traffic. | hot-readiness model, warmup config, `.cctor` and pool warmup reports. | In scope. | [Project](systems-samples/proofs/32-cache-prewarm/) |

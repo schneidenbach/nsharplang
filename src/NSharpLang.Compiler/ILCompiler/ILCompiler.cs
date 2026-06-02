@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 using NSharpLang.Compiler.Ast;
@@ -118,6 +119,7 @@ public partial class ILCompiler
     private readonly List<GenericSpecialization> _pendingSpecializationBodies = new();
     private readonly HashSet<GenericSpecialization> _emittedSpecializationBodies = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<FunctionDeclaration, List<AnonymousUnionShim>> _anonymousUnionShimsByDeclaration = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<FunctionDeclaration, FieldBuilder> _generatedRegexCacheFields = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>
     /// Functions whose by-value struct parameters were lowered to pass-by-<c>in</c> during
@@ -234,6 +236,7 @@ public partial class ILCompiler
     private sealed record DeclaredMethodOverload(FunctionDeclaration Declaration, MethodBuilder Builder);
     private sealed record DeclaredConstructorOverload(ConstructorDeclaration Declaration, ConstructorBuilder Builder);
     private sealed record NativeImportInfo(string LibraryName, string EntryPoint);
+    private sealed record GeneratedRegexInfo(string Pattern, RegexOptions Options, int? MatchTimeoutMilliseconds);
     private sealed record AnonymousUnionShim(
         MethodBuilder Builder,
         MethodBuilder Target,
@@ -4671,6 +4674,214 @@ public partial class ILCompiler
         }
 
         return false;
+    }
+
+    private bool TryGetGeneratedRegexInfo(FunctionDeclaration function, out GeneratedRegexInfo info)
+    {
+        info = null!;
+
+        foreach (var attribute in function.Attributes)
+        {
+            if (!IsGeneratedRegexAttribute(attribute))
+            {
+                continue;
+            }
+
+            string? pattern = null;
+            var options = RegexOptions.None;
+            int? matchTimeoutMilliseconds = null;
+            var positionalIndex = 0;
+
+            foreach (var argument in attribute.Arguments)
+            {
+                var (name, valueExpression) = NormalizeAttributeArgument(argument);
+                var (value, valueType) = EvaluateAttributeArgument(valueExpression);
+
+                if (name == null)
+                {
+                    switch (positionalIndex)
+                    {
+                        case 0:
+                            pattern = value as string;
+                            break;
+                        case 1:
+                            options = ConvertRegexOptions(value, valueType);
+                            break;
+                        case 2 when value is int timeout:
+                            matchTimeoutMilliseconds = timeout;
+                            break;
+                        case 3 when value is int timeout:
+                            matchTimeoutMilliseconds = timeout;
+                            break;
+                    }
+
+                    positionalIndex++;
+                    continue;
+                }
+
+                if (string.Equals(name, "pattern", StringComparison.OrdinalIgnoreCase))
+                {
+                    pattern = value as string;
+                }
+                else if (string.Equals(name, "options", StringComparison.OrdinalIgnoreCase))
+                {
+                    options = ConvertRegexOptions(value, valueType);
+                }
+                else if (string.Equals(name, "matchTimeoutMilliseconds", StringComparison.OrdinalIgnoreCase)
+                         && value is int timeout)
+                {
+                    matchTimeoutMilliseconds = timeout;
+                }
+            }
+
+            if (pattern == null)
+            {
+                throw new InvalidOperationException($"GeneratedRegex method {function.Name} requires a string pattern.");
+            }
+
+            info = new GeneratedRegexInfo(pattern, options, matchTimeoutMilliseconds);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static RegexOptions ConvertRegexOptions(object? value, Type valueType)
+    {
+        if (value is RegexOptions regexOptions)
+        {
+            return regexOptions;
+        }
+
+        if (value is int intValue)
+        {
+            return (RegexOptions)intValue;
+        }
+
+        var underlyingType = Nullable.GetUnderlyingType(valueType) ?? valueType;
+        if (underlyingType.IsEnum && underlyingType == typeof(RegexOptions))
+        {
+            return (RegexOptions)value!;
+        }
+
+        throw new InvalidOperationException($"GeneratedRegex options must be RegexOptions, but got {valueType}.");
+    }
+
+    private static bool IsGeneratedRegexAttribute(AttributeNode attribute)
+    {
+        var name = attribute.Name;
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+        {
+            name = name[(lastDot + 1)..];
+        }
+
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            name = name[..^"Attribute".Length];
+        }
+
+        return name == "GeneratedRegex";
+    }
+
+    private void DeclareGeneratedRegexCacheField(
+        TypeBuilder typeBuilder,
+        FunctionDeclaration function,
+        Type returnType,
+        Type[] parameterTypes,
+        bool isStaticMethod,
+        bool hasGenericParameters)
+    {
+        if (!TryGetGeneratedRegexInfo(function, out _))
+        {
+            return;
+        }
+
+        if (function.Body != null || function.ExpressionBody != null)
+        {
+            throw new InvalidOperationException($"GeneratedRegex method {function.Name} must not declare a body.");
+        }
+
+        if (!isStaticMethod)
+        {
+            throw new InvalidOperationException($"GeneratedRegex method {function.Name} must be static.");
+        }
+
+        if (hasGenericParameters)
+        {
+            throw new InvalidOperationException($"GeneratedRegex method {function.Name} cannot be generic.");
+        }
+
+        if (parameterTypes.Length != 0)
+        {
+            throw new InvalidOperationException($"GeneratedRegex method {function.Name} must be parameterless.");
+        }
+
+        if (returnType != typeof(Regex))
+        {
+            throw new InvalidOperationException($"GeneratedRegex method {function.Name} must return System.Text.RegularExpressions.Regex.");
+        }
+
+        var fieldName = $"__nsharpGeneratedRegex_{_generatedRegexCacheFields.Count}_{SanitizeGeneratedMemberName(function.Name)}";
+        var cacheField = typeBuilder.DefineField(
+            fieldName,
+            typeof(Regex),
+            FieldAttributes.Private | FieldAttributes.Static);
+        _generatedRegexCacheFields[function] = cacheField;
+    }
+
+    private void EmitGeneratedRegexBody(FunctionDeclaration function, MethodBuilder methodBuilder, GeneratedRegexInfo info)
+    {
+        if (!_generatedRegexCacheFields.TryGetValue(function, out var cacheField))
+        {
+            throw new InvalidOperationException($"GeneratedRegex cache field for {function.Name} was not declared.");
+        }
+
+        var il = methodBuilder.GetILGenerator();
+        var returnCached = il.DefineLabel();
+
+        il.Emit(OpCodes.Ldsfld, cacheField);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Brtrue_S, returnCached);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ldstr, info.Pattern);
+        il.Emit(OpCodes.Ldc_I4, (int)info.Options);
+
+        if (info.MatchTimeoutMilliseconds is int timeout)
+        {
+            var fromMilliseconds = typeof(TimeSpan).GetMethod(
+                nameof(TimeSpan.FromMilliseconds),
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                new[] { typeof(double) },
+                modifiers: null)
+                ?? throw new InvalidOperationException("Could not resolve TimeSpan.FromMilliseconds(double).");
+            var timeoutConstructor = typeof(Regex).GetConstructor(new[] { typeof(string), typeof(RegexOptions), typeof(TimeSpan) })
+                ?? throw new InvalidOperationException("Could not resolve Regex(string, RegexOptions, TimeSpan).");
+
+            il.Emit(OpCodes.Ldc_R8, (double)timeout);
+            il.Emit(OpCodes.Call, fromMilliseconds);
+            il.Emit(OpCodes.Newobj, timeoutConstructor);
+        }
+        else
+        {
+            var constructor = typeof(Regex).GetConstructor(new[] { typeof(string), typeof(RegexOptions) })
+                ?? throw new InvalidOperationException("Could not resolve Regex(string, RegexOptions).");
+            il.Emit(OpCodes.Newobj, constructor);
+        }
+
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Stsfld, cacheField);
+        il.MarkLabel(returnCached);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static string SanitizeGeneratedMemberName(string name)
+    {
+        var chars = name
+            .Select(ch => char.IsLetterOrDigit(ch) || ch == '_' ? ch : '_')
+            .ToArray();
+        return chars.Length == 0 ? "Regex" : new string(chars);
     }
 
     private static bool IsNativeImportAttribute(AttributeNode attribute)
@@ -10123,6 +10334,13 @@ public partial class ILCompiler
             SetMethodSignatureWithInModifiers(methodBuilder, function.Parameters, returnType, parameterTypes);
         }
 
+        DeclareGeneratedRegexCacheField(
+            typeBuilder,
+            function,
+            returnType,
+            parameterTypes,
+            isStaticMethod: true,
+            hasGenericParameters: runtimeTypeParameters.Length > 0);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, function.Attributes);
         ApplyAotRequirementAttributes(methodBuilder.SetCustomAttribute, function.Name);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
@@ -10317,6 +10535,12 @@ public partial class ILCompiler
     {
         if (TryGetNativeImportInfo(function, GetEmittedMethodName(function), out _))
         {
+            return;
+        }
+
+        if (TryGetGeneratedRegexInfo(function, out var generatedRegexInfo))
+        {
+            EmitGeneratedRegexBody(function, methodBuilder, generatedRegexInfo);
             return;
         }
 
@@ -20887,6 +21111,13 @@ public partial class ILCompiler
             methodAttributes,
             returnType,
             parameterTypes);
+        DeclareGeneratedRegexCacheField(
+            typeBuilder,
+            funcDecl,
+            returnType,
+            parameterTypes,
+            isStaticMethod: (methodAttributes & MethodAttributes.Static) == MethodAttributes.Static,
+            hasGenericParameters: funcDecl.TypeParameters is { Count: > 0 });
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
         ApplyAotRequirementAttributes(
             methodBuilder.SetCustomAttribute,
@@ -21459,6 +21690,12 @@ public partial class ILCompiler
 
         if (TryGetNativeImportInfo(funcDecl, GetEmittedMethodName(funcDecl), out _))
         {
+            return;
+        }
+
+        if (TryGetGeneratedRegexInfo(funcDecl, out var generatedRegexInfo))
+        {
+            EmitGeneratedRegexBody(funcDecl, methodBuilder, generatedRegexInfo);
             return;
         }
 

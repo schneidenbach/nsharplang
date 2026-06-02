@@ -140,8 +140,7 @@ Exit codes:
                 var buildResult = RunBuildEmittingPerfReport(
                     perfReport,
                     projectRoot,
-                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot),
-                    () => CollectProjectPerfFacts(projectRoot, currentProjectConfig));
+                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot));
                 return buildResult;
             }
 
@@ -157,8 +156,7 @@ Exit codes:
             var singleFileResult = RunBuildEmittingPerfReport(
                 perfReport,
                 sourceDir,
-                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot),
-                () => CollectSingleFilePerfFacts(sourceFile, sourceProjectConfig));
+                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot));
             return singleFileResult;
         }
         catch (Exception ex)
@@ -176,23 +174,20 @@ Exit codes:
     static int RunBuildEmittingPerfReport(
         bool perfReport,
         string projectRoot,
-        Func<int> build,
-        Func<BuildPerfReportFacts> collectPerfFacts)
+        Func<BuildCommandResult> build)
     {
         if (!perfReport)
         {
-            return build();
+            return build().ExitCode;
         }
 
         var originalOut = Console.Out;
-        int exitCode;
-        BuildPerfReportFacts perfFacts;
+        BuildCommandResult result;
         try
         {
             // Keep stdout reserved for the JSON report; send build logs to stderr.
             Console.SetOut(Console.Error);
-            exitCode = build();
-            perfFacts = SafeCollectPerfFacts(collectPerfFacts);
+            result = build();
         }
         finally
         {
@@ -202,20 +197,26 @@ Exit codes:
         Console.WriteLine(
             NSharpLang.Compiler.CodeIntelligence.OutputFormatter.BuildPerfReportToJson(
                 projectRoot,
-                exitCode == 0,
-                perfFacts.AotBlockers,
-                perfFacts.AllocationSites,
-                perfFacts.DelegateSites,
-                perfFacts.BoxingSites,
-                perfFacts.DispatchSites,
-                perfFacts.ClosureCaptures,
-                perfFacts.PoolSites,
-                perfFacts.ResourceSites,
-                perfFacts.BoundaryLeakSites,
-                perfFacts.HotReadinessSites,
-                perfFacts.ImplicitTrapSites,
-                perfFacts.TrustedSites));
-        return exitCode;
+                result.ExitCode == 0,
+                result.PerfFacts.AotBlockers,
+                result.PerfFacts.AllocationSites,
+                result.PerfFacts.DelegateSites,
+                result.PerfFacts.BoxingSites,
+                result.PerfFacts.DispatchSites,
+                result.PerfFacts.ClosureCaptures,
+                result.PerfFacts.PoolSites,
+                result.PerfFacts.ResourceSites,
+                result.PerfFacts.BoundaryLeakSites,
+                result.PerfFacts.HotReadinessSites,
+                result.PerfFacts.ImplicitTrapSites,
+                result.PerfFacts.TrustedSites));
+        return result.ExitCode;
+    }
+
+    private sealed record BuildCommandResult(int ExitCode, BuildPerfReportFacts PerfFacts)
+    {
+        public static BuildCommandResult Failure(int exitCode = 1, BuildPerfReportFacts? perfFacts = null)
+            => new(exitCode, perfFacts ?? BuildPerfReportFacts.Empty);
     }
 
     private sealed record BuildPerfReportFacts(

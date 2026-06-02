@@ -628,6 +628,48 @@ public class MultiFileCompiler
         }
     }
 
+    private void AddStrictLintDiagnosticsFromParsedSources()
+    {
+        var filesWithParseErrors = _allErrors
+            .Where(error => error.Severity == ErrorSeverity.Error && !string.IsNullOrWhiteSpace(error.FileName))
+            .Select(error => Path.GetFullPath(error.FileName!))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var sourceFile in _sourceFiles)
+        {
+            var fullPath = Path.GetFullPath(sourceFile);
+            if (filesWithParseErrors.Contains(fullPath))
+                continue;
+
+            if (!_compilationUnits.TryGetValue(sourceFile, out var compilationUnit))
+                continue;
+
+            var source = _sourceTexts.TryGetValue(fullPath, out var cachedSource)
+                ? cachedSource
+                : ReadSourceText(sourceFile);
+            var fileDir = Path.GetDirectoryName(fullPath) ?? _projectRoot;
+            var linter = new Linter(LinterConfig.FromEditorConfig(fileDir));
+            foreach (var diagnostic in linter.Lint(compilationUnit, fullPath, source)
+                         .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
+            {
+                _allErrors.Add(new CompilerError(
+                    ErrorCode.InvalidSyntax,
+                    diagnostic.Message,
+                    diagnostic.Location.Line,
+                    diagnostic.Location.Column,
+                    ErrorSeverity.Error)
+                {
+                    FileName = fullPath,
+                    Length = Math.Max(diagnostic.Length, 1),
+                    Suggestion = diagnostic.Suggestion,
+                    SourceSnippet = TryReadSourceLine(fullPath, diagnostic.Location.Line)?.TrimEnd(),
+                    DiagnosticIdOverride = diagnostic.Code,
+                    DocsUrl = DiagnosticCatalog.DocsUrlFor(diagnostic.Code)
+                });
+            }
+        }
+    }
+
     /// <summary>
     /// Export all files to C#.
     /// </summary>
@@ -727,11 +769,24 @@ public class MultiFileCompiler
         return new CSharpExportResult(success, _allErrors, _exportedCSharpFiles);
     }
 
-    public MultiFileCompilationResult CompileToIlAssembly(string assemblyName, string outputPath)
+    public MultiFileCompilationResult CompileToIlAssembly(string assemblyName, string outputPath, bool validateStrictLint = false)
     {
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] CompileToIlAssembly START");
 
         ParseAllFiles();
+        var errorsBeforeLint = _allErrors.Count(error => error.Severity == ErrorSeverity.Error);
+        if (validateStrictLint)
+        {
+            AddStrictLintDiagnosticsFromParsedSources();
+            if (_allErrors.Skip(errorsBeforeLint).Any(error => error.Severity == ErrorSeverity.Error))
+            {
+                return new MultiFileCompilationResult(
+                    false,
+                    _allErrors,
+                    null);
+            }
+        }
+
         DetectCircularFileImports();
         AnalyzeAllFiles();
 

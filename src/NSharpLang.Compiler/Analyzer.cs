@@ -597,6 +597,8 @@ public class Analyzer : IDisposable
         _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
         _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
 
+        ValidateGeneratedRegexDeclaration(func, functionReturnType);
+
         // Record function return type in semantic model for IDE features (scoped)
         RecordFunctionInCurrentScope(func.Name, functionReturnType);
 
@@ -682,6 +684,148 @@ public class Analyzer : IDisposable
         _currentFunctionIsAsync = previousFunctionIsAsync;
         PopScope();
     }
+
+    private void ValidateGeneratedRegexDeclaration(FunctionDeclaration func, TypeInfo functionReturnType)
+    {
+        var attribute = func.Attributes.FirstOrDefault(IsGeneratedRegexAttribute);
+        if (attribute == null)
+        {
+            return;
+        }
+
+        if (!func.Modifiers.HasFlag(Modifiers.Static))
+        {
+            Error(
+                ErrorCode.InvalidModifier,
+                "[GeneratedRegex] functions must be static",
+                func.Line,
+                func.Column,
+                "Declare the generated-regex factory as `static partial func Name(): Regex`.",
+                Math.Max(1, func.Name.Length));
+        }
+
+        if (!func.Modifiers.HasFlag(Modifiers.Partial))
+        {
+            Error(
+                ErrorCode.InvalidModifier,
+                "[GeneratedRegex] functions must be partial",
+                func.Line,
+                func.Column,
+                "Declare the generated-regex factory as `static partial func Name(): Regex`.",
+                Math.Max(1, func.Name.Length));
+        }
+
+        if (func.Body != null || func.ExpressionBody != null)
+        {
+            Error(
+                ErrorCode.InvalidSyntax,
+                "[GeneratedRegex] functions must not declare a body",
+                func.Line,
+                func.Column,
+                "Remove the body; the IL backend supplies the generated regex factory.",
+                Math.Max(1, func.Name.Length));
+        }
+
+        if (func.Parameters.Count != 0)
+        {
+            Error(
+                ErrorCode.InvalidParameter,
+                "[GeneratedRegex] functions must be parameterless",
+                func.Line,
+                func.Column,
+                "Move runtime input to the returned Regex.Match call; the factory takes no arguments.",
+                Math.Max(1, func.Name.Length));
+        }
+
+        if (func.TypeParameters is { Count: > 0 })
+        {
+            Error(
+                ErrorCode.InvalidTypeArgument,
+                "[GeneratedRegex] functions cannot be generic",
+                func.Line,
+                func.Column,
+                "Use a nongeneric generated-regex factory.",
+                Math.Max(1, func.Name.Length));
+        }
+
+        if (!IsRegexType(functionReturnType) && !IsRegexTypeReference(func.ReturnType))
+        {
+            Error(
+                ErrorCode.TypeMismatch,
+                "[GeneratedRegex] functions must return System.Text.RegularExpressions.Regex",
+                func.Line,
+                func.Column,
+                "Change the return type to `Regex`.",
+                Math.Max(1, func.Name.Length));
+        }
+
+        if (!HasGeneratedRegexStringPattern(attribute))
+        {
+            Error(
+                ErrorCode.ConstantRequired,
+                "[GeneratedRegex] requires a string literal pattern",
+                attribute.Arguments.FirstOrDefault()?.Value.Line ?? func.Line,
+                attribute.Arguments.FirstOrDefault()?.Value.Column ?? func.Column,
+                "Pass the regex pattern as the first string literal argument.",
+                Math.Max(1, func.Name.Length));
+        }
+    }
+
+    private static bool IsGeneratedRegexAttribute(AttributeNode attribute)
+    {
+        var name = attribute.Name;
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+        {
+            name = name[(lastDot + 1)..];
+        }
+
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            name = name[..^"Attribute".Length];
+        }
+
+        return name == "GeneratedRegex";
+    }
+
+    private static bool HasGeneratedRegexStringPattern(AttributeNode attribute)
+    {
+        foreach (var argument in attribute.Arguments)
+        {
+            var argumentName = argument.Name;
+            var value = argument.Value;
+            if (argumentName == null
+                && value is AssignmentExpression assignment
+                && assignment.Target is IdentifierExpression identifier)
+            {
+                argumentName = identifier.Name;
+                value = assignment.Value;
+            }
+
+            if (argumentName == null || string.Equals(argumentName, "pattern", StringComparison.OrdinalIgnoreCase))
+            {
+                return value is StringLiteralExpression;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool IsRegexType(TypeInfo type)
+        => type switch
+        {
+            ReflectionTypeInfo { Type: var reflectionType } => reflectionType == typeof(System.Text.RegularExpressions.Regex),
+            SimpleTypeInfo { Name: "Regex" or "System.Text.RegularExpressions.Regex" } => true,
+            ExternalTypeInfo { Name: "Regex" or "System.Text.RegularExpressions.Regex" } => true,
+            _ => type.ToString() is "Regex" or "System.Text.RegularExpressions.Regex"
+        };
+
+    private static bool IsRegexTypeReference(TypeReference? type)
+        => type switch
+        {
+            SimpleTypeReference { Name: "Regex" or "System.Text.RegularExpressions.Regex" } => true,
+            _ => false
+        };
 
     private static bool IsUnitTaskLikeType(TypeInfo type)
     {

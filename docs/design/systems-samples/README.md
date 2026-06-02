@@ -4,8 +4,9 @@ Status: mixed executable and design proof samples
 
 These samples challenge the Systems N# use-case appendix in
 `../systems-nsharp.md`. They are intentionally stored under `docs/design/`
-instead of `examples/` because most files still use proposed Systems N# syntax
-and contracts that are not yet current compiler fixtures.
+instead of `examples/` because the remaining design-only files still use
+proposed Systems N# syntax and contracts that are not yet current compiler
+fixtures.
 
 Current compiler audit status is tracked in
 `../../audits/systems-proof-project-audit.md`.
@@ -23,6 +24,10 @@ pass. Current executable proof projects:
 - `proofs/27-c-library-cli`: `nlc check --systems-report` and
   `nlc build --perf-report`, native-import no-managed-body assertion, and
   direct IL verification.
+- `proofs/29-generated-regex-boundary`: `nlc check --systems-report`,
+  `nlc build --perf-report`, emitted assembly run, and generated-regex factory
+  evidence for preserved `[GeneratedRegex]` metadata plus cached `Regex`
+  behavior.
 - `proofs/30-cold-failure-logging`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/31-hot-metrics`: `nlc check --systems-report` and
@@ -66,7 +71,7 @@ pass. Current executable proof projects:
 - `proofs/48-effect-drift`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 
-All other proof projects remain design-only until migrated and verified.
+Proof projects 28 and 47 remain design-only until migrated and verified.
 
 The sample set is split in two:
 

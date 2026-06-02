@@ -18,7 +18,7 @@ partial class Program
             : config?.EffectiveBackend ?? CompilationBackend.Il;
     }
 
-    private static int BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false)
+    private static BuildCommandResult BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false)
     {
         var totalSw = Stopwatch.StartNew();
         var resolveSw = new Stopwatch();
@@ -31,7 +31,8 @@ partial class Program
             var projectYmlPath = Path.Combine(projectRoot, "project.yml");
             if (!File.Exists(projectYmlPath))
             {
-                return Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file.");
+                return BuildCommandResult.Failure(
+                    Error("No project.yml found in current directory. Run 'nlc new <name>' to create a project, or use 'nlc build <file.nl>' for a single file."));
             }
 
             var config = ProjectFileParser.Parse(projectYmlPath);
@@ -48,12 +49,12 @@ partial class Program
             resolveSw.Stop();
 
             compileSw.Start();
-            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, aotMode: aot);
+            var outputPath = CompileProjectWithIlBackend(projectRoot, config, resolvedOutputDir, references, out var perfFacts, aotMode: aot);
             compileSw.Stop();
             if (outputPath == null)
             {
                 Console.WriteLine($"  Build failed in {FormatElapsed(totalSw.Elapsed)}");
-                return 1;
+                return BuildCommandResult.Failure(perfFacts: perfFacts);
             }
 
             Console.WriteLine($"Build successful! (il, {(release ? "release" : "debug")}) [{FormatElapsed(totalSw.Elapsed)}]");
@@ -69,15 +70,15 @@ Build timings:
 """);
             }
 
-            return 0;
+            return new BuildCommandResult(0, perfFacts);
         }
         catch (Exception ex)
         {
-            return Error($"Build failed: {ex.Message}");
+            return BuildCommandResult.Failure(Error($"Build failed: {ex.Message}"));
         }
     }
 
-    private static int BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir, bool aot = false)
+    private static BuildCommandResult BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir, bool aot = false)
     {
         try
         {
@@ -93,19 +94,19 @@ Build timings:
                 sourceDir,
                 config,
                 new ReferenceResolutionOptions(Configuration: release ? "Release" : "Debug", BuildProjectReferences: false));
-            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references, aotMode: aot);
+            var outputPath = CompileSourceFilesWithIlBackend(new[] { sourceFile }, sourceDir, config, resolvedOutputDir, references, out var perfFacts, aotMode: aot);
             if (outputPath == null)
             {
-                return 1;
+                return BuildCommandResult.Failure(perfFacts: perfFacts);
             }
 
             Console.WriteLine($"Build successful! (il, {(release ? "release" : "debug")})");
             Console.WriteLine($"Output: {outputPath}");
-            return 0;
+            return new BuildCommandResult(0, perfFacts);
         }
         catch (Exception ex)
         {
-            return Error($"Build failed: {ex.Message}");
+            return BuildCommandResult.Failure(Error($"Build failed: {ex.Message}"));
         }
     }
 
@@ -214,13 +215,26 @@ Build timings:
         ReferenceResolutionResult? references = null,
         bool includeTests = false,
         bool aotMode = false)
-    {
-        var sourceFiles = config.GetSourceFiles(projectRoot, includeTests).ToArray();
-        if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
-        {
-            return null;
-        }
+        => CompileProjectWithIlBackend(
+            projectRoot,
+            config,
+            outputDir,
+            references,
+            out _,
+            includeTests,
+            aotMode);
 
+    private static string? CompileProjectWithIlBackend(
+        string projectRoot,
+        ProjectConfig config,
+        string outputDir,
+        ReferenceResolutionResult? references,
+        out BuildPerfReportFacts perfFacts,
+        bool includeTests = false,
+        bool aotMode = false)
+    {
+        perfFacts = BuildPerfReportFacts.Empty;
+        var sourceFiles = config.GetSourceFiles(projectRoot, includeTests).ToArray();
         var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
         return CompileWithIlBackend(
             compiler,
@@ -228,6 +242,7 @@ Build timings:
             CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
             config,
             references,
+            out perfFacts,
             aotMode);
     }
 
@@ -238,12 +253,25 @@ Build timings:
         string outputDir,
         ReferenceResolutionResult? references = null,
         bool aotMode = false)
-    {
-        if (!ValidateStrictLintDiagnostics(projectRoot, sourceFiles))
-        {
-            return null;
-        }
+        => CompileSourceFilesWithIlBackend(
+            sourceFiles,
+            projectRoot,
+            config,
+            outputDir,
+            references,
+            out _,
+            aotMode);
 
+    private static string? CompileSourceFilesWithIlBackend(
+        string[] sourceFiles,
+        string projectRoot,
+        ProjectConfig config,
+        string outputDir,
+        ReferenceResolutionResult? references,
+        out BuildPerfReportFacts perfFacts,
+        bool aotMode = false)
+    {
+        perfFacts = BuildPerfReportFacts.Empty;
         var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
         return CompileWithIlBackend(
             compiler,
@@ -251,6 +279,7 @@ Build timings:
             CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config),
             config,
             references,
+            out perfFacts,
             aotMode);
     }
 
@@ -261,12 +290,31 @@ Build timings:
         ProjectConfig config,
         ReferenceResolutionResult? references,
         bool aotMode = false)
+        => CompileWithIlBackend(
+            compiler,
+            outputDir,
+            assemblyName,
+            config,
+            references,
+            out _,
+            aotMode);
+
+    private static string? CompileWithIlBackend(
+        MultiFileCompiler compiler,
+        string outputDir,
+        string assemblyName,
+        ProjectConfig config,
+        ReferenceResolutionResult? references,
+        out BuildPerfReportFacts perfFacts,
+        bool aotMode = false)
     {
+        perfFacts = BuildPerfReportFacts.Empty;
         Directory.CreateDirectory(outputDir);
 
         compiler.AotMode = aotMode;
         var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
-        var result = compiler.CompileToIlAssembly(assemblyName, outputPath);
+        var result = compiler.CompileToIlAssembly(assemblyName, outputPath, validateStrictLint: true);
+        perfFacts = SafeCollectPerfFacts(() => ToPerfReportFacts(compiler));
         EmitCompilationDiagnostics(result);
 
         if (!result.Success || string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
@@ -284,26 +332,6 @@ Build timings:
         return result.OutputAssemblyPath;
     }
 
-    private static bool ValidateStrictLintDiagnostics(string projectRoot, IReadOnlyList<string> sourceFiles)
-    {
-        var diagnostics = CodeIntelligenceService.GetLintDiagnostics(projectRoot, sourceFiles)
-            .Where(diagnostic => diagnostic.Severity == "error")
-            .GroupBy(diagnostic => (diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message))
-            .Select(group => group.First())
-            .OrderBy(diagnostic => diagnostic.File)
-            .ThenBy(diagnostic => diagnostic.Line)
-            .ThenBy(diagnostic => diagnostic.Column)
-            .ToList();
-
-        if (diagnostics.Count == 0)
-        {
-            return true;
-        }
-
-        Console.Error.Write(OutputFormatter.DiagnosticsToText(diagnostics));
-        return false;
-    }
-
     private static void EmitCompilationDiagnostics(MultiFileCompilationResult result)
     {
         foreach (var error in result.Errors)
@@ -317,26 +345,6 @@ Build timings:
         var config = projectConfig ?? ProjectFileParser.CreateDefault(defaultName);
         config.Name ??= defaultName;
         return config;
-    }
-
-    /// <summary>
-    /// Run the AOT-blocker analysis pass over a project and project the blockers into the
-    /// stable perf-report shape. Analysis-only: emits no IL and never blocks the build.
-    /// </summary>
-    private static BuildPerfReportFacts CollectProjectPerfFacts(string projectRoot, ProjectConfig? config)
-    {
-        var compiler = new MultiFileCompiler(projectRoot, config);
-        compiler.CompileForAnalysis();
-        return ToPerfReportFacts(compiler);
-    }
-
-    private static BuildPerfReportFacts CollectSingleFilePerfFacts(string sourceFile, ProjectConfig? projectConfig)
-    {
-        var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
-        var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
-        var compiler = new MultiFileCompiler(new[] { sourceFile }, sourceDir, config);
-        compiler.CompileForAnalysis();
-        return ToPerfReportFacts(compiler);
     }
 
     private static BuildPerfReportFacts ToPerfReportFacts(MultiFileCompiler compiler)

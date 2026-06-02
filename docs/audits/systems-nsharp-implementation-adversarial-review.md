@@ -39,16 +39,16 @@ data-race freedom, or every design proof project in the use-case appendix.
 - Acceptance gauntlet fixtures under `tests/fixtures/systems-gauntlet/` with
   source, systems JSON golden, human diagnostic golden, perf-report golden, and
   C# interop notes for the ten executable v1 scenarios.
-- Executable proof projects 24-27, 30-46, and 48 now cover the zero-copy span
-  reader, trusted memory copy, native import surfaces, cold failure logging,
-  hot metrics, cache prewarm, pool/resource handoff, async boundary IO,
-  dictionary setup with hot reads, fixed-capacity maps, constrained generic
-  sortable records, hot-compatible extension pipelines, C# hot parser ABI,
-  structured error values, AOT/Mono-WASM target analysis, CI allocation gates,
-  trusted-audit queries, database boundary adapters, and effect drift through
-  `nlc check --systems-report`, `nlc build --perf-report`, plus the extra run,
-  IL-shape, native-import, query, and C# consumer gates listed in the proof
-  audit.
+- Executable proof projects 24-27, 29-46, and 48 now cover the zero-copy span
+  reader, trusted memory copy, native import surfaces, generated-regex boundary
+  parsing, cold failure logging, hot metrics, cache prewarm, pool/resource
+  handoff, async boundary IO, dictionary setup with hot reads, fixed-capacity
+  maps, constrained generic sortable records, hot-compatible extension
+  pipelines, C# hot parser ABI, structured error values, AOT/Mono-WASM target
+  analysis, CI allocation gates, trusted-audit queries, database boundary
+  adapters, and effect drift through `nlc check --systems-report`, `nlc build
+  --perf-report`, plus the extra run, IL-shape, native-import, query, and C#
+  consumer gates listed in the proof audit.
 - Proof 40 additionally has a real C# `ProjectReference` consumer gate covering
   minimal N# SDK projects, `project.yml` assembly/version identity, the
   `Result<T,E>` runtime ABI, and a `ReadOnlySpan<byte>` parser API.

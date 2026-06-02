@@ -44,7 +44,8 @@ Gate result:
 - Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
   against matched C# baselines. Recent passing runs after the
   `HotResultCombinations` aggregate fix observed worst computed N# ratios below
-  the hard cap, with representative values `0.9792`, `0.9852`, and `0.9863`.
+  the hard cap, with representative values `0.9792`, `0.9852`, `0.9863`,
+  `0.9894`, and `0.9910`.
 
 Worst throughput ratios from a representative passing run:
 
@@ -113,21 +114,16 @@ Proof-promotion command:
 
 ```bash
 dotnet test tests/Tests.csproj \
-  --filter "FullyQualifiedName~SystemsNSharpTests.SystemsProofProjects_AreDesignOnlyAndCoveredByAudit|FullyQualifiedName~SystemsNSharpTests.ExecutableSystemsProofProjects" \
+  --filter "FullyQualifiedName~AnalyzerTests.GeneratedRegex|FullyQualifiedName~SystemsNSharpTests.SystemsProofProjects_AreDesignOnlyAndCoveredByAudit|FullyQualifiedName~SystemsNSharpTests.ExecutableSystemsProofProjects" \
   --no-restore -v q --nologo
 ```
 
-Result: passed, 2/2 tests.
+Result: passed, 5/5 tests, 18s reported test duration.
 
 Coverage:
 
-- Executable systems proof projects now include proof 26
-  (`native-device-handle`), proof 30
-  (`cold-failure-logging`), proof 33 (`arraypool-file-io`), proof 34
-  (`memorypool-disposal`), proof 35 (`async-file-hot-parser`), proof 37
-  (`fixed-capacity-map`), proof 38 (`unmanaged-sort-comparer`), proof 39
-  (`hot-linq-pipeline`), and proof 42 (`aot-friendly-public-api`) in addition
-  to proofs 24, 25, 27, 31, 32, 36, 40, 41, 43, 44, 45, 46, and 48.
+- Executable systems proof projects now include proofs 24-27, proof 29,
+  proofs 30-46, and proof 48. Proofs 28 and 47 remain design-only.
 - Proof 26 covers native `LibraryImport` declarations for open/close handles.
   Check/build pass with one expected boundary console warning, the perf report
   emits no sites, the emitted native methods have no managed body, and direct
@@ -135,6 +131,14 @@ Coverage:
   resolution is platform/deployment-specific.
 - Proof 27 was rechecked after the native-import backend fix: the emitted
   `LibraryImport` method has no managed body and direct `ilverify` passes.
+- Proof 29 covers an executable generated-regex boundary parser: `nlc check
+  --systems-report` passes with two expected boundary-review warnings,
+  `nlc build --perf-report` reports the reviewed `ParseRoute` allocation and
+  no delegate, boxing, dispatch, closure, boundary-leak, trap, hot-readiness, or
+  AOT blocker sites, the emitted assembly runs, and the proof test verifies
+  preserved `[GeneratedRegex]` metadata plus cached `Regex` factory behavior.
+  This is IL-backend generated-regex evidence, not a NativeAOT native image or a
+  full arbitrary source-generator execution claim.
 - Proof 30 covers an allocation-free hot parser plus a boundary cold-failure
   logger. The perf report intentionally records one allocation site in
   `LogColdFailure`; the emitted assembly runs and verifies cleanly with
@@ -212,29 +216,30 @@ Result: passed.
 
 Highlights:
 
-- Unit tests: passed, 3320/3320.
+- Unit tests: passed, 3323/3323.
 - Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.99`
-  and worst computed ratio below the hard `1.00` cap (`0.9863` in one passing
-  full gate after the aggregate fix).
+  and worst computed ratio below the hard `1.00` cap (`0.9894`-`0.9910` in
+  fresh passing full gates after proof 29 promotion).
 - VS Code smoke tests: passed, 40/40.
 - C# interop tests: passed, 31/31.
 - Template creation/build, example builds/checks, and IL verification: passed.
 - IL verification: passed, 84/84 N# assemblies.
-- Fresh isolated run duration: about `4m20s` after the benchmark and
-  full-suite throughput work.
+- Fresh isolated run duration: `4m17s`-`4m27s` in fresh passing gates after the
+  benchmark, full-suite throughput, generated-regex proof, and build-path
+  duplicate-pass fixes.
 - Timing from recent passing isolated runs: BenchmarkDotNet `1m12s`-`1m23s`,
-  unit tests `1m13s`-`1m16s`, VS Code smoke `53s`-`55s`, IL verification
+  unit tests `1m04s`-`1m16s`, VS Code smoke `45s`-`55s`, IL verification
   `24s`-`25s`; all other full-gate steps were single-digit seconds.
 
 Measured slow stages from the passing run:
 
 | Stage | Duration |
 | --- | ---: |
-| Systems BenchmarkDotNet gate | 1m 12s-1m 23s |
-| Unit tests | 1m 13s-1m 16s |
-| VS Code smoke tests | 0m 53s-0m 55s |
+| Systems BenchmarkDotNet gate | 1m 20s-1m 22s |
+| Unit tests | 1m 11s-1m 12s |
+| VS Code smoke tests | 0m 53s-0m 56s |
 | IL verification gate | 0m 24s-0m 25s |
-| Full isolated run | 4m 17s-4m 24s |
+| Full isolated run | 4m 17s-4m 27s |
 
 Harness speedups landed in this wave:
 
@@ -254,6 +259,16 @@ Harness speedups landed in this wave:
 - Parallel single-file example builds now pass `--output` to a per-item
   temporary directory, preserving the parallel fan-out while avoiding shared
   `examples/**/bin` output races between files in the same directory.
+- `nlc build --perf-report` now reuses the `SystemsReport` and AOT facts from
+  the IL compiler instance that emitted the assembly instead of running a second
+  analysis compile solely for JSON perf facts.
+- CLI build linting now runs against the `MultiFileCompiler` parsed ASTs before
+  IL emission instead of reparsing every source file in a separate lint
+  preflight.
+- The executable systems proof-matrix unit test remains intentionally slower
+  than ordinary analyzer tests because it builds 23 proof projects, checks perf
+  reports, runs selected emitted assemblies, inspects IL/reflection shape, and
+  validates one real C# project-reference consumer.
 
 Commit gate policy:
 

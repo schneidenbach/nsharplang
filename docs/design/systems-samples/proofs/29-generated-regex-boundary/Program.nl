@@ -1,6 +1,5 @@
 namespace SystemsProofs.GeneratedRegexBoundary
 
-import System
 import System.Text.RegularExpressions
 
 record Route {
@@ -15,14 +14,33 @@ partial class RouteParser {
 
 [boundary]
 func ParseRoute(line: string): Result<Route, string> {
-    match := RouteParser.RouteRegex().Match(line)
-    if !match.Success {
+    routeMatch := RouteParser.RouteRegex().Match(line)
+    if !routeMatch.Success {
         return Err("invalid route")
     }
 
-    return Ok(Route { Method: match.Groups[1].Value, Path: match.Groups[2].Value })
+    return Ok(new Route { Method: routeMatch.Groups[1].Value, Path: routeMatch.Groups[2].Value })
 }
 
-func Main() {
-    print ParseRoute("GET /health")
+[boundary]
+func Main(): int {
+    route := ParseRoute("GET /health")
+    if !route.IsOk {
+        return 1
+    }
+
+    ok := route.OkValueUnchecked
+    if ok.Method != "GET" {
+        return 2
+    }
+    if ok.Path != "/health" {
+        return 3
+    }
+
+    invalid := ParseRoute("DELETE /health")
+    if invalid.IsOk {
+        return 4
+    }
+
+    return 0
 }

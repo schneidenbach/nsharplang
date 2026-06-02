@@ -1182,6 +1182,7 @@ class Box {}
             "25-trusted-memory-copy",
             "26-native-device-handle",
             "27-c-library-cli",
+            "29-generated-regex-boundary",
             "30-cold-failure-logging",
             "31-hot-metrics",
             "32-cache-prewarm",
@@ -1232,6 +1233,7 @@ class Box {}
         var trustedMemoryCopy = Path.Combine(proofsRoot, "25-trusted-memory-copy");
         var nativeDeviceHandle = Path.Combine(proofsRoot, "26-native-device-handle");
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
+        var generatedRegexBoundary = Path.Combine(proofsRoot, "29-generated-regex-boundary");
         var coldFailureLogging = Path.Combine(proofsRoot, "30-cold-failure-logging");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
@@ -1379,6 +1381,38 @@ class Box {}
             Path.Combine(cLibraryOutputDir, "SystemsProof27CLibraryCli.dll"),
             "SystemsProofs.CLibraryCli.NativeHash",
             "Hash64");
+
+        AssertSystemsProofCheckPasses(generatedRegexBoundary, expectedWarnings: 2);
+        var generatedRegexBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", generatedRegexBoundary, "--perf-report"));
+        Assert.Equal(0, generatedRegexBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(generatedRegexBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            var allocationSite = Assert.Single(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Equal("ParseRoute", allocationSite.GetProperty("function").GetString());
+            Assert.Equal("NSYS001", allocationSite.GetProperty("code").GetString());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("closureCaptures").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var generatedRegexOutputDir = Path.Combine(generatedRegexBoundary, "bin", "Debug", "net10.0");
+        var generatedRegexAssembly = Path.Combine(generatedRegexOutputDir, "SystemsProof29GeneratedRegexBoundary.dll");
+        Assert.True(File.Exists(Path.Combine(generatedRegexOutputDir, "NSharpLang.Runtime.dll")));
+        AssertGeneratedRegexFactoryShape(
+            generatedRegexAssembly,
+            "SystemsProofs.GeneratedRegexBoundary.RouteParser",
+            "RouteRegex");
+        var generatedRegexRun = DotnetRunner.Run($"\"{generatedRegexAssembly}\"", generatedRegexOutputDir);
+        Assert.True(generatedRegexRun.ExitCode == 0,
+            $"generated regex boundary proof failed to run\nstdout:\n{generatedRegexRun.Stdout}\nstderr:\n{generatedRegexRun.Stderr}");
 
         AssertSystemsProofCheckPasses(coldFailureLogging, expectedWarnings: 2);
         var coldLoggingBuild = CaptureConsole(() =>
@@ -1836,6 +1870,46 @@ class Box {}
                 .SingleOrDefault(candidate => candidate.Name == methodName);
             Assert.NotNull(method);
             return ILShapeInspector.Decode(method!).Select(instruction => instruction.OpCode.Name ?? string.Empty).ToArray();
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    private static void AssertGeneratedRegexFactoryShape(string assemblyPath, string typeName, string methodName)
+    {
+        Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
+
+        var outputDir = Path.GetDirectoryName(assemblyPath)!;
+        var loadContext = new AssemblyLoadContext($"SystemsProofGeneratedRegex_{Guid.NewGuid():N}", isCollectible: true);
+        loadContext.Resolving += (context, assemblyName) =>
+        {
+            var localAssemblyPath = Path.Combine(outputDir, $"{assemblyName.Name}.dll");
+            return File.Exists(localAssemblyPath) ? context.LoadFromAssemblyPath(localAssemblyPath) : null;
+        };
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            var assembly = loadContext.LoadFromStream(stream);
+            var type = assembly.GetType(typeName);
+            Assert.NotNull(type);
+            var method = type!.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            Assert.Contains(method!.GetCustomAttributesData(), attribute =>
+                attribute.AttributeType.FullName == "System.Text.RegularExpressions.GeneratedRegexAttribute");
+
+            var first = Assert.IsType<Regex>(method.Invoke(null, null));
+            var second = Assert.IsType<Regex>(method.Invoke(null, null));
+            Assert.Same(first, second);
+            Assert.True(first.IsMatch("GET /health"));
+            Assert.False(first.IsMatch("DELETE /health"));
+
+            var cacheField = Assert.Single(type.GetFields(BindingFlags.NonPublic | BindingFlags.Static),
+                field => field.FieldType == typeof(Regex)
+                         && field.Name.Contains("GeneratedRegex", StringComparison.Ordinal));
+            Assert.Same(first, cacheField.GetValue(null));
         }
         finally
         {
