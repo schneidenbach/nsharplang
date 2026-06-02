@@ -3,6 +3,8 @@ namespace SystemsProofs.MemoryPoolDisposal
 import System
 import System.Buffers
 
+type ByteMemoryPool = MemoryPool<byte>
+
 enum FillError {
     NoSpace
 }
@@ -22,10 +24,19 @@ func FillHeader(dst: Span<byte>): Result<int, FillError> {
 
 [boundary]
 func BuildMessage(): Result<int, FillError> {
-    using owner := MemoryPool<byte>.Shared.Rent(1024)
-    return FillHeader(owner.Memory.Span)
+    owner := ByteMemoryPool.Shared.Rent(1024)
+    result := FillHeader(owner.Memory.Span)
+    owner.Dispose()
+    return result
 }
 
-func Main() {
-    print BuildMessage()
+func Main(): int {
+    result := BuildMessage()
+    if result.IsOk == false {
+        return 1
+    }
+    if result.OkValueUnchecked != 4 {
+        return 2
+    }
+    return 0
 }

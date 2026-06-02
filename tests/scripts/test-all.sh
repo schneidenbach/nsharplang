@@ -94,18 +94,19 @@ CACHE_ROOT="$(cache_root)"
 RESULTS_ROOT="$CACHE_ROOT/results"
 LOCKS_ROOT="$CACHE_ROOT/locks"
 SIGNATURE_FILE="$(mktemp "${TMPDIR:-/tmp}/nsharp-test-signature.XXXXXX")"
+DEPENDENCY_SIGNATURE_FILE="$(mktemp "${TMPDIR:-/tmp}/nsharp-test-dependencies.XXXXXX")"
 LOCK_STALE_SECONDS="${NSHARP_TEST_LOCK_STALE_SECONDS:-7200}"
 if ! [[ "$LOCK_STALE_SECONDS" =~ ^[0-9]+$ ]]; then
     LOCK_STALE_SECONDS=7200
 fi
 
 cleanup_signature() {
-    rm -f "$SIGNATURE_FILE"
+    rm -f "$SIGNATURE_FILE" "$DEPENDENCY_SIGNATURE_FILE"
 }
 trap cleanup_signature EXIT
 
 CACHE_KEY="$(
-    python3 - "$SOURCE_ROOT" "$SIGNATURE_FILE" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"} <<'PY'
+    python3 - "$SOURCE_ROOT" "$SIGNATURE_FILE" "$DEPENDENCY_SIGNATURE_FILE" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"} <<'PY'
 import hashlib
 import json
 import os
@@ -115,7 +116,8 @@ import sys
 
 root = os.path.realpath(sys.argv[1])
 signature_path = sys.argv[2]
-args = sys.argv[3:]
+dependency_signature_path = sys.argv[3]
+args = sys.argv[4:]
 
 
 def run_text(command):
@@ -157,9 +159,33 @@ def source_files():
         for name in files:
             yield os.path.relpath(os.path.join(current, name), root)
 
+def is_dependency_input(relative):
+    normalized = relative.replace(os.sep, "/")
+    name = os.path.basename(normalized).lower()
+    if name in {
+        "global.json",
+        "nuget.config",
+        "packages.lock.json",
+        "package.json",
+        "package-lock.json",
+        "pnpm-lock.yaml",
+        "yarn.lock",
+        "project.yml",
+    }:
+        return True
+    return normalized.endswith((
+        ".csproj",
+        ".fsproj",
+        ".vbproj",
+        ".props",
+        ".targets",
+        ".sln",
+        ".slnx",
+    ))
 
 content_hash = hashlib.sha256()
-for relative in sorted(set(source_files())):
+source_file_list = sorted(set(source_files()))
+for relative in source_file_list:
     path = os.path.join(root, relative)
     if not os.path.isfile(path):
         continue
@@ -205,7 +231,58 @@ key = hashlib.sha256(encoded).hexdigest()
 with open(signature_path, "w", encoding="utf-8") as handle:
     json.dump(signature, handle, indent=2, sort_keys=True)
     handle.write("\n")
+
+dependency_hash = hashlib.sha256()
+for relative in source_file_list:
+    if not is_dependency_input(relative):
+        continue
+    path = os.path.join(root, relative)
+    if not os.path.isfile(path):
+        continue
+    normalized = relative.replace(os.sep, "/")
+    dependency_hash.update(normalized.encode("utf-8", "surrogateescape"))
+    dependency_hash.update(b"\0")
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            dependency_hash.update(chunk)
+    dependency_hash.update(b"\0")
+
+dependency_signature = {
+    "schemaVersion": 1,
+    "sourceHash": dependency_hash.hexdigest(),
+    "tools": tool_versions,
+    "platform": {
+        "system": platform.system(),
+        "machine": platform.machine(),
+        "release": platform.release(),
+    },
+    "salt": os.environ.get("NSHARP_TEST_DEPENDENCY_CACHE_SALT"),
+}
+dependency_encoded = json.dumps(dependency_signature, sort_keys=True, separators=(",", ":")).encode("utf-8")
+dependency_key = hashlib.sha256(dependency_encoded).hexdigest()
+with open(dependency_signature_path, "w", encoding="utf-8") as handle:
+    json.dump(
+        {
+            "key": dependency_key,
+            "signature": dependency_signature,
+        },
+        handle,
+        indent=2,
+        sort_keys=True,
+    )
+    handle.write("\n")
+
 print(key)
+PY
+)"
+
+DEPENDENCY_KEY="$(
+    python3 - "$DEPENDENCY_SIGNATURE_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    print(json.load(handle)["key"])
 PY
 )"
 
@@ -334,7 +411,7 @@ RUN_ROOT="$(mktemp -d "$RUN_PARENT/nsharp-test-all.${CACHE_KEY:0:12}.XXXXXX")"
 RUN_REPO="$RUN_ROOT/repo"
 RUN_HOME="$RUN_ROOT/home"
 RUN_TMP="$RUN_ROOT/tmp"
-RUN_DEPS="$CACHE_ROOT/dependencies/$CACHE_KEY"
+RUN_DEPS="$CACHE_ROOT/dependencies/$DEPENDENCY_KEY"
 
 cleanup_run() {
     if ! is_enabled "$KEEP_RUN"; then
@@ -388,6 +465,7 @@ echo "  Run:    $RUN_ROOT"
 echo "  Cache:  $CACHE_ROOT"
 echo "  Deps:   $RUN_DEPS"
 echo "  Key:    ${CACHE_KEY:0:16}"
+echo "  DepKey: ${DEPENDENCY_KEY:0:16}"
 
 copy_source_tree
 mkdir -p "$RUN_HOME" "$RUN_TMP" "$RUN_DEPS/nuget/packages" "$RUN_DEPS/npm-cache"

@@ -7718,6 +7718,12 @@ public partial class ILCompiler
             return true;
         }
 
+        if (_typeAliases.TryGetValue(typeName, out var aliasedType))
+        {
+            type = ResolveType(aliasedType, _currentGenericParameters);
+            return true;
+        }
+
         if (TryResolveDeclaredProjectType(typeName, treatStringEnumAsString: false, out type))
         {
             return true;

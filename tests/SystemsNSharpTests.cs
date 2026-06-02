@@ -1146,6 +1146,7 @@ class Box {}
             "27-c-library-cli",
             "31-hot-metrics",
             "32-cache-prewarm",
+            "34-memorypool-disposal",
             "36-dictionary-setup-hot-read",
             "37-fixed-capacity-map",
             "40-csharp-hot-parser-api",
@@ -1187,6 +1188,7 @@ class Box {}
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
+        var memoryPoolDisposal = Path.Combine(proofsRoot, "34-memorypool-disposal");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
         var fixedCapacityMap = Path.Combine(proofsRoot, "37-fixed-capacity-map");
         var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
@@ -1318,6 +1320,30 @@ class Box {}
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
+
+        AssertSystemsProofCheckPasses(memoryPoolDisposal, expectedWarnings: 0);
+        var memoryPoolBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", memoryPoolDisposal, "--perf-report"));
+        Assert.Equal(0, memoryPoolBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(memoryPoolBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("poolSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("resourceSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var memoryPoolOutputDir = Path.Combine(memoryPoolDisposal, "bin", "Debug", "net10.0");
+        var memoryPoolAssembly = Path.Combine(memoryPoolOutputDir, "SystemsProof34MemoryPoolDisposal.dll");
+        Assert.True(File.Exists(Path.Combine(memoryPoolOutputDir, "NSharpLang.Runtime.dll")));
+        var memoryPoolRun = DotnetRunner.Run($"\"{memoryPoolAssembly}\"", memoryPoolOutputDir);
+        Assert.True(memoryPoolRun.ExitCode == 0,
+            $"memory pool disposal proof failed to run\nstdout:\n{memoryPoolRun.Stdout}\nstderr:\n{memoryPoolRun.Stderr}");
 
         AssertSystemsProofCheckPasses(dictionarySetup, expectedWarnings: 3);
         var dictionaryBuild = CaptureConsole(() =>

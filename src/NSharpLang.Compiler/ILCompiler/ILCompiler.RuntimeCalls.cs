@@ -41,26 +41,42 @@ public partial class ILCompiler
 
     private static IEnumerable<MethodInfo> GetRuntimeMethodCandidates(Type declaringType, BindingFlags bindingFlags)
     {
+        var methods = Array.Empty<MethodInfo>();
         try
         {
-            return declaringType.GetMethods(bindingFlags);
+            methods = declaringType.GetMethods(bindingFlags);
         }
         catch (NotSupportedException) when (declaringType.IsGenericType && !declaringType.IsGenericTypeDefinition)
         {
             try
             {
-                return declaringType.GetGenericTypeDefinition()
+                methods = declaringType.GetGenericTypeDefinition()
                     .GetMethods(bindingFlags);
+            }
+            catch (NotSupportedException)
+            {
+            }
+        }
+        catch (NotSupportedException)
+        {
+        }
+
+        if (!declaringType.IsInterface)
+        {
+            return methods;
+        }
+
+        return methods.Concat(GetRuntimeInterfaces(declaringType).SelectMany(interfaceType =>
+        {
+            try
+            {
+                return interfaceType.GetMethods(bindingFlags);
             }
             catch (NotSupportedException)
             {
                 return Array.Empty<MethodInfo>();
             }
-        }
-        catch (NotSupportedException)
-        {
-            return Array.Empty<MethodInfo>();
-        }
+        }));
     }
 
     private BoundRuntimeMethodCall? BindRuntimeExtensionMethodCall(Type receiverType, string methodName, Expression receiver, CallExpression call)

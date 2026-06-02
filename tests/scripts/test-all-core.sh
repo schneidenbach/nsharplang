@@ -14,6 +14,12 @@ NC='\033[0m' # No Color
 
 # Track failures
 FAILURES=0
+TIMING_PRINTED=0
+TOTAL_START_TIME=$(date +%s)
+CURRENT_SECTION_NAME=""
+CURRENT_SECTION_START_TIME=0
+STAGE_NAMES=()
+STAGE_SECONDS=()
 
 get_cpu_count() {
     if command -v getconf >/dev/null 2>&1; then
@@ -29,8 +35,8 @@ DEFAULT_JOBS=$(get_cpu_count)
 if ! [[ "$DEFAULT_JOBS" =~ ^[0-9]+$ ]] || [ "$DEFAULT_JOBS" -lt 1 ]; then
     DEFAULT_JOBS=4
 fi
-if [ "$DEFAULT_JOBS" -gt 4 ]; then
-    DEFAULT_JOBS=4
+if [ "$DEFAULT_JOBS" -gt 8 ]; then
+    DEFAULT_JOBS=8
 fi
 MAX_JOBS=${TEST_ALL_JOBS:-$DEFAULT_JOBS}
 if ! [[ "$MAX_JOBS" =~ ^[0-9]+$ ]] || [ "$MAX_JOBS" -lt 1 ]; then
@@ -74,10 +80,55 @@ done
 
 # Function to print section headers
 section() {
+    record_section_duration
+    CURRENT_SECTION_NAME="$1"
+    CURRENT_SECTION_START_TIME=$(date +%s)
     echo
     echo -e "${YELLOW}>>> $1${NC}"
     echo "========================================="
 }
+
+record_section_duration() {
+    if [ -z "$CURRENT_SECTION_NAME" ]; then
+        return
+    fi
+
+    local section_end
+    section_end=$(date +%s)
+    STAGE_NAMES+=("$CURRENT_SECTION_NAME")
+    STAGE_SECONDS+=("$((section_end - CURRENT_SECTION_START_TIME))")
+    CURRENT_SECTION_NAME=""
+    CURRENT_SECTION_START_TIME=0
+}
+
+format_duration() {
+    local seconds="$1"
+    printf '%dm %02ds' "$((seconds / 60))" "$((seconds % 60))"
+}
+
+print_timing_summary() {
+    if [ "$TIMING_PRINTED" = "1" ]; then
+        return
+    fi
+
+    record_section_duration
+    TIMING_PRINTED=1
+
+    local total_end
+    total_end=$(date +%s)
+    local total_seconds=$((total_end - TOTAL_START_TIME))
+
+    echo
+    echo -e "${YELLOW}>>> Timing Summary${NC}"
+    echo "========================================="
+    local i
+    for ((i = 0; i < ${#STAGE_NAMES[@]}; i++)); do
+        printf '  %-46s %s\n' "${STAGE_NAMES[$i]}" "$(format_duration "${STAGE_SECONDS[$i]}")"
+    done
+    printf '  %-46s %s\n' "Total" "$(format_duration "$total_seconds")"
+}
+
+trap print_timing_summary EXIT
 
 # Function to handle errors
 handle_error() {
@@ -146,7 +197,7 @@ rm -f "$FORMAT_OUTPUT"
 
 section "Step 3: Run Unit Tests"
 echo "Running all unit tests..."
-dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate --no-cache -v q
+dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate -v q
 TEST_OUTPUT=$(mktemp)
 if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
     TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
@@ -246,7 +297,7 @@ echo "Packing SDK to local NuGet feed..."
 mkdir -p "$LOCAL_FEED"
 rm -f "$LOCAL_FEED"/NSharpLang.Sdk.*.nupkg
 remove_nuget_package_cache NSharpLang.Sdk
-dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj --force-evaluate --no-cache -v q
+dotnet restore $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj --force-evaluate -v q
 dotnet build $DOTNET_STABLE_FLAGS src/NSharpLang.Build.Tasks/NSharpLang.Build.Tasks.csproj -v q
 if dotnet pack $DOTNET_STABLE_FLAGS src/NSharpLang.Sdk/NSharpLang.Sdk.csproj -o "$LOCAL_FEED" -v q; then
     handle_success "SDK packed"
@@ -281,7 +332,7 @@ else
     handle_error "Runtime project-reference artifacts build"
 fi
 
-if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" --force-evaluate --no-cache -v q; then
+if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" --force-evaluate -v q; then
     handle_error "C# interop restore"
 fi
 
@@ -614,6 +665,8 @@ else
 fi
 
 section "Step 11: Summary"
+echo
+print_timing_summary
 echo
 if [ $FAILURES -eq 0 ]; then
     echo -e "${GREEN}=========================================${NC}"

@@ -1955,11 +1955,20 @@ public sealed class SystemsAnalyzer
         if (variableName == null)
             return false;
 
-        if (!context.Summary.ResourceLocals.TryGetValue(variableName, out var resource))
-            return false;
+        var recognized = false;
+        if (context.Summary.PoolRents.TryGetValue(variableName, out var rent))
+        {
+            rent.Returned = true;
+            recognized = true;
+        }
 
-        resource.Disposed = true;
-        return true;
+        if (context.Summary.ResourceLocals.TryGetValue(variableName, out var resource))
+        {
+            resource.Disposed = true;
+            recognized = true;
+        }
+
+        return recognized;
     }
 
     private static void MarkPoolReturnIfRecognized(CallExpression call, WalkContext context)
