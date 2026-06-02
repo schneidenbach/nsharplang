@@ -39,7 +39,7 @@ data-race freedom, or every design proof project in the use-case appendix.
 - Acceptance gauntlet fixtures under `tests/fixtures/systems-gauntlet/` with
   source, systems JSON golden, human diagnostic golden, perf-report golden, and
   C# interop notes for the ten executable v1 scenarios.
-- 124-row BenchmarkDotNet coverage for hot-path throughput/allocation across
+- 184-row BenchmarkDotNet coverage for hot-path throughput/allocation across
   caller-owned loops, write buffers, direct Result ABI operations, pooled
   boundary handoff, and hot+result combinations (`Systems*Benchmarks`). The
   commit gate requires all Systems benchmark rows to allocate 0 B and keeps

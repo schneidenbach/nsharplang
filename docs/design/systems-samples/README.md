@@ -13,6 +13,8 @@ Current compiler audit status is tracked in
 Executable proof projects can be cited only for the exact command gates they
 pass. Current executable proof projects:
 
+- `proofs/27-c-library-cli`: `nlc check --systems-report` and
+  `nlc build --perf-report`.
 - `proofs/31-hot-metrics`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 - `proofs/32-cache-prewarm`: `nlc check --systems-report` and
@@ -23,6 +25,8 @@ pass. Current executable proof projects:
   `nlc build --perf-report`.
 - `proofs/45-trusted-audit`: `nlc check --systems-report`,
   `nlc build --perf-report`, and `nlc query trusted`.
+- `proofs/48-effect-drift`: `nlc check --systems-report` and
+  `nlc build --perf-report`.
 
 All other proof projects remain design-only until migrated and verified.
 

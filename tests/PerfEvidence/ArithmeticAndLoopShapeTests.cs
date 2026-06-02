@@ -276,6 +276,46 @@ func sumChecked(nums: int[]): int {
             "index induction stays plain +1 under a checked-expression body",
             OpCodes.Ldc_I4_1, OpCodes.Add);
         Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Ldlen));
+        Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Pop));
+    }
+
+    [Fact]
+    public void StatementOnlyIdentifierAssignment_DoesNotReloadAndPopAssignedValue()
+    {
+        const string source = @"
+func sumArray(nums: int[]): int {
+    sum := 0
+    len := nums.Length
+    for i := 0; i < len; i++ {
+        sum = sum + nums[i]
+    }
+    return sum
+}";
+
+        var il = ILShapeInspector.DecodeProgramMethod(source, "sumArray");
+
+        Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Pop));
+        Assert.True(
+            ILShapeInspector.CountOpcode(il, OpCodes.Add) >= 2,
+            "Expected user accumulator arithmetic and iterator induction to remain plain add opcodes.");
+    }
+
+    [Fact]
+    public void StatementOnlyArrayStore_DoesNotReloadAndPopStoredValue()
+    {
+        const string source = @"
+func copy(src: int[], dst: int[]): int {
+    len := src.Length
+    for i := 0; i < len; i++ {
+        dst[i] = src[i]
+    }
+    return dst[0]
+}";
+
+        var il = ILShapeInspector.DecodeProgramMethod(source, "copy");
+
+        Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Stelem_I4));
+        Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Pop));
     }
 
     [Fact]

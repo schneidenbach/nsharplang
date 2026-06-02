@@ -621,6 +621,30 @@ func Run(): int {
     }
 
     [Fact]
+    public void SourceInferredHelper_GainingAllocationFailsHotCaller()
+    {
+        var report = Analyze("""
+[hot]
+func ParseDigits(bytes: ReadOnlySpan<byte>): Result<int, string> {
+    if bytes.Length == 0 {
+        _ = FormatForDebug()
+        return Err("empty")
+    }
+    return Ok(bytes[0])
+}
+
+func FormatForDebug(): int[] {
+    return alloc new int[1]
+}
+""", profile: "systems");
+
+        Assert.Contains(report.Findings,
+            f => f.Code == "NSYS010"
+                 && f.Effect == "allocation"
+                 && f.Message.Contains("FormatForDebug", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void SourceGeneratedJsonBoundary_IsAotSafeButReportsAllocation()
     {
         var report = Analyze("""
@@ -1006,11 +1030,13 @@ class Box {}
             .ToArray();
         var executableProofProjects = new[]
         {
+            "27-c-library-cli",
             "31-hot-metrics",
             "32-cache-prewarm",
             "36-dictionary-setup-hot-read",
             "44-ci-allocation-gate",
-            "45-trusted-audit"
+            "45-trusted-audit",
+            "48-effect-drift"
         };
         var designOnlyProjects = proofProjects.Except(executableProofProjects, StringComparer.Ordinal).ToArray();
 
@@ -1039,11 +1065,27 @@ class Box {}
     {
         var repoRoot = FindRepoRoot();
         var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
+        var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
+        var effectDrift = Path.Combine(proofsRoot, "48-effect-drift");
+
+        AssertSystemsProofCheckPasses(cLibraryCli, expectedWarnings: 1);
+        var cLibraryBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", cLibraryCli, "--perf-report"));
+        Assert.Equal(0, cLibraryBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(cLibraryBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
 
         AssertSystemsProofCheckPasses(hotMetrics, expectedWarnings: 1);
         var metricsBuild = CaptureConsole(() =>
@@ -1131,6 +1173,22 @@ class Box {}
             var result = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray());
             Assert.Equal("UnsafeAuditSurface.WrapHandle", result.GetProperty("function").GetString());
             Assert.Equal("2027-06-01", result.GetProperty("expires").GetString());
+        }
+
+        AssertSystemsProofCheckPasses(effectDrift, expectedWarnings: 1);
+        var driftBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", effectDrift, "--perf-report"));
+        Assert.Equal(0, driftBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(driftBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Contains(perf.GetProperty("allocationSites").EnumerateArray(),
+                site => site.GetProperty("function").GetString() == "Main"
+                        && site.GetProperty("code").GetString() == "NSYS001");
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
     }
 
@@ -1247,6 +1305,8 @@ func Copy(): int {
         Assert.Contains("HotPathWorkload.CountAscii", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("HotPathWorkload.MinMaxDelta", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("HotPathWorkload.RollingHash", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("HotPathWorkload.ParseEightDigits", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("HotPathWorkload.CountTransitions", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int>>", hotPathBenchmark, StringComparison.Ordinal);
 
@@ -1256,6 +1316,8 @@ func Copy(): int {
         Assert.Contains("SpanHandoffWorkload.CopyUntilNegative", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("SpanHandoffWorkload.ReverseCopy", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("SpanHandoffWorkload.ArrayToSpanCaller", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("SpanHandoffWorkload.CopyPositive", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("SpanHandoffWorkload.ChecksumAndCopy", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("NSharpCompiledMethod.Bind<ReadOnlySpanIntDelegate>", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("NSharpCompiledMethod.Bind<SpanCopyDelegate>", spanHandoffBenchmark, StringComparison.Ordinal);
@@ -1266,6 +1328,8 @@ func Copy(): int {
         Assert.Contains("CallerBufferWorkload.Transform", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("CallerBufferWorkload.PrefixSum", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("CallerBufferWorkload.CompactEven", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CallerBufferWorkload.FilterAndScale", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CallerBufferWorkload.PairSums", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", callerBufferBenchmark, StringComparison.Ordinal);
 
         var resultBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsResultBenchmarks.cs"));
@@ -1274,6 +1338,8 @@ func Copy(): int {
         Assert.Contains("ResultWorkload.BranchAndCopy", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("ResultWorkload.AllOkFastPath", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("ResultWorkload.AllErrFastPath", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("ResultWorkload.FirstErrOrSum", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("ResultWorkload.ValidateAllOkAscending", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("RuntimeResult", resultBenchmark, StringComparison.Ordinal);
         Assert.DoesNotContain("MatchDelegate", resultBenchmark, StringComparison.Ordinal);
@@ -1284,6 +1350,8 @@ func Copy(): int {
         Assert.Contains("PooledBoundaryWorkload.ClampAndScore", pooledBoundaryBenchmark, StringComparison.Ordinal);
         Assert.Contains("PooledBoundaryWorkload.FindFirstZero", pooledBoundaryBenchmark, StringComparison.Ordinal);
         Assert.Contains("PooledBoundaryWorkload.ClampWindow", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("PooledBoundaryWorkload.SumPositive", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("PooledBoundaryWorkload.ZeroOdd", pooledBoundaryBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", pooledBoundaryBenchmark, StringComparison.Ordinal);
 
         var combinationBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCombinationBenchmarks.cs"));
@@ -1292,17 +1360,22 @@ func Copy(): int {
         Assert.Contains("CombinationWorkload.CopyDigitsResult", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("CombinationWorkload.ScanAndChecksumResult", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("CombinationWorkload.CopyPositiveChecksumResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.ScanThenChecksumResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.ScanThenCopyDigitsResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.ChecksumThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.CopyDigitsThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.CopyPositiveThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", combinationBenchmark, StringComparison.Ordinal);
 
         var script = File.ReadAllText(Path.Combine(root, "scripts", "benchmark-systems.sh"));
-        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 12", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 10", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 1.25", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 1.25", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 16", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 14", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 20", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 1.20", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 1.20", script, StringComparison.Ordinal);
         Assert.Contains("allocated != 0", script, StringComparison.Ordinal);
         Assert.Contains("ratio > limit", script, StringComparison.Ordinal);
     }

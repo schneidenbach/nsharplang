@@ -68,7 +68,7 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetOk(out TOk value)
     {
-        if (IsOk)
+        if (_state == 1)
         {
             value = _ok!;
             return true;
@@ -81,7 +81,7 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool TryGetErr(out TErr error)
     {
-        if (IsErr)
+        if (_state == 2)
         {
             error = _err!;
             return true;
@@ -146,13 +146,13 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
 
     private void ThrowIfNotOk()
     {
-        if (!IsOk)
+        if (_state != 1)
             throw new InvalidOperationException("Result does not contain an Ok value.");
     }
 
     private void ThrowIfNotErr()
     {
-        if (!IsErr)
+        if (_state != 2)
             throw new InvalidOperationException("Result does not contain an Err value.");
     }
 

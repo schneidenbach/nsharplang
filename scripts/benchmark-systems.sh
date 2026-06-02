@@ -69,29 +69,29 @@ import sys
 
 root = sys.argv[1]
 expected_counts = {
-    ("SystemsHotPathBenchmarks", "CSharp"): 12,
-    ("SystemsHotPathBenchmarks", "NSharp"): 12,
-    ("SystemsSpanHandoffBenchmarks", "CSharp"): 10,
-    ("SystemsSpanHandoffBenchmarks", "NSharp"): 10,
-    ("SystemsCallerBufferBenchmarks", "CSharp"): 10,
-    ("SystemsCallerBufferBenchmarks", "NSharp"): 10,
-    ("SystemsResultBenchmarks", "CSharpTaggedStruct"): 10,
-    ("SystemsResultBenchmarks", "RuntimeResult"): 10,
-    ("SystemsPooledBoundaryBenchmarks", "CSharp"): 10,
-    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 10,
-    ("SystemsCombinationBenchmarks", "CSharp"): 10,
-    ("SystemsCombinationBenchmarks", "NSharp"): 10,
+    ("SystemsHotPathBenchmarks", "CSharp"): 16,
+    ("SystemsHotPathBenchmarks", "NSharp"): 16,
+    ("SystemsSpanHandoffBenchmarks", "CSharp"): 14,
+    ("SystemsSpanHandoffBenchmarks", "NSharp"): 14,
+    ("SystemsCallerBufferBenchmarks", "CSharp"): 14,
+    ("SystemsCallerBufferBenchmarks", "NSharp"): 14,
+    ("SystemsResultBenchmarks", "CSharpTaggedStruct"): 14,
+    ("SystemsResultBenchmarks", "RuntimeResult"): 14,
+    ("SystemsPooledBoundaryBenchmarks", "CSharp"): 14,
+    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 14,
+    ("SystemsCombinationBenchmarks", "CSharp"): 20,
+    ("SystemsCombinationBenchmarks", "NSharp"): 20,
 }
 
 # Keep this loose enough to avoid normal BenchmarkDotNet noise but tight enough
 # to catch source-shape/codegen regressions before they become launch claims.
 ratio_limits = {
-    ("SystemsHotPathBenchmarks", "NSharp"): 1.25,
-    ("SystemsSpanHandoffBenchmarks", "NSharp"): 1.25,
-    ("SystemsCallerBufferBenchmarks", "NSharp"): 1.25,
-    ("SystemsResultBenchmarks", "RuntimeResult"): 1.25,
-    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 1.25,
-    ("SystemsCombinationBenchmarks", "NSharp"): 1.25,
+    ("SystemsHotPathBenchmarks", "NSharp"): 1.20,
+    ("SystemsSpanHandoffBenchmarks", "NSharp"): 1.20,
+    ("SystemsCallerBufferBenchmarks", "NSharp"): 1.20,
+    ("SystemsResultBenchmarks", "RuntimeResult"): 1.20,
+    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 1.20,
+    ("SystemsCombinationBenchmarks", "NSharp"): 1.20,
 }
 
 def class_name_from_path(path: str) -> str:

@@ -15,15 +15,21 @@ func ParseDigits(bytes: ReadOnlySpan<byte>): Result<int, string> {
     return Ok(value)
 }
 
-func FormatForDebug(value: int): string {
-    return alloc $"value={value}"
+func FormatForDebug(): int[] {
+    return alloc new int[1]
 }
 
+[boundary]
 func Main() {
-    _ = ParseDigits(new byte[] { 49, 50, 51 })
-    print FormatForDebug(123)
+    bytes := alloc new byte[3]
+    bytes[0] = (byte)49
+    bytes[1] = (byte)50
+    bytes[2] = (byte)51
+    _ = ParseDigits(bytes)
+    _ = FormatForDebug()
 }
 
 // Drift proof:
-// If ParseDigits starts calling FormatForDebug, NSYS150 must report that
-// ParseDigits gained allocation through FormatForDebug.
+// If ParseDigits starts calling FormatForDebug, the hot caller must report that
+// it gained allocation through FormatForDebug. External package/body identity
+// drift is covered separately by sidecar HotSummary NSYS150 tests.

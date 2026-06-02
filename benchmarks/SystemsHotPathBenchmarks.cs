@@ -97,6 +97,46 @@ func rollingHash(values: int[]): int {
 
     return hash
 }
+
+[hot]
+func parseEightDigits(values: int[]): int {
+    if values.Length < 8 {
+        return -1
+    }
+
+    parsed := 0
+    for i := 0; i < 8; i++ {
+        value := values[i]
+        if value < 48 || value > 57 {
+            return -1
+        }
+
+        parsed = parsed * 10 + (value - 48)
+    }
+
+    return parsed
+}
+
+[hot]
+func countTransitions(values: int[]): int {
+    if values.Length == 0 {
+        return 0
+    }
+
+    transitions := 0
+    previous := values[0]
+    len := values.Length
+    for i := 1; i < len; i++ {
+        current := values[i]
+        if current != previous {
+            transitions = transitions + 1
+        }
+
+        previous = current
+    }
+
+    return transitions
+}
 """;
 
     private int[] _values = Array.Empty<int>();
@@ -106,12 +146,16 @@ func rollingHash(values: int[]): int {
     private Func<int[], int> _csharpCountAscii = null!;
     private Func<int[], int> _csharpMinMaxDelta = null!;
     private Func<int[], int> _csharpRollingHash = null!;
+    private Func<int[], int> _csharpParseEightDigits = null!;
+    private Func<int[], int> _csharpCountTransitions = null!;
     private Func<int[], int> _checksum = null!;
     private Func<int[], int> _scoreFrame = null!;
     private Func<int[], int, int> _scanTag = null!;
     private Func<int[], int> _countAscii = null!;
     private Func<int[], int> _minMaxDelta = null!;
     private Func<int[], int> _rollingHash = null!;
+    private Func<int[], int> _parseEightDigits = null!;
+    private Func<int[], int> _countTransitions = null!;
     private int _tag;
 
     public enum HotPathWorkload
@@ -122,6 +166,8 @@ func rollingHash(values: int[]): int {
         CountAscii,
         MinMaxDelta,
         RollingHash,
+        ParseEightDigits,
+        CountTransitions,
     }
 
     [Params(
@@ -130,7 +176,9 @@ func rollingHash(values: int[]): int {
         HotPathWorkload.ScanTag,
         HotPathWorkload.CountAscii,
         HotPathWorkload.MinMaxDelta,
-        HotPathWorkload.RollingHash)]
+        HotPathWorkload.RollingHash,
+        HotPathWorkload.ParseEightDigits,
+        HotPathWorkload.CountTransitions)]
     public HotPathWorkload Workload { get; set; }
 
     [Params(64, 4096)]
@@ -147,6 +195,10 @@ func rollingHash(values: int[]): int {
 
         _tag = 100_003;
         _values[^17] = _tag;
+        for (var i = 0; i < Math.Min(8, _values.Length); i++)
+        {
+            _values[i] = 48 + (i % 10);
+        }
 
         _csharpChecksum = CSharpChecksum;
         _csharpScoreFrame = CSharpScoreFrame;
@@ -154,6 +206,8 @@ func rollingHash(values: int[]): int {
         _csharpCountAscii = CSharpCountAscii;
         _csharpMinMaxDelta = CSharpMinMaxDelta;
         _csharpRollingHash = CSharpRollingHash;
+        _csharpParseEightDigits = CSharpParseEightDigits;
+        _csharpCountTransitions = CSharpCountTransitions;
 
         _checksum = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "checksum");
         _scoreFrame = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "scoreFrame");
@@ -161,6 +215,8 @@ func rollingHash(values: int[]): int {
         _countAscii = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "countAscii");
         _minMaxDelta = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "minMaxDelta");
         _rollingHash = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "rollingHash");
+        _parseEightDigits = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "parseEightDigits");
+        _countTransitions = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "countTransitions");
     }
 
     [Benchmark(Baseline = true)]
@@ -172,6 +228,8 @@ func rollingHash(values: int[]): int {
         HotPathWorkload.CountAscii => _csharpCountAscii(_values),
         HotPathWorkload.MinMaxDelta => _csharpMinMaxDelta(_values),
         HotPathWorkload.RollingHash => _csharpRollingHash(_values),
+        HotPathWorkload.ParseEightDigits => _csharpParseEightDigits(_values),
+        HotPathWorkload.CountTransitions => _csharpCountTransitions(_values),
         _ => throw new InvalidOperationException()
     };
 
@@ -184,6 +242,8 @@ func rollingHash(values: int[]): int {
         HotPathWorkload.CountAscii => _countAscii(_values),
         HotPathWorkload.MinMaxDelta => _minMaxDelta(_values),
         HotPathWorkload.RollingHash => _rollingHash(_values),
+        HotPathWorkload.ParseEightDigits => _parseEightDigits(_values),
+        HotPathWorkload.CountTransitions => _countTransitions(_values),
         _ => throw new InvalidOperationException()
     };
 
@@ -282,5 +342,51 @@ func rollingHash(values: int[]): int {
         }
 
         return hash;
+    }
+
+    private static int CSharpParseEightDigits(int[] values)
+    {
+        if (values.Length < 8)
+        {
+            return -1;
+        }
+
+        var parsed = 0;
+        for (var i = 0; i < 8; i++)
+        {
+            var value = values[i];
+            if (value < 48 || value > 57)
+            {
+                return -1;
+            }
+
+            parsed = (parsed * 10) + (value - 48);
+        }
+
+        return parsed;
+    }
+
+    private static int CSharpCountTransitions(int[] values)
+    {
+        if (values.Length == 0)
+        {
+            return 0;
+        }
+
+        var transitions = 0;
+        var previous = values[0];
+        var len = values.Length;
+        for (var i = 1; i < len; i++)
+        {
+            var current = values[i];
+            if (current != previous)
+            {
+                transitions++;
+            }
+
+            previous = current;
+        }
+
+        return transitions;
     }
 }

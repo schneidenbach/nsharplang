@@ -81,6 +81,33 @@ func clampWindow(values: int[], len: int): int {
 
     return changed
 }
+
+[hot]
+func sumPositive(values: int[], len: int): int {
+    sum := 0
+    for i := 0; i < len; i++ {
+        value := values[i]
+        if value > 0 {
+            sum = sum + value
+        }
+    }
+
+    return sum
+}
+
+[hot]
+func zeroOdd(values: int[], len: int): int {
+    cleared := 0
+    for i := 0; i < len; i++ {
+        value := values[i]
+        if (value & 1) != 0 {
+            values[i] = 0
+            cleared = cleared + 1
+        }
+    }
+
+    return cleared
+}
 """;
 
     private int[] _seed = Array.Empty<int>();
@@ -89,11 +116,15 @@ func clampWindow(values: int[], len: int): int {
     private Func<int[], int, int> _csharpClampAndScore = null!;
     private Func<int[], int, int> _csharpFindFirstZero = null!;
     private Func<int[], int, int> _csharpClampWindow = null!;
+    private Func<int[], int, int> _csharpSumPositive = null!;
+    private Func<int[], int, int> _csharpZeroOdd = null!;
     private Func<int[], int, int> _countNonZero = null!;
     private Func<int[], int, int> _scorePooledFrame = null!;
     private Func<int[], int, int> _clampAndScore = null!;
     private Func<int[], int, int> _findFirstZero = null!;
     private Func<int[], int, int> _clampWindow = null!;
+    private Func<int[], int, int> _sumPositive = null!;
+    private Func<int[], int, int> _zeroOdd = null!;
 
     public enum PooledBoundaryWorkload
     {
@@ -102,6 +133,8 @@ func clampWindow(values: int[], len: int): int {
         ClampAndScore,
         FindFirstZero,
         ClampWindow,
+        SumPositive,
+        ZeroOdd,
     }
 
     [Params(
@@ -109,7 +142,9 @@ func clampWindow(values: int[], len: int): int {
         PooledBoundaryWorkload.ScorePooledFrame,
         PooledBoundaryWorkload.ClampAndScore,
         PooledBoundaryWorkload.FindFirstZero,
-        PooledBoundaryWorkload.ClampWindow)]
+        PooledBoundaryWorkload.ClampWindow,
+        PooledBoundaryWorkload.SumPositive,
+        PooledBoundaryWorkload.ZeroOdd)]
     public PooledBoundaryWorkload Workload { get; set; }
 
     [Params(64, 4096)]
@@ -135,12 +170,16 @@ func clampWindow(values: int[], len: int): int {
         _csharpClampAndScore = CSharpClampAndScore;
         _csharpFindFirstZero = CSharpFindFirstZero;
         _csharpClampWindow = CSharpClampWindow;
+        _csharpSumPositive = CSharpSumPositive;
+        _csharpZeroOdd = CSharpZeroOdd;
 
         _countNonZero = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "countNonZero");
         _scorePooledFrame = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "scorePooledFrame");
         _clampAndScore = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "clampAndScore");
         _findFirstZero = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "findFirstZero");
         _clampWindow = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "clampWindow");
+        _sumPositive = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "sumPositive");
+        _zeroOdd = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "zeroOdd");
     }
 
     [Benchmark(Baseline = true)]
@@ -157,6 +196,8 @@ func clampWindow(values: int[], len: int): int {
                 PooledBoundaryWorkload.ClampAndScore => _csharpClampAndScore(buffer, _seed.Length),
                 PooledBoundaryWorkload.FindFirstZero => _csharpFindFirstZero(buffer, _seed.Length),
                 PooledBoundaryWorkload.ClampWindow => _csharpClampWindow(buffer, _seed.Length),
+                PooledBoundaryWorkload.SumPositive => _csharpSumPositive(buffer, _seed.Length),
+                PooledBoundaryWorkload.ZeroOdd => _csharpZeroOdd(buffer, _seed.Length),
                 _ => throw new InvalidOperationException()
             };
         }
@@ -180,6 +221,8 @@ func clampWindow(values: int[], len: int): int {
                 PooledBoundaryWorkload.ClampAndScore => _clampAndScore(buffer, _seed.Length),
                 PooledBoundaryWorkload.FindFirstZero => _findFirstZero(buffer, _seed.Length),
                 PooledBoundaryWorkload.ClampWindow => _clampWindow(buffer, _seed.Length),
+                PooledBoundaryWorkload.SumPositive => _sumPositive(buffer, _seed.Length),
+                PooledBoundaryWorkload.ZeroOdd => _zeroOdd(buffer, _seed.Length),
                 _ => throw new InvalidOperationException()
             };
         }
@@ -269,5 +312,36 @@ func clampWindow(values: int[], len: int): int {
         }
 
         return changed;
+    }
+
+    private static int CSharpSumPositive(int[] values, int len)
+    {
+        var sum = 0;
+        for (var i = 0; i < len; i++)
+        {
+            var value = values[i];
+            if (value > 0)
+            {
+                sum += value;
+            }
+        }
+
+        return sum;
+    }
+
+    private static int CSharpZeroOdd(int[] values, int len)
+    {
+        var cleared = 0;
+        for (var i = 0; i < len; i++)
+        {
+            var value = values[i];
+            if ((value & 1) != 0)
+            {
+                values[i] = 0;
+                cleared++;
+            }
+        }
+
+        return cleared;
     }
 }

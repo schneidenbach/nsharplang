@@ -84,6 +84,42 @@ func compactEven(src: int[], dst: int[]): int {
 
     return written
 }
+
+[hot]
+func filterAndScale(src: int[], dst: int[]): int {
+    written := 0
+    checksum := 0
+    len := src.Length
+    for i := 0; i < len; i++ {
+        value := src[i]
+        if value > 0 {
+            scaled := value * 2
+            dst[written] = scaled
+            written = written + 1
+            checksum = checksum + scaled
+        }
+    }
+
+    return checksum + written
+}
+
+[hot]
+func pairSums(src: int[], dst: int[]): int {
+    pairs := src.Length / 2
+    if dst.Length < pairs {
+        return -1
+    }
+
+    checksum := 0
+    for i := 0; i < pairs; i++ {
+        j := i * 2
+        value := src[j] + src[j + 1]
+        dst[i] = value
+        checksum = checksum + value
+    }
+
+    return checksum
+}
 """;
 
     private int[] _source = Array.Empty<int>();
@@ -93,11 +129,15 @@ func compactEven(src: int[], dst: int[]): int {
     private Func<int[], int[], int> _csharpTransform = null!;
     private Func<int[], int[], int> _csharpPrefixSum = null!;
     private Func<int[], int[], int> _csharpCompactEven = null!;
+    private Func<int[], int[], int> _csharpFilterAndScale = null!;
+    private Func<int[], int[], int> _csharpPairSums = null!;
     private Func<int[], int[], int> _copyPositive = null!;
     private Func<int[], int[], int> _writeFrame = null!;
     private Func<int[], int[], int> _transform = null!;
     private Func<int[], int[], int> _prefixSum = null!;
     private Func<int[], int[], int> _compactEven = null!;
+    private Func<int[], int[], int> _filterAndScale = null!;
+    private Func<int[], int[], int> _pairSums = null!;
 
     public enum CallerBufferWorkload
     {
@@ -106,6 +146,8 @@ func compactEven(src: int[], dst: int[]): int {
         Transform,
         PrefixSum,
         CompactEven,
+        FilterAndScale,
+        PairSums,
     }
 
     [Params(
@@ -113,7 +155,9 @@ func compactEven(src: int[], dst: int[]): int {
         CallerBufferWorkload.WriteFrame,
         CallerBufferWorkload.Transform,
         CallerBufferWorkload.PrefixSum,
-        CallerBufferWorkload.CompactEven)]
+        CallerBufferWorkload.CompactEven,
+        CallerBufferWorkload.FilterAndScale,
+        CallerBufferWorkload.PairSums)]
     public CallerBufferWorkload Workload { get; set; }
 
     [Params(64, 4096)]
@@ -134,12 +178,16 @@ func compactEven(src: int[], dst: int[]): int {
         _csharpTransform = CSharpTransform;
         _csharpPrefixSum = CSharpPrefixSum;
         _csharpCompactEven = CSharpCompactEven;
+        _csharpFilterAndScale = CSharpFilterAndScale;
+        _csharpPairSums = CSharpPairSums;
 
         _copyPositive = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "copyPositive");
         _writeFrame = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "writeFrame");
         _transform = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "transform");
         _prefixSum = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "prefixSum");
         _compactEven = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "compactEven");
+        _filterAndScale = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "filterAndScale");
+        _pairSums = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "pairSums");
     }
 
     [Benchmark(Baseline = true)]
@@ -150,6 +198,8 @@ func compactEven(src: int[], dst: int[]): int {
         CallerBufferWorkload.Transform => _csharpTransform(_source, _destination),
         CallerBufferWorkload.PrefixSum => _csharpPrefixSum(_source, _destination),
         CallerBufferWorkload.CompactEven => _csharpCompactEven(_source, _destination),
+        CallerBufferWorkload.FilterAndScale => _csharpFilterAndScale(_source, _destination),
+        CallerBufferWorkload.PairSums => _csharpPairSums(_source, _destination),
         _ => throw new InvalidOperationException()
     };
 
@@ -161,6 +211,8 @@ func compactEven(src: int[], dst: int[]): int {
         CallerBufferWorkload.Transform => _transform(_source, _destination),
         CallerBufferWorkload.PrefixSum => _prefixSum(_source, _destination),
         CallerBufferWorkload.CompactEven => _compactEven(_source, _destination),
+        CallerBufferWorkload.FilterAndScale => _filterAndScale(_source, _destination),
+        CallerBufferWorkload.PairSums => _pairSums(_source, _destination),
         _ => throw new InvalidOperationException()
     };
 
@@ -244,5 +296,45 @@ func compactEven(src: int[], dst: int[]): int {
         }
 
         return written;
+    }
+
+    private static int CSharpFilterAndScale(int[] source, int[] destination)
+    {
+        var written = 0;
+        var checksum = 0;
+        var len = source.Length;
+        for (var i = 0; i < len; i++)
+        {
+            var value = source[i];
+            if (value > 0)
+            {
+                var scaled = value * 2;
+                destination[written] = scaled;
+                written++;
+                checksum += scaled;
+            }
+        }
+
+        return checksum + written;
+    }
+
+    private static int CSharpPairSums(int[] source, int[] destination)
+    {
+        var pairs = source.Length / 2;
+        if (destination.Length < pairs)
+        {
+            return -1;
+        }
+
+        var checksum = 0;
+        for (var i = 0; i < pairs; i++)
+        {
+            var j = i * 2;
+            var value = source[j] + source[j + 1];
+            destination[i] = value;
+            checksum += value;
+        }
+
+        return checksum;
     }
 }

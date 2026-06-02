@@ -10295,12 +10295,7 @@ public partial class ILCompiler
                 break;
 
             case ExpressionStatement exprStmt:
-                EmitExpression(exprStmt.Expression);
-                // Pop the result if it's not used
-                if (GetExpressionType(exprStmt.Expression) != typeof(void))
-                {
-                    _currentIL.Emit(OpCodes.Pop);
-                }
+                EmitExpressionStatement(exprStmt);
                 break;
 
             case IfStatement ifStmt:
@@ -11349,10 +11344,13 @@ public partial class ILCompiler
         _currentIL.MarkLabel(continueLabel);
         if (forStmt.Iterator != null)
         {
-            EmitExpression(forStmt.Iterator);
-            if (GetExpressionType(forStmt.Iterator) != typeof(void))
+            if (!TryEmitExpressionDiscardingResult(forStmt.Iterator))
             {
-                _currentIL.Emit(OpCodes.Pop);
+                EmitExpression(forStmt.Iterator);
+                if (GetExpressionType(forStmt.Iterator) != typeof(void))
+                {
+                    _currentIL.Emit(OpCodes.Pop);
+                }
             }
         }
 
@@ -11368,6 +11366,141 @@ public partial class ILCompiler
         }
 
         _currentIL.MarkLabel(endLabel);
+    }
+
+    private void EmitExpressionStatement(ExpressionStatement expressionStatement)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (TryEmitExpressionDiscardingResult(expressionStatement.Expression))
+        {
+            return;
+        }
+
+        EmitExpression(expressionStatement.Expression);
+        if (GetExpressionType(expressionStatement.Expression) != typeof(void))
+        {
+            _currentIL.Emit(OpCodes.Pop);
+        }
+    }
+
+    private bool TryEmitExpressionDiscardingResult(Expression expression)
+    {
+        return expression switch
+        {
+            AssignmentExpression assignment => TryEmitAssignmentStatement(assignment),
+            UnaryExpression unary => TryEmitIncrementOrDecrementStatement(unary),
+            ParenthesizedExpression parenthesized => TryEmitExpressionDiscardingResult(parenthesized.Inner),
+            _ => false
+        };
+    }
+
+    private bool TryEmitAssignmentStatement(AssignmentExpression assignment)
+    {
+        if (_currentIL == null || _locals == null || _parameters == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (assignment.Target is IdentifierExpression { Name: "_" })
+        {
+            EmitExpression(assignment.Value);
+            if (GetExpressionType(assignment.Value) != typeof(void))
+            {
+                _currentIL.Emit(OpCodes.Pop);
+            }
+
+            return true;
+        }
+
+        if (assignment.Target is IdentifierExpression ident
+            && assignment.Operator != AssignmentOperator.NullCoalesceAssign)
+        {
+            if (assignment.Operator == AssignmentOperator.Assign)
+            {
+                if (assignment.Value is DefaultExpression)
+                {
+                    EmitDefaultValue(GetIdentifierType(ident));
+                }
+                else
+                {
+                    EmitExpressionWithExpectedType(assignment.Value, GetIdentifierType(ident));
+                }
+            }
+            else
+            {
+                EmitIdentifier(ident);
+                EmitExpressionWithExpectedType(assignment.Value, GetIdentifierType(ident));
+                EmitCompoundAssignmentOperation(assignment.Operator, GetIdentifierType(ident));
+            }
+
+            StoreIdentifier(ident);
+            return true;
+        }
+
+        if (assignment.Target is IndexAccessExpression indexAccess
+            && assignment.Operator == AssignmentOperator.Assign
+            && !indexAccess.IsNullConditional)
+        {
+            if (indexAccess.Object is IdentifierExpression bufferIdentifier
+                && TryGetPromotedBuffer(bufferIdentifier.Name, out _))
+            {
+                return false;
+            }
+
+            var objectType = GetExpressionType(indexAccess.Object);
+            var canUseStatementStore = objectType.IsArray
+                || (TryGetSpanElementType(objectType, out _, out var isReadOnlySpan) && !isReadOnlySpan);
+            if (!canUseStatementStore)
+            {
+                return false;
+            }
+
+            var valueType = GetIndexAccessType(indexAccess);
+            EmitExpression(indexAccess.Object);
+            EmitExpression(indexAccess.Index);
+            if (assignment.Value is DefaultExpression)
+            {
+                EmitDefaultValue(valueType);
+            }
+            else
+            {
+                EmitExpressionWithExpectedType(assignment.Value, valueType);
+            }
+
+            EmitIndexStoreValue(indexAccess, objectType);
+            return true;
+        }
+
+        return false;
+    }
+
+    private bool TryEmitIncrementOrDecrementStatement(UnaryExpression unary)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (unary.Operator is not (UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
+            or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement))
+        {
+            return false;
+        }
+
+        var delta = unary.Operator is UnaryOperator.PreIncrement or UnaryOperator.PostIncrement ? 1 : -1;
+        if (unary.Operand is IdentifierExpression ident)
+        {
+            EmitIdentifier(ident);
+            EmitIncrementDelta(delta, GetIdentifierType(ident));
+            StoreIdentifier(ident);
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>

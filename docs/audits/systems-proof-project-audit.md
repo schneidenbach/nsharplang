@@ -23,7 +23,7 @@ Current status summary from the 2026-06-01 audit:
 | `24-zero-copy-frame-reader` | design-only | 7 errors, 1 warning | missing | missing | Proposed enum/call syntax and hot external-call gaps. |
 | `25-trusted-memory-copy` | design-only | 4 errors, 0 warnings | missing | missing | Proposed unsafe/trusted body syntax exceeds current parser/analyzer support. |
 | `26-native-device-handle` | design-only | 6 errors, 1 warning | missing | missing | Native handle ownership and source-generated interop proof not executable. |
-| `27-c-library-cli` | design-only | 4 errors, 1 warning | missing | missing | Boundary/native interop sample still uses design-only shapes. |
+| `27-c-library-cli` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no allocation, trap, dispatch, or AOT blockers | source-generated interop-shaped boundary compiles | Real native library execution and NativeAOT publish remain external deployment proofs. |
 | `28-nativeaot-json-cli` | design-only | 7 errors, 3 warnings | missing | native image deferred | NativeAOT publish proof is analysis-only; sample syntax is not current. |
 | `29-generated-regex-boundary` | design-only | 23 errors, 2 warnings | missing | missing | Generated regex boundary syntax and summaries are not executable. |
 | `30-cold-failure-logging` | design-only | 10 errors, 1 warning | missing | missing | Cold-path allow/trap proof sample is still design syntax. |
@@ -40,14 +40,14 @@ Current status summary from the 2026-06-01 audit:
 | `41-structured-errors` | design-only | 22 errors, 0 warnings | missing | missing | Pattern/result sample uses proposed result/pattern syntax beyond current support. |
 | `42-aot-friendly-public-api` | design-only | 9 errors, 2 warnings | missing | native image deferred | AOT public API proof is analysis-only and not executable. |
 | `43-mono-wasm-plugin` | design-only | 6 errors, 0 warnings | missing | target runner missing | Mono/WASM target proof is not implemented. |
-| `44-ci-allocation-gate` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports boundary allocation and no AOT blockers | 124-row Systems BenchmarkDotNet gate covers allocation/perf CI enforcement | No native image proof required for this use case. |
+| `44-ci-allocation-gate` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports boundary allocation and no AOT blockers | 184-row Systems BenchmarkDotNet gate covers allocation/perf CI enforcement | No native image proof required for this use case. |
 | `45-trusted-audit` | executable | passes, 0 errors, 0 warnings | passes `nlc build --perf-report`; reports trusted site | passes `nlc query trusted` with owner/review/expiry/unsafe metadata | Broader unsafe-wrapper projects still pending. |
 | `46-dapper-boundary` | design-only | 14 errors, 6 warnings | missing | missing | ORM boundary sample is intentionally design-only. |
 | `47-cli-startup-honesty` | design-only | 12 errors, 4 warnings | missing | native image deferred | Startup/AOT/readiness proof is broader than current implementation. |
-| `48-effect-drift` | design-only | 4 errors, 0 warnings | missing | missing | Dependency drift proof lacks external identity validation. |
+| `48-effect-drift` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; reports boundary allocation and no hot-readiness/trap/AOT blockers | source-inferred helper allocation drift is covered by an adversarial systems test | Broad external package identity drift proof remains deferred to sidecar/package coverage. |
 
 Executable Systems N# evidence currently lives in
 `tests/fixtures/systems-gauntlet/`, the executable proof projects listed above,
-`tests/SystemsNSharpTests.cs`, and the 124 required BenchmarkDotNet rows in
+`tests/SystemsNSharpTests.cs`, and the 184 required BenchmarkDotNet rows in
 `benchmarks/Systems*Benchmarks.cs` enforced by `scripts/benchmark-systems.sh`.
 Those are the artifacts that must be cited for current implementation status.
