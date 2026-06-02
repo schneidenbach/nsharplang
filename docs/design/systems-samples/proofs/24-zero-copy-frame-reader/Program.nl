@@ -4,7 +4,7 @@ import System
 import System.Buffers.Binary
 
 enum FrameError {
-    Eof
+    Eof,
     Truncated
 }
 
@@ -37,7 +37,14 @@ func NextFrame<'a>(reader: &FrameReader scoped 'a): Result<ReadOnlySpan<byte>, F
 }
 
 func Main() {
-    input := new byte[] { 3, 0, 0, 0, 65, 66, 67 }
+    input := alloc new byte[7]
+    input[0] = (byte)3
+    input[1] = (byte)0
+    input[2] = (byte)0
+    input[3] = (byte)0
+    input[4] = (byte)65
+    input[5] = (byte)66
+    input[6] = (byte)67
     reader := new FrameReader(input)
     frame := NextFrame(ref reader)
     print frame

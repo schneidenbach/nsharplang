@@ -13,6 +13,8 @@ Current compiler audit status is tracked in
 Executable proof projects can be cited only for the exact command gates they
 pass. Current executable proof projects:
 
+- `proofs/24-zero-copy-frame-reader`: `nlc check --systems-report` and
+  `nlc build --perf-report`.
 - `proofs/27-c-library-cli`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 - `proofs/31-hot-metrics`: `nlc check --systems-report` and

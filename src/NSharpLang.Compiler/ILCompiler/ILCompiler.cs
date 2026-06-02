@@ -132,6 +132,9 @@ public partial class ILCompiler
     private readonly Dictionary<TypeBuilder, List<Type>> _typeBuilderInterfaces = new();
     private readonly Dictionary<string, TypeReference> _typeAliases = new();
     private readonly Dictionary<string, GenericTypeParameterBuilder[]> _typeGenericParameters = new();
+    private readonly Dictionary<(string TypeName, int Arity), Type?> _externalGenericTypeCache = new();
+    private readonly Dictionary<(string TypeName, bool AllowGlobalSimpleNameFallback), Type?> _externalTypeCache = new();
+    private int _externalTypeCacheAssemblyCount;
     private readonly Dictionary<Type, AsyncSequenceAdapterInfo> _asyncSequenceAdapters = new();
     private readonly List<TypeBuilder> _generatedHelperTypes = new();
     private readonly Dictionary<Type, Type> _liftedStorageTypes = new();
@@ -5213,6 +5216,18 @@ public partial class ILCompiler
         return combined.Length > 0 ? combined : null;
     }
 
+    private static bool IsLifetimeTypeParameter(TypeParameter typeParameter)
+        => typeParameter.Name.StartsWith("'", StringComparison.Ordinal);
+
+    private static TypeParameter[] GetRuntimeTypeParameters(FunctionDeclaration function)
+        => function.TypeParameters?
+            .Where(typeParameter => !IsLifetimeTypeParameter(typeParameter))
+            .ToArray()
+            ?? Array.Empty<TypeParameter>();
+
+    private static bool HasRuntimeTypeParameters(FunctionDeclaration function)
+        => function.TypeParameters?.Any(typeParameter => !IsLifetimeTypeParameter(typeParameter)) == true;
+
     private static bool SignaturesMatch(MethodInfo candidate, Type returnType, Type[] parameterTypes)
     {
         if (candidate.ReturnType != returnType && !candidate.ReturnType.IsGenericParameter)
@@ -6709,7 +6724,8 @@ public partial class ILCompiler
 
     private Type[]? TryInferDeclaredMethodTypeArguments(FunctionDeclaration declaration, ParameterInfo[] runtimeParameters, CallExpression call, Expression? implicitReceiver)
     {
-        if (declaration.TypeParameters is not { Count: > 0 })
+        var runtimeTypeParameters = GetRuntimeTypeParameters(declaration);
+        if (runtimeTypeParameters.Length == 0)
         {
             return null;
         }
@@ -6782,10 +6798,10 @@ public partial class ILCompiler
             suppliedArgumentIndex++;
         }
 
-        var inferredTypes = new Type[declaration.TypeParameters.Count];
-        for (int i = 0; i < declaration.TypeParameters.Count; i++)
+        var inferredTypes = new Type[runtimeTypeParameters.Length];
+        for (int i = 0; i < runtimeTypeParameters.Length; i++)
         {
-            if (!bindings.TryGetValue(declaration.TypeParameters[i].Name, out var inferredType))
+            if (!bindings.TryGetValue(runtimeTypeParameters[i].Name, out var inferredType))
             {
                 return null;
             }
@@ -6798,7 +6814,8 @@ public partial class ILCompiler
 
     private (MethodInfo? Method, Type[]? TypeArguments) CreateDeclaredMethodCandidate(DeclaredMethodOverload overload, CallExpression call, Expression? implicitReceiver)
     {
-        if (overload.Declaration.TypeParameters is not { Count: > 0 })
+        var runtimeTypeParameters = GetRuntimeTypeParameters(overload.Declaration);
+        if (runtimeTypeParameters.Length == 0)
         {
             return call.TypeArguments is { Count: > 0 }
                 ? (null, null)
@@ -6808,7 +6825,7 @@ public partial class ILCompiler
         Type[]? typeArguments = null;
         if (call.TypeArguments != null && call.TypeArguments.Count > 0)
         {
-            if (call.TypeArguments.Count != overload.Declaration.TypeParameters.Count)
+            if (call.TypeArguments.Count != runtimeTypeParameters.Length)
             {
                 return (null, null);
             }
@@ -6861,8 +6878,9 @@ public partial class ILCompiler
             return null;
         }
 
-        if (declaration.TypeParameters is not { Count: > 0 }
-            || typeArguments.Length != declaration.TypeParameters.Count)
+        var runtimeTypeParameters = GetRuntimeTypeParameters(declaration);
+        if (runtimeTypeParameters.Length == 0
+            || typeArguments.Length != runtimeTypeParameters.Length)
         {
             return null;
         }
@@ -7004,11 +7022,14 @@ public partial class ILCompiler
         FunctionDeclaration declaration,
         Type[] typeArguments)
     {
-        var typeParameters = declaration.TypeParameters
-            ?? throw new InvalidOperationException($"Function '{declaration.Name}' is not generic.");
+        var typeParameters = GetRuntimeTypeParameters(declaration);
+        if (typeParameters.Length == 0)
+        {
+            throw new InvalidOperationException($"Function '{declaration.Name}' has no CLR generic type parameters.");
+        }
 
         var substitution = new Dictionary<string, Type>(StringComparer.Ordinal);
-        for (var i = 0; i < typeParameters.Count; i++)
+        for (var i = 0; i < typeParameters.Length; i++)
         {
             substitution[typeParameters[i].Name] = typeArguments[i];
         }
@@ -7380,7 +7401,7 @@ public partial class ILCompiler
             var parameterTypes = overload.Builder.IsStatic
                 && targetType == null
                 && implicitReceiver == null
-                && overload.Declaration.TypeParameters is { Count: > 0 }
+                && HasRuntimeTypeParameters(overload.Declaration)
                 && candidateTypeArguments != null
                 ? ResolveDeclaredMethodParameterTypes(overload.Declaration, candidateTypeArguments)
                 : candidateMethod.GetParameters()
@@ -7400,7 +7421,7 @@ public partial class ILCompiler
                 continue;
             }
 
-            var isGeneric = overload.Declaration.TypeParameters is { Count: > 0 };
+            var isGeneric = HasRuntimeTypeParameters(overload.Declaration);
             if (best == null
                 || score > bestScore
                 || (score == bestScore && bestIsGeneric && !isGeneric)
@@ -8114,7 +8135,7 @@ public partial class ILCompiler
 
         // Generic functions are left untouched: their binding path re-resolves parameter types and
         // the extra consistency surface is not worth it for the first iteration.
-        if (owningFunction.TypeParameters is { Count: > 0 })
+        if (HasRuntimeTypeParameters(owningFunction))
         {
             return false;
         }
@@ -8201,15 +8222,16 @@ public partial class ILCompiler
 
     private Type[] ResolveDeclaredMethodParameterTypes(FunctionDeclaration declaration, IReadOnlyList<Type> typeArguments)
     {
-        if (declaration.TypeParameters is not { Count: > 0 } || declaration.TypeParameters.Count != typeArguments.Count)
+        var runtimeTypeParameters = GetRuntimeTypeParameters(declaration);
+        if (runtimeTypeParameters.Length == 0 || runtimeTypeParameters.Length != typeArguments.Count)
         {
             return declaration.Parameters.Select(parameter => ResolveParameterType(parameter)).ToArray();
         }
 
         var substitutions = new Dictionary<string, Type>(StringComparer.Ordinal);
-        for (int i = 0; i < declaration.TypeParameters.Count; i++)
+        for (int i = 0; i < runtimeTypeParameters.Length; i++)
         {
-            substitutions[declaration.TypeParameters[i].Name] = typeArguments[i];
+            substitutions[runtimeTypeParameters[i].Name] = typeArguments[i];
         }
 
         return declaration.Parameters
@@ -9882,9 +9904,10 @@ public partial class ILCompiler
 
         // Define generic parameters if present
         GenericTypeParameterBuilder[]? genericParameters = null;
-        if (function.TypeParameters != null && function.TypeParameters.Count > 0)
+        var runtimeTypeParameters = GetRuntimeTypeParameters(function);
+        if (runtimeTypeParameters.Length > 0)
         {
-            var typeParamNames = function.TypeParameters.Select(tp => tp.Name).ToArray();
+            var typeParamNames = runtimeTypeParameters.Select(tp => tp.Name).ToArray();
             genericParameters = methodBuilder.DefineGenericParameters(typeParamNames);
 
             // Apply constraints if present
@@ -9971,7 +9994,7 @@ public partial class ILCompiler
         if (function.IsOperatorOverload
             || function.IsConversionOperator
             || function.Modifiers.HasFlag(Modifiers.Abstract)
-            || function.TypeParameters is { Count: > 0 }
+            || HasRuntimeTypeParameters(function)
             || (targetAttributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
         {
             return false;
@@ -10000,7 +10023,7 @@ public partial class ILCompiler
         if (function.IsOperatorOverload
             || function.IsConversionOperator
             || function.Modifiers.HasFlag(Modifiers.Abstract)
-            || function.TypeParameters is { Count: > 0 }
+            || HasRuntimeTypeParameters(function)
             || (targetAttributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
         {
             return;
@@ -18553,13 +18576,14 @@ public partial class ILCompiler
             }
         }
 
-        if (boundCall.Declaration.TypeParameters is { Count: > 0 }
+        var runtimeTypeParameters = GetRuntimeTypeParameters(boundCall.Declaration);
+        if (runtimeTypeParameters.Length > 0
             && boundCall.TypeArguments != null
-            && boundCall.TypeArguments.Count == boundCall.Declaration.TypeParameters.Count)
+            && boundCall.TypeArguments.Count == runtimeTypeParameters.Length)
         {
-            for (int i = 0; i < boundCall.Declaration.TypeParameters.Count; i++)
+            for (int i = 0; i < runtimeTypeParameters.Length; i++)
             {
-                substitutions[boundCall.Declaration.TypeParameters[i].Name] = boundCall.TypeArguments[i];
+                substitutions[runtimeTypeParameters[i].Name] = boundCall.TypeArguments[i];
             }
         }
 
@@ -19069,6 +19093,22 @@ public partial class ILCompiler
 
     private Type? ResolveExternalGenericType(string typeName, int arity)
     {
+        RefreshExternalTypeCachesIfAssemblySetChanged();
+
+        var key = (typeName, arity);
+        if (_externalGenericTypeCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var resolved = ResolveExternalGenericTypeUncached(typeName, arity);
+        _externalTypeCacheAssemblyCount = AppDomain.CurrentDomain.GetAssemblies().Length;
+        _externalGenericTypeCache[key] = resolved;
+        return resolved;
+    }
+
+    private Type? ResolveExternalGenericTypeUncached(string typeName, int arity)
+    {
         var metadataName = typeName.Contains('`', StringComparison.Ordinal)
             ? typeName
             : $"{typeName}`{arity}";
@@ -19243,6 +19283,35 @@ public partial class ILCompiler
     }
 
     private Type? ResolveExternalType(string typeName, bool allowGlobalSimpleNameFallback)
+    {
+        RefreshExternalTypeCachesIfAssemblySetChanged();
+
+        var key = (typeName, allowGlobalSimpleNameFallback);
+        if (_externalTypeCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var resolved = ResolveExternalTypeUncached(typeName, allowGlobalSimpleNameFallback);
+        _externalTypeCacheAssemblyCount = AppDomain.CurrentDomain.GetAssemblies().Length;
+        _externalTypeCache[key] = resolved;
+        return resolved;
+    }
+
+    private void RefreshExternalTypeCachesIfAssemblySetChanged()
+    {
+        var assemblyCount = AppDomain.CurrentDomain.GetAssemblies().Length;
+        if (assemblyCount == _externalTypeCacheAssemblyCount)
+        {
+            return;
+        }
+
+        _externalTypeCacheAssemblyCount = assemblyCount;
+        _externalGenericTypeCache.Clear();
+        _externalTypeCache.Clear();
+    }
+
+    private Type? ResolveExternalTypeUncached(string typeName, bool allowGlobalSimpleNameFallback)
     {
         var candidates = new List<string>();
         if (typeName.Contains('.'))

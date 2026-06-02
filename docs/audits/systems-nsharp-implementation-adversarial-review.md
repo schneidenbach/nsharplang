@@ -74,9 +74,9 @@ data-race freedom, or every design proof project in the use-case appendix.
 5. The acceptance gauntlet is intentionally source/analyzer focused. Broader
    C# ABI matrices, full NativeAOT, and source-generator deployment projects
    should become separate preview gates as those surfaces mature.
-6. Most complex proof projects for use cases 24-48 remain design proof inputs,
-   not current compiler examples; only the projects marked `executable` in the
-   proof audit are current compiler evidence. See
+6. Most remaining complex proof projects for use cases 25-48 remain design proof
+   inputs, not current compiler examples; only the projects marked `executable`
+   in the proof audit are current compiler evidence. See
    `docs/audits/systems-proof-project-audit.md`.
 
 ## Adversarial Smoke Cases

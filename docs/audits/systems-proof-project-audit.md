@@ -20,7 +20,7 @@ Current status summary from the 2026-06-02 audit:
 
 | Project | Status | Check evidence | Build/perf evidence | Other required evidence | Remaining gap |
 | --- | --- | --- | --- | --- | --- |
-| `24-zero-copy-frame-reader` | design-only | 7 errors, 1 warning | missing | missing | Proposed enum/call syntax and hot external-call gaps. |
+| `24-zero-copy-frame-reader` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no allocation, boxing, dispatch, trap, hot-readiness, or AOT blockers | hot `NextFrame` reports zero-copy span handoff with `BinaryPrimitives.ReadInt32LittleEndian` and `reader.buf.Slice`; lifetime-only `'a` is erased from the CLR signature | Console output remains a known non-hot warning in `Main`. |
 | `25-trusted-memory-copy` | design-only | 4 errors, 0 warnings | missing | missing | Proposed unsafe/trusted body syntax exceeds current parser/analyzer support. |
 | `26-native-device-handle` | design-only | 6 errors, 1 warning | missing | missing | Native handle ownership and source-generated interop proof not executable. |
 | `27-c-library-cli` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no allocation, trap, dispatch, or AOT blockers | source-generated interop-shaped boundary compiles | Real native library execution and NativeAOT publish remain external deployment proofs. |

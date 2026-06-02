@@ -313,6 +313,57 @@ func Run(): int {
     }
 
     [Fact]
+    public void LifetimeOnlyTypeParameter_IsErasedFromIlSignature()
+    {
+        var source = """
+import System
+
+ref struct FrameReader {
+    buf: ReadOnlySpan<int>
+}
+
+func First<'a>(reader: &FrameReader scoped 'a): int returns 'a {
+    return reader.buf[0]
+}
+
+func Run(): int {
+    values := [42]
+    reader := new FrameReader { buf: values }
+    return First(ref reader)
+}
+""";
+        var unit = Parse(source);
+        var outputPath = Path.Combine(Path.GetTempPath(), $"LifetimeOnlyTypeParameter_{Guid.NewGuid():N}.dll");
+        var assemblyName = $"LifetimeOnlyTypeParameter_{Guid.NewGuid():N}";
+        AssemblyLoadContext? loadContext = null;
+
+        try
+        {
+            var compiler = new Compiler.ILCompiler.ILCompiler(unit, assemblyName, outputPath);
+            compiler.Compile();
+
+            loadContext = new AssemblyLoadContext($"LifetimeOnlyTypeParameter_{Guid.NewGuid():N}", isCollectible: true);
+            using var stream = new MemoryStream(File.ReadAllBytes(outputPath));
+            var assembly = loadContext.LoadFromStream(stream);
+            var program = assembly.GetType("Program")!;
+            var first = program.GetMethod("First", BindingFlags.Public | BindingFlags.Static)!;
+            var run = program.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
+
+            Assert.False(first.IsGenericMethodDefinition);
+            Assert.Empty(first.GetGenericArguments());
+            Assert.Equal(42, run.Invoke(null, null));
+        }
+        finally
+        {
+            loadContext?.Unload();
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    [Fact]
     public void HotRefLikeReturn_RequiresReturnLifetime()
     {
         var report = Analyze("""
@@ -1033,6 +1084,7 @@ class Box {}
             .ToArray();
         var executableProofProjects = new[]
         {
+            "24-zero-copy-frame-reader",
             "27-c-library-cli",
             "31-hot-metrics",
             "32-cache-prewarm",
@@ -1070,6 +1122,7 @@ class Box {}
     {
         var repoRoot = FindRepoRoot();
         var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
+        var zeroCopyFrameReader = Path.Combine(proofsRoot, "24-zero-copy-frame-reader");
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
@@ -1079,6 +1132,42 @@ class Box {}
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
         var effectDrift = Path.Combine(proofsRoot, "48-effect-drift");
+
+        var zeroCopyCheck = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", zeroCopyFrameReader, "--systems-report" }));
+        Assert.Equal(0, zeroCopyCheck.ExitCode);
+        using (var doc = JsonDocument.Parse(zeroCopyCheck.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+            Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
+
+            var nextFrame = doc.RootElement
+                .GetProperty("systemsReport")
+                .GetProperty("functions")
+                .EnumerateArray()
+                .Single(function => function.GetProperty("name").GetString() == "NextFrame");
+            Assert.True(nextFrame.GetProperty("isHot").GetBoolean());
+            Assert.False(nextFrame.GetProperty("effects").GetProperty("allocates").GetBoolean());
+            Assert.False(nextFrame.GetProperty("effects").GetProperty("hasImplicitTrapObligation").GetBoolean());
+            Assert.False(nextFrame.GetProperty("effects").GetProperty("usesUnknownExternalCall").GetBoolean());
+            Assert.True(nextFrame.GetProperty("effects").GetProperty("aotSafe").GetBoolean());
+        }
+
+        var zeroCopyBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", zeroCopyFrameReader, "--perf-report"));
+        Assert.Equal(0, zeroCopyBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(zeroCopyBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
 
         AssertSystemsProofCheckPasses(cLibraryCli, expectedWarnings: 1);
         var cLibraryBuild = CaptureConsole(() =>

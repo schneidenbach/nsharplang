@@ -1319,10 +1319,10 @@ in Appendix B. Use cases 24-48 are complex proof projects under
 Implementation note: Appendix B and the proof projects are proposal pressure
 tests. The current executable implementation evidence is the ten-case acceptance
 gauntlet under `tests/fixtures/systems-gauntlet/`, executable proof projects
-27, 31, 32, 36, 40, 43, 44, 45, and 48 under
+24, 27, 31, 32, 36, 40, 43, 44, 45, and 48 under
 `docs/design/systems-samples/proofs/`, the Systems N# unit/CLI tests, and the
 fast Systems BenchmarkDotNet gate, and the detailed 196-row matrix available via
-`NSHARP_SYSTEMS_BENCH_MODE=matrix`. The remaining 24-48 proof projects are
+`NSHARP_SYSTEMS_BENCH_MODE=matrix`. The remaining proof projects are
 design-only until migrated and audited in
 `docs/audits/systems-proof-project-audit.md`.
 
