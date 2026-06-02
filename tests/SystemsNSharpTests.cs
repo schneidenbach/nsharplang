@@ -1147,6 +1147,7 @@ class Box {}
             "31-hot-metrics",
             "32-cache-prewarm",
             "36-dictionary-setup-hot-read",
+            "37-fixed-capacity-map",
             "40-csharp-hot-parser-api",
             "41-structured-errors",
             "43-mono-wasm-plugin",
@@ -1187,6 +1188,7 @@ class Box {}
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
+        var fixedCapacityMap = Path.Combine(proofsRoot, "37-fixed-capacity-map");
         var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
         var structuredErrors = Path.Combine(proofsRoot, "41-structured-errors");
         var monoWasmPlugin = Path.Combine(proofsRoot, "43-mono-wasm-plugin");
@@ -1335,6 +1337,32 @@ class Box {}
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
+
+        AssertSystemsProofCheckPasses(fixedCapacityMap, expectedWarnings: 1);
+        var fixedMapBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", fixedCapacityMap, "--perf-report"));
+        Assert.Equal(0, fixedMapBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(fixedMapBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            var allocationSite = Assert.Single(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Equal("NewMap", allocationSite.GetProperty("function").GetString());
+            Assert.Equal("NSYS001", allocationSite.GetProperty("code").GetString());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var fixedMapOutputDir = Path.Combine(fixedCapacityMap, "bin", "Debug", "net10.0");
+        var fixedMapAssembly = Path.Combine(fixedMapOutputDir, "SystemsProof37FixedCapacityMap.dll");
+        Assert.True(File.Exists(Path.Combine(fixedMapOutputDir, "NSharpLang.Runtime.dll")));
+        var fixedMapRun = DotnetRunner.Run($"\"{fixedMapAssembly}\"", fixedMapOutputDir);
+        Assert.True(fixedMapRun.ExitCode == 0,
+            $"fixed-capacity map proof failed to run\nstdout:\n{fixedMapRun.Stdout}\nstderr:\n{fixedMapRun.Stderr}");
 
         AssertSystemsProofCheckPasses(csharpHotParserApi, expectedWarnings: 0);
         var parserApiBuild = CaptureConsole(() =>

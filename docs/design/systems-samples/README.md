@@ -25,6 +25,8 @@ pass. Current executable proof projects:
   `nlc build --perf-report`.
 - `proofs/36-dictionary-setup-hot-read`: `nlc check --systems-report` and
   `nlc build --perf-report`.
+- `proofs/37-fixed-capacity-map`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run.
 - `proofs/40-csharp-hot-parser-api`: `nlc check --systems-report`,
   `nlc build --perf-report`, and a C# `ProjectReference` consumer run.
 - `proofs/41-structured-errors`: `nlc check --systems-report`,

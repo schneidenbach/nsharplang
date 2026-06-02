@@ -1,9 +1,8 @@
 namespace SystemsProofs.FixedCapacityMap
 
-import System
-
 enum MapError {
-    Full
+    Ok,
+    Full,
     Missing
 }
 
@@ -19,32 +18,62 @@ struct FixedMap {
 
 [boundary]
 func NewMap(capacity: int): FixedMap {
-    return FixedMap { entries: alloc new Entry[capacity] }
+    actualCapacity := capacity
+    if capacity < 0 {
+        actualCapacity = 0
+    }
+    entries := alloc new Entry[actualCapacity]
+    return new FixedMap { entries: entries }
 }
 
 [hot]
-func Put(map: &FixedMap, key: int, value: int): Result<Unit, MapError> {
+func Put(map: &FixedMap, key: int, value: int): MapError {
     for i := 0; i < map.entries.Length; i++ {
         if !map.entries[i].Used || map.entries[i].Key == key {
-            map.entries[i] = Entry { Key: key, Value: value, Used: true }
-            return Ok(unit)
+            map.entries[i] = new Entry { Key: key, Value: value, Used: true }
+            return MapError.Ok
         }
     }
-    return Err(MapError.Full)
+    return MapError.Full
 }
 
 [hot]
 func Get(map: &FixedMap, key: int): Result<int, MapError> {
     for i := 0; i < map.entries.Length; i++ {
-        if map.entries[i].Used && map.entries[i].Key == key {
-            return Ok(map.entries[i].Value)
+        entry := map.entries[i]
+        if entry.Used {
+            if entry.Key == key {
+                return Ok(entry.Value)
+            }
         }
     }
     return Err(MapError.Missing)
 }
 
-func Main() {
+func Main(): int {
     map := NewMap(8)
-    _ = Put(ref map, 7, 99)
-    print Get(ref map, 7)
+    put := Put(ref map, 7, 99)
+    if put != MapError.Ok {
+        return 1
+    }
+
+    found := Get(ref map, 7)
+    if found.IsOk == false {
+        return 2
+    }
+
+    if found.OkValueUnchecked != 99 {
+        return 3
+    }
+
+    missing := Get(ref map, 8)
+    if missing.IsErr == false {
+        return 4
+    }
+
+    if missing.ErrValueUnchecked != MapError.Missing {
+        return 5
+    }
+
+    return 0
 }

@@ -43,18 +43,18 @@ Gate result:
 - Observed rows: 12
 - Allocation gate: every row reported `Allocated=0 B`
 - Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
-  against matched C# baselines
+  against matched C# baselines; the worst computed N# ratio was `0.9865`
 
 Worst throughput ratios from the passing run:
 
 | Row | Mean | Ratio | Allocated |
 | --- | ---: | ---: | ---: |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 154.584 μs | 0.98 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.825 μs | 0.90 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.903 μs | 0.86 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.289 μs | 0.85 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 5.343 μs | 0.78 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.142 μs | 0.42 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 154.518 μs | 0.99 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.509 μs | 0.87 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.236 μs | 0.87 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.848 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 5.356 μs | 0.79 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.006 μs | 0.44 | 0 B |
 
 Regression addressed in this wave:
 
@@ -87,21 +87,27 @@ Harness hardening in this wave:
 
 ## Focused Test Evidence
 
-Command:
+Proof-promotion command:
 
 ```bash
 dotnet test tests/Tests.csproj \
-  --filter "FullyQualifiedName~SystemsNSharpTests|FullyQualifiedName~IlSdkToolchainTests" \
-  --no-restore
+  --filter "FullyQualifiedName~SystemsNSharpTests.SystemsProofProjects_AreDesignOnlyAndCoveredByAudit|FullyQualifiedName~SystemsNSharpTests.ExecutableSystemsProofProjects" \
+  --no-restore -v q --nologo
 ```
 
-Result: passed, 62/62 tests.
+Result: passed, 2/2 tests.
 
 Coverage:
 
-- Executable systems proof projects now include proof 40
-  (`csharp-hot-parser-api`) and proof 43 (`mono-wasm-plugin`) in the checked
-  proof set.
+- Executable systems proof projects now include proof 37
+  (`fixed-capacity-map`) in addition to proofs 24, 25, 27, 31, 32, 36, 40, 41,
+  43, 44, 45, and 48.
+- Proof 37 covers a fixed-capacity custom map with a reviewed construction
+  allocation in `NewMap`, hot allocation-free `Put`/`Get`, and
+  `Result<int, MapError>` over a generated enum. The emitted assembly runs and
+  direct `ilverify` reports all classes/methods verified.
+- Proof 41 was rebuilt, run, and directly IL-verified after the enum metadata
+  fix to keep generated-struct `Result<T,E>` access covered.
 - Proof 40 has a real C# `ProjectReference` consumer that calls
   `PacketApi.ParseHeader(ReadOnlySpan<byte>)` and validates the
   `Result<Header, HeaderError>` ABI.
@@ -130,12 +136,14 @@ Result: passed.
 
 Highlights:
 
-- Unit tests: passed, 3313/3313.
-- Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.98`.
+- Unit tests: passed, 3317/3317.
+- Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.99`
+  and worst computed ratio `0.9865`.
 - VS Code smoke tests: passed, 40/40.
 - C# interop tests: passed, 31/31.
 - Template creation/build, example builds/checks, and IL verification: passed.
-- Isolated cache result: `059c36455f0cbad2`, duration `616s`.
+- IL verification: passed, 84/84 N# assemblies.
+- Isolated cache result: `f8f960e3e9629767`, duration `449s`.
 
 Commit gate policy:
 

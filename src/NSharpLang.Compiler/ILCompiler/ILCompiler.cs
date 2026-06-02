@@ -9621,6 +9621,10 @@ public partial class ILCompiler
             }
         }
 
+        // Runtime generic signatures such as Result<int, LocalEnum> need a baked
+        // enum Type before function declarations and bodies emit metadata tokens.
+        FinalizeTopLevelEnumTypes();
+
         // Second pass: declare all top-level functions and class/interface members
         foreach (var declaration in _compilationUnit.Declarations)
         {
@@ -9701,11 +9705,6 @@ public partial class ILCompiler
 
         EnsureRuntimeEntryPointWrapper();
 
-        foreach (var enumType in _enumTypes.Values.OfType<EnumBuilder>())
-        {
-            enumType.CreateType();
-        }
-
         foreach (var nestedEnumType in _enumTypes.Values
                      .OfType<TypeBuilder>()
                      .OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.')))
@@ -9739,6 +9738,21 @@ public partial class ILCompiler
 
         SaveAssembly(assemblyBuilder);
 
+    }
+
+    private void FinalizeTopLevelEnumTypes()
+    {
+        foreach (var entry in _enumTypes.ToArray())
+        {
+            if (entry.Value is not EnumBuilder enumBuilder)
+            {
+                continue;
+            }
+
+            var bakedType = enumBuilder.CreateType();
+            _enumTypes[entry.Key] = bakedType;
+            _typeKeys[bakedType] = entry.Key;
+        }
     }
 
     private void SaveAssembly(PersistedAssemblyBuilder assemblyBuilder)
