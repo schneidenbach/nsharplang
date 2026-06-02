@@ -42,18 +42,20 @@ Gate result:
 - Observed rows: 12
 - Allocation gate: every row reported `Allocated=0 B`
 - Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
-  against matched C# baselines; the worst computed N# ratio was `0.9862`
+  against matched C# baselines. Recent passing runs after the
+  `HotResultCombinations` aggregate fix observed worst computed N# ratios below
+  the hard cap, with representative values `0.9792`, `0.9852`, and `0.9863`.
 
-Worst throughput ratios from the passing run:
+Worst throughput ratios from a representative passing run:
 
 | Row | Mean | Ratio | Allocated |
 | --- | ---: | ---: | ---: |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 156.062 μs | 0.99 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.372 μs | 0.86 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.316 μs | 0.85 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.927 μs | 0.84 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 4.567 μs | 0.66 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.137 μs | 0.43 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 155.221 μs | 0.98 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.908 μs | 0.87 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.234 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.267 μs | 0.85 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 4.520 μs | 0.67 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.027 μs | 0.43 | 0 B |
 
 Regression addressed in this wave:
 
@@ -69,7 +71,9 @@ Regression addressed in this wave:
   direct tag checks plus unchecked payload reads after the tag is proven.
 - The hot+result combination gate now calls explicit aggregate C#/N# methods
   instead of driving the detailed parameterized benchmark harness ten times per
-  feature-family operation.
+  feature-family operation. The N# aggregate is now a compiled `[hot]`
+  `allCombinations` function, avoiding a C#/N# delegate boundary for every
+  sub-operation while the detailed matrix keeps the per-workload wrapper rows.
 - A fresh `--commit` run exposed a `ResultAbi` row with rounded ratio `1.00`
   but computed mean ratio `1.0031`. The runtime-result hot path now uses
   explicit indexed loops, aggressive hot-path implementation hints, and direct
@@ -121,7 +125,8 @@ Coverage:
   (`native-device-handle`), proof 30
   (`cold-failure-logging`), proof 33 (`arraypool-file-io`), proof 34
   (`memorypool-disposal`), proof 35 (`async-file-hot-parser`), proof 37
-  (`fixed-capacity-map`), and proof 42 (`aot-friendly-public-api`) in addition
+  (`fixed-capacity-map`), proof 38 (`unmanaged-sort-comparer`), proof 39
+  (`hot-linq-pipeline`), and proof 42 (`aot-friendly-public-api`) in addition
   to proofs 24, 25, 27, 31, 32, 36, 40, 41, 43, 44, 45, 46, and 48.
 - Proof 26 covers native `LibraryImport` declarations for open/close handles.
   Check/build pass with one expected boundary console warning, the perf report
@@ -154,6 +159,12 @@ Coverage:
   allocation in `NewMap`, hot allocation-free `Put`/`Get`, and
   `Result<int, MapError>` over a generated enum. The emitted assembly runs and
   direct `ilverify` reports all classes/methods verified.
+- Proof 38 covers a current `struct` constrained generic sortable-record proof:
+  `nlc check --systems-report` passes with one boundary allocation warning,
+  `nlc build --perf-report` reports no delegate, boxing, dispatch, boundary
+  leak, trap, hot-readiness, or AOT blockers, the emitted assembly runs, and
+  the proof test decodes hot `SortPair` IL to require `constrained.` and no
+  `box` opcode.
 - Proof 46 covers an executable database-adapter boundary: the boundary allocates
   scratch state and constructs the row source, maps a row into a value DTO, and
   returns `Result<UserDto, DbError>` to hot code. The perf report intentionally
@@ -172,6 +183,12 @@ Coverage:
   `Result<Header, HeaderError>` ABI.
 - The SDK project-reference test now covers a `.csproj` filename that differs
   from `project.yml` assembly identity.
+- Proof 39 covers a hot-compatible extension-method pipeline over
+  `ReadOnlySpan<int>`. Check/build pass with one expected boundary allocation
+  warning in `Main`, the perf report emits no delegate, closure, boxing,
+  dispatch, boundary-leak, trap, hot-readiness, or AOT blocker sites, and the
+  emitted assembly runs successfully. This is pipeline-contract evidence, not a
+  direct ZLinq package execution claim.
 
 Additional compiler/runtime slice:
 
@@ -195,26 +212,29 @@ Result: passed.
 
 Highlights:
 
-- Unit tests: passed, 3318/3318.
+- Unit tests: passed, 3320/3320.
 - Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.99`
-  and worst computed ratio `0.9862`.
+  and worst computed ratio below the hard `1.00` cap (`0.9863` in one passing
+  full gate after the aggregate fix).
 - VS Code smoke tests: passed, 40/40.
 - C# interop tests: passed, 31/31.
 - Template creation/build, example builds/checks, and IL verification: passed.
 - IL verification: passed, 84/84 N# assemblies.
-- Fresh isolated run duration: about `4m11s` after the benchmark harness speedup.
-- Timing: BenchmarkDotNet `1m13s`, unit tests `1m12s`, VS Code smoke `52s`,
-  IL verification `25s`; all other full-gate steps were single-digit seconds.
+- Fresh isolated run duration: about `4m20s` after the benchmark and
+  full-suite throughput work.
+- Timing from recent passing isolated runs: BenchmarkDotNet `1m12s`-`1m23s`,
+  unit tests `1m13s`-`1m16s`, VS Code smoke `53s`-`55s`, IL verification
+  `24s`-`25s`; all other full-gate steps were single-digit seconds.
 
 Measured slow stages from the passing run:
 
 | Stage | Duration |
 | --- | ---: |
-| Systems BenchmarkDotNet gate | 1m 13s |
-| Unit tests | 1m 12s |
-| VS Code smoke tests | 0m 52s |
-| IL verification gate | 0m 26s |
-| Full isolated run | 4m 11s |
+| Systems BenchmarkDotNet gate | 1m 12s-1m 23s |
+| Unit tests | 1m 13s-1m 16s |
+| VS Code smoke tests | 0m 53s-0m 55s |
+| IL verification gate | 0m 24s-0m 25s |
+| Full isolated run | 4m 17s-4m 24s |
 
 Harness speedups landed in this wave:
 
@@ -224,10 +244,16 @@ Harness speedups landed in this wave:
 - Example build and `nlc check` fan-out default to up to 8 workers while still
   allowing `TEST_ALL_JOBS` overrides.
 - The Systems BenchmarkDotNet gate now pins measured iteration time to `250ms`,
-  reducing the fresh full-gate benchmark section from `3m21s` to `1m12s` while
-  preserving the same 12 rows, memory diagnoser, 16 measured iterations, and
-  hard computed-ratio/allocation checks.
+  reducing the fresh full-gate benchmark section from `3m21s` to roughly
+  `1m12s`-`1m16s` while preserving the same 12 rows, memory diagnoser, 16
+  measured iterations, and hard computed-ratio/allocation checks.
 - The core full-suite gate prints a timing summary for every section.
+- The C# interop full-suite step now uses `dotnet test --no-restore` after its
+  explicit restore, avoiding a duplicate NuGet restore without changing test
+  coverage.
+- Parallel single-file example builds now pass `--output` to a per-item
+  temporary directory, preserving the parallel fan-out while avoiding shared
+  `examples/**/bin` output races between files in the same directory.
 
 Commit gate policy:
 

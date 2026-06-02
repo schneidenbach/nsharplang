@@ -41,6 +41,13 @@ pass. Current executable proof projects:
   `nlc build --perf-report`.
 - `proofs/37-fixed-capacity-map`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
+- `proofs/38-unmanaged-sort-comparer`: `nlc check --systems-report`,
+  `nlc build --perf-report`, emitted assembly run, and IL-shape evidence for
+  constrained generic value-type dispatch with no boxing.
+- `proofs/39-hot-linq-pipeline`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run for a hot-compatible
+  extension-method pipeline over `ReadOnlySpan<int>` with no delegate or closure
+  sites.
 - `proofs/40-csharp-hot-parser-api`: `nlc check --systems-report`,
   `nlc build --perf-report`, and a C# `ProjectReference` consumer run.
 - `proofs/41-structured-errors`: `nlc check --systems-report`,

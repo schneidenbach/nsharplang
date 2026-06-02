@@ -98,6 +98,148 @@ func copyPositiveChecksum(src: int[], dst: int[], len: int): int {
 
     return checksum + written
 }
+
+[hot]
+func scanDigitsResult(values: int[], len: int): Result<int, int> {
+    scanned := scanDigits(values, len)
+    if scanned < 0 {
+        return Err(-1)
+    }
+    return Ok(scanned)
+}
+
+[hot]
+func writeChecksumResult(src: int[], dst: int[], len: int): Result<int, int> {
+    written := writeChecksum(src, dst, len)
+    if written < 0 {
+        return Err(-1)
+    }
+    return Ok(written)
+}
+
+[hot]
+func copyDigitsResult(src: int[], dst: int[], len: int): Result<int, int> {
+    written := copyDigits(src, dst, len)
+    if written < 0 {
+        return Err(-1)
+    }
+    return Ok(written)
+}
+
+[hot]
+func scanAndChecksumResult(values: int[], len: int): Result<int, int> {
+    checksum := scanAndChecksumDigits(values, len)
+    if checksum < 0 {
+        return Err(-1)
+    }
+    return Ok(checksum)
+}
+
+[hot]
+func copyPositiveChecksumResult(src: int[], dst: int[], len: int): Result<int, int> {
+    checksum := copyPositiveChecksum(src, dst, len)
+    if checksum < 0 {
+        return Err(-1)
+    }
+    return Ok(checksum)
+}
+
+[hot]
+func scanThenChecksumResult(values: int[], len: int): Result<int, int> {
+    scanned := scanDigits(values, len)
+    if scanned < 0 {
+        return Err(-1)
+    }
+
+    checksum := scanAndChecksumDigits(values, len)
+    if checksum < 0 {
+        return Err(-2)
+    }
+    return Ok(scanned + checksum)
+}
+
+[hot]
+func scanThenCopyDigitsResult(src: int[], dst: int[], len: int): Result<int, int> {
+    scanned := scanDigits(src, len)
+    if scanned < 0 {
+        return Err(-1)
+    }
+
+    written := copyDigits(src, dst, len)
+    if written < 0 {
+        return Err(-2)
+    }
+    return Ok(scanned + written)
+}
+
+[hot]
+func checksumThenFrameResult(src: int[], dst: int[], len: int): Result<int, int> {
+    checksum := scanAndChecksumDigits(src, len)
+    if checksum < 0 {
+        return Err(-1)
+    }
+
+    written := writeChecksum(src, dst, len)
+    if written < 0 {
+        return Err(-2)
+    }
+    return Ok(checksum + written)
+}
+
+[hot]
+func copyDigitsThenFrameResult(src: int[], dst: int[], scratch: int[], len: int): Result<int, int> {
+    copied := copyDigits(src, dst, len)
+    if copied < 0 {
+        return Err(-1)
+    }
+
+    written := writeChecksum(dst, scratch, len)
+    if written < 0 {
+        return Err(-2)
+    }
+    return Ok(copied + written)
+}
+
+[hot]
+func copyPositiveThenFrameResult(src: int[], dst: int[], scratch: int[], len: int): Result<int, int> {
+    checksum := copyPositiveChecksum(src, dst, len)
+    if checksum < 0 {
+        return Err(-1)
+    }
+
+    written := writeChecksum(dst, scratch, len)
+    if written < 0 {
+        return Err(-2)
+    }
+    return Ok(checksum + written)
+}
+
+[hot]
+func consume(result: Result<int, int>): int {
+    if result.IsOk {
+        return result.OkValueUnchecked
+    }
+    return 0
+}
+
+[hot]
+func allCombinations(digits: int[], payload: int[], destination: int[], scratch: int[], digitsLen: int, payloadLen: int): int {
+    total := 0
+    for operation := 0; operation < 8; operation++ {
+        total = total + consume(scanDigitsResult(digits, digitsLen))
+        total = total + consume(writeChecksumResult(payload, destination, payloadLen))
+        total = total + consume(copyDigitsResult(digits, destination, digitsLen))
+        total = total + consume(scanAndChecksumResult(digits, digitsLen))
+        total = total + consume(copyPositiveChecksumResult(payload, destination, payloadLen))
+        total = total + consume(scanThenChecksumResult(digits, digitsLen))
+        total = total + consume(scanThenCopyDigitsResult(digits, destination, digitsLen))
+        total = total + consume(checksumThenFrameResult(digits, destination, digitsLen))
+        total = total + consume(copyDigitsThenFrameResult(digits, destination, scratch, digitsLen))
+        total = total + consume(copyPositiveThenFrameResult(payload, destination, scratch, payloadLen))
+    }
+
+    return total
+}
 """;
 
     private int[] _digits = Array.Empty<int>();
@@ -114,6 +256,7 @@ func copyPositiveChecksum(src: int[], dst: int[], len: int): int {
     private Func<int[], int[], int, int> _copyDigits = null!;
     private Func<int[], int, int> _scanAndChecksumDigits = null!;
     private Func<int[], int[], int, int> _copyPositiveChecksum = null!;
+    private Func<int[], int[], int[], int[], int, int, int> _allCombinations = null!;
 
     public enum CombinationWorkload
     {
@@ -174,6 +317,7 @@ func copyPositiveChecksum(src: int[], dst: int[], len: int): int {
         _copyDigits = NSharpCompiledMethod.Bind<Func<int[], int[], int, int>>(Source, "copyDigits");
         _scanAndChecksumDigits = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "scanAndChecksumDigits");
         _copyPositiveChecksum = NSharpCompiledMethod.Bind<Func<int[], int[], int, int>>(Source, "copyPositiveChecksum");
+        _allCombinations = NSharpCompiledMethod.Bind<Func<int[], int[], int[], int[], int, int, int>>(Source, "allCombinations");
     }
 
     public int CSharpAll()
@@ -197,24 +341,7 @@ func copyPositiveChecksum(src: int[], dst: int[], len: int): int {
     }
 
     public int NSharpAll()
-    {
-        var total = 0;
-        for (var operation = 0; operation < InnerOperations; operation++)
-        {
-            total += Consume(NSharpScanDigitsResult(_digits, _digits.Length));
-            total += Consume(NSharpWriteChecksumResult(_payload, _destination, _payload.Length));
-            total += Consume(NSharpCopyDigitsResult(_digits, _destination, _digits.Length));
-            total += Consume(NSharpScanAndChecksumResult(_digits, _digits.Length));
-            total += Consume(NSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length));
-            total += Consume(NSharpScanThenChecksumResult(_digits, _digits.Length));
-            total += Consume(NSharpScanThenCopyDigitsResult(_digits, _destination, _digits.Length));
-            total += Consume(NSharpChecksumThenFrameResult(_digits, _destination, _digits.Length));
-            total += Consume(NSharpCopyDigitsThenFrameResult(_digits, _destination, _scratch, _digits.Length));
-            total += Consume(NSharpCopyPositiveThenFrameResult(_payload, _destination, _scratch, _payload.Length));
-        }
-
-        return total;
-    }
+        => _allCombinations(_digits, _payload, _destination, _scratch, _digits.Length, _payload.Length);
 
     [Benchmark(Baseline = true, OperationsPerInvoke = InnerOperations)]
     public int CSharp()

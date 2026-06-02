@@ -337,7 +337,7 @@ if ! dotnet restore $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj
 fi
 
 INTEROP_OUTPUT=$(mktemp)
-if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo > "$INTEROP_OUTPUT" 2>&1; then
+if dotnet test $DOTNET_STABLE_FLAGS "$INTEROP_DIR/CSharpInteropTests.csproj" -v q --nologo --no-restore > "$INTEROP_OUTPUT" 2>&1; then
     TEST_RESULT=$(grep -E "Passed!|Failed!" "$INTEROP_OUTPUT" || echo "")
     if [ -n "$TEST_RESULT" ]; then
         echo "$TEST_RESULT"
@@ -540,8 +540,10 @@ else
             example_name=$(basename "$nl_file" .nl)
             log_file="$results_dir/$idx.log"
             result_file="$results_dir/$idx.result"
+            output_dir="$results_dir/$idx.out"
+            mkdir -p "$output_dir"
 
-            if dotnet "$cli_dll" build "$nl_file" > "$log_file" 2>&1; then
+            if dotnet "$cli_dll" build "$nl_file" --output "$output_dir" > "$log_file" 2>&1; then
                 printf "OK|%s|%s\n" "$example_name" "$nl_file" > "$result_file"
             else
                 printf "FAIL|%s|%s\n" "$example_name" "$nl_file" > "$result_file"

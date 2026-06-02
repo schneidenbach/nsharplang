@@ -39,12 +39,16 @@ data-race freedom, or every design proof project in the use-case appendix.
 - Acceptance gauntlet fixtures under `tests/fixtures/systems-gauntlet/` with
   source, systems JSON golden, human diagnostic golden, perf-report golden, and
   C# interop notes for the ten executable v1 scenarios.
-- Executable proof projects 26, 30, 33, 34, 37, 40, 41, 42, and 43 now cover
-  the native device handle sample, the cold failure logging sample, the
-  ArrayPool file-IO handoff sample, the MemoryPool disposal sample, the
-  fixed-capacity map sample, the C# hot parser API, structured error values,
-  the AOT-friendly public API sample, and the Mono/WASM target-analysis sample
-  through `nlc check --systems-report` and `nlc build --perf-report`.
+- Executable proof projects 24-27, 30-46, and 48 now cover the zero-copy span
+  reader, trusted memory copy, native import surfaces, cold failure logging,
+  hot metrics, cache prewarm, pool/resource handoff, async boundary IO,
+  dictionary setup with hot reads, fixed-capacity maps, constrained generic
+  sortable records, hot-compatible extension pipelines, C# hot parser ABI,
+  structured error values, AOT/Mono-WASM target analysis, CI allocation gates,
+  trusted-audit queries, database boundary adapters, and effect drift through
+  `nlc check --systems-report`, `nlc build --perf-report`, plus the extra run,
+  IL-shape, native-import, query, and C# consumer gates listed in the proof
+  audit.
 - Proof 40 additionally has a real C# `ProjectReference` consumer gate covering
   minimal N# SDK projects, `project.yml` assembly/version identity, the
   `Result<T,E>` runtime ABI, and a `ReadOnlySpan<byte>` parser API.
@@ -77,10 +81,9 @@ data-race freedom, or every design proof project in the use-case appendix.
 5. The acceptance gauntlet is intentionally source/analyzer focused. Broader
    C# ABI matrices, full NativeAOT, and source-generator deployment projects
    should become separate preview gates as those surfaces mature.
-6. Most remaining complex proof projects for use cases 26-48 remain design proof
-   inputs, not current compiler examples; only the projects marked `executable`
-   in the proof audit are current compiler evidence. See
-   `docs/audits/systems-proof-project-audit.md`.
+6. Remaining design-only proof projects are explicitly tracked in
+   `docs/audits/systems-proof-project-audit.md`; only rows marked
+   `executable` are current compiler evidence.
 
 ## Adversarial Smoke Cases
 

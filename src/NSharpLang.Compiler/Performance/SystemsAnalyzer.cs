@@ -513,7 +513,7 @@ public sealed class SystemsAnalyzer
 
         foreach (var parameter in function.Parameters)
         {
-            if (IsSystemsHostileSurface(parameter.Type, hotStrict: summary.IsHot, out var reason))
+            if (IsSystemsHostileSurface(parameter.Type, hotStrict: summary.IsHot, out var reason, function.Constraints))
             {
                 AddFinding(
                     "NSYS070",
@@ -528,7 +528,8 @@ public sealed class SystemsAnalyzer
             }
         }
 
-        if (function.ReturnType != null && IsSystemsHostileSurface(function.ReturnType, hotStrict: summary.IsHot, out var returnReason))
+        if (function.ReturnType != null
+            && IsSystemsHostileSurface(function.ReturnType, hotStrict: summary.IsHot, out var returnReason, function.Constraints))
         {
             AddFinding(
                 "NSYS070",
@@ -1774,22 +1775,26 @@ public sealed class SystemsAnalyzer
         };
     }
 
-    private bool IsSystemsHostileSurface(TypeReference type, bool hotStrict, out string reason)
+    private bool IsSystemsHostileSurface(
+        TypeReference type,
+        bool hotStrict,
+        out string reason,
+        IReadOnlyList<GenericConstraint>? constraints = null)
     {
         reason = string.Empty;
 
         switch (type)
         {
             case ByRefTypeReference byRef:
-                return IsSystemsHostileSurface(byRef.InnerType, hotStrict, out reason);
+                return IsSystemsHostileSurface(byRef.InnerType, hotStrict, out reason, constraints);
             case ArrayTypeReference array:
-                return IsSystemsHostileSurface(array.ElementType, hotStrict: false, out reason);
+                return IsSystemsHostileSurface(array.ElementType, hotStrict: false, out reason, constraints);
             case NullableTypeReference nullable:
-                return IsSystemsHostileSurface(nullable.InnerType, hotStrict, out reason);
+                return IsSystemsHostileSurface(nullable.InnerType, hotStrict, out reason, constraints);
             case UnionTypeReference union:
                 foreach (var arm in union.Arms)
                 {
-                    if (IsSystemsHostileSurface(arm, hotStrict, out reason))
+                    if (IsSystemsHostileSurface(arm, hotStrict, out reason, constraints))
                         return true;
                 }
                 return false;
@@ -1800,7 +1805,7 @@ public sealed class SystemsAnalyzer
                 {
                     foreach (var argument in generic.TypeArguments)
                     {
-                        if (IsSystemsHostileSurface(argument, hotStrict, out reason))
+                        if (IsSystemsHostileSurface(argument, hotStrict, out reason, constraints))
                             return true;
                     }
                     return false;
@@ -1828,6 +1833,8 @@ public sealed class SystemsAnalyzer
             case SimpleTypeReference simple:
             {
                 var name = SimpleName(simple.Name);
+                if (IsValueConstrainedGenericParameter(name, constraints))
+                    return false;
                 if (IsValueTypeName(name) || name is "string" or "ReadOnlySpan" or "Span")
                     return false;
                 if (name is "object" or "dynamic" or "Type" or "Stream" or "Delegate")
@@ -1846,6 +1853,11 @@ public sealed class SystemsAnalyzer
                 return false;
         }
     }
+
+    private static bool IsValueConstrainedGenericParameter(string name, IReadOnlyList<GenericConstraint>? constraints)
+        => constraints?.Any(constraint =>
+            string.Equals(constraint.TypeParameter, name, StringComparison.Ordinal)
+            && constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Struct)) == true;
 
     private static bool IsKnownStaticHotReceiver(string name)
         => name is "BinaryPrimitives" or "MemoryMarshal" or "BitOperations" or "Math" or "MathF"

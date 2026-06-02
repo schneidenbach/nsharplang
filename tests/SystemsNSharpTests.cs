@@ -11,6 +11,7 @@ using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.Performance;
+using NSharpLang.Tests.PerfEvidence;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -536,6 +537,42 @@ func Count(values: IEnumerable<int>): int {
 """);
 
         Assert.Contains(report.Findings, f => f.Code == "NSYS070" && f.Effect == "boundaryLeak");
+    }
+
+    [Fact]
+    public void HotBoundarySurface_AcceptsStructConstrainedGenericComparer()
+    {
+        var report = Analyze("""
+interface ValueComparer<T> {
+    func Less(a: T, b: T): bool
+}
+
+[hot]
+func Sort<T, TComparer>(values: Span<T>, comparer: TComparer): int where T : struct where TComparer : struct, ValueComparer<T> {
+    return values.Length
+}
+""", profile: "systems");
+
+        Assert.DoesNotContain(report.Findings,
+            f => f.Code == "NSYS070"
+                 && f.Effect == "boundaryLeak"
+                 && f.Message.Contains("comparer", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void HotBoundarySurface_RejectsUnconstrainedGenericComparer()
+    {
+        var report = Analyze("""
+[hot]
+func Sort<T, TComparer>(values: Span<T>, comparer: TComparer): int where T : struct {
+    return values.Length
+}
+""", profile: "systems");
+
+        Assert.Contains(report.Findings,
+            f => f.Code == "NSYS070"
+                 && f.Effect == "boundaryLeak"
+                 && f.Message.Contains("comparer", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1153,6 +1190,8 @@ class Box {}
             "35-async-file-hot-parser",
             "36-dictionary-setup-hot-read",
             "37-fixed-capacity-map",
+            "38-unmanaged-sort-comparer",
+            "39-hot-linq-pipeline",
             "40-csharp-hot-parser-api",
             "41-structured-errors",
             "42-aot-friendly-public-api",
@@ -1201,6 +1240,8 @@ class Box {}
         var asyncFileHotParser = Path.Combine(proofsRoot, "35-async-file-hot-parser");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
         var fixedCapacityMap = Path.Combine(proofsRoot, "37-fixed-capacity-map");
+        var unmanagedSortComparer = Path.Combine(proofsRoot, "38-unmanaged-sort-comparer");
+        var hotLinqPipeline = Path.Combine(proofsRoot, "39-hot-linq-pipeline");
         var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
         var structuredErrors = Path.Combine(proofsRoot, "41-structured-errors");
         var aotFriendlyPublicApi = Path.Combine(proofsRoot, "42-aot-friendly-public-api");
@@ -1516,6 +1557,64 @@ class Box {}
         Assert.True(fixedMapRun.ExitCode == 0,
             $"fixed-capacity map proof failed to run\nstdout:\n{fixedMapRun.Stdout}\nstderr:\n{fixedMapRun.Stderr}");
 
+        AssertSystemsProofCheckPasses(unmanagedSortComparer, expectedWarnings: 1);
+        var unmanagedSortBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", unmanagedSortComparer, "--perf-report"));
+        Assert.Equal(0, unmanagedSortBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(unmanagedSortBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            var allocationSite = Assert.Single(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Equal("Main", allocationSite.GetProperty("function").GetString());
+            Assert.Equal("NSYS001", allocationSite.GetProperty("code").GetString());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var unmanagedSortOutputDir = Path.Combine(unmanagedSortComparer, "bin", "Debug", "net10.0");
+        var unmanagedSortAssembly = Path.Combine(unmanagedSortOutputDir, "SystemsProof38UnmanagedSortComparer.dll");
+        Assert.True(File.Exists(Path.Combine(unmanagedSortOutputDir, "NSharpLang.Runtime.dll")));
+        var sortOpcodes = DecodeMethodOpcodeNames(unmanagedSortAssembly, "SortPair");
+        Assert.Contains("constrained.", sortOpcodes);
+        Assert.DoesNotContain("box", sortOpcodes);
+        var unmanagedSortRun = DotnetRunner.Run($"\"{unmanagedSortAssembly}\"", unmanagedSortOutputDir);
+        Assert.True(unmanagedSortRun.ExitCode == 0,
+            $"unmanaged sort comparer proof failed to run\nstdout:\n{unmanagedSortRun.Stdout}\nstderr:\n{unmanagedSortRun.Stderr}");
+
+        AssertSystemsProofCheckPasses(hotLinqPipeline, expectedWarnings: 1);
+        var hotLinqBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", hotLinqPipeline, "--perf-report"));
+        Assert.Equal(0, hotLinqBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(hotLinqBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            var allocationSite = Assert.Single(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Equal("Main", allocationSite.GetProperty("function").GetString());
+            Assert.Equal("NSYS001", allocationSite.GetProperty("code").GetString());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("closureCaptures").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var hotLinqOutputDir = Path.Combine(hotLinqPipeline, "bin", "Debug", "net10.0");
+        var hotLinqAssembly = Path.Combine(hotLinqOutputDir, "SystemsProof39HotLinqPipeline.dll");
+        Assert.True(File.Exists(Path.Combine(hotLinqOutputDir, "NSharpLang.Runtime.dll")));
+        var hotLinqRun = DotnetRunner.Run($"\"{hotLinqAssembly}\"", hotLinqOutputDir);
+        Assert.True(hotLinqRun.ExitCode == 0,
+            $"hot LINQ pipeline proof failed to run\nstdout:\n{hotLinqRun.Stdout}\nstderr:\n{hotLinqRun.Stderr}");
+
         AssertSystemsProofCheckPasses(csharpHotParserApi, expectedWarnings: 0);
         var parserApiBuild = CaptureConsole(() =>
             ExecuteProgram("build", "--project", csharpHotParserApi, "--perf-report"));
@@ -1713,6 +1812,35 @@ class Box {}
         Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
         Assert.Equal(expectedWarnings, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
         Assert.Equal(0, doc.RootElement.GetProperty("systemsReport").GetProperty("summary").GetProperty("errors").GetInt32());
+    }
+
+    private static string[] DecodeMethodOpcodeNames(string assemblyPath, string methodName)
+    {
+        Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
+
+        var outputDir = Path.GetDirectoryName(assemblyPath)!;
+        var loadContext = new AssemblyLoadContext($"SystemsProofIlShape_{Guid.NewGuid():N}", isCollectible: true);
+        loadContext.Resolving += (context, assemblyName) =>
+        {
+            var localAssemblyPath = Path.Combine(outputDir, $"{assemblyName.Name}.dll");
+            return File.Exists(localAssemblyPath) ? context.LoadFromAssemblyPath(localAssemblyPath) : null;
+        };
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            var assembly = loadContext.LoadFromStream(stream);
+            var method = assembly
+                .GetTypes()
+                .SelectMany(type => type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
+                .SingleOrDefault(candidate => candidate.Name == methodName);
+            Assert.NotNull(method);
+            return ILShapeInspector.Decode(method!).Select(instruction => instruction.OpCode.Name ?? string.Empty).ToArray();
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
     }
 
     private static void AssertNativeImportHasNoManagedBody(string assemblyPath, string typeName, string methodName)
@@ -2013,8 +2141,11 @@ func Copy(): int {
         Assert.Contains("[Params(64, 4096)]", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("private const int InnerOperations = 8", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("OperationsPerInvoke = InnerOperations", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("func allCombinations(digits: int[], payload: int[], destination: int[], scratch: int[], digitsLen: int, payloadLen: int): int", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int[], int[], int[], int, int, int>>(Source, \"allCombinations\")", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("public int CSharpAll()", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("public int NSharpAll()", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("=> _allCombinations(_digits, _payload, _destination, _scratch, _digits.Length, _payload.Length)", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("result.IsOk ? result.OkValueUnchecked : 0", combinationBenchmark, StringComparison.Ordinal);
 
         var script = File.ReadAllText(Path.Combine(root, "scripts", "benchmark-systems.sh"));
