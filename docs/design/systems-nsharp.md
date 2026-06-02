@@ -1170,7 +1170,9 @@ Rules:
   throughput-ratio gate: every Systems N#/runtime row must be at least as fast
   as its matched C# baseline. The default gate aggregates six feature-family
   rows that each execute multiple subcases and uses 16 measured iterations to
-  keep a hard 1.00 threshold stable. The detailed
+  keep a hard 1.00 threshold stable; the gate also pins BenchmarkDotNet's
+  measured iteration target to 250ms so repeated full-suite runs do not pay the
+  slower default 500ms floor for every row. The detailed
   `NSHARP_SYSTEMS_BENCH_MODE=matrix` run retains the full hot-loop/span/caller-
   buffer/`Result<T,E>`/pooled-boundary/hot+result matrix. Small-workload rows
   normalize the C# side through delegates where the N# side is delegate-bound,

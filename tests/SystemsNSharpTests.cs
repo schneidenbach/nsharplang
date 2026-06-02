@@ -1953,6 +1953,8 @@ func Copy(): int {
         Assert.Contains("MODE=\"${NSHARP_SYSTEMS_BENCH_MODE:-gate}\"", script, StringComparison.Ordinal);
         Assert.Contains("FILTER=\"*SystemsFastGateBenchmarks*\"", script, StringComparison.Ordinal);
         Assert.Contains("ITERATION_COUNT=\"${NSHARP_SYSTEMS_BENCH_ITERATION_COUNT:-16}\"", script, StringComparison.Ordinal);
+        Assert.Contains("ITERATION_TIME=\"${NSHARP_SYSTEMS_BENCH_ITERATION_TIME:-250}\"", script, StringComparison.Ordinal);
+        Assert.Contains("--iterationTime \"$ITERATION_TIME\"", script, StringComparison.Ordinal);
         Assert.Contains("rm -rf \"$ARTIFACTS/results\"", script, StringComparison.Ordinal);
         Assert.Contains("BenchmarkRun-*.log", script, StringComparison.Ordinal);
         Assert.Contains("Systems N# BenchmarkDotNet coverage:", script, StringComparison.Ordinal);

@@ -19,6 +19,7 @@ JOB="${NSHARP_SYSTEMS_BENCH_JOB:-short}"
 LAUNCH_COUNT="${NSHARP_SYSTEMS_BENCH_LAUNCH_COUNT:-1}"
 WARMUP_COUNT="${NSHARP_SYSTEMS_BENCH_WARMUP_COUNT:-3}"
 ITERATION_COUNT="${NSHARP_SYSTEMS_BENCH_ITERATION_COUNT:-16}"
+ITERATION_TIME="${NSHARP_SYSTEMS_BENCH_ITERATION_TIME:-250}"
 
 if [ -n "${NSHARP_SYSTEMS_BENCH_ARTIFACTS:-}" ]; then
     ARTIFACTS="$NSHARP_SYSTEMS_BENCH_ARTIFACTS"
@@ -48,6 +49,7 @@ echo "  Job:             $JOB"
 echo "  Launch count:    $LAUNCH_COUNT"
 echo "  Warmup count:    $WARMUP_COUNT"
 echo "  Iteration count: $ITERATION_COUNT"
+echo "  Iteration time:  ${ITERATION_TIME}ms"
 echo "  Preparing Release benchmark harness"
 
 if ! dotnet build "$REPO_ROOT/src/NSharpLang.Compiler/Compiler.csproj" -c Release > "$BUILD_LOG" 2>&1; then
@@ -66,6 +68,7 @@ if ! dotnet run --no-build -c Release --project "$REPO_ROOT/benchmarks/NSharpLan
     --launchCount "$LAUNCH_COUNT" \
     --warmupCount "$WARMUP_COUNT" \
     --iterationCount "$ITERATION_COUNT" \
+    --iterationTime "$ITERATION_TIME" \
     --memory \
     --exporters csv \
     --artifacts "$ARTIFACTS" > "$LOG" 2>&1; then

@@ -28,6 +28,7 @@ Settings:
 - Launch count: `1`
 - Warmup count: `3`
 - Iteration count: `16`
+- Iteration time: `250ms`
 
 Coverage enforced by `scripts/benchmark-systems.sh`:
 
@@ -41,18 +42,18 @@ Gate result:
 - Observed rows: 12
 - Allocation gate: every row reported `Allocated=0 B`
 - Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
-  against matched C# baselines; the worst computed N# ratio was `0.9902`
+  against matched C# baselines; the worst computed N# ratio was `0.9862`
 
 Worst throughput ratios from the passing run:
 
 | Row | Mean | Ratio | Allocated |
 | --- | ---: | ---: | ---: |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 156.337 μs | 0.99 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.928 μs | 0.87 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.316 μs | 0.86 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.236 μs | 0.84 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 4.552 μs | 0.66 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.131 μs | 0.43 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 156.062 μs | 0.99 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.372 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.316 μs | 0.85 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.927 μs | 0.84 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 4.567 μs | 0.66 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.137 μs | 0.43 | 0 B |
 
 Regression addressed in this wave:
 
@@ -91,6 +92,10 @@ Harness hardening in this wave:
 - The fast aggregate gate now initializes only the benchmark family required by
   the current `Scenario` row instead of preparing all six families for every
   row.
+- The gate now passes `--iterationTime 250` explicitly. This keeps the same
+  12-row coverage, warmups, 16 measured iterations, memory diagnoser, and hard
+  ratio/allocation parser, while avoiding BenchmarkDotNet's slower default
+  500ms target for every measured iteration.
 - The default suite gate now runs a 12-row aggregate mode rather than the full
   matrix. The full matrix remains available through
   `NSHARP_SYSTEMS_BENCH_MODE=matrix` and is structurally covered as a 196-row
@@ -179,24 +184,24 @@ Highlights:
 
 - Unit tests: passed, 3318/3318.
 - Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.99`
-  and worst computed ratio `0.9902`.
+  and worst computed ratio `0.9862`.
 - VS Code smoke tests: passed, 40/40.
 - C# interop tests: passed, 31/31.
 - Template creation/build, example builds/checks, and IL verification: passed.
 - IL verification: passed, 84/84 N# assemblies.
-- Isolated cache result: `25ed316859c3ff52`, duration `379s`.
-- Timing: BenchmarkDotNet `3m21s`, unit tests `1m11s`, VS Code smoke `52s`,
+- Fresh isolated run duration: about `4m11s` after the benchmark harness speedup.
+- Timing: BenchmarkDotNet `1m13s`, unit tests `1m12s`, VS Code smoke `52s`,
   IL verification `25s`; all other full-gate steps were single-digit seconds.
 
 Measured slow stages from the passing run:
 
 | Stage | Duration |
 | --- | ---: |
-| Systems BenchmarkDotNet gate | 3m 21s |
-| Unit tests | 1m 11s |
+| Systems BenchmarkDotNet gate | 1m 13s |
+| Unit tests | 1m 12s |
 | VS Code smoke tests | 0m 52s |
-| IL verification gate | 0m 25s |
-| Full isolated run | 6m 19s |
+| IL verification gate | 0m 26s |
+| Full isolated run | 4m 11s |
 
 Harness speedups landed in this wave:
 
@@ -205,6 +210,10 @@ Harness speedups landed in this wave:
   source-only edits do not force an empty package cache.
 - Example build and `nlc check` fan-out default to up to 8 workers while still
   allowing `TEST_ALL_JOBS` overrides.
+- The Systems BenchmarkDotNet gate now pins measured iteration time to `250ms`,
+  reducing the fresh full-gate benchmark section from `3m21s` to `1m12s` while
+  preserving the same 12 rows, memory diagnoser, 16 measured iterations, and
+  hard computed-ratio/allocation checks.
 - The core full-suite gate prints a timing summary for every section.
 
 Commit gate policy:
