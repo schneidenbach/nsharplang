@@ -1150,6 +1150,7 @@ class Box {}
             "32-cache-prewarm",
             "33-arraypool-file-io",
             "34-memorypool-disposal",
+            "35-async-file-hot-parser",
             "36-dictionary-setup-hot-read",
             "37-fixed-capacity-map",
             "40-csharp-hot-parser-api",
@@ -1158,6 +1159,7 @@ class Box {}
             "43-mono-wasm-plugin",
             "44-ci-allocation-gate",
             "45-trusted-audit",
+            "46-dapper-boundary",
             "48-effect-drift"
         };
         var designOnlyProjects = proofProjects.Except(executableProofProjects, StringComparer.Ordinal).ToArray();
@@ -1196,6 +1198,7 @@ class Box {}
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
         var arrayPoolFileIo = Path.Combine(proofsRoot, "33-arraypool-file-io");
         var memoryPoolDisposal = Path.Combine(proofsRoot, "34-memorypool-disposal");
+        var asyncFileHotParser = Path.Combine(proofsRoot, "35-async-file-hot-parser");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
         var fixedCapacityMap = Path.Combine(proofsRoot, "37-fixed-capacity-map");
         var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
@@ -1204,6 +1207,7 @@ class Box {}
         var monoWasmPlugin = Path.Combine(proofsRoot, "43-mono-wasm-plugin");
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
+        var dapperBoundary = Path.Combine(proofsRoot, "46-dapper-boundary");
         var effectDrift = Path.Combine(proofsRoot, "48-effect-drift");
 
         var zeroCopyCheck = CaptureConsole(() =>
@@ -1435,6 +1439,38 @@ class Box {}
         Assert.True(memoryPoolRun.ExitCode == 0,
             $"memory pool disposal proof failed to run\nstdout:\n{memoryPoolRun.Stdout}\nstderr:\n{memoryPoolRun.Stderr}");
 
+        AssertSystemsProofCheckPasses(asyncFileHotParser, expectedWarnings: 4);
+        var asyncFileBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", asyncFileHotParser, "--perf-report"));
+        Assert.Equal(0, asyncFileBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(asyncFileBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            var boundaryLeaks = perf.GetProperty("boundaryLeakSites").EnumerateArray().ToArray();
+            Assert.Equal(2, boundaryLeaks.Length);
+            Assert.Contains(boundaryLeaks,
+                site => site.GetProperty("function").GetString() == "ReadAndCount"
+                        && site.GetProperty("code").GetString() == "NSYS070");
+            Assert.Contains(boundaryLeaks,
+                site => site.GetProperty("function").GetString() == "Main"
+                        && site.GetProperty("code").GetString() == "NSYS070");
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var asyncFileOutputDir = Path.Combine(asyncFileHotParser, "bin", "Debug", "net10.0");
+        var asyncFileAssembly = Path.Combine(asyncFileOutputDir, "SystemsProof35AsyncFileHotParser.dll");
+        Assert.True(File.Exists(Path.Combine(asyncFileOutputDir, "NSharpLang.Runtime.dll")));
+        var asyncFileRun = DotnetRunner.Run($"\"{asyncFileAssembly}\"", asyncFileOutputDir);
+        Assert.True(asyncFileRun.ExitCode == 0,
+            $"async file hot parser proof failed to run\nstdout:\n{asyncFileRun.Stdout}\nstderr:\n{asyncFileRun.Stderr}");
+
         AssertSystemsProofCheckPasses(dictionarySetup, expectedWarnings: 3);
         var dictionaryBuild = CaptureConsole(() =>
             ExecuteProgram("build", "--project", dictionarySetup, "--perf-report"));
@@ -1615,6 +1651,38 @@ class Box {}
             Assert.Equal("UnsafeAuditSurface.WrapHandle", result.GetProperty("function").GetString());
             Assert.Equal("2027-06-01", result.GetProperty("expires").GetString());
         }
+
+        AssertSystemsProofCheckPasses(dapperBoundary, expectedWarnings: 2);
+        var dapperBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", dapperBoundary, "--perf-report"));
+        Assert.Equal(0, dapperBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(dapperBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            var allocationSites = perf.GetProperty("allocationSites").EnumerateArray().ToArray();
+            Assert.Equal(2, allocationSites.Length);
+            Assert.Contains(allocationSites,
+                site => site.GetProperty("function").GetString() == "LoadFirstUser"
+                        && site.GetProperty("code").GetString() == "NSYS001");
+            Assert.Contains(allocationSites,
+                site => site.GetProperty("function").GetString() == "Main"
+                        && site.GetProperty("code").GetString() == "NSYS001");
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var dapperOutputDir = Path.Combine(dapperBoundary, "bin", "Debug", "net10.0");
+        var dapperAssembly = Path.Combine(dapperOutputDir, "SystemsProof46DapperBoundary.dll");
+        Assert.True(File.Exists(Path.Combine(dapperOutputDir, "NSharpLang.Runtime.dll")));
+        var dapperRun = DotnetRunner.Run($"\"{dapperAssembly}\"", dapperOutputDir);
+        Assert.True(dapperRun.ExitCode == 0,
+            $"database boundary proof failed to run\nstdout:\n{dapperRun.Stdout}\nstderr:\n{dapperRun.Stderr}");
 
         AssertSystemsProofCheckPasses(effectDrift, expectedWarnings: 1);
         var driftBuild = CaptureConsole(() =>

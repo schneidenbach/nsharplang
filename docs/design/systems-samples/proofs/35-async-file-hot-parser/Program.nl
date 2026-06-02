@@ -5,6 +5,8 @@ import System.Buffers
 import System.IO
 import System.Threading.Tasks
 
+type ByteArrayPool = ArrayPool<byte>
+
 enum ParseError {
     Empty
 }
@@ -25,17 +27,24 @@ func CountNonZero(bytes: ReadOnlySpan<byte>): Result<int, ParseError> {
 }
 
 [boundary]
-async func ReadAndCount(path: string): ValueTask<Result<int, ParseError>> {
-    buf := ArrayPool<byte>.Shared.Rent(4096)
-    try {
-        using stream := File.OpenRead(path)
-        n := await stream.ReadAsync(buf)
-        return CountNonZero(buf.AsSpan(0, n))
-    } finally {
-        ArrayPool<byte>.Shared.Return(buf)
+async func ReadAndCount(path: string): Task<int> {
+    buf := ByteArrayPool.Shared.Rent(4096)
+    stream := File.OpenRead(path)
+    n := await stream.ReadAsync(buf, 0, buf.Length)
+    result := CountNonZero(buf.AsSpan(0, n))
+    stream.Dispose()
+    ByteArrayPool.Shared.Return(buf)
+    if result.IsErr {
+        return -1
     }
+    return result.OkValueUnchecked
 }
 
-async func Main() {
-    print await ReadAndCount("input.bin")
+[boundary]
+async func Main(): Task<int> {
+    count := await ReadAndCount("NSharpLang.Runtime.dll")
+    if count <= 0 {
+        return 1
+    }
+    return 0
 }

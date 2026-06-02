@@ -439,6 +439,10 @@ func LoadUsers(db: IDbConnection): Result<List<User>, DbError> {
 **WELL.** Exactly the quarantine `[boundary]` exists for: reflection-heavy ORM in,
 `Result` of plain values out, costs reported.
 
+Current executable evidence covers this as a self-contained database-adapter
+boundary proof. Direct Dapper/EF package execution remains external interop
+work, so do not cite the proof as a real Dapper run.
+
 **Scorecard:** Strong: 4 (Ex6, 10, 12, 15). Ambiguous: 4 (Ex4, 9, 13, 14).
 Poorly: 7 (Ex1, 2, 3, 5, 7, 8, 11). The *boundary* and *trusted-memory* ideas win
 consistently; the `[hot]` alloc/no-throw/BCL/memory-creation core loses to CLR

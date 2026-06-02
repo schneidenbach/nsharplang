@@ -120,9 +120,9 @@ Coverage:
 - Executable systems proof projects now include proof 26
   (`native-device-handle`), proof 30
   (`cold-failure-logging`), proof 33 (`arraypool-file-io`), proof 34
-  (`memorypool-disposal`), proof 37 (`fixed-capacity-map`), and proof 42
-  (`aot-friendly-public-api`) in addition to proofs 24, 25, 27, 31, 32, 36,
-  40, 41, 43, 44, 45, and 48.
+  (`memorypool-disposal`), proof 35 (`async-file-hot-parser`), proof 37
+  (`fixed-capacity-map`), and proof 42 (`aot-friendly-public-api`) in addition
+  to proofs 24, 25, 27, 31, 32, 36, 40, 41, 43, 44, 45, 46, and 48.
 - Proof 26 covers native `LibraryImport` declarations for open/close handles.
   Check/build pass with one expected boundary console warning, the perf report
   emits no sites, the emitted native methods have no managed body, and direct
@@ -143,10 +143,23 @@ Coverage:
   `IMemoryOwner<byte>`, passes the owner span to a hot allocation-free fill
   routine, disposes the owner on the lexical path, emits no perf-report sites,
   runs successfully, and verifies cleanly with ILVerify.
+- Proof 35 covers an async boundary that rents an `ArrayPool<byte>` buffer,
+  reads from a copied runtime DLL with `FileStream.ReadAsync`, feeds the bytes
+  to a hot allocation-free span parser, returns the buffer on the lexical path,
+  and runs successfully. The perf report intentionally records two async
+  boundary leak warnings for `Task<int>` return shapes and has no allocation,
+  delegate, boxing, dispatch, trap, hot-readiness, or AOT blockers. The original
+  `ValueTask<Result<T,E>>` shape remains a compiler/analyzer gap.
 - Proof 37 covers a fixed-capacity custom map with a reviewed construction
   allocation in `NewMap`, hot allocation-free `Put`/`Get`, and
   `Result<int, MapError>` over a generated enum. The emitted assembly runs and
   direct `ilverify` reports all classes/methods verified.
+- Proof 46 covers an executable database-adapter boundary: the boundary allocates
+  scratch state and constructs the row source, maps a row into a value DTO, and
+  returns `Result<UserDto, DbError>` to hot code. The perf report intentionally
+  records the two boundary allocation sites and has no delegate, boxing,
+  dispatch, boundary leak, trap, hot-readiness, or AOT blockers. Real Dapper/EF
+  NuGet execution remains external package interop work.
 - Proof 41 was rebuilt, run, and directly IL-verified after the enum metadata
   fix to keep generated-struct `Result<T,E>` access covered.
 - Proof 42 covers a NativeAOT-targeted public API report: `nlc check

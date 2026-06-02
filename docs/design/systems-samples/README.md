@@ -33,6 +33,10 @@ pass. Current executable proof projects:
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/34-memorypool-disposal`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
+- `proofs/35-async-file-hot-parser`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run for an async boundary
+  that feeds a hot parser. `ValueTask<Result<T,E>>` remains a compiler/analyzer
+  gap and is not claimed by this executable proof.
 - `proofs/36-dictionary-setup-hot-read`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 - `proofs/37-fixed-capacity-map`: `nlc check --systems-report`,
@@ -49,6 +53,9 @@ pass. Current executable proof projects:
   `nlc build --perf-report`.
 - `proofs/45-trusted-audit`: `nlc check --systems-report`,
   `nlc build --perf-report`, and `nlc query trusted`.
+- `proofs/46-dapper-boundary`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run for the database-adapter
+  boundary contract. It does not claim direct Dapper NuGet execution.
 - `proofs/48-effect-drift`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 

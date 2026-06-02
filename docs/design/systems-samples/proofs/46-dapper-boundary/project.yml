@@ -8,5 +8,3 @@ language:
   systems:
     mode: audit
     aotTarget: coreclr
-dependencies:
-  - Dapper: 2.1.35

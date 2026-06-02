@@ -1,34 +1,63 @@
 namespace SystemsProofs.DapperBoundary
 
-import System
-import System.Collections.Generic
-import System.Data
-import Dapper
-
-record UserRow {
-    Id: int
-    Name: string
+duck interface UserRowSource {
+    func ReadFirst(): UserRow
 }
 
-record UserDto {
+struct UserRow {
     Id: int
-    Name: string
+    NameLength: int
+    Active: bool
 }
 
-[boundary]
-func LoadUsers(db: IDbConnection): Result<List<UserDto>, string> {
-    try {
-        rows := db.Query<UserRow>("select Id, Name from Users")
-        users := alloc new List<UserDto>()
-        for row in rows {
-            users.Add(UserDto { Id: row.Id, Name: row.Name })
-        }
-        return Ok(users)
-    } catch ex {
-        return Err(ex.Message)
+struct UserDto {
+    Id: int
+    NameLength: int
+    Active: bool
+}
+
+enum DbError {
+    NoRows,
+    InvalidName
+}
+
+class InMemoryRows {
+    func ReadFirst(): UserRow {
+        return new UserRow { Id: 7, NameLength: 5, Active: true }
     }
 }
 
-func Main() {
-    print "database boundary proof"
+[boundary]
+func LoadFirstUser(rows: UserRowSource): Result<UserDto, DbError> {
+    scratch := alloc new byte[8]
+    row := rows.ReadFirst()
+
+    if row.Id <= 0 {
+        return Err(DbError.NoRows)
+    }
+    if row.NameLength <= 0 {
+        return Err(DbError.InvalidName)
+    }
+
+    scratch[0] = (byte)row.NameLength
+    nameLength := (int)scratch[0]
+    return Ok(new UserDto { Id: row.Id, NameLength: nameLength, Active: row.Active })
+}
+
+[hot]
+func IsActiveUser(user: UserDto): bool {
+    return user.Active && user.Id > 0 && user.NameLength > 0
+}
+
+[boundary]
+func Main(): int {
+    rows := new InMemoryRows()
+    result := LoadFirstUser(rows)
+    if result.IsOk == false {
+        return 1
+    }
+    if IsActiveUser(result.OkValueUnchecked) == false {
+        return 2
+    }
+    return 0
 }
