@@ -99,9 +99,15 @@ Result: passed, 2/2 tests.
 
 Coverage:
 
-- Executable systems proof projects now include proof 34
-  (`memorypool-disposal`) and proof 37 (`fixed-capacity-map`) in addition to
-  proofs 24, 25, 27, 31, 32, 36, 40, 41, 43, 44, 45, and 48.
+- Executable systems proof projects now include proof 33
+  (`arraypool-file-io`), proof 34 (`memorypool-disposal`), and proof 37
+  (`fixed-capacity-map`) in addition to proofs 24, 25, 27, 31, 32, 36, 40, 41,
+  43, 44, 45, and 48.
+- Proof 33 covers an `ArrayPool<byte>` boundary that rents a byte buffer, reads a
+  copied runtime DLL through `File.OpenRead`, calls a hot span parser, disposes
+  the stream, returns the buffer on the lexical path, emits no perf-report sites,
+  runs successfully, and verifies cleanly with ILVerify. Its two check warnings
+  are the expected boundary-review findings for file open/read calls.
 - Proof 34 covers a `MemoryPool<byte>` boundary that rents an
   `IMemoryOwner<byte>`, passes the owner span to a hot allocation-free fill
   routine, disposes the owner on the lexical path, emits no perf-report sites,

@@ -1146,6 +1146,7 @@ class Box {}
             "27-c-library-cli",
             "31-hot-metrics",
             "32-cache-prewarm",
+            "33-arraypool-file-io",
             "34-memorypool-disposal",
             "36-dictionary-setup-hot-read",
             "37-fixed-capacity-map",
@@ -1188,6 +1189,7 @@ class Box {}
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
+        var arrayPoolFileIo = Path.Combine(proofsRoot, "33-arraypool-file-io");
         var memoryPoolDisposal = Path.Combine(proofsRoot, "34-memorypool-disposal");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
         var fixedCapacityMap = Path.Combine(proofsRoot, "37-fixed-capacity-map");
@@ -1320,6 +1322,30 @@ class Box {}
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
+
+        AssertSystemsProofCheckPasses(arrayPoolFileIo, expectedWarnings: 2);
+        var arrayPoolBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", arrayPoolFileIo, "--perf-report"));
+        Assert.Equal(0, arrayPoolBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(arrayPoolBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("poolSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("resourceSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var arrayPoolOutputDir = Path.Combine(arrayPoolFileIo, "bin", "Debug", "net10.0");
+        var arrayPoolAssembly = Path.Combine(arrayPoolOutputDir, "SystemsProof33ArrayPoolFileIo.dll");
+        Assert.True(File.Exists(Path.Combine(arrayPoolOutputDir, "NSharpLang.Runtime.dll")));
+        var arrayPoolRun = DotnetRunner.Run($"\"{arrayPoolAssembly}\"", arrayPoolOutputDir);
+        Assert.True(arrayPoolRun.ExitCode == 0,
+            $"array pool file IO proof failed to run\nstdout:\n{arrayPoolRun.Stdout}\nstderr:\n{arrayPoolRun.Stderr}");
 
         AssertSystemsProofCheckPasses(memoryPoolDisposal, expectedWarnings: 0);
         var memoryPoolBuild = CaptureConsole(() =>

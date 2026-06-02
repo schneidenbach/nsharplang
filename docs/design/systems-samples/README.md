@@ -23,6 +23,8 @@ pass. Current executable proof projects:
   `nlc build --perf-report`.
 - `proofs/32-cache-prewarm`: `nlc check --systems-report` and
   `nlc build --perf-report`.
+- `proofs/33-arraypool-file-io`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run.
 - `proofs/34-memorypool-disposal`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/36-dictionary-setup-hot-read`: `nlc check --systems-report` and

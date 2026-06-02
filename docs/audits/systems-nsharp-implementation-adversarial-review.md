@@ -39,10 +39,11 @@ data-race freedom, or every design proof project in the use-case appendix.
 - Acceptance gauntlet fixtures under `tests/fixtures/systems-gauntlet/` with
   source, systems JSON golden, human diagnostic golden, perf-report golden, and
   C# interop notes for the ten executable v1 scenarios.
-- Executable proof projects 34, 37, 40, 41, and 43 now cover the MemoryPool
-  disposal sample, the fixed-capacity map sample, the C# hot parser API,
-  structured error values, and the Mono/WASM target-analysis sample through
-  `nlc check --systems-report` and `nlc build --perf-report`.
+- Executable proof projects 33, 34, 37, 40, 41, and 43 now cover the ArrayPool
+  file-IO handoff sample, the MemoryPool disposal sample, the fixed-capacity map
+  sample, the C# hot parser API, structured error values, and the Mono/WASM
+  target-analysis sample through `nlc check --systems-report` and
+  `nlc build --perf-report`.
 - Proof 40 additionally has a real C# `ProjectReference` consumer gate covering
   minimal N# SDK projects, `project.yml` assembly/version identity, the
   `Result<T,E>` runtime ABI, and a `ReadOnlySpan<byte>` parser API.
