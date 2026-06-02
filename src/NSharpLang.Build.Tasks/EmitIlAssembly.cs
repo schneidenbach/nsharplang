@@ -73,7 +73,7 @@ public class EmitIlAssembly : Task
                 return false;
             }
 
-            EnsureReferenceAssemblyExists(TargetAssemblyPath, TargetReferenceAssemblyPath);
+            SynchronizeReferenceAssembly(TargetAssemblyPath, TargetReferenceAssemblyPath);
             Log.LogMessage(MessageImportance.High, $"Emitted N# IL assembly to {TargetAssemblyPath}");
             return true;
         }
@@ -84,7 +84,7 @@ public class EmitIlAssembly : Task
         }
     }
 
-    private static void EnsureReferenceAssemblyExists(string targetAssemblyPath, string? targetReferenceAssemblyPath)
+    private static void SynchronizeReferenceAssembly(string targetAssemblyPath, string? targetReferenceAssemblyPath)
     {
         if (string.IsNullOrWhiteSpace(targetReferenceAssemblyPath) || !File.Exists(targetAssemblyPath))
         {
@@ -93,8 +93,7 @@ public class EmitIlAssembly : Task
 
         var assemblyPath = Path.GetFullPath(targetAssemblyPath);
         var referenceAssemblyPath = Path.GetFullPath(targetReferenceAssemblyPath);
-        if (string.Equals(assemblyPath, referenceAssemblyPath, StringComparison.OrdinalIgnoreCase)
-            || File.Exists(referenceAssemblyPath))
+        if (string.Equals(assemblyPath, referenceAssemblyPath, StringComparison.OrdinalIgnoreCase))
         {
             return;
         }

@@ -1,6 +1,6 @@
 # Systems N# Implementation Adversarial Review
 
-Date: 2026-06-01
+Date: 2026-06-02
 Scope: implementation pass for `docs/design/systems-nsharp.md`
 
 ## Review Position
@@ -39,11 +39,21 @@ data-race freedom, or every design proof project in the use-case appendix.
 - Acceptance gauntlet fixtures under `tests/fixtures/systems-gauntlet/` with
   source, systems JSON golden, human diagnostic golden, perf-report golden, and
   C# interop notes for the ten executable v1 scenarios.
-- 184-row BenchmarkDotNet coverage for hot-path throughput/allocation across
+- Executable proof projects 40 and 43 now cover the C# hot parser API and the
+  Mono/WASM target-analysis sample through `nlc check --systems-report` and
+  `nlc build --perf-report`.
+- Proof 40 additionally has a real C# `ProjectReference` consumer gate covering
+  minimal N# SDK projects, `project.yml` assembly/version identity, the
+  `Result<T,E>` runtime ABI, and a `ReadOnlySpan<byte>` parser API.
+- Fast BenchmarkDotNet coverage for hot-path throughput/allocation across
   caller-owned loops, write buffers, direct Result ABI operations, pooled
-  boundary handoff, and hot+result combinations (`Systems*Benchmarks`). The
-  commit gate requires all Systems benchmark rows to allocate 0 B and keeps
-  N#/runtime rows under the configured ratio limit against matched C# baselines.
+  boundary handoff, and hot+result combinations (`SystemsFastGateBenchmarks`),
+  with an explicit detailed matrix mode for the full `Systems*Benchmarks`
+  corpus. The commit gate uses 16 measured iterations, requires all Systems
+  benchmark rows to allocate 0 B, and keeps every N#/runtime row at or below a
+  hard 1.00 ratio against matched C# baselines.
+  Current command evidence is recorded in
+  `docs/audits/systems-nsharp-verification-summary.md`.
 - A proof-project audit for the design-only projects under
   `docs/design/systems-samples/proofs/`, explicitly recording that they are not
   passing executable evidence yet.
@@ -61,9 +71,9 @@ data-race freedom, or every design proof project in the use-case appendix.
    arbitrary ownership transfer.
 4. AOT is analysis-only. Reports explicitly set `nativeImageEmitted: false`
    until `nlc publish --aot` emits and verifies a native image.
-5. The acceptance gauntlet is intentionally source/analyzer focused. Full
-   NativeAOT, source-generator, and C# consumer projects should become separate
-   preview gates as those deployment surfaces mature.
+5. The acceptance gauntlet is intentionally source/analyzer focused. Broader
+   C# ABI matrices, full NativeAOT, and source-generator deployment projects
+   should become separate preview gates as those surfaces mature.
 6. Most complex proof projects for use cases 24-48 remain design proof inputs,
    not current compiler examples; only the projects marked `executable` in the
    proof audit are current compiler evidence. See

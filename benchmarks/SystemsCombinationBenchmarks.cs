@@ -11,6 +11,8 @@ namespace NSharpLang.Benchmarks;
 [MemoryDiagnoser]
 public class SystemsCombinationBenchmarks
 {
+    private const int InnerOperations = 8;
+
     private const string Source = """
 [hot]
 func scanDigits(values: int[], len: int): int {
@@ -174,37 +176,95 @@ func copyPositiveChecksum(src: int[], dst: int[], len: int): int {
         _copyPositiveChecksum = NSharpCompiledMethod.Bind<Func<int[], int[], int, int>>(Source, "copyPositiveChecksum");
     }
 
-    [Benchmark(Baseline = true)]
-    public int CSharp() => Workload switch
+    public int CSharpAll()
     {
-        CombinationWorkload.ScanDigitsResult => Consume(CSharpScanDigitsResult(_digits, _digits.Length)),
-        CombinationWorkload.WriteChecksumResult => Consume(CSharpWriteChecksumResult(_payload, _destination, _payload.Length)),
-        CombinationWorkload.CopyDigitsResult => Consume(CSharpCopyDigitsResult(_digits, _destination, _digits.Length)),
-        CombinationWorkload.ScanAndChecksumResult => Consume(CSharpScanAndChecksumResult(_digits, _digits.Length)),
-        CombinationWorkload.CopyPositiveChecksumResult => Consume(CSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length)),
-        CombinationWorkload.ScanThenChecksumResult => Consume(CSharpScanThenChecksumResult(_digits, _digits.Length)),
-        CombinationWorkload.ScanThenCopyDigitsResult => Consume(CSharpScanThenCopyDigitsResult(_digits, _destination, _digits.Length)),
-        CombinationWorkload.ChecksumThenFrameResult => Consume(CSharpChecksumThenFrameResult(_digits, _destination, _digits.Length)),
-        CombinationWorkload.CopyDigitsThenFrameResult => Consume(CSharpCopyDigitsThenFrameResult(_digits, _destination, _scratch, _digits.Length)),
-        CombinationWorkload.CopyPositiveThenFrameResult => Consume(CSharpCopyPositiveThenFrameResult(_payload, _destination, _scratch, _payload.Length)),
-        _ => throw new InvalidOperationException()
-    };
+        var total = 0;
+        for (var operation = 0; operation < InnerOperations; operation++)
+        {
+            total += Consume(CSharpScanDigitsResult(_digits, _digits.Length));
+            total += Consume(CSharpWriteChecksumResult(_payload, _destination, _payload.Length));
+            total += Consume(CSharpCopyDigitsResult(_digits, _destination, _digits.Length));
+            total += Consume(CSharpScanAndChecksumResult(_digits, _digits.Length));
+            total += Consume(CSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length));
+            total += Consume(CSharpScanThenChecksumResult(_digits, _digits.Length));
+            total += Consume(CSharpScanThenCopyDigitsResult(_digits, _destination, _digits.Length));
+            total += Consume(CSharpChecksumThenFrameResult(_digits, _destination, _digits.Length));
+            total += Consume(CSharpCopyDigitsThenFrameResult(_digits, _destination, _scratch, _digits.Length));
+            total += Consume(CSharpCopyPositiveThenFrameResult(_payload, _destination, _scratch, _payload.Length));
+        }
 
-    [Benchmark]
-    public int NSharp() => Workload switch
+        return total;
+    }
+
+    public int NSharpAll()
     {
-        CombinationWorkload.ScanDigitsResult => Consume(NSharpScanDigitsResult(_digits, _digits.Length)),
-        CombinationWorkload.WriteChecksumResult => Consume(NSharpWriteChecksumResult(_payload, _destination, _payload.Length)),
-        CombinationWorkload.CopyDigitsResult => Consume(NSharpCopyDigitsResult(_digits, _destination, _digits.Length)),
-        CombinationWorkload.ScanAndChecksumResult => Consume(NSharpScanAndChecksumResult(_digits, _digits.Length)),
-        CombinationWorkload.CopyPositiveChecksumResult => Consume(NSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length)),
-        CombinationWorkload.ScanThenChecksumResult => Consume(NSharpScanThenChecksumResult(_digits, _digits.Length)),
-        CombinationWorkload.ScanThenCopyDigitsResult => Consume(NSharpScanThenCopyDigitsResult(_digits, _destination, _digits.Length)),
-        CombinationWorkload.ChecksumThenFrameResult => Consume(NSharpChecksumThenFrameResult(_digits, _destination, _digits.Length)),
-        CombinationWorkload.CopyDigitsThenFrameResult => Consume(NSharpCopyDigitsThenFrameResult(_digits, _destination, _scratch, _digits.Length)),
-        CombinationWorkload.CopyPositiveThenFrameResult => Consume(NSharpCopyPositiveThenFrameResult(_payload, _destination, _scratch, _payload.Length)),
-        _ => throw new InvalidOperationException()
-    };
+        var total = 0;
+        for (var operation = 0; operation < InnerOperations; operation++)
+        {
+            total += Consume(NSharpScanDigitsResult(_digits, _digits.Length));
+            total += Consume(NSharpWriteChecksumResult(_payload, _destination, _payload.Length));
+            total += Consume(NSharpCopyDigitsResult(_digits, _destination, _digits.Length));
+            total += Consume(NSharpScanAndChecksumResult(_digits, _digits.Length));
+            total += Consume(NSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length));
+            total += Consume(NSharpScanThenChecksumResult(_digits, _digits.Length));
+            total += Consume(NSharpScanThenCopyDigitsResult(_digits, _destination, _digits.Length));
+            total += Consume(NSharpChecksumThenFrameResult(_digits, _destination, _digits.Length));
+            total += Consume(NSharpCopyDigitsThenFrameResult(_digits, _destination, _scratch, _digits.Length));
+            total += Consume(NSharpCopyPositiveThenFrameResult(_payload, _destination, _scratch, _payload.Length));
+        }
+
+        return total;
+    }
+
+    [Benchmark(Baseline = true, OperationsPerInvoke = InnerOperations)]
+    public int CSharp()
+    {
+        var total = 0;
+        for (var operation = 0; operation < InnerOperations; operation++)
+        {
+            total += Workload switch
+            {
+                CombinationWorkload.ScanDigitsResult => Consume(CSharpScanDigitsResult(_digits, _digits.Length)),
+                CombinationWorkload.WriteChecksumResult => Consume(CSharpWriteChecksumResult(_payload, _destination, _payload.Length)),
+                CombinationWorkload.CopyDigitsResult => Consume(CSharpCopyDigitsResult(_digits, _destination, _digits.Length)),
+                CombinationWorkload.ScanAndChecksumResult => Consume(CSharpScanAndChecksumResult(_digits, _digits.Length)),
+                CombinationWorkload.CopyPositiveChecksumResult => Consume(CSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length)),
+                CombinationWorkload.ScanThenChecksumResult => Consume(CSharpScanThenChecksumResult(_digits, _digits.Length)),
+                CombinationWorkload.ScanThenCopyDigitsResult => Consume(CSharpScanThenCopyDigitsResult(_digits, _destination, _digits.Length)),
+                CombinationWorkload.ChecksumThenFrameResult => Consume(CSharpChecksumThenFrameResult(_digits, _destination, _digits.Length)),
+                CombinationWorkload.CopyDigitsThenFrameResult => Consume(CSharpCopyDigitsThenFrameResult(_digits, _destination, _scratch, _digits.Length)),
+                CombinationWorkload.CopyPositiveThenFrameResult => Consume(CSharpCopyPositiveThenFrameResult(_payload, _destination, _scratch, _payload.Length)),
+                _ => throw new InvalidOperationException()
+            };
+        }
+
+        return total;
+    }
+
+    [Benchmark(OperationsPerInvoke = InnerOperations)]
+    public int NSharp()
+    {
+        var total = 0;
+        for (var operation = 0; operation < InnerOperations; operation++)
+        {
+            total += Workload switch
+            {
+                CombinationWorkload.ScanDigitsResult => Consume(NSharpScanDigitsResult(_digits, _digits.Length)),
+                CombinationWorkload.WriteChecksumResult => Consume(NSharpWriteChecksumResult(_payload, _destination, _payload.Length)),
+                CombinationWorkload.CopyDigitsResult => Consume(NSharpCopyDigitsResult(_digits, _destination, _digits.Length)),
+                CombinationWorkload.ScanAndChecksumResult => Consume(NSharpScanAndChecksumResult(_digits, _digits.Length)),
+                CombinationWorkload.CopyPositiveChecksumResult => Consume(NSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length)),
+                CombinationWorkload.ScanThenChecksumResult => Consume(NSharpScanThenChecksumResult(_digits, _digits.Length)),
+                CombinationWorkload.ScanThenCopyDigitsResult => Consume(NSharpScanThenCopyDigitsResult(_digits, _destination, _digits.Length)),
+                CombinationWorkload.ChecksumThenFrameResult => Consume(NSharpChecksumThenFrameResult(_digits, _destination, _digits.Length)),
+                CombinationWorkload.CopyDigitsThenFrameResult => Consume(NSharpCopyDigitsThenFrameResult(_digits, _destination, _scratch, _digits.Length)),
+                CombinationWorkload.CopyPositiveThenFrameResult => Consume(NSharpCopyPositiveThenFrameResult(_payload, _destination, _scratch, _payload.Length)),
+                _ => throw new InvalidOperationException()
+            };
+        }
+
+        return total;
+    }
 
     private Result<int, int> NSharpScanDigitsResult(int[] values, int len)
     {
@@ -387,7 +447,7 @@ func copyPositiveChecksum(src: int[], dst: int[], len: int): int {
     }
 
     private static int Consume(Result<int, int> result)
-        => result.TryGetOk(out var value) ? value : 0;
+        => result.IsOk ? result.OkValueUnchecked : 0;
 
     private static int CSharpScanDigits(int[] values, int len)
     {

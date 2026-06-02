@@ -6,6 +6,11 @@ import System.Buffers.Binary
 public struct Header {
     Version: ushort
     Length: uint
+
+    constructor(version: ushort, length: uint) {
+        Version = version
+        Length = length
+    }
 }
 
 public enum HeaderError {
@@ -19,9 +24,9 @@ public class PacketApi {
             return Err(HeaderError.Short)
         }
 
-        return Ok(Header {
-            Version: BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(0, 2)),
-            Length: BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(2, 4))
-        })
+        version := BinaryPrimitives.ReadUInt16LittleEndian(bytes.Slice(0, 2))
+        length := BinaryPrimitives.ReadUInt32LittleEndian(bytes.Slice(2, 4))
+        header := new Header(version, length)
+        return Ok(header)
     }
 }

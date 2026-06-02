@@ -120,6 +120,88 @@ func pairSums(src: int[], dst: int[]): int {
 
     return checksum
 }
+
+[hot]
+func allCallerBuffers(src: int[], dst: int[]): int {
+    total := 0
+    len := src.Length
+    positiveWritten := 0
+    evenWritten := 0
+    scaledWritten := 0
+    scaledChecksum := 0
+    for i := 0; i < len; i++ {
+        value := src[i]
+        if value >= 0 {
+            dst[positiveWritten] = value
+            positiveWritten = positiveWritten + 1
+        }
+
+        if (value & 1) == 0 {
+            dst[evenWritten] = value
+            evenWritten = evenWritten + 1
+        }
+
+        if value > 0 {
+            scaled := value * 2
+            dst[scaledWritten] = scaled
+            scaledWritten = scaledWritten + 1
+            scaledChecksum = scaledChecksum + scaled
+        }
+    }
+
+    total = total + positiveWritten
+
+    if dst.Length < len + 4 {
+        total = total - 1
+    } else {
+        dst[0] = 78
+        dst[1] = 35
+        dst[2] = len
+        dst[3] = 0
+        for i := 0; i < len; i++ {
+            dst[i + 4] = src[i]
+        }
+
+        total = total + len + 4
+    }
+
+    sum := 0
+    for i := 0; i < len; i++ {
+        value := (src[i] * 31) + 7
+        dst[i] = value
+        sum = sum + value
+    }
+
+    total = total + sum
+
+    running := 0
+    for i := 0; i < len; i++ {
+        running = running + src[i]
+        dst[i] = running
+    }
+
+    total = total + running
+
+    total = total + evenWritten
+    total = total + scaledChecksum + scaledWritten
+
+    pairs := len / 2
+    if dst.Length < pairs {
+        total = total - 1
+    } else {
+        checksum := 0
+        for i := 0; i < pairs; i++ {
+            j := i * 2
+            value := src[j] + src[j + 1]
+            dst[i] = value
+            checksum = checksum + value
+        }
+
+        total = total + checksum
+    }
+
+    return total
+}
 """;
 
     private int[] _source = Array.Empty<int>();
@@ -131,6 +213,7 @@ func pairSums(src: int[], dst: int[]): int {
     private Func<int[], int[], int> _csharpCompactEven = null!;
     private Func<int[], int[], int> _csharpFilterAndScale = null!;
     private Func<int[], int[], int> _csharpPairSums = null!;
+    private Func<int[], int[], int> _csharpAllCallerBuffers = null!;
     private Func<int[], int[], int> _copyPositive = null!;
     private Func<int[], int[], int> _writeFrame = null!;
     private Func<int[], int[], int> _transform = null!;
@@ -138,6 +221,7 @@ func pairSums(src: int[], dst: int[]): int {
     private Func<int[], int[], int> _compactEven = null!;
     private Func<int[], int[], int> _filterAndScale = null!;
     private Func<int[], int[], int> _pairSums = null!;
+    private Func<int[], int[], int> _allCallerBuffers = null!;
 
     public enum CallerBufferWorkload
     {
@@ -180,6 +264,7 @@ func pairSums(src: int[], dst: int[]): int {
         _csharpCompactEven = CSharpCompactEven;
         _csharpFilterAndScale = CSharpFilterAndScale;
         _csharpPairSums = CSharpPairSums;
+        _csharpAllCallerBuffers = CSharpAllCallerBuffers;
 
         _copyPositive = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "copyPositive");
         _writeFrame = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "writeFrame");
@@ -188,7 +273,12 @@ func pairSums(src: int[], dst: int[]): int {
         _compactEven = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "compactEven");
         _filterAndScale = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "filterAndScale");
         _pairSums = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "pairSums");
+        _allCallerBuffers = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "allCallerBuffers");
     }
+
+    public int CSharpAll() => _csharpAllCallerBuffers(_source, _destination);
+
+    public int NSharpAll() => _allCallerBuffers(_source, _destination);
 
     [Benchmark(Baseline = true)]
     public int CSharp() => Workload switch
@@ -337,4 +427,13 @@ func pairSums(src: int[], dst: int[]): int {
 
         return checksum;
     }
+
+    private static int CSharpAllCallerBuffers(int[] source, int[] destination)
+        => CSharpCopyPositive(source, destination)
+           + CSharpWriteFrame(source, destination)
+           + CSharpTransform(source, destination)
+           + CSharpPrefixSum(source, destination)
+           + CSharpCompactEven(source, destination)
+           + CSharpFilterAndScale(source, destination)
+           + CSharpPairSums(source, destination);
 }

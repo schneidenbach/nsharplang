@@ -36,6 +36,14 @@ internal static class TestSdkFeed
   </packageSources>
 </configuration>
 """);
+
+        File.WriteAllText(Path.Combine(projectDir, "Directory.Build.props"), $$"""
+<Project>
+  <PropertyGroup>
+    <NSharpLangRuntimeVersion>{{PackedSdk.Value.RuntimeVersion}}</NSharpLangRuntimeVersion>
+  </PropertyGroup>
+</Project>
+""");
     }
 
     public static void WriteVersionedSdkProject(string projectDir, string projectName)
@@ -49,6 +57,7 @@ internal static class TestSdkFeed
         var repoRoot = FindRepoRoot();
         var feedDir = Path.Combine(Path.GetTempPath(), $"nsharp-sdk-feed-{Guid.NewGuid():N}");
         var version = $"0.1.0-il{Guid.NewGuid():N}";
+        var runtimeVersion = $"0.1.0-runtime{Guid.NewGuid():N}";
         Directory.CreateDirectory(feedDir);
 
         var buildTasksExitCode = RunDotnetNoCapture(
@@ -62,7 +71,7 @@ internal static class TestSdkFeed
 
         var runtimePackExitCode = RunDotnetNoCapture(
             repoRoot,
-            $"pack \"{Path.Combine(repoRoot, "src", "NSharpLang.Runtime", "NSharpLang.Runtime.csproj")}\" -c Release -o \"{feedDir}\" -v q --disable-build-servers",
+            $"pack \"{Path.Combine(repoRoot, "src", "NSharpLang.Runtime", "NSharpLang.Runtime.csproj")}\" -c Release -o \"{feedDir}\" -p:Version={runtimeVersion} -v q --disable-build-servers",
             timeout: TimeSpan.FromMinutes(5));
         if (runtimePackExitCode != 0)
         {
@@ -78,7 +87,7 @@ internal static class TestSdkFeed
             throw new InvalidOperationException("Failed to pack NSharp SDK.");
         }
 
-        return new PackedSdkInfo(feedDir, version);
+        return new PackedSdkInfo(feedDir, version, runtimeVersion);
     }
 
     private static string FindRepoRoot()
@@ -123,5 +132,5 @@ internal static class TestSdkFeed
         return process.ExitCode;
     }
 
-    internal sealed record PackedSdkInfo(string FeedPath, string Version);
+    internal sealed record PackedSdkInfo(string FeedPath, string Version, string RuntimeVersion);
 }

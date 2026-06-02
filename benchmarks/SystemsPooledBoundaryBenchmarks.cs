@@ -11,6 +11,8 @@ namespace NSharpLang.Benchmarks;
 [MemoryDiagnoser]
 public class SystemsPooledBoundaryBenchmarks
 {
+    private const int InnerOperations = 8;
+
     private const string Source = """
 [hot]
 func countNonZero(values: int[], len: int): int {
@@ -99,14 +101,81 @@ func sumPositive(values: int[], len: int): int {
 func zeroOdd(values: int[], len: int): int {
     cleared := 0
     for i := 0; i < len; i++ {
-        value := values[i]
-        if (value & 1) != 0 {
+        if (values[i] & 1) != 0 {
             values[i] = 0
             cleared = cleared + 1
         }
     }
 
     return cleared
+}
+
+[hot]
+func allPooled(values: int[], len: int): int {
+    total := 0
+    count := 0
+    frameScore := 0
+    for i := 0; i < len; i++ {
+        value := values[i]
+        if value != 0 {
+            count = count + 1
+        }
+
+        frameScore = frameScore + value
+    }
+
+    total = total + count
+
+    if len < 4 {
+        total = total - 1
+    } else {
+        total = total + frameScore
+    }
+
+    score := 0
+    found := -1
+    for i := 0; i < len; i++ {
+        value := values[i]
+        if value < 0 {
+            value = 0
+        }
+
+        values[i] = value
+        score = score + value
+        if found < 0 && value == 0 {
+            found = i
+        }
+    }
+
+    total = total + score
+    total = total + found
+
+    changed := 0
+    sum := 0
+    cleared := 0
+    for i := 0; i < len; i++ {
+        value := values[i]
+        if value < 0 {
+            values[i] = 0
+            value = 0
+            changed = changed + 1
+        } else if value > 1024 {
+            values[i] = 1024
+            value = 1024
+            changed = changed + 1
+        }
+
+        if value > 0 {
+            sum = sum + value
+        }
+
+        if (value & 1) != 0 {
+            values[i] = 0
+            cleared = cleared + 1
+        }
+    }
+
+    return total + changed + sum + cleared
 }
 """;
 
@@ -125,6 +194,7 @@ func zeroOdd(values: int[], len: int): int {
     private Func<int[], int, int> _clampWindow = null!;
     private Func<int[], int, int> _sumPositive = null!;
     private Func<int[], int, int> _zeroOdd = null!;
+    private Func<int[], int, int> _allPooled = null!;
 
     public enum PooledBoundaryWorkload
     {
@@ -180,51 +250,90 @@ func zeroOdd(values: int[], len: int): int {
         _clampWindow = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "clampWindow");
         _sumPositive = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "sumPositive");
         _zeroOdd = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "zeroOdd");
+        _allPooled = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "allPooled");
     }
 
-    [Benchmark(Baseline = true)]
+    public int CSharpAll() => All(useNSharp: false);
+
+    public int NSharpAll() => All(useNSharp: true);
+
+    [Benchmark(Baseline = true, OperationsPerInvoke = InnerOperations)]
     public int CSharp()
     {
-        var buffer = ArrayPool<int>.Shared.Rent(_seed.Length);
-        try
+        var total = 0;
+        for (var operation = 0; operation < InnerOperations; operation++)
         {
-            Array.Copy(_seed, buffer, _seed.Length);
-            return Workload switch
+            var buffer = ArrayPool<int>.Shared.Rent(_seed.Length);
+            try
             {
-                PooledBoundaryWorkload.CountNonZero => _csharpCountNonZero(buffer, _seed.Length),
-                PooledBoundaryWorkload.ScorePooledFrame => _csharpScorePooledFrame(buffer, _seed.Length),
-                PooledBoundaryWorkload.ClampAndScore => _csharpClampAndScore(buffer, _seed.Length),
-                PooledBoundaryWorkload.FindFirstZero => _csharpFindFirstZero(buffer, _seed.Length),
-                PooledBoundaryWorkload.ClampWindow => _csharpClampWindow(buffer, _seed.Length),
-                PooledBoundaryWorkload.SumPositive => _csharpSumPositive(buffer, _seed.Length),
-                PooledBoundaryWorkload.ZeroOdd => _csharpZeroOdd(buffer, _seed.Length),
-                _ => throw new InvalidOperationException()
-            };
+                Array.Copy(_seed, buffer, _seed.Length);
+                total += Workload switch
+                {
+                    PooledBoundaryWorkload.CountNonZero => _csharpCountNonZero(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ScorePooledFrame => _csharpScorePooledFrame(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ClampAndScore => _csharpClampAndScore(buffer, _seed.Length),
+                    PooledBoundaryWorkload.FindFirstZero => _csharpFindFirstZero(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ClampWindow => _csharpClampWindow(buffer, _seed.Length),
+                    PooledBoundaryWorkload.SumPositive => _csharpSumPositive(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ZeroOdd => _csharpZeroOdd(buffer, _seed.Length),
+                    _ => throw new InvalidOperationException()
+                };
+            }
+            finally
+            {
+                ArrayPool<int>.Shared.Return(buffer);
+            }
         }
-        finally
-        {
-            ArrayPool<int>.Shared.Return(buffer);
-        }
+
+        return total;
     }
 
-    [Benchmark]
+    [Benchmark(OperationsPerInvoke = InnerOperations)]
     public int NSharp()
+    {
+        var total = 0;
+        for (var operation = 0; operation < InnerOperations; operation++)
+        {
+            var buffer = ArrayPool<int>.Shared.Rent(_seed.Length);
+            try
+            {
+                Array.Copy(_seed, buffer, _seed.Length);
+                total += Workload switch
+                {
+                    PooledBoundaryWorkload.CountNonZero => _countNonZero(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ScorePooledFrame => _scorePooledFrame(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ClampAndScore => _clampAndScore(buffer, _seed.Length),
+                    PooledBoundaryWorkload.FindFirstZero => _findFirstZero(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ClampWindow => _clampWindow(buffer, _seed.Length),
+                    PooledBoundaryWorkload.SumPositive => _sumPositive(buffer, _seed.Length),
+                    PooledBoundaryWorkload.ZeroOdd => _zeroOdd(buffer, _seed.Length),
+                    _ => throw new InvalidOperationException()
+                };
+            }
+            finally
+            {
+                ArrayPool<int>.Shared.Return(buffer);
+            }
+        }
+
+        return total;
+    }
+
+    private int All(bool useNSharp)
     {
         var buffer = ArrayPool<int>.Shared.Rent(_seed.Length);
         try
         {
             Array.Copy(_seed, buffer, _seed.Length);
-            return Workload switch
-            {
-                PooledBoundaryWorkload.CountNonZero => _countNonZero(buffer, _seed.Length),
-                PooledBoundaryWorkload.ScorePooledFrame => _scorePooledFrame(buffer, _seed.Length),
-                PooledBoundaryWorkload.ClampAndScore => _clampAndScore(buffer, _seed.Length),
-                PooledBoundaryWorkload.FindFirstZero => _findFirstZero(buffer, _seed.Length),
-                PooledBoundaryWorkload.ClampWindow => _clampWindow(buffer, _seed.Length),
-                PooledBoundaryWorkload.SumPositive => _sumPositive(buffer, _seed.Length),
-                PooledBoundaryWorkload.ZeroOdd => _zeroOdd(buffer, _seed.Length),
-                _ => throw new InvalidOperationException()
-            };
+            return useNSharp
+                ? _allPooled(buffer, _seed.Length)
+                : _csharpCountNonZero(buffer, _seed.Length)
+                  + _csharpScorePooledFrame(buffer, _seed.Length)
+                  + _csharpClampAndScore(buffer, _seed.Length)
+                  + _csharpFindFirstZero(buffer, _seed.Length)
+                  + _csharpClampWindow(buffer, _seed.Length)
+                  + _csharpSumPositive(buffer, _seed.Length)
+                  + _csharpZeroOdd(buffer, _seed.Length);
         }
         finally
         {
@@ -334,8 +443,7 @@ func zeroOdd(values: int[], len: int): int {
         var cleared = 0;
         for (var i = 0; i < len; i++)
         {
-            var value = values[i];
-            if ((value & 1) != 0)
+            if ((values[i] & 1) != 0)
             {
                 values[i] = 0;
                 cleared++;

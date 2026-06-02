@@ -1164,18 +1164,23 @@ Rules:
   intrinsic calls.
 - Runtime benchmarking is done with BenchmarkDotNet against compiled N#
   assemblies; N# does not add a fragile wall-clock benchmark runner in v1.
-- The repository benchmark corpus includes a Systems BenchmarkDotNet gate with
-  184 required rows, matched C# baselines, `MemoryDiagnoser`, zero-allocation
-  enforcement, and a 1.20 throughput-ratio gate. It covers hot loops over
-  caller-owned memory at small and large sizes, span handoff and array-to-span
-  coercion, caller write buffers, direct `Result<T,E>` ABI use, pooled boundary
-  handoff, and hot+result combination paths. Small-workload rows normalize the
-  C# side through delegates where the N# side is delegate-bound so wrapper
-  overhead is charged symmetrically.
-- `Result<T,E>` hot code uses direct `TryGet*`/`Is*` tag inspection. The
-  delegate-based `Match` helper remains a C# interop convenience, not the
-  systems-hot path, because delegate dispatch cannot match direct tagged-struct
-  dispatch.
+- The repository benchmark corpus includes a fast Systems BenchmarkDotNet gate
+  for the full suite and an explicit detailed matrix mode. Both use matched C#
+  baselines, `MemoryDiagnoser`, zero-allocation enforcement, and a hard 1.00
+  throughput-ratio gate: every Systems N#/runtime row must be at least as fast
+  as its matched C# baseline. The default gate aggregates six feature-family
+  rows that each execute multiple subcases and uses 16 measured iterations to
+  keep a hard 1.00 threshold stable. The detailed
+  `NSHARP_SYSTEMS_BENCH_MODE=matrix` run retains the full hot-loop/span/caller-
+  buffer/`Result<T,E>`/pooled-boundary/hot+result matrix. Small-workload rows
+  normalize the C# side through delegates where the N# side is delegate-bound,
+  and use BenchmarkDotNet `OperationsPerInvoke` batching where sub-100ns harness
+  noise would otherwise obscure source-shape regressions.
+- `Result<T,E>` hot code uses direct `TryGet*` checks or `Is*` tag inspection
+  followed by `OkValueUnchecked`/`ErrValueUnchecked` when the tag has already
+  been proven. The delegate-based `Match` helper remains a C# interop
+  convenience, not the systems-hot path, because delegate dispatch cannot match
+  direct tagged-struct dispatch.
 
 Reasoning:
 
@@ -1314,9 +1319,11 @@ in Appendix B. Use cases 24-48 are complex proof projects under
 Implementation note: Appendix B and the proof projects are proposal pressure
 tests. The current executable implementation evidence is the ten-case acceptance
 gauntlet under `tests/fixtures/systems-gauntlet/`, executable proof projects
-27, 31, 32, 36, 44, 45, and 48 under `docs/design/systems-samples/proofs/`, the
-Systems N# unit/CLI tests, and the 184-row Systems BenchmarkDotNet gate. The
-remaining 24-48 proof projects are design-only until migrated and audited in
+27, 31, 32, 36, 40, 43, 44, 45, and 48 under
+`docs/design/systems-samples/proofs/`, the Systems N# unit/CLI tests, and the
+fast Systems BenchmarkDotNet gate, and the detailed 196-row matrix available via
+`NSHARP_SYSTEMS_BENCH_MODE=matrix`. The remaining 24-48 proof projects are
+design-only until migrated and audited in
 `docs/audits/systems-proof-project-audit.md`.
 
 | # | Use case | Systems features that address it | V1 posture | Sample |
@@ -1360,10 +1367,10 @@ remaining 24-48 proof projects are design-only until migrated and audited in
 | 37 | Implement a custom fixed-capacity map. | structs, arrays/spans, index proofs, no allocation after construction. | In scope. | [Project](systems-samples/proofs/37-fixed-capacity-map/) |
 | 38 | Sort unmanaged records with a comparer. | generic parametric summaries, constrained value-type dispatch, no boxing. | In scope after generic summaries. | [Project](systems-samples/proofs/38-unmanaged-sort-comparer/) |
 | 39 | Run a hot-compatible LINQ-style pipeline. | hot-LINQ contract, library HotSummary, closure/delegate facts, hot-readiness. | In scope by contract, not by ZLinq name. | [Project](systems-samples/proofs/39-hot-linq-pipeline/) |
-| 40 | Expose a hot parser to C# callers. | C#-natural public ABI, `Result<T,E>` struct ABI, `ReadOnlySpan<byte>` parameters. | In scope. | [Project](systems-samples/proofs/40-csharp-hot-parser-api/) |
+| 40 | Expose a hot parser to C# callers. | C#-natural public ABI, `Result<T,E>` struct ABI, `ReadOnlySpan<byte>` parameters. | Executable proof covers check/build and a C# `ProjectReference` consumer; broader ABI matrix remains in scope. | [Project](systems-samples/proofs/40-csharp-hot-parser-api/) |
 | 41 | Return structured errors without exceptions. | `Result<T,E>`, must-use, pattern matching, boundary exception translation. | Must pass. | [Project](systems-samples/proofs/41-structured-errors/) |
 | 42 | Keep public APIs AOT/trimming friendly. | `aotSafe(target)`, `trimSafe`, source-generator guidance, boundary reports. | In scope as analysis; native image later. | [Project](systems-samples/proofs/42-aot-friendly-public-api/) |
-| 43 | Build a plugin that runs on Mono/WASM. | target-qualified AOT facts, no dynamic-code summaries, boundary restrictions. | In scope as target analysis. | [Project](systems-samples/proofs/43-mono-wasm-plugin/) |
+| 43 | Build a plugin that runs on Mono/WASM. | target-qualified AOT facts, no dynamic-code summaries, boundary restrictions. | Executable target-analysis proof; actual Mono/WASM runner later. | [Project](systems-samples/proofs/43-mono-wasm-plugin/) |
 | 44 | Validate no unexpected allocation in CI. | `nlc check --systems-report`, `nlc build --perf-report`, precise per-fact diffs. | In scope; lockfile deferred. | [Project](systems-samples/proofs/44-ci-allocation-gate/) |
 | 45 | Audit unsafe wrappers before release. | `[trusted]` governance, owner/review/expiry metadata, `nlc query trusted`. | In scope. | [Project](systems-samples/proofs/45-trusted-audit/) |
 | 46 | Adapt Dapper/EF/database calls. | `[boundary]`, allocation/reflection reports, explicit DTO/result handoff. | Boundary in scope; hot ORM calls out of scope. | [Project](systems-samples/proofs/46-dapper-boundary/) |

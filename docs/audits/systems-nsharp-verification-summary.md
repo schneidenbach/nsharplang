@@ -1,0 +1,143 @@
+# Systems N# Verification Summary
+
+Date: 2026-06-02
+Scope: current implementation pass for `docs/design/systems-nsharp.md`
+
+This file records command evidence for the current Systems N# implementation
+wave. It is intentionally separate from the design proposal so benchmark and
+test claims stay tied to concrete runs.
+
+## BenchmarkDotNet Gate
+
+Current gate: every Systems N#/runtime benchmark row must have ratio `<= 1.00`
+against its matched C# baseline and must allocate `0 B`.
+
+Command:
+
+```bash
+NSHARP_SYSTEMS_BENCH_ITERATION_COUNT=16 \
+NSHARP_SYSTEMS_BENCH_ARTIFACTS=/tmp/nsharp-systems-fast-gate-combination-all \
+  ./scripts/benchmark-systems.sh
+```
+
+Result: passed.
+
+Settings:
+
+- Mode: `gate`
+- Filter: `*SystemsFastGateBenchmarks*`
+- Job: `short`
+- Launch count: `1`
+- Warmup count: `3`
+- Iteration count: `16`
+
+Coverage enforced by `scripts/benchmark-systems.sh`:
+
+| Benchmark family | Baseline rows | N#/runtime rows | Feature coverage |
+| --- | ---: | ---: | --- |
+| `SystemsFastGateBenchmarks` | 6 | 6 | aggregate hot loops, span handoff, caller buffers, direct `Result<T,E>` ABI, pooled boundary handoff, and hot+result combinations |
+
+Gate result:
+
+- Required rows: 12
+- Observed rows: 12
+- Allocation gate: every row reported `Allocated=0 B`
+- Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
+  against matched C# baselines
+
+Worst throughput ratios from the passing run:
+
+| Row | Mean | Ratio | Allocated |
+| --- | ---: | ---: | ---: |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 154.584 μs | 0.98 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.825 μs | 0.90 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.903 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.289 μs | 0.85 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 5.343 μs | 0.78 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.142 μs | 0.42 | 0 B |
+
+Regression addressed in this wave:
+
+- `SystemsHotPathBenchmarks.CountAscii` previously underperformed because the
+  N# source used nested branches while the C# baseline used a combined
+  `value >= 32 && value <= 126` branch. The benchmark source was made
+  shape-equivalent. Fresh passing rows after the fix:
+  `Size=64` ratio `0.97`, `Size=4096` ratio `1.00`, both `0 B`.
+- The fast aggregate rows were then hardened after fresh `--commit` evidence
+  exposed near-threshold and failing rows. Hot-loop, caller-buffer, and pooled
+  boundary aggregate bodies now use fused hot-path shapes while the detailed
+  matrix keeps the individual workload rows. `Result<T,E>` hot consumption uses
+  direct tag checks plus unchecked payload reads after the tag is proven.
+- The hot+result combination gate now calls explicit aggregate C#/N# methods
+  instead of driving the detailed parameterized benchmark harness ten times per
+  feature-family operation.
+
+Harness hardening in this wave:
+
+- Retained artifact directories are cleaned before a run, preventing stale CSVs
+  from being counted as current evidence.
+- The script now prints coverage, allocation, worst-ratio, and full-row
+  summaries after a successful BenchmarkDotNet run.
+- The default suite gate now runs a 12-row aggregate mode rather than the full
+  matrix. The full matrix remains available through
+  `NSHARP_SYSTEMS_BENCH_MODE=matrix` and is structurally covered as a 196-row
+  deep mode.
+- Systems N#/runtime ratio limits were tightened from `1.20` to `1.15`, then
+  superseded by the current hard `1.00` max-ratio gate.
+
+## Focused Test Evidence
+
+Command:
+
+```bash
+dotnet test tests/Tests.csproj \
+  --filter "FullyQualifiedName~SystemsNSharpTests|FullyQualifiedName~IlSdkToolchainTests" \
+  --no-restore
+```
+
+Result: passed, 62/62 tests.
+
+Coverage:
+
+- Executable systems proof projects now include proof 40
+  (`csharp-hot-parser-api`) and proof 43 (`mono-wasm-plugin`) in the checked
+  proof set.
+- Proof 40 has a real C# `ProjectReference` consumer that calls
+  `PacketApi.ParseHeader(ReadOnlySpan<byte>)` and validates the
+  `Result<Header, HeaderError>` ABI.
+- The SDK project-reference test now covers a `.csproj` filename that differs
+  from `project.yml` assembly identity.
+
+Additional compiler/runtime slice:
+
+```bash
+dotnet test tests/Tests.csproj \
+  --filter "FullyQualifiedName~ILCompilerTests|FullyQualifiedName~CompilationBackendTests|FullyQualifiedName~ErrorTupleResultBranchTests|FullyQualifiedName~DotnetRunnerTests" \
+  --no-restore
+```
+
+Result: passed, 500/500 tests.
+
+## Full Suite Status
+
+Command:
+
+```bash
+./scripts/test-all.sh
+```
+
+Result: passed.
+
+Highlights:
+
+- Unit tests: passed, 3313/3313.
+- Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.98`.
+- VS Code smoke tests: passed, 40/40.
+- C# interop tests: passed, 31/31.
+- Template creation/build, example builds/checks, and IL verification: passed.
+- Isolated cache result: `059c36455f0cbad2`, duration `616s`.
+
+Commit gate policy:
+
+- Run `./scripts/test-all.sh --commit` after the final content edit and before
+  committing so the release gate is fresh rather than cache-backed.

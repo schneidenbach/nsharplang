@@ -37,6 +37,12 @@ public class LoadProjectConfig : Task
     public string AssemblyName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Output: Version from project.yml
+    /// </summary>
+    [Output]
+    public string Version { get; set; } = string.Empty;
+
+    /// <summary>
     /// Output: SDK type (e.g., "Microsoft.NET.Sdk", "Microsoft.NET.Sdk.Web")
     /// </summary>
     [Output]
@@ -97,6 +103,7 @@ public class LoadProjectConfig : Task
             };
 
             AssemblyName = config.Name ?? Path.GetFileName(ProjectDirectory);
+            Version = config.Version ?? string.Empty;
             Sdk = config.Sdk;
             TestFramework = config.TestFramework;
 
@@ -158,6 +165,7 @@ public class LoadProjectConfig : Task
         TargetFramework = "net10.0";
         OutputType = "Exe";
         AssemblyName = Path.GetFileName(ProjectDirectory);
+        Version = string.Empty;
         Sdk = "Microsoft.NET.Sdk";
         PackageReferences = Array.Empty<ITaskItem>();
         ProjectReferences = Array.Empty<ITaskItem>();

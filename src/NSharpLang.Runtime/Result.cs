@@ -9,35 +9,30 @@ namespace NSharpLang.Runtime;
 /// </summary>
 public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
 {
+    private const MethodImplOptions HotPathImpl =
+        MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization;
+
     private readonly TOk? _ok;
     private readonly TErr? _err;
     private readonly byte _state;
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private Result(TOk ok)
+    [MethodImpl(HotPathImpl)]
+    private Result(TOk? ok, TErr? err, byte state)
     {
         _ok = ok;
-        _err = default;
-        _state = 1;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private Result(TErr err)
-    {
-        _ok = default;
         _err = err;
-        _state = 2;
+        _state = state;
     }
 
     public bool IsOk
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(HotPathImpl)]
         get => _state == 1;
     }
 
     public bool IsErr
     {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [MethodImpl(HotPathImpl)]
         get => _state == 2;
     }
 
@@ -59,13 +54,33 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
         }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Result<TOk, TErr> Ok(TOk value) => new(value);
+    /// <summary>
+    /// Gets the Ok payload without checking the tag. Systems hot paths should
+    /// only use this after proving <see cref="IsOk"/> for the same value.
+    /// </summary>
+    public TOk OkValueUnchecked
+    {
+        [MethodImpl(HotPathImpl)]
+        get => _ok!;
+    }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static Result<TOk, TErr> Err(TErr error) => new(error);
+    /// <summary>
+    /// Gets the Err payload without checking the tag. Systems hot paths should
+    /// only use this after proving <see cref="IsErr"/> for the same value.
+    /// </summary>
+    public TErr ErrValueUnchecked
+    {
+        [MethodImpl(HotPathImpl)]
+        get => _err!;
+    }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(HotPathImpl)]
+    public static Result<TOk, TErr> Ok(TOk value) => new(value, default, 1);
+
+    [MethodImpl(HotPathImpl)]
+    public static Result<TOk, TErr> Err(TErr error) => new(default, error, 2);
+
+    [MethodImpl(HotPathImpl)]
     public bool TryGetOk(out TOk value)
     {
         if (_state == 1)
@@ -78,7 +93,7 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
         return false;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    [MethodImpl(HotPathImpl)]
     public bool TryGetErr(out TErr error)
     {
         if (_state == 2)
@@ -158,4 +173,15 @@ public readonly struct Result<TOk, TErr> : IEquatable<Result<TOk, TErr>>
 
     private static InvalidOperationException CreateUninitializedException()
         => new("The result value was not initialized with either arm.");
+}
+
+public static class ResultFactory
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Result<TOk, TErr> Ok<TOk, TErr>(TOk value)
+        => Result<TOk, TErr>.Ok(value);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Result<TOk, TErr> Err<TOk, TErr>(TErr error)
+        => Result<TOk, TErr>.Err(error);
 }

@@ -32,15 +32,44 @@
        ProjectReference consumers working even before nlc restore has generated
        the compatibility props file. -->
   <Target Name="_ApplyNSharpProjectConfigForCurrentBuild"
-          BeforeTargets="PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;GenerateNSharpIlStub;CoreCompile"
+          BeforeTargets="_GetRestoreProjectStyle;_GetRestoreTargetFrameworksOutput;_GenerateRestoreProjectSpec;GetTargetPath;GetTargetPathWithTargetPlatformMoniker;PrepareForBuild;CollectPackageReferences;ResolvePackageAssets;ResolveFrameworkReferences;GenerateNSharpIlStub;CoreCompile"
           Condition="Exists('$(NSharpProjectFile)')">
     <LoadProjectConfig ProjectDirectory="$(MSBuildProjectDirectory)">
       <Output TaskParameter="TargetFramework" PropertyName="TargetFramework" />
       <Output TaskParameter="OutputType" PropertyName="OutputType" />
       <Output TaskParameter="AssemblyName" PropertyName="AssemblyName" />
+      <Output TaskParameter="Version" PropertyName="_NSharpProjectVersion" />
       <Output TaskParameter="Sdk" PropertyName="_NSharpBaseSdk" />
       <Output TaskParameter="TestFramework" PropertyName="NSharpTestFramework" />
     </LoadProjectConfig>
+
+    <PropertyGroup Condition="'$(AssemblyName)' != ''">
+      <TargetName>$(AssemblyName)</TargetName>
+      <TargetFileName>$(TargetName)$(TargetExt)</TargetFileName>
+      <TargetPath>$(TargetDir)$(TargetFileName)</TargetPath>
+      <TargetRefPath Condition="'$(ProduceReferenceAssembly)' == 'true' And '$(ProduceReferenceAssemblyInOutDir)' == 'true'">$([MSBuild]::NormalizePath($(TargetDir), 'ref', $(TargetFileName)))</TargetRefPath>
+      <TargetRefPath Condition="'$(ProduceReferenceAssembly)' == 'true' And '$(ProduceReferenceAssemblyInOutDir)' != 'true'">$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), $(IntermediateOutputPath), 'ref', $(TargetFileName)))</TargetRefPath>
+      <ProjectDepsFileName>$(AssemblyName).deps.json</ProjectDepsFileName>
+      <ProjectDepsFilePath>$(TargetDir)$(ProjectDepsFileName)</ProjectDepsFilePath>
+      <ProjectRuntimeConfigFileName>$(AssemblyName).runtimeconfig.json</ProjectRuntimeConfigFileName>
+      <ProjectRuntimeConfigFilePath>$(TargetDir)$(ProjectRuntimeConfigFileName)</ProjectRuntimeConfigFilePath>
+      <ProjectRuntimeConfigDevFilePath Condition="'$(GenerateRuntimeConfigDevFile)' == 'true'">$(TargetDir)$(AssemblyName).runtimeconfig.dev.json</ProjectRuntimeConfigDevFilePath>
+      <PackageId Condition="'$(PackageId)' == '' Or '$(PackageId)' == '$(MSBuildProjectName)'">$(AssemblyName)</PackageId>
+    </PropertyGroup>
+
+    <PropertyGroup Condition="'$(_NSharpProjectVersion)' != ''">
+      <Version Condition="'$(Version)' == '' Or '$(Version)' == '1.0.0'">$(_NSharpProjectVersion)</Version>
+      <PackageVersion Condition="'$(PackageVersion)' == '' Or '$(PackageVersion)' == '1.0.0'">$(_NSharpProjectVersion)</PackageVersion>
+      <AssemblyVersion Condition="'$(AssemblyVersion)' == '' Or '$(AssemblyVersion)' == '1.0.0.0'">$(_NSharpProjectVersion)</AssemblyVersion>
+      <FileVersion Condition="'$(FileVersion)' == '' Or '$(FileVersion)' == '1.0.0.0'">$(_NSharpProjectVersion)</FileVersion>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(AssemblyName)' != ''">
+      <IntermediateAssembly Remove="@(IntermediateAssembly)" />
+      <IntermediateAssembly Include="$(IntermediateOutputPath)$(TargetName)$(TargetExt)" />
+      <IntermediateRefAssembly Remove="@(IntermediateRefAssembly)" />
+      <IntermediateRefAssembly Include="$(IntermediateOutputPath)refint\$(TargetName)$(TargetExt)" Condition="'@(IntermediateRefAssembly)' == ''" />
+    </ItemGroup>
 
     <PropertyGroup Condition="'$(OutputType)' == 'Exe'">
       <GenerateProgramFile>false</GenerateProgramFile>

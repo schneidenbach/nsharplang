@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
@@ -561,12 +562,14 @@ func Run(): int {
         Assert.False(ok.IsErr);
         Assert.True(ok.TryGetOk(out var value));
         Assert.Equal(42, value);
+        Assert.Equal(42, ok.OkValueUnchecked);
         Assert.False(ok.TryGetErr(out _));
 
         Assert.True(err.IsErr);
         Assert.False(err.IsOk);
         Assert.True(err.TryGetErr(out var error));
         Assert.Equal("bad", error);
+        Assert.Equal("bad", err.ErrValueUnchecked);
         Assert.False(err.TryGetOk(out _));
 
         Assert.True(typeof(NSharpLang.Runtime.Result<int, string>).IsValueType);
@@ -1034,6 +1037,8 @@ class Box {}
             "31-hot-metrics",
             "32-cache-prewarm",
             "36-dictionary-setup-hot-read",
+            "40-csharp-hot-parser-api",
+            "43-mono-wasm-plugin",
             "44-ci-allocation-gate",
             "45-trusted-audit",
             "48-effect-drift"
@@ -1069,6 +1074,8 @@ class Box {}
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
+        var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
+        var monoWasmPlugin = Path.Combine(proofsRoot, "43-mono-wasm-plugin");
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
         var effectDrift = Path.Combine(proofsRoot, "48-effect-drift");
@@ -1128,6 +1135,36 @@ class Box {}
                 site => site.GetProperty("function").GetString() == "BuildCatalog"
                         && site.GetProperty("code").GetString() == "NSYS070");
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        AssertSystemsProofCheckPasses(csharpHotParserApi, expectedWarnings: 0);
+        var parserApiBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", csharpHotParserApi, "--perf-report"));
+        Assert.Equal(0, parserApiBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(parserApiBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        AssertCSharpConsumerCanCallParserApi(csharpHotParserApi);
+
+        AssertSystemsProofCheckPasses(monoWasmPlugin, expectedWarnings: 0);
+        var monoWasmBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", monoWasmPlugin, "--perf-report"));
+        Assert.Equal(0, monoWasmBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(monoWasmBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
@@ -1206,6 +1243,77 @@ class Box {}
         Assert.Equal(0, doc.RootElement.GetProperty("systemsReport").GetProperty("summary").GetProperty("errors").GetInt32());
     }
 
+    private static void AssertCSharpConsumerCanCallParserApi(string proofDir)
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-systems-csharp-consumer-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            TestSdkFeed.WriteSdkResolutionFiles(tempDir);
+
+            var nsharpProjectDir = Path.Combine(tempDir, "Proof");
+            Directory.CreateDirectory(nsharpProjectDir);
+            File.Copy(Path.Combine(proofDir, "Program.nl"), Path.Combine(nsharpProjectDir, "Program.nl"));
+            File.Copy(Path.Combine(proofDir, "project.yml"), Path.Combine(nsharpProjectDir, "project.yml"));
+            File.WriteAllText(Path.Combine(nsharpProjectDir, "Proof.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n");
+
+            File.WriteAllText(Path.Combine(tempDir, "Consumer.csproj"), $$"""
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="{{Path.Combine(nsharpProjectDir, "Proof.csproj")}}" />
+  </ItemGroup>
+</Project>
+""");
+
+            File.WriteAllText(Path.Combine(tempDir, "Program.cs"), """
+using System;
+using SystemsProofs.CsharpHotParserApi;
+
+var ok = PacketApi.ParseHeader(new byte[] { 1, 0, 5, 0, 0, 0 });
+if (!ok.TryGetOk(out var header))
+{
+    throw new InvalidOperationException($"expected ok, got {ok}");
+}
+
+if (header.Version != 1 || header.Length != 5)
+{
+    throw new InvalidOperationException($"bad header {header.Version}:{header.Length}");
+}
+
+var err = PacketApi.ParseHeader(new byte[] { 1, 0 });
+if (!err.TryGetErr(out var error) || error != HeaderError.Short)
+{
+    throw new InvalidOperationException($"expected Short, got {err}");
+}
+
+Console.WriteLine($"{header.Version}:{header.Length}:{error}");
+""");
+
+            var restore = DotnetRunner.Run("restore --disable-build-servers", tempDir);
+            Assert.True(restore.ExitCode == 0,
+                $"dotnet restore failed\nstdout:\n{restore.Stdout}\nstderr:\n{restore.Stderr}");
+
+            var run = DotnetRunner.Run("run --no-restore --disable-build-servers", tempDir);
+            var consumerOutputDir = Path.Combine(tempDir, "bin", "Debug", "net10.0");
+            var consumerOutput = Directory.Exists(consumerOutputDir)
+                ? string.Join(Environment.NewLine, Directory.GetFiles(consumerOutputDir).OrderBy(path => path, StringComparer.Ordinal).Select(Path.GetFileName))
+                : "<missing>";
+            Assert.True(run.ExitCode == 0,
+                $"dotnet run failed\nstdout:\n{run.Stdout}\nstderr:\n{run.Stderr}\noutput:\n{consumerOutput}");
+            Assert.Equal("1:5:Short", run.Stdout.Trim());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
     [Fact]
     public void QueryPerf_ReturnsSystemsFindingAtPosition()
     {
@@ -1279,6 +1387,7 @@ func Copy(): int {
         var root = FindRepoRoot();
         var benchmarkClasses = new[]
         {
+            "SystemsFastGateBenchmarks",
             "SystemsHotPathBenchmarks",
             "SystemsSpanHandoffBenchmarks",
             "SystemsCallerBufferBenchmarks",
@@ -1294,9 +1403,20 @@ func Copy(): int {
 
             Assert.Contains($"class {benchmarkClass}", source, StringComparison.Ordinal);
             Assert.Contains("[MemoryDiagnoser]", source, StringComparison.Ordinal);
-            Assert.Contains("[Benchmark(Baseline = true)]", source, StringComparison.Ordinal);
-            Assert.Contains("[Benchmark]", source, StringComparison.Ordinal);
+            Assert.Contains("[Benchmark(Baseline = true", source, StringComparison.Ordinal);
+            Assert.Contains("[Benchmark", source, StringComparison.Ordinal);
         }
+
+        var fastGateBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsFastGateBenchmarks.cs"));
+        Assert.Contains("GateScenario.HotLoops", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("GateScenario.SpanHandoff", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("GateScenario.CallerBuffers", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("GateScenario.ResultAbi", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("GateScenario.PooledBoundary", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("GateScenario.HotResultCombinations", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("OperationsPerInvoke = InnerOperations", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("benchmark.NSharpAll() : benchmark.CSharpAll()", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("RunCombination(_combination64", fastGateBenchmark, StringComparison.Ordinal);
 
         var hotPathBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsHotPathBenchmarks.cs"));
         Assert.Contains("HotPathWorkload.Checksum", hotPathBenchmark, StringComparison.Ordinal);
@@ -1307,7 +1427,11 @@ func Copy(): int {
         Assert.Contains("HotPathWorkload.RollingHash", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("HotPathWorkload.ParseEightDigits", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("HotPathWorkload.CountTransitions", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("func allHot(values: int[], tag: int): int", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("public int NSharpAll() => _allHot(_values, _tag)", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("value >= 32 && value <= 126", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("parseOk := true", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int>>", hotPathBenchmark, StringComparison.Ordinal);
 
         var spanHandoffBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsSpanHandoffBenchmarks.cs"));
@@ -1330,7 +1454,13 @@ func Copy(): int {
         Assert.Contains("CallerBufferWorkload.CompactEven", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("CallerBufferWorkload.FilterAndScale", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("CallerBufferWorkload.PairSums", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("func allCallerBuffers(src: int[], dst: int[]): int", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("public int NSharpAll() => _allCallerBuffers(_source, _destination)", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("positiveWritten := 0", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("value := src[i]", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("if (value & 1) == 0", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("if value > 0", callerBufferBenchmark, StringComparison.Ordinal);
 
         var resultBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsResultBenchmarks.cs"));
         Assert.Contains("ResultWorkload.SumOkValues", resultBenchmark, StringComparison.Ordinal);
@@ -1341,7 +1471,12 @@ func Copy(): int {
         Assert.Contains("ResultWorkload.FirstErrOrSum", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("ResultWorkload.ValidateAllOkAscending", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("private const int InnerOperations = 16", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("OperationsPerInvoke = InnerOperations", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("RuntimeResult", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("OkValueUnchecked", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("ErrValueUnchecked", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CSharpTaggedResult<int, int>", resultBenchmark, StringComparison.Ordinal);
         Assert.DoesNotContain("MatchDelegate", resultBenchmark, StringComparison.Ordinal);
 
         var pooledBoundaryBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsPooledBoundaryBenchmarks.cs"));
@@ -1353,6 +1488,11 @@ func Copy(): int {
         Assert.Contains("PooledBoundaryWorkload.SumPositive", pooledBoundaryBenchmark, StringComparison.Ordinal);
         Assert.Contains("PooledBoundaryWorkload.ZeroOdd", pooledBoundaryBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("private const int InnerOperations = 8", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("OperationsPerInvoke = InnerOperations", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("func allPooled(values: int[], len: int): int", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("_allPooled(buffer, _seed.Length)", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("(values[i] & 1) != 0", pooledBoundaryBenchmark, StringComparison.Ordinal);
 
         var combinationBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCombinationBenchmarks.cs"));
         Assert.Contains("CombinationWorkload.ScanDigitsResult", combinationBenchmark, StringComparison.Ordinal);
@@ -1366,22 +1506,40 @@ func Copy(): int {
         Assert.Contains("CombinationWorkload.CopyDigitsThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("CombinationWorkload.CopyPositiveThenFrameResult", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("private const int InnerOperations = 8", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("OperationsPerInvoke = InnerOperations", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("public int CSharpAll()", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("public int NSharpAll()", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("result.IsOk ? result.OkValueUnchecked : 0", combinationBenchmark, StringComparison.Ordinal);
 
         var script = File.ReadAllText(Path.Combine(root, "scripts", "benchmark-systems.sh"));
+        Assert.Contains("MODE=\"${NSHARP_SYSTEMS_BENCH_MODE:-gate}\"", script, StringComparison.Ordinal);
+        Assert.Contains("FILTER=\"*SystemsFastGateBenchmarks*\"", script, StringComparison.Ordinal);
+        Assert.Contains("ITERATION_COUNT=\"${NSHARP_SYSTEMS_BENCH_ITERATION_COUNT:-16}\"", script, StringComparison.Ordinal);
+        Assert.Contains("rm -rf \"$ARTIFACTS/results\"", script, StringComparison.Ordinal);
+        Assert.Contains("BenchmarkRun-*.log", script, StringComparison.Ordinal);
+        Assert.Contains("Systems N# BenchmarkDotNet coverage:", script, StringComparison.Ordinal);
+        Assert.Contains("Systems N# BenchmarkDotNet allocation gate: all rows allocated 0 B", script, StringComparison.Ordinal);
+        Assert.Contains("Systems N# BenchmarkDotNet worst throughput ratios:", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsFastGateBenchmarks\", \"NSharp\"): 6", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 16", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 14", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 20", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 1.20", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 1.20", script, StringComparison.Ordinal);
+        Assert.Contains("key[1] in (\"NSharp\", \"RuntimeResult\")", script, StringComparison.Ordinal);
+        Assert.Contains("1.00", script, StringComparison.Ordinal);
         Assert.Contains("allocated != 0", script, StringComparison.Ordinal);
         Assert.Contains("ratio > limit", script, StringComparison.Ordinal);
+
+        var testAllCore = File.ReadAllText(Path.Combine(root, "tests", "scripts", "test-all-core.sh"));
+        Assert.Contains("Step 3a: Systems BenchmarkDotNet Gate", testAllCore, StringComparison.Ordinal);
+        Assert.Contains("scripts/benchmark-systems.sh", testAllCore, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void SystemsPolicyAttributes_AreCompilerOnlyAndDoNotRequireClrAttributeTypes()
+    public void SystemsPolicyAttributes_AreCompilerOnlyAndHotEmitsJitImplementationFlags()
     {
         var source = """
 [hot]
@@ -1407,6 +1565,10 @@ func Run(): int {
 
             Assert.DoesNotContain(method.CustomAttributes,
                 attribute => attribute.AttributeType.Name.Contains("hot", StringComparison.OrdinalIgnoreCase));
+            var implementationFlags = method.GetMethodImplementationFlags();
+            Assert.True(
+                implementationFlags.HasFlag(MethodImplAttributes.AggressiveInlining),
+                $"Expected [hot] to emit {MethodImplAttributes.AggressiveInlining}, got {implementationFlags}.");
         }
         finally
         {

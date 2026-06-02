@@ -762,7 +762,7 @@ Console.WriteLine($"{MathUtils.Add(2, 3)}:{square.Area()}");
         {
             var libraryDir = Path.Combine(tempDir, "NSharpHttp");
             Directory.CreateDirectory(libraryDir);
-            TestSdkFeed.WriteVersionedSdkProject(libraryDir, "NSharpHttp");
+            TestSdkFeed.WriteVersionedSdkProject(libraryDir, "SdkFileNameDoesNotMatchProjectYaml");
             File.WriteAllText(Path.Combine(libraryDir, "project.yml"), """
 name: NSharpHttp
 backend: il
@@ -790,7 +790,7 @@ record HttpRequest {
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="{{Path.Combine("..", "NSharpHttp", "NSharpHttp.csproj")}}" />
+    <ProjectReference Include="{{Path.Combine("..", "NSharpHttp", "SdkFileNameDoesNotMatchProjectYaml.csproj")}}" />
   </ItemGroup>
 </Project>
 """);
@@ -815,8 +815,13 @@ Console.WriteLine($"{request.Method}:{request.Body.Length}");
                 $"run --project \"{Path.Combine(consumerDir, "Consumer.csproj")}\" --no-build",
                 workingDirectory: consumerDir,
                 timeout: TimeSpan.FromMinutes(5));
-            Assert.Equal(0, runResult.ExitCode);
+            Assert.True(runResult.ExitCode == 0,
+                $"stdout:{Environment.NewLine}{runResult.Stdout}{Environment.NewLine}stderr:{Environment.NewLine}{runResult.Stderr}");
             Assert.Contains("GET:0", runResult.Stdout);
+
+            var outputAssembly = Path.Combine(libraryDir, "bin", "Debug", "net10.0", "NSharpHttp.dll");
+            Assert.True(File.Exists(outputAssembly), $"Expected N# output assembly at {outputAssembly}.");
+            Assert.Equal("NSharpHttp", System.Reflection.AssemblyName.GetAssemblyName(outputAssembly).Name);
         }
         finally
         {

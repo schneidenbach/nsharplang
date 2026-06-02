@@ -1,6 +1,6 @@
 # Systems Proof Project Audit
 
-Date: 2026-06-01
+Date: 2026-06-02
 Status: mixed executable proof report and compiler audit
 
 The projects under `docs/design/systems-samples/proofs/` are design proof inputs
@@ -16,7 +16,7 @@ Current audit command shape:
 dotnet src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll check --project <proof-dir> --systems-report
 ```
 
-Current status summary from the 2026-06-01 audit:
+Current status summary from the 2026-06-02 audit:
 
 | Project | Status | Check evidence | Build/perf evidence | Other required evidence | Remaining gap |
 | --- | --- | --- | --- | --- | --- |
@@ -36,11 +36,11 @@ Current status summary from the 2026-06-01 audit:
 | `37-fixed-capacity-map` | design-only | 20 errors, 1 warning | missing | missing | Custom collection sample has parser/type-system gaps. |
 | `38-unmanaged-sort-comparer` | design-only | 64 errors, 0 warnings | missing | missing | Generic comparer/constraint proof is not implemented. |
 | `39-hot-linq-pipeline` | design-only | 24 errors, 1 warning | missing | missing | Hot-LINQ contract is summary design, not executable library evidence. |
-| `40-csharp-hot-parser-api` | design-only | 6 errors, 0 warnings | missing | C# consumer missing | C# consumer ABI proof has no compiled interop project yet. |
+| `40-csharp-hot-parser-api` | executable | passes, 0 errors, 0 warnings | passes `nlc build --perf-report`; no allocation, dispatch, trap, or AOT blockers | C# `ProjectReference` consumer compiles and runs `PacketApi.ParseHeader`, preserving `ReadOnlySpan<byte>` and `Result<Header, HeaderError>` ABI through mismatched `.csproj`/`project.yml` names | Broader C# ABI matrix and native publish remain future deployment proofs. |
 | `41-structured-errors` | design-only | 22 errors, 0 warnings | missing | missing | Pattern/result sample uses proposed result/pattern syntax beyond current support. |
 | `42-aot-friendly-public-api` | design-only | 9 errors, 2 warnings | missing | native image deferred | AOT public API proof is analysis-only and not executable. |
-| `43-mono-wasm-plugin` | design-only | 6 errors, 0 warnings | missing | target runner missing | Mono/WASM target proof is not implemented. |
-| `44-ci-allocation-gate` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports boundary allocation and no AOT blockers | 184-row Systems BenchmarkDotNet gate covers allocation/perf CI enforcement | No native image proof required for this use case. |
+| `43-mono-wasm-plugin` | executable | passes, 0 errors, 0 warnings | passes `nlc build --perf-report`; no allocation, dispatch, trap, or AOT blockers | target-qualified `aotSafe(mono-wasm)` analysis compiles | Actual Mono/WASM runner remains an external deployment proof. |
+| `44-ci-allocation-gate` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports boundary allocation and no AOT blockers | fast Systems BenchmarkDotNet gate covers allocation/perf CI enforcement; detailed matrix remains explicit deep mode | No native image proof required for this use case. |
 | `45-trusted-audit` | executable | passes, 0 errors, 0 warnings | passes `nlc build --perf-report`; reports trusted site | passes `nlc query trusted` with owner/review/expiry/unsafe metadata | Broader unsafe-wrapper projects still pending. |
 | `46-dapper-boundary` | design-only | 14 errors, 6 warnings | missing | missing | ORM boundary sample is intentionally design-only. |
 | `47-cli-startup-honesty` | design-only | 12 errors, 4 warnings | missing | native image deferred | Startup/AOT/readiness proof is broader than current implementation. |
@@ -48,6 +48,7 @@ Current status summary from the 2026-06-01 audit:
 
 Executable Systems N# evidence currently lives in
 `tests/fixtures/systems-gauntlet/`, the executable proof projects listed above,
-`tests/SystemsNSharpTests.cs`, and the 184 required BenchmarkDotNet rows in
-`benchmarks/Systems*Benchmarks.cs` enforced by `scripts/benchmark-systems.sh`.
+`tests/SystemsNSharpTests.cs`, the fast BenchmarkDotNet gate, and the detailed
+BenchmarkDotNet matrix mode in `benchmarks/Systems*Benchmarks.cs` enforced by
+`scripts/benchmark-systems.sh`.
 Those are the artifacts that must be cited for current implementation status.

@@ -21,6 +21,10 @@ pass. Current executable proof projects:
   `nlc build --perf-report`.
 - `proofs/36-dictionary-setup-hot-read`: `nlc check --systems-report` and
   `nlc build --perf-report`.
+- `proofs/40-csharp-hot-parser-api`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and a C# `ProjectReference` consumer run.
+- `proofs/43-mono-wasm-plugin`: `nlc check --systems-report` and
+  `nlc build --perf-report` for target-qualified Mono/WASM AOT analysis.
 - `proofs/44-ci-allocation-gate`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 - `proofs/45-trusted-audit`: `nlc check --systems-report`,

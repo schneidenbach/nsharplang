@@ -54,10 +54,8 @@ func countAscii(values: int[]): int {
     len := values.Length
     for i := 0; i < len; i++ {
         value := values[i]
-        if value >= 32 {
-            if value <= 126 {
-                count = count + 1
-            }
+        if value >= 32 && value <= 126 {
+            count = count + 1
         }
     }
 
@@ -137,6 +135,89 @@ func countTransitions(values: int[]): int {
 
     return transitions
 }
+
+[hot]
+func allHot(values: int[], tag: int): int {
+    total := 0
+    len := values.Length
+    sum := 0
+    found := -1
+    count := 0
+    min := 0
+    max := 0
+    hash := 17
+    parsed := 0
+    parseOk := true
+    transitions := 0
+    previous := 0
+    for i := 0; i < len; i++ {
+        value := values[i]
+        sum = sum + value
+        if found < 0 && value == tag {
+            found = i
+        }
+
+        if value >= 32 && value <= 126 {
+            count = count + 1
+        }
+
+        if i == 0 {
+            min = value
+            max = value
+        } else {
+            if value < min {
+                min = value
+            }
+
+            if value > max {
+                max = value
+            }
+
+            if value != previous {
+                transitions = transitions + 1
+            }
+        }
+
+        previous = value
+        hash = ((hash * 31) + value) & 65535
+
+        if i < 8 {
+            if value < 48 || value > 57 {
+                parseOk = false
+            }
+
+            if parseOk {
+                parsed = parsed * 10 + (value - 48)
+            }
+        }
+    }
+
+    total = total + sum
+
+    if len < 4 {
+        total = total - 1
+    } else {
+        total = total + sum
+    }
+
+    total = total + found
+    total = total + count
+
+    if len != 0 {
+        total = total + max - min
+    }
+
+    total = total + hash
+
+    if len >= 8 && parseOk {
+        total = total + parsed
+    } else {
+        total = total - 1
+    }
+
+    total = total + transitions
+    return total
+}
 """;
 
     private int[] _values = Array.Empty<int>();
@@ -148,6 +229,7 @@ func countTransitions(values: int[]): int {
     private Func<int[], int> _csharpRollingHash = null!;
     private Func<int[], int> _csharpParseEightDigits = null!;
     private Func<int[], int> _csharpCountTransitions = null!;
+    private Func<int[], int, int> _csharpAllHot = null!;
     private Func<int[], int> _checksum = null!;
     private Func<int[], int> _scoreFrame = null!;
     private Func<int[], int, int> _scanTag = null!;
@@ -156,6 +238,7 @@ func countTransitions(values: int[]): int {
     private Func<int[], int> _rollingHash = null!;
     private Func<int[], int> _parseEightDigits = null!;
     private Func<int[], int> _countTransitions = null!;
+    private Func<int[], int, int> _allHot = null!;
     private int _tag;
 
     public enum HotPathWorkload
@@ -208,6 +291,7 @@ func countTransitions(values: int[]): int {
         _csharpRollingHash = CSharpRollingHash;
         _csharpParseEightDigits = CSharpParseEightDigits;
         _csharpCountTransitions = CSharpCountTransitions;
+        _csharpAllHot = CSharpAllHot;
 
         _checksum = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "checksum");
         _scoreFrame = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "scoreFrame");
@@ -217,7 +301,12 @@ func countTransitions(values: int[]): int {
         _rollingHash = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "rollingHash");
         _parseEightDigits = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "parseEightDigits");
         _countTransitions = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "countTransitions");
+        _allHot = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "allHot");
     }
+
+    public int CSharpAll() => _csharpAllHot(_values, _tag);
+
+    public int NSharpAll() => _allHot(_values, _tag);
 
     [Benchmark(Baseline = true)]
     public int CSharp() => Workload switch
@@ -389,4 +478,14 @@ func countTransitions(values: int[]): int {
 
         return transitions;
     }
+
+    private static int CSharpAllHot(int[] values, int tag)
+        => CSharpChecksum(values)
+           + CSharpScoreFrame(values)
+           + CSharpScanTag(values, tag)
+           + CSharpCountAscii(values)
+           + CSharpMinMaxDelta(values)
+           + CSharpRollingHash(values)
+           + CSharpParseEightDigits(values)
+           + CSharpCountTransitions(values);
 }

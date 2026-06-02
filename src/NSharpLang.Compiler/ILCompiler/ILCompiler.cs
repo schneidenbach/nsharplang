@@ -24,6 +24,7 @@ namespace NSharpLang.Compiler.ILCompiler;
 public partial class ILCompiler
 {
     private const string ThisCaptureName = "<>this";
+    private const MethodImplAttributes HotFunctionImplementationFlags = MethodImplAttributes.AggressiveInlining;
 
     /// <summary>
     /// Name of the synthesized public clone method emitted on reference-type records.
@@ -4599,19 +4600,40 @@ public partial class ILCompiler
     }
 
     private static bool IsSystemsPolicyAttribute(AttributeNode attribute)
+        => TryGetSystemsPolicyAttributeName(attribute, out _);
+
+    private static bool HasSystemsPolicyAttribute(IReadOnlyList<AttributeNode>? attributes, string expectedName)
     {
-        var name = attribute.Name;
-        if (name.Contains('.', StringComparison.Ordinal))
+        return attributes?.Any(attribute =>
+            TryGetSystemsPolicyAttributeName(attribute, out var name)
+            && string.Equals(name, expectedName, StringComparison.Ordinal)) == true;
+    }
+
+    private static void ApplyHotFunctionImplementationFlags(MethodBuilder methodBuilder, FunctionDeclaration function)
+    {
+        if (function.Modifiers.HasFlag(Modifiers.Abstract)
+            || !HasSystemsPolicyAttribute(function.Attributes, "hot"))
+        {
+            return;
+        }
+
+        methodBuilder.SetImplementationFlags(HotFunctionImplementationFlags);
+    }
+
+    private static bool TryGetSystemsPolicyAttributeName(AttributeNode attribute, out string policyName)
+    {
+        policyName = attribute.Name;
+        if (policyName.Contains('.', StringComparison.Ordinal))
         {
             return false;
         }
 
-        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        if (policyName.EndsWith("Attribute", StringComparison.Ordinal))
         {
-            name = name[..^"Attribute".Length];
+            policyName = policyName[..^"Attribute".Length];
         }
 
-        return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory";
+        return policyName is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "aotSafe";
     }
 
     // Cached attribute constructors so we resolve the BCL types at most once per compile.
@@ -9856,6 +9878,7 @@ public partial class ILCompiler
         var methodBuilder = typeBuilder.DefineMethod(
             emittedMethodName,
             methodAttributes);
+        ApplyHotFunctionImplementationFlags(methodBuilder, function);
 
         // Define generic parameters if present
         GenericTypeParameterBuilder[]? genericParameters = null;
@@ -11245,15 +11268,40 @@ public partial class ILCompiler
         var armType = constructorName == "Ok" ? typeArguments[0] : typeArguments[1];
         EmitExpressionWithExpectedType(call.Arguments[0].Value, armType);
 
+        if (typeArguments.Any(RequiresTypeBuilderMemberResolution))
+        {
+            var helperMethod = typeof(NSharpLang.Runtime.ResultFactory)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .Single(method => method.Name == constructorName
+                    && method.IsGenericMethodDefinition
+                    && method.GetGenericArguments().Length == 2
+                    && method.GetParameters().Length == 1)
+                .MakeGenericMethod(typeArguments);
+            _currentIL.Emit(OpCodes.Call, helperMethod);
+            return;
+        }
+
         var openMethod = typeof(NSharpLang.Runtime.Result<,>)
             .GetMethods(BindingFlags.Public | BindingFlags.Static)
             .SingleOrDefault(method => method.Name == constructorName && method.GetParameters().Length == 1)
             ?? throw new InvalidOperationException($"Could not resolve Result.{constructorName} for {expectedResultType}");
-        var method = RequiresTypeBuilderMemberResolution(expectedResultType)
-            ? openMethod
+        var method = IsGenericTypeBuilderDefinition(expectedResultType)
+            ? TypeBuilder.GetMethod(expectedResultType, openMethod)
             : expectedResultType.GetMethods(BindingFlags.Public | BindingFlags.Static)
                 .Single(method => method.Name == constructorName && method.GetParameters().Length == 1);
         _currentIL.Emit(OpCodes.Call, method);
+    }
+
+    private static bool IsGenericTypeBuilderDefinition(Type type)
+    {
+        try
+        {
+            return type.IsGenericType && type.GetGenericTypeDefinition() is TypeBuilder;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
     }
 
     private void EmitStructuredReturnValueOnStack()
@@ -19930,6 +19978,7 @@ public partial class ILCompiler
             methodAttributes,
             returnType,
             parameterTypes);
+        ApplyHotFunctionImplementationFlags(methodBuilder, funcDecl);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
         if (funcDecl.ReturnType != null)
