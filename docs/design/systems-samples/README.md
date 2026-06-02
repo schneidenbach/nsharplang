@@ -37,6 +37,8 @@ pass. Current executable proof projects:
   `nlc build --perf-report`, and a C# `ProjectReference` consumer run.
 - `proofs/41-structured-errors`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
+- `proofs/42-aot-friendly-public-api`: `nlc check --systems-report` and
+  `nlc build --perf-report` for NativeAOT/trim-safety analysis.
 - `proofs/43-mono-wasm-plugin`: `nlc check --systems-report` and
   `nlc build --perf-report` for target-qualified Mono/WASM AOT analysis.
 - `proofs/44-ci-allocation-gate`: `nlc check --systems-report` and

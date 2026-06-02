@@ -1153,6 +1153,7 @@ class Box {}
             "37-fixed-capacity-map",
             "40-csharp-hot-parser-api",
             "41-structured-errors",
+            "42-aot-friendly-public-api",
             "43-mono-wasm-plugin",
             "44-ci-allocation-gate",
             "45-trusted-audit",
@@ -1197,6 +1198,7 @@ class Box {}
         var fixedCapacityMap = Path.Combine(proofsRoot, "37-fixed-capacity-map");
         var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
         var structuredErrors = Path.Combine(proofsRoot, "41-structured-errors");
+        var aotFriendlyPublicApi = Path.Combine(proofsRoot, "42-aot-friendly-public-api");
         var monoWasmPlugin = Path.Combine(proofsRoot, "43-mono-wasm-plugin");
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
@@ -1482,6 +1484,46 @@ class Box {}
         var structuredErrorsRun = DotnetRunner.Run($"\"{structuredErrorsAssembly}\"", structuredErrorsOutputDir);
         Assert.True(structuredErrorsRun.ExitCode == 0,
             $"structured errors proof failed to run\nstdout:\n{structuredErrorsRun.Stdout}\nstderr:\n{structuredErrorsRun.Stderr}");
+
+        var aotCheck = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", aotFriendlyPublicApi, "--systems-report" }));
+        Assert.Equal(0, aotCheck.ExitCode);
+        Assert.True(string.IsNullOrWhiteSpace(aotCheck.Stderr));
+        using (var doc = JsonDocument.Parse(aotCheck.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+            Assert.Equal(2, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
+
+            var report = doc.RootElement.GetProperty("systemsReport");
+            Assert.Equal("pass", report.GetProperty("aot").GetProperty("analysis").GetString());
+            Assert.True(report.GetProperty("aot").GetProperty("trimSafe").GetBoolean());
+
+            var normalize = report.GetProperty("functions")
+                .EnumerateArray()
+                .Single(function => function.GetProperty("name").GetString() == "NameApi.Normalize");
+            Assert.True(normalize.GetProperty("effects").GetProperty("aotSafe").GetBoolean());
+        }
+
+        var aotBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", aotFriendlyPublicApi, "--perf-report"));
+        Assert.Equal(0, aotBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(aotBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var aotOutputDir = Path.Combine(aotFriendlyPublicApi, "bin", "Debug", "net10.0");
+        Assert.True(File.Exists(Path.Combine(aotOutputDir, "SystemsProof42AotFriendlyPublicApi.dll")));
+        Assert.True(File.Exists(Path.Combine(aotOutputDir, "NSharpLang.Runtime.dll")));
 
         AssertSystemsProofCheckPasses(monoWasmPlugin, expectedWarnings: 0);
         var monoWasmBuild = CaptureConsole(() =>

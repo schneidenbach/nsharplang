@@ -43,18 +43,18 @@ Gate result:
 - Observed rows: 12
 - Allocation gate: every row reported `Allocated=0 B`
 - Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
-  against matched C# baselines; the worst computed N# ratio was `0.9809`
+  against matched C# baselines; the worst computed N# ratio was `0.9783`
 
 Worst throughput ratios from the passing run:
 
 | Row | Mean | Ratio | Allocated |
 | --- | ---: | ---: | ---: |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 153.759 μs | 0.98 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.520 μs | 0.87 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.222 μs | 0.86 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 5.342 μs | 0.79 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.879 μs | 0.78 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.013 μs | 0.44 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 154.995 μs | 0.98 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.907 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.297 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.595 μs | 0.79 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 5.355 μs | 0.76 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.115 μs | 0.43 | 0 B |
 
 Regression addressed in this wave:
 
@@ -101,8 +101,9 @@ Coverage:
 
 - Executable systems proof projects now include proof 30
   (`cold-failure-logging`), proof 33 (`arraypool-file-io`), proof 34
-  (`memorypool-disposal`), and proof 37 (`fixed-capacity-map`) in addition to
-  proofs 24, 25, 27, 31, 32, 36, 40, 41, 43, 44, 45, and 48.
+  (`memorypool-disposal`), proof 37 (`fixed-capacity-map`), and proof 42
+  (`aot-friendly-public-api`) in addition to proofs 24, 25, 27, 31, 32, 36,
+  40, 41, 43, 44, 45, and 48.
 - Proof 30 covers an allocation-free hot parser plus a boundary cold-failure
   logger. The perf report intentionally records one allocation site in
   `LogColdFailure`; the emitted assembly runs and verifies cleanly with
@@ -122,6 +123,11 @@ Coverage:
   direct `ilverify` reports all classes/methods verified.
 - Proof 41 was rebuilt, run, and directly IL-verified after the enum metadata
   fix to keep generated-struct `Result<T,E>` access covered.
+- Proof 42 covers a NativeAOT-targeted public API report: `nlc check
+  --systems-report` reports `aot.analysis=pass`, `trimSafe=true`, and
+  `NameApi.Normalize.effects.aotSafe=true`; `nlc build --perf-report` emits no
+  allocation, delegate, boxing, dispatch, trap, hot-readiness, or AOT blocker
+  sites; direct `ilverify` passes for the emitted library.
 - Proof 40 has a real C# `ProjectReference` consumer that calls
   `PacketApi.ParseHeader(ReadOnlySpan<byte>)` and validates the
   `Result<Header, HeaderError>` ABI.
@@ -143,7 +149,7 @@ Result: passed, 500/500 tests.
 Command:
 
 ```bash
-./scripts/test-all.sh
+./scripts/test-all.sh --commit
 ```
 
 Result: passed.
@@ -152,22 +158,24 @@ Highlights:
 
 - Unit tests: passed, 3317/3317.
 - Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.98`
-  and worst computed ratio `0.9809`.
+  and worst computed ratio `0.9783`.
 - VS Code smoke tests: passed, 40/40.
 - C# interop tests: passed, 31/31.
 - Template creation/build, example builds/checks, and IL verification: passed.
 - IL verification: passed, 84/84 N# assemblies.
-- Isolated cache result: `564eeb96c3525a25`, duration `436s`.
+- Isolated cache result: `984911d8b78b7a45`, duration `386s`.
+- Timing: BenchmarkDotNet `3m27s`, unit tests `1m11s`, VS Code smoke `53s`,
+  IL verification `25s`; all other full-gate steps were single-digit seconds.
 
 Measured slow stages from the passing run:
 
 | Stage | Duration |
 | --- | ---: |
-| Systems BenchmarkDotNet gate | 3m 39s |
-| Unit tests | 1m 39s |
-| VS Code smoke tests | 0m 58s |
+| Systems BenchmarkDotNet gate | 3m 27s |
+| Unit tests | 1m 11s |
+| VS Code smoke tests | 0m 53s |
 | IL verification gate | 0m 25s |
-| Full isolated run | 7m 16s |
+| Full isolated run | 6m 25s |
 
 Harness speedups landed in this wave:
 
