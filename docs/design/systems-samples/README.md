@@ -19,6 +19,8 @@ pass. Current executable proof projects:
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/27-c-library-cli`: `nlc check --systems-report` and
   `nlc build --perf-report`.
+- `proofs/30-cold-failure-logging`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run.
 - `proofs/31-hot-metrics`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 - `proofs/32-cache-prewarm`: `nlc check --systems-report` and

@@ -3,27 +3,13 @@ namespace SystemsProofs.ColdFailureLogging
 import System
 
 enum ParseError {
-    Short
+    Short,
     BadMagic
 }
 
-class Logger {
-    Enabled: bool
-
-    func Debug(message: string) {
-        print message
-    }
-}
-
 [hot]
-func ParseMagic(buf: ReadOnlySpan<byte>, log: Logger): Result<int, ParseError> {
+func ParseMagic(buf: ReadOnlySpan<byte>): Result<int, ParseError> {
     if buf.Length < 2 {
-        if log.Enabled {
-            allow(alloc, reason: "cold diagnostic path after parse failure") {
-                log.Debug(alloc $"short packet: {buf.Length}")
-            }
-        }
-
         return Err(ParseError.Short)
     }
 
@@ -34,7 +20,40 @@ func ParseMagic(buf: ReadOnlySpan<byte>, log: Logger): Result<int, ParseError> {
     return Ok(2)
 }
 
-func Main() {
-    log := new Logger()
-    _ = ParseMagic(new byte[] { 78, 35 }, log)
+[boundary]
+func LogColdFailure() {
+    allow(alloc, reason: "cold diagnostic path after parse failure") {
+        print alloc $"parse failed"
+    }
+}
+
+[boundary]
+func ParseWithColdLogging(buf: ReadOnlySpan<byte>, logEnabled: bool): Result<int, ParseError> {
+    result := ParseMagic(buf)
+    if result.IsErr {
+        if logEnabled {
+            LogColdFailure()
+        }
+    }
+    return result
+}
+
+func Main(): int {
+    okInput := alloc new byte[2]
+    okInput[0] = (byte)78
+    okInput[1] = (byte)35
+    ok := ParseWithColdLogging(okInput, true)
+    if ok.IsOk == false {
+        return 1
+    }
+
+    shortInput := alloc new byte[1]
+    failed := ParseWithColdLogging(shortInput, true)
+    if failed.IsErr == false {
+        return 2
+    }
+    if failed.ErrValueUnchecked != ParseError.Short {
+        return 3
+    }
+    return 0
 }

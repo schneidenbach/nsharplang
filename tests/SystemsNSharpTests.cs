@@ -1144,6 +1144,7 @@ class Box {}
             "24-zero-copy-frame-reader",
             "25-trusted-memory-copy",
             "27-c-library-cli",
+            "30-cold-failure-logging",
             "31-hot-metrics",
             "32-cache-prewarm",
             "33-arraypool-file-io",
@@ -1187,6 +1188,7 @@ class Box {}
         var zeroCopyFrameReader = Path.Combine(proofsRoot, "24-zero-copy-frame-reader");
         var trustedMemoryCopy = Path.Combine(proofsRoot, "25-trusted-memory-copy");
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
+        var coldFailureLogging = Path.Combine(proofsRoot, "30-cold-failure-logging");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
         var arrayPoolFileIo = Path.Combine(proofsRoot, "33-arraypool-file-io");
@@ -1296,6 +1298,32 @@ class Box {}
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
+
+        AssertSystemsProofCheckPasses(coldFailureLogging, expectedWarnings: 2);
+        var coldLoggingBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", coldFailureLogging, "--perf-report"));
+        Assert.Equal(0, coldLoggingBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(coldLoggingBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            var allocationSite = Assert.Single(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Equal("LogColdFailure", allocationSite.GetProperty("function").GetString());
+            Assert.Equal("NSYS001", allocationSite.GetProperty("code").GetString());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var coldLoggingOutputDir = Path.Combine(coldFailureLogging, "bin", "Debug", "net10.0");
+        var coldLoggingAssembly = Path.Combine(coldLoggingOutputDir, "SystemsProof30ColdFailureLogging.dll");
+        Assert.True(File.Exists(Path.Combine(coldLoggingOutputDir, "NSharpLang.Runtime.dll")));
+        var coldLoggingRun = DotnetRunner.Run($"\"{coldLoggingAssembly}\"", coldLoggingOutputDir);
+        Assert.True(coldLoggingRun.ExitCode == 0,
+            $"cold failure logging proof failed to run\nstdout:\n{coldLoggingRun.Stdout}\nstderr:\n{coldLoggingRun.Stderr}");
 
         AssertSystemsProofCheckPasses(hotMetrics, expectedWarnings: 1);
         var metricsBuild = CaptureConsole(() =>

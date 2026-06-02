@@ -99,10 +99,14 @@ Result: passed, 2/2 tests.
 
 Coverage:
 
-- Executable systems proof projects now include proof 33
-  (`arraypool-file-io`), proof 34 (`memorypool-disposal`), and proof 37
-  (`fixed-capacity-map`) in addition to proofs 24, 25, 27, 31, 32, 36, 40, 41,
-  43, 44, 45, and 48.
+- Executable systems proof projects now include proof 30
+  (`cold-failure-logging`), proof 33 (`arraypool-file-io`), proof 34
+  (`memorypool-disposal`), and proof 37 (`fixed-capacity-map`) in addition to
+  proofs 24, 25, 27, 31, 32, 36, 40, 41, 43, 44, 45, and 48.
+- Proof 30 covers an allocation-free hot parser plus a boundary cold-failure
+  logger. The perf report intentionally records one allocation site in
+  `LogColdFailure`; the emitted assembly runs and verifies cleanly with
+  ILVerify.
 - Proof 33 covers an `ArrayPool<byte>` boundary that rents a byte buffer, reads a
   copied runtime DLL through `File.OpenRead`, calls a hot span parser, disposes
   the stream, returns the buffer on the lexical path, emits no perf-report sites,
