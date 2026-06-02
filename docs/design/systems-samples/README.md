@@ -13,8 +13,8 @@ Current compiler audit status is tracked in
 Executable proof projects can be cited only for the exact command gates they
 pass. Current executable proof projects:
 
-- `proofs/24-zero-copy-frame-reader`: `nlc check --systems-report` and
-  `nlc build --perf-report`.
+- `proofs/24-zero-copy-frame-reader`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run.
 - `proofs/25-trusted-memory-copy`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/27-c-library-cli`: `nlc check --systems-report` and
@@ -27,6 +27,8 @@ pass. Current executable proof projects:
   `nlc build --perf-report`.
 - `proofs/40-csharp-hot-parser-api`: `nlc check --systems-report`,
   `nlc build --perf-report`, and a C# `ProjectReference` consumer run.
+- `proofs/41-structured-errors`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run.
 - `proofs/43-mono-wasm-plugin`: `nlc check --systems-report` and
   `nlc build --perf-report` for target-qualified Mono/WASM AOT analysis.
 - `proofs/44-ci-allocation-gate`: `nlc check --systems-report` and

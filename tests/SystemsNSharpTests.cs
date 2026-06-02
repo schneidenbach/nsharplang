@@ -1148,6 +1148,7 @@ class Box {}
             "32-cache-prewarm",
             "36-dictionary-setup-hot-read",
             "40-csharp-hot-parser-api",
+            "41-structured-errors",
             "43-mono-wasm-plugin",
             "44-ci-allocation-gate",
             "45-trusted-audit",
@@ -1187,6 +1188,7 @@ class Box {}
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
         var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
         var csharpHotParserApi = Path.Combine(proofsRoot, "40-csharp-hot-parser-api");
+        var structuredErrors = Path.Combine(proofsRoot, "41-structured-errors");
         var monoWasmPlugin = Path.Combine(proofsRoot, "43-mono-wasm-plugin");
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
@@ -1199,7 +1201,7 @@ class Box {}
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
             Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
-            Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
+            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
 
             var nextFrame = doc.RootElement
                 .GetProperty("systemsReport")
@@ -1227,6 +1229,13 @@ class Box {}
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
+
+        var zeroCopyOutputDir = Path.Combine(zeroCopyFrameReader, "bin", "Debug", "net10.0");
+        var zeroCopyAssembly = Path.Combine(zeroCopyOutputDir, "SystemsProof24ZeroCopyFrameReader.dll");
+        Assert.True(File.Exists(Path.Combine(zeroCopyOutputDir, "NSharpLang.Runtime.dll")));
+        var zeroCopyRun = DotnetRunner.Run($"\"{zeroCopyAssembly}\"", zeroCopyOutputDir);
+        Assert.True(zeroCopyRun.ExitCode == 0,
+            $"zero-copy frame reader proof failed to run\nstdout:\n{zeroCopyRun.Stdout}\nstderr:\n{zeroCopyRun.Stderr}");
 
         AssertSystemsProofCheckPasses(trustedMemoryCopy, expectedWarnings: 0);
         var trustedCopyBuild = CaptureConsole(() =>
@@ -1342,6 +1351,29 @@ class Box {}
         }
 
         AssertCSharpConsumerCanCallParserApi(csharpHotParserApi);
+
+        AssertSystemsProofCheckPasses(structuredErrors, expectedWarnings: 0);
+        var structuredErrorsBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", structuredErrors, "--perf-report"));
+        Assert.Equal(0, structuredErrorsBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(structuredErrorsBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var structuredErrorsOutputDir = Path.Combine(structuredErrors, "bin", "Debug", "net10.0");
+        var structuredErrorsAssembly = Path.Combine(structuredErrorsOutputDir, "SystemsProof41StructuredErrors.dll");
+        Assert.True(File.Exists(Path.Combine(structuredErrorsOutputDir, "NSharpLang.Runtime.dll")));
+        var structuredErrorsRun = DotnetRunner.Run($"\"{structuredErrorsAssembly}\"", structuredErrorsOutputDir);
+        Assert.True(structuredErrorsRun.ExitCode == 0,
+            $"structured errors proof failed to run\nstdout:\n{structuredErrorsRun.Stdout}\nstderr:\n{structuredErrorsRun.Stderr}");
 
         AssertSystemsProofCheckPasses(monoWasmPlugin, expectedWarnings: 0);
         var monoWasmBuild = CaptureConsole(() =>
