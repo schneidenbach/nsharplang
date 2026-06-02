@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Concurrent;
 using System.IO;
 using System.Reflection;
+using System.Threading;
 using NSharpLang.Compiler;
 
 namespace NSharpLang.Benchmarks;
@@ -18,6 +20,8 @@ namespace NSharpLang.Benchmarks;
 /// </summary>
 public static class NSharpCompiledMethod
 {
+    private static readonly ConcurrentDictionary<string, Lazy<Type>> ProgramTypes = new();
+
     /// <summary>
     /// Compiles <paramref name="source"/> and returns a delegate of type <typeparamref name="TDelegate"/>
     /// bound to the static method <paramref name="methodName"/> on the emitted <c>Program</c> type.
@@ -30,6 +34,20 @@ public static class NSharpCompiledMethod
     }
 
     private static MethodInfo Compile(string source, string methodName)
+    {
+        var programType = ProgramTypes.GetOrAdd(
+            source,
+            static cachedSource => new Lazy<Type>(
+                () => CompileProgram(cachedSource),
+                LazyThreadSafetyMode.ExecutionAndPublication)).Value;
+
+        return programType.GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException($"Program type has no static method '{methodName}'.");
+    }
+
+    private static Type CompileProgram(string source)
     {
         var outputPath = Path.Combine(Path.GetTempPath(), $"NSharpBenchmark_{Guid.NewGuid():N}.dll");
         var assemblyName = $"NSharpBenchmark_{Guid.NewGuid():N}";
@@ -51,13 +69,8 @@ public static class NSharpCompiledMethod
             // Load into the default context (not collectible): benchmark methods stay alive for the
             // whole process, and the JIT is free to optimize the bound delegate's target.
             var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
-            var programType = assembly.GetType("Program")
+            return assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Emitted assembly has no Program type.");
-
-            return programType.GetMethod(
-                    methodName,
-                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                ?? throw new InvalidOperationException($"Program type has no static method '{methodName}'.");
         }
         finally
         {

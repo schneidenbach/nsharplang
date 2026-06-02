@@ -233,6 +233,7 @@ public partial class ILCompiler
 
     private sealed record DeclaredMethodOverload(FunctionDeclaration Declaration, MethodBuilder Builder);
     private sealed record DeclaredConstructorOverload(ConstructorDeclaration Declaration, ConstructorBuilder Builder);
+    private sealed record NativeImportInfo(string LibraryName, string EntryPoint);
     private sealed record AnonymousUnionShim(
         MethodBuilder Builder,
         MethodBuilder Target,
@@ -4637,6 +4638,133 @@ public partial class ILCompiler
         }
 
         return policyName is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory" or "aotSafe";
+    }
+
+    private bool TryGetNativeImportInfo(
+        FunctionDeclaration function,
+        string emittedMethodName,
+        out NativeImportInfo importInfo)
+    {
+        importInfo = null!;
+
+        foreach (var attribute in function.Attributes)
+        {
+            if (!IsNativeImportAttribute(attribute))
+            {
+                continue;
+            }
+
+            if (function.Body != null || function.ExpressionBody != null)
+            {
+                continue;
+            }
+
+            var libraryName = TryGetPositionalStringAttributeArgument(attribute, 0);
+            if (string.IsNullOrWhiteSpace(libraryName))
+            {
+                return false;
+            }
+
+            var entryPoint = TryGetNamedStringAttributeArgument(attribute, "EntryPoint");
+            importInfo = new NativeImportInfo(libraryName, string.IsNullOrWhiteSpace(entryPoint) ? emittedMethodName : entryPoint);
+            return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsNativeImportAttribute(AttributeNode attribute)
+    {
+        var name = attribute.Name;
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+        {
+            name = name[(lastDot + 1)..];
+        }
+
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            name = name[..^"Attribute".Length];
+        }
+
+        return name is "LibraryImport" or "DllImport";
+    }
+
+    private string? TryGetPositionalStringAttributeArgument(AttributeNode attribute, int index)
+    {
+        var positionalIndex = 0;
+        foreach (var argument in attribute.Arguments)
+        {
+            var (name, valueExpression) = NormalizeAttributeArgument(argument);
+            if (name != null)
+            {
+                continue;
+            }
+
+            if (positionalIndex == index)
+            {
+                var (value, _) = EvaluateAttributeArgument(valueExpression);
+                return value as string;
+            }
+
+            positionalIndex++;
+        }
+
+        return null;
+    }
+
+    private string? TryGetNamedStringAttributeArgument(AttributeNode attribute, string expectedName)
+    {
+        foreach (var argument in attribute.Arguments)
+        {
+            var (name, valueExpression) = NormalizeAttributeArgument(argument);
+            if (!string.Equals(name, expectedName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var (value, _) = EvaluateAttributeArgument(valueExpression);
+            return value as string;
+        }
+
+        return null;
+    }
+
+    private static (string? Name, Expression Value) NormalizeAttributeArgument(Argument argument)
+    {
+        var argumentName = argument.Name;
+        var valueExpression = argument.Value;
+        if (argumentName == null
+            && argument.Value is AssignmentExpression assignmentExpression
+            && assignmentExpression.Target is IdentifierExpression identifierExpression)
+        {
+            argumentName = identifierExpression.Name;
+            valueExpression = assignmentExpression.Value;
+        }
+
+        return (argumentName, valueExpression);
+    }
+
+    private static MethodBuilder DefineNativeImportMethod(
+        TypeBuilder typeBuilder,
+        string methodName,
+        MethodAttributes methodAttributes,
+        Type returnType,
+        Type[] parameterTypes,
+        NativeImportInfo importInfo)
+    {
+        var methodBuilder = typeBuilder.DefinePInvokeMethod(
+            methodName,
+            importInfo.LibraryName,
+            importInfo.EntryPoint,
+            methodAttributes | MethodAttributes.PinvokeImpl,
+            CallingConventions.Standard,
+            returnType,
+            parameterTypes,
+            CallingConvention.Winapi,
+            CharSet.Ansi);
+        methodBuilder.SetImplementationFlags(MethodImplAttributes.PreserveSig);
+        return methodBuilder;
     }
 
     // Cached attribute constructors so we resolve the BCL types at most once per compile.
@@ -9917,62 +10045,84 @@ public partial class ILCompiler
             | MethodAttributes.HideBySig
             | (function.IsOperatorOverload || function.IsConversionOperator ? MethodAttributes.SpecialName : 0);
 
-        var methodBuilder = typeBuilder.DefineMethod(
-            emittedMethodName,
-            methodAttributes);
-        ApplyHotFunctionImplementationFlags(methodBuilder, function);
-
-        // Define generic parameters if present
-        GenericTypeParameterBuilder[]? genericParameters = null;
         var runtimeTypeParameters = GetRuntimeTypeParameters(function);
-        if (runtimeTypeParameters.Length > 0)
+        var isNativeImport = TryGetNativeImportInfo(function, emittedMethodName, out var nativeImport);
+        if (isNativeImport && runtimeTypeParameters.Length > 0)
         {
-            var typeParamNames = runtimeTypeParameters.Select(tp => tp.Name).ToArray();
-            genericParameters = methodBuilder.DefineGenericParameters(typeParamNames);
+            throw new InvalidOperationException($"Native import function {function.Name} cannot be generic.");
+        }
 
-            // Apply constraints if present
-            if (function.Constraints != null)
+        MethodBuilder methodBuilder;
+        GenericTypeParameterBuilder[]? genericParameters = null;
+        Type returnType;
+        Type[] parameterTypes;
+
+        if (isNativeImport)
+        {
+            returnType = GetDeclaredFunctionReturnType(function, genericParameters);
+            parameterTypes = function.Parameters
+                .Select(p => ResolveParameterType(p, genericParameters))
+                .ToArray();
+            methodBuilder = DefineNativeImportMethod(typeBuilder, emittedMethodName, methodAttributes, returnType, parameterTypes, nativeImport);
+        }
+        else
+        {
+            methodBuilder = typeBuilder.DefineMethod(
+                emittedMethodName,
+                methodAttributes);
+            ApplyHotFunctionImplementationFlags(methodBuilder, function);
+
+            // Define generic parameters if present
+            if (runtimeTypeParameters.Length > 0)
             {
-                foreach (var constraint in function.Constraints)
+                var typeParamNames = runtimeTypeParameters.Select(tp => tp.Name).ToArray();
+                genericParameters = methodBuilder.DefineGenericParameters(typeParamNames);
+
+                // Apply constraints if present
+                if (function.Constraints != null)
                 {
-                    var typeParam = genericParameters.FirstOrDefault(gp => gp.Name == constraint.TypeParameter);
-                    if (typeParam != null)
+                    foreach (var constraint in function.Constraints)
                     {
-                        ApplyGenericConstraints(typeParam, constraint, genericParameters);
+                        var typeParam = genericParameters.FirstOrDefault(gp => gp.Name == constraint.TypeParameter);
+                        if (typeParam != null)
+                        {
+                            ApplyGenericConstraints(typeParam, constraint, genericParameters);
+                        }
                     }
                 }
             }
+
+            // Determine return type (may reference generic parameters)
+            returnType = GetDeclaredFunctionReturnType(function, genericParameters);
+
+            // Struct-copy elimination is only applied when the function declares no closures (so no
+            // parameter can be captured and outlive the call) and produces no anonymous-union shims
+            // (whose forwarding signatures would otherwise need to be kept in lock-step). When neither
+            // gate holds we fall back to plain by-value parameter resolution.
+            var enableCopyElision = !DeclaresAnonymousUnionShims(function, methodAttributes)
+                && !Performance.StructCopyAnalysis.BodyContainsClosure(function);
+
+            // Determine parameter types (may reference generic parameters)
+            parameterTypes = function.Parameters
+                .Select(p => enableCopyElision
+                    ? ResolveParameterTypeWithCopyElision(p, function, ownerDeclaresClosures: false, genericParameters)
+                    : ResolveParameterType(p, genericParameters))
+                .ToArray();
+
+            // Record the elision decision so the body-emission pass can dereference the same
+            // parameters. Only record when at least one parameter was actually lowered.
+            if (enableCopyElision && parameterTypes.Where((type, index) =>
+                    IsSynthesizedInParameter(function.Parameters[index], type)).Any())
+            {
+                _copyElidedFunctions.Add(function);
+            }
+
+            // Set the signature, attaching the `in` required custom modifier to any parameter the
+            // struct-copy elimination pass lowered to pass-by-reference. SetSignature is the only
+            // builder API that can carry per-parameter required modifiers.
+            SetMethodSignatureWithInModifiers(methodBuilder, function.Parameters, returnType, parameterTypes);
         }
 
-        // Determine return type (may reference generic parameters)
-        var returnType = GetDeclaredFunctionReturnType(function, genericParameters);
-
-        // Struct-copy elimination is only applied when the function declares no closures (so no
-        // parameter can be captured and outlive the call) and produces no anonymous-union shims
-        // (whose forwarding signatures would otherwise need to be kept in lock-step). When neither
-        // gate holds we fall back to plain by-value parameter resolution.
-        var enableCopyElision = !DeclaresAnonymousUnionShims(function, methodAttributes)
-            && !Performance.StructCopyAnalysis.BodyContainsClosure(function);
-
-        // Determine parameter types (may reference generic parameters)
-        var parameterTypes = function.Parameters
-            .Select(p => enableCopyElision
-                ? ResolveParameterTypeWithCopyElision(p, function, ownerDeclaresClosures: false, genericParameters)
-                : ResolveParameterType(p, genericParameters))
-            .ToArray();
-
-        // Record the elision decision so the body-emission pass can dereference the same
-        // parameters. Only record when at least one parameter was actually lowered.
-        if (enableCopyElision && parameterTypes.Where((type, index) =>
-                IsSynthesizedInParameter(function.Parameters[index], type)).Any())
-        {
-            _copyElidedFunctions.Add(function);
-        }
-
-        // Set the signature, attaching the `in` required custom modifier to any parameter the
-        // struct-copy elimination pass lowered to pass-by-reference. SetSignature is the only
-        // builder API that can carry per-parameter required modifiers.
-        SetMethodSignatureWithInModifiers(methodBuilder, function.Parameters, returnType, parameterTypes);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, function.Attributes);
         ApplyAotRequirementAttributes(methodBuilder.SetCustomAttribute, function.Name);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
@@ -10165,6 +10315,11 @@ public partial class ILCompiler
         MethodBuilder methodBuilder,
         IReadOnlyDictionary<string, Type>? specialization)
     {
+        if (TryGetNativeImportInfo(function, GetEmittedMethodName(function), out _))
+        {
+            return;
+        }
+
         var savedSpecialization = _activeGenericSpecialization;
         _activeGenericSpecialization = specialization;
 
@@ -20120,11 +20275,14 @@ public partial class ILCompiler
             methodAttributes |= MethodAttributes.SpecialName;
         }
 
-        var methodBuilder = typeBuilder.DefineMethod(
-            GetEmittedMethodName(funcDecl),
-            methodAttributes,
-            returnType,
-            parameterTypes);
+        var emittedMethodName = GetEmittedMethodName(funcDecl);
+        var methodBuilder = TryGetNativeImportInfo(funcDecl, emittedMethodName, out var nativeImport)
+            ? DefineNativeImportMethod(typeBuilder, emittedMethodName, methodAttributes, returnType, parameterTypes, nativeImport)
+            : typeBuilder.DefineMethod(
+                emittedMethodName,
+                methodAttributes,
+                returnType,
+                parameterTypes);
         ApplyHotFunctionImplementationFlags(methodBuilder, funcDecl);
         ApplyCustomAttributes(methodBuilder.SetCustomAttribute, funcDecl.Attributes);
         ApplyNullableContextAttribute(methodBuilder.SetCustomAttribute);
@@ -21297,6 +21455,11 @@ public partial class ILCompiler
         if (!_methodBuildersByDeclaration.TryGetValue(funcDecl, out var methodBuilder))
         {
             throw new InvalidOperationException($"Method {GetTypeKey(typeBuilder)}.{funcDecl.Name} not declared");
+        }
+
+        if (TryGetNativeImportInfo(funcDecl, GetEmittedMethodName(funcDecl), out _))
+        {
+            return;
         }
 
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);

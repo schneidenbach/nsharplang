@@ -1143,6 +1143,7 @@ class Box {}
         {
             "24-zero-copy-frame-reader",
             "25-trusted-memory-copy",
+            "26-native-device-handle",
             "27-c-library-cli",
             "30-cold-failure-logging",
             "31-hot-metrics",
@@ -1188,6 +1189,7 @@ class Box {}
         var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
         var zeroCopyFrameReader = Path.Combine(proofsRoot, "24-zero-copy-frame-reader");
         var trustedMemoryCopy = Path.Combine(proofsRoot, "25-trusted-memory-copy");
+        var nativeDeviceHandle = Path.Combine(proofsRoot, "26-native-device-handle");
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
         var coldFailureLogging = Path.Combine(proofsRoot, "30-cold-failure-logging");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
@@ -1275,6 +1277,32 @@ class Box {}
         Assert.True(trustedCopyRun.ExitCode == 0,
             $"trusted memory copy proof failed to run\nstdout:\n{trustedCopyRun.Stdout}\nstderr:\n{trustedCopyRun.Stderr}");
 
+        AssertSystemsProofCheckPasses(nativeDeviceHandle, expectedWarnings: 1);
+        var nativeDeviceBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", nativeDeviceHandle, "--perf-report"));
+        Assert.Equal(0, nativeDeviceBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(nativeDeviceBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var nativeDeviceOutputDir = Path.Combine(nativeDeviceHandle, "bin", "Debug", "net10.0");
+        var nativeDeviceAssembly = Path.Combine(nativeDeviceOutputDir, "SystemsProof26NativeDeviceHandle.dll");
+        Assert.True(File.Exists(Path.Combine(nativeDeviceOutputDir, "NSharpLang.Runtime.dll")));
+        AssertNativeImportHasNoManagedBody(
+            nativeDeviceAssembly,
+            "SystemsProofs.NativeDeviceHandle.NativeMethods",
+            "Open");
+        AssertNativeImportHasNoManagedBody(
+            nativeDeviceAssembly,
+            "SystemsProofs.NativeDeviceHandle.NativeMethods",
+            "Close");
+
         var trustedCopyQuery = CaptureConsole(() =>
             QueryCommand.Execute(new[] { "trusted", "--project", trustedMemoryCopy }));
         Assert.Equal(0, trustedCopyQuery.ExitCode);
@@ -1300,6 +1328,12 @@ class Box {}
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
+
+        var cLibraryOutputDir = Path.Combine(cLibraryCli, "bin", "Debug", "net10.0");
+        AssertNativeImportHasNoManagedBody(
+            Path.Combine(cLibraryOutputDir, "SystemsProof27CLibraryCli.dll"),
+            "SystemsProofs.CLibraryCli.NativeHash",
+            "Hash64");
 
         AssertSystemsProofCheckPasses(coldFailureLogging, expectedWarnings: 2);
         var coldLoggingBuild = CaptureConsole(() =>
@@ -1613,6 +1647,34 @@ class Box {}
         Assert.Equal(0, doc.RootElement.GetProperty("systemsReport").GetProperty("summary").GetProperty("errors").GetInt32());
     }
 
+    private static void AssertNativeImportHasNoManagedBody(string assemblyPath, string typeName, string methodName)
+    {
+        Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
+
+        var outputDir = Path.GetDirectoryName(assemblyPath)!;
+        var loadContext = new AssemblyLoadContext($"SystemsProofNativeImport_{Guid.NewGuid():N}", isCollectible: true);
+        loadContext.Resolving += (context, assemblyName) =>
+        {
+            var localAssemblyPath = Path.Combine(outputDir, $"{assemblyName.Name}.dll");
+            return File.Exists(localAssemblyPath) ? context.LoadFromAssemblyPath(localAssemblyPath) : null;
+        };
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            var assembly = loadContext.LoadFromStream(stream);
+            var type = assembly.GetType(typeName);
+            Assert.NotNull(type);
+            var method = type!.GetMethod(methodName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            Assert.Null(method!.GetMethodBody());
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
     private static void AssertCSharpConsumerCanCallParserApi(string proofDir)
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-systems-csharp-consumer-{Guid.NewGuid():N}");
@@ -1784,9 +1846,14 @@ func Copy(): int {
         Assert.Contains("GateScenario.ResultAbi", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("GateScenario.PooledBoundary", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("GateScenario.HotResultCombinations", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("switch (Scenario)", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("OperationsPerInvoke = InnerOperations", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("benchmark.NSharpAll() : benchmark.CSharpAll()", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("RunCombination(_combination64", fastGateBenchmark, StringComparison.Ordinal);
+
+        var compiledMethodSupport = File.ReadAllText(Path.Combine(root, "benchmarks", "NSharpCompiledMethod.cs"));
+        Assert.Contains("ConcurrentDictionary<string, Lazy<Type>>", compiledMethodSupport, StringComparison.Ordinal);
+        Assert.Contains("CompileProgram(cachedSource)", compiledMethodSupport, StringComparison.Ordinal);
 
         var hotPathBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsHotPathBenchmarks.cs"));
         Assert.Contains("HotPathWorkload.Checksum", hotPathBenchmark, StringComparison.Ordinal);

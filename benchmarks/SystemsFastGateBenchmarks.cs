@@ -48,18 +48,35 @@ public class SystemsFastGateBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _hot64 = SetupHot(64);
-        _hot4096 = SetupHot(4096);
-        _span64 = SetupSpan(64);
-        _span4096 = SetupSpan(4096);
-        _caller64 = SetupCaller(64);
-        _caller4096 = SetupCaller(4096);
-        _result64 = SetupResult(64);
-        _result4096 = SetupResult(4096);
-        _pooled64 = SetupPooled(64);
-        _pooled4096 = SetupPooled(4096);
-        _combination64 = SetupCombination(64);
-        _combination4096 = SetupCombination(4096);
+        switch (Scenario)
+        {
+            case GateScenario.HotLoops:
+                _hot64 = SetupHot(64);
+                _hot4096 = SetupHot(4096);
+                break;
+            case GateScenario.SpanHandoff:
+                _span64 = SetupSpan(64);
+                _span4096 = SetupSpan(4096);
+                break;
+            case GateScenario.CallerBuffers:
+                _caller64 = SetupCaller(64);
+                _caller4096 = SetupCaller(4096);
+                break;
+            case GateScenario.ResultAbi:
+                _result64 = SetupResult(64);
+                _result4096 = SetupResult(4096);
+                break;
+            case GateScenario.PooledBoundary:
+                _pooled64 = SetupPooled(64);
+                _pooled4096 = SetupPooled(4096);
+                break;
+            case GateScenario.HotResultCombinations:
+                _combination64 = SetupCombination(64);
+                _combination4096 = SetupCombination(4096);
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown Systems fast gate scenario '{Scenario}'.");
+        }
     }
 
     [Benchmark(Baseline = true, OperationsPerInvoke = InnerOperations)]

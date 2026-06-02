@@ -17,8 +17,12 @@ pass. Current executable proof projects:
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/25-trusted-memory-copy`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
+- `proofs/26-native-device-handle`: `nlc check --systems-report`,
+  `nlc build --perf-report`, native-import no-managed-body assertion, and
+  direct IL verification.
 - `proofs/27-c-library-cli`: `nlc check --systems-report` and
-  `nlc build --perf-report`.
+  `nlc build --perf-report`, native-import no-managed-body assertion, and
+  direct IL verification.
 - `proofs/30-cold-failure-logging`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/31-hot-metrics`: `nlc check --systems-report` and

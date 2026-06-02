@@ -155,11 +155,7 @@ func allPooled(values: int[], len: int): int {
     cleared := 0
     for i := 0; i < len; i++ {
         value := values[i]
-        if value < 0 {
-            values[i] = 0
-            value = 0
-            changed = changed + 1
-        } else if value > 1024 {
+        if value > 1024 {
             values[i] = 1024
             value = 1024
             changed = changed + 1

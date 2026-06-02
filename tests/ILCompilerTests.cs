@@ -209,6 +209,43 @@ public partial class ILCompilerTests
         return Array.Empty<byte>();
     }
 
+    [Fact]
+    public void LibraryImportDeclarationsEmitPInvokeMetadataWithoutManagedBody()
+    {
+        var source = @"
+import System.Runtime.InteropServices
+
+[LibraryImport(""c"", EntryPoint = ""strlen"")]
+func StringLength(value: string): int
+
+static class NativeMethods {
+    [LibraryImport(""c"", EntryPoint = ""open"")]
+    static func Open(path: string, flags: int): int
+}
+";
+
+        var methods = CompileAndInspect(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var topLevel = programType!.GetMethod("StringLength", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(topLevel);
+
+            var nativeType = assembly.GetType("NativeMethods");
+            Assert.NotNull(nativeType);
+            var nested = nativeType!.GetMethod("Open", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(nested);
+
+            return new[] { topLevel!, nested! };
+        });
+
+        foreach (var method in methods)
+        {
+            Assert.True(method.IsStatic);
+            Assert.Null(method.GetMethodBody());
+        }
+    }
+
     private static async Task AwaitTaskLikeResult(object? result)
     {
         switch (result)

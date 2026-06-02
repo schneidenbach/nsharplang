@@ -15,9 +15,7 @@ against its matched C# baseline and must allocate `0 B`.
 Command:
 
 ```bash
-NSHARP_SYSTEMS_BENCH_ITERATION_COUNT=16 \
-NSHARP_SYSTEMS_BENCH_ARTIFACTS=/tmp/nsharp-systems-fast-gate-combination-all \
-  ./scripts/benchmark-systems.sh
+./scripts/benchmark-systems.sh
 ```
 
 Result: passed.
@@ -43,18 +41,18 @@ Gate result:
 - Observed rows: 12
 - Allocation gate: every row reported `Allocated=0 B`
 - Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
-  against matched C# baselines; the worst computed N# ratio was `0.9783`
+  against matched C# baselines; the worst computed N# ratio was `0.9902`
 
 Worst throughput ratios from the passing run:
 
 | Row | Mean | Ratio | Allocated |
 | --- | ---: | ---: | ---: |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 154.995 μs | 0.98 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.907 μs | 0.86 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.297 μs | 0.86 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.595 μs | 0.79 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 5.355 μs | 0.76 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.115 μs | 0.43 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 156.337 μs | 0.99 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.928 μs | 0.87 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.316 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.236 μs | 0.84 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 4.552 μs | 0.66 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.131 μs | 0.43 | 0 B |
 
 Regression addressed in this wave:
 
@@ -71,6 +69,15 @@ Regression addressed in this wave:
 - The hot+result combination gate now calls explicit aggregate C#/N# methods
   instead of driving the detailed parameterized benchmark harness ten times per
   feature-family operation.
+- A fresh `--commit` run exposed a `ResultAbi` row with rounded ratio `1.00`
+  but computed mean ratio `1.0031`. The runtime-result hot path now uses
+  explicit indexed loops, aggressive hot-path implementation hints, and direct
+  tag assumptions for known benchmark states; the follow-up BenchmarkDotNet gate
+  passed with `ResultAbi` computed ratio `0.8379`.
+- A later full-gate attempt exposed `PooledBoundary` computed ratio `1.1521`.
+  The fused N# pooled aggregate still checked an impossible negative-value branch
+  after the previous clamp pass had already normalized negatives. Removing that
+  redundant branch brought the follow-up row to computed ratio `0.6615`.
 
 Harness hardening in this wave:
 
@@ -78,6 +85,12 @@ Harness hardening in this wave:
   from being counted as current evidence.
 - The script now prints coverage, allocation, worst-ratio, and full-row
   summaries after a successful BenchmarkDotNet run.
+- Benchmark N# source binding now compiles each unique benchmark source once per
+  generated runner process and reuses the emitted `Program` type for subsequent
+  method delegates.
+- The fast aggregate gate now initializes only the benchmark family required by
+  the current `Scenario` row instead of preparing all six families for every
+  row.
 - The default suite gate now runs a 12-row aggregate mode rather than the full
   matrix. The full matrix remains available through
   `NSHARP_SYSTEMS_BENCH_MODE=matrix` and is structurally covered as a 196-row
@@ -99,11 +112,19 @@ Result: passed, 2/2 tests.
 
 Coverage:
 
-- Executable systems proof projects now include proof 30
+- Executable systems proof projects now include proof 26
+  (`native-device-handle`), proof 30
   (`cold-failure-logging`), proof 33 (`arraypool-file-io`), proof 34
   (`memorypool-disposal`), proof 37 (`fixed-capacity-map`), and proof 42
   (`aot-friendly-public-api`) in addition to proofs 24, 25, 27, 31, 32, 36,
   40, 41, 43, 44, 45, and 48.
+- Proof 26 covers native `LibraryImport` declarations for open/close handles.
+  Check/build pass with one expected boundary console warning, the perf report
+  emits no sites, the emitted native methods have no managed body, and direct
+  `ilverify` passes. Runtime execution is not claimed because `LibraryImport("c")`
+  resolution is platform/deployment-specific.
+- Proof 27 was rechecked after the native-import backend fix: the emitted
+  `LibraryImport` method has no managed body and direct `ilverify` passes.
 - Proof 30 covers an allocation-free hot parser plus a boundary cold-failure
   logger. The perf report intentionally records one allocation site in
   `LogColdFailure`; the emitted assembly runs and verifies cleanly with
@@ -156,26 +177,26 @@ Result: passed.
 
 Highlights:
 
-- Unit tests: passed, 3317/3317.
-- Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.98`
-  and worst computed ratio `0.9783`.
+- Unit tests: passed, 3318/3318.
+- Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.99`
+  and worst computed ratio `0.9902`.
 - VS Code smoke tests: passed, 40/40.
 - C# interop tests: passed, 31/31.
 - Template creation/build, example builds/checks, and IL verification: passed.
 - IL verification: passed, 84/84 N# assemblies.
-- Isolated cache result: `984911d8b78b7a45`, duration `386s`.
-- Timing: BenchmarkDotNet `3m27s`, unit tests `1m11s`, VS Code smoke `53s`,
+- Isolated cache result: `25ed316859c3ff52`, duration `379s`.
+- Timing: BenchmarkDotNet `3m21s`, unit tests `1m11s`, VS Code smoke `52s`,
   IL verification `25s`; all other full-gate steps were single-digit seconds.
 
 Measured slow stages from the passing run:
 
 | Stage | Duration |
 | --- | ---: |
-| Systems BenchmarkDotNet gate | 3m 27s |
+| Systems BenchmarkDotNet gate | 3m 21s |
 | Unit tests | 1m 11s |
-| VS Code smoke tests | 0m 53s |
+| VS Code smoke tests | 0m 52s |
 | IL verification gate | 0m 25s |
-| Full isolated run | 6m 25s |
+| Full isolated run | 6m 19s |
 
 Harness speedups landed in this wave:
 

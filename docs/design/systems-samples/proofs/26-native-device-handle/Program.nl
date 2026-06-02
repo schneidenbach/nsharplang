@@ -1,6 +1,5 @@
 namespace SystemsProofs.NativeDeviceHandle
 
-import System
 import System.Runtime.InteropServices
 
 enum DeviceError {
@@ -26,7 +25,7 @@ func OpenDevice(path: string): Result<DeviceHandle, DeviceError> {
         return Err(DeviceError.OpenFailed)
     }
 
-    return Ok(DeviceHandle { fd: fd })
+    return Ok(new DeviceHandle { fd: fd })
 }
 
 [boundary]

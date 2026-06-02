@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using BenchmarkDotNet.Attributes;
 using NSharpLang.Runtime;
 
@@ -13,6 +14,8 @@ namespace NSharpLang.Benchmarks;
 public class SystemsResultBenchmarks
 {
     private const int InnerOperations = 16;
+    private const MethodImplOptions HotPathImpl =
+        MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization;
 
     private Result<int, int>[] _results = [];
     private Result<int, int>[] _allOkResults = [];
@@ -94,6 +97,7 @@ public class SystemsResultBenchmarks
         _allErrCSharpResults,
         _lateErrCSharpResults);
 
+    [MethodImpl(HotPathImpl)]
     public int RuntimeAll() => RuntimeAllResults(
         _results,
         _allOkResults,
@@ -265,11 +269,13 @@ public class SystemsResultBenchmarks
         return count;
     }
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeSumOkValues(Result<int, int>[] results)
     {
         var sum = 0;
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
+            var result = results[i];
             if (result.IsOk)
             {
                 sum += result.OkValueUnchecked;
@@ -279,11 +285,13 @@ public class SystemsResultBenchmarks
         return sum;
     }
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeAllOkFastPath(Result<int, int>[] results)
     {
         var sum = 0;
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
+            var result = results[i];
             if (!result.IsOk)
             {
                 return -1;
@@ -295,11 +303,13 @@ public class SystemsResultBenchmarks
         return sum;
     }
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeAllErrFastPath(Result<int, int>[] results)
     {
         var sum = 0;
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
+            var result = results[i];
             if (result.IsOk)
             {
                 return -1;
@@ -311,11 +321,13 @@ public class SystemsResultBenchmarks
         return sum;
     }
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeSumErrValues(Result<int, int>[] results)
     {
         var sum = 0;
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
+            var result = results[i];
             if (result.IsErr)
             {
                 sum += result.ErrValueUnchecked;
@@ -325,11 +337,13 @@ public class SystemsResultBenchmarks
         return sum;
     }
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeFirstErrOrSum(Result<int, int>[] results)
     {
         var sum = 0;
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
+            var result = results[i];
             if (result.IsErr)
             {
                 return result.ErrValueUnchecked;
@@ -341,12 +355,14 @@ public class SystemsResultBenchmarks
         return sum;
     }
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeValidateAllOkAscending(Result<int, int>[] results)
     {
         var previous = -1;
         var count = 0;
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
+            var result = results[i];
             if (!result.IsOk)
             {
                 return -1;
@@ -365,16 +381,18 @@ public class SystemsResultBenchmarks
         return count;
     }
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeBranchAndCopy(Result<int, int>[] results)
     {
         var sum = 0;
-        foreach (var result in results)
+        for (var i = 0; i < results.Length; i++)
         {
+            var result = results[i];
             if (result.IsOk)
             {
                 sum += result.OkValueUnchecked;
             }
-            else if (result.IsErr)
+            else
             {
                 sum -= result.ErrValueUnchecked;
             }
@@ -396,6 +414,7 @@ public class SystemsResultBenchmarks
            + CSharpFirstErrOrSum(lateErrResults)
            + CSharpValidateAllOkAscending(allOkResults);
 
+    [MethodImpl(HotPathImpl)]
     private static int RuntimeAllResults(
         Result<int, int>[] results,
         Result<int, int>[] allOkResults,

@@ -1319,7 +1319,7 @@ in Appendix B. Use cases 24-48 are complex proof projects under
 Implementation note: Appendix B and the proof projects are proposal pressure
 tests. The current executable implementation evidence is the ten-case acceptance
 gauntlet under `tests/fixtures/systems-gauntlet/`, executable proof projects
-24, 25, 27, 30, 31, 32, 33, 34, 36, 37, 40, 41, 42, 43, 44, 45, and 48 under
+24, 25, 26, 27, 30, 31, 32, 33, 34, 36, 37, 40, 41, 42, 43, 44, 45, and 48 under
 `docs/design/systems-samples/proofs/`, the Systems N# unit/CLI tests, and the
 fast Systems BenchmarkDotNet gate, and the detailed 196-row matrix available via
 `NSHARP_SYSTEMS_BENCH_MODE=matrix`. The remaining proof projects are
@@ -1353,8 +1353,8 @@ design-only until migrated and audited in
 | 23 | Use `stackalloc` for small scratch space. | Safe `stackalloc` to span, stack budget diagnostics, local lifetime rules. | Must pass. | [B23](#b23-stackalloc-scratch-use-case-23) |
 | 24 | Build a zero-copy frame reader. | `ref struct`, ref-like fields, return-lifetime facts, `BinaryPrimitives`. | Must pass. | [Project](systems-samples/proofs/24-zero-copy-frame-reader/) |
 | 25 | Wrap unsafe memory copy safely. | restricted `unsafe`, `[memory(safe)]`, `[trusted(reason, owner, review)]`, small-body lint. | Must pass. | [Project](systems-samples/proofs/25-trusted-memory-copy/) |
-| 26 | Open a native device handle. | `[boundary]`, `LibraryImport`, explicit handle owner/disposal, `Result<T,E>`. | In scope. | [Project](systems-samples/proofs/26-native-device-handle/) |
-| 27 | Call a C library from a systems CLI. | source-generated P/Invoke, AOT facts, boundary adaptation. | In scope. | [Project](systems-samples/proofs/27-c-library-cli/) |
+| 26 | Open a native device handle. | `[boundary]`, `LibraryImport`, explicit handle owner/disposal, `Result<T,E>`. | Executable analysis/build proof; real native device run remains deployment-specific. | [Project](systems-samples/proofs/26-native-device-handle/) |
+| 27 | Call a C library from a systems CLI. | source-generated P/Invoke, AOT facts, boundary adaptation. | Executable analysis/build proof; real native library run remains deployment-specific. | [Project](systems-samples/proofs/27-c-library-cli/) |
 | 28 | Parse command-line options and emit JSON in NativeAOT. | Boundary allocation, `System.Text.Json` source-gen, target-qualified AOT facts. | Analysis in scope now; native image waits for publish implementation. | [Project](systems-samples/proofs/28-nativeaot-json-cli/) |
 | 29 | Use generated regex in a boundary parser. | `[GeneratedRegex]` summary, boundary allocation report, AOT/trimming facts. | In scope with generated-code summary. | [Project](systems-samples/proofs/29-generated-regex-boundary/) |
 | 30 | Log diagnostic details only on cold failures. | `[hot]` success path, narrow `allow(alloc)` in cold branch, allocation report. | In scope. | [Project](systems-samples/proofs/30-cold-failure-logging/) |
