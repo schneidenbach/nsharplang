@@ -3,6 +3,7 @@ namespace SystemsProofs.TrustedMemoryCopy
 import System
 
 enum CopyError {
+    Ok,
     OutOfRange
 }
 
@@ -14,20 +15,24 @@ enum CopyError {
     expires: "2027-06-01"
 )]
 [hot]
-func CopyExact(dst: Span<byte>, src: ReadOnlySpan<byte>, len: int): Result<int, CopyError> {
+func CopyExact(dst: Span<byte>, src: ReadOnlySpan<byte>, len: int): CopyError {
     if len < 0 || len > dst.Length || len > src.Length {
-        return Err(CopyError.OutOfRange)
+        return CopyError.OutOfRange
     }
 
     unsafe {
         Buffer.MemoryCopy(src.ptr, dst.ptr, dst.Length, len)
     }
 
-    return Ok(len)
+    return CopyError.Ok
 }
 
 func Main() {
-    src := new byte[] { 1, 2, 3, 4 }
-    dst := new byte[4]
+    src := alloc new byte[4]
+    src[0] = (byte)1
+    src[1] = (byte)2
+    src[2] = (byte)3
+    src[3] = (byte)4
+    dst := alloc new byte[4]
     _ = CopyExact(dst, src, 4)
 }

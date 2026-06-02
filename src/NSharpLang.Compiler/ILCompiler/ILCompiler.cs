@@ -15843,6 +15843,11 @@ public partial class ILCompiler
             return;
         }
 
+        if (constructor == null)
+        {
+            throw new InvalidOperationException($"No matching constructor found for type {type.Name} with arguments ({DescribeCallArgumentTypes(newExpr.ConstructorArguments)})");
+        }
+
         if (boundArguments != null)
         {
             EmitBoundCallArguments(boundArguments);
@@ -15924,9 +15929,12 @@ public partial class ILCompiler
             return;
         }
 
+        var memberName = initializer.Name
+            ?? throw new InvalidOperationException("Object initializer entry is missing a member name");
+
         if (targetType is TypeBuilder valueTypeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(valueTypeBuilder, initializer.Name), out var fieldBuilder))
+            if (_fields.TryGetValue(GetFieldKey(valueTypeBuilder, memberName), out var fieldBuilder))
             {
                 _currentIL.Emit(OpCodes.Ldloca_S, targetLocal);
                 EmitExpressionWithExpectedType(initializer.Value, fieldBuilder.FieldType);
@@ -15934,7 +15942,7 @@ public partial class ILCompiler
                 return;
             }
 
-            if (_methods.TryGetValue(GetMethodKey(valueTypeBuilder, $"set_{initializer.Name}"), out var setterMethod))
+            if (_methods.TryGetValue(GetMethodKey(valueTypeBuilder, $"set_{memberName}"), out var setterMethod))
             {
                 _currentIL.Emit(OpCodes.Ldloca_S, targetLocal);
                 EmitExpressionWithExpectedType(initializer.Value, setterMethod.GetParameters()[0].ParameterType);
@@ -15944,7 +15952,7 @@ public partial class ILCompiler
         }
         else
         {
-            var property = targetType.GetProperty(initializer.Name);
+            var property = targetType.GetProperty(memberName);
             if (property?.SetMethod != null)
             {
                 _currentIL.Emit(OpCodes.Ldloca_S, targetLocal);
@@ -15953,7 +15961,7 @@ public partial class ILCompiler
                 return;
             }
 
-            var field = targetType.GetField(initializer.Name);
+            var field = targetType.GetField(memberName);
             if (field != null)
             {
                 _currentIL.Emit(OpCodes.Ldloca_S, targetLocal);
@@ -15963,7 +15971,7 @@ public partial class ILCompiler
             }
         }
 
-        throw new InvalidOperationException($"Property or field {initializer.Name} not found on type {targetType.Name}");
+        throw new InvalidOperationException($"Property or field {memberName} not found on type {targetType.Name}");
     }
 
     private void EmitObjectInitializerEntry(Type targetType, PropertyInitializer initializer)
@@ -16260,6 +16268,41 @@ public partial class ILCompiler
             });
 
         return openMethod.MakeGenericMethod(elementType);
+    }
+
+    private static MethodInfo ResolveUnsafeAsPointerMethod(Type elementType)
+    {
+        var openMethod = typeof(System.Runtime.CompilerServices.Unsafe)
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .First(method =>
+            {
+                if (method.Name != "AsPointer" || !method.IsGenericMethodDefinition)
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 1
+                    && parameters[0].ParameterType.IsByRef
+                    && method.ReturnType == typeof(void).MakePointerType();
+            });
+
+        return openMethod.MakeGenericMethod(elementType);
+    }
+
+    private void EmitSpanPointer(Expression spanExpression, Type spanType, Type elementType)
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        var spanLocal = _currentIL.DeclareLocal(spanType);
+        EmitExpression(spanExpression);
+        _currentIL.Emit(OpCodes.Stloc, spanLocal);
+        _currentIL.Emit(OpCodes.Ldloc, spanLocal);
+        _currentIL.Emit(OpCodes.Call, ResolveSpanGetReferenceMethod(spanType));
+        _currentIL.Emit(OpCodes.Call, ResolveUnsafeAsPointerMethod(elementType));
     }
 
     private bool TryEmitRuntimeIndexAccess(IndexAccessExpression indexAccess, Type objectType)
@@ -17118,6 +17161,13 @@ public partial class ILCompiler
 
         // Get the object type
         var objectType = nullableObjectType;
+        if (memberAccess.MemberName == "ptr"
+            && TryGetSpanElementType(objectType, out var pointerElementType, out _))
+        {
+            EmitSpanPointer(memberAccess.Object, objectType, pointerElementType);
+            return;
+        }
+
         var memberOwnerType = GetByRefElementType(objectType);
         var useAddressReceiver = IsValueTypeLike(objectType);
 
@@ -18120,6 +18170,12 @@ public partial class ILCompiler
         }
 
         var objectType = GetExpressionType(unwrapNullConditional.Object);
+        if (unwrapNullConditional.MemberName == "ptr"
+            && TryGetSpanElementType(objectType, out _, out _))
+        {
+            return typeof(void).MakePointerType();
+        }
+
         var memberOwnerType = GetByRefElementType(objectType);
         var nullableUnderlyingType = Nullable.GetUnderlyingType(memberOwnerType);
         if (nullableUnderlyingType != null)
@@ -19910,17 +19966,19 @@ public partial class ILCompiler
             return;
         }
 
-        if (_constructors.TryGetValue(GetConstructorKey(unionType), out var unionCtor))
+        if (!_constructors.TryGetValue(GetConstructorKey(unionType), out var unionCtor))
         {
-            var il = unionCtor.GetILGenerator();
-            il.Emit(OpCodes.Ldarg_0);
-            var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
-            if (objectCtor != null)
-            {
-                il.Emit(OpCodes.Call, objectCtor);
-            }
-            il.Emit(OpCodes.Ret);
+            throw new InvalidOperationException($"Union constructor for {typeName} not declared");
         }
+
+        var unionIl = unionCtor.GetILGenerator();
+        unionIl.Emit(OpCodes.Ldarg_0);
+        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
+        if (objectCtor != null)
+        {
+            unionIl.Emit(OpCodes.Call, objectCtor);
+        }
+        unionIl.Emit(OpCodes.Ret);
 
         foreach (var unionCase in unionDecl.Cases)
         {
@@ -21406,8 +21464,10 @@ public partial class ILCompiler
             InitializeBodyContext(null, ContainsNestedFunction(propDecl.SetBody));
             _currentHasThis = !setMethod.IsStatic;
             _currentGenericParameters = typeGenericParameters;
-            _parameters["value"] = setMethod.IsStatic ? 0 : 1;
-            _parameterTypes["value"] = propertyType;
+            var parameters = _parameters ?? throw new InvalidOperationException("Parameter map was not initialized");
+            var parameterTypes = _parameterTypes ?? throw new InvalidOperationException("Parameter type map was not initialized");
+            parameters["value"] = setMethod.IsStatic ? 0 : 1;
+            parameterTypes["value"] = propertyType;
 
             EmitStatement(propDecl.SetBody);
 
@@ -21458,8 +21518,10 @@ public partial class ILCompiler
             RegisterParameterContext(indexerDecl.Parameters, 1, typeGenericParameters);
 
             var valueParameterIndex = indexerDecl.Parameters.Count + 1;
-            _parameters["value"] = valueParameterIndex;
-            _parameterTypes["value"] = ResolveType(indexerDecl.Type, typeGenericParameters);
+            var parameters = _parameters ?? throw new InvalidOperationException("Parameter map was not initialized");
+            var parameterTypes = _parameterTypes ?? throw new InvalidOperationException("Parameter type map was not initialized");
+            parameters["value"] = valueParameterIndex;
+            parameterTypes["value"] = ResolveType(indexerDecl.Type, typeGenericParameters);
 
             EmitStatement(indexerDecl.SetBody);
             _currentIL.Emit(OpCodes.Ret);

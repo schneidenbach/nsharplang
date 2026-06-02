@@ -212,6 +212,63 @@ func Copy(): int {
     }
 
     [Fact]
+    public void BufferMemoryCopy_InTrustedUnsafeWrapper_IsHotCallable()
+    {
+        var report = Analyze("""
+import System
+
+enum CopyStatus {
+    Ok,
+    OutOfRange
+}
+
+[memory(safe)]
+[trusted(reason: "length is checked against both spans", owner: "runtime-core", review: "SYS-25")]
+[hot]
+func CopyExact(dst: Span<byte>, src: ReadOnlySpan<byte>, len: int): CopyStatus {
+    if len < 0 || len > dst.Length || len > src.Length {
+        return CopyStatus.OutOfRange
+    }
+
+    unsafe {
+        Buffer.MemoryCopy(src.ptr, dst.ptr, dst.Length, len)
+    }
+
+    return CopyStatus.Ok
+}
+""", profile: "systems");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code is "NSYS050" or "NSYS100" or "NSYS110");
+        var copy = Assert.Single(report.Functions, function => function.Name == "CopyExact");
+        Assert.True(copy.IsHot);
+        Assert.False(copy.Effects.Allocates);
+        Assert.False(copy.Effects.UsesUnknownExternalCall);
+        Assert.False(copy.Effects.RequiresWarmup);
+        Assert.Contains("Buffer.MemoryCopy", copy.Calls);
+        var trusted = Assert.Single(report.TrustedSites);
+        Assert.Equal("CopyExact", trusted.Function);
+        Assert.True(trusted.HasUnsafe);
+    }
+
+    [Fact]
+    public void BufferMemoryCopy_OutsideUnsafeBlock_FailsMemorySafety()
+    {
+        var report = Analyze("""
+import System
+
+[memory(safe)]
+[trusted(reason: "missing unsafe isolation", owner: "runtime-core", review: "SYS-25")]
+[hot]
+func CopyExact(dst: Span<byte>, src: ReadOnlySpan<byte>, len: int): int {
+    Buffer.MemoryCopy(src.ptr, dst.ptr, dst.Length, len)
+    return len
+}
+""", profile: "systems");
+
+        Assert.Contains(report.Findings, f => f.Code == "NSYS100" && f.Effect == "memorySafety");
+    }
+
+    [Fact]
     public void HotFunction_PropagatesCalleeAllocationWithCallPath()
     {
         var report = Analyze("""
@@ -1085,6 +1142,7 @@ class Box {}
         var executableProofProjects = new[]
         {
             "24-zero-copy-frame-reader",
+            "25-trusted-memory-copy",
             "27-c-library-cli",
             "31-hot-metrics",
             "32-cache-prewarm",
@@ -1123,6 +1181,7 @@ class Box {}
         var repoRoot = FindRepoRoot();
         var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
         var zeroCopyFrameReader = Path.Combine(proofsRoot, "24-zero-copy-frame-reader");
+        var trustedMemoryCopy = Path.Combine(proofsRoot, "25-trusted-memory-copy");
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
         var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
@@ -1167,6 +1226,46 @@ class Box {}
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        AssertSystemsProofCheckPasses(trustedMemoryCopy, expectedWarnings: 0);
+        var trustedCopyBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", trustedMemoryCopy, "--perf-report"));
+        Assert.Equal(0, trustedCopyBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(trustedCopyBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+
+            var trustedSite = Assert.Single(perf.GetProperty("trustedSites").EnumerateArray());
+            Assert.Equal("CopyExact", trustedSite.GetProperty("function").GetString());
+            Assert.Equal("runtime-core", trustedSite.GetProperty("owner").GetString());
+            Assert.True(trustedSite.GetProperty("hasUnsafe").GetBoolean());
+        }
+
+        var trustedCopyOutputDir = Path.Combine(trustedMemoryCopy, "bin", "Debug", "net10.0");
+        var trustedCopyAssembly = Path.Combine(trustedCopyOutputDir, "SystemsProof25TrustedMemoryCopy.dll");
+        Assert.True(File.Exists(Path.Combine(trustedCopyOutputDir, "NSharpLang.Runtime.dll")));
+        var trustedCopyRun = DotnetRunner.Run($"\"{trustedCopyAssembly}\"", trustedCopyOutputDir);
+        Assert.True(trustedCopyRun.ExitCode == 0,
+            $"trusted memory copy proof failed to run\nstdout:\n{trustedCopyRun.Stdout}\nstderr:\n{trustedCopyRun.Stderr}");
+
+        var trustedCopyQuery = CaptureConsole(() =>
+            QueryCommand.Execute(new[] { "trusted", "--project", trustedMemoryCopy }));
+        Assert.Equal(0, trustedCopyQuery.ExitCode);
+        using (var doc = JsonDocument.Parse(trustedCopyQuery.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var result = Assert.Single(doc.RootElement.GetProperty("results").EnumerateArray());
+            Assert.Equal("CopyExact", result.GetProperty("function").GetString());
+            Assert.Equal("runtime-core", result.GetProperty("owner").GetString());
+            Assert.Equal("2027-06-01", result.GetProperty("expires").GetString());
         }
 
         AssertSystemsProofCheckPasses(cLibraryCli, expectedWarnings: 1);
@@ -1620,7 +1719,8 @@ func Copy(): int {
         Assert.Contains("key[1] in (\"NSharp\", \"RuntimeResult\")", script, StringComparison.Ordinal);
         Assert.Contains("1.00", script, StringComparison.Ordinal);
         Assert.Contains("allocated != 0", script, StringComparison.Ordinal);
-        Assert.Contains("ratio > limit", script, StringComparison.Ordinal);
+        Assert.Contains("effective_ratio = computed_ratio if computed_ratio is not None else ratio", script, StringComparison.Ordinal);
+        Assert.Contains("effective_ratio > limit", script, StringComparison.Ordinal);
 
         var testAllCore = File.ReadAllText(Path.Combine(root, "tests", "scripts", "test-all-core.sh"));
         Assert.Contains("Step 3a: Systems BenchmarkDotNet Gate", testAllCore, StringComparison.Ordinal);
@@ -1705,6 +1805,42 @@ func Run(): int {
 """, "Run");
 
         Assert.Equal(6, result);
+    }
+
+    [Fact]
+    public void SpanPtrAndBufferMemoryCopy_CompileAndCopyBytes()
+    {
+        var result = CompileAndInvoke("""
+import System
+
+[memory(safe)]
+[trusted(reason: "length is checked against both spans", owner: "runtime-core", review: "SYS-25")]
+[hot]
+func CopyExact(dst: Span<byte>, src: ReadOnlySpan<byte>, len: int): int {
+    if len < 0 || len > dst.Length || len > src.Length {
+        return -1
+    }
+
+    unsafe {
+        Buffer.MemoryCopy(src.ptr, dst.ptr, dst.Length, len)
+    }
+
+    return len
+}
+
+func Run(): int {
+    src := new byte[4]
+    src[0] = (byte)1
+    src[1] = (byte)2
+    src[2] = (byte)3
+    src[3] = (byte)4
+    dst := new byte[4]
+    copied := CopyExact(dst, src, 4)
+    return copied + (int)dst[0] + (int)dst[1] + (int)dst[2] + (int)dst[3]
+}
+""", "Run");
+
+        Assert.Equal(14, result);
     }
 
     private static SystemsReport Analyze(string source, string profile = "default", string mode = "strict", Action<ProjectConfig>? configure = null)

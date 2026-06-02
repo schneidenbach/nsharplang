@@ -108,7 +108,8 @@ matrix_expected_counts = {
 expected_counts = gate_expected_counts if mode == "gate" else matrix_expected_counts
 
 # Hard product gate: Systems N#/runtime rows must be at least as fast as the
-# matched C# baseline row according to BenchmarkDotNet's reported Ratio column.
+# matched C# baseline row. Prefer the unrounded mean-derived ratio because
+# BenchmarkDotNet's Ratio column can round a failing 1.002x row down to 1.00.
 # If a row exceeds 1.00, fix the source shape or implementation instead of
 # loosening this limit.
 ratio_limits = {
@@ -247,7 +248,8 @@ for key, suffix, mean, mean_ns, ratio_text, ratio, _allocated_text, _allocated i
     if mean_ns is not None and baseline_mean_ns not in (None, 0):
         computed_ratio = mean_ns / baseline_mean_ns
 
-    if ratio is None or ratio > limit:
+    effective_ratio = computed_ratio if computed_ratio is not None else ratio
+    if effective_ratio is None or effective_ratio > limit:
         ratio_display = ratio_text or "<missing>"
         computed_display = f", ComputedMeanRatio={computed_ratio:.4f}" if computed_ratio is not None else ""
         baseline_mean = baseline[2] if baseline is not None else "<missing>"

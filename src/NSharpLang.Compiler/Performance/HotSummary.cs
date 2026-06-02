@@ -211,6 +211,8 @@ internal static class BclHotSummaryPack
         Add(entries, targetFramework, "System.MemoryExtensions.*");
         Add(entries, targetFramework, "MemoryMarshal.*");
         Add(entries, targetFramework, "System.Runtime.InteropServices.MemoryMarshal.*");
+        Add(entries, targetFramework, "Buffer.MemoryCopy");
+        Add(entries, targetFramework, "System.Buffer.MemoryCopy");
         Add(entries, targetFramework, "BitOperations.*");
         Add(entries, targetFramework, "System.Numerics.BitOperations.*");
         Add(entries, targetFramework, "Vector.*");

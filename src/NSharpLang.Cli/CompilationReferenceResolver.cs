@@ -99,6 +99,7 @@ internal static class CompilationReferenceResolver
         var result = new ReferenceResolutionResult();
 
         AddImplicitTestDependencies(projectRoot, config, options);
+        AddImplicitNSharpRuntimeAsset(result);
 
         foreach (var frameworkDirectory in ResolveFrameworkReferenceDirectories(projectRoot, config))
         {
@@ -155,6 +156,29 @@ internal static class CompilationReferenceResolver
         }
 
         return result;
+    }
+
+    private static void AddImplicitNSharpRuntimeAsset(ReferenceResolutionResult result)
+    {
+        foreach (var candidate in GetImplicitNSharpRuntimeAssetCandidates())
+        {
+            if (File.Exists(candidate))
+            {
+                result.AddRuntimeAsset(candidate);
+                return;
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetImplicitNSharpRuntimeAssetCandidates()
+    {
+        yield return Path.Combine(AppContext.BaseDirectory, "NSharpLang.Runtime.dll");
+
+        var compilerDirectory = Path.GetDirectoryName(typeof(ProjectConfig).Assembly.Location);
+        if (!string.IsNullOrWhiteSpace(compilerDirectory))
+        {
+            yield return Path.Combine(compilerDirectory, "NSharpLang.Runtime.dll");
+        }
     }
 
     private static ResolvedProjectReference BuildProjectReference(

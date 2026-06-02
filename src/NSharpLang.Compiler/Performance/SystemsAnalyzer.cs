@@ -683,7 +683,9 @@ public sealed class SystemsAnalyzer
                 {
                     AddFindingForPolicy("NSYS100", "memorySafety", "unsafe block requires a [trusted] memory-safe wrapper in systems code", unsafeBlock, context, "Wrap unsafe code in a small [trusted(reason, owner, review)] function with [memory(safe)].");
                 }
+                context.PushUnsafeBlock();
                 WalkStatement(unsafeBlock.Body, context);
+                context.PopUnsafeBlock();
                 break;
             case ExpressionStatement expression:
                 CheckIgnoredResult(expression.Expression, context);
@@ -1160,6 +1162,12 @@ public sealed class SystemsAnalyzer
         if (IsDictionaryTryGetValueCall(call, target))
             return;
 
+        if (IsBufferMemoryCopyCall(target))
+        {
+            ApplyBufferMemoryCopyFacts(call, context);
+            return;
+        }
+
         if (_hotSummaries.TryResolve(target, _config.TargetFramework, out var summaryEntry))
         {
             ApplyHotSummary(target, summaryEntry, call, context);
@@ -1201,6 +1209,29 @@ public sealed class SystemsAnalyzer
             call,
             context,
             "Pass a generated JsonSerializerContext/JsonTypeInfo value, or keep reflection serialization out of systems-profile code.");
+    }
+
+    private static bool IsBufferMemoryCopyCall(string target)
+        => target is "Buffer.MemoryCopy" or "System.Buffer.MemoryCopy";
+
+    private void ApplyBufferMemoryCopyFacts(CallExpression call, WalkContext context)
+    {
+        if (!context.InUnsafeBlock)
+        {
+            AddFindingForPolicy(
+                "NSYS100",
+                "memorySafety",
+                "Buffer.MemoryCopy must be isolated inside an unsafe block",
+                call,
+                context,
+                "Wrap Buffer.MemoryCopy in a small [trusted] [memory(safe)] function and document the bounds proof.");
+            return;
+        }
+
+        if (!context.Summary.IsTrusted || !context.Summary.MemorySafe)
+        {
+            return;
+        }
     }
 
     private void ApplyHotSummary(string target, HotSummaryEntry entry, CallExpression call, WalkContext context)
@@ -2138,6 +2169,7 @@ public sealed class SystemsAnalyzer
         private readonly Stack<HashSet<string>> _allowStack = new();
         private readonly Stack<IReadOnlyList<Guard>> _guardStack = new();
         private int _allocZoneDepth;
+        private int _unsafeBlockDepth;
 
         public WalkContext(MutableFunctionSummary summary)
         {
@@ -2146,10 +2178,13 @@ public sealed class SystemsAnalyzer
 
         public MutableFunctionSummary Summary { get; }
         public bool InAllocZone => _allocZoneDepth > 0;
+        public bool InUnsafeBlock => _unsafeBlockDepth > 0;
         public List<Guard> Guards { get; } = new();
 
         public void PushAllocZone() => _allocZoneDepth++;
         public void PopAllocZone() => _allocZoneDepth = Math.Max(0, _allocZoneDepth - 1);
+        public void PushUnsafeBlock() => _unsafeBlockDepth++;
+        public void PopUnsafeBlock() => _unsafeBlockDepth = Math.Max(0, _unsafeBlockDepth - 1);
 
         public void PushAllows(IEnumerable<string> effects)
             => _allowStack.Push(new HashSet<string>(effects, StringComparer.OrdinalIgnoreCase));

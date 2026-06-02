@@ -15,6 +15,8 @@ pass. Current executable proof projects:
 
 - `proofs/24-zero-copy-frame-reader`: `nlc check --systems-report` and
   `nlc build --perf-report`.
+- `proofs/25-trusted-memory-copy`: `nlc check --systems-report`,
+  `nlc build --perf-report`, and emitted assembly run.
 - `proofs/27-c-library-cli`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 - `proofs/31-hot-metrics`: `nlc check --systems-report` and
