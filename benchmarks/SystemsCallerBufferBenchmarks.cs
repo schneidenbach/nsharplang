@@ -57,48 +57,99 @@ func transform(src: int[], dst: int[]): int {
 
     return sum
 }
+
+[hot]
+func prefixSum(src: int[], dst: int[]): int {
+    running := 0
+    len := src.Length
+    for i := 0; i < len; i++ {
+        running = running + src[i]
+        dst[i] = running
+    }
+
+    return running
+}
+
+[hot]
+func compactEven(src: int[], dst: int[]): int {
+    written := 0
+    len := src.Length
+    for i := 0; i < len; i++ {
+        value := src[i]
+        if (value & 1) == 0 {
+            dst[written] = value
+            written = written + 1
+        }
+    }
+
+    return written
+}
 """;
 
     private int[] _source = Array.Empty<int>();
     private int[] _destination = Array.Empty<int>();
+    private Func<int[], int[], int> _csharpCopyPositive = null!;
+    private Func<int[], int[], int> _csharpWriteFrame = null!;
+    private Func<int[], int[], int> _csharpTransform = null!;
+    private Func<int[], int[], int> _csharpPrefixSum = null!;
+    private Func<int[], int[], int> _csharpCompactEven = null!;
     private Func<int[], int[], int> _copyPositive = null!;
     private Func<int[], int[], int> _writeFrame = null!;
     private Func<int[], int[], int> _transform = null!;
+    private Func<int[], int[], int> _prefixSum = null!;
+    private Func<int[], int[], int> _compactEven = null!;
 
     public enum CallerBufferWorkload
     {
         CopyPositive,
         WriteFrame,
         Transform,
+        PrefixSum,
+        CompactEven,
     }
 
     [Params(
         CallerBufferWorkload.CopyPositive,
         CallerBufferWorkload.WriteFrame,
-        CallerBufferWorkload.Transform)]
+        CallerBufferWorkload.Transform,
+        CallerBufferWorkload.PrefixSum,
+        CallerBufferWorkload.CompactEven)]
     public CallerBufferWorkload Workload { get; set; }
+
+    [Params(64, 4096)]
+    public int Size { get; set; }
 
     [GlobalSetup]
     public void Setup()
     {
-        _source = new int[4096];
+        _source = new int[Size];
         _destination = new int[_source.Length + 8];
         for (var i = 0; i < _source.Length; i++)
         {
             _source[i] = (i & 1) == 0 ? i : -i;
         }
 
+        _csharpCopyPositive = CSharpCopyPositive;
+        _csharpWriteFrame = CSharpWriteFrame;
+        _csharpTransform = CSharpTransform;
+        _csharpPrefixSum = CSharpPrefixSum;
+        _csharpCompactEven = CSharpCompactEven;
+
         _copyPositive = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "copyPositive");
         _writeFrame = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "writeFrame");
         _transform = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "transform");
+        _prefixSum = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "prefixSum");
+        _compactEven = NSharpCompiledMethod.Bind<Func<int[], int[], int>>(Source, "compactEven");
     }
 
     [Benchmark(Baseline = true)]
     public int CSharp() => Workload switch
     {
-        CallerBufferWorkload.CopyPositive => CSharpCopyPositive(_source, _destination),
-        CallerBufferWorkload.WriteFrame => CSharpWriteFrame(_source, _destination),
-        CallerBufferWorkload.Transform => CSharpTransform(_source, _destination),
+        CallerBufferWorkload.CopyPositive => _csharpCopyPositive(_source, _destination),
+        CallerBufferWorkload.WriteFrame => _csharpWriteFrame(_source, _destination),
+        CallerBufferWorkload.Transform => _csharpTransform(_source, _destination),
+        CallerBufferWorkload.PrefixSum => _csharpPrefixSum(_source, _destination),
+        CallerBufferWorkload.CompactEven => _csharpCompactEven(_source, _destination),
         _ => throw new InvalidOperationException()
     };
 
@@ -108,6 +159,8 @@ func transform(src: int[], dst: int[]): int {
         CallerBufferWorkload.CopyPositive => _copyPositive(_source, _destination),
         CallerBufferWorkload.WriteFrame => _writeFrame(_source, _destination),
         CallerBufferWorkload.Transform => _transform(_source, _destination),
+        CallerBufferWorkload.PrefixSum => _prefixSum(_source, _destination),
+        CallerBufferWorkload.CompactEven => _compactEven(_source, _destination),
         _ => throw new InvalidOperationException()
     };
 
@@ -161,5 +214,35 @@ func transform(src: int[], dst: int[]): int {
         }
 
         return sum;
+    }
+
+    private static int CSharpPrefixSum(int[] source, int[] destination)
+    {
+        var running = 0;
+        var len = source.Length;
+        for (var i = 0; i < len; i++)
+        {
+            running += source[i];
+            destination[i] = running;
+        }
+
+        return running;
+    }
+
+    private static int CSharpCompactEven(int[] source, int[] destination)
+    {
+        var written = 0;
+        var len = source.Length;
+        for (var i = 0; i < len; i++)
+        {
+            var value = source[i];
+            if ((value & 1) == 0)
+            {
+                destination[written] = value;
+                written++;
+            }
+        }
+
+        return written;
     }
 }

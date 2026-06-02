@@ -274,6 +274,28 @@ struct Arena {
     }
 
     [Fact]
+    public void ByRefTypeParameter_AcceptsRefArgument()
+    {
+        var result = CompileAndInvoke("""
+ref struct FrameReader {
+    pos: int
+}
+
+func Touch(reader: &FrameReader scoped 'reader): int {
+    reader.pos = 1
+    return reader.pos
+}
+
+func Run(): int {
+    reader := new FrameReader { pos: 0 }
+    return Touch(ref reader)
+}
+""", "Run");
+
+        Assert.Equal(1, result);
+    }
+
+    [Fact]
     public void HotRefLikeReturn_RequiresReturnLifetime()
     {
         var report = Analyze("""
@@ -1086,12 +1108,16 @@ func Copy(): int {
         Assert.Contains("HotPathWorkload.ScoreFrame", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("HotPathWorkload.ScanTag", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("HotPathWorkload.CountAscii", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("HotPathWorkload.MinMaxDelta", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("HotPathWorkload.RollingHash", hotPathBenchmark, StringComparison.Ordinal);
+        Assert.Contains("[Params(64, 4096)]", hotPathBenchmark, StringComparison.Ordinal);
         Assert.Contains("NSharpCompiledMethod.Bind<Func<int[], int>>", hotPathBenchmark, StringComparison.Ordinal);
 
         var spanHandoffBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsSpanHandoffBenchmarks.cs"));
         Assert.Contains("SpanHandoffWorkload.SumSpan", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("SpanHandoffWorkload.CountEven", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("SpanHandoffWorkload.CopyUntilNegative", spanHandoffBenchmark, StringComparison.Ordinal);
+        Assert.Contains("SpanHandoffWorkload.ReverseCopy", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("SpanHandoffWorkload.ArrayToSpanCaller", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("[Params(64, 4096)]", spanHandoffBenchmark, StringComparison.Ordinal);
         Assert.Contains("NSharpCompiledMethod.Bind<ReadOnlySpanIntDelegate>", spanHandoffBenchmark, StringComparison.Ordinal);
@@ -1101,11 +1127,17 @@ func Copy(): int {
         Assert.Contains("CallerBufferWorkload.CopyPositive", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("CallerBufferWorkload.WriteFrame", callerBufferBenchmark, StringComparison.Ordinal);
         Assert.Contains("CallerBufferWorkload.Transform", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CallerBufferWorkload.PrefixSum", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CallerBufferWorkload.CompactEven", callerBufferBenchmark, StringComparison.Ordinal);
+        Assert.Contains("[Params(64, 4096)]", callerBufferBenchmark, StringComparison.Ordinal);
 
         var resultBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsResultBenchmarks.cs"));
         Assert.Contains("ResultWorkload.SumOkValues", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("ResultWorkload.SumErrValues", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("ResultWorkload.BranchAndCopy", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("ResultWorkload.AllOkFastPath", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("ResultWorkload.AllErrFastPath", resultBenchmark, StringComparison.Ordinal);
+        Assert.Contains("[Params(64, 4096)]", resultBenchmark, StringComparison.Ordinal);
         Assert.Contains("RuntimeResult", resultBenchmark, StringComparison.Ordinal);
         Assert.DoesNotContain("MatchDelegate", resultBenchmark, StringComparison.Ordinal);
 
@@ -1113,19 +1145,25 @@ func Copy(): int {
         Assert.Contains("PooledBoundaryWorkload.CountNonZero", pooledBoundaryBenchmark, StringComparison.Ordinal);
         Assert.Contains("PooledBoundaryWorkload.ScorePooledFrame", pooledBoundaryBenchmark, StringComparison.Ordinal);
         Assert.Contains("PooledBoundaryWorkload.ClampAndScore", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("PooledBoundaryWorkload.FindFirstZero", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("PooledBoundaryWorkload.ClampWindow", pooledBoundaryBenchmark, StringComparison.Ordinal);
+        Assert.Contains("[Params(64, 4096)]", pooledBoundaryBenchmark, StringComparison.Ordinal);
 
         var combinationBenchmark = File.ReadAllText(Path.Combine(root, "benchmarks", "SystemsCombinationBenchmarks.cs"));
         Assert.Contains("CombinationWorkload.ScanDigitsResult", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("CombinationWorkload.WriteChecksumResult", combinationBenchmark, StringComparison.Ordinal);
         Assert.Contains("CombinationWorkload.CopyDigitsResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.ScanAndChecksumResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("CombinationWorkload.CopyPositiveChecksumResult", combinationBenchmark, StringComparison.Ordinal);
+        Assert.Contains("[Params(64, 4096)]", combinationBenchmark, StringComparison.Ordinal);
 
         var script = File.ReadAllText(Path.Combine(root, "scripts", "benchmark-systems.sh"));
-        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 4", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 8", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 3", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 3", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 3", script, StringComparison.Ordinal);
-        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 3", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 12", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCallerBufferBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsResultBenchmarks\", \"RuntimeResult\"): 10", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
+        Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 10", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 1.25", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 1.25", script, StringComparison.Ordinal);
         Assert.Contains("allocated != 0", script, StringComparison.Ordinal);

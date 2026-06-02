@@ -40,7 +40,7 @@ Current status summary from the 2026-06-01 audit:
 | `41-structured-errors` | design-only | 22 errors, 0 warnings | missing | missing | Pattern/result sample uses proposed result/pattern syntax beyond current support. |
 | `42-aot-friendly-public-api` | design-only | 9 errors, 2 warnings | missing | native image deferred | AOT public API proof is analysis-only and not executable. |
 | `43-mono-wasm-plugin` | design-only | 6 errors, 0 warnings | missing | target runner missing | Mono/WASM target proof is not implemented. |
-| `44-ci-allocation-gate` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports boundary allocation and no AOT blockers | 48-row Systems BenchmarkDotNet gate covers allocation/perf CI enforcement | No native image proof required for this use case. |
+| `44-ci-allocation-gate` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports boundary allocation and no AOT blockers | 124-row Systems BenchmarkDotNet gate covers allocation/perf CI enforcement | No native image proof required for this use case. |
 | `45-trusted-audit` | executable | passes, 0 errors, 0 warnings | passes `nlc build --perf-report`; reports trusted site | passes `nlc query trusted` with owner/review/expiry/unsafe metadata | Broader unsafe-wrapper projects still pending. |
 | `46-dapper-boundary` | design-only | 14 errors, 6 warnings | missing | missing | ORM boundary sample is intentionally design-only. |
 | `47-cli-startup-honesty` | design-only | 12 errors, 4 warnings | missing | native image deferred | Startup/AOT/readiness proof is broader than current implementation. |
@@ -48,6 +48,6 @@ Current status summary from the 2026-06-01 audit:
 
 Executable Systems N# evidence currently lives in
 `tests/fixtures/systems-gauntlet/`, the executable proof projects listed above,
-`tests/SystemsNSharpTests.cs`, and the 48 required BenchmarkDotNet rows in
+`tests/SystemsNSharpTests.cs`, and the 124 required BenchmarkDotNet rows in
 `benchmarks/Systems*Benchmarks.cs` enforced by `scripts/benchmark-systems.sh`.
 Those are the artifacts that must be cited for current implementation status.

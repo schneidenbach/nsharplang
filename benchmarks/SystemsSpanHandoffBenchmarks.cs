@@ -57,6 +57,20 @@ func copyUntilNegative(src: ReadOnlySpan<int>, dst: Span<int>): int {
 }
 
 [hot]
+func reverseCopy(src: ReadOnlySpan<int>, dst: Span<int>): int {
+    len := src.Length
+    if dst.Length < len {
+        return -1
+    }
+
+    for i := 0; i < len; i++ {
+        dst[i] = src[(len - 1) - i]
+    }
+
+    return len
+}
+
+[hot]
 func arrayToSpanCaller(values: int[]): int {
     return sumSpan(values)
 }
@@ -64,9 +78,15 @@ func arrayToSpanCaller(values: int[]): int {
 
     private int[] _source = Array.Empty<int>();
     private int[] _destination = Array.Empty<int>();
+    private ReadOnlySpanIntDelegate _csharpSumSpan = null!;
+    private ReadOnlySpanIntDelegate _csharpCountEven = null!;
+    private SpanCopyDelegate _csharpCopyUntilNegative = null!;
+    private SpanCopyDelegate _csharpReverseCopy = null!;
+    private Func<int[], int> _csharpArrayToSpanCaller = null!;
     private ReadOnlySpanIntDelegate _sumSpan = null!;
     private ReadOnlySpanIntDelegate _countEven = null!;
     private SpanCopyDelegate _copyUntilNegative = null!;
+    private SpanCopyDelegate _reverseCopy = null!;
     private Func<int[], int> _arrayToSpanCaller = null!;
 
     public enum SpanHandoffWorkload
@@ -74,6 +94,7 @@ func arrayToSpanCaller(values: int[]): int {
         SumSpan,
         CountEven,
         CopyUntilNegative,
+        ReverseCopy,
         ArrayToSpanCaller,
     }
 
@@ -81,6 +102,7 @@ func arrayToSpanCaller(values: int[]): int {
         SpanHandoffWorkload.SumSpan,
         SpanHandoffWorkload.CountEven,
         SpanHandoffWorkload.CopyUntilNegative,
+        SpanHandoffWorkload.ReverseCopy,
         SpanHandoffWorkload.ArrayToSpanCaller)]
     public SpanHandoffWorkload Workload { get; set; }
 
@@ -102,19 +124,27 @@ func arrayToSpanCaller(values: int[]): int {
             _source[^1] = -1;
         }
 
+        _csharpSumSpan = CSharpSumSpan;
+        _csharpCountEven = CSharpCountEven;
+        _csharpCopyUntilNegative = CSharpCopyUntilNegative;
+        _csharpReverseCopy = CSharpReverseCopy;
+        _csharpArrayToSpanCaller = CSharpArrayToSpanCaller;
+
         _sumSpan = NSharpCompiledMethod.Bind<ReadOnlySpanIntDelegate>(Source, "sumSpan");
         _countEven = NSharpCompiledMethod.Bind<ReadOnlySpanIntDelegate>(Source, "countEven");
         _copyUntilNegative = NSharpCompiledMethod.Bind<SpanCopyDelegate>(Source, "copyUntilNegative");
+        _reverseCopy = NSharpCompiledMethod.Bind<SpanCopyDelegate>(Source, "reverseCopy");
         _arrayToSpanCaller = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "arrayToSpanCaller");
     }
 
     [Benchmark(Baseline = true)]
     public int CSharp() => Workload switch
     {
-        SpanHandoffWorkload.SumSpan => CSharpSumSpan(_source),
-        SpanHandoffWorkload.CountEven => CSharpCountEven(_source),
-        SpanHandoffWorkload.CopyUntilNegative => CSharpCopyUntilNegative(_source, _destination),
-        SpanHandoffWorkload.ArrayToSpanCaller => CSharpArrayToSpanCaller(_source),
+        SpanHandoffWorkload.SumSpan => _csharpSumSpan(_source),
+        SpanHandoffWorkload.CountEven => _csharpCountEven(_source),
+        SpanHandoffWorkload.CopyUntilNegative => _csharpCopyUntilNegative(_source, _destination),
+        SpanHandoffWorkload.ReverseCopy => _csharpReverseCopy(_source, _destination),
+        SpanHandoffWorkload.ArrayToSpanCaller => _csharpArrayToSpanCaller(_source),
         _ => throw new InvalidOperationException()
     };
 
@@ -124,6 +154,7 @@ func arrayToSpanCaller(values: int[]): int {
         SpanHandoffWorkload.SumSpan => _sumSpan(_source),
         SpanHandoffWorkload.CountEven => _countEven(_source),
         SpanHandoffWorkload.CopyUntilNegative => _copyUntilNegative(_source, _destination),
+        SpanHandoffWorkload.ReverseCopy => _reverseCopy(_source, _destination),
         SpanHandoffWorkload.ArrayToSpanCaller => _arrayToSpanCaller(_source),
         _ => throw new InvalidOperationException()
     };
@@ -171,5 +202,21 @@ func arrayToSpanCaller(values: int[]): int {
         }
 
         return written;
+    }
+
+    private static int CSharpReverseCopy(ReadOnlySpan<int> source, Span<int> destination)
+    {
+        var len = source.Length;
+        if (destination.Length < len)
+        {
+            return -1;
+        }
+
+        for (var i = 0; i < len; i++)
+        {
+            destination[i] = source[(len - 1) - i];
+        }
+
+        return len;
     }
 }

@@ -61,33 +61,82 @@ func copyDigits(src: int[], dst: int[], len: int): int {
 
     return len
 }
+
+[hot]
+func scanAndChecksumDigits(values: int[], len: int): int {
+    checksum := 0
+    for i := 0; i < len; i++ {
+        value := values[i]
+        if value < 48 || value > 57 {
+            return -1
+        }
+
+        checksum = checksum + (value - 48)
+    }
+
+    return checksum
+}
+
+[hot]
+func copyPositiveChecksum(src: int[], dst: int[], len: int): int {
+    if dst.Length < len {
+        return -1
+    }
+
+    written := 0
+    checksum := 0
+    for i := 0; i < len; i++ {
+        value := src[i]
+        if value >= 0 {
+            dst[written] = value
+            written = written + 1
+            checksum = checksum + value
+        }
+    }
+
+    return checksum + written
+}
 """;
 
     private int[] _digits = Array.Empty<int>();
     private int[] _payload = Array.Empty<int>();
     private int[] _destination = Array.Empty<int>();
+    private Func<int[], int, int> _csharpScanDigits = null!;
+    private Func<int[], int[], int, int> _csharpWriteChecksum = null!;
+    private Func<int[], int[], int, int> _csharpCopyDigits = null!;
+    private Func<int[], int, int> _csharpScanAndChecksumDigits = null!;
+    private Func<int[], int[], int, int> _csharpCopyPositiveChecksum = null!;
     private Func<int[], int, int> _scanDigits = null!;
     private Func<int[], int[], int, int> _writeChecksum = null!;
     private Func<int[], int[], int, int> _copyDigits = null!;
+    private Func<int[], int, int> _scanAndChecksumDigits = null!;
+    private Func<int[], int[], int, int> _copyPositiveChecksum = null!;
 
     public enum CombinationWorkload
     {
         ScanDigitsResult,
         WriteChecksumResult,
         CopyDigitsResult,
+        ScanAndChecksumResult,
+        CopyPositiveChecksumResult,
     }
 
     [Params(
         CombinationWorkload.ScanDigitsResult,
         CombinationWorkload.WriteChecksumResult,
-        CombinationWorkload.CopyDigitsResult)]
+        CombinationWorkload.CopyDigitsResult,
+        CombinationWorkload.ScanAndChecksumResult,
+        CombinationWorkload.CopyPositiveChecksumResult)]
     public CombinationWorkload Workload { get; set; }
+
+    [Params(64, 4096)]
+    public int Size { get; set; }
 
     [GlobalSetup]
     public void Setup()
     {
-        _digits = new int[4096];
-        _payload = new int[4096];
+        _digits = new int[Size];
+        _payload = new int[Size];
         _destination = new int[_payload.Length + 1];
         for (var i = 0; i < _digits.Length; i++)
         {
@@ -96,12 +145,21 @@ func copyDigits(src: int[], dst: int[], len: int): int {
 
         for (var i = 0; i < _payload.Length; i++)
         {
-            _payload[i] = i & 0xff;
+            var value = i & 0xff;
+            _payload[i] = (i & 1) == 0 ? value : -value;
         }
+
+        _csharpScanDigits = CSharpScanDigits;
+        _csharpWriteChecksum = CSharpWriteChecksum;
+        _csharpCopyDigits = CSharpCopyDigits;
+        _csharpScanAndChecksumDigits = CSharpScanAndChecksumDigits;
+        _csharpCopyPositiveChecksum = CSharpCopyPositiveChecksum;
 
         _scanDigits = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "scanDigits");
         _writeChecksum = NSharpCompiledMethod.Bind<Func<int[], int[], int, int>>(Source, "writeChecksum");
         _copyDigits = NSharpCompiledMethod.Bind<Func<int[], int[], int, int>>(Source, "copyDigits");
+        _scanAndChecksumDigits = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "scanAndChecksumDigits");
+        _copyPositiveChecksum = NSharpCompiledMethod.Bind<Func<int[], int[], int, int>>(Source, "copyPositiveChecksum");
     }
 
     [Benchmark(Baseline = true)]
@@ -110,6 +168,8 @@ func copyDigits(src: int[], dst: int[], len: int): int {
         CombinationWorkload.ScanDigitsResult => Consume(CSharpScanDigitsResult(_digits, _digits.Length)),
         CombinationWorkload.WriteChecksumResult => Consume(CSharpWriteChecksumResult(_payload, _destination, _payload.Length)),
         CombinationWorkload.CopyDigitsResult => Consume(CSharpCopyDigitsResult(_digits, _destination, _digits.Length)),
+        CombinationWorkload.ScanAndChecksumResult => Consume(CSharpScanAndChecksumResult(_digits, _digits.Length)),
+        CombinationWorkload.CopyPositiveChecksumResult => Consume(CSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length)),
         _ => throw new InvalidOperationException()
     };
 
@@ -119,6 +179,8 @@ func copyDigits(src: int[], dst: int[], len: int): int {
         CombinationWorkload.ScanDigitsResult => Consume(NSharpScanDigitsResult(_digits, _digits.Length)),
         CombinationWorkload.WriteChecksumResult => Consume(NSharpWriteChecksumResult(_payload, _destination, _payload.Length)),
         CombinationWorkload.CopyDigitsResult => Consume(NSharpCopyDigitsResult(_digits, _destination, _digits.Length)),
+        CombinationWorkload.ScanAndChecksumResult => Consume(NSharpScanAndChecksumResult(_digits, _digits.Length)),
+        CombinationWorkload.CopyPositiveChecksumResult => Consume(NSharpCopyPositiveChecksumResult(_payload, _destination, _payload.Length)),
         _ => throw new InvalidOperationException()
     };
 
@@ -140,22 +202,46 @@ func copyDigits(src: int[], dst: int[], len: int): int {
         return written >= 0 ? Result<int, int>.Ok(written) : Result<int, int>.Err(-1);
     }
 
-    private static Result<int, int> CSharpScanDigitsResult(int[] values, int len)
+    private Result<int, int> NSharpScanAndChecksumResult(int[] values, int len)
     {
-        var scanned = CSharpScanDigits(values, len);
+        var checksum = _scanAndChecksumDigits(values, len);
+        return checksum >= 0 ? Result<int, int>.Ok(checksum) : Result<int, int>.Err(-1);
+    }
+
+    private Result<int, int> NSharpCopyPositiveChecksumResult(int[] source, int[] destination, int len)
+    {
+        var checksum = _copyPositiveChecksum(source, destination, len);
+        return checksum >= 0 ? Result<int, int>.Ok(checksum) : Result<int, int>.Err(-1);
+    }
+
+    private Result<int, int> CSharpScanDigitsResult(int[] values, int len)
+    {
+        var scanned = _csharpScanDigits(values, len);
         return scanned >= 0 ? Result<int, int>.Ok(scanned) : Result<int, int>.Err(-1);
     }
 
-    private static Result<int, int> CSharpWriteChecksumResult(int[] source, int[] destination, int len)
+    private Result<int, int> CSharpWriteChecksumResult(int[] source, int[] destination, int len)
     {
-        var written = CSharpWriteChecksum(source, destination, len);
+        var written = _csharpWriteChecksum(source, destination, len);
         return written >= 0 ? Result<int, int>.Ok(written) : Result<int, int>.Err(-1);
     }
 
-    private static Result<int, int> CSharpCopyDigitsResult(int[] source, int[] destination, int len)
+    private Result<int, int> CSharpCopyDigitsResult(int[] source, int[] destination, int len)
     {
-        var written = CSharpCopyDigits(source, destination, len);
+        var written = _csharpCopyDigits(source, destination, len);
         return written >= 0 ? Result<int, int>.Ok(written) : Result<int, int>.Err(-1);
+    }
+
+    private Result<int, int> CSharpScanAndChecksumResult(int[] values, int len)
+    {
+        var checksum = _csharpScanAndChecksumDigits(values, len);
+        return checksum >= 0 ? Result<int, int>.Ok(checksum) : Result<int, int>.Err(-1);
+    }
+
+    private Result<int, int> CSharpCopyPositiveChecksumResult(int[] source, int[] destination, int len)
+    {
+        var checksum = _csharpCopyPositiveChecksum(source, destination, len);
+        return checksum >= 0 ? Result<int, int>.Ok(checksum) : Result<int, int>.Err(-1);
     }
 
     private static int Consume(Result<int, int> result)
@@ -216,5 +302,45 @@ func copyDigits(src: int[], dst: int[], len: int): int {
         }
 
         return len;
+    }
+
+    private static int CSharpScanAndChecksumDigits(int[] values, int len)
+    {
+        var checksum = 0;
+        for (var i = 0; i < len; i++)
+        {
+            var value = values[i];
+            if (value < 48 || value > 57)
+            {
+                return -1;
+            }
+
+            checksum += value - 48;
+        }
+
+        return checksum;
+    }
+
+    private static int CSharpCopyPositiveChecksum(int[] source, int[] destination, int len)
+    {
+        if (destination.Length < len)
+        {
+            return -1;
+        }
+
+        var written = 0;
+        var checksum = 0;
+        for (var i = 0; i < len; i++)
+        {
+            var value = source[i];
+            if (value >= 0)
+            {
+                destination[written] = value;
+                written++;
+                checksum += value;
+            }
+        }
+
+        return checksum + written;
     }
 }

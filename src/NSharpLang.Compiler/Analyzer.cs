@@ -6744,7 +6744,7 @@ public class Analyzer : IDisposable
                         paramType = ApplyNSharpGenericBindings(paramType, genericBindings);
                         var argType = argTypes[i];
 
-                        if (!IsAssignable(paramType, argType))
+                        if (!IsNSharpArgumentAssignable(parameters[paramIndex], paramType, call.Arguments[i], argType))
                         {
                             var (diagnosticLine, diagnosticColumn, diagnosticLength) =
                                 GetExpressionDiagnosticSpan(call.Arguments[i].Value);
@@ -7287,13 +7287,13 @@ public class Analyzer : IDisposable
                 paramType = ApplyNSharpGenericBindings(paramType, genericBindings);
                 var argType = argTypes[i];
 
-                if (!IsAssignable(paramType, argType))
+                if (!IsNSharpArgumentAssignable(decl.Parameters[i + paramStart], paramType, call.Arguments[i], argType))
                 {
                     allMatch = false;
                     break;
                 }
 
-                score += GetNSharpMatchScore(paramType, argType);
+                score += GetNSharpArgumentMatchScore(decl.Parameters[i + paramStart], paramType, call.Arguments[i], argType);
             }
 
             if (!allMatch)
@@ -7408,6 +7408,51 @@ public class Analyzer : IDisposable
         return 2;
     }
 
+    private bool IsNSharpArgumentAssignable(Parameter parameter, TypeInfo parameterType, Argument argument, TypeInfo argumentType)
+    {
+        var resolvedParameter = ResolveTypeAlias(parameterType);
+        var resolvedArgument = ResolveTypeAlias(argumentType);
+        var expectsByRefType = resolvedParameter is ByRefTypeInfo;
+        var expectsByRefModifier = parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out;
+        var suppliedByRef = argument.Modifier is ArgumentModifier.Ref or ArgumentModifier.Out;
+
+        if (expectsByRefType)
+        {
+            if (!suppliedByRef)
+                return false;
+
+            var elementType = ((ByRefTypeInfo)resolvedParameter).InnerType;
+            return IsAssignable(elementType, resolvedArgument);
+        }
+
+        if (expectsByRefModifier)
+        {
+            if (!suppliedByRef)
+                return false;
+
+            if (parameter.Modifier == Ast.ParameterModifier.Ref && argument.Modifier != ArgumentModifier.Ref)
+                return false;
+
+            if (parameter.Modifier == Ast.ParameterModifier.Out && argument.Modifier != ArgumentModifier.Out)
+                return false;
+        }
+        else if (suppliedByRef)
+        {
+            return false;
+        }
+
+        return IsAssignable(resolvedParameter, resolvedArgument);
+    }
+
+    private int GetNSharpArgumentMatchScore(Parameter parameter, TypeInfo parameterType, Argument argument, TypeInfo argumentType)
+    {
+        var resolvedParameter = ResolveTypeAlias(parameterType);
+        if (resolvedParameter is ByRefTypeInfo byRef)
+            return GetNSharpMatchScore(byRef.InnerType, argumentType);
+
+        return GetNSharpMatchScore(parameterType, argumentType);
+    }
+
     /// <summary>
     /// Validates arguments against a selected N#-declared overload and reports type errors.
     /// </summary>
@@ -7429,7 +7474,7 @@ public class Analyzer : IDisposable
             paramType = ApplyNSharpGenericBindings(paramType, genericBindings);
             var argType = argTypes[i];
 
-            if (!IsAssignable(paramType, argType))
+            if (!IsNSharpArgumentAssignable(decl.Parameters[paramIndex], paramType, call.Arguments[i], argType))
             {
                 Error($"Argument {i + 1} is '{argType}', but parameter '{decl.Parameters[paramIndex].Name}' expects '{paramType}'",
                     call.Line, call.Column);
@@ -7920,6 +7965,11 @@ public class Analyzer : IDisposable
             {
                 CollectNSharpTypeParameterBounds(nullable.InnerType, argType, typeParameters, allBounds);
             }
+        }
+        else if (paramTypeRef is ByRefTypeReference byRef)
+        {
+            var innerArgType = argType is ByRefTypeInfo byRefArg ? byRefArg.InnerType : argType;
+            CollectNSharpTypeParameterBounds(byRef.InnerType, innerArgType, typeParameters, allBounds);
         }
         // Handle Func/Action delegate types for lambda inference
         else if (paramTypeRef is FunctionTypeReference funcRef)

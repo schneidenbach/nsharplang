@@ -63,13 +63,55 @@ func countAscii(values: int[]): int {
 
     return count
 }
+
+[hot]
+func minMaxDelta(values: int[]): int {
+    if values.Length == 0 {
+        return 0
+    }
+
+    min := values[0]
+    max := values[0]
+    len := values.Length
+    for i := 1; i < len; i++ {
+        value := values[i]
+        if value < min {
+            min = value
+        }
+
+        if value > max {
+            max = value
+        }
+    }
+
+    return max - min
+}
+
+[hot]
+func rollingHash(values: int[]): int {
+    hash := 17
+    len := values.Length
+    for i := 0; i < len; i++ {
+        hash = ((hash * 31) + values[i]) & 65535
+    }
+
+    return hash
+}
 """;
 
     private int[] _values = Array.Empty<int>();
+    private Func<int[], int> _csharpChecksum = null!;
+    private Func<int[], int> _csharpScoreFrame = null!;
+    private Func<int[], int, int> _csharpScanTag = null!;
+    private Func<int[], int> _csharpCountAscii = null!;
+    private Func<int[], int> _csharpMinMaxDelta = null!;
+    private Func<int[], int> _csharpRollingHash = null!;
     private Func<int[], int> _checksum = null!;
     private Func<int[], int> _scoreFrame = null!;
     private Func<int[], int, int> _scanTag = null!;
     private Func<int[], int> _countAscii = null!;
+    private Func<int[], int> _minMaxDelta = null!;
+    private Func<int[], int> _rollingHash = null!;
     private int _tag;
 
     public enum HotPathWorkload
@@ -78,19 +120,26 @@ func countAscii(values: int[]): int {
         ScoreFrame,
         ScanTag,
         CountAscii,
+        MinMaxDelta,
+        RollingHash,
     }
 
     [Params(
         HotPathWorkload.Checksum,
         HotPathWorkload.ScoreFrame,
         HotPathWorkload.ScanTag,
-        HotPathWorkload.CountAscii)]
+        HotPathWorkload.CountAscii,
+        HotPathWorkload.MinMaxDelta,
+        HotPathWorkload.RollingHash)]
     public HotPathWorkload Workload { get; set; }
+
+    [Params(64, 4096)]
+    public int Size { get; set; }
 
     [GlobalSetup]
     public void Setup()
     {
-        _values = new int[4096];
+        _values = new int[Size];
         for (var i = 0; i < _values.Length; i++)
         {
             _values[i] = ((i * 17) + 3) & 0x7f;
@@ -99,19 +148,30 @@ func countAscii(values: int[]): int {
         _tag = 100_003;
         _values[^17] = _tag;
 
+        _csharpChecksum = CSharpChecksum;
+        _csharpScoreFrame = CSharpScoreFrame;
+        _csharpScanTag = CSharpScanTag;
+        _csharpCountAscii = CSharpCountAscii;
+        _csharpMinMaxDelta = CSharpMinMaxDelta;
+        _csharpRollingHash = CSharpRollingHash;
+
         _checksum = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "checksum");
         _scoreFrame = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "scoreFrame");
         _scanTag = NSharpCompiledMethod.Bind<Func<int[], int, int>>(Source, "scanTag");
         _countAscii = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "countAscii");
+        _minMaxDelta = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "minMaxDelta");
+        _rollingHash = NSharpCompiledMethod.Bind<Func<int[], int>>(Source, "rollingHash");
     }
 
     [Benchmark(Baseline = true)]
     public int CSharp() => Workload switch
     {
-        HotPathWorkload.Checksum => CSharpChecksum(_values),
-        HotPathWorkload.ScoreFrame => CSharpScoreFrame(_values),
-        HotPathWorkload.ScanTag => CSharpScanTag(_values, _tag),
-        HotPathWorkload.CountAscii => CSharpCountAscii(_values),
+        HotPathWorkload.Checksum => _csharpChecksum(_values),
+        HotPathWorkload.ScoreFrame => _csharpScoreFrame(_values),
+        HotPathWorkload.ScanTag => _csharpScanTag(_values, _tag),
+        HotPathWorkload.CountAscii => _csharpCountAscii(_values),
+        HotPathWorkload.MinMaxDelta => _csharpMinMaxDelta(_values),
+        HotPathWorkload.RollingHash => _csharpRollingHash(_values),
         _ => throw new InvalidOperationException()
     };
 
@@ -122,6 +182,8 @@ func countAscii(values: int[]): int {
         HotPathWorkload.ScoreFrame => _scoreFrame(_values),
         HotPathWorkload.ScanTag => _scanTag(_values, _tag),
         HotPathWorkload.CountAscii => _countAscii(_values),
+        HotPathWorkload.MinMaxDelta => _minMaxDelta(_values),
+        HotPathWorkload.RollingHash => _rollingHash(_values),
         _ => throw new InvalidOperationException()
     };
 
@@ -181,5 +243,44 @@ func countAscii(values: int[]): int {
         }
 
         return count;
+    }
+
+    private static int CSharpMinMaxDelta(int[] values)
+    {
+        if (values.Length == 0)
+        {
+            return 0;
+        }
+
+        var min = values[0];
+        var max = values[0];
+        var len = values.Length;
+        for (var i = 1; i < len; i++)
+        {
+            var value = values[i];
+            if (value < min)
+            {
+                min = value;
+            }
+
+            if (value > max)
+            {
+                max = value;
+            }
+        }
+
+        return max - min;
+    }
+
+    private static int CSharpRollingHash(int[] values)
+    {
+        var hash = 17;
+        var len = values.Length;
+        for (var i = 0; i < len; i++)
+        {
+            hash = ((hash * 31) + values[i]) & 65535;
+        }
+
+        return hash;
     }
 }

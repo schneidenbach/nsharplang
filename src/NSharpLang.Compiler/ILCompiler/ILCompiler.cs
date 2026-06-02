@@ -15067,6 +15067,7 @@ public partial class ILCompiler
             }
 
             var objectType = GetExpressionType(memberAccess.Object);
+            var memberOwnerType = GetByRefElementType(objectType);
             var memberType = GetMemberAccessType(memberAccess);
 
             if (assignment.Operator == AssignmentOperator.NullCoalesceAssign)
@@ -15158,7 +15159,7 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Dup); // Duplicate object reference
 
                 // Load current field/property value
-                if (objectType is TypeBuilder typeBuilder)
+                if (memberOwnerType is TypeBuilder typeBuilder)
                 {
                     if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberAccess.MemberName), out var fieldBuilder))
                     {
@@ -15175,7 +15176,7 @@ public partial class ILCompiler
                 }
                 else
                 {
-                    EmitMemberLoadValue(objectType, memberAccess.MemberName);
+                    EmitMemberLoadValue(memberOwnerType, memberAccess.MemberName);
                 }
 
                 // Emit right-hand side
@@ -15221,7 +15222,7 @@ public partial class ILCompiler
             }
 
             // Store to field/property
-            if (objectType is TypeBuilder tb)
+            if (memberOwnerType is TypeBuilder tb)
             {
                 if (_fields.TryGetValue(GetFieldKey(tb, memberAccess.MemberName), out var fb))
                 {
@@ -15238,7 +15239,7 @@ public partial class ILCompiler
             }
             else
             {
-                EmitMemberStoreValue(objectType, memberAccess.MemberName);
+                EmitMemberStoreValue(memberOwnerType, memberAccess.MemberName);
             }
 
             // Assignment expressions return the assigned value
@@ -15246,7 +15247,7 @@ public partial class ILCompiler
             if (receiverLocal != null)
             {
                 _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
-                EmitMemberLoadValue(objectType, memberAccess.MemberName);
+                EmitMemberLoadValue(memberOwnerType, memberAccess.MemberName);
             }
             else
             {
@@ -16518,6 +16519,8 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        objectType = GetByRefElementType(objectType);
+
         if (objectType is TypeBuilder typeBuilder)
         {
             if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberName), out var fieldBuilder))
@@ -16629,6 +16632,8 @@ public partial class ILCompiler
     private void EmitMemberStoreValue(Type objectType, string memberName)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        objectType = GetByRefElementType(objectType);
 
         if (objectType is TypeBuilder typeBuilder)
         {
@@ -16857,6 +16862,7 @@ public partial class ILCompiler
 
         // Get the object type
         var objectType = nullableObjectType;
+        var memberOwnerType = GetByRefElementType(objectType);
         var useAddressReceiver = IsValueTypeLike(objectType);
 
         if (useAddressReceiver)
@@ -16869,7 +16875,7 @@ public partial class ILCompiler
         }
 
         // Check if it's a user-defined type
-        if (objectType is TypeBuilder typeBuilder)
+        if (memberOwnerType is TypeBuilder typeBuilder)
         {
             if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberAccess.MemberName), out var fieldBuilder))
             {
@@ -16889,7 +16895,7 @@ public partial class ILCompiler
 
         // Try to find a property first
         var property = ResolveRuntimeProperty(
-            objectType,
+            memberOwnerType,
             memberAccess.MemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (property?.Getter != null)
@@ -16900,7 +16906,7 @@ public partial class ILCompiler
 
         // Try to find a field
         var field = ResolveRuntimeField(
-            objectType,
+            memberOwnerType,
             memberAccess.MemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (field != null)
@@ -16916,7 +16922,7 @@ public partial class ILCompiler
             return;
         }
 
-        throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {objectType.Name}");
+        throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {memberOwnerType.Name}");
     }
 
     /// <summary>
@@ -17858,7 +17864,8 @@ public partial class ILCompiler
         }
 
         var objectType = GetExpressionType(unwrapNullConditional.Object);
-        var nullableUnderlyingType = Nullable.GetUnderlyingType(objectType);
+        var memberOwnerType = GetByRefElementType(objectType);
+        var nullableUnderlyingType = Nullable.GetUnderlyingType(memberOwnerType);
         if (nullableUnderlyingType != null)
         {
             if (unwrapNullConditional.MemberName == "HasValue")
@@ -17873,7 +17880,7 @@ public partial class ILCompiler
         }
 
         // Check user-defined types first
-        if (objectType is TypeBuilder typeBuilder)
+        if (memberOwnerType is TypeBuilder typeBuilder)
         {
             if (_fields.TryGetValue(GetFieldKey(typeBuilder, unwrapNullConditional.MemberName), out var fieldBuilder))
             {
@@ -17891,7 +17898,7 @@ public partial class ILCompiler
 
         // Try to find a property
         var property = ResolveRuntimeProperty(
-            objectType,
+            memberOwnerType,
             unwrapNullConditional.MemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (property != null)
@@ -17901,7 +17908,7 @@ public partial class ILCompiler
 
         // Try to find a field
         var field = ResolveRuntimeField(
-            objectType,
+            memberOwnerType,
             unwrapNullConditional.MemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (field != null)

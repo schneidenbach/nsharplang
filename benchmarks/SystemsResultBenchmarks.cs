@@ -13,26 +13,41 @@ namespace NSharpLang.Benchmarks;
 public class SystemsResultBenchmarks
 {
     private Result<int, int>[] _results = [];
+    private Result<int, int>[] _allOkResults = [];
+    private Result<int, int>[] _allErrResults = [];
     private CSharpTaggedResult[] _csharpResults = [];
+    private CSharpTaggedResult[] _allOkCSharpResults = [];
+    private CSharpTaggedResult[] _allErrCSharpResults = [];
 
     public enum ResultWorkload
     {
         SumOkValues,
         SumErrValues,
         BranchAndCopy,
+        AllOkFastPath,
+        AllErrFastPath,
     }
 
     [Params(
         ResultWorkload.SumOkValues,
         ResultWorkload.SumErrValues,
-        ResultWorkload.BranchAndCopy)]
+        ResultWorkload.BranchAndCopy,
+        ResultWorkload.AllOkFastPath,
+        ResultWorkload.AllErrFastPath)]
     public ResultWorkload Workload { get; set; }
+
+    [Params(64, 4096)]
+    public int Size { get; set; }
 
     [GlobalSetup]
     public void Setup()
     {
-        _results = new Result<int, int>[4096];
+        _results = new Result<int, int>[Size];
+        _allOkResults = new Result<int, int>[Size];
+        _allErrResults = new Result<int, int>[Size];
         _csharpResults = new CSharpTaggedResult[_results.Length];
+        _allOkCSharpResults = new CSharpTaggedResult[_results.Length];
+        _allErrCSharpResults = new CSharpTaggedResult[_results.Length];
         for (var i = 0; i < _results.Length; i++)
         {
             if ((i & 1) == 0)
@@ -45,6 +60,11 @@ public class SystemsResultBenchmarks
                 _results[i] = Result<int, int>.Err(-i);
                 _csharpResults[i] = CSharpTaggedResult.Err(-i);
             }
+
+            _allOkResults[i] = Result<int, int>.Ok(i);
+            _allOkCSharpResults[i] = CSharpTaggedResult.Ok(i);
+            _allErrResults[i] = Result<int, int>.Err(-i);
+            _allErrCSharpResults[i] = CSharpTaggedResult.Err(-i);
         }
     }
 
@@ -54,6 +74,8 @@ public class SystemsResultBenchmarks
         ResultWorkload.SumOkValues => CSharpSumOkValues(_csharpResults),
         ResultWorkload.SumErrValues => CSharpSumErrValues(_csharpResults),
         ResultWorkload.BranchAndCopy => CSharpBranchAndCopy(_csharpResults),
+        ResultWorkload.AllOkFastPath => CSharpAllOkFastPath(_allOkCSharpResults),
+        ResultWorkload.AllErrFastPath => CSharpAllErrFastPath(_allErrCSharpResults),
         _ => throw new InvalidOperationException()
     };
 
@@ -63,6 +85,8 @@ public class SystemsResultBenchmarks
         ResultWorkload.SumOkValues => RuntimeSumOkValues(_results),
         ResultWorkload.SumErrValues => RuntimeSumErrValues(_results),
         ResultWorkload.BranchAndCopy => RuntimeBranchAndCopy(_results),
+        ResultWorkload.AllOkFastPath => RuntimeAllOkFastPath(_allOkResults),
+        ResultWorkload.AllErrFastPath => RuntimeAllErrFastPath(_allErrResults),
         _ => throw new InvalidOperationException()
     };
 
@@ -114,6 +138,40 @@ public class SystemsResultBenchmarks
         return sum;
     }
 
+    private static int CSharpAllOkFastPath(CSharpTaggedResult[] results)
+    {
+        var sum = 0;
+        foreach (var result in results)
+        {
+            if (!result.IsOk)
+            {
+                return -1;
+            }
+
+            result.TryGetOk(out var value);
+            sum += value;
+        }
+
+        return sum;
+    }
+
+    private static int CSharpAllErrFastPath(CSharpTaggedResult[] results)
+    {
+        var sum = 0;
+        foreach (var result in results)
+        {
+            if (result.IsOk)
+            {
+                return -1;
+            }
+
+            result.TryGetErr(out var value);
+            sum += value;
+        }
+
+        return sum;
+    }
+
     private static int RuntimeSumOkValues(Result<int, int>[] results)
     {
         var sum = 0;
@@ -123,6 +181,40 @@ public class SystemsResultBenchmarks
             {
                 sum += value;
             }
+        }
+
+        return sum;
+    }
+
+    private static int RuntimeAllOkFastPath(Result<int, int>[] results)
+    {
+        var sum = 0;
+        foreach (var result in results)
+        {
+            if (!result.IsOk)
+            {
+                return -1;
+            }
+
+            result.TryGetOk(out var value);
+            sum += value;
+        }
+
+        return sum;
+    }
+
+    private static int RuntimeAllErrFastPath(Result<int, int>[] results)
+    {
+        var sum = 0;
+        foreach (var result in results)
+        {
+            if (result.IsOk)
+            {
+                return -1;
+            }
+
+            result.TryGetErr(out var value);
+            sum += value;
         }
 
         return sum;

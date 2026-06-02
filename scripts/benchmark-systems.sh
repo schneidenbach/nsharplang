@@ -69,18 +69,18 @@ import sys
 
 root = sys.argv[1]
 expected_counts = {
-    ("SystemsHotPathBenchmarks", "CSharp"): 4,
-    ("SystemsHotPathBenchmarks", "NSharp"): 4,
-    ("SystemsSpanHandoffBenchmarks", "CSharp"): 8,
-    ("SystemsSpanHandoffBenchmarks", "NSharp"): 8,
-    ("SystemsCallerBufferBenchmarks", "CSharp"): 3,
-    ("SystemsCallerBufferBenchmarks", "NSharp"): 3,
-    ("SystemsResultBenchmarks", "CSharpTaggedStruct"): 3,
-    ("SystemsResultBenchmarks", "RuntimeResult"): 3,
-    ("SystemsPooledBoundaryBenchmarks", "CSharp"): 3,
-    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 3,
-    ("SystemsCombinationBenchmarks", "CSharp"): 3,
-    ("SystemsCombinationBenchmarks", "NSharp"): 3,
+    ("SystemsHotPathBenchmarks", "CSharp"): 12,
+    ("SystemsHotPathBenchmarks", "NSharp"): 12,
+    ("SystemsSpanHandoffBenchmarks", "CSharp"): 10,
+    ("SystemsSpanHandoffBenchmarks", "NSharp"): 10,
+    ("SystemsCallerBufferBenchmarks", "CSharp"): 10,
+    ("SystemsCallerBufferBenchmarks", "NSharp"): 10,
+    ("SystemsResultBenchmarks", "CSharpTaggedStruct"): 10,
+    ("SystemsResultBenchmarks", "RuntimeResult"): 10,
+    ("SystemsPooledBoundaryBenchmarks", "CSharp"): 10,
+    ("SystemsPooledBoundaryBenchmarks", "NSharp"): 10,
+    ("SystemsCombinationBenchmarks", "CSharp"): 10,
+    ("SystemsCombinationBenchmarks", "NSharp"): 10,
 }
 
 # Keep this loose enough to avoid normal BenchmarkDotNet noise but tight enough
