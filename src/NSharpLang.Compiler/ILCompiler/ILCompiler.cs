@@ -8208,12 +8208,13 @@ public partial class ILCompiler
         {
             var parameter = parameters[i];
             var parameterType = ResolveType(parameter.Type, genericParameters);
+            var logicalParameterType = GetByRefElementType(parameterType);
             _parameters[parameter.Name] = startIndex + i;
             // The logical type seen by the body is always the value type; an `in`-lowered
             // parameter is read by dereferencing the managed reference (see _byRefParameters).
-            _parameterTypes[parameter.Name] = parameterType;
+            _parameterTypes[parameter.Name] = logicalParameterType;
 
-            if (parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out)
+            if (parameterType.IsByRef || parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out)
             {
                 _byRefParameters.Add(parameter.Name);
                 continue;
@@ -8224,17 +8225,17 @@ public partial class ILCompiler
             // of it must dereference. Closure-free elision guarantees the parameter is never
             // captured, so the lift path below is unreachable for these parameters.
             if (copyElisionOwner != null
-                && ShouldLowerParameterToReadOnlyReference(parameter, copyElisionOwner, ownerDeclaresClosures: false, parameterType))
+                && ShouldLowerParameterToReadOnlyReference(parameter, copyElisionOwner, ownerDeclaresClosures: false, logicalParameterType))
             {
                 _byRefParameters.Add(parameter.Name);
                 continue;
             }
 
-            if (ShouldLiftIntoBox(parameter.Name, parameterType))
+            if (ShouldLiftIntoBox(parameter.Name, logicalParameterType))
             {
-                var local = DeclareNamedLocal(parameter.Name, parameterType);
+                var local = DeclareNamedLocal(parameter.Name, logicalParameterType);
                 EmitLoadArgument(startIndex + i);
-                EmitInitializeNamedLocal(local, parameterType, emitDefaultValue: false, initializer: null, valueAlreadyOnStack: true);
+                EmitInitializeNamedLocal(local, logicalParameterType, emitDefaultValue: false, initializer: null, valueAlreadyOnStack: true);
             }
         }
     }
@@ -9361,7 +9362,8 @@ public partial class ILCompiler
         }
 
         var objectType = GetExpressionType(memberAccess.Object);
-        if (objectType is TypeBuilder typeBuilder)
+        var memberOwnerType = GetByRefElementType(objectType);
+        if (memberOwnerType is TypeBuilder typeBuilder)
         {
             if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberAccess.MemberName), out var fieldBuilder))
             {
@@ -9371,7 +9373,7 @@ public partial class ILCompiler
                 }
                 else
                 {
-                    if (IsValueTypeLike(objectType) && !objectType.IsGenericParameter)
+                    if ((objectType.IsByRef || IsValueTypeLike(memberOwnerType)) && !memberOwnerType.IsGenericParameter)
                     {
                         EmitAddressableExpression(memberAccess.Object, objectType);
                     }
@@ -9389,7 +9391,7 @@ public partial class ILCompiler
             throw new InvalidOperationException($"ref/out arguments require a field, but {GetTypeKey(typeBuilder)}.{memberAccess.MemberName} is not a field");
         }
 
-        var field = objectType.GetField(memberAccess.MemberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
+        var field = memberOwnerType.GetField(memberAccess.MemberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (field != null)
         {
             if (field.IsStatic)
@@ -9398,7 +9400,7 @@ public partial class ILCompiler
             }
             else
             {
-                if (IsValueTypeLike(objectType) && !objectType.IsGenericParameter)
+                if ((objectType.IsByRef || IsValueTypeLike(memberOwnerType)) && !memberOwnerType.IsGenericParameter)
                 {
                     EmitAddressableExpression(memberAccess.Object, objectType);
                 }
@@ -9413,7 +9415,7 @@ public partial class ILCompiler
             return;
         }
 
-        throw new InvalidOperationException($"ref/out arguments require a field, but {objectType.Name}.{memberAccess.MemberName} is not a field");
+        throw new InvalidOperationException($"ref/out arguments require a field, but {memberOwnerType.Name}.{memberAccess.MemberName} is not a field");
     }
 
     private void EmitIndexArgumentAddress(IndexAccessExpression indexAccess)
@@ -14991,6 +14993,12 @@ public partial class ILCompiler
         if (_currentIL == null || _locals == null || _parameters == null)
             throw new InvalidOperationException("No IL generator context");
 
+        if (assignment.Target is IdentifierExpression { Name: "_" })
+        {
+            EmitExpression(assignment.Value);
+            return;
+        }
+
         // Handle member access assignments (obj.Field = value)
         if (assignment.Target is MemberAccessExpression memberAccess)
         {
@@ -15498,6 +15506,31 @@ public partial class ILCompiler
 
         var type = ResolveNewExpressionType(newExpr);
 
+        if (newExpr.ArrayLengthExpression != null)
+        {
+            if (!type.IsArray)
+            {
+                throw new InvalidOperationException($"Sized array construction requires an array type, but resolved to {type}");
+            }
+
+            if (newExpr.ConstructorArguments.Count != 0)
+            {
+                throw new InvalidOperationException("Sized array construction cannot also have constructor arguments");
+            }
+
+            var elementType = type.GetElementType()
+                ?? throw new InvalidOperationException($"Could not resolve array element type for {type}");
+            EmitExpressionWithExpectedType(newExpr.ArrayLengthExpression, typeof(int));
+            _currentIL.Emit(OpCodes.Newarr, elementType);
+
+            if (newExpr.Initializer != null)
+            {
+                EmitArrayInitializerElements(elementType, newExpr.Initializer.Properties);
+            }
+
+            return;
+        }
+
         // Allocation-free value-struct union case construction: `new U.Case` produces a
         // U struct value via the case's static factory, instead of allocating a case class.
         if (TryGetValueStructUnionCase(type, out var unionLayout, out _))
@@ -15626,6 +15659,25 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Dup);
                 EmitObjectInitializerEntry(type, propInit);
             }
+        }
+    }
+
+    private void EmitArrayInitializerElements(Type elementType, IReadOnlyList<PropertyInitializer> properties)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        for (var i = 0; i < properties.Count; i++)
+        {
+            var property = properties[i];
+            if (property.IsIndexerInitializer)
+            {
+                throw new InvalidOperationException("Sized array initializer entries must be bare values, not indexer initializers");
+            }
+
+            _currentIL.Emit(OpCodes.Dup);
+            _currentIL.Emit(OpCodes.Ldc_I4, i);
+            EmitExpressionWithExpectedType(property.Value, elementType);
+            EmitArrayElementStore(elementType);
         }
     }
 
@@ -20411,6 +20463,8 @@ public partial class ILCompiler
             EmitDefaultConstructorBody(typeBuilder, classDecl.Members);
         }
 
+        EmitDeclaredStaticFieldInitializers(typeBuilder, classDecl.Members, FieldOwnerKind.Class);
+
         foreach (var member in classDecl.Members)
         {
             switch (member)
@@ -20457,6 +20511,8 @@ public partial class ILCompiler
             EmitPrimaryConstructorBody(typeBuilder, structDecl.PrimaryConstructorParameters, isValueType: true, structDecl.Members);
         }
 
+        EmitDeclaredStaticFieldInitializers(typeBuilder, structDecl.Members, FieldOwnerKind.Struct);
+
         foreach (var member in structDecl.Members)
         {
             switch (member)
@@ -20482,6 +20538,41 @@ public partial class ILCompiler
         EmitNestedTypeBodies(structDecl.Members, typeName);
 
         _currentTypeBuilder = null;
+    }
+
+    private void EmitDeclaredStaticFieldInitializers(TypeBuilder typeBuilder, IEnumerable<Declaration> members, FieldOwnerKind ownerKind)
+    {
+        var staticFields = members
+            .OfType<FieldDeclaration>()
+            .Where(field => field.Initializer != null && field.Modifiers.HasFlag(Modifiers.Static))
+            .ToArray();
+        if (staticFields.Length == 0)
+        {
+            return;
+        }
+
+        _currentIL = typeBuilder.DefineTypeInitializer().GetILGenerator();
+        InitializeBodyContext(null, liftLocalsIntoBoxes: false);
+        _currentHasThis = false;
+        _currentGenericParameters = GetTypeGenericParameters(typeBuilder);
+
+        foreach (var fieldDecl in staticFields)
+        {
+            var storageKey = GetFieldEmission(fieldDecl, ownerKind).EmitsAsAutoProperty
+                ? GetFieldKey(typeBuilder, $"<{fieldDecl.Name}>k__BackingField")
+                : GetFieldKey(typeBuilder, fieldDecl.Name);
+            if (!_fields.TryGetValue(storageKey, out var storageField))
+            {
+                throw new InvalidOperationException($"Storage field for {GetTypeKey(typeBuilder)}.{fieldDecl.Name} not declared");
+            }
+
+            EmitExpressionWithExpectedType(fieldDecl.Initializer!, storageField.FieldType);
+            _currentIL.Emit(OpCodes.Stsfld, storageField);
+        }
+
+        _currentIL.Emit(OpCodes.Ret);
+        ClearMethodContext();
+        _currentGenericParameters = null;
     }
 
     private void EmitDeclaredInstanceFieldInitializers(TypeBuilder typeBuilder, IEnumerable<Declaration> members, FieldOwnerKind ownerKind)

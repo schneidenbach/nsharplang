@@ -9529,6 +9529,18 @@ public class Analyzer : IDisposable
             AnalyzeExpression(arg.Value);
         }
 
+        if (newExpr.ArrayLengthExpression != null)
+        {
+            var lengthType = AnalyzeExpression(newExpr.ArrayLengthExpression);
+            if (lengthType != BuiltInTypes.Int)
+            {
+                Error(ErrorCode.TypeMismatch,
+                    $"Array length must be an int, not '{lengthType}'",
+                    newExpr.ArrayLengthExpression.Line,
+                    newExpr.ArrayLengthExpression.Column);
+            }
+        }
+
         // Analyze initializer
         if (newExpr.Initializer != null)
         {

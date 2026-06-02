@@ -187,7 +187,8 @@ public record NewExpression(
     List<Argument> ConstructorArguments,
     ObjectInitializerExpression? Initializer,
     int Line,
-    int Column) : Expression(Line, Column);
+    int Column,
+    Expression? ArrayLengthExpression = null) : Expression(Line, Column);
 
 // Explicit systems allocation marker: alloc new Foo(), alloc [1, 2], alloc $"..."
 public record AllocExpression(

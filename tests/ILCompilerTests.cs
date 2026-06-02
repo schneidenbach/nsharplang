@@ -3971,6 +3971,61 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteSizedArrayAllocation()
+    {
+        var source = @"
+func main(): int {
+    numbers := new int[3]
+    numbers[0] = 4
+    numbers[1] = 8
+    numbers[2] = 15
+    return numbers.Length + numbers[1]
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(11, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteDiscardAssignment()
+    {
+        var source = @"
+func main(): int {
+    values := new int[1]
+    values[0] = 42
+    _ = values[0]
+    return 7
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(7, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteStaticSizedArrayTableRead()
+    {
+        var source = @"
+static class Table {
+    static Values: int[] = Build()
+
+    static func Build(): int[] {
+        values := new int[4]
+        for i := 0; i < values.Length; i++ {
+            values[i] = i * 10
+        }
+        return values
+    }
+}
+
+func main(): int {
+    return Table.Values[3]
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(30, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteTernaryExpression()
     {
         var source = @"
@@ -4958,6 +5013,32 @@ func main(): int {
     counter := new Counter { Value: 41 }
     bump(ref counter.Value)
     return counter.Value
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(42, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteRefParameterOnByRefStructField()
+    {
+        var source = @"
+struct Counter {
+    Value: int
+}
+
+func bump(ref value: int) {
+    value += 1
+}
+
+func touch(counter: &Counter): int {
+    bump(ref counter.Value)
+    return counter.Value
+}
+
+func main(): int {
+    counter := new Counter { Value: 41 }
+    return touch(ref counter)
 }";
 
         var result = CompileAndInvoke(source);

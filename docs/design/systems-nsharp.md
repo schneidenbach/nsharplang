@@ -1314,9 +1314,9 @@ in Appendix B. Use cases 24-48 are complex proof projects under
 Implementation note: Appendix B and the proof projects are proposal pressure
 tests. The current executable implementation evidence is the ten-case acceptance
 gauntlet under `tests/fixtures/systems-gauntlet/`, executable proof projects
-44 and 45 under `docs/design/systems-samples/proofs/`, the Systems N# unit/CLI
-tests, and the 124-row Systems BenchmarkDotNet gate. The remaining 24-48 proof
-projects are design-only until migrated and audited in
+31, 32, 36, 44, and 45 under `docs/design/systems-samples/proofs/`, the Systems
+N# unit/CLI tests, and the 124-row Systems BenchmarkDotNet gate. The remaining
+24-48 proof projects are design-only until migrated and audited in
 `docs/audits/systems-proof-project-audit.md`.
 
 | # | Use case | Systems features that address it | V1 posture | Sample |

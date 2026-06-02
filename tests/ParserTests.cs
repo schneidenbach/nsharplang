@@ -288,6 +288,26 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestSizedArrayNewExpression()
+    {
+        var source = @"
+            func Test() {
+                values := new int[256]
+            }
+        ";
+
+        var cu = Parse(source);
+        var funcDecl = cu.Declarations[0] as FunctionDeclaration;
+        var valuesDecl = funcDecl!.Body!.Statements[0] as VariableDeclarationStatement;
+
+        var newExpr = Assert.IsType<NewExpression>(valuesDecl!.Initializer);
+        var arrayType = Assert.IsType<ArrayTypeReference>(newExpr.Type);
+        Assert.IsType<SimpleTypeReference>(arrayType.ElementType);
+        var length = Assert.IsType<IntLiteralExpression>(newExpr.ArrayLengthExpression);
+        Assert.Equal("256", length.Value);
+    }
+
+    [Fact]
     public void TestNewExpression_ObjectInitializerWithoutEmptyConstructorParens()
     {
         var source = @"

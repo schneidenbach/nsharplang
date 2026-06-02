@@ -1726,9 +1726,22 @@ public class Formatter
                 if (newExpr.Type != null)
                 {
                     sb.Append(" ");
-                    sb.Append(FormatTypeReference(newExpr.Type));
+                    if (newExpr.ArrayLengthExpression != null && newExpr.Type is ArrayTypeReference arrayType)
+                    {
+                        sb.Append(FormatTypeReference(arrayType.ElementType));
+                    }
+                    else
+                    {
+                        sb.Append(FormatTypeReference(newExpr.Type));
+                    }
                 }
-                if (newExpr.ConstructorArguments.Count > 0 || newExpr.Initializer == null)
+                if (newExpr.ArrayLengthExpression != null)
+                {
+                    sb.Append("[");
+                    FormatExpression(newExpr.ArrayLengthExpression, sb);
+                    sb.Append("]");
+                }
+                else if (newExpr.ConstructorArguments.Count > 0 || newExpr.Initializer == null)
                 {
                     sb.Append("(");
                     for (int i = 0; i < newExpr.ConstructorArguments.Count; i++)

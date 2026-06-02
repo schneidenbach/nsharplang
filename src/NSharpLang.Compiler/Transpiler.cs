@@ -3083,7 +3083,9 @@ public class Transpiler
         else
         {
             // Traditional new
-            var type = TranspileTypeReference(newExpr.Type);
+            var type = newExpr.ArrayLengthExpression != null && newExpr.Type is ArrayTypeReference arrayType
+                ? TranspileTypeReference(arrayType.ElementType)
+                : TranspileTypeReference(newExpr.Type);
             var args = string.Join(", ", newExpr.ConstructorArguments.Select(arg =>
             {
                 var prefix = "";
@@ -3098,7 +3100,9 @@ public class Transpiler
             }));
 
             // For array types with initializers (new int[] { 1, 2, 3 }), omit parens
-            if (newExpr.Type is ArrayTypeReference && newExpr.Initializer != null && args.Length == 0)
+            if (newExpr.ArrayLengthExpression != null)
+                result = $"new {type}[{TranspileExpression(newExpr.ArrayLengthExpression)}]";
+            else if (newExpr.Type is ArrayTypeReference && newExpr.Initializer != null && args.Length == 0)
                 result = $"new {type}";
             else
                 result = $"new {type}({args})";

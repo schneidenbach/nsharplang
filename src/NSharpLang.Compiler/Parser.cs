@@ -5240,11 +5240,47 @@ public class Parser
         {
             // Traditional new: new TypeName() or new TypeName { ... }
             type = ParseNewTypeReference(newToken);
+            Expression? arrayLengthExpression = null;
+
+            if (Check(TokenType.LeftBracket))
+            {
+                Advance();
+                arrayLengthExpression = ParseExpression();
+                Consume(TokenType.RightBracket, "Expected ']'");
+                type = new ArrayTypeReference(type)
+                {
+                    Span = type.Span
+                };
+            }
 
             if (Check(TokenType.LeftParen))
             {
                 Advance();
                 args = ParseArgumentList();
+            }
+
+            if (arrayLengthExpression != null)
+            {
+                ObjectInitializerExpression? sizedArrayInitializer = null;
+                if (Check(TokenType.LeftBrace))
+                {
+                    Advance();
+                    var props = new List<PropertyInitializer>();
+                    while (!Check(TokenType.RightBrace) && !IsAtEnd())
+                    {
+                        var startPosition = _position;
+                        var value = ParseExpression();
+                        props.Add(new PropertyInitializer(null, null, value));
+                        if (!Check(TokenType.RightBrace))
+                            Match(TokenType.Comma);
+                        if (!EnsureProgress(startPosition))
+                            _panicMode = false;
+                    }
+                    Consume(TokenType.RightBrace, "Expected '}'");
+                    sizedArrayInitializer = new ObjectInitializerExpression(props, line, column);
+                }
+
+                return new NewExpression(type, args, sizedArrayInitializer, line, column, arrayLengthExpression);
             }
         }
 

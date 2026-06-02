@@ -148,6 +148,7 @@ public sealed class SystemsAnalyzer
     private readonly HashSet<string> _structTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _refStructTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _enumTypes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _memberTypeNames = new(StringComparer.Ordinal);
     private HotSummaryCatalog _hotSummaries;
 
     public SystemsAnalyzer(string projectRoot, ProjectConfig? config)
@@ -173,6 +174,7 @@ public sealed class SystemsAnalyzer
         _structTypes.Clear();
         _refStructTypes.Clear();
         _enumTypes.Clear();
+        _memberTypeNames.Clear();
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
 
         foreach (var (file, unit) in compilationUnits.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
@@ -223,6 +225,12 @@ public sealed class SystemsAnalyzer
                 case FunctionDeclaration function:
                     RegisterFunction(file, containingType, function);
                     break;
+                case FieldDeclaration field:
+                    RegisterMemberType(containingType, field.Name, field.Type);
+                    break;
+                case PropertyDeclaration property:
+                    RegisterMemberType(containingType, property.Name, property.Type);
+                    break;
                 case ClassDeclaration cls:
                     RegisterDeclarations(file, cls.Members, cls.Name);
                     break;
@@ -247,6 +255,14 @@ public sealed class SystemsAnalyzer
                     break;
             }
         }
+    }
+
+    private void RegisterMemberType(string? containingType, string memberName, TypeReference? type)
+    {
+        if (containingType == null || type == null)
+            return;
+
+        _memberTypeNames[$"{containingType}.{memberName}"] = TypeReferenceName(type);
     }
 
     private void RegisterFunction(string file, string? containingType, FunctionDeclaration function)
@@ -698,8 +714,10 @@ public sealed class SystemsAnalyzer
                 break;
             case IfStatement ifStatement:
                 WalkExpression(ifStatement.Condition, context);
-                var guards = DeriveGuardsFromExitingIf(ifStatement);
+                context.PushGuards(DerivePositiveGuards(ifStatement.Condition));
                 WalkStatement(ifStatement.ThenStatement, context);
+                context.PopGuards();
+                var guards = DeriveGuardsFromExitingIf(ifStatement);
                 if (ifStatement.ElseStatement != null)
                 {
                     context.PushGuards(guards);
@@ -894,6 +912,8 @@ public sealed class SystemsAnalyzer
             case NewExpression newExpression:
                 foreach (var argument in newExpression.ConstructorArguments)
                     WalkExpression(argument.Value, context);
+                if (newExpression.ArrayLengthExpression != null)
+                    WalkExpression(newExpression.ArrayLengthExpression, context);
                 if (newExpression.Initializer != null)
                     WalkExpression(newExpression.Initializer, context);
                 if (IsHeapAllocation(newExpression))
@@ -1136,6 +1156,9 @@ public sealed class SystemsAnalyzer
             }
             return;
         }
+
+        if (IsDictionaryTryGetValueCall(call, target))
+            return;
 
         if (_hotSummaries.TryResolve(target, _config.TargetFramework, out var summaryEntry))
         {
@@ -1503,6 +1526,9 @@ public sealed class SystemsAnalyzer
     }
 
     private static IReadOnlyList<Guard> DeriveLoopGuards(Expression? condition)
+        => DerivePositiveGuards(condition);
+
+    private static IReadOnlyList<Guard> DerivePositiveGuards(Expression? condition)
     {
         var guards = new List<Guard>();
         if (condition != null)
@@ -1615,6 +1641,18 @@ public sealed class SystemsAnalyzer
         ThisExpression => "this",
         _ => $"@{expression.Line}:{expression.Column}"
     };
+
+    private bool IsDictionaryTryGetValueCall(CallExpression call, string target)
+    {
+        if (!target.EndsWith(".TryGetValue", StringComparison.Ordinal))
+            return false;
+
+        if (call.Callee is not MemberAccessExpression { Object: var receiver })
+            return false;
+
+        return _memberTypeNames.TryGetValue(ExpressionKey(receiver), out var receiverType)
+               && SimpleName(receiverType) is "Dictionary";
+    }
 
     private static string SimpleName(string value)
     {

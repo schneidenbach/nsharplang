@@ -1,7 +1,5 @@
 namespace SystemsProofs.CachePrewarm
 
-import System
-
 static class Tables {
     static Lookup: int[] = Build()
 
@@ -22,10 +20,14 @@ func Warmup() {
 
 [hot]
 func LookupByte(value: byte): int {
-    return Tables.Lookup[value]
+    index := value
+    if index < Tables.Lookup.Length {
+        return Tables.Lookup[index]
+    }
+    return -1
 }
 
 func Main() {
     Warmup()
-    print LookupByte(7)
+    print LookupByte((byte)7)
 }

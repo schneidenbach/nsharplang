@@ -110,6 +110,22 @@ func First(bytes: byte[]): byte {
     }
 
     [Fact]
+    public void HotFunction_AcceptsIfTrueBranchLengthGuardedIndex()
+    {
+        var report = Analyze("""
+[hot]
+func Read(values: int[], index: int): int {
+    if index < values.Length {
+        return values[index]
+    }
+    return -1
+}
+""");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS120" && f.Effect == "implicitTrap");
+    }
+
+    [Fact]
     public void HotFunction_DoesNotApplyPostIfGuardInsideFailingBranch()
     {
         var report = Analyze("""
@@ -411,6 +427,72 @@ func Count(values: IEnumerable<int>): int {
 """);
 
         Assert.Contains(report.Findings, f => f.Code == "NSYS070" && f.Effect == "boundaryLeak");
+    }
+
+    [Fact]
+    public void DictionaryTryGetValue_OnRegisteredDictionaryMember_IsHotSummaryCovered()
+    {
+        var report = Analyze("""
+import System.Collections.Generic
+
+static class Catalog {
+    static Codes: Dictionary<int, int> = Build()
+}
+
+[boundary]
+func Build(): Dictionary<int, int> {
+    map := alloc new Dictionary<int, int>(capacity: 4)
+    map[1] = 100
+    return map
+}
+
+[hot]
+func Lookup(code: int): Result<int, string> {
+    value := 0
+    if Catalog.Codes.TryGetValue(code, out value) {
+        return Ok(value)
+    }
+    return Err("missing")
+}
+""", profile: "systems", configure: config => config.Language.Systems.Warmup.Add("Build"));
+
+        Assert.DoesNotContain(report.Findings,
+            f => f.Code == "NSYS050"
+                 && f.Effect == "unknownExternalCall"
+                 && string.Equals(f.Function, "Lookup", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TryGetValue_OnUnregisteredReceiver_StillFailsClosedInHotCode()
+    {
+        var report = Analyze("""
+import System.Collections.Generic
+
+static class Catalog {
+    static Store: SortedDictionary<int, int> = Build()
+}
+
+[boundary]
+func Build(): SortedDictionary<int, int> {
+    map := alloc new SortedDictionary<int, int>()
+    map[1] = 100
+    return map
+}
+
+[hot]
+func Lookup(code: int): Result<int, string> {
+    value := 0
+    if Catalog.Store.TryGetValue(code, out value) {
+        return Ok(value)
+    }
+    return Err("missing")
+}
+""", profile: "systems", configure: config => config.Language.Systems.Warmup.Add("Build"));
+
+        Assert.Contains(report.Findings,
+            f => f.Code == "NSYS050"
+                 && f.Effect == "unknownExternalCall"
+                 && string.Equals(f.Function, "Lookup", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -922,7 +1004,14 @@ class Box {}
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .OrderBy(name => name, StringComparer.Ordinal)
             .ToArray();
-        var executableProofProjects = new[] { "44-ci-allocation-gate", "45-trusted-audit" };
+        var executableProofProjects = new[]
+        {
+            "31-hot-metrics",
+            "32-cache-prewarm",
+            "36-dictionary-setup-hot-read",
+            "44-ci-allocation-gate",
+            "45-trusted-audit"
+        };
         var designOnlyProjects = proofProjects.Except(executableProofProjects, StringComparer.Ordinal).ToArray();
 
         Assert.Equal(25, proofProjects.Length);
@@ -950,8 +1039,56 @@ class Box {}
     {
         var repoRoot = FindRepoRoot();
         var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
+        var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
+        var cachePrewarm = Path.Combine(proofsRoot, "32-cache-prewarm");
+        var dictionarySetup = Path.Combine(proofsRoot, "36-dictionary-setup-hot-read");
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
+
+        AssertSystemsProofCheckPasses(hotMetrics, expectedWarnings: 1);
+        var metricsBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", hotMetrics, "--perf-report"));
+        Assert.Equal(0, metricsBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(metricsBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("allocationSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+        }
+
+        AssertSystemsProofCheckPasses(cachePrewarm, expectedWarnings: 1);
+        var cacheBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", cachePrewarm, "--perf-report"));
+        Assert.Equal(0, cacheBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(cacheBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        AssertSystemsProofCheckPasses(dictionarySetup, expectedWarnings: 3);
+        var dictionaryBuild = CaptureConsole(() =>
+            ExecuteProgram("build", "--project", dictionarySetup, "--perf-report"));
+        Assert.Equal(0, dictionaryBuild.ExitCode);
+        using (var doc = JsonDocument.Parse(dictionaryBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Contains(perf.GetProperty("allocationSites").EnumerateArray(),
+                site => site.GetProperty("function").GetString() == "BuildCatalog"
+                        && site.GetProperty("code").GetString() == "NSYS001");
+            Assert.Contains(perf.GetProperty("boundaryLeakSites").EnumerateArray(),
+                site => site.GetProperty("function").GetString() == "BuildCatalog"
+                        && site.GetProperty("code").GetString() == "NSYS070");
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
 
         AssertSystemsProofCheckPasses(allocationGate, expectedWarnings: 2);
         var allocationBuild = CaptureConsole(() =>

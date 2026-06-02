@@ -1,8 +1,5 @@
 namespace SystemsProofs.HotMetrics
 
-import System
-import System.Threading
-
 struct Metrics {
     packets: long
     errors: long
@@ -20,11 +17,17 @@ func RecordError(metrics: &Metrics) {
 
 [boundary]
 func Export(metrics: Metrics): string {
-    return alloc $"packets={metrics.packets} errors={metrics.errors}"
+    if metrics.packets < 0 {
+        return alloc "invalid packets"
+    }
+    if metrics.errors < 0 {
+        return alloc "invalid errors"
+    }
+    return alloc "metrics ok"
 }
 
 func Main() {
-    metrics := Metrics { packets: 0, errors: 0 }
+    metrics := new Metrics { packets: 0, errors: 0 }
     RecordPacket(ref metrics)
     print Export(metrics)
 }

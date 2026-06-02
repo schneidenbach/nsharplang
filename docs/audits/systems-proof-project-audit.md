@@ -27,12 +27,12 @@ Current status summary from the 2026-06-01 audit:
 | `28-nativeaot-json-cli` | design-only | 7 errors, 3 warnings | missing | native image deferred | NativeAOT publish proof is analysis-only; sample syntax is not current. |
 | `29-generated-regex-boundary` | design-only | 23 errors, 2 warnings | missing | missing | Generated regex boundary syntax and summaries are not executable. |
 | `30-cold-failure-logging` | design-only | 10 errors, 1 warning | missing | missing | Cold-path allow/trap proof sample is still design syntax. |
-| `31-hot-metrics` | design-only | 8 errors, 2 warnings | missing | missing | Metrics boundary and atomics sample is not compiler-current. |
-| `32-cache-prewarm` | design-only | 3 errors, 1 warning | missing | missing | Warmup/readiness proof is incomplete beyond config/reporting. |
+| `31-hot-metrics` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no allocation, trap, or AOT blockers | hot metrics proof covers `Interlocked.Increment` on byref struct fields | Console output remains a known non-hot warning in `Main`. |
+| `32-cache-prewarm` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no hot-readiness, trap, or AOT blockers | warmup config and static table initialization are compiler-covered | Console output remains a known non-hot warning in `Main`. |
 | `33-arraypool-file-io` | design-only | 11 errors, 4 warnings | missing | missing | Pool rent/return proof uses unimplemented ownership/IO patterns. |
 | `34-memorypool-disposal` | design-only | 3 errors, 1 warning | missing | missing | MemoryPool ownership/disposal summary is not a passing fixture. |
 | `35-async-file-hot-parser` | design-only | 8 errors, 5 warnings | missing | missing | Async boundary sample uses unsupported/deferred async systems proof shapes. |
-| `36-dictionary-setup-hot-read` | design-only | 2 errors, 3 warnings | missing | missing | Dictionary hot-read proof remains summary/design-only. |
+| `36-dictionary-setup-hot-read` | executable | passes, 0 errors, 3 warnings | passes `nlc build --perf-report`; reports setup allocation/boundary leak and no hot-readiness/trap/AOT blockers | hot `Dictionary.TryGetValue` read is summary-covered only for registered `Dictionary` members | Boundary return shape intentionally remains a warning. |
 | `37-fixed-capacity-map` | design-only | 20 errors, 1 warning | missing | missing | Custom collection sample has parser/type-system gaps. |
 | `38-unmanaged-sort-comparer` | design-only | 64 errors, 0 warnings | missing | missing | Generic comparer/constraint proof is not implemented. |
 | `39-hot-linq-pipeline` | design-only | 24 errors, 1 warning | missing | missing | Hot-LINQ contract is summary design, not executable library evidence. |

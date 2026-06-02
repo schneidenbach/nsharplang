@@ -1,6 +1,5 @@
 namespace SystemsProofs.DictionarySetupHotRead
 
-import System
 import System.Collections.Generic
 
 static class Catalog {
@@ -26,6 +25,5 @@ func Lookup(code: int): Result<int, string> {
 }
 
 func Main() {
-    _ = BuildCatalog()
     print Lookup(2)
 }
