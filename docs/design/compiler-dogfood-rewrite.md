@@ -60,11 +60,19 @@ Current lexer dogfood benchmarks:
   pressure for N# emitted hot-loop quality, but it is not a production lexer replacement because it
   does not produce token objects, trivia, indentation tokens outside the explicit-brace corpus, or
   diagnostics.
+- `CompilerServiceLexerTokenKindBenchmarks` is the next stricter dogfood step. It embeds an N#
+  scanner that emits compact `TokenType` ids into an `int[]` and verifies the full token-kind
+  sequence against the current C# lexer on both corpora. It still is not a production lexer
+  replacement because it does not emit token text, source positions, comment trivia, diagnostics, or
+  general indentation-token behavior.
 
 Dry-run evidence on 2026-06-03 (`--job Dry`) showed the N# scanner compiling and passing parity
-checks, with no per-operation managed allocations reported. The dry timings were mixed: N# was
-slower on the small representative corpus and faster on the large generated corpus. Dry jobs are
-not acceptance evidence, and neither result is close to the required 5x speedup gate.
+checks, with no per-operation managed allocations reported for the count-only scanner. The dry
+timings were mixed: N# was slower on the small representative corpus and faster on the large
+generated corpus. The token-kind scanner also passed sequence parity on both corpora. Its dry run
+was faster than the current full C# lexer token-kind extraction on both corpora and allocated much
+less memory, but still did not reach the required 5x speedup gate. Dry jobs are not acceptance
+evidence.
 
 ## Rewrite Order
 
@@ -112,3 +120,8 @@ pressure points:
 
 The language change is accepted only with the same evidence: semantic tests, IL-shape/verifiability
 where applicable, and dogfood benchmarks showing the compiler-service win.
+
+Current lexer pressure point: the token-kind scanner can use `new int[](length)` as a dynamic
+buffer and write by index from N#-emitted IL, but returning an exact `int[]` still requires a second
+copy. A production lexer buffer should expose a slice/span over the filled prefix or an owned token
+buffer type so the fast path does not choose between over-returning capacity and copying.

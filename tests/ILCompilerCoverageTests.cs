@@ -1876,6 +1876,28 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteDynamicArrayConstruction()
+    {
+        var source = @"
+func make(size: int): int[] {
+    values := new int[](size)
+    for i := 0; i < values.Length; i++ {
+        values[i] = i * 3
+    }
+
+    return values
+}
+
+func main(): int {
+    values := make(5)
+    return values.Length * 1000 + values[0] * 100 + values[4]
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(5012, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteGenericLocalFunctionInsideClosureWithClosureFieldCapture()
     {
         var source = @"
