@@ -130,19 +130,34 @@ Current source-text dogfood benchmarks:
 - `CompilerServiceSourceTextLineMapBenchmarks` exercises the next source-position service shape:
   compact line starts and lengths plus offset-to-line, offset-to-column, and line/column-to-offset
   queries. The C# baseline starts from the current production split helper; the N# candidate builds
-  ranges into caller-owned buffers and runs the same query workload without managed allocation.
+  ranges into caller-owned buffers, builds a small-file offset-to-line cache, and runs the same query
+  workload without managed allocation.
+- `CompilerServiceSourceTextLineMapCachedQueryBenchmarks` separates the steady-state query path after
+  a document line map has already been built. The validating N# query API keeps the external
+  line/column checks; the trusted N# query API is a separate internal-batch contract for positions
+  already proven valid by the caller.
 
 The dogfood project also includes `CompilerServices/SourceTextLines.nl`; `CompilerDogfoodProjectTests`
 compiles it through the SDK project and verifies both returned strings and range buffers against the
 current C# `SourceTextLines.SplitLogicalLines` behavior for empty, trailing-separator, CRLF,
 standalone-CR, LF, and mixed-newline cases. It also verifies line-start construction,
-offset-to-line/column lookup, and line/column-to-offset validation over those cases.
+offset-to-line/column lookup, line/column-to-offset validation, cached build-and-query checksums,
+validating cached-query checksums, and the trusted valid-query checksum contract over those cases.
 
-The line-map dry run on 2026-06-03 showed the N# candidate passing checksum parity and reporting
-zero managed allocation. The representative corpus improved to about 4.1x faster than the C#
-split-derived line-map baseline (84 us vs 340 us), while the large mixed-newline corpus was about
-1.9x faster (383 us vs 735 us). This is useful evidence for the compact map shape, but it is still
-below the 5x acceptance gate and has not been swapped into production code.
+The line-map build-and-query dry run on 2026-06-03 showed the N# candidate passing checksum parity and
+reporting zero managed allocation. The representative corpus ran about 3.5x faster than the C#
+split-derived line-map baseline (99 us vs 346 us, 0 B vs 920 B), while the large mixed-newline corpus
+was about 2.0x faster (391 us vs 767 us, 0 B vs 2.84 MB). This is useful evidence for the compact map
+shape, but it is still below the 5x acceptance gate and has not been swapped into production code.
+
+The cached-query dry run on 2026-06-03 separated map construction from query throughput. The
+validating N# cached-query path was about 3.0x faster on the representative corpus (106 us vs 321 us)
+and about 7.6x faster on the large mixed-newline corpus (127 us vs 963 us), with no managed
+allocation reported. The trusted-valid internal batch path uses a four-wide hot-loop unroll and ran
+about 2.4x faster than a trusted C# binary-search query baseline on the representative corpus (74 us
+vs 180 us) and about 5.6x faster on the large corpus (94 us vs 529 us). This is pressure evidence for
+cached compiler-position batches, not acceptance evidence: the representative query path still misses
+the 5x gate, and all numbers are dry smoke runs.
 
 Current code-intelligence dogfood benchmarks:
 
@@ -252,11 +267,12 @@ buffer type for production APIs that return a filled prefix without exposing unu
 copying.
 
 Current source-text pressure point: direct N# character loops are not yet competitive enough for
-line splitting. Calling optimized BCL `string.IndexOf` improved the range-buffer candidate, but the
-result is still only about 1.4x faster than the current allocation-heavy C# helper on the large dry
-corpus. To reach the 5x goal, N# needs a faster native/string scanning primitive or span/index APIs
-that let compiler services build line maps without materializing strings or repeatedly crossing
-through BCL calls.
+line splitting or source line-map construction. Calling optimized BCL `string.IndexOf` improved the
+range-buffer candidate, and offset-to-line caches make large steady-state query batches clear the dry
+5x threshold, but representative query loops and large map construction still miss the acceptance
+gate. To reach the 5x goal, N# needs a faster native/string scanning primitive plus more
+bounds-check-friendly indexed-array/span lowering for batches, without relying on hand-unrolled
+compiler-service loops as the normal programming model.
 
 Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
 queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct

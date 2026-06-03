@@ -72,6 +72,18 @@ public class CompilerDogfoodProjectTests
                     "GetOffsetFromLineColumn",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit GetOffsetFromLineColumn.");
+            var lineMapCachedChecksumInto = programType.GetMethod(
+                    "LineMapCachedChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit LineMapCachedChecksumInto.");
+            var lineMapCachedQueryChecksumInto = programType.GetMethod(
+                    "LineMapCachedQueryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit LineMapCachedQueryChecksumInto.");
+            var lineMapTrustedCachedQueryChecksumInto = programType.GetMethod(
+                    "LineMapTrustedCachedQueryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit LineMapTrustedCachedQueryChecksumInto.");
             var codeIntelligenceIdentifierSpanChecksumInto = programType.GetMethod(
                     "CodeIntelligenceIdentifierSpanChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -138,7 +150,10 @@ func values(): int {
                 buildLogicalLineStartsInto,
                 getLineIndexFromOffset,
                 getColumnFromOffset,
-                getOffsetFromLineColumn);
+                getOffsetFromLineColumn,
+                lineMapCachedChecksumInto,
+                lineMapCachedQueryChecksumInto,
+                lineMapTrustedCachedQueryChecksumInto);
             AssertSourceTextLineMapLikeProduction(
                 "one",
                 splitLogicalLines,
@@ -146,7 +161,10 @@ func values(): int {
                 buildLogicalLineStartsInto,
                 getLineIndexFromOffset,
                 getColumnFromOffset,
-                getOffsetFromLineColumn);
+                getOffsetFromLineColumn,
+                lineMapCachedChecksumInto,
+                lineMapCachedQueryChecksumInto,
+                lineMapTrustedCachedQueryChecksumInto);
             AssertSourceTextLineMapLikeProduction(
                 "one\n",
                 splitLogicalLines,
@@ -154,7 +172,10 @@ func values(): int {
                 buildLogicalLineStartsInto,
                 getLineIndexFromOffset,
                 getColumnFromOffset,
-                getOffsetFromLineColumn);
+                getOffsetFromLineColumn,
+                lineMapCachedChecksumInto,
+                lineMapCachedQueryChecksumInto,
+                lineMapTrustedCachedQueryChecksumInto);
             AssertSourceTextLineMapLikeProduction(
                 "one\r\n",
                 splitLogicalLines,
@@ -162,7 +183,10 @@ func values(): int {
                 buildLogicalLineStartsInto,
                 getLineIndexFromOffset,
                 getColumnFromOffset,
-                getOffsetFromLineColumn);
+                getOffsetFromLineColumn,
+                lineMapCachedChecksumInto,
+                lineMapCachedQueryChecksumInto,
+                lineMapTrustedCachedQueryChecksumInto);
             AssertSourceTextLineMapLikeProduction(
                 "one\rtwo",
                 splitLogicalLines,
@@ -170,7 +194,10 @@ func values(): int {
                 buildLogicalLineStartsInto,
                 getLineIndexFromOffset,
                 getColumnFromOffset,
-                getOffsetFromLineColumn);
+                getOffsetFromLineColumn,
+                lineMapCachedChecksumInto,
+                lineMapCachedQueryChecksumInto,
+                lineMapTrustedCachedQueryChecksumInto);
             AssertSourceTextLineMapLikeProduction(
                 "one\r\ntwo\rthree\n",
                 splitLogicalLines,
@@ -178,7 +205,10 @@ func values(): int {
                 buildLogicalLineStartsInto,
                 getLineIndexFromOffset,
                 getColumnFromOffset,
-                getOffsetFromLineColumn);
+                getOffsetFromLineColumn,
+                lineMapCachedChecksumInto,
+                lineMapCachedQueryChecksumInto,
+                lineMapTrustedCachedQueryChecksumInto);
             AssertSourceTextLineMapLikeProduction(
                 "\r\n\r\n\n\r",
                 splitLogicalLines,
@@ -186,7 +216,10 @@ func values(): int {
                 buildLogicalLineStartsInto,
                 getLineIndexFromOffset,
                 getColumnFromOffset,
-                getOffsetFromLineColumn);
+                getOffsetFromLineColumn,
+                lineMapCachedChecksumInto,
+                lineMapCachedQueryChecksumInto,
+                lineMapTrustedCachedQueryChecksumInto);
 
             AssertIdentifierSpansLikeProduction(
                 """
@@ -329,7 +362,10 @@ func main(customer: Customer, résumé: Profile) {
         MethodInfo buildLogicalLineStartsInto,
         MethodInfo getLineIndexFromOffset,
         MethodInfo getColumnFromOffset,
-        MethodInfo getOffsetFromLineColumn)
+        MethodInfo getOffsetFromLineColumn,
+        MethodInfo lineMapCachedChecksumInto,
+        MethodInfo lineMapCachedQueryChecksumInto,
+        MethodInfo lineMapTrustedCachedQueryChecksumInto)
     {
         var expected = SourceTextLines.SplitLogicalLines(source);
         var actual = (string[])(splitLogicalLines.Invoke(null, new object[] { source })
@@ -388,6 +424,122 @@ func main(customer: Customer, résumé: Profile) {
             null,
             new object[] { starts, lengths, count, source.Length, expected.Length + 1, 0 }) ?? -2);
         Assert.Equal(-1, invalidLineOffset);
+
+        var offsets = Enumerable.Range(-1, source.Length + 3).ToArray();
+        var queryLines = new List<int>();
+        var queryColumns = new List<int>();
+        for (var line = 1; line <= expected.Length; line++)
+        {
+            var lineLength = expected[line - 1].Length;
+            for (var column = 0; column <= lineLength + 1; column++)
+            {
+                queryLines.Add(line);
+                queryColumns.Add(column);
+            }
+        }
+
+        queryLines.Add(0);
+        queryColumns.Add(0);
+        queryLines.Add(expected.Length + 1);
+        queryColumns.Add(0);
+
+        var expectedChecksum = expected.Length;
+        foreach (var offset in offsets)
+        {
+            var expectedLineIndex = LineIndexFromOffset(expectedStarts, source.Length, offset);
+            var expectedColumn = ColumnFromOffset(expectedStarts, source.Length, offset);
+            expectedChecksum += expectedLineIndex * 31 + expectedColumn;
+        }
+
+        for (var i = 0; i < queryLines.Count; i++)
+        {
+            var line = queryLines[i];
+            var column = queryColumns[i];
+            var expectedOffset = -1;
+            if (line >= 1 && line <= expected.Length && column >= 0 && column <= expected[line - 1].Length)
+            {
+                expectedOffset = expectedStarts[line - 1] + column;
+            }
+
+            expectedChecksum += expectedOffset * 17;
+        }
+
+        var cachedStarts = new int[source.Length + 1];
+        var cachedLengths = new int[source.Length + 1];
+        var offsetLineIndices = new int[source.Length + 1];
+        var cachedChecksum = (int)(lineMapCachedChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                cachedStarts,
+                cachedLengths,
+                offsetLineIndices,
+                offsets,
+                queryLines.ToArray(),
+                queryColumns.ToArray()
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, cachedChecksum);
+
+        var queryOffsetLineIndices = BuildOffsetLineIndices(expectedStarts, expected.Length, source.Length);
+        var queryChecksum = (int)(lineMapCachedQueryChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                expectedStarts,
+                lengths,
+                expected.Length,
+                source.Length,
+                queryOffsetLineIndices,
+                offsets,
+                queryLines.ToArray(),
+                queryColumns.ToArray()
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, queryChecksum);
+
+        var trustedOffsets = Enumerable.Range(0, source.Length + 1).ToArray();
+        var trustedQueryLines = new List<int>();
+        var trustedQueryColumns = new List<int>();
+        for (var line = 1; line <= expected.Length; line++)
+        {
+            var lineLength = expected[line - 1].Length;
+            for (var column = 0; column <= lineLength; column++)
+            {
+                trustedQueryLines.Add(line);
+                trustedQueryColumns.Add(column);
+            }
+        }
+
+        var trustedQueryLineArray = trustedQueryLines.ToArray();
+        var trustedQueryColumnArray = trustedQueryColumns.ToArray();
+        var expectedTrustedChecksum = expected.Length;
+        foreach (var offset in trustedOffsets)
+        {
+            var expectedLineIndex = LineIndexFromOffset(expectedStarts, source.Length, offset);
+            var expectedColumn = ColumnFromOffset(expectedStarts, source.Length, offset);
+            expectedTrustedChecksum += expectedLineIndex * 31 + expectedColumn;
+        }
+
+        for (var i = 0; i < trustedQueryLineArray.Length; i++)
+        {
+            expectedTrustedChecksum += (expectedStarts[trustedQueryLineArray[i] - 1] + trustedQueryColumnArray[i]) * 17;
+        }
+
+        var trustedChecksum = (int)(lineMapTrustedCachedQueryChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                expectedStarts,
+                expected.Length,
+                queryOffsetLineIndices,
+                trustedOffsets,
+                trustedQueryLineArray,
+                trustedQueryColumnArray
+            }) ?? -1);
+
+        Assert.Equal(expectedTrustedChecksum, trustedChecksum);
     }
 
     private static void AssertIdentifierSpansLikeProduction(
@@ -719,6 +871,22 @@ func main(customer: Customer, résumé: Profile) {
         }
 
         return offset - starts[LineIndexFromOffset(starts, sourceLength, offset)];
+    }
+
+    private static int[] BuildOffsetLineIndices(int[] starts, int lineCount, int sourceLength)
+    {
+        var offsetLineIndices = new int[sourceLength + 1];
+        for (var lineIndex = 0; lineIndex < lineCount; lineIndex++)
+        {
+            var lineStart = starts[lineIndex];
+            var endExclusive = lineIndex + 1 < lineCount ? starts[lineIndex + 1] : sourceLength + 1;
+            for (var offset = lineStart; offset < endExclusive && offset <= sourceLength; offset++)
+            {
+                offsetLineIndices[offset] = lineIndex;
+            }
+        }
+
+        return offsetLineIndices;
     }
 
     private static string FindRepoRoot()

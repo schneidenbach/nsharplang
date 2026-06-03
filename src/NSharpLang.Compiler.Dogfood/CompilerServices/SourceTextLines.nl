@@ -252,3 +252,248 @@ func LineMapChecksumInto(source: string, starts: int[], lengths: int[], offsets:
 
     return checksum
 }
+
+func LineMapCachedChecksumInto(
+    source: string,
+    starts: int[],
+    lengths: int[],
+    offsetLineIndices: int[],
+    offsets: int[],
+    queryLines: int[],
+    queryColumns: int[]): int {
+    sourceLength := source.Length
+    lineCount := 0
+    if sourceLength <= 8192 {
+        lineCount = BuildSmallLineRangesAndOffsetLineIndicesInto(source, starts, lengths, offsetLineIndices)
+    } else {
+        lineCount = SplitLogicalLineRangesInto(source, starts, lengths)
+    }
+
+    checksum := lineCount
+
+    if sourceLength <= 8192 {
+        i := 0
+        while i < offsets.Length {
+            offset := offsets[i]
+            if offset < 0 {
+                offset = 0
+            }
+
+            if offset > sourceLength {
+                offset = sourceLength
+            }
+
+            lineIndex := offsetLineIndices[offset]
+            column := offset - starts[lineIndex]
+            checksum = checksum + lineIndex * 31 + column
+            i = i + 1
+        }
+    } else {
+        i := 0
+
+        while i < offsets.Length {
+            offset := offsets[i]
+            if offset < 0 {
+                offset = 0
+            }
+
+            if offset > sourceLength {
+                offset = sourceLength
+            }
+
+            low := 0
+            high := lineCount - 1
+            lineIndex := 0
+
+            while low <= high {
+                mid := (low + high) / 2
+                if starts[mid] <= offset {
+                    lineIndex = mid
+                    low = mid + 1
+                } else {
+                    high = mid - 1
+                }
+            }
+
+            column := offset - starts[lineIndex]
+            checksum = checksum + lineIndex * 31 + column
+            i = i + 1
+        }
+    }
+
+    i := 0
+    while i < queryLines.Length {
+        line := queryLines[i]
+        column := queryColumns[i]
+        offset := -1
+
+        if line >= 1 && line <= lineCount && column >= 0 {
+            index := line - 1
+            if column <= lengths[index] {
+                candidate := starts[index] + column
+                if candidate <= sourceLength {
+                    offset = candidate
+                }
+            }
+        }
+
+        checksum = checksum + offset * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func BuildSmallLineRangesAndOffsetLineIndicesInto(source: string, starts: int[], lengths: int[], offsetLineIndices: int[]): int {
+    sourceLength := source.Length
+    position := 0
+    lineStart := 0
+    count := 0
+
+    while position < sourceLength {
+        ch := source[position]
+        if ch == '\r' || ch == '\n' {
+            nextLineStart := position + 1
+            if ch == '\r' && nextLineStart < sourceLength && source[nextLineStart] == '\n' {
+                nextLineStart = nextLineStart + 1
+            }
+
+            starts[count] = lineStart
+            lengths[count] = position - lineStart
+
+            offset := lineStart
+            while offset < nextLineStart && offset <= sourceLength {
+                offsetLineIndices[offset] = count
+                offset = offset + 1
+            }
+
+            count = count + 1
+            position = nextLineStart
+            lineStart = position
+            continue
+        }
+
+        position = position + 1
+    }
+
+    starts[count] = lineStart
+    lengths[count] = sourceLength - lineStart
+
+    offset := lineStart
+    while offset <= sourceLength {
+        offsetLineIndices[offset] = count
+        offset = offset + 1
+    }
+
+    return count + 1
+}
+
+func LineMapCachedQueryChecksumInto(
+    starts: int[],
+    lengths: int[],
+    lineCount: int,
+    sourceLength: int,
+    offsetLineIndices: int[],
+    offsets: int[],
+    queryLines: int[],
+    queryColumns: int[]): int {
+    checksum := lineCount
+
+    i := 0
+    while i < offsets.Length {
+        offset := offsets[i]
+        if offset < 0 {
+            offset = 0
+        }
+
+        if offset > sourceLength {
+            offset = sourceLength
+        }
+
+        lineIndex := offsetLineIndices[offset]
+        column := offset - starts[lineIndex]
+        checksum = checksum + lineIndex * 31 + column
+        i = i + 1
+    }
+
+    i = 0
+    while i < queryLines.Length {
+        line := queryLines[i]
+        column := queryColumns[i]
+        offset := -1
+
+        if line >= 1 && line <= lineCount && column >= 0 {
+            index := line - 1
+            if column <= lengths[index] {
+                candidate := starts[index] + column
+                if candidate <= sourceLength {
+                    offset = candidate
+                }
+            }
+        }
+
+        checksum = checksum + offset * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func LineMapTrustedCachedQueryChecksumInto(
+    starts: int[],
+    lineCount: int,
+    offsetLineIndices: int[],
+    offsets: int[],
+    queryLines: int[],
+    queryColumns: int[]): int {
+    checksum := lineCount
+
+    i := 0
+    offsetCount := offsets.Length
+    offsetUnrollLimit := offsetCount - 3
+    while i < offsetUnrollLimit {
+        offset := offsets[i]
+        lineIndex := offsetLineIndices[offset]
+        checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+        offset = offsets[i + 1]
+        lineIndex = offsetLineIndices[offset]
+        checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+        offset = offsets[i + 2]
+        lineIndex = offsetLineIndices[offset]
+        checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+        offset = offsets[i + 3]
+        lineIndex = offsetLineIndices[offset]
+        checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+        i = i + 4
+    }
+
+    while i < offsetCount {
+        offset := offsets[i]
+        lineIndex := offsetLineIndices[offset]
+        checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+        i = i + 1
+    }
+
+    i = 0
+    queryCount := queryLines.Length
+    queryUnrollLimit := queryCount - 3
+    while i < queryUnrollLimit {
+        index := queryLines[i] - 1
+        checksum = checksum + (starts[index] + queryColumns[i]) * 17
+        index = queryLines[i + 1] - 1
+        checksum = checksum + (starts[index] + queryColumns[i + 1]) * 17
+        index = queryLines[i + 2] - 1
+        checksum = checksum + (starts[index] + queryColumns[i + 2]) * 17
+        index = queryLines[i + 3] - 1
+        checksum = checksum + (starts[index] + queryColumns[i + 3]) * 17
+        i = i + 4
+    }
+
+    while i < queryCount {
+        index := queryLines[i] - 1
+        checksum = checksum + (starts[index] + queryColumns[i]) * 17
+        i = i + 1
+    }
+
+    return checksum
+}
