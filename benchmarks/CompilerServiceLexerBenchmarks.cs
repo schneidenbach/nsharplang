@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -239,6 +240,234 @@ public class CompilerServiceLexerReusableTokenKindBenchmarks
                 throw new InvalidOperationException(
                     $"{label} mismatch for {corpus} at index {i}: " +
                     $"expected {(TokenType)expected[i]}({expected[i]}), got {(TokenType)actual[i]}({actual[i]}).");
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Production-shaped lexer metadata benchmark for the N# scanner candidate.
+///
+/// This advances beyond token-kind parity: the N# path writes token kind, source start, token value
+/// length, line, and column into caller-owned buffers. It still does not model comment trivia,
+/// diagnostics, or indentation-token insertion for indentation-only corpora.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceLexerMetadataBenchmarks
+{
+    private Func<string, int[], int[], int[], int[], int[], int> _nsharpTokenizeMetadataInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpColumns = Array.Empty<int>();
+    private int[] _csharpKinds = Array.Empty<int>();
+    private int[] _csharpLines = Array.Empty<int>();
+    private int[] _csharpStarts = Array.Empty<int>();
+    private int[] _csharpValueLengths = Array.Empty<int>();
+    private int _expectedCount;
+    private int[] _expectedColumns = Array.Empty<int>();
+    private int[] _expectedKinds = Array.Empty<int>();
+    private int[] _expectedLines = Array.Empty<int>();
+    private int[] _expectedStarts = Array.Empty<int>();
+    private int[] _expectedValueLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _nsharpColumns = Array.Empty<int>();
+    private int[] _nsharpKinds = Array.Empty<int>();
+    private int[] _nsharpLines = Array.Empty<int>();
+    private int[] _nsharpStarts = Array.Empty<int>();
+    private int[] _nsharpValueLengths = Array.Empty<int>();
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus);
+        _lineStarts = BuildLineStarts(_source);
+        _nsharpTokenizeMetadataInto = NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int>>(
+            CompilerServiceLexerScannerBenchmarks.NSharpScannerSource,
+            "TokenizeMetadataInto");
+
+        var capacity = _source.Length + 1;
+        _csharpKinds = new int[capacity];
+        _csharpStarts = new int[capacity];
+        _csharpValueLengths = new int[capacity];
+        _csharpLines = new int[capacity];
+        _csharpColumns = new int[capacity];
+        _expectedKinds = new int[capacity];
+        _expectedStarts = new int[capacity];
+        _expectedValueLengths = new int[capacity];
+        _expectedLines = new int[capacity];
+        _expectedColumns = new int[capacity];
+        _nsharpKinds = new int[capacity];
+        _nsharpStarts = new int[capacity];
+        _nsharpValueLengths = new int[capacity];
+        _nsharpLines = new int[capacity];
+        _nsharpColumns = new int[capacity];
+
+        _expectedCount = FillCSharpMetadata(
+            _expectedKinds,
+            _expectedStarts,
+            _expectedValueLengths,
+            _expectedLines,
+            _expectedColumns);
+
+        var csharpCount = CSharpLexer_TokenMetadataIntoBuffers();
+        VerifyMetadata(
+            "C# lexer metadata",
+            _expectedCount,
+            _expectedKinds,
+            _expectedStarts,
+            _expectedValueLengths,
+            _expectedLines,
+            _expectedColumns,
+            csharpCount,
+            _csharpKinds,
+            _csharpStarts,
+            _csharpValueLengths,
+            _csharpLines,
+            _csharpColumns,
+            Corpus);
+
+        var nsharpCount = _nsharpTokenizeMetadataInto(
+            _source,
+            _nsharpKinds,
+            _nsharpStarts,
+            _nsharpValueLengths,
+            _nsharpLines,
+            _nsharpColumns);
+        VerifyMetadata(
+            "N# lexer metadata",
+            _expectedCount,
+            _expectedKinds,
+            _expectedStarts,
+            _expectedValueLengths,
+            _expectedLines,
+            _expectedColumns,
+            nsharpCount,
+            _nsharpKinds,
+            _nsharpStarts,
+            _nsharpValueLengths,
+            _nsharpLines,
+            _nsharpColumns,
+            Corpus);
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpLexer_TokenMetadataIntoBuffers() =>
+        FillCSharpMetadata(_csharpKinds, _csharpStarts, _csharpValueLengths, _csharpLines, _csharpColumns);
+
+    [Benchmark]
+    public int NSharpScanner_TokenMetadataIntoBuffers() =>
+        _nsharpTokenizeMetadataInto(
+            _source,
+            _nsharpKinds,
+            _nsharpStarts,
+            _nsharpValueLengths,
+            _nsharpLines,
+            _nsharpColumns);
+
+    private int FillCSharpMetadata(
+        int[] kinds,
+        int[] starts,
+        int[] valueLengths,
+        int[] lines,
+        int[] columns)
+    {
+        var tokens = new Lexer(_source, $"{Corpus}.nl").Tokenize();
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            var token = tokens[i];
+            kinds[i] = (int)token.Type;
+            starts[i] = TokenStartFromLineColumn(_lineStarts, token.Line, token.Column, _source.Length);
+            valueLengths[i] = token.Value.Length;
+            lines[i] = token.Line;
+            columns[i] = token.Column;
+        }
+
+        return tokens.Count;
+    }
+
+    private static int[] BuildLineStarts(string source)
+    {
+        var starts = new List<int> { 0 };
+        var position = 0;
+        while (position < source.Length)
+        {
+            if (source[position] == '\r')
+            {
+                position++;
+                if (position < source.Length && source[position] == '\n')
+                {
+                    position++;
+                }
+
+                starts.Add(position);
+                continue;
+            }
+
+            if (source[position] == '\n')
+            {
+                position++;
+                starts.Add(position);
+                continue;
+            }
+
+            position++;
+        }
+
+        return starts.ToArray();
+    }
+
+    private static int TokenStartFromLineColumn(int[] lineStarts, int line, int column, int sourceLength)
+    {
+        var lineIndex = line - 1;
+        if (lineIndex < 0 || lineIndex >= lineStarts.Length)
+        {
+            return sourceLength;
+        }
+
+        return Math.Min(sourceLength, lineStarts[lineIndex] + column - 1);
+    }
+
+    private static void VerifyMetadata(
+        string label,
+        int expectedCount,
+        int[] expectedKinds,
+        int[] expectedStarts,
+        int[] expectedValueLengths,
+        int[] expectedLines,
+        int[] expectedColumns,
+        int actualCount,
+        int[] actualKinds,
+        int[] actualStarts,
+        int[] actualValueLengths,
+        int[] actualLines,
+        int[] actualColumns,
+        CompilerLexerCorpus corpus)
+    {
+        if (actualCount != expectedCount)
+        {
+            throw new InvalidOperationException(
+                $"{label} count mismatch for {corpus}: expected {expectedCount}, got {actualCount}.");
+        }
+
+        for (var i = 0; i < expectedCount; i++)
+        {
+            if (expectedKinds[i] != actualKinds[i] ||
+                expectedStarts[i] != actualStarts[i] ||
+                expectedValueLengths[i] != actualValueLengths[i] ||
+                expectedLines[i] != actualLines[i] ||
+                expectedColumns[i] != actualColumns[i])
+            {
+                throw new InvalidOperationException(
+                    $"{label} mismatch for {corpus} at index {i}: " +
+                    $"expected kind/start/length/line/column " +
+                    $"{(TokenType)expectedKinds[i]}({expectedKinds[i]})/{expectedStarts[i]}/" +
+                    $"{expectedValueLengths[i]}/{expectedLines[i]}/{expectedColumns[i]}, got " +
+                    $"{(TokenType)actualKinds[i]}({actualKinds[i]})/{actualStarts[i]}/" +
+                    $"{actualValueLengths[i]}/{actualLines[i]}/{actualColumns[i]}.");
             }
         }
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -43,6 +44,10 @@ public class CompilerDogfoodProjectTests
                     "TokenizeKindsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeKindsInto.");
+            var tokenizeMetadataInto = programType.GetMethod(
+                    "TokenizeMetadataInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataInto.");
             var splitLogicalLines = programType.GetMethod(
                     "SplitLogicalLines",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -70,6 +75,7 @@ world
 }
 """";
             AssertTokenizesLikeProductionLexer(source, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+            AssertTokenMetadataLikeProductionLexer(source, tokenizeMetadataInto);
 
             const string keywordSource = """
 func class struct interface duck union record enum namespace using import package let must const readonly
@@ -80,6 +86,22 @@ with type assert operator required init ref out lock file params checked uncheck
 throws
 """;
             AssertTokenizesLikeProductionLexer(keywordSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+            AssertTokenMetadataLikeProductionLexer(keywordSource, tokenizeMetadataInto);
+
+            const string metadataSource = """
+package CompilerDogfood.Metadata
+
+func values(): int {
+    decimal := 1_234
+    hex := 0xCA_FE
+    binary := 0b1010_0101
+    floating := 1.5_0e+2
+    /* block
+       comment */
+    return decimal + hex + binary + floating
+}
+""";
+            AssertTokenMetadataLikeProductionLexer(metadataSource, tokenizeMetadataInto);
 
             AssertSplitsLikeProductionSourceTextLines("", splitLogicalLines, splitLogicalLineRangesInto);
             AssertSplitsLikeProductionSourceTextLines("one", splitLogicalLines, splitLogicalLineRangesInto);
@@ -119,6 +141,78 @@ throws
         Assert.Equal(expectedKinds, kinds);
         Assert.Equal(expectedKinds.Length, bufferedCount);
         Assert.Equal(expectedKinds, buffer.Take(bufferedCount).ToArray());
+    }
+
+    private static void AssertTokenMetadataLikeProductionLexer(
+        string source,
+        MethodInfo tokenizeMetadataInto)
+    {
+        var expectedTokens = new Lexer(source, "dogfood-test.nl").Tokenize();
+        var capacity = source.Length + 1;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+
+        var count = (int)(tokenizeMetadataInto.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+
+        Assert.Equal(expectedTokens.Count, count);
+
+        var lineStarts = BuildLineStarts(source);
+        for (var i = 0; i < expectedTokens.Count; i++)
+        {
+            var token = expectedTokens[i];
+            Assert.Equal((int)token.Type, kinds[i]);
+            Assert.Equal(TokenStartFromLineColumn(lineStarts, token.Line, token.Column, source.Length), starts[i]);
+            Assert.Equal(token.Value.Length, valueLengths[i]);
+            Assert.Equal(token.Line, lines[i]);
+            Assert.Equal(token.Column, columns[i]);
+        }
+    }
+
+    private static int[] BuildLineStarts(string source)
+    {
+        var starts = new List<int> { 0 };
+        var position = 0;
+        while (position < source.Length)
+        {
+            if (source[position] == '\r')
+            {
+                position++;
+                if (position < source.Length && source[position] == '\n')
+                {
+                    position++;
+                }
+
+                starts.Add(position);
+                continue;
+            }
+
+            if (source[position] == '\n')
+            {
+                position++;
+                starts.Add(position);
+                continue;
+            }
+
+            position++;
+        }
+
+        return starts.ToArray();
+    }
+
+    private static int TokenStartFromLineColumn(int[] lineStarts, int line, int column, int sourceLength)
+    {
+        var lineIndex = line - 1;
+        if (lineIndex < 0 || lineIndex >= lineStarts.Length)
+        {
+            return sourceLength;
+        }
+
+        return Math.Min(sourceLength, lineStarts[lineIndex] + column - 1);
     }
 
     private static void AssertSplitsLikeProductionSourceTextLines(

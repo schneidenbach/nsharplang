@@ -133,6 +133,270 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
     return count
 }
 
+func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
+    position := 0
+    length := source.Length
+    count := 0
+    line := 1
+    column := 1
+
+    while position < length {
+        ch := source[position]
+
+        if IsWhitespaceExceptNewline(ch) {
+            position = position + 1
+            column = column + 1
+            continue
+        }
+
+        start := position
+        tokenLine := line
+        tokenColumn := column
+
+        if ch == '\n' {
+            kinds[count] = 136
+            starts[count] = start
+            valueLengths[count] = 1
+            lines[count] = tokenLine
+            columns[count] = tokenColumn
+            count = count + 1
+            position = position + 1
+            line = line + 1
+            column = 1
+            continue
+        }
+
+        if ch == '\r' {
+            kinds[count] = 136
+            starts[count] = start
+            valueLengths[count] = 1
+            lines[count] = tokenLine
+            columns[count] = tokenColumn
+            count = count + 1
+            position = position + 1
+            if position < length && source[position] == '\n' {
+                position = position + 1
+            }
+            line = line + 1
+            column = 1
+            continue
+        }
+
+        if ch == '#' {
+            position = position + 1
+            column = column + 1
+            while position < length && source[position] != '\n' && source[position] != '\r' {
+                position = position + 1
+                column = column + 1
+            }
+
+            kinds[count] = 138
+            starts[count] = start
+            valueLengths[count] = position - start
+            lines[count] = tokenLine
+            columns[count] = tokenColumn
+            count = count + 1
+            continue
+        }
+
+        if ch == '/' && position + 1 < length {
+            next := source[position + 1]
+            if next == '/' {
+                position = position + 2
+                column = column + 2
+                while position < length && source[position] != '\n' && source[position] != '\r' {
+                    position = position + 1
+                    column = column + 1
+                }
+                continue
+            }
+
+            if next == '*' {
+                position = position + 2
+                column = column + 2
+                while position < length {
+                    if source[position] == '*' && position + 1 < length && source[position + 1] == '/' {
+                        position = position + 2
+                        column = column + 2
+                        break
+                    }
+
+                    if source[position] == '\r' {
+                        position = position + 1
+                        if position < length && source[position] == '\n' {
+                            position = position + 1
+                        }
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    if source[position] == '\n' {
+                        position = position + 1
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    position = position + 1
+                    column = column + 1
+                }
+                continue
+            }
+        }
+
+        if ch == '$' && position + 1 < length && source[position + 1] == '"' {
+            if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
+                nextPosition := ScanRawString(source, position + 4, length)
+                kinds[count] = 6
+                starts[count] = start
+                valueLengths[count] = nextPosition - start
+                lines[count] = tokenLine
+                columns[count] = tokenColumn
+                count = count + 1
+                while position < nextPosition {
+                    if source[position] == '\r' {
+                        position = position + 1
+                        if position < nextPosition && source[position] == '\n' {
+                            position = position + 1
+                        }
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    if source[position] == '\n' {
+                        position = position + 1
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    position = position + 1
+                    column = column + 1
+                }
+            } else {
+                nextPosition := ScanString(source, position + 1, length, true)
+                kinds[count] = 4
+                starts[count] = start
+                valueLengths[count] = nextPosition - start
+                lines[count] = tokenLine
+                columns[count] = tokenColumn
+                count = count + 1
+                column = column + (nextPosition - start)
+                position = nextPosition
+            }
+            continue
+        }
+
+        if ch == '"' {
+            if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
+                nextPosition := ScanRawString(source, position + 3, length)
+                kinds[count] = 5
+                starts[count] = start
+                valueLengths[count] = RawStringValueLength(source, start, nextPosition)
+                lines[count] = tokenLine
+                columns[count] = tokenColumn
+                count = count + 1
+                while position < nextPosition {
+                    if source[position] == '\r' {
+                        position = position + 1
+                        if position < nextPosition && source[position] == '\n' {
+                            position = position + 1
+                        }
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    if source[position] == '\n' {
+                        position = position + 1
+                        line = line + 1
+                        column = 1
+                        continue
+                    }
+
+                    position = position + 1
+                    column = column + 1
+                }
+            } else {
+                nextPosition := ScanString(source, position, length, false)
+                kinds[count] = 4
+                starts[count] = start
+                valueLengths[count] = nextPosition - start
+                lines[count] = tokenLine
+                columns[count] = tokenColumn
+                count = count + 1
+                column = column + (nextPosition - start)
+                position = nextPosition
+            }
+            continue
+        }
+
+        if ch == '\'' {
+            nextPosition := ScanCharLiteral(source, position, length)
+            kinds[count] = 3
+            starts[count] = start
+            valueLengths[count] = nextPosition - start
+            lines[count] = tokenLine
+            columns[count] = tokenColumn
+            count = count + 1
+            column = column + (nextPosition - start)
+            position = nextPosition
+            continue
+        }
+
+        if IsDigit(ch) {
+            nextPosition := ScanNumber(source, position, length)
+            kinds[count] = ScanNumberKind(source, position, length)
+            starts[count] = start
+            valueLengths[count] = NumberValueLength(source, start, nextPosition)
+            lines[count] = tokenLine
+            columns[count] = tokenColumn
+            count = count + 1
+            column = column + (nextPosition - start)
+            position = nextPosition
+            continue
+        }
+
+        if IsIdentifierStart(ch) {
+            position = position + 1
+            while position < length && IsIdentifierPart(source[position]) {
+                position = position + 1
+            }
+
+            kinds[count] = KeywordKind(source, start, position - start)
+            starts[count] = start
+            valueLengths[count] = position - start
+            lines[count] = tokenLine
+            columns[count] = tokenColumn
+            count = count + 1
+            column = column + (position - start)
+            continue
+        }
+
+        operatorInfo := OperatorInfo(source, position, length)
+        operatorKind := operatorInfo / 4
+        operatorWidth := operatorInfo - operatorKind * 4
+        kinds[count] = operatorKind
+        starts[count] = start
+        valueLengths[count] = operatorWidth
+        lines[count] = tokenLine
+        columns[count] = tokenColumn
+        count = count + 1
+        position = position + operatorWidth
+        column = column + operatorWidth
+    }
+
+    kinds[count] = 135
+    starts[count] = position
+    valueLengths[count] = 0
+    lines[count] = line
+    columns[count] = column
+    count = count + 1
+    return count
+}
+
 func CopyKinds(buffer: int[], count: int): int[] {
     result := new int[](count)
     i := 0
@@ -258,7 +522,10 @@ func ScanString(source: string, position: int, length: int, isInterpolated: bool
         if isInterpolated {
             if nestedStringDepth > 0 {
                 if ch == '\\' {
-                    position = position + 2
+                    position = position + 1
+                    if position < length {
+                        position = position + 1
+                    }
                     continue
                 }
 
@@ -296,7 +563,10 @@ func ScanString(source: string, position: int, length: int, isInterpolated: bool
         }
 
         if ch == '\\' {
-            position = position + 2
+            position = position + 1
+            if position < length {
+                position = position + 1
+            }
         } else {
             position = position + 1
         }
@@ -324,7 +594,10 @@ func ScanCharLiteral(source: string, position: int, length: int): int {
     }
 
     if source[position] == '\\' {
-        position = position + 2
+        position = position + 1
+        if position < length {
+            position = position + 1
+        }
     } else {
         position = position + 1
     }
@@ -393,6 +666,29 @@ func ScanNumber(source: string, position: int, length: int): int {
     }
 
     return ConsumeIntegerSuffix(source, position, length)
+}
+
+func NumberValueLength(source: string, start: int, end: int): int {
+    position := start
+    valueLength := 0
+    while position < end {
+        if source[position] != '_' {
+            valueLength = valueLength + 1
+        }
+        position = position + 1
+    }
+
+    return valueLength
+}
+
+func RawStringValueLength(source: string, start: int, end: int): int {
+    contentStart := start + 3
+    valueLength := end - contentStart
+    if end >= start + 6 && source[end - 1] == '"' && source[end - 2] == '"' && source[end - 3] == '"' {
+        valueLength = valueLength - 3
+    }
+
+    return valueLength
 }
 
 func ScanNumberKind(source: string, position: int, length: int): int {

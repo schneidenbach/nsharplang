@@ -70,13 +70,18 @@ Current lexer dogfood benchmarks:
   `TokenizeKindsInto(source, buffer)` writes token kinds into caller-owned storage and returns the
   filled count. This removes the known exact-array copy from the hot path while still verifying the
   full token-kind sequence against the current C# lexer on both corpora.
+- `CompilerServiceLexerMetadataBenchmarks` extends the caller-owned-buffer shape to token kind,
+  source start, token value length, line, and column. It compares those five metadata streams against
+  the current C# `Lexer.Tokenize()` result on the same corpora. This is closer to the compact token
+  table needed by a production rewrite, but it still does not model comment trivia, diagnostics, or
+  indentation-token insertion for indentation-only source.
 
 The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
 project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it
 through the real N# lexer/parser/IL compiler before binding delegates. `CompilerDogfoodProjectTests`
 also compiles the dogfood project from `project.yml` and invokes the emitted methods against the
-production lexer token-kind sequence. This proves the first candidate is no longer benchmark-only
-C# data, but it does not yet satisfy the production swap requirement.
+production lexer token-kind sequence plus compact metadata streams. This proves the first candidate
+is no longer benchmark-only C# data, but it does not yet satisfy the production swap requirement.
 
 Dry-run evidence on 2026-06-03 (`--job Dry`) showed the N# scanner compiling and passing parity
 checks, with no per-operation managed allocations reported for the count-only scanner. The dry
@@ -96,8 +101,17 @@ large-corpus dry smoke threshold at about 6.4x (1.06 ms vs 6.85 ms). The represe
 still much closer (97 us vs 124 us for the reusable-buffer path), so this is not full lexer
 acceptance evidence and the benchmark remains a dry smoke run.
 
+The metadata-buffer dry run also passed parity on 2026-06-03. `TokenizeMetadataInto` reported zero
+managed allocation and filled token kind, source start, value length, line, and column buffers. The
+large generated corpus crossed the dry smoke threshold at about 7.0x faster than the current C#
+lexer filling equivalent metadata buffers (992 us vs 6.99 ms), while the representative corpus was
+only near parity (105 us vs 110 us). This is useful compact-token-table evidence, not acceptance
+evidence.
+
 `CompilerDogfoodProjectTests` now includes a production-keyword sweep plus a near-miss identifier
-(`throws`) to pin the optimized keyword dispatch to the actual C# `Lexer.Keywords` behavior.
+(`throws`) to pin the optimized keyword dispatch to the actual C# `Lexer.Keywords` behavior. It also
+checks `TokenizeMetadataInto` against production token kind, source start, token value length, line,
+and column metadata, including numeric separators and multiline comment line accounting.
 
 Current source-text dogfood benchmarks:
 
