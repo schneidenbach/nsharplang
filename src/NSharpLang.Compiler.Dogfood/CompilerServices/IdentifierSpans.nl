@@ -65,6 +65,146 @@ func CodeIntelligenceIdentifierSpanChecksumInto(
     return checksum
 }
 
+func CodeIntelligenceMemberReceiverChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    memberStartColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        receiverStartColumn := -1
+        receiverLength := 0
+        line := queryLines[i]
+        memberStartColumn := memberStartColumns[i]
+
+        if line > 0 && line <= lineCount {
+            lineIndex := line - 1
+            lineLength := lineLengths[lineIndex]
+            memberStartIndex := memberStartColumn - 1
+
+            if memberStartIndex > 0 && memberStartIndex <= lineLength {
+                lineStart := lineStarts[lineIndex]
+                separatorIndex := memberStartIndex - 1
+
+                if separatorIndex >= 0 && source[lineStart + separatorIndex] == '.' {
+                    receiverEnd := separatorIndex - 1
+                    while receiverEnd >= 0 {
+                        ch := source[lineStart + receiverEnd]
+                        if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\f' || ch == '\v' {
+                            receiverEnd = receiverEnd - 1
+                            continue
+                        }
+
+                        if ch <= '~' {
+                            break
+                        }
+
+                        if Char.IsWhiteSpace(ch) {
+                            receiverEnd = receiverEnd - 1
+                            continue
+                        }
+
+                        break
+                    }
+
+                    if receiverEnd >= 0 {
+                        receiverStart := receiverEnd
+                        while receiverStart >= 0 {
+                            ch := source[lineStart + receiverStart]
+                            if ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+                                receiverStart = receiverStart - 1
+                                continue
+                            }
+
+                            if ch <= '~' {
+                                break
+                            }
+
+                            if Char.IsLetterOrDigit(ch) {
+                                receiverStart = receiverStart - 1
+                                continue
+                            }
+
+                            break
+                        }
+
+                        receiverStart = receiverStart + 1
+                        if receiverStart <= receiverEnd {
+                            receiverStartColumn = receiverStart + 1
+                            receiverLength = receiverEnd - receiverStart + 1
+                        }
+                    }
+                } else {
+                    if separatorIndex >= 1
+                        && source[lineStart + separatorIndex - 1] == '?'
+                        && source[lineStart + separatorIndex] == '.' {
+                        receiverEnd := separatorIndex - 2
+                        while receiverEnd >= 0 {
+                            ch := source[lineStart + receiverEnd]
+                            if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\f' || ch == '\v' {
+                                receiverEnd = receiverEnd - 1
+                                continue
+                            }
+
+                            if ch <= '~' {
+                                break
+                            }
+
+                            if Char.IsWhiteSpace(ch) {
+                                receiverEnd = receiverEnd - 1
+                                continue
+                            }
+
+                            break
+                        }
+
+                        if receiverEnd >= 0 {
+                            receiverStart := receiverEnd
+                            while receiverStart >= 0 {
+                                ch := source[lineStart + receiverStart]
+                                if ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+                                    receiverStart = receiverStart - 1
+                                    continue
+                                }
+
+                                if ch <= '~' {
+                                    break
+                                }
+
+                                if Char.IsLetterOrDigit(ch) {
+                                    receiverStart = receiverStart - 1
+                                    continue
+                                }
+
+                                break
+                            }
+
+                            receiverStart = receiverStart + 1
+                            if receiverStart <= receiverEnd {
+                                receiverStartColumn = receiverStart + 1
+                                receiverLength = receiverEnd - receiverStart + 1
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        resultStarts[i] = receiverStartColumn
+        resultLengths[i] = receiverLength
+        checksum = checksum + receiverStartColumn * 31 + receiverLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func BuildCodeIntelligenceLineRangesInto(source: string, starts: int[], lengths: int[]): int {
     sourceLength := source.Length
     position := 0
@@ -125,7 +265,15 @@ func FindNearestCodeIntelligenceIdentifierIndex(
 }
 
 func IsCodeIntelligenceIdentifierChar(ch: char): bool {
-    return Char.IsLetterOrDigit(ch) || ch == '_'
+    if ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') {
+        return true
+    }
+
+    if ch <= '~' {
+        return false
+    }
+
+    return Char.IsLetterOrDigit(ch)
 }
 
 func IsCodeIntelligenceSnapFriendlyNeighbor(
@@ -158,7 +306,15 @@ func IsCodeIntelligenceSnapFriendlyNeighbor(
 }
 
 func IsCodeIntelligenceWhitespace(ch: char): bool {
-    return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\f' || ch == '\v'
+    if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' || ch == '\f' || ch == '\v' {
+        return true
+    }
+
+    if ch <= '~' {
+        return false
+    }
+
+    return Char.IsWhiteSpace(ch)
 }
 
 func IsCodeIntelligenceSnapPunctuation(ch: char): bool {

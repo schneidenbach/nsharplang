@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Order;
@@ -271,6 +272,275 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
 
         return true;
     }
+
+    private static int FirstMismatch(
+        int[] expectedStarts,
+        int[] expectedLengths,
+        int[] actualStarts,
+        int[] actualLengths)
+    {
+        for (var i = 0; i < expectedStarts.Length; i++)
+        {
+            if (expectedStarts[i] != actualStarts[i] || expectedLengths[i] != actualLengths[i])
+            {
+                return i;
+            }
+        }
+
+        return expectedStarts.Length;
+    }
+}
+
+/// <summary>
+/// Dogfood benchmark for extracting the receiver name before a member access.
+///
+/// The current C# helper splits the whole file and returns a receiver substring for each query. The
+/// N# candidate reuses line ranges and writes receiver start/length pairs into caller-owned buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceMemberReceiverBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int[], int[], int[], int[], int> _nsharpMemberReceiverChecksumInto =
+        (_, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpReceiverLengths = Array.Empty<int>();
+    private int[] _csharpReceiverStarts = Array.Empty<int>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _memberStartColumns = Array.Empty<int>();
+    private int[] _nsharpReceiverLengths = Array.Empty<int>();
+    private int[] _nsharpReceiverStarts = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int _queryCount;
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus) + """
+
+func memberReceiverProbe(customer: Customer, résumé: Profile) {
+    print customer   .Name
+    print customer?.Name
+    print résumé.Count
+}
+""";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpMemberReceiverChecksumInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceMemberReceiverChecksumInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpReceiverStarts = new int[_queryCount];
+        _csharpReceiverLengths = new int[_queryCount];
+        _nsharpReceiverStarts = new int[_queryCount];
+        _nsharpReceiverLengths = new int[_queryCount];
+
+        BuildQueries();
+
+        var expectedChecksum = CSharpCodeIntelligenceMemberReceivers_QueryBatch();
+        var actualChecksum = NSharpCodeIntelligenceMemberReceivers_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# member receiver checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpReceiverStarts.SequenceEqual(_nsharpReceiverStarts)
+            || !_csharpReceiverLengths.SequenceEqual(_nsharpReceiverLengths))
+        {
+            var mismatch = FirstMismatch(_csharpReceiverStarts, _csharpReceiverLengths, _nsharpReceiverStarts, _nsharpReceiverLengths);
+            throw new InvalidOperationException(
+                $"N# member receiver mismatch for {Corpus} at query {mismatch}: " +
+                $"line {_queryLines[mismatch]}, member column {_memberStartColumns[mismatch]}, " +
+                $"expected {_csharpReceiverStarts[mismatch]}/{_csharpReceiverLengths[mismatch]}, " +
+                $"got {_nsharpReceiverStarts[mismatch]}/{_nsharpReceiverLengths[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceMemberReceivers_QueryBatch()
+    {
+        var checksum = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var span = ExtractMemberReceiverSpan(_source, _queryLines[i], _memberStartColumns[i]);
+            var start = span?.StartColumn ?? -1;
+            var length = span?.Length ?? 0;
+            _csharpReceiverStarts[i] = start;
+            _csharpReceiverLengths[i] = length;
+            checksum += start * 31 + length * 17;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceMemberReceivers_QueryBatch() =>
+        _nsharpMemberReceiverChecksumInto(
+            _source,
+            _lineStarts,
+            _lineLengths,
+            _queryLines,
+            _memberStartColumns,
+            _nsharpReceiverStarts,
+            _nsharpReceiverLengths);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+        _memberStartColumns = new int[_queryCount];
+
+        var candidates = FindMemberStartCandidates(_source);
+        if (candidates.Count == 0)
+        {
+            throw new InvalidOperationException($"No member receiver candidates found for {Corpus}.");
+        }
+
+        var lines = _source.Split('\n');
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (i % 37 == 0)
+            {
+                _queryLines[i] = i % 2 == 0 ? 0 : lines.Length + 1;
+                _memberStartColumns[i] = i % 11;
+                continue;
+            }
+
+            if (i % 11 == 0)
+            {
+                var lineIndex = i * 19 % lines.Length;
+                _queryLines[i] = lineIndex + 1;
+                _memberStartColumns[i] = Math.Max(1, lines[lineIndex].Length + 8);
+                continue;
+            }
+
+            var candidate = candidates[i * 17 % candidates.Count];
+            _queryLines[i] = candidate.Line;
+            _memberStartColumns[i] = candidate.MemberStartColumn;
+        }
+    }
+
+    private static List<(int Line, int MemberStartColumn)> FindMemberStartCandidates(string source)
+    {
+        var candidates = new List<(int Line, int MemberStartColumn)>();
+        var lines = source.Split('\n');
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+        {
+            var lineText = lines[lineIndex];
+            for (var i = 0; i < lineText.Length - 1; i++)
+            {
+                if (lineText[i] != '.')
+                {
+                    continue;
+                }
+
+                var memberStart = i + 1;
+                if (memberStart < lineText.Length && IsIdentifierChar(lineText[memberStart]))
+                {
+                    candidates.Add((lineIndex + 1, memberStart + 1));
+                }
+            }
+        }
+
+        return candidates;
+    }
+
+    private static (int StartColumn, int Length)? ExtractMemberReceiverSpan(string source, int line, int memberStartColumn)
+    {
+        try
+        {
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length)
+            {
+                return null;
+            }
+
+            var lineText = lines[line - 1];
+            var memberStartIndex = memberStartColumn - 1;
+            if (memberStartIndex <= 0 || memberStartIndex > lineText.Length)
+            {
+                return null;
+            }
+
+            var separatorIndex = memberStartIndex - 1;
+            if (separatorIndex >= 0 && lineText[separatorIndex] == '.')
+            {
+                var receiverEnd = separatorIndex - 1;
+                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
+                {
+                    receiverEnd--;
+                }
+
+                if (receiverEnd < 0)
+                {
+                    return null;
+                }
+
+                var receiverStart = receiverEnd;
+                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
+                {
+                    receiverStart--;
+                }
+
+                receiverStart++;
+                if (receiverStart <= receiverEnd)
+                {
+                    var receiver = lineText.Substring(receiverStart, receiverEnd - receiverStart + 1);
+                    return (receiverStart + 1, receiver.Length);
+                }
+
+                return null;
+            }
+
+            if (separatorIndex >= 1 && lineText[separatorIndex - 1] == '?' && lineText[separatorIndex] == '.')
+            {
+                var receiverEnd = separatorIndex - 2;
+                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
+                {
+                    receiverEnd--;
+                }
+
+                if (receiverEnd < 0)
+                {
+                    return null;
+                }
+
+                var receiverStart = receiverEnd;
+                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
+                {
+                    receiverStart--;
+                }
+
+                receiverStart++;
+                if (receiverStart <= receiverEnd)
+                {
+                    var receiver = lineText.Substring(receiverStart, receiverEnd - receiverStart + 1);
+                    return (receiverStart + 1, receiver.Length);
+                }
+
+                return null;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
 
     private static int FirstMismatch(
         int[] expectedStarts,

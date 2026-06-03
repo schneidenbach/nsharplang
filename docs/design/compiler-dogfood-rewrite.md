@@ -47,7 +47,7 @@ Benchmark command shape:
 ```bash
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceLexer*'
 dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
-dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligenceIdentifierSpan*'
+dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligence*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -155,13 +155,22 @@ Current code-intelligence dogfood benchmarks:
   representative-corpus position queries and 128 large-corpus position queries so the large C#
   split-per-query baseline stays bounded while each row still compares the same query workload for
   C# and N#.
+- `CompilerServiceCodeIntelligenceMemberReceiverBenchmarks` targets receiver extraction before a
+  member access, currently used when source-context fallback tries to resolve `receiver.Member`.
+  The C# baseline mirrors `ExtractMemberReceiverName`: it calls `source.Split('\n')`, scans backward
+  from the member name, and allocates the receiver substring for each query. The N# candidate reuses
+  line ranges, scans the batch in one compiled method, and writes receiver start/length pairs into
+  caller-owned buffers. It intentionally preserves the current branch order, including the nullable
+  member access edge where `customer?.Name` does not reach the later `?.` branch because the `'.'`
+  branch runs first.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
-standalone-CR input, and Unicode identifier characters. The N# candidate imports `System` and calls
-`Char.IsLetterOrDigit`, matching the current C# identifier-character rule instead of relying on the
-ASCII-only lexer-scanner helper.
+standalone-CR input, Unicode identifier characters, member receivers with whitespace before the dot,
+and the current nullable-member-access edge. The N# candidate imports `System`, uses ASCII fast
+paths, and falls back to `Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C#
+identifier and whitespace rules without putting the runtime predicates on the common ASCII path.
 
 The identifier-span dry run on 2026-06-03 passed checksum and buffer parity and reported zero
 managed allocation on the N# path. After switching the N# predicate to the production-compatible
@@ -171,6 +180,15 @@ ran about 266x faster (191 us vs 51.0 ms, 0 B vs 129.6 MB). This crosses the dry
 threshold for the batched service shape, but it is not acceptance evidence until a normal
 BenchmarkDotNet run confirms the ratio and production query/hover/definition/reference paths call
 the N# implementation.
+
+The member-receiver dry run on 2026-06-03 passed checksum and buffer parity and reported zero
+managed allocation on the N# path. The large generated corpus crossed the dry smoke threshold by a
+wide margin (188 us vs 49.6 ms, 0 B vs 129.6 MB), but the small representative corpus exposed a
+remaining N# hot-loop/codegen weakness: the N# batch path was slower than the current C#
+split/substr baseline (1.47 ms vs 753 us, 0 B vs 4.6 MB). This is not accepted as rewritten; it is
+pressure evidence that the systems subset needs better generated shape for short backward scans or
+that this helper should be folded into the already-accepted identifier-span batch so the receiver
+scan is only paid when the selected token is known to be a member access.
 
 ## Rewrite Order
 
@@ -241,4 +259,7 @@ Current code-intelligence pressure point: the identifier-span candidate gets its
 queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct
 `Char.IsLetterOrDigit` runtime static call from an imported `System` namespace while keeping the
 dry speed gate above 5x, so the remaining work is a production adapter and full BenchmarkDotNet
-acceptance run rather than an identifier-character semantic gap.
+acceptance run rather than an identifier-character semantic gap. The member-receiver candidate shows
+the next gap: allocation-free N# wins decisively once C# repeatedly splits a large source file, but
+short-file backward scans still lose to optimized C# unless helper calls and branch-heavy character
+classification are flattened further by the language/compiler.

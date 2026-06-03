@@ -76,6 +76,10 @@ public class CompilerDogfoodProjectTests
                     "CodeIntelligenceIdentifierSpanChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceIdentifierSpanChecksumInto.");
+            var codeIntelligenceMemberReceiverChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceMemberReceiverChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiverChecksumInto.");
 
             const string source = """"
 import System
@@ -197,6 +201,17 @@ func main() {
             AssertIdentifierSpansLikeProduction(
                 "func main() {\n    café42 := résumé.Count\n    print café42\n}\n",
                 codeIntelligenceIdentifierSpanChecksumInto);
+
+            AssertMemberReceiversLikeProduction(
+                """
+func main(customer: Customer, résumé: Profile) {
+    print customer.Name
+    print customer   .Name
+    print customer?.Name
+    print résumé.Count
+}
+""",
+                codeIntelligenceMemberReceiverChecksumInto);
         }
         finally
         {
@@ -425,6 +440,62 @@ func main() {
         Assert.Equal(expectedLengths, actualLengths);
     }
 
+    private static void AssertMemberReceiversLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceMemberReceiverChecksumInto)
+    {
+        var lines = source.Split('\n');
+        var queries = new List<(int Line, int MemberStartColumn)>
+        {
+            (0, 0),
+            (lines.Length + 1, 1)
+        };
+
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+        {
+            var line = lineIndex + 1;
+            var lineText = lines[lineIndex];
+            queries.Add((line, 0));
+            queries.Add((line, 1));
+            queries.Add((line, lineText.Length + 8));
+
+            for (var i = 0; i < lineText.Length - 1; i++)
+            {
+                if (lineText[i] == '.' && IsIdentifierChar(lineText[i + 1]))
+                {
+                    queries.Add((line, i + 2));
+                }
+            }
+        }
+
+        var queryLines = queries.Select(static query => query.Line).ToArray();
+        var memberStartColumns = queries.Select(static query => query.MemberStartColumn).ToArray();
+        var expectedStarts = new int[queries.Count];
+        var expectedLengths = new int[queries.Count];
+        var expectedChecksum = 0;
+        for (var i = 0; i < queries.Count; i++)
+        {
+            var span = ExtractMemberReceiverSpan(source, queryLines[i], memberStartColumns[i]);
+            var start = span?.StartColumn ?? -1;
+            var length = span?.Length ?? 0;
+            expectedStarts[i] = start;
+            expectedLengths[i] = length;
+            expectedChecksum += start * 31 + length * 17;
+        }
+
+        var lineStarts = new int[source.Length + 1];
+        var lineLengths = new int[source.Length + 1];
+        var actualStarts = new int[queries.Count];
+        var actualLengths = new int[queries.Count];
+        var actualChecksum = (int)(codeIntelligenceMemberReceiverChecksumInto.Invoke(
+            null,
+            new object[] { source, lineStarts, lineLengths, queryLines, memberStartColumns, actualStarts, actualLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedLengths, actualLengths);
+    }
+
     private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)
     {
         for (var i = 0; i < lineText.Length; i++)
@@ -520,6 +591,64 @@ func main() {
         }
 
         return true;
+    }
+
+    private static (int StartColumn, int Length)? ExtractMemberReceiverSpan(string source, int line, int memberStartColumn)
+    {
+        try
+        {
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length)
+                return null;
+
+            var lineText = lines[line - 1];
+            var memberStartIndex = memberStartColumn - 1;
+            if (memberStartIndex <= 0 || memberStartIndex > lineText.Length)
+                return null;
+
+            var separatorIndex = memberStartIndex - 1;
+            if (separatorIndex >= 0 && lineText[separatorIndex] == '.')
+            {
+                var receiverEnd = separatorIndex - 1;
+                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
+                    receiverEnd--;
+                if (receiverEnd < 0)
+                    return null;
+
+                var receiverStart = receiverEnd;
+                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
+                    receiverStart--;
+
+                receiverStart++;
+                return receiverStart <= receiverEnd
+                    ? (receiverStart + 1, receiverEnd - receiverStart + 1)
+                    : null;
+            }
+
+            if (separatorIndex >= 1 && lineText[separatorIndex - 1] == '?' && lineText[separatorIndex] == '.')
+            {
+                var receiverEnd = separatorIndex - 2;
+                while (receiverEnd >= 0 && char.IsWhiteSpace(lineText[receiverEnd]))
+                    receiverEnd--;
+                if (receiverEnd < 0)
+                    return null;
+
+                var receiverStart = receiverEnd;
+                while (receiverStart >= 0 && IsIdentifierChar(lineText[receiverStart]))
+                    receiverStart--;
+
+                receiverStart++;
+                return receiverStart <= receiverEnd
+                    ? (receiverStart + 1, receiverEnd - receiverStart + 1)
+                    : null;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static int LineIndexFromOffset(int[] starts, int sourceLength, int offset)
