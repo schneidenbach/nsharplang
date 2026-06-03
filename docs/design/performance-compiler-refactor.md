@@ -369,6 +369,24 @@ promotion is a transparent optimization, not a checked language feature.
 Deferred: buffers declared inside nested blocks (would require scope-restored promotion
 state), non-constant sizes, and managed/struct element types.
 
+### Statement-context assignment
+
+Assignment is both an expression and a statement in N#. Expression-valued assignment is required for
+shapes such as `x = y = 5`, so the ordinary expression lowerer must leave the assigned value on the
+evaluation stack. Hot compiler-service code, however, is dominated by bare assignment statements:
+loop induction (`position = position + 1`), counters (`count = count + 1`), and compact token-buffer
+writes (`kinds[count] = kind`). Reloading the assigned value only for the expression-statement
+emitter to `pop` it adds unnecessary IL and can inhibit the JIT from seeing the tightest loop shape.
+
+Implemented compiler work (2026-06-03):
+
+1. `ExpressionStatement` detects `AssignmentExpression` and asks `EmitAssignment` for
+   statement-context lowering (`leaveValueOnStack: false`).
+2. Identifier, static member, instance member, and indexed assignment stores skip the final reload
+   when the value is not consumed. Expression contexts still use the default value-producing path.
+3. `AssignmentStatementIlShapeTests` pins zero `pop` opcodes for local/indexed assignment
+   statements and verifies nested assignment expressions still return the assigned value.
+
 ## Async And Iterators
 
 Async and iterator lowering can dominate allocations. N# should make the cheap path explicit without making async interop weird.

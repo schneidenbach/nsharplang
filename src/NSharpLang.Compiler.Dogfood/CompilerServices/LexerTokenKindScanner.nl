@@ -122,10 +122,10 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
         }
 
         operatorInfo := OperatorInfo(source, position, length)
-        operatorKind := operatorInfo / 4
+        operatorKind := operatorInfo >> 2
         buffer[count] = operatorKind
         count = count + 1
-        position = position + (operatorInfo - operatorKind * 4)
+        position = position + (operatorInfo & 3)
     }
 
     buffer[count] = 135
@@ -376,8 +376,8 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         }
 
         operatorInfo := OperatorInfo(source, position, length)
-        operatorKind := operatorInfo / 4
-        operatorWidth := operatorInfo - operatorKind * 4
+        operatorKind := operatorInfo >> 2
+        operatorWidth := operatorInfo & 3
         kinds[count] = operatorKind
         starts[count] = start
         valueLengths[count] = operatorWidth

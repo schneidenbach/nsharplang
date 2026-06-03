@@ -102,12 +102,28 @@ large-corpus dry smoke threshold at about 6.4x (1.06 ms vs 6.85 ms). The represe
 still much closer (97 us vs 124 us for the reusable-buffer path), so this is not full lexer
 acceptance evidence and the benchmark remains a dry smoke run.
 
+On 2026-06-03 the compiler lowerer learned a statement-context assignment path: assignment
+expressions still return the assigned value when the value is consumed, but bare assignment
+statements no longer reload that value only for an expression-statement pop. `AssignmentStatementIlShapeTests`
+pins this shape with zero `pop` opcodes for local/indexed assignment statements and verifies nested
+assignment expressions still return their assigned value. The dogfood lexer scanner also decodes its
+packed operator kind/width with `>> 2` and `& 3` instead of `/ 4` and multiply/subtract. The updated
+dry smoke run still showed the large generated reusable-token benchmark above the 5x smoke threshold
+(992 us vs 6.82 ms, about 6.9x), but the representative corpus remained near parity (109 us vs
+113 us). This is useful IL-shape progress, not lexer production acceptance.
+
 The metadata-buffer dry run also passed parity on 2026-06-03. `TokenizeMetadataInto` reported zero
 managed allocation and filled token kind, source start, value length, line, and column buffers. The
 large generated corpus crossed the dry smoke threshold at about 7.0x faster than the current C#
 lexer filling equivalent metadata buffers (992 us vs 6.99 ms), while the representative corpus was
 only near parity (105 us vs 110 us). This is useful compact-token-table evidence, not acceptance
 evidence.
+
+The post-lowering dry metadata smoke run preserved parity and zero managed allocation. In that run
+the large generated metadata path measured 1.17 ms vs 6.90 ms (about 5.9x) while the representative
+corpus stayed near parity at 104 us vs 116 us. The next lexer work should therefore focus on reducing
+fixed overhead on small/representative files and on a production compact-token table, not on claiming
+the lexer rewrite gate is met.
 
 `CompilerDogfoodProjectTests` now includes a production-keyword sweep plus a near-miss identifier
 (`throws`) to pin the optimized keyword dispatch to the actual C# `Lexer.Keywords` behavior. It also

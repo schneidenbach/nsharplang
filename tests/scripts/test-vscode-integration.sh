@@ -150,6 +150,14 @@ PY
 
 preseed_vscode_test_cache_from_machine_install
 
+if [ -z "${NSHARP_VSCODE_TEST_VERSION:-}" ]; then
+    NSHARP_VSCODE_TEST_VERSION="$(code --version 2>/dev/null | head -1 || true)"
+fi
+if [ -n "${NSHARP_VSCODE_TEST_VERSION:-}" ]; then
+    export NSHARP_VSCODE_TEST_VERSION
+    echo -e "${GREEN}✓ Using VS Code $NSHARP_VSCODE_TEST_VERSION for test-electron${NC}"
+fi
+
 # @vscode/test-electron reuses editors/vscode/.vscode-test between runs. If a
 # previous download was interrupted, the directory can look installed but miss
 # VS Code's packaged node modules; launching then fails before tests start with

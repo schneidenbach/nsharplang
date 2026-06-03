@@ -1,12 +1,13 @@
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { runTests } from '@vscode/test-electron';
+import { runTests, type TestOptions } from '@vscode/test-electron';
 
 async function main() {
     try {
         const extensionDevelopmentPath = path.resolve(__dirname, '../../');
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
+        const vscodeVersion = getVSCodeTestVersion();
 
         // Default to the simple fixture workspace
         const testWorkspace = process.env.TEST_WORKSPACE
@@ -27,6 +28,9 @@ async function main() {
         console.log(`Tests:     ${extensionTestsPath}`);
         console.log(`Workspace: ${testWorkspace}`);
         console.log(`UserData:  ${userDataDir}`);
+        if (vscodeVersion) {
+            console.log(`VS Code:   ${vscodeVersion}`);
+        }
 
         // Pass test filtering env vars through to the VS Code instance
         const extensionTestsEnv: Record<string, string> = {};
@@ -39,10 +43,11 @@ async function main() {
             console.log(`Filter:    TEST_GREP=${process.env.TEST_GREP}`);
         }
 
-        await runTests({
+        const testOptions: TestOptions = {
             extensionDevelopmentPath,
             extensionTestsPath,
             extensionTestsEnv,
+            version: vscodeVersion,
             launchArgs: [
                 testWorkspace,
                 '--disable-workspace-trust',
@@ -64,7 +69,9 @@ async function main() {
                 `--user-data-dir=${userDataDir}`,
                 `--extensions-dir=${extensionsDir}`,
             ],
-        });
+        };
+
+        await runTests(testOptions);
 
         // Clean up the temporary profile.
         try {
@@ -79,3 +86,8 @@ async function main() {
 }
 
 main();
+
+function getVSCodeTestVersion(): TestOptions['version'] {
+    const version = process.env.NSHARP_VSCODE_TEST_VERSION?.trim();
+    return version ? version as TestOptions['version'] : undefined;
+}

@@ -10233,6 +10233,12 @@ public partial class ILCompiler
                 break;
 
             case ExpressionStatement exprStmt:
+                if (exprStmt.Expression is AssignmentExpression assignment)
+                {
+                    EmitAssignment(assignment, leaveValueOnStack: false);
+                    break;
+                }
+
                 EmitExpression(exprStmt.Expression);
                 // Pop the result if it's not used
                 if (GetExpressionType(exprStmt.Expression) != typeof(void))
@@ -14939,7 +14945,7 @@ public partial class ILCompiler
     /// <summary>
     /// Emit IL for an assignment expression
     /// </summary>
-    private void EmitAssignment(AssignmentExpression assignment)
+    private void EmitAssignment(AssignmentExpression assignment, bool leaveValueOnStack = true)
     {
         if (_currentIL == null || _locals == null || _parameters == null)
             throw new InvalidOperationException("No IL generator context");
@@ -14981,7 +14987,10 @@ public partial class ILCompiler
                         _currentIL.MarkLabel(endLabel);
                     }
 
-                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    if (leaveValueOnStack)
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    }
                     return;
                 }
 
@@ -15015,7 +15024,10 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Stloc, assignedValueLocal);
                 _currentIL.Emit(OpCodes.Ldloc, assignedValueLocal);
                 EmitStaticMemberStoreValue(staticType, memberAccess.MemberName);
-                _currentIL.Emit(OpCodes.Ldloc, assignedValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, assignedValueLocal);
+                }
                 return;
             }
 
@@ -15056,11 +15068,17 @@ public partial class ILCompiler
 
                     _currentIL.MarkLabel(hasValueLabel);
                     _currentIL.MarkLabel(endLabel);
-                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    if (leaveValueOnStack)
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    }
                     return;
                 }
 
-                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                }
                 return;
             }
 
@@ -15165,11 +15183,18 @@ public partial class ILCompiler
             if (storesToReferenceTypeField)
             {
                 var fb = _fields[GetFieldKey((TypeBuilder)objectType, memberAccess.MemberName)];
-                var resultLocal = _currentIL.DeclareLocal(fb.FieldType);
-                _currentIL.Emit(OpCodes.Dup);
-                _currentIL.Emit(OpCodes.Stloc, resultLocal);
+                LocalBuilder? resultLocal = null;
+                if (leaveValueOnStack)
+                {
+                    resultLocal = _currentIL.DeclareLocal(fb.FieldType);
+                    _currentIL.Emit(OpCodes.Dup);
+                    _currentIL.Emit(OpCodes.Stloc, resultLocal);
+                }
                 _currentIL.Emit(OpCodes.Stfld, fb);
-                _currentIL.Emit(OpCodes.Ldloc, resultLocal);
+                if (resultLocal != null)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, resultLocal);
+                }
                 return;
             }
 
@@ -15194,16 +15219,19 @@ public partial class ILCompiler
                 EmitMemberStoreValue(objectType, memberAccess.MemberName);
             }
 
-            // Assignment expressions return the assigned value
-            // For member assignments, we need to reload the value
-            if (receiverLocal != null)
+            // Assignment expressions return the assigned value. Statement-context assignment skips
+            // this reload because the caller does not need a value to pop.
+            if (leaveValueOnStack)
             {
-                _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
-                EmitMemberLoadValue(objectType, memberAccess.MemberName);
-            }
-            else
-            {
-                EmitMemberAccess(memberAccess);
+                if (receiverLocal != null)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
+                    EmitMemberLoadValue(objectType, memberAccess.MemberName);
+                }
+                else
+                {
+                    EmitMemberAccess(memberAccess);
+                }
             }
 
             return;
@@ -15221,6 +15249,10 @@ public partial class ILCompiler
                 && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
             {
                 EmitPromotedBufferAssignment(assignment, indexAccess, bufferStorage);
+                if (!leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Pop);
+                }
                 return;
             }
 
@@ -15268,11 +15300,17 @@ public partial class ILCompiler
 
                     _currentIL.MarkLabel(hasValueLabel);
                     _currentIL.MarkLabel(endLabel);
-                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    if (leaveValueOnStack)
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    }
                     return;
                 }
 
-                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                }
                 return;
             }
 
@@ -15304,7 +15342,10 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Ldloc, indexLocal);
             _currentIL.Emit(OpCodes.Ldloc, valueLocal);
             EmitIndexStoreValue(indexAccess, objectType);
-            _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+            if (leaveValueOnStack)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+            }
             return;
         }
 
@@ -15342,11 +15383,17 @@ public partial class ILCompiler
 
                 _currentIL.MarkLabel(hasValueLabel);
                 _currentIL.MarkLabel(endLabel);
-                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                }
                 return;
             }
 
-            _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+            if (leaveValueOnStack)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+            }
             return;
         }
 
@@ -15423,9 +15470,12 @@ public partial class ILCompiler
             EmitStoreResolvedCurrentTypeMember(field, setter, memberType);
         }
 
-        // Assignment expressions also return the assigned value, so we need to load it back
-        // This allows things like: x = y = 5
-        EmitIdentifier(ident);
+        // Assignment expressions also return the assigned value, so expression contexts need to
+        // load it back. Statement contexts skip that reload and avoid a matching pop.
+        if (leaveValueOnStack)
+        {
+            EmitIdentifier(ident);
+        }
     }
 
     /// <summary>
