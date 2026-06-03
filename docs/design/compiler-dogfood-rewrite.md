@@ -194,6 +194,14 @@ queries measured 100 us vs 323 us representative and 119 us vs 920 us large. Thi
 conclusion: large cached query paths are promising, but representative source-map work still needs
 more than local loop cleanup before any production rewrite claim.
 
+The next cached-query dry smoke pass on 2026-06-03 kept the same validating contract but processed
+offset and line/column queries in four-wide batches, relying on the cached line-map invariant that
+`starts[index] + lengths[index]` is within the source. The validating cached-query path improved to
+85.83 us vs 332.79 us on the representative corpus (about 3.9x) and 104.83 us vs 959.25 us on the
+large mixed-newline corpus (about 9.2x). The trusted valid-query batch measured 71.62 us
+representative and 89.29 us large in the same dry run. Large cached-query throughput is now well past
+the dry smoke threshold, but representative cached queries still miss the 5x acceptance gate.
+
 Current code-intelligence dogfood benchmarks:
 
 - `CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks` targets identifier span extraction used

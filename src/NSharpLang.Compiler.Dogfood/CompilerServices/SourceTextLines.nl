@@ -407,7 +407,64 @@ func LineMapCachedQueryChecksumInto(
     checksum := lineCount
 
     i := 0
-    while i < offsets.Length {
+    offsetCount := offsets.Length
+    offsetUnrollLimit := offsetCount - 3
+    while i < offsetUnrollLimit {
+        offset := offsets[i]
+        if offset < 0 {
+            offset = 0
+        }
+
+        if offset > sourceLength {
+            offset = sourceLength
+        }
+
+        lineIndex := offsetLineIndices[offset]
+        column := offset - starts[lineIndex]
+        checksum = checksum + lineIndex * 31 + column
+
+        offset = offsets[i + 1]
+        if offset < 0 {
+            offset = 0
+        }
+
+        if offset > sourceLength {
+            offset = sourceLength
+        }
+
+        lineIndex = offsetLineIndices[offset]
+        column = offset - starts[lineIndex]
+        checksum = checksum + lineIndex * 31 + column
+
+        offset = offsets[i + 2]
+        if offset < 0 {
+            offset = 0
+        }
+
+        if offset > sourceLength {
+            offset = sourceLength
+        }
+
+        lineIndex = offsetLineIndices[offset]
+        column = offset - starts[lineIndex]
+        checksum = checksum + lineIndex * 31 + column
+
+        offset = offsets[i + 3]
+        if offset < 0 {
+            offset = 0
+        }
+
+        if offset > sourceLength {
+            offset = sourceLength
+        }
+
+        lineIndex = offsetLineIndices[offset]
+        column = offset - starts[lineIndex]
+        checksum = checksum + lineIndex * 31 + column
+        i = i + 4
+    }
+
+    while i < offsetCount {
         offset := offsets[i]
         if offset < 0 {
             offset = 0
@@ -424,22 +481,81 @@ func LineMapCachedQueryChecksumInto(
     }
 
     i = 0
-    while i < queryLines.Length {
+    // Valid line maps guarantee starts[index] + lengths[index] never exceeds sourceLength.
+    queryCount := queryLines.Length
+    queryUnrollLimit := queryCount - 3
+    while i < queryUnrollLimit {
         line := queryLines[i]
         column := queryColumns[i]
-        offset := -1
 
         if line >= 1 && line <= lineCount && column >= 0 {
             index := line - 1
             if column <= lengths[index] {
-                candidate := starts[index] + column
-                if candidate <= sourceLength {
-                    offset = candidate
-                }
+                checksum = checksum + (starts[index] + column) * 17
+            } else {
+                checksum = checksum - 17
             }
+        } else {
+            checksum = checksum - 17
         }
 
-        checksum = checksum + offset * 17
+        line = queryLines[i + 1]
+        column = queryColumns[i + 1]
+        if line >= 1 && line <= lineCount && column >= 0 {
+            index := line - 1
+            if column <= lengths[index] {
+                checksum = checksum + (starts[index] + column) * 17
+            } else {
+                checksum = checksum - 17
+            }
+        } else {
+            checksum = checksum - 17
+        }
+
+        line = queryLines[i + 2]
+        column = queryColumns[i + 2]
+        if line >= 1 && line <= lineCount && column >= 0 {
+            index := line - 1
+            if column <= lengths[index] {
+                checksum = checksum + (starts[index] + column) * 17
+            } else {
+                checksum = checksum - 17
+            }
+        } else {
+            checksum = checksum - 17
+        }
+
+        line = queryLines[i + 3]
+        column = queryColumns[i + 3]
+        if line >= 1 && line <= lineCount && column >= 0 {
+            index := line - 1
+            if column <= lengths[index] {
+                checksum = checksum + (starts[index] + column) * 17
+            } else {
+                checksum = checksum - 17
+            }
+        } else {
+            checksum = checksum - 17
+        }
+
+        i = i + 4
+    }
+
+    while i < queryCount {
+        line := queryLines[i]
+        column := queryColumns[i]
+
+        if line >= 1 && line <= lineCount && column >= 0 {
+            index := line - 1
+            if column <= lengths[index] {
+                checksum = checksum + (starts[index] + column) * 17
+            } else {
+                checksum = checksum - 17
+            }
+        } else {
+            checksum = checksum - 17
+        }
+
         i = i + 1
     }
 
