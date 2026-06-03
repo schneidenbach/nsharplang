@@ -571,3 +571,144 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
         return expectedStarts.Length;
     }
 }
+
+/// <summary>
+/// Dogfood benchmark for source context extraction used by references, diagnostics, hover, and
+/// query output.
+///
+/// The current C# helper splits the whole file and trims the selected line for each query. The N#
+/// candidate reuses caller-owned line ranges and writes trimmed absolute source spans into buffers,
+/// allowing callers to materialize only the contexts they actually return.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceSourceContextBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int[], int[], int[], int> _nsharpSourceContextsInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpContextLengths = Array.Empty<int>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _nsharpContextLengths = Array.Empty<int>();
+    private int[] _nsharpContextStarts = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int _queryCount;
+    private string _source = string.Empty;
+    private string?[] _expectedContexts = Array.Empty<string?>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus) + """
+
+func sourceContextProbe() {
+       print "trim me"
+
+	  print "tabs"
+}
+""";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpSourceContextsInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceSourceContextsInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpContextLengths = new int[_queryCount];
+        _nsharpContextStarts = new int[_queryCount];
+        _nsharpContextLengths = new int[_queryCount];
+
+        BuildQueries();
+
+        _expectedContexts = new string?[_queryLines.Length];
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            _expectedContexts[i] = ExtractSourceContext(_source, _queryLines[i]);
+        }
+
+        var expectedCount = CSharpCodeIntelligenceSourceContexts_QueryBatch();
+        var actualCount = NSharpCodeIntelligenceSourceContexts_QueryBatch();
+        if (expectedCount != actualCount)
+        {
+            throw new InvalidOperationException(
+                $"N# source context count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
+        }
+
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var actual = _nsharpContextStarts[i] >= 0
+                ? _source.Substring(_nsharpContextStarts[i], _nsharpContextLengths[i])
+                : null;
+            if (!string.Equals(_expectedContexts[i], actual, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"N# source context mismatch for {Corpus} at query {i}: line {_queryLines[i]}, " +
+                    $"expected {FormatContext(_expectedContexts[i])}, got {FormatContext(actual)}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceSourceContexts_QueryBatch()
+    {
+        var foundCount = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var context = ExtractSourceContext(_source, _queryLines[i]);
+            _csharpContextLengths[i] = context?.Length ?? -1;
+            if (context != null)
+            {
+                foundCount++;
+            }
+        }
+
+        return foundCount;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceSourceContexts_QueryBatch() =>
+        _nsharpSourceContextsInto(
+            _source,
+            _lineStarts,
+            _lineLengths,
+            _queryLines,
+            _nsharpContextStarts,
+            _nsharpContextLengths);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (i % 37 == 0)
+            {
+                _queryLines[i] = i % 2 == 0 ? 0 : lines.Length + 1;
+                continue;
+            }
+
+            _queryLines[i] = i * 17 % lines.Length + 1;
+        }
+    }
+
+    private static string? ExtractSourceContext(string source, int line)
+    {
+        var lines = source.Split('\n');
+        return line <= 0 || line > lines.Length
+            ? null
+            : lines[line - 1].Trim();
+    }
+
+    private static string FormatContext(string? context) =>
+        context == null ? "<null>" : $"\"{context}\"";
+}

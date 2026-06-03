@@ -156,6 +156,14 @@ func main() {
                     "CodeIntelligenceMemberReceiversCachedInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiversCachedInto.");
+            var codeIntelligenceSourceContextChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceSourceContextChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceContextChecksumInto.");
+            var codeIntelligenceSourceContextsInto = programType.GetMethod(
+                    "CodeIntelligenceSourceContextsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceContextsInto.");
 
             const string source = """"
 import System
@@ -316,6 +324,10 @@ func main(customer: Customer, résumé: Profile) {
                 codeIntelligenceMemberReceiversInto,
                 codeIntelligenceMemberReceiverCachedChecksumInto,
                 codeIntelligenceMemberReceiversCachedInto);
+            AssertSourceContextsLikeProduction(
+                "  first line  \n\tsecond line\r\n   \n\n café42  \n",
+                codeIntelligenceSourceContextChecksumInto,
+                codeIntelligenceSourceContextsInto);
         }
         finally
         {
@@ -821,6 +833,105 @@ func main(customer: Customer, résumé: Profile) {
         Assert.Equal(expectedLengths, productionCachedLengths);
     }
 
+    private static void AssertSourceContextsLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceSourceContextChecksumInto,
+        MethodInfo codeIntelligenceSourceContextsInto)
+    {
+        var lines = source.Split('\n');
+        var queries = new List<int> { 0, lines.Length + 1 };
+        for (var line = 1; line <= lines.Length; line++)
+        {
+            queries.Add(line);
+        }
+
+        var queryLines = queries.ToArray();
+        var expectedStarts = new int[queryLines.Length];
+        var expectedLengths = new int[queryLines.Length];
+        var expectedChecksum = 0;
+        var expectedCount = 0;
+        var lineStarts = BuildLfLineStarts(source);
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var line = queryLines[i];
+            var start = -1;
+            var length = 0;
+
+            if (line >= 1 && line <= lines.Length)
+            {
+                var lineText = lines[line - 1];
+                var trimStart = 0;
+                var trimEnd = lineText.Length - 1;
+                while (trimStart <= trimEnd && char.IsWhiteSpace(lineText[trimStart]))
+                {
+                    trimStart++;
+                }
+
+                while (trimEnd >= trimStart && char.IsWhiteSpace(lineText[trimEnd]))
+                {
+                    trimEnd--;
+                }
+
+                start = lineStarts[line - 1] + trimStart;
+                if (trimEnd >= trimStart)
+                {
+                    length = trimEnd - trimStart + 1;
+                }
+
+                expectedCount++;
+            }
+
+            expectedStarts[i] = start;
+            expectedLengths[i] = length;
+            expectedChecksum += start * 31 + length * 17;
+        }
+
+        var rangeStarts = new int[source.Length + 1];
+        var rangeLengths = new int[source.Length + 1];
+        var actualStarts = new int[queryLines.Length];
+        var actualLengths = new int[queryLines.Length];
+        var actualChecksum = (int)(codeIntelligenceSourceContextChecksumInto.Invoke(
+            null,
+            new object[] { source, rangeStarts, rangeLengths, queryLines, actualStarts, actualLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedLengths, actualLengths);
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var line = queryLines[i];
+            var expectedContext = line >= 1 && line <= lines.Length
+                ? lines[line - 1].Trim()
+                : null;
+            var actualContext = actualStarts[i] >= 0
+                ? source.Substring(actualStarts[i], actualLengths[i])
+                : null;
+            Assert.Equal(expectedContext, actualContext);
+        }
+
+        var productionLineStarts = new int[source.Length + 1];
+        var productionLineLengths = new int[source.Length + 1];
+        var productionStarts = new int[queryLines.Length];
+        var productionLengths = new int[queryLines.Length];
+        var actualCount = (int)(codeIntelligenceSourceContextsInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionLineStarts,
+                productionLineLengths,
+                queryLines,
+                productionStarts,
+                productionLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        Assert.Equal(expectedStarts, productionStarts);
+        Assert.Equal(expectedLengths, productionLengths);
+    }
+
     private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)
     {
         for (var i = 0; i < lineText.Length; i++)
@@ -1029,6 +1140,20 @@ func main(customer: Customer, résumé: Profile) {
         }
 
         return offsetLineIndices;
+    }
+
+    private static int[] BuildLfLineStarts(string source)
+    {
+        var starts = new List<int> { 0 };
+        for (var i = 0; i < source.Length; i++)
+        {
+            if (source[i] == '\n')
+            {
+                starts.Add(i + 1);
+            }
+        }
+
+        return starts.ToArray();
     }
 
     private static string FindRepoRoot()

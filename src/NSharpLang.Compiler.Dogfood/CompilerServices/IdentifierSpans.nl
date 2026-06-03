@@ -391,6 +391,98 @@ func CodeIntelligenceMemberReceiversFromCacheInto(
     return foundCount
 }
 
+func CodeIntelligenceSourceContextChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    CodeIntelligenceSourceContextsInto(
+        source,
+        lineStarts,
+        lineLengths,
+        queryLines,
+        resultStarts,
+        resultLengths)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        contextStart := resultStarts[i]
+        contextLength := resultLengths[i]
+        checksum = checksum + contextStart * 31 + contextLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceSourceContextsInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceSourceContextsFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceSourceContextsFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    foundCount := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        contextStart := -1
+        contextLength := 0
+        line := queryLines[i]
+
+        if line > 0 && line <= lineCount {
+            lineIndex := line - 1
+            trimStart := lineStarts[lineIndex]
+            trimEnd := trimStart + lineLengths[lineIndex] - 1
+
+            while trimStart <= trimEnd && IsCodeIntelligenceWhitespace(source[trimStart]) {
+                trimStart = trimStart + 1
+            }
+
+            while trimEnd >= trimStart && IsCodeIntelligenceWhitespace(source[trimEnd]) {
+                trimEnd = trimEnd - 1
+            }
+
+            contextStart = trimStart
+            if trimEnd >= trimStart {
+                contextLength = trimEnd - trimStart + 1
+            }
+
+            foundCount = foundCount + 1
+        }
+
+        resultStarts[i] = contextStart
+        resultLengths[i] = contextLength
+        i = i + 1
+    }
+
+    return foundCount
+}
+
 func BuildCodeIntelligenceMemberReceiverCacheInto(
     source: string,
     lineStarts: int[],

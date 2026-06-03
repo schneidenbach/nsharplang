@@ -224,16 +224,22 @@ Current code-intelligence dogfood benchmarks:
   API. It intentionally preserves the current branch order, including the nullable member access
   edge where `customer?.Name` does not reach the later `?.` branch because the `'.'` branch runs
   first.
+- `CompilerServiceCodeIntelligenceSourceContextBenchmarks` targets source-context extraction used by
+  reference, diagnostic, hover, and query output. The C# baseline mirrors the current split-per-query
+  behavior: each line query calls `source.Split('\n')` and trims the selected line. The N# candidate
+  reuses line ranges and emits trimmed absolute source start/length pairs into caller-owned result
+  buffers through `CodeIntelligenceSourceContextsInto`, leaving any string materialization to the
+  outer output adapter.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
 standalone-CR input, Unicode identifier characters, member receivers with whitespace before the dot,
 and the current nullable-member-access edge. It verifies the production-shaped match-count APIs,
-the checksum parity helpers, the direct member receiver scanner, and the cached receiver-cache API.
-The N# candidate imports `System`, uses ASCII fast paths, and falls back to
-`Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C# identifier and whitespace
-rules without putting the runtime predicates on the common ASCII path.
+the checksum parity helpers, the direct member receiver scanner, the cached receiver-cache API, and
+source-context span extraction. The N# candidate imports `System`, uses ASCII fast paths, and falls
+back to `Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C# identifier and
+whitespace rules without putting the runtime predicates on the common ASCII path.
 
 The normal BenchmarkDotNet run on 2026-06-03 passed match-count and buffer parity and reported zero
 managed allocation on the N# code-intelligence paths. `CodeIntelligenceIdentifierSpansInto` ran
@@ -246,6 +252,13 @@ ran about 174x faster on the representative corpus (2.88 us vs 500.69 us, 0 B vs
 233x faster on the large generated corpus (225.03 us vs 52.51 ms, 0 B vs 129.6 MB). This is
 acceptance-grade benchmark evidence for the batched code-intelligence service shape.
 
+`CodeIntelligenceSourceContextsInto` passed parity and reported zero managed allocation in the same
+normal BenchmarkDotNet evidence tier. It ran about 108x faster on the representative corpus
+(4.503 us vs 487.396 us, 0 B vs 4,383,768 B) and about 676x faster on the large generated corpus
+(91.982 us vs 62.176 ms, 0 B vs 129,610,141 B). This is acceptance-grade benchmark evidence for the
+span extraction shape, but it is not production swap evidence until the query, diagnostic, hover, and
+reference output paths consume these spans through an adapter.
+
 The production swap slice for those two extraction helpers now ships the dogfood assembly beside the
 CLI, language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
@@ -254,9 +267,10 @@ old C# scanner only when the dogfood assembly is unavailable. `CompilerDogfoodPr
 the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier/receiver queries through the compiled N#
 methods; `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output.
-This is swap evidence for the identifier-span and member-receiver extraction slice only. Broader
-query, hover, definition, reference, completion, binding, and CLI command logic still contains C#
-implementation code and remains in scope for the dogfood rewrite.
+This is swap evidence for the identifier-span and member-receiver extraction slice only. The
+source-context candidate has benchmark evidence but has not been wired into production output
+materialization yet. Broader query, hover, definition, reference, completion, binding, and CLI command
+logic still contains C# implementation code and remains in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -329,6 +343,8 @@ queries and reusing caller-owned line/result buffers. The N# compiler can emit a
 `Char.IsLetterOrDigit` runtime static call from an imported `System` namespace while keeping the
 normal BenchmarkDotNet speed gate above 5x. The member-receiver candidate shows the next API lesson:
 the 5x win comes from a source-level receiver cache plus caller-owned buffers, not from calling a
-tiny backward scanner once per request. The production adapter keeps that cache lifetime explicit,
-but the remaining code-intelligence work still needs N# implementations for semantic lookup,
-completion construction, output shaping, and CLI command orchestration.
+tiny backward scanner once per request. The source-context candidate proves reusable line ranges and
+span outputs avoid split-and-trim allocation for reference and diagnostic output, but production
+still needs adapter/materialization work. The production adapter keeps cache lifetime explicit, but
+the remaining code-intelligence work still needs N# implementations for semantic lookup, completion
+construction, output shaping, and CLI command orchestration.
