@@ -89,6 +89,30 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryExtractSourceContext(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string source,
+        int line,
+        out string? context)
+    {
+        context = null;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = GetFileCache(snapshot, filePath, source);
+            return cache.TryExtractSourceContext(bindings, line, out context);
+        }
+        catch
+        {
+            context = null;
+            return false;
+        }
+    }
+
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
     {
         var snapshotCache = s_snapshotCaches.GetValue(snapshot, static _ => new SnapshotCache());
@@ -108,7 +132,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BuildCodeIntelligenceLineRangesInto>(programType, "BuildCodeIntelligenceLineRangesInto"),
                 CreateDelegate<BuildCodeIntelligenceMemberReceiverCacheInto>(programType, "BuildCodeIntelligenceMemberReceiverCacheInto"),
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
-                CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"));
+                CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
+                CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"));
         }
         catch
         {
@@ -174,11 +199,21 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int CodeIntelligenceSourceContextsFromLinesInto(
+        string source,
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int[] queryLines,
+        int[] resultStarts,
+        int[] resultLengths);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
-        CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache);
+        CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
+        CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines);
 
     private sealed class SnapshotCache
     {
@@ -298,6 +333,32 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
                 var absoluteStart = _lineStarts[line - 1] + start - 1;
                 receiverName = _source.Substring(absoluteStart, length);
+                return true;
+            }
+        }
+
+        public bool TryExtractSourceContext(Bindings bindings, int line, out string? context)
+        {
+            context = null;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                _queryLines[0] = line;
+                bindings.SourceContextsFromLines(
+                    _source,
+                    _lineStarts,
+                    _lineLengths,
+                    _lineCount,
+                    _queryLines,
+                    _resultStarts,
+                    _resultLengths);
+
+                var start = _resultStarts[0];
+                if (start < 0)
+                    return true;
+
+                context = _source.Substring(start, _resultLengths[0]);
                 return true;
             }
         }

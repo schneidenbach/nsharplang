@@ -19,6 +19,7 @@ public class CompilerDogfoodProjectTests
         var source = """
 func main() {
     value := input.Count
+
     print value
 }
 """;
@@ -57,6 +58,19 @@ func main() {
         var receiverArgs = new object?[] { snapshot, filePath, source, 2, 20, null };
         Assert.True((bool)(tryExtractMemberReceiverName.Invoke(null, receiverArgs) ?? false));
         Assert.Equal("input", receiverArgs[5]);
+
+        var tryExtractSourceContext = adapterType.GetMethod(
+                "TryExtractSourceContext",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractSourceContext.");
+
+        var contextArgs = new object?[] { snapshot, filePath, source, 2, null };
+        Assert.True((bool)(tryExtractSourceContext.Invoke(null, contextArgs) ?? false));
+        Assert.Equal("value := input.Count", contextArgs[4]);
+
+        var blankContextArgs = new object?[] { snapshot, filePath, source, 3, null };
+        Assert.True((bool)(tryExtractSourceContext.Invoke(null, blankContextArgs) ?? false));
+        Assert.Equal(string.Empty, blankContextArgs[4]);
     }
 
     [Fact]

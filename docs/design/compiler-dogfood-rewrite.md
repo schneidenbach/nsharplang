@@ -256,21 +256,20 @@ acceptance-grade benchmark evidence for the batched code-intelligence service sh
 normal BenchmarkDotNet evidence tier. It ran about 108x faster on the representative corpus
 (4.503 us vs 487.396 us, 0 B vs 4,383,768 B) and about 676x faster on the large generated corpus
 (91.982 us vs 62.176 ms, 0 B vs 129,610,141 B). This is acceptance-grade benchmark evidence for the
-span extraction shape, but it is not production swap evidence until the query, diagnostic, hover, and
-reference output paths consume these spans through an adapter.
+span extraction shape.
 
-The production swap slice for those two extraction helpers now ships the dogfood assembly beside the
-CLI, language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
+The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
+language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
-The adapter caches line ranges and receiver caches per `ProjectSnapshot`/file and falls back to the
-old C# scanner only when the dogfood assembly is unavailable. `CompilerDogfoodProjectTests` verifies
-the packaged adapter can load
-`NSharpLang.Compiler.Dogfood.dll` and answer identifier/receiver queries through the compiled N#
-methods; `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output.
-This is swap evidence for the identifier-span and member-receiver extraction slice only. The
-source-context candidate has benchmark evidence but has not been wired into production output
-materialization yet. Broader query, hover, definition, reference, completion, binding, and CLI command
-logic still contains C# implementation code and remains in scope for the dogfood rewrite.
+The adapter caches line ranges and receiver caches per `ProjectSnapshot`/file, uses cached line
+ranges for reference source-context materialization, and falls back to the old C# scanners only when
+the dogfood assembly is unavailable. `CompilerDogfoodProjectTests` verifies the packaged adapter can
+load `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, and source-context queries
+through the compiled N# methods; `QueryIntegrationTests` exercises the public query surface with the
+adapter-enabled output, including trimmed reference contexts. This is swap evidence for the
+identifier-span, member-receiver, and reference source-context extraction slice only. Broader query,
+hover, definition, diagnostic, completion, binding, and CLI command logic still contains C#
+implementation code and remains in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -344,7 +343,8 @@ queries and reusing caller-owned line/result buffers. The N# compiler can emit a
 normal BenchmarkDotNet speed gate above 5x. The member-receiver candidate shows the next API lesson:
 the 5x win comes from a source-level receiver cache plus caller-owned buffers, not from calling a
 tiny backward scanner once per request. The source-context candidate proves reusable line ranges and
-span outputs avoid split-and-trim allocation for reference and diagnostic output, but production
-still needs adapter/materialization work. The production adapter keeps cache lifetime explicit, but
-the remaining code-intelligence work still needs N# implementations for semantic lookup, completion
-construction, output shaping, and CLI command orchestration.
+span outputs avoid split-and-trim allocation for reference output, and the production adapter now
+materializes reference contexts from those spans. Diagnostic and hover output shaping still need the
+same treatment where they build source snippets. The production adapter keeps cache lifetime
+explicit, but the remaining code-intelligence work still needs N# implementations for semantic
+lookup, completion construction, output shaping, and CLI command orchestration.

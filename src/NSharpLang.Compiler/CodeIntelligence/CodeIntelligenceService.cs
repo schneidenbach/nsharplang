@@ -1050,6 +1050,16 @@ public class CodeIntelligenceService
         var source = GetSourceText(snapshot, filePath);
         if (source == null) return null;
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceContext(
+                snapshot,
+                filePath,
+                source,
+                line,
+                out var dogfoodContext))
+        {
+            return dogfoodContext;
+        }
+
         var lines = source.Split('\n');
         return line <= lines.Length ? lines[line - 1].Trim() : null;
     }
