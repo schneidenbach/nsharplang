@@ -368,6 +368,9 @@ func Main() {
             Assert.True(root.GetProperty("lintedFiles").GetInt32() > 0);
             Assert.True(root.GetProperty("results").GetArrayLength() > 0);
             Assert.True(root.GetProperty("summary").GetProperty("errors").GetInt32() > 0);
+            var diagnostic = Assert.Single(root.GetProperty("results").EnumerateArray(),
+                result => result.GetProperty("code").GetString() == "NL001");
+            Assert.Equal("    value := 42", diagnostic.GetProperty("sourceSnippet").GetString());
         }
         finally
         {

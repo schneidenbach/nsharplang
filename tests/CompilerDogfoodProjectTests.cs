@@ -72,6 +72,22 @@ func main() {
         Assert.True((bool)(tryExtractSourceContext.Invoke(null, blankContextArgs) ?? false));
         Assert.Equal(string.Empty, blankContextArgs[4]);
 
+        var tryExtractSourceLine = adapterType.GetMethod(
+                "TryExtractSourceLine",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(ProjectSnapshot), typeof(string), typeof(string), typeof(int), typeof(string).MakeByRefType() },
+                modifiers: null)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit snapshot TryExtractSourceLine.");
+
+        var rawLineArgs = new object?[] { snapshot, filePath, source, 2, null };
+        Assert.True((bool)(tryExtractSourceLine.Invoke(null, rawLineArgs) ?? false));
+        Assert.Equal("    value := input.Count", rawLineArgs[4]);
+
+        var blankLineArgs = new object?[] { snapshot, filePath, source, 3, null };
+        Assert.True((bool)(tryExtractSourceLine.Invoke(null, blankLineArgs) ?? false));
+        Assert.Equal(string.Empty, blankLineArgs[4]);
+
         var tryExtractVariableDeclarationName = adapterType.GetMethod(
                 "TryExtractVariableDeclarationName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -191,6 +207,18 @@ func main() {
                     "CodeIntelligenceSourceContextsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceContextsInto.");
+            var codeIntelligenceSourceLineChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceSourceLineChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceLineChecksumInto.");
+            var codeIntelligenceSourceLinesInto = programType.GetMethod(
+                    "CodeIntelligenceSourceLinesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceLinesInto.");
+            var codeIntelligenceSourceLinesFromLinesInto = programType.GetMethod(
+                    "CodeIntelligenceSourceLinesFromLinesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceLinesFromLinesInto.");
             var codeIntelligenceVariableDeclarationNameChecksumInto = programType.GetMethod(
                     "CodeIntelligenceVariableDeclarationNameChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -371,6 +399,11 @@ func main(customer: Customer, résumé: Profile) {
                 "  first line  \n\tsecond line\r\n   \n\n café42  \n",
                 codeIntelligenceSourceContextChecksumInto,
                 codeIntelligenceSourceContextsInto);
+            AssertSourceLinesLikeProduction(
+                "  first line  \n\tsecond line\r\n   \n\n café42  \n",
+                codeIntelligenceSourceLineChecksumInto,
+                codeIntelligenceSourceLinesInto,
+                codeIntelligenceSourceLinesFromLinesInto);
             AssertVariableDeclarationNamesLikeProduction(
                 """
 func main() {
@@ -988,6 +1021,110 @@ func main() {
         Assert.Equal(expectedCount, actualCount);
         Assert.Equal(expectedStarts, productionStarts);
         Assert.Equal(expectedLengths, productionLengths);
+    }
+
+    private static void AssertSourceLinesLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceSourceLineChecksumInto,
+        MethodInfo codeIntelligenceSourceLinesInto,
+        MethodInfo codeIntelligenceSourceLinesFromLinesInto)
+    {
+        var lines = source.Split('\n');
+        var queries = new List<int> { 0, lines.Length + 1 };
+        for (var line = 1; line <= lines.Length; line++)
+        {
+            queries.Add(line);
+        }
+
+        var queryLines = queries.ToArray();
+        var expectedStarts = new int[queryLines.Length];
+        var expectedLengths = new int[queryLines.Length];
+        var expectedChecksum = 0;
+        var expectedCount = 0;
+        var lineStarts = BuildLfLineStarts(source);
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var line = queryLines[i];
+            var start = -1;
+            var length = 0;
+
+            if (line >= 1 && line <= lines.Length)
+            {
+                start = lineStarts[line - 1];
+                length = lines[line - 1].Length;
+                expectedCount++;
+            }
+
+            expectedStarts[i] = start;
+            expectedLengths[i] = length;
+            expectedChecksum += start * 31 + length * 17;
+        }
+
+        var rangeStarts = new int[source.Length + 1];
+        var rangeLengths = new int[source.Length + 1];
+        var actualStarts = new int[queryLines.Length];
+        var actualLengths = new int[queryLines.Length];
+        var actualChecksum = (int)(codeIntelligenceSourceLineChecksumInto.Invoke(
+            null,
+            new object[] { source, rangeStarts, rangeLengths, queryLines, actualStarts, actualLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedLengths, actualLengths);
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var line = queryLines[i];
+            var expectedLine = line >= 1 && line <= lines.Length
+                ? lines[line - 1]
+                : null;
+            var actualLine = actualStarts[i] >= 0
+                ? source.Substring(actualStarts[i], actualLengths[i])
+                : null;
+            Assert.Equal(expectedLine, actualLine);
+        }
+
+        var productionLineStarts = new int[source.Length + 1];
+        var productionLineLengths = new int[source.Length + 1];
+        var productionStarts = new int[queryLines.Length];
+        var productionLengths = new int[queryLines.Length];
+        var actualCount = (int)(codeIntelligenceSourceLinesInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionLineStarts,
+                productionLineLengths,
+                queryLines,
+                productionStarts,
+                productionLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        Assert.Equal(expectedStarts, productionStarts);
+        Assert.Equal(expectedLengths, productionLengths);
+
+        var cachedLineStarts = new int[source.Length + 1];
+        var cachedLineLengths = new int[source.Length + 1];
+        var cachedStarts = new int[queryLines.Length];
+        var cachedLengths = new int[queryLines.Length];
+        var lineCount = BuildLineRanges(source, cachedLineStarts, cachedLineLengths);
+        var cachedCount = (int)(codeIntelligenceSourceLinesFromLinesInto.Invoke(
+            null,
+            new object[]
+            {
+                cachedLineStarts,
+                cachedLineLengths,
+                lineCount,
+                queryLines,
+                cachedStarts,
+                cachedLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, cachedCount);
+        Assert.Equal(expectedStarts, cachedStarts);
+        Assert.Equal(expectedLengths, cachedLengths);
     }
 
     private static void AssertVariableDeclarationNamesLikeProduction(

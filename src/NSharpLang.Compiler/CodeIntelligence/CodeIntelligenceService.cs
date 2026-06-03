@@ -201,7 +201,7 @@ public class CodeIntelligenceService
             var snippet = error.SourceSnippet;
             if (string.IsNullOrWhiteSpace(snippet) && error.Line > 0)
             {
-                snippet = ExtractSourceLine(sourceTexts, errorFile, error.Line);
+                snippet = ExtractSourceLine(snapshot, errorFile, error.Line);
             }
 
             results.Add(new DiagnosticResult(
@@ -341,6 +341,9 @@ public class CodeIntelligenceService
             null,
             DiagnosticCatalog.DocsUrlFor(diagnostic.Code));
     }
+
+    public static string? ExtractSourceLineForDiagnostics(string source, int line) =>
+        ExtractSourceLine(source, line);
 
     private static List<DiagnosticResult> GetLintDiagnostics(
         string projectRoot,
@@ -2654,7 +2657,36 @@ public class CodeIntelligenceService
         return ExtractSourceLine(source, line);
     }
 
+    private static string? ExtractSourceLine(ProjectSnapshot snapshot, string filePath, int line)
+    {
+        var source = GetSourceText(snapshot, filePath);
+        if (source == null)
+            return null;
+
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(
+                snapshot,
+                filePath,
+                source,
+                line,
+                out var dogfoodLine))
+        {
+            return dogfoodLine;
+        }
+
+        return ExtractSourceLineFallback(source, line);
+    }
+
     private static string? ExtractSourceLine(string source, int line)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(source, line, out var dogfoodLine))
+        {
+            return dogfoodLine;
+        }
+
+        return ExtractSourceLineFallback(source, line);
+    }
+
+    private static string? ExtractSourceLineFallback(string source, int line)
     {
         var lines = source.Split('\n');
         if (line > 0 && line <= lines.Length)

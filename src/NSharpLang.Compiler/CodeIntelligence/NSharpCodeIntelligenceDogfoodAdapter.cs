@@ -11,6 +11,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     private static readonly ConditionalWeakTable<ProjectSnapshot, SnapshotCache> s_snapshotCaches = new();
+    private static readonly ConditionalWeakTable<string, SourceLineCache> s_sourceLineCaches = new();
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -113,6 +114,49 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryExtractSourceLine(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string source,
+        int line,
+        out string? text)
+    {
+        text = null;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = GetFileCache(snapshot, filePath, source);
+            return cache.TryExtractSourceLine(bindings, line, out text);
+        }
+        catch
+        {
+            text = null;
+            return false;
+        }
+    }
+
+    internal static bool TryExtractSourceLine(string source, int line, out string? text)
+    {
+        text = null;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
+            return cache.TryExtractSourceLine(bindings, line, out text);
+        }
+        catch
+        {
+            text = null;
+            return false;
+        }
+    }
+
     internal static bool TryExtractVariableDeclarationName(
         ProjectSnapshot snapshot,
         string filePath,
@@ -159,6 +203,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
                 CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
                 CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"),
+                CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"));
         }
         catch
@@ -242,6 +287,14 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int CodeIntelligenceSourceLinesFromLinesInto(
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int[] queryLines,
+        int[] resultStarts,
+        int[] resultLengths);
+
     private delegate int CodeIntelligenceVariableDeclarationNamesFromCacheInto(
         int lineCount,
         int[] nameStartsByLine,
@@ -257,7 +310,63 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
         CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
         CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines,
+        CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
         CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache);
+
+    private sealed class SourceLineCache
+    {
+        private readonly object _gate = new();
+        private readonly int[] _lineLengths;
+        private readonly int[] _lineStarts;
+        private readonly int[] _queryLines = new int[1];
+        private readonly int[] _resultLengths = new int[1];
+        private readonly int[] _resultStarts = new int[1];
+        private readonly string _source;
+        private bool _lineRangesBuilt;
+        private int _lineCount;
+
+        public SourceLineCache(string source)
+        {
+            _source = source;
+            var capacity = source.Length + 1;
+            _lineStarts = new int[capacity];
+            _lineLengths = new int[capacity];
+        }
+
+        public bool TryExtractSourceLine(Bindings bindings, int line, out string? text)
+        {
+            text = null;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                _queryLines[0] = line;
+                bindings.SourceLinesFromLines(
+                    _lineStarts,
+                    _lineLengths,
+                    _lineCount,
+                    _queryLines,
+                    _resultStarts,
+                    _resultLengths);
+
+                var start = _resultStarts[0];
+                if (start < 0)
+                    return true;
+
+                text = _source.Substring(start, _resultLengths[0]);
+                return true;
+            }
+        }
+
+        private void EnsureLineRanges(Bindings bindings)
+        {
+            if (_lineRangesBuilt)
+                return;
+
+            _lineCount = bindings.BuildLineRanges(_source, _lineStarts, _lineLengths);
+            _lineRangesBuilt = true;
+        }
+    }
 
     private sealed class SnapshotCache
     {
@@ -408,6 +517,31 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                     return true;
 
                 context = _source.Substring(start, _resultLengths[0]);
+                return true;
+            }
+        }
+
+        public bool TryExtractSourceLine(Bindings bindings, int line, out string? text)
+        {
+            text = null;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                _queryLines[0] = line;
+                bindings.SourceLinesFromLines(
+                    _lineStarts,
+                    _lineLengths,
+                    _lineCount,
+                    _queryLines,
+                    _resultStarts,
+                    _resultLengths);
+
+                var start = _resultStarts[0];
+                if (start < 0)
+                    return true;
+
+                text = _source.Substring(start, _resultLengths[0]);
                 return true;
             }
         }

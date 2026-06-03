@@ -277,9 +277,6 @@ Exit codes:
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 
-    private static string? ExtractSourceLine(string source, int line)
-    {
-        var lines = source.Split('\n');
-        return line > 0 && line <= lines.Length ? lines[line - 1] : null;
-    }
+    private static string? ExtractSourceLine(string source, int line) =>
+        CodeIntelligenceService.ExtractSourceLineForDiagnostics(source, line);
 }

@@ -714,6 +714,151 @@ func sourceContextProbe() {
 }
 
 /// <summary>
+/// Dogfood benchmark for raw source-line extraction used by diagnostic and lint snippets.
+///
+/// The current C# helper splits the whole file and returns the selected untrimmed line for each
+/// query. The N# candidate reuses caller-owned line ranges and writes absolute source-line spans
+/// into buffers, preserving the current LF split behavior including trailing CR characters on CRLF
+/// input.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceSourceLineBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int> _nsharpBuildLineRangesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<int[], int[], int, int[], int[], int[], int> _nsharpSourceLinesFromLinesInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpLineLengths = Array.Empty<int>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _nsharpLineLengths = Array.Empty<int>();
+    private int[] _nsharpLineStarts = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int _lineCount;
+    private int _queryCount;
+    private string _source = string.Empty;
+    private string?[] _expectedLines = Array.Empty<string?>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus)
+            + "    rawLineProbe := 1\r\n"
+            + "\tindentedLine := rawLineProbe\n"
+            + "\n";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpBuildLineRangesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceLineRangesInto");
+        _nsharpSourceLinesFromLinesInto =
+            NSharpCompiledMethod.Bind<Func<int[], int[], int, int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceSourceLinesFromLinesInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpLineLengths = new int[_queryCount];
+        _nsharpLineStarts = new int[_queryCount];
+        _nsharpLineLengths = new int[_queryCount];
+
+        BuildQueries();
+        _lineCount = _nsharpBuildLineRangesInto(_source, _lineStarts, _lineLengths);
+
+        _expectedLines = new string?[_queryLines.Length];
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            _expectedLines[i] = ExtractSourceLine(_source, _queryLines[i]);
+        }
+
+        var expectedCount = CSharpCodeIntelligenceSourceLines_QueryBatch();
+        var actualCount = NSharpCodeIntelligenceSourceLines_CachedLineRanges_QueryBatch();
+        if (expectedCount != actualCount)
+        {
+            throw new InvalidOperationException(
+                $"N# source line count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
+        }
+
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var actual = _nsharpLineStarts[i] >= 0
+                ? _source.Substring(_nsharpLineStarts[i], _nsharpLineLengths[i])
+                : null;
+            if (!string.Equals(_expectedLines[i], actual, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"N# source line mismatch for {Corpus} at query {i}: line {_queryLines[i]}, " +
+                    $"expected {FormatContext(_expectedLines[i])}, got {FormatContext(actual)}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceSourceLines_QueryBatch()
+    {
+        var foundCount = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var line = ExtractSourceLine(_source, _queryLines[i]);
+            _csharpLineLengths[i] = line?.Length ?? -1;
+            if (line != null)
+            {
+                foundCount++;
+            }
+        }
+
+        return foundCount;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceSourceLines_CachedLineRanges_QueryBatch() =>
+        _nsharpSourceLinesFromLinesInto(
+            _lineStarts,
+            _lineLengths,
+            _lineCount,
+            _queryLines,
+            _nsharpLineStarts,
+            _nsharpLineLengths);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (i % 37 == 0)
+            {
+                _queryLines[i] = i % 2 == 0 ? 0 : lines.Length + 1;
+                continue;
+            }
+
+            _queryLines[i] = i * 17 % lines.Length + 1;
+        }
+    }
+
+    private static string? ExtractSourceLine(string source, int line)
+    {
+        var lines = source.Split('\n');
+        return line <= 0 || line > lines.Length
+            ? null
+            : lines[line - 1];
+    }
+
+    private static string FormatContext(string? context) =>
+        context == null ? "<null>" : $"\"{context}\"";
+}
+
+/// <summary>
 /// Dogfood benchmark for variable declaration name extraction used by type/definition query
 /// candidate resolution on declaration lines.
 ///

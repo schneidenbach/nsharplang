@@ -483,6 +483,82 @@ func CodeIntelligenceSourceContextsFromLinesInto(
     return foundCount
 }
 
+func CodeIntelligenceSourceLineChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    CodeIntelligenceSourceLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        queryLines,
+        resultStarts,
+        resultLengths)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        lineStart := resultStarts[i]
+        lineLength := resultLengths[i]
+        checksum = checksum + lineStart * 31 + lineLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceSourceLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceSourceLinesFromLinesInto(
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceSourceLinesFromLinesInto(
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    foundCount := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        lineStart := -1
+        lineLength := 0
+        line := queryLines[i]
+
+        if line > 0 && line <= lineCount {
+            lineIndex := line - 1
+            lineStart = lineStarts[lineIndex]
+            lineLength = lineLengths[lineIndex]
+            foundCount = foundCount + 1
+        }
+
+        resultStarts[i] = lineStart
+        resultLengths[i] = lineLength
+        i = i + 1
+    }
+
+    return foundCount
+}
+
 func CodeIntelligenceVariableDeclarationNameChecksumInto(
     source: string,
     lineStarts: int[],
