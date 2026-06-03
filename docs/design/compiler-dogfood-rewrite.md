@@ -175,6 +175,16 @@ vs 180 us) and about 5.6x faster on the large corpus (94 us vs 529 us). This is 
 cached compiler-position batches, not acceptance evidence: the representative query path still misses
 the 5x gate, and all numbers are dry smoke runs.
 
+Later on 2026-06-03 the small-file line-map builder stopped scanning ordinary characters before
+filling the offset-to-line table: it now uses `string.IndexOf` to find CR/LF separators and only loops
+over the offsets that must be assigned to a line. Remaining nonnegative binary-search midpoints in
+the N# source-map candidate also use `>> 1` instead of `/ 2`. The dry source-map smoke run improved
+but still missed representative acceptance: build-and-query measured 94 us vs 336 us on the
+representative corpus and 352 us vs 728 us on the large mixed-newline corpus; cached validating
+queries measured 100 us vs 323 us representative and 119 us vs 920 us large. This keeps the same
+conclusion: large cached query paths are promising, but representative source-map work still needs
+more than local loop cleanup before any production rewrite claim.
+
 Current code-intelligence dogfood benchmarks:
 
 - `CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks` targets identifier span extraction used

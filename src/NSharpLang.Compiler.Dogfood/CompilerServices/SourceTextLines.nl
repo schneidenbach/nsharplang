@@ -152,7 +152,7 @@ func GetLineIndexFromOffset(starts: int[], lineCount: int, sourceLength: int, of
     result := 0
 
     while low <= high {
-        mid := (low + high) / 2
+        mid := (low + high) >> 1
         if starts[mid] <= offset {
             result = mid
             low = mid + 1
@@ -216,7 +216,7 @@ func LineMapChecksumInto(source: string, starts: int[], lengths: int[], offsets:
         lineIndex := 0
 
         while low <= high {
-            mid := (low + high) / 2
+            mid := (low + high) >> 1
             if starts[mid] <= offset {
                 lineIndex = mid
                 low = mid + 1
@@ -306,7 +306,7 @@ func LineMapCachedChecksumInto(
             lineIndex := 0
 
             while low <= high {
-                mid := (low + high) / 2
+                mid := (low + high) >> 1
                 if starts[mid] <= offset {
                     lineIndex = mid
                     low = mid + 1
@@ -351,29 +351,36 @@ func BuildSmallLineRangesAndOffsetLineIndicesInto(source: string, starts: int[],
     count := 0
 
     while position < sourceLength {
-        ch := source[position]
-        if ch == '\r' || ch == '\n' {
-            nextLineStart := position + 1
-            if ch == '\r' && nextLineStart < sourceLength && source[nextLineStart] == '\n' {
-                nextLineStart = nextLineStart + 1
-            }
-
-            starts[count] = lineStart
-            lengths[count] = position - lineStart
-
-            offset := lineStart
-            while offset < nextLineStart && offset <= sourceLength {
-                offsetLineIndices[offset] = count
-                offset = offset + 1
-            }
-
-            count = count + 1
-            position = nextLineStart
-            lineStart = position
-            continue
+        cr := source.IndexOf('\r', position)
+        lf := source.IndexOf('\n', position)
+        if cr < 0 && lf < 0 {
+            break
         }
 
-        position = position + 1
+        separator := lf
+        isCr := false
+        if cr >= 0 && (lf < 0 || cr < lf) {
+            separator = cr
+            isCr = true
+        }
+
+        nextLineStart := separator + 1
+        if isCr && nextLineStart < sourceLength && source[nextLineStart] == '\n' {
+            nextLineStart = nextLineStart + 1
+        }
+
+        starts[count] = lineStart
+        lengths[count] = separator - lineStart
+
+        offset := lineStart
+        while offset < nextLineStart && offset <= sourceLength {
+            offsetLineIndices[offset] = count
+            offset = offset + 1
+        }
+
+        count = count + 1
+        position = nextLineStart
+        lineStart = position
     }
 
     starts[count] = lineStart
