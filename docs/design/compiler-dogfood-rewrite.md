@@ -87,12 +87,16 @@ evidence.
 
 The same dry run style for `CompilerServiceLexerReusableTokenKindBenchmarks` showed
 `TokenizeKindsInto(source, buffer)` eliminating per-operation managed allocation on the N# path.
-After replacing per-token helper emission and duplicate operator scanning with direct buffer writes
-and an encoded operator kind/width result, the large generated corpus ran about 4.0x faster than the
-current C# lexer filling a caller-owned kind buffer (1.71 ms vs 6.91 ms), while the representative
-corpus remained only slightly faster (101 us vs 108 us). This proves the reusable-buffer shape
-removes the forced copy/allocation pressure, but it still is not 5x acceptance evidence and the
-benchmark remains a dry smoke run.
+After replacing per-token helper emission, duplicate operator scanning, and generic string-literal
+keyword checks with direct buffer writes, an encoded operator kind/width result, and first-character
+keyword dispatch, the large generated corpus ran about 6.7x faster than the current C# lexer filling
+a caller-owned kind buffer (1.00 ms vs 6.77 ms). The exact-array token-kind path also crossed the
+large-corpus dry smoke threshold at about 6.4x (1.06 ms vs 6.85 ms). The representative corpus is
+still much closer (97 us vs 124 us for the reusable-buffer path), so this is not full lexer
+acceptance evidence and the benchmark remains a dry smoke run.
+
+`CompilerDogfoodProjectTests` now includes a production-keyword sweep plus a near-miss identifier
+(`throws`) to pin the optimized keyword dispatch to the actual C# `Lexer.Keywords` behavior.
 
 ## Rewrite Order
 

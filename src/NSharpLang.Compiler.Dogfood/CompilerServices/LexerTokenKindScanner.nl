@@ -665,316 +665,315 @@ func OperatorInfo(source: string, position: int, length: int): int {
 }
 
 func KeywordKind(source: string, start: int, length: int): int {
+    if length < 2 {
+        return 0
+    }
+
+    ch0 := source[start]
+
     if length == 2 {
-        if IsKeyword(source, start, length, "if") {
-            return 23
+        if ch0 == 'i' {
+            if source[start + 1] == 'f' {
+                return 23
+            }
+            if source[start + 1] == 'n' {
+                return 28
+            }
+            if source[start + 1] == 's' {
+                return 47
+            }
         }
-        if IsKeyword(source, start, length, "in") {
-            return 28
-        }
-        if IsKeyword(source, start, length, "is") {
-            return 47
-        }
-        if IsKeyword(source, start, length, "as") {
+        if ch0 == 'a' && source[start + 1] == 's' {
             return 48
         }
-        if IsKeyword(source, start, length, "or") {
+        if ch0 == 'o' && source[start + 1] == 'r' {
             return 56
         }
     }
 
     if length == 3 {
-        if IsKeyword(source, start, length, "for") {
+        if ch0 == 'f' && source[start + 1] == 'o' && source[start + 2] == 'r' {
             return 25
         }
-        if IsKeyword(source, start, length, "let") {
+        if ch0 == 'l' && source[start + 1] == 'e' && source[start + 2] == 't' {
             return 19
         }
-        if IsKeyword(source, start, length, "new") {
-            return 41
+        if ch0 == 'n' {
+            if source[start + 1] == 'e' && source[start + 2] == 'w' {
+                return 41
+            }
+            if source[start + 1] == 'o' && source[start + 2] == 't' {
+                return 57
+            }
         }
-        if IsKeyword(source, start, length, "try") {
+        if ch0 == 't' && source[start + 1] == 'r' && source[start + 2] == 'y' {
             return 38
         }
-        if IsKeyword(source, start, length, "and") {
+        if ch0 == 'a' && source[start + 1] == 'n' && source[start + 2] == 'd' {
             return 55
         }
-        if IsKeyword(source, start, length, "not") {
-            return 57
-        }
-        if IsKeyword(source, start, length, "out") {
+        if ch0 == 'o' && source[start + 1] == 'u' && source[start + 2] == 't' {
             return 79
         }
-    }
-
-    if length == 4 {
-        if IsKeyword(source, start, length, "func") {
-            return 7
-        }
-        if IsKeyword(source, start, length, "duck") {
-            return 11
-        }
-        if IsKeyword(source, start, length, "enum") {
-            return 14
-        }
-        if IsKeyword(source, start, length, "true") {
-            return 44
-        }
-        if IsKeyword(source, start, length, "base") {
-            return 43
-        }
-        if IsKeyword(source, start, length, "null") {
-            return 46
-        }
-        if IsKeyword(source, start, length, "this") {
-            return 42
-        }
-        if IsKeyword(source, start, length, "case") {
-            return 33
-        }
-        if IsKeyword(source, start, length, "else") {
-            return 24
-        }
-        if IsKeyword(source, start, length, "lock") {
-            return 80
-        }
-        if IsKeyword(source, start, length, "file") {
-            return 81
-        }
-        if IsKeyword(source, start, length, "type") {
-            return 72
-        }
-        if IsKeyword(source, start, length, "init") {
-            return 77
-        }
-        if IsKeyword(source, start, length, "when") {
-            return 54
-        }
-    }
-
-    if length == 5 {
-        if IsKeyword(source, start, length, "class") {
-            return 8
-        }
-        if IsKeyword(source, start, length, "union") {
-            return 12
-        }
-        if IsKeyword(source, start, length, "using") {
-            return 16
-        }
-        if IsKeyword(source, start, length, "const") {
-            return 21
-        }
-        if IsKeyword(source, start, length, "while") {
-            return 27
-        }
-        if IsKeyword(source, start, length, "yield") {
-            return 30
-        }
-        if IsKeyword(source, start, length, "match") {
-            return 31
-        }
-        if IsKeyword(source, start, length, "break") {
-            return 35
-        }
-        if IsKeyword(source, start, length, "catch") {
-            return 39
-        }
-        if IsKeyword(source, start, length, "false") {
-            return 45
-        }
-        if IsKeyword(source, start, length, "where") {
-            return 53
-        }
-        if IsKeyword(source, start, length, "async") {
-            return 68
-        }
-        if IsKeyword(source, start, length, "await") {
-            return 69
-        }
-        if IsKeyword(source, start, length, "print") {
-            return 52
-        }
-    }
-
-    if length == 6 {
-        if IsKeyword(source, start, length, "struct") {
-            return 9
-        }
-        if IsKeyword(source, start, length, "record") {
-            return 13
-        }
-        if IsKeyword(source, start, length, "import") {
-            return 17
-        }
-        if IsKeyword(source, start, length, "return") {
-            return 29
-        }
-        if IsKeyword(source, start, length, "switch") {
-            return 32
-        }
-        if IsKeyword(source, start, length, "throw") {
-            return 37
-        }
-        if IsKeyword(source, start, length, "typeof") {
-            return 49
-        }
-        if IsKeyword(source, start, length, "nameof") {
-            return 50
-        }
-        if IsKeyword(source, start, length, "sizeof") {
-            return 51
-        }
-        if IsKeyword(source, start, length, "sealed") {
-            return 61
-        }
-        if IsKeyword(source, start, length, "static") {
-            return 63
-        }
-        if IsKeyword(source, start, length, "public") {
-            return 64
-        }
-        if IsKeyword(source, start, length, "params") {
-            return 82
-        }
-    }
-
-    if length == 7 {
-        if IsKeyword(source, start, length, "package") {
-            return 18
-        }
-        if IsKeyword(source, start, length, "foreach") {
-            return 26
-        }
-        if IsKeyword(source, start, length, "default") {
-            return 34
-        }
-        if IsKeyword(source, start, length, "finally") {
-            return 40
-        }
-        if IsKeyword(source, start, length, "virtual") {
-            return 58
-        }
-        if IsKeyword(source, start, length, "partial") {
-            return 62
-        }
-        if IsKeyword(source, start, length, "private") {
-            return 65
-        }
-        if IsKeyword(source, start, length, "checked") {
-            return 83
-        }
-        if IsKeyword(source, start, length, "newtype") {
-            return 87
-        }
-    }
-
-    if length == 8 {
-        if IsKeyword(source, start, length, "readonly") {
-            return 22
-        }
-        if IsKeyword(source, start, length, "continue") {
-            return 36
-        }
-        if IsKeyword(source, start, length, "abstract") {
-            return 60
-        }
-        if IsKeyword(source, start, length, "internal") {
-            return 66
-        }
-        if IsKeyword(source, start, length, "required") {
-            return 76
-        }
-        if IsKeyword(source, start, length, "implicit") {
-            return 85
-        }
-        if IsKeyword(source, start, length, "explicit") {
-            return 86
-        }
-    }
-
-    if length == 9 {
-        if IsKeyword(source, start, length, "interface") {
-            return 10
-        }
-        if IsKeyword(source, start, length, "namespace") {
-            return 15
-        }
-        if IsKeyword(source, start, length, "protected") {
-            return 67
-        }
-        if IsKeyword(source, start, length, "immutable") {
-            return 70
-        }
-        if IsKeyword(source, start, length, "unchecked") {
-            return 84
-        }
-    }
-
-    if length == 8 {
-        if IsKeyword(source, start, length, "operator") {
-            return 75
-        }
-    }
-
-    if length == 4 {
-        if IsKeyword(source, start, length, "test") {
-            return 73
-        }
-    }
-
-    if length == 6 {
-        if IsKeyword(source, start, length, "assert") {
-            return 74
-        }
-    }
-
-    if length == 8 {
-        if IsKeyword(source, start, length, "override") {
-            return 59
-        }
-    }
-
-    if length == 4 {
-        if IsKeyword(source, start, length, "with") {
-            return 71
-        }
-    }
-
-    if length == 3 {
-        if IsKeyword(source, start, length, "ref") {
+        if ch0 == 'r' && source[start + 1] == 'e' && source[start + 2] == 'f' {
             return 78
         }
     }
 
     if length == 4 {
-        if IsKeyword(source, start, length, "must") {
+        if ch0 == 'f' {
+            if source[start + 1] == 'u' && source[start + 2] == 'n' && source[start + 3] == 'c' {
+                return 7
+            }
+            if source[start + 1] == 'i' && source[start + 2] == 'l' && source[start + 3] == 'e' {
+                return 81
+            }
+        }
+        if ch0 == 'd' && source[start + 1] == 'u' && source[start + 2] == 'c' && source[start + 3] == 'k' {
+            return 11
+        }
+        if ch0 == 'e' {
+            if source[start + 1] == 'n' && source[start + 2] == 'u' && source[start + 3] == 'm' {
+                return 14
+            }
+            if source[start + 1] == 'l' && source[start + 2] == 's' && source[start + 3] == 'e' {
+                return 24
+            }
+        }
+        if ch0 == 't' {
+            if source[start + 1] == 'r' && source[start + 2] == 'u' && source[start + 3] == 'e' {
+                return 44
+            }
+            if source[start + 1] == 'h' && source[start + 2] == 'i' && source[start + 3] == 's' {
+                return 42
+            }
+            if source[start + 1] == 'y' && source[start + 2] == 'p' && source[start + 3] == 'e' {
+                return 72
+            }
+        }
+        if ch0 == 'b' && source[start + 1] == 'a' && source[start + 2] == 's' && source[start + 3] == 'e' {
+            return 43
+        }
+        if ch0 == 'n' && source[start + 1] == 'u' && source[start + 2] == 'l' && source[start + 3] == 'l' {
+            return 46
+        }
+        if ch0 == 'c' && source[start + 1] == 'a' && source[start + 2] == 's' && source[start + 3] == 'e' {
+            return 33
+        }
+        if ch0 == 'l' && source[start + 1] == 'o' && source[start + 2] == 'c' && source[start + 3] == 'k' {
+            return 80
+        }
+        if ch0 == 'i' && source[start + 1] == 'n' && source[start + 2] == 'i' && source[start + 3] == 't' {
+            return 77
+        }
+        if ch0 == 'w' {
+            if source[start + 1] == 'h' && source[start + 2] == 'e' && source[start + 3] == 'n' {
+                return 54
+            }
+            if source[start + 1] == 'i' && source[start + 2] == 't' && source[start + 3] == 'h' {
+                return 71
+            }
+        }
+        if ch0 == 'm' && source[start + 1] == 'u' && source[start + 2] == 's' && source[start + 3] == 't' {
             return 20
         }
     }
 
-    return 0
-}
-
-func IsKeyword(source: string, start: int, length: int, keyword: string): bool {
-    if keyword.Length != length {
-        return false
-    }
-
-    if source[start] != keyword[0] {
-        return false
-    }
-
-    i := 1
-    while i < length {
-        if source[start + i] != keyword[i] {
-            return false
+    if length == 5 {
+        if ch0 == 'c' {
+            if source[start + 1] == 'l' && source[start + 2] == 'a' && source[start + 3] == 's' && source[start + 4] == 's' {
+                return 8
+            }
+            if source[start + 1] == 'o' && source[start + 2] == 'n' && source[start + 3] == 's' && source[start + 4] == 't' {
+                return 21
+            }
+            if source[start + 1] == 'a' && source[start + 2] == 't' && source[start + 3] == 'c' && source[start + 4] == 'h' {
+                return 39
+            }
         }
-
-        i = i + 1
+        if ch0 == 'u' {
+            if source[start + 1] == 'n' && source[start + 2] == 'i' && source[start + 3] == 'o' && source[start + 4] == 'n' {
+                return 12
+            }
+            if source[start + 1] == 's' && source[start + 2] == 'i' && source[start + 3] == 'n' && source[start + 4] == 'g' {
+                return 16
+            }
+        }
+        if ch0 == 't' && source[start + 1] == 'h' && source[start + 2] == 'r' && source[start + 3] == 'o' && source[start + 4] == 'w' {
+            return 37
+        }
+        if ch0 == 'w' {
+            if source[start + 1] == 'h' && source[start + 2] == 'i' && source[start + 3] == 'l' && source[start + 4] == 'e' {
+                return 27
+            }
+            if source[start + 1] == 'h' && source[start + 2] == 'e' && source[start + 3] == 'r' && source[start + 4] == 'e' {
+                return 53
+            }
+        }
+        if ch0 == 'y' && source[start + 1] == 'i' && source[start + 2] == 'e' && source[start + 3] == 'l' && source[start + 4] == 'd' {
+            return 30
+        }
+        if ch0 == 'm' && source[start + 1] == 'a' && source[start + 2] == 't' && source[start + 3] == 'c' && source[start + 4] == 'h' {
+            return 31
+        }
+        if ch0 == 'b' && source[start + 1] == 'r' && source[start + 2] == 'e' && source[start + 3] == 'a' && source[start + 4] == 'k' {
+            return 35
+        }
+        if ch0 == 'f' && source[start + 1] == 'a' && source[start + 2] == 'l' && source[start + 3] == 's' && source[start + 4] == 'e' {
+            return 45
+        }
+        if ch0 == 'a' {
+            if source[start + 1] == 's' && source[start + 2] == 'y' && source[start + 3] == 'n' && source[start + 4] == 'c' {
+                return 68
+            }
+            if source[start + 1] == 'w' && source[start + 2] == 'a' && source[start + 3] == 'i' && source[start + 4] == 't' {
+                return 69
+            }
+        }
+        if ch0 == 'p' && source[start + 1] == 'r' && source[start + 2] == 'i' && source[start + 3] == 'n' && source[start + 4] == 't' {
+            return 52
+        }
     }
 
-    return true
+    if length == 6 {
+        if ch0 == 's' {
+            if source[start + 1] == 't' && source[start + 2] == 'r' && source[start + 3] == 'u' && source[start + 4] == 'c' && source[start + 5] == 't' {
+                return 9
+            }
+            if source[start + 1] == 'w' && source[start + 2] == 'i' && source[start + 3] == 't' && source[start + 4] == 'c' && source[start + 5] == 'h' {
+                return 32
+            }
+            if source[start + 1] == 'i' && source[start + 2] == 'z' && source[start + 3] == 'e' && source[start + 4] == 'o' && source[start + 5] == 'f' {
+                return 51
+            }
+            if source[start + 1] == 'e' && source[start + 2] == 'a' && source[start + 3] == 'l' && source[start + 4] == 'e' && source[start + 5] == 'd' {
+                return 61
+            }
+            if source[start + 1] == 't' && source[start + 2] == 'a' && source[start + 3] == 't' && source[start + 4] == 'i' && source[start + 5] == 'c' {
+                return 63
+            }
+        }
+        if ch0 == 'r' {
+            if source[start + 1] == 'e' && source[start + 2] == 'c' && source[start + 3] == 'o' && source[start + 4] == 'r' && source[start + 5] == 'd' {
+                return 13
+            }
+            if source[start + 1] == 'e' && source[start + 2] == 't' && source[start + 3] == 'u' && source[start + 4] == 'r' && source[start + 5] == 'n' {
+                return 29
+            }
+        }
+        if ch0 == 'i' && source[start + 1] == 'm' && source[start + 2] == 'p' && source[start + 3] == 'o' && source[start + 4] == 'r' && source[start + 5] == 't' {
+            return 17
+        }
+        if ch0 == 't' && source[start + 1] == 'y' && source[start + 2] == 'p' && source[start + 3] == 'e' && source[start + 4] == 'o' && source[start + 5] == 'f' {
+            return 49
+        }
+        if ch0 == 'n' && source[start + 1] == 'a' && source[start + 2] == 'm' && source[start + 3] == 'e' && source[start + 4] == 'o' && source[start + 5] == 'f' {
+            return 50
+        }
+        if ch0 == 'p' {
+            if source[start + 1] == 'u' && source[start + 2] == 'b' && source[start + 3] == 'l' && source[start + 4] == 'i' && source[start + 5] == 'c' {
+                return 64
+            }
+            if source[start + 1] == 'a' && source[start + 2] == 'r' && source[start + 3] == 'a' && source[start + 4] == 'm' && source[start + 5] == 's' {
+                return 82
+            }
+        }
+        if ch0 == 'a' && source[start + 1] == 's' && source[start + 2] == 's' && source[start + 3] == 'e' && source[start + 4] == 'r' && source[start + 5] == 't' {
+            return 74
+        }
+    }
+
+    if length == 7 {
+        if ch0 == 'p' {
+            if source[start + 1] == 'a' && source[start + 2] == 'c' && source[start + 3] == 'k' && source[start + 4] == 'a' && source[start + 5] == 'g' && source[start + 6] == 'e' {
+                return 18
+            }
+            if source[start + 1] == 'a' && source[start + 2] == 'r' && source[start + 3] == 't' && source[start + 4] == 'i' && source[start + 5] == 'a' && source[start + 6] == 'l' {
+                return 62
+            }
+            if source[start + 1] == 'r' && source[start + 2] == 'i' && source[start + 3] == 'v' && source[start + 4] == 'a' && source[start + 5] == 't' && source[start + 6] == 'e' {
+                return 65
+            }
+        }
+        if ch0 == 'f' {
+            if source[start + 1] == 'o' && source[start + 2] == 'r' && source[start + 3] == 'e' && source[start + 4] == 'a' && source[start + 5] == 'c' && source[start + 6] == 'h' {
+                return 26
+            }
+            if source[start + 1] == 'i' && source[start + 2] == 'n' && source[start + 3] == 'a' && source[start + 4] == 'l' && source[start + 5] == 'l' && source[start + 6] == 'y' {
+                return 40
+            }
+        }
+        if ch0 == 'd' && source[start + 1] == 'e' && source[start + 2] == 'f' && source[start + 3] == 'a' && source[start + 4] == 'u' && source[start + 5] == 'l' && source[start + 6] == 't' {
+            return 34
+        }
+        if ch0 == 'v' && source[start + 1] == 'i' && source[start + 2] == 'r' && source[start + 3] == 't' && source[start + 4] == 'u' && source[start + 5] == 'a' && source[start + 6] == 'l' {
+            return 58
+        }
+        if ch0 == 'c' && source[start + 1] == 'h' && source[start + 2] == 'e' && source[start + 3] == 'c' && source[start + 4] == 'k' && source[start + 5] == 'e' && source[start + 6] == 'd' {
+            return 83
+        }
+        if ch0 == 'n' && source[start + 1] == 'e' && source[start + 2] == 'w' && source[start + 3] == 't' && source[start + 4] == 'y' && source[start + 5] == 'p' && source[start + 6] == 'e' {
+            return 87
+        }
+    }
+
+    if length == 8 {
+        if ch0 == 'r' {
+            if source[start + 1] == 'e' && source[start + 2] == 'a' && source[start + 3] == 'd' && source[start + 4] == 'o' && source[start + 5] == 'n' && source[start + 6] == 'l' && source[start + 7] == 'y' {
+                return 22
+            }
+            if source[start + 1] == 'e' && source[start + 2] == 'q' && source[start + 3] == 'u' && source[start + 4] == 'i' && source[start + 5] == 'r' && source[start + 6] == 'e' && source[start + 7] == 'd' {
+                return 76
+            }
+        }
+        if ch0 == 'c' && source[start + 1] == 'o' && source[start + 2] == 'n' && source[start + 3] == 't' && source[start + 4] == 'i' && source[start + 5] == 'n' && source[start + 6] == 'u' && source[start + 7] == 'e' {
+            return 36
+        }
+        if ch0 == 'a' && source[start + 1] == 'b' && source[start + 2] == 's' && source[start + 3] == 't' && source[start + 4] == 'r' && source[start + 5] == 'a' && source[start + 6] == 'c' && source[start + 7] == 't' {
+            return 60
+        }
+        if ch0 == 'i' {
+            if source[start + 1] == 'n' && source[start + 2] == 't' && source[start + 3] == 'e' && source[start + 4] == 'r' && source[start + 5] == 'n' && source[start + 6] == 'a' && source[start + 7] == 'l' {
+                return 66
+            }
+            if source[start + 1] == 'm' && source[start + 2] == 'p' && source[start + 3] == 'l' && source[start + 4] == 'i' && source[start + 5] == 'c' && source[start + 6] == 'i' && source[start + 7] == 't' {
+                return 85
+            }
+        }
+        if ch0 == 'e' && source[start + 1] == 'x' && source[start + 2] == 'p' && source[start + 3] == 'l' && source[start + 4] == 'i' && source[start + 5] == 'c' && source[start + 6] == 'i' && source[start + 7] == 't' {
+            return 86
+        }
+        if ch0 == 'o' {
+            if source[start + 1] == 'p' && source[start + 2] == 'e' && source[start + 3] == 'r' && source[start + 4] == 'a' && source[start + 5] == 't' && source[start + 6] == 'o' && source[start + 7] == 'r' {
+                return 75
+            }
+            if source[start + 1] == 'v' && source[start + 2] == 'e' && source[start + 3] == 'r' && source[start + 4] == 'r' && source[start + 5] == 'i' && source[start + 6] == 'd' && source[start + 7] == 'e' {
+                return 59
+            }
+        }
+    }
+
+    if length == 9 {
+        if ch0 == 'i' {
+            if source[start + 1] == 'n' && source[start + 2] == 't' && source[start + 3] == 'e' && source[start + 4] == 'r' && source[start + 5] == 'f' && source[start + 6] == 'a' && source[start + 7] == 'c' && source[start + 8] == 'e' {
+                return 10
+            }
+            if source[start + 1] == 'm' && source[start + 2] == 'm' && source[start + 3] == 'u' && source[start + 4] == 't' && source[start + 5] == 'a' && source[start + 6] == 'b' && source[start + 7] == 'l' && source[start + 8] == 'e' {
+                return 70
+            }
+        }
+        if ch0 == 'n' && source[start + 1] == 'a' && source[start + 2] == 'm' && source[start + 3] == 'e' && source[start + 4] == 's' && source[start + 5] == 'p' && source[start + 6] == 'a' && source[start + 7] == 'c' && source[start + 8] == 'e' {
+            return 15
+        }
+        if ch0 == 'p' && source[start + 1] == 'r' && source[start + 2] == 'o' && source[start + 3] == 't' && source[start + 4] == 'e' && source[start + 5] == 'c' && source[start + 6] == 't' && source[start + 7] == 'e' && source[start + 8] == 'd' {
+            return 67
+        }
+        if ch0 == 'u' && source[start + 1] == 'n' && source[start + 2] == 'c' && source[start + 3] == 'h' && source[start + 4] == 'e' && source[start + 5] == 'c' && source[start + 6] == 'k' && source[start + 7] == 'e' && source[start + 8] == 'd' {
+            return 84
+        }
+    }
+
+    return 0
 }
 
 func ScanOperator(source: string, position: int, length: int): int {

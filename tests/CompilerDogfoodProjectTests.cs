@@ -61,21 +61,17 @@ world
     return text.Length + raw.Length + value
 }
 """";
-            var expectedKinds = new Lexer(source, "dogfood-test.nl")
-                .Tokenize()
-                .Select(static token => (int)token.Type)
-                .ToArray();
+            AssertTokenizesLikeProductionLexer(source, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
 
-            var count = (int)(tokenizeCount.Invoke(null, new object[] { source }) ?? -1);
-            var kinds = (int[])(tokenizeKinds.Invoke(null, new object[] { source })
-                ?? throw new InvalidOperationException("TokenizeKinds returned null."));
-            var buffer = new int[source.Length + 1];
-            var bufferedCount = (int)(tokenizeKindsInto.Invoke(null, new object[] { source, buffer }) ?? -1);
-
-            Assert.Equal(expectedKinds.Length, count);
-            Assert.Equal(expectedKinds, kinds);
-            Assert.Equal(expectedKinds.Length, bufferedCount);
-            Assert.Equal(expectedKinds, buffer.Take(bufferedCount).ToArray());
+            const string keywordSource = """
+func class struct interface duck union record enum namespace using import package let must const readonly
+if else for foreach while in return yield match switch case default break continue throw try catch finally
+new this base true false null is as typeof nameof sizeof print where when and or not
+virtual override abstract sealed partial static public private internal protected async await immutable
+with type assert operator required init ref out lock file params checked unchecked implicit explicit newtype
+throws
+""";
+            AssertTokenizesLikeProductionLexer(keywordSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
         }
         finally
         {
@@ -84,6 +80,29 @@ world
                 File.Delete(outputPath);
             }
         }
+    }
+
+    private static void AssertTokenizesLikeProductionLexer(
+        string source,
+        MethodInfo tokenizeCount,
+        MethodInfo tokenizeKinds,
+        MethodInfo tokenizeKindsInto)
+    {
+        var expectedKinds = new Lexer(source, "dogfood-test.nl")
+            .Tokenize()
+            .Select(static token => (int)token.Type)
+            .ToArray();
+
+        var count = (int)(tokenizeCount.Invoke(null, new object[] { source }) ?? -1);
+        var kinds = (int[])(tokenizeKinds.Invoke(null, new object[] { source })
+            ?? throw new InvalidOperationException("TokenizeKinds returned null."));
+        var buffer = new int[source.Length + 1];
+        var bufferedCount = (int)(tokenizeKindsInto.Invoke(null, new object[] { source, buffer }) ?? -1);
+
+        Assert.Equal(expectedKinds.Length, count);
+        Assert.Equal(expectedKinds, kinds);
+        Assert.Equal(expectedKinds.Length, bufferedCount);
+        Assert.Equal(expectedKinds, buffer.Take(bufferedCount).ToArray());
     }
 
     private static string FindRepoRoot()
