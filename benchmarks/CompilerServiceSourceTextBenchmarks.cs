@@ -158,6 +158,242 @@ public class CompilerServiceSourceTextLineRangeBenchmarks
     }
 }
 
+/// <summary>
+/// Source line-map benchmark for diagnostics, fixes, query, and LSP position conversion.
+///
+/// The C# baseline starts from the current production split helper and then derives line starts and
+/// line lengths. The N# path builds compact line ranges in caller-owned buffers and performs the
+/// same offset and line/column query workload inside the compiled N# method.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceSourceTextLineMapBenchmarks
+{
+    private Func<string, int[], int[], int[], int[], int[], int> _nsharpLineMapChecksumInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpLineLengths = Array.Empty<int>();
+    private int[] _csharpLineStarts = Array.Empty<int>();
+    private int[] _expectedLineLengths = Array.Empty<int>();
+    private int[] _expectedLineStarts = Array.Empty<int>();
+    private int[] _nsharpLineLengths = Array.Empty<int>();
+    private int[] _nsharpLineStarts = Array.Empty<int>();
+    private int[] _offsetQueries = Array.Empty<int>();
+    private int[] _queryColumns = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private string[] _expectedLines = Array.Empty<string>();
+    private string _source = string.Empty;
+
+    [Params(SourceTextLineCorpus.Representative, SourceTextLineCorpus.LargeMixedNewlines)]
+    public SourceTextLineCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = SourceTextLineCorpusSources.Build(Corpus);
+        _nsharpLineMapChecksumInto = NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int>>(
+            DogfoodCompilerSources.SourceTextLines,
+            "LineMapChecksumInto");
+
+        var capacity = _source.Length + 1;
+        _csharpLineStarts = new int[capacity];
+        _csharpLineLengths = new int[capacity];
+        _expectedLineStarts = new int[capacity];
+        _expectedLineLengths = new int[capacity];
+        _nsharpLineStarts = new int[capacity];
+        _nsharpLineLengths = new int[capacity];
+
+        _expectedLines = SourceTextLines.SplitLogicalLines(_source);
+        var expectedLineCount = FillLineStartsFromSource(_source, _expectedLineStarts);
+        if (expectedLineCount != _expectedLines.Length)
+        {
+            throw new InvalidOperationException(
+                $"Line-start count mismatch for {Corpus}: expected {_expectedLines.Length}, got {expectedLineCount}.");
+        }
+
+        for (var i = 0; i < _expectedLines.Length; i++)
+        {
+            _expectedLineLengths[i] = _expectedLines[i].Length;
+        }
+
+        BuildQueries(_expectedLineLengths, _expectedLines.Length);
+
+        var expectedChecksum = CSharpSourceTextLineMap_BuildAndQuery();
+        var actualChecksum = NSharpSourceTextLineMap_BuildAndQuery();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# source line-map checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpSourceTextLineMap_BuildAndQuery()
+    {
+        var lines = SourceTextLines.SplitLogicalLines(_source);
+        var lineCount = FillLineStartsFromSource(_source, _csharpLineStarts);
+        if (lineCount != lines.Length)
+        {
+            throw new InvalidOperationException(
+                $"C# source line-map count mismatch for {Corpus}: expected {lines.Length}, got {lineCount}.");
+        }
+
+        for (var i = 0; i < lineCount; i++)
+        {
+            _csharpLineLengths[i] = lines[i].Length;
+        }
+
+        return LineMapChecksum(_csharpLineStarts, _csharpLineLengths, lineCount, _source.Length, _offsetQueries, _queryLines, _queryColumns);
+    }
+
+    [Benchmark]
+    public int NSharpSourceTextLineMap_BuildAndQuery() =>
+        _nsharpLineMapChecksumInto(_source, _nsharpLineStarts, _nsharpLineLengths, _offsetQueries, _queryLines, _queryColumns);
+
+    private void BuildQueries(int[] lengths, int lineCount)
+    {
+        const int QueryCount = 4096;
+        _offsetQueries = new int[QueryCount];
+        _queryLines = new int[QueryCount];
+        _queryColumns = new int[QueryCount];
+
+        var sourceExtent = Math.Max(1, _source.Length + 1);
+        for (var i = 0; i < QueryCount; i++)
+        {
+            _offsetQueries[i] = i * 37 % sourceExtent;
+
+            var lineIndex = i * 17 % lineCount;
+            var lineLength = lengths[lineIndex];
+            _queryLines[i] = lineIndex + 1;
+            _queryColumns[i] = lineLength == 0
+                ? 0
+                : i * 31 % (lineLength + 1);
+        }
+    }
+
+    private static int FillLineStartsFromSource(string source, int[] starts)
+    {
+        var sourceLength = source.Length;
+        var position = 0;
+        var count = 0;
+
+        starts[count++] = 0;
+
+        while (position < sourceLength)
+        {
+            var cr = source.IndexOf('\r', position);
+            var lf = source.IndexOf('\n', position);
+            if (cr < 0 && lf < 0)
+            {
+                break;
+            }
+
+            var separator = lf;
+            var isCr = false;
+            if (cr >= 0 && (lf < 0 || cr < lf))
+            {
+                separator = cr;
+                isCr = true;
+            }
+
+            position = separator + 1;
+            if (isCr && position < sourceLength && source[position] == '\n')
+            {
+                position++;
+            }
+
+            starts[count++] = position;
+        }
+
+        return count;
+    }
+
+    private static int LineMapChecksum(
+        int[] starts,
+        int[] lengths,
+        int lineCount,
+        int sourceLength,
+        int[] offsets,
+        int[] queryLines,
+        int[] queryColumns)
+    {
+        var checksum = lineCount;
+        for (var i = 0; i < offsets.Length; i++)
+        {
+            var offset = offsets[i];
+            var lineIndex = GetLineIndexFromOffset(starts, lineCount, sourceLength, offset);
+            var column = GetColumnFromOffset(starts, lineCount, sourceLength, offset);
+            checksum += lineIndex * 31 + column;
+        }
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var offset = GetOffsetFromLineColumn(starts, lengths, lineCount, sourceLength, queryLines[i], queryColumns[i]);
+            checksum += offset * 17;
+        }
+
+        return checksum;
+    }
+
+    private static int GetLineIndexFromOffset(int[] starts, int lineCount, int sourceLength, int offset)
+    {
+        if (lineCount <= 0)
+        {
+            return 0;
+        }
+
+        offset = Math.Clamp(offset, 0, sourceLength);
+        var low = 0;
+        var high = lineCount - 1;
+        var result = 0;
+
+        while (low <= high)
+        {
+            var mid = (low + high) / 2;
+            if (starts[mid] <= offset)
+            {
+                result = mid;
+                low = mid + 1;
+            }
+            else
+            {
+                high = mid - 1;
+            }
+        }
+
+        return result;
+    }
+
+    private static int GetColumnFromOffset(int[] starts, int lineCount, int sourceLength, int offset)
+    {
+        offset = Math.Clamp(offset, 0, sourceLength);
+        var lineIndex = GetLineIndexFromOffset(starts, lineCount, sourceLength, offset);
+        return offset - starts[lineIndex];
+    }
+
+    private static int GetOffsetFromLineColumn(
+        int[] starts,
+        int[] lengths,
+        int lineCount,
+        int sourceLength,
+        int line,
+        int column)
+    {
+        if (line < 1 || line > lineCount || column < 0)
+        {
+            return -1;
+        }
+
+        var index = line - 1;
+        if (column > lengths[index])
+        {
+            return -1;
+        }
+
+        var offset = starts[index] + column;
+        return offset <= sourceLength ? offset : -1;
+    }
+}
+
 internal static class SourceTextLineCorpusSources
 {
     public static string Build(SourceTextLineCorpus corpus) => corpus switch

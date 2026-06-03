@@ -126,11 +126,22 @@ Current source-text dogfood benchmarks:
   search to `string.IndexOf`, the large mixed-newline dry smoke run is faster than the current C#
   split-then-copy baseline (228 us vs 313 us). It is still far below the 5x speed gate and has not
   been swapped into production fix/diagnostic code.
+- `CompilerServiceSourceTextLineMapBenchmarks` exercises the next source-position service shape:
+  compact line starts and lengths plus offset-to-line, offset-to-column, and line/column-to-offset
+  queries. The C# baseline starts from the current production split helper; the N# candidate builds
+  ranges into caller-owned buffers and runs the same query workload without managed allocation.
 
 The dogfood project also includes `CompilerServices/SourceTextLines.nl`; `CompilerDogfoodProjectTests`
 compiles it through the SDK project and verifies both returned strings and range buffers against the
 current C# `SourceTextLines.SplitLogicalLines` behavior for empty, trailing-separator, CRLF,
-standalone-CR, LF, and mixed-newline cases.
+standalone-CR, LF, and mixed-newline cases. It also verifies line-start construction,
+offset-to-line/column lookup, and line/column-to-offset validation over those cases.
+
+The line-map dry run on 2026-06-03 showed the N# candidate passing checksum parity and reporting
+zero managed allocation. The representative corpus improved to about 4.1x faster than the C#
+split-derived line-map baseline (84 us vs 340 us), while the large mixed-newline corpus was about
+1.9x faster (383 us vs 735 us). This is useful evidence for the compact map shape, but it is still
+below the 5x acceptance gate and has not been swapped into production code.
 
 ## Rewrite Order
 

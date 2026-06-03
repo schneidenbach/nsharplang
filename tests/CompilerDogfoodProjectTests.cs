@@ -56,6 +56,22 @@ public class CompilerDogfoodProjectTests
                     "SplitLogicalLineRangesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit SplitLogicalLineRangesInto.");
+            var buildLogicalLineStartsInto = programType.GetMethod(
+                    "BuildLogicalLineStartsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BuildLogicalLineStartsInto.");
+            var getLineIndexFromOffset = programType.GetMethod(
+                    "GetLineIndexFromOffset",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit GetLineIndexFromOffset.");
+            var getColumnFromOffset = programType.GetMethod(
+                    "GetColumnFromOffset",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit GetColumnFromOffset.");
+            var getOffsetFromLineColumn = programType.GetMethod(
+                    "GetOffsetFromLineColumn",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit GetOffsetFromLineColumn.");
 
             const string source = """"
 import System
@@ -103,13 +119,62 @@ func values(): int {
 """;
             AssertTokenMetadataLikeProductionLexer(metadataSource, tokenizeMetadataInto);
 
-            AssertSplitsLikeProductionSourceTextLines("", splitLogicalLines, splitLogicalLineRangesInto);
-            AssertSplitsLikeProductionSourceTextLines("one", splitLogicalLines, splitLogicalLineRangesInto);
-            AssertSplitsLikeProductionSourceTextLines("one\n", splitLogicalLines, splitLogicalLineRangesInto);
-            AssertSplitsLikeProductionSourceTextLines("one\r\n", splitLogicalLines, splitLogicalLineRangesInto);
-            AssertSplitsLikeProductionSourceTextLines("one\rtwo", splitLogicalLines, splitLogicalLineRangesInto);
-            AssertSplitsLikeProductionSourceTextLines("one\r\ntwo\rthree\n", splitLogicalLines, splitLogicalLineRangesInto);
-            AssertSplitsLikeProductionSourceTextLines("\r\n\r\n\n\r", splitLogicalLines, splitLogicalLineRangesInto);
+            AssertSourceTextLineMapLikeProduction(
+                "",
+                splitLogicalLines,
+                splitLogicalLineRangesInto,
+                buildLogicalLineStartsInto,
+                getLineIndexFromOffset,
+                getColumnFromOffset,
+                getOffsetFromLineColumn);
+            AssertSourceTextLineMapLikeProduction(
+                "one",
+                splitLogicalLines,
+                splitLogicalLineRangesInto,
+                buildLogicalLineStartsInto,
+                getLineIndexFromOffset,
+                getColumnFromOffset,
+                getOffsetFromLineColumn);
+            AssertSourceTextLineMapLikeProduction(
+                "one\n",
+                splitLogicalLines,
+                splitLogicalLineRangesInto,
+                buildLogicalLineStartsInto,
+                getLineIndexFromOffset,
+                getColumnFromOffset,
+                getOffsetFromLineColumn);
+            AssertSourceTextLineMapLikeProduction(
+                "one\r\n",
+                splitLogicalLines,
+                splitLogicalLineRangesInto,
+                buildLogicalLineStartsInto,
+                getLineIndexFromOffset,
+                getColumnFromOffset,
+                getOffsetFromLineColumn);
+            AssertSourceTextLineMapLikeProduction(
+                "one\rtwo",
+                splitLogicalLines,
+                splitLogicalLineRangesInto,
+                buildLogicalLineStartsInto,
+                getLineIndexFromOffset,
+                getColumnFromOffset,
+                getOffsetFromLineColumn);
+            AssertSourceTextLineMapLikeProduction(
+                "one\r\ntwo\rthree\n",
+                splitLogicalLines,
+                splitLogicalLineRangesInto,
+                buildLogicalLineStartsInto,
+                getLineIndexFromOffset,
+                getColumnFromOffset,
+                getOffsetFromLineColumn);
+            AssertSourceTextLineMapLikeProduction(
+                "\r\n\r\n\n\r",
+                splitLogicalLines,
+                splitLogicalLineRangesInto,
+                buildLogicalLineStartsInto,
+                getLineIndexFromOffset,
+                getColumnFromOffset,
+                getOffsetFromLineColumn);
         }
         finally
         {
@@ -215,10 +280,14 @@ func values(): int {
         return Math.Min(sourceLength, lineStarts[lineIndex] + column - 1);
     }
 
-    private static void AssertSplitsLikeProductionSourceTextLines(
+    private static void AssertSourceTextLineMapLikeProduction(
         string source,
         MethodInfo splitLogicalLines,
-        MethodInfo splitLogicalLineRangesInto)
+        MethodInfo splitLogicalLineRangesInto,
+        MethodInfo buildLogicalLineStartsInto,
+        MethodInfo getLineIndexFromOffset,
+        MethodInfo getColumnFromOffset,
+        MethodInfo getOffsetFromLineColumn)
     {
         var expected = SourceTextLines.SplitLogicalLines(source);
         var actual = (string[])(splitLogicalLines.Invoke(null, new object[] { source })
@@ -234,6 +303,88 @@ func values(): int {
         {
             Assert.Equal(expected[i], source.Substring(starts[i], lengths[i]));
         }
+
+        var expectedStarts = BuildLineStarts(source);
+        var startOnlyBuffer = new int[source.Length + 1];
+        var startOnlyCount = (int)(buildLogicalLineStartsInto.Invoke(null, new object[] { source, startOnlyBuffer }) ?? -1);
+        Assert.Equal(expectedStarts.Length, startOnlyCount);
+        Assert.Equal(expectedStarts, startOnlyBuffer.Take(startOnlyCount).ToArray());
+
+        for (var offset = -1; offset <= source.Length + 1; offset++)
+        {
+            var expectedLineIndex = LineIndexFromOffset(expectedStarts, source.Length, offset);
+            var expectedColumn = ColumnFromOffset(expectedStarts, source.Length, offset);
+            var actualLineIndex = (int)(getLineIndexFromOffset.Invoke(
+                null,
+                new object[] { startOnlyBuffer, startOnlyCount, source.Length, offset }) ?? -1);
+            var actualColumn = (int)(getColumnFromOffset.Invoke(
+                null,
+                new object[] { startOnlyBuffer, startOnlyCount, source.Length, offset }) ?? -1);
+
+            Assert.Equal(expectedLineIndex, actualLineIndex);
+            Assert.Equal(expectedColumn, actualColumn);
+        }
+
+        for (var line = 1; line <= expected.Length; line++)
+        {
+            var lineLength = expected[line - 1].Length;
+            for (var column = 0; column <= lineLength; column++)
+            {
+                var actualOffset = (int)(getOffsetFromLineColumn.Invoke(
+                    null,
+                    new object[] { starts, lengths, count, source.Length, line, column }) ?? -2);
+                Assert.Equal(expectedStarts[line - 1] + column, actualOffset);
+            }
+
+            var invalidColumnOffset = (int)(getOffsetFromLineColumn.Invoke(
+                null,
+                new object[] { starts, lengths, count, source.Length, line, lineLength + 1 }) ?? -2);
+            Assert.Equal(-1, invalidColumnOffset);
+        }
+
+        var invalidLineOffset = (int)(getOffsetFromLineColumn.Invoke(
+            null,
+            new object[] { starts, lengths, count, source.Length, expected.Length + 1, 0 }) ?? -2);
+        Assert.Equal(-1, invalidLineOffset);
+    }
+
+    private static int LineIndexFromOffset(int[] starts, int sourceLength, int offset)
+    {
+        if (offset < 0)
+        {
+            offset = 0;
+        }
+
+        if (offset > sourceLength)
+        {
+            offset = sourceLength;
+        }
+
+        var result = 0;
+        for (var i = 0; i < starts.Length; i++)
+        {
+            if (starts[i] <= offset)
+            {
+                result = i;
+            }
+        }
+
+        return result;
+    }
+
+    private static int ColumnFromOffset(int[] starts, int sourceLength, int offset)
+    {
+        if (offset < 0)
+        {
+            offset = 0;
+        }
+
+        if (offset > sourceLength)
+        {
+            offset = sourceLength;
+        }
+
+        return offset - starts[LineIndexFromOffset(starts, sourceLength, offset)];
     }
 
     private static string FindRepoRoot()
