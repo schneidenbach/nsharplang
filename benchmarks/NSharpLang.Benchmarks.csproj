@@ -31,4 +31,10 @@
     <ProjectReference Include="../src/NSharpLang.Runtime/NSharpLang.Runtime.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/LexerTokenKindScanner.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.LexerTokenKindScanner.nl" />
+  </ItemGroup>
+
 </Project>

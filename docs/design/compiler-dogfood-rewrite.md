@@ -54,17 +54,24 @@ Current lexer dogfood benchmarks:
   representative and large generated corpora. A production N# lexer replacement must add a matching
   token-producing benchmark over those exact corpora and prove token-sequence parity before any
   lexer rewrite claim is accepted.
-- `CompilerServiceLexerScannerBenchmarks` is an early scanner-only benchmark. It embeds an N#
+- `CompilerServiceLexerScannerBenchmarks` is an early scanner-only benchmark. It loads an N#
   count-only scanner and pairs it with an equivalent C# count-only scanner. Benchmark setup verifies
   both scanners return the same token count as the real C# lexer on both corpora. This is useful
   pressure for N# emitted hot-loop quality, but it is not a production lexer replacement because it
   does not produce token objects, trivia, indentation tokens outside the explicit-brace corpus, or
   diagnostics.
-- `CompilerServiceLexerTokenKindBenchmarks` is the next stricter dogfood step. It embeds an N#
+- `CompilerServiceLexerTokenKindBenchmarks` is the next stricter dogfood step. It loads an N#
   scanner that emits compact `TokenType` ids into an `int[]` and verifies the full token-kind
   sequence against the current C# lexer on both corpora. It still is not a production lexer
   replacement because it does not emit token text, source positions, comment trivia, diagnostics, or
   general indentation-token behavior.
+
+The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
+project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it
+through the real N# lexer/parser/IL compiler before binding delegates. `CompilerDogfoodProjectTests`
+also compiles the dogfood project from `project.yml` and invokes the emitted methods against the
+production lexer token-kind sequence. This proves the first candidate is no longer benchmark-only
+C# data, but it does not yet satisfy the production swap requirement.
 
 Dry-run evidence on 2026-06-03 (`--job Dry`) showed the N# scanner compiling and passing parity
 checks, with no per-operation managed allocations reported for the count-only scanner. The dry
@@ -105,6 +112,11 @@ All configuration belongs in `project.yml`. C# host projects may reference these
 normal `ProjectReference` while migration is incremental. A C# adapter is acceptable only as a
 temporary boundary that lets existing compiler, CLI, and LSP callers consume the N# implementation;
 it must not hide the fact that a production service still depends on C# code.
+
+Current dogfood module:
+
+- `src/NSharpLang.Compiler.Dogfood`: first N# compiler-service candidate module. Its `.csproj`
+  contains only `<Project Sdk="NSharpLang.Sdk" />`; compiler settings live in `project.yml`.
 
 ## Language Pressure
 
