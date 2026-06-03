@@ -712,3 +712,226 @@ func sourceContextProbe() {
     private static string FormatContext(string? context) =>
         context == null ? "<null>" : $"\"{context}\"";
 }
+
+/// <summary>
+/// Dogfood benchmark for variable declaration name extraction used by type/definition query
+/// candidate resolution on declaration lines.
+///
+/// The current C# helper splits the whole file for each queried line and allocates the declaration
+/// name substring. The N# candidate builds a per-source declaration-name cache and writes cached
+/// declaration-name column/length pairs into buffers, letting the production adapter materialize
+/// only the requested name.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceVariableDeclarationBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int> _nsharpBuildLineRangesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string, int[], int[], int, int[], int[], int> _nsharpBuildVariableDeclarationNameCacheInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<int, int[], int[], int[], int[], int[], int> _nsharpVariableDeclarationNamesFromCacheInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpNameLengths = Array.Empty<int>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _nameLengthsByLine = Array.Empty<int>();
+    private int[] _nameStartsByLine = Array.Empty<int>();
+    private int[] _nsharpNameLengths = Array.Empty<int>();
+    private int[] _nsharpNameStarts = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int _lineCount;
+    private int _queryCount;
+    private string _source = string.Empty;
+    private string?[] _expectedNames = Array.Empty<string?>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus) + """
+
+func variableDeclarationProbe(customer: Customer, résumé: Profile) {
+    value := customer.Name
+	résumé_42 := résumé.Count
+    customer.Name := "Ada"
+    spaced    := 4
+}
+""";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpBuildLineRangesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceLineRangesInto");
+        _nsharpBuildVariableDeclarationNameCacheInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceVariableDeclarationNameCacheInto");
+        _nsharpVariableDeclarationNamesFromCacheInto =
+            NSharpCompiledMethod.Bind<Func<int, int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceVariableDeclarationNamesFromCacheInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _nameStartsByLine = new int[_source.Length + 1];
+        _nameLengthsByLine = new int[_source.Length + 1];
+        _csharpNameLengths = new int[_queryCount];
+        _nsharpNameStarts = new int[_queryCount];
+        _nsharpNameLengths = new int[_queryCount];
+
+        BuildQueries();
+        _lineCount = _nsharpBuildLineRangesInto(_source, _lineStarts, _lineLengths);
+        _nsharpBuildVariableDeclarationNameCacheInto(
+            _source,
+            _lineStarts,
+            _lineLengths,
+            _lineCount,
+            _nameStartsByLine,
+            _nameLengthsByLine);
+
+        _expectedNames = new string?[_queryLines.Length];
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            _expectedNames[i] = ExtractVariableDeclarationName(_source, _queryLines[i]);
+        }
+
+        var expectedCount = CSharpCodeIntelligenceVariableDeclarationNames_QueryBatch();
+        var actualCount = NSharpCodeIntelligenceVariableDeclarationNames_Cached_QueryBatch();
+        if (expectedCount != actualCount)
+        {
+            throw new InvalidOperationException(
+                $"N# variable declaration name count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
+        }
+
+        var lines = _source.Split('\n');
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var line = _queryLines[i];
+            var actual = _nsharpNameStarts[i] >= 0 && line >= 1 && line <= lines.Length
+                ? lines[line - 1].Substring(_nsharpNameStarts[i] - 1, _nsharpNameLengths[i])
+                : null;
+            if (!string.Equals(_expectedNames[i], actual, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"N# variable declaration name mismatch for {Corpus} at query {i}: line {line}, " +
+                    $"expected {FormatContext(_expectedNames[i])}, got {FormatContext(actual)}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceVariableDeclarationNames_QueryBatch()
+    {
+        var foundCount = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var name = ExtractVariableDeclarationName(_source, _queryLines[i]);
+            _csharpNameLengths[i] = name?.Length ?? -1;
+            if (name != null)
+            {
+                foundCount++;
+            }
+        }
+
+        return foundCount;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceVariableDeclarationNames_Cached_QueryBatch() =>
+        _nsharpVariableDeclarationNamesFromCacheInto(
+            _lineCount,
+            _nameStartsByLine,
+            _nameLengthsByLine,
+            _queryLines,
+            _nsharpNameStarts,
+            _nsharpNameLengths);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        var candidateLines = new List<int>();
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+        {
+            if (ExtractVariableDeclarationNameFromLine(lines[lineIndex]) != null)
+            {
+                candidateLines.Add(lineIndex + 1);
+            }
+        }
+
+        if (candidateLines.Count == 0)
+        {
+            throw new InvalidOperationException($"No variable declaration candidates found for {Corpus}.");
+        }
+
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (i % 37 == 0)
+            {
+                _queryLines[i] = i % 2 == 0 ? 0 : lines.Length + 1;
+                continue;
+            }
+
+            if (i % 11 == 0)
+            {
+                _queryLines[i] = i * 17 % lines.Length + 1;
+                continue;
+            }
+
+            _queryLines[i] = candidateLines[i * 19 % candidateLines.Count];
+        }
+    }
+
+    private static string? ExtractVariableDeclarationName(string source, int line)
+    {
+        var lines = source.Split('\n');
+        return line <= 0 || line > lines.Length
+            ? null
+            : ExtractVariableDeclarationNameFromLine(lines[line - 1]);
+    }
+
+    private static string? ExtractVariableDeclarationNameFromLine(string lineText)
+    {
+        var assignIndex = lineText.IndexOf(":=", StringComparison.Ordinal);
+        if (assignIndex <= 0)
+        {
+            return null;
+        }
+
+        var end = assignIndex - 1;
+        while (end >= 0 && char.IsWhiteSpace(lineText[end]))
+        {
+            end--;
+        }
+
+        if (end < 0)
+        {
+            return null;
+        }
+
+        var start = end;
+        while (start >= 0 && IsIdentifierChar(lineText[start]))
+        {
+            start--;
+        }
+
+        start++;
+        return start <= end
+            ? lineText.Substring(start, end - start + 1)
+            : null;
+    }
+
+    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private static string FormatContext(string? context) =>
+        context == null ? "<null>" : $"\"{context}\"";
+}

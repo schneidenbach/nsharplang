@@ -71,6 +71,19 @@ func main() {
         var blankContextArgs = new object?[] { snapshot, filePath, source, 3, null };
         Assert.True((bool)(tryExtractSourceContext.Invoke(null, blankContextArgs) ?? false));
         Assert.Equal(string.Empty, blankContextArgs[4]);
+
+        var tryExtractVariableDeclarationName = adapterType.GetMethod(
+                "TryExtractVariableDeclarationName",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractVariableDeclarationName.");
+
+        var variableNameArgs = new object?[] { snapshot, filePath, source, 2, null };
+        Assert.True((bool)(tryExtractVariableDeclarationName.Invoke(null, variableNameArgs) ?? false));
+        Assert.Equal("value", variableNameArgs[4]);
+
+        var noVariableNameArgs = new object?[] { snapshot, filePath, source, 3, null };
+        Assert.True((bool)(tryExtractVariableDeclarationName.Invoke(null, noVariableNameArgs) ?? false));
+        Assert.Null(noVariableNameArgs[4]);
     }
 
     [Fact]
@@ -178,6 +191,22 @@ func main() {
                     "CodeIntelligenceSourceContextsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceContextsInto.");
+            var codeIntelligenceVariableDeclarationNameChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceVariableDeclarationNameChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceVariableDeclarationNameChecksumInto.");
+            var codeIntelligenceVariableDeclarationNamesInto = programType.GetMethod(
+                    "CodeIntelligenceVariableDeclarationNamesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceVariableDeclarationNamesInto.");
+            var buildCodeIntelligenceVariableDeclarationNameCacheInto = programType.GetMethod(
+                    "BuildCodeIntelligenceVariableDeclarationNameCacheInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BuildCodeIntelligenceVariableDeclarationNameCacheInto.");
+            var codeIntelligenceVariableDeclarationNamesFromCacheInto = programType.GetMethod(
+                    "CodeIntelligenceVariableDeclarationNamesFromCacheInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceVariableDeclarationNamesFromCacheInto.");
 
             const string source = """"
 import System
@@ -342,6 +371,21 @@ func main(customer: Customer, résumé: Profile) {
                 "  first line  \n\tsecond line\r\n   \n\n café42  \n",
                 codeIntelligenceSourceContextChecksumInto,
                 codeIntelligenceSourceContextsInto);
+            AssertVariableDeclarationNamesLikeProduction(
+                """
+func main() {
+    value := 1
+	résumé_42 := value
+    customer.Name := "Ada"
+    spaced    := 4
+    := missing
+    noAssign
+}
+""",
+                codeIntelligenceVariableDeclarationNameChecksumInto,
+                codeIntelligenceVariableDeclarationNamesInto,
+                buildCodeIntelligenceVariableDeclarationNameCacheInto,
+                codeIntelligenceVariableDeclarationNamesFromCacheInto);
         }
         finally
         {
@@ -946,6 +990,120 @@ func main(customer: Customer, résumé: Profile) {
         Assert.Equal(expectedLengths, productionLengths);
     }
 
+    private static void AssertVariableDeclarationNamesLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceVariableDeclarationNameChecksumInto,
+        MethodInfo codeIntelligenceVariableDeclarationNamesInto,
+        MethodInfo buildCodeIntelligenceVariableDeclarationNameCacheInto,
+        MethodInfo codeIntelligenceVariableDeclarationNamesFromCacheInto)
+    {
+        var lines = source.Split('\n');
+        var queries = new List<int> { 0, lines.Length + 1 };
+        for (var line = 1; line <= lines.Length; line++)
+        {
+            queries.Add(line);
+        }
+
+        var queryLines = queries.ToArray();
+        var expectedStarts = new int[queryLines.Length];
+        var expectedLengths = new int[queryLines.Length];
+        var expectedChecksum = 0;
+        var expectedCount = 0;
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var span = ExtractVariableDeclarationNameSpan(source, queryLines[i]);
+            var start = span?.StartColumn ?? -1;
+            var length = span?.Length ?? 0;
+            expectedStarts[i] = start;
+            expectedLengths[i] = length;
+            expectedChecksum += start * 31 + length * 17;
+            if (start >= 0)
+            {
+                expectedCount++;
+            }
+        }
+
+        var rangeStarts = new int[source.Length + 1];
+        var rangeLengths = new int[source.Length + 1];
+        var actualStarts = new int[queryLines.Length];
+        var actualLengths = new int[queryLines.Length];
+        var actualChecksum = (int)(codeIntelligenceVariableDeclarationNameChecksumInto.Invoke(
+            null,
+            new object[] { source, rangeStarts, rangeLengths, queryLines, actualStarts, actualLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedLengths, actualLengths);
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var line = queryLines[i];
+            var expectedName = ExtractVariableDeclarationName(source, line);
+            var actualName = actualStarts[i] >= 0
+                ? lines[line - 1].Substring(actualStarts[i] - 1, actualLengths[i])
+                : null;
+            Assert.Equal(expectedName, actualName);
+        }
+
+        var productionLineStarts = new int[source.Length + 1];
+        var productionLineLengths = new int[source.Length + 1];
+        var productionStarts = new int[queryLines.Length];
+        var productionLengths = new int[queryLines.Length];
+        var actualCount = (int)(codeIntelligenceVariableDeclarationNamesInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionLineStarts,
+                productionLineLengths,
+                queryLines,
+                productionStarts,
+                productionLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        Assert.Equal(expectedStarts, productionStarts);
+        Assert.Equal(expectedLengths, productionLengths);
+
+        var cachedLineStarts = new int[source.Length + 1];
+        var cachedLineLengths = new int[source.Length + 1];
+        var cachedNameStartsByLine = new int[source.Length + 1];
+        var cachedNameLengthsByLine = new int[source.Length + 1];
+        var cachedStarts = new int[queryLines.Length];
+        var cachedLengths = new int[queryLines.Length];
+        var lineCount = BuildLineRanges(source, cachedLineStarts, cachedLineLengths);
+        var cachedDeclarationCount = (int)(buildCodeIntelligenceVariableDeclarationNameCacheInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                cachedLineStarts,
+                cachedLineLengths,
+                lineCount,
+                cachedNameStartsByLine,
+                cachedNameLengthsByLine
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, cachedDeclarationCount);
+
+        var cachedMatchCount = (int)(codeIntelligenceVariableDeclarationNamesFromCacheInto.Invoke(
+            null,
+            new object[]
+            {
+                lineCount,
+                cachedNameStartsByLine,
+                cachedNameLengthsByLine,
+                queryLines,
+                cachedStarts,
+                cachedLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, cachedMatchCount);
+        Assert.Equal(expectedStarts, cachedStarts);
+        Assert.Equal(expectedLengths, cachedLengths);
+    }
+
     private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)
     {
         for (var i = 0; i < lineText.Length; i++)
@@ -1099,6 +1257,71 @@ func main(customer: Customer, résumé: Profile) {
         {
             return null;
         }
+    }
+
+    private static string? ExtractVariableDeclarationName(string source, int line)
+    {
+        var span = ExtractVariableDeclarationNameSpan(source, line);
+        if (span == null)
+            return null;
+
+        var lineText = source.Split('\n')[line - 1];
+        return lineText.Substring(span.Value.StartColumn - 1, span.Value.Length);
+    }
+
+    private static (int StartColumn, int Length)? ExtractVariableDeclarationNameSpan(string source, int line)
+    {
+        try
+        {
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length)
+                return null;
+
+            var lineText = lines[line - 1];
+            var assignIndex = lineText.IndexOf(":=", StringComparison.Ordinal);
+            if (assignIndex <= 0)
+                return null;
+
+            var end = assignIndex - 1;
+            while (end >= 0 && char.IsWhiteSpace(lineText[end]))
+                end--;
+            if (end < 0)
+                return null;
+
+            var start = end;
+            while (start >= 0 && IsIdentifierChar(lineText[start]))
+                start--;
+
+            start++;
+            return start <= end
+                ? (start + 1, end - start + 1)
+                : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int BuildLineRanges(string source, int[] starts, int[] lengths)
+    {
+        var lineStart = 0;
+        var count = 0;
+
+        for (var position = 0; position < source.Length; position++)
+        {
+            if (source[position] != '\n')
+                continue;
+
+            starts[count] = lineStart;
+            lengths[count] = position - lineStart;
+            count++;
+            lineStart = position + 1;
+        }
+
+        starts[count] = lineStart;
+        lengths[count] = source.Length - lineStart;
+        return count + 1;
     }
 
     private static int LineIndexFromOffset(int[] starts, int sourceLength, int offset)

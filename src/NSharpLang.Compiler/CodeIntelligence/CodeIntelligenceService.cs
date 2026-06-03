@@ -2612,6 +2612,17 @@ public class CodeIntelligenceService
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractVariableDeclarationName(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    out var dogfoodName))
+            {
+                return dogfoodName;
+            }
+
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length) return null;
 

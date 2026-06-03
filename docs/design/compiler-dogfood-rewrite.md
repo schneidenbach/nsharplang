@@ -230,6 +230,14 @@ Current code-intelligence dogfood benchmarks:
   reuses line ranges and emits trimmed absolute source start/length pairs into caller-owned result
   buffers through `CodeIntelligenceSourceContextsInto`, leaving any string materialization to the
   outer output adapter.
+- `CompilerServiceCodeIntelligenceVariableDeclarationBenchmarks` targets variable declaration name
+  extraction used by type and definition query candidate resolution on declaration lines. The C#
+  baseline mirrors `ExtractVariableDeclarationNameAtPosition`: each queried line calls
+  `source.Split('\n')`, scans for `:=`, trims whitespace, and allocates the name substring. The N#
+  candidate builds a per-source declaration-name cache by line into caller-owned arrays, then answers
+  batches by copying cached start/length pairs through
+  `CodeIntelligenceVariableDeclarationNamesFromCacheInto`; the production adapter materializes only
+  the single requested name.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
@@ -237,9 +245,11 @@ valid selections, nearby punctuation/whitespace selections, invalid lines, empty
 standalone-CR input, Unicode identifier characters, member receivers with whitespace before the dot,
 and the current nullable-member-access edge. It verifies the production-shaped match-count APIs,
 the checksum parity helpers, the direct member receiver scanner, the cached receiver-cache API, and
-source-context span extraction. The N# candidate imports `System`, uses ASCII fast paths, and falls
-back to `Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C# identifier and
-whitespace rules without putting the runtime predicates on the common ASCII path.
+source-context span extraction. It also verifies variable declaration name spans through both the
+direct scanner and the cached by-line API, including Unicode identifier characters, member-assignment
+lines, missing-name assignments, and invalid lines. The N# candidate imports `System`, uses ASCII
+fast paths, and falls back to `Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C#
+identifier and whitespace rules without putting the runtime predicates on the common ASCII path.
 
 The normal BenchmarkDotNet run on 2026-06-03 passed match-count and buffer parity and reported zero
 managed allocation on the N# code-intelligence paths. `CodeIntelligenceIdentifierSpansInto` ran
@@ -258,18 +268,27 @@ normal BenchmarkDotNet evidence tier. It ran about 108x faster on the representa
 (91.982 us vs 62.176 ms, 0 B vs 129,610,141 B). This is acceptance-grade benchmark evidence for the
 span extraction shape.
 
+`CodeIntelligenceVariableDeclarationNamesFromCacheInto` passed parity and reported zero managed
+allocation in the same normal BenchmarkDotNet evidence tier. It ran about 829x faster on the
+representative corpus (667.271 ns vs 553.418 us, 0 B vs 4,650,632 B) and about 646,000x faster on
+the large generated corpus (82.435 ns vs 53.235 ms, 0 B vs 129,640,733 B). This is
+acceptance-grade benchmark evidence for cached declaration-name lookup after the per-source
+declaration-name cache is built.
+
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
-The adapter caches line ranges and receiver caches per `ProjectSnapshot`/file, uses cached line
-ranges for reference source-context materialization, and falls back to the old C# scanners only when
-the dogfood assembly is unavailable. `CompilerDogfoodProjectTests` verifies the packaged adapter can
-load `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, and source-context queries
-through the compiled N# methods; `QueryIntegrationTests` exercises the public query surface with the
-adapter-enabled output, including trimmed reference contexts. This is swap evidence for the
-identifier-span, member-receiver, and reference source-context extraction slice only. Broader query,
-hover, definition, diagnostic, completion, binding, and CLI command logic still contains C#
-implementation code and remains in scope for the dogfood rewrite.
+The adapter caches line ranges, receiver caches, and variable-declaration name caches per
+`ProjectSnapshot`/file, uses cached line ranges for reference source-context materialization, and
+falls back to the old C# scanners only when the dogfood assembly is unavailable.
+`CompilerDogfoodProjectTests` verifies the packaged adapter can load
+`NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, and
+variable-declaration-name queries through the compiled N# methods; `QueryIntegrationTests` exercises
+the public query surface with the adapter-enabled output, including trimmed reference contexts. This
+is swap evidence for the identifier-span, member-receiver, reference source-context, and variable
+declaration name extraction slice only. Broader query, hover, definition, diagnostic, completion,
+binding, and CLI command logic still contains C# implementation code and remains in scope for the
+dogfood rewrite.
 
 ## Rewrite Order
 

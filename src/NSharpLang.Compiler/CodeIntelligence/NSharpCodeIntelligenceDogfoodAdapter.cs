@@ -113,6 +113,30 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryExtractVariableDeclarationName(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string source,
+        int line,
+        out string? name)
+    {
+        name = null;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = GetFileCache(snapshot, filePath, source);
+            return cache.TryExtractVariableDeclarationName(bindings, line, out name);
+        }
+        catch
+        {
+            name = null;
+            return false;
+        }
+    }
+
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
     {
         var snapshotCache = s_snapshotCaches.GetValue(snapshot, static _ => new SnapshotCache());
@@ -131,9 +155,11 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             return new Bindings(
                 CreateDelegate<BuildCodeIntelligenceLineRangesInto>(programType, "BuildCodeIntelligenceLineRangesInto"),
                 CreateDelegate<BuildCodeIntelligenceMemberReceiverCacheInto>(programType, "BuildCodeIntelligenceMemberReceiverCacheInto"),
+                CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
                 CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
-                CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"));
+                CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"),
+                CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"));
         }
         catch
         {
@@ -177,6 +203,14 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] receiverStartsBySeparator,
         int[] receiverLengthsBySeparator);
 
+    private delegate int BuildCodeIntelligenceVariableDeclarationNameCacheInto(
+        string source,
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int[] nameStartsByLine,
+        int[] nameLengthsByLine);
+
     private delegate int CodeIntelligenceIdentifierSpansFromLinesInto(
         string source,
         int[] lineStarts,
@@ -208,12 +242,22 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int CodeIntelligenceVariableDeclarationNamesFromCacheInto(
+        int lineCount,
+        int[] nameStartsByLine,
+        int[] nameLengthsByLine,
+        int[] queryLines,
+        int[] resultStarts,
+        int[] resultLengths);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
+        BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
         CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
-        CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines);
+        CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines,
+        CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache);
 
     private sealed class SnapshotCache
     {
@@ -247,9 +291,12 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private readonly int[] _resultLengths = new int[1];
         private readonly int[] _resultStarts = new int[1];
         private readonly string _source;
+        private readonly int[] _variableDeclarationNameLengthsByLine;
+        private readonly int[] _variableDeclarationNameStartsByLine;
         private bool _lineRangesBuilt;
         private int _lineCount;
         private bool _receiverCacheBuilt;
+        private bool _variableDeclarationNameCacheBuilt;
 
         public FileCache(string source)
         {
@@ -259,6 +306,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             _lineLengths = new int[capacity];
             _receiverStartsBySeparator = new int[capacity];
             _receiverLengthsBySeparator = new int[capacity];
+            _variableDeclarationNameStartsByLine = new int[capacity];
+            _variableDeclarationNameLengthsByLine = new int[capacity];
         }
 
         public bool Matches(string source) =>
@@ -363,6 +412,33 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             }
         }
 
+        public bool TryExtractVariableDeclarationName(Bindings bindings, int line, out string? name)
+        {
+            name = null;
+            lock (_gate)
+            {
+                EnsureVariableDeclarationNameCache(bindings);
+
+                _queryLines[0] = line;
+                bindings.VariableDeclarationNamesFromCache(
+                    _lineCount,
+                    _variableDeclarationNameStartsByLine,
+                    _variableDeclarationNameLengthsByLine,
+                    _queryLines,
+                    _resultStarts,
+                    _resultLengths);
+
+                var startColumn = _resultStarts[0];
+                var length = _resultLengths[0];
+                if (startColumn < 0 || length <= 0)
+                    return true;
+
+                var absoluteStart = _lineStarts[line - 1] + startColumn - 1;
+                name = _source.Substring(absoluteStart, length);
+                return true;
+            }
+        }
+
         private bool TryExtractIdentifierSpanCore(
             Bindings bindings,
             int line,
@@ -412,6 +488,22 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 _receiverStartsBySeparator,
                 _receiverLengthsBySeparator);
             _receiverCacheBuilt = true;
+        }
+
+        private void EnsureVariableDeclarationNameCache(Bindings bindings)
+        {
+            if (_variableDeclarationNameCacheBuilt)
+                return;
+
+            EnsureLineRanges(bindings);
+            bindings.BuildVariableDeclarationNameCache(
+                _source,
+                _lineStarts,
+                _lineLengths,
+                _lineCount,
+                _variableDeclarationNameStartsByLine,
+                _variableDeclarationNameLengthsByLine);
+            _variableDeclarationNameCacheBuilt = true;
         }
     }
 }

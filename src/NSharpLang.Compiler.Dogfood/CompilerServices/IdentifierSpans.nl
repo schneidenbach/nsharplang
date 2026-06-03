@@ -483,6 +483,249 @@ func CodeIntelligenceSourceContextsFromLinesInto(
     return foundCount
 }
 
+func CodeIntelligenceVariableDeclarationNameChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    CodeIntelligenceVariableDeclarationNamesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        queryLines,
+        resultStarts,
+        resultLengths)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        nameStartColumn := resultStarts[i]
+        nameLength := resultLengths[i]
+        checksum = checksum + nameStartColumn * 31 + nameLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceVariableDeclarationNamesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceVariableDeclarationNamesFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceVariableDeclarationNameCachedChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    nameStartsByLine: int[],
+    nameLengthsByLine: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    CodeIntelligenceVariableDeclarationNamesCachedInto(
+        source,
+        lineStarts,
+        lineLengths,
+        nameStartsByLine,
+        nameLengthsByLine,
+        queryLines,
+        resultStarts,
+        resultLengths)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        nameStartColumn := resultStarts[i]
+        nameLength := resultLengths[i]
+        checksum = checksum + nameStartColumn * 31 + nameLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceVariableDeclarationNamesCachedInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    nameStartsByLine: int[],
+    nameLengthsByLine: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    BuildCodeIntelligenceVariableDeclarationNameCacheInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        nameStartsByLine,
+        nameLengthsByLine)
+
+    return CodeIntelligenceVariableDeclarationNamesFromCacheInto(
+        lineCount,
+        nameStartsByLine,
+        nameLengthsByLine,
+        queryLines,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceVariableDeclarationNamesFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    foundCount := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        nameStartColumn := -1
+        nameLength := 0
+        line := queryLines[i]
+
+        if line > 0 && line <= lineCount {
+            lineIndex := line - 1
+            lineStart := lineStarts[lineIndex]
+            lineLength := lineLengths[lineIndex]
+            assignIndex := FindCodeIntelligenceAssignmentOperator(source, lineStart, lineLength)
+
+            if assignIndex > 0 {
+                nameEnd := assignIndex - 1
+
+                while nameEnd >= 0 && IsCodeIntelligenceWhitespace(source[lineStart + nameEnd]) {
+                    nameEnd = nameEnd - 1
+                }
+
+                if nameEnd >= 0 {
+                    nameStart := nameEnd
+
+                    while nameStart >= 0 && IsCodeIntelligenceIdentifierChar(source[lineStart + nameStart]) {
+                        nameStart = nameStart - 1
+                    }
+
+                    nameStart = nameStart + 1
+                    if nameStart <= nameEnd {
+                        nameStartColumn = nameStart + 1
+                        nameLength = nameEnd - nameStart + 1
+                        foundCount = foundCount + 1
+                    }
+                }
+            }
+        }
+
+        resultStarts[i] = nameStartColumn
+        resultLengths[i] = nameLength
+        i = i + 1
+    }
+
+    return foundCount
+}
+
+func BuildCodeIntelligenceVariableDeclarationNameCacheInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    nameStartsByLine: int[],
+    nameLengthsByLine: int[]): int {
+    foundCount := 0
+    lineIndex := 0
+
+    while lineIndex < lineCount {
+        nameStartColumn := 0
+        nameLength := 0
+        lineStart := lineStarts[lineIndex]
+        lineLength := lineLengths[lineIndex]
+        assignIndex := FindCodeIntelligenceAssignmentOperator(source, lineStart, lineLength)
+
+        if assignIndex > 0 {
+            nameEnd := assignIndex - 1
+
+            while nameEnd >= 0 && IsCodeIntelligenceWhitespace(source[lineStart + nameEnd]) {
+                nameEnd = nameEnd - 1
+            }
+
+            if nameEnd >= 0 {
+                nameStart := nameEnd
+
+                while nameStart >= 0 && IsCodeIntelligenceIdentifierChar(source[lineStart + nameStart]) {
+                    nameStart = nameStart - 1
+                }
+
+                nameStart = nameStart + 1
+                if nameStart <= nameEnd {
+                    nameStartColumn = nameStart + 1
+                    nameLength = nameEnd - nameStart + 1
+                    foundCount = foundCount + 1
+                }
+            }
+        }
+
+        nameStartsByLine[lineIndex] = nameStartColumn
+        nameLengthsByLine[lineIndex] = nameLength
+        lineIndex = lineIndex + 1
+    }
+
+    return foundCount
+}
+
+func CodeIntelligenceVariableDeclarationNamesFromCacheInto(
+    lineCount: int,
+    nameStartsByLine: int[],
+    nameLengthsByLine: int[],
+    queryLines: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    foundCount := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        nameStartColumn := -1
+        nameLength := 0
+        line := queryLines[i]
+
+        if line > 0 && line <= lineCount {
+            lineIndex := line - 1
+            cachedStartColumn := nameStartsByLine[lineIndex]
+
+            if cachedStartColumn > 0 {
+                nameStartColumn = cachedStartColumn
+                nameLength = nameLengthsByLine[lineIndex]
+                foundCount = foundCount + 1
+            }
+        }
+
+        resultStarts[i] = nameStartColumn
+        resultLengths[i] = nameLength
+        i = i + 1
+    }
+
+    return foundCount
+}
+
 func BuildCodeIntelligenceMemberReceiverCacheInto(
     source: string,
     lineStarts: int[],
@@ -599,6 +842,21 @@ func BuildCodeIntelligenceLineRangesInto(source: string, starts: int[], lengths:
     starts[count] = lineStart
     lengths[count] = sourceLength - lineStart
     return count + 1
+}
+
+func FindCodeIntelligenceAssignmentOperator(source: string, lineStart: int, lineLength: int): int {
+    i := 0
+    last := lineLength - 1
+
+    while i < last {
+        if source[lineStart + i] == ':' && source[lineStart + i + 1] == '=' {
+            return i
+        }
+
+        i = i + 1
+    }
+
+    return -1
 }
 
 func FindNearestCodeIntelligenceIdentifierIndex(
