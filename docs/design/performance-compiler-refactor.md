@@ -745,6 +745,10 @@ making unverifiable IL a deterministic, host-independent, **blocking** failure.
 
 The performance claims are backed by two coupled artifacts, one per optimized pattern.
 
+This section covers benchmarks for N#-emitted runtime code. Compiler/tooling dogfood benchmarks
+are tracked separately in [compiler-dogfood-rewrite.md](compiler-dogfood-rewrite.md), because they
+compare the current C# compiler-service functions against N# implementations of the same services.
+
 ### 1. Matched N#-vs-C# benchmark corpus (`benchmarks/`)
 
 `benchmarks/NSharpLang.Benchmarks.csproj` is a BenchmarkDotNet project with one benchmark class per
@@ -780,6 +784,12 @@ Current families (matched to the PR #160 optimizations):
 | `ConstrainedDispatchBenchmarks`  | constrained generic dispatch (no box)      | `run`        |
 | `StaticLambdaBenchmarks`         | cached non-capturing lambda in a loop      | `build`      |
 | `ErrorTupleBenchmarks`           | `(result, err)` tuple, no throw on success | `RunSuccess` |
+
+Dogfood compiler-service baselines also live in `benchmarks/` and are deliberately named with the
+`CompilerService` prefix. `CompilerServiceLexerBenchmarks` is the first such family; it currently
+measures the C# `Lexer.Tokenize()` baseline over representative and large generated corpora. A
+ported N# lexer must add the matching N# benchmark over the same corpora before any 5x dogfood
+speedup claim is valid.
 
 ### 2. Deterministic IL-shape regression gate (`tests/PerfEvidence/IlShapeRegressionTests.cs`)
 

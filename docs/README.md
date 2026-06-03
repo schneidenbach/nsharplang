@@ -81,6 +81,7 @@ nlc run
 
 ### Design Notes
 
+- **[Compiler Dogfood Rewrite Plan](design/compiler-dogfood-rewrite.md)** - Rewrite plan and evidence gates for moving compiler, compiler services, and CLI tooling to N#
 - **[Performance Compiler Refactor](design/performance-compiler-refactor.md)** - Compiler architecture plan for making N# performance-by-default while documenting CLR interop tradeoffs
 - **[Native Object Initialization](design/native-object-initialization.md)** - Object initialization design details
 

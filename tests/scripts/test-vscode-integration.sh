@@ -93,6 +93,63 @@ fi
 echo "(This will download VS Code if needed and may take a minute...)"
 echo
 
+preseed_vscode_test_cache_from_machine_install() {
+    local code_path
+    code_path="$(command -v code 2>/dev/null || true)"
+    [ -n "$code_path" ] || return 0
+
+    local resolved_code_path
+    resolved_code_path="$(python3 - "$code_path" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+)"
+
+    local app_path=""
+    case "$resolved_code_path" in
+        */Visual\ Studio\ Code.app/Contents/Resources/app/bin/code)
+            app_path="${resolved_code_path%/Contents/Resources/app/bin/code}"
+            ;;
+    esac
+
+    [ -n "$app_path" ] && [ -d "$app_path" ] || return 0
+
+    local version
+    version="$(code --version 2>/dev/null | head -1 || true)"
+    [ -n "$version" ] || return 0
+
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        arm64|aarch64) arch="arm64" ;;
+        x86_64|amd64) arch="x64" ;;
+        *) return 0 ;;
+    esac
+
+    local platform
+    case "$(uname -s)" in
+        Darwin) platform="darwin-$arch" ;;
+        *) return 0 ;;
+    esac
+
+    local install_dir=".vscode-test/vscode-$platform-$version"
+    local cached_app="$install_dir/Visual Studio Code.app"
+    local complete_file="$install_dir/is-complete"
+
+    if [ -f "$complete_file" ] && [ -d "$cached_app" ]; then
+        return 0
+    fi
+
+    rm -rf "$install_dir"
+    mkdir -p "$install_dir"
+    ln -s "$app_path" "$cached_app"
+    touch "$complete_file"
+    echo -e "${GREEN}✓ Reusing machine VS Code $version for test-electron cache${NC}"
+}
+
+preseed_vscode_test_cache_from_machine_install
+
 # @vscode/test-electron reuses editors/vscode/.vscode-test between runs. If a
 # previous download was interrupted, the directory can look installed but miss
 # VS Code's packaged node modules; launching then fails before tests start with
