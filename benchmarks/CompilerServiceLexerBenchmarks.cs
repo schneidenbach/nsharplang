@@ -9,8 +9,9 @@ namespace NSharpLang.Benchmarks;
 /// <summary>
 /// Baseline corpus for rewriting compiler services in N#.
 ///
-/// This benchmark intentionally starts with the current C# lexer only. A ported N# lexer
-/// candidate must add a matching benchmark over the same corpus and return the same token count.
+/// This benchmark tracks the current C# lexer as the full allocating implementation. A ported N#
+/// lexer candidate must add a matching benchmark over the same corpus and return the same token
+/// sequence, not just the same count.
 /// The dogfood rewrite gate is C# mean / N# mean >= <see cref="RequiredNSharpSpeedup"/>.
 /// </summary>
 [MemoryDiagnoser]
@@ -27,12 +28,7 @@ public class CompilerServiceLexerBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _source = Corpus switch
-        {
-            CompilerLexerCorpus.Representative => BuildRepresentativeCorpus(),
-            CompilerLexerCorpus.LargeGenerated => BuildLargeGeneratedCorpus(),
-            _ => throw new InvalidOperationException($"Unknown lexer corpus: {Corpus}")
-        };
+        _source = CompilerLexerCorpusSources.Build(Corpus);
     }
 
     [Benchmark(Baseline = true)]
@@ -41,6 +37,440 @@ public class CompilerServiceLexerBenchmarks
         var lexer = new Lexer(_source, $"{Corpus}.nl");
         return lexer.Tokenize().Count;
     }
+}
+
+/// <summary>
+/// First dogfood scanner benchmark for N#-emitted IL.
+///
+/// This is intentionally a count-only scanner, paired with a count-only C# implementation over the
+/// same algorithm. It does not replace the full lexer-token benchmark above; it measures whether the
+/// N# systems-oriented hot loop can beat the comparable C# loop before the production token objects
+/// and trivia model are ported.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceLexerScannerBenchmarks
+{
+    private Func<string, int> _nsharpCountTokens = _ => throw new InvalidOperationException("Benchmark not initialized.");
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus);
+        _nsharpCountTokens = NSharpCompiledMethod.Bind<Func<string, int>>(NSharpScannerSource, "TokenizeCount");
+
+        var expectedTokenCount = new Lexer(_source, $"{Corpus}.nl").Tokenize().Count;
+        var csharpCount = CompilerLexerCountingScanner.CountTokens(_source);
+        if (csharpCount != expectedTokenCount)
+        {
+            throw new InvalidOperationException(
+                $"C# scanner count mismatch for {Corpus}: expected {expectedTokenCount}, got {csharpCount}.");
+        }
+
+        var nsharpCount = _nsharpCountTokens(_source);
+        if (nsharpCount != expectedTokenCount)
+        {
+            throw new InvalidOperationException(
+                $"N# scanner count mismatch for {Corpus}: expected {expectedTokenCount}, got {nsharpCount}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpScanner_CountTokens() => CompilerLexerCountingScanner.CountTokens(_source);
+
+    [Benchmark]
+    public int NSharpScanner_CountTokens() => _nsharpCountTokens(_source);
+
+    private const string NSharpScannerSource = """
+func TokenizeCount(source: string): int {
+    position := 0
+    count := 0
+    length := source.Length
+
+    while position < length {
+        ch := source[position]
+
+        if IsWhitespaceExceptNewline(ch) {
+            position = position + 1
+            continue
+        }
+
+        if ch == '\n' {
+            count = count + 1
+            position = position + 1
+            continue
+        }
+
+        if ch == '\r' {
+            count = count + 1
+            position = position + 1
+            if position < length && source[position] == '\n' {
+                position = position + 1
+            }
+            continue
+        }
+
+        if ch == '/' && position + 1 < length {
+            next := source[position + 1]
+            if next == '/' {
+                position = position + 2
+                while position < length && source[position] != '\n' && source[position] != '\r' {
+                    position = position + 1
+                }
+                continue
+            }
+
+            if next == '*' {
+                position = position + 2
+                while position < length {
+                    if source[position] == '*' && position + 1 < length && source[position + 1] == '/' {
+                        position = position + 2
+                        break
+                    }
+
+                    position = position + 1
+                }
+                continue
+            }
+        }
+
+        if ch == '$' && position + 1 < length && source[position + 1] == '"' {
+            count = count + 1
+            if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
+                position = ScanRawString(source, position + 4, length)
+            } else {
+                position = ScanString(source, position + 1, length, true)
+            }
+            continue
+        }
+
+        if ch == '"' {
+            count = count + 1
+            if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
+                position = ScanRawString(source, position + 3, length)
+            } else {
+                position = ScanString(source, position, length, false)
+            }
+            continue
+        }
+
+        if ch == '\'' {
+            count = count + 1
+            position = ScanCharLiteral(source, position, length)
+            continue
+        }
+
+        if IsDigit(ch) {
+            count = count + 1
+            position = ScanNumber(source, position, length)
+            continue
+        }
+
+        if IsIdentifierStart(ch) {
+            count = count + 1
+            position = position + 1
+            while position < length && IsIdentifierPart(source[position]) {
+                position = position + 1
+            }
+            continue
+        }
+
+        count = count + 1
+        position = ScanOperator(source, position, length)
+    }
+
+    return count + 1
+}
+
+func ScanString(source: string, position: int, length: int, isInterpolated: bool): int {
+    position = position + 1
+    interpolationDepth := 0
+    nestedStringDepth := 0
+
+    while position < length {
+        ch := source[position]
+        if ch == '\n' || ch == '\r' {
+            return position
+        }
+
+        if isInterpolated {
+            if nestedStringDepth > 0 {
+                if ch == '\\' {
+                    position = position + 2
+                    continue
+                }
+
+                if ch == '"' {
+                    nestedStringDepth = nestedStringDepth - 1
+                }
+
+                position = position + 1
+                continue
+            }
+
+            if ch == '{' {
+                interpolationDepth = interpolationDepth + 1
+                position = position + 1
+                continue
+            }
+
+            if ch == '}' && interpolationDepth > 0 {
+                interpolationDepth = interpolationDepth - 1
+                position = position + 1
+                continue
+            }
+
+            if ch == '"' && interpolationDepth > 0 {
+                nestedStringDepth = nestedStringDepth + 1
+                position = position + 1
+                continue
+            }
+
+            if ch == '"' && interpolationDepth == 0 {
+                return position + 1
+            }
+        } else if ch == '"' {
+            return position + 1
+        }
+
+        if ch == '\\' {
+            position = position + 2
+        } else {
+            position = position + 1
+        }
+    }
+
+    return position
+}
+
+func ScanRawString(source: string, position: int, length: int): int {
+    while position < length {
+        if source[position] == '"' && position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
+            return position + 3
+        }
+
+        position = position + 1
+    }
+
+    return position
+}
+
+func ScanCharLiteral(source: string, position: int, length: int): int {
+    position = position + 1
+    if position >= length || source[position] == '\n' || source[position] == '\r' {
+        return position
+    }
+
+    if source[position] == '\\' {
+        position = position + 2
+    } else {
+        position = position + 1
+    }
+
+    if position < length && source[position] == '\'' {
+        position = position + 1
+    }
+
+    return position
+}
+
+func ScanNumber(source: string, position: int, length: int): int {
+    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'x' || source[position + 1] == 'X') {
+        position = position + 2
+        while position < length && (IsHexDigit(source[position]) || source[position] == '_') {
+            position = position + 1
+        }
+
+        return ConsumeIntegerSuffix(source, position, length)
+    }
+
+    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'b' || source[position + 1] == 'B') {
+        position = position + 2
+        while position < length && (source[position] == '0' || source[position] == '1' || source[position] == '_') {
+            position = position + 1
+        }
+
+        return ConsumeIntegerSuffix(source, position, length)
+    }
+
+    isFloat := false
+    while position < length && (IsDigit(source[position]) || source[position] == '.' || source[position] == '_') {
+        if source[position] == '.' {
+            if position + 1 < length && source[position + 1] == '.' {
+                break
+            }
+
+            if position + 1 >= length || !IsDigit(source[position + 1]) {
+                break
+            }
+
+            isFloat = true
+        }
+
+        position = position + 1
+    }
+
+    if position < length && (source[position] == 'e' || source[position] == 'E') {
+        isFloat = true
+        position = position + 1
+        if position < length && (source[position] == '+' || source[position] == '-') {
+            position = position + 1
+        }
+
+        while position < length && (IsDigit(source[position]) || source[position] == '_') {
+            position = position + 1
+        }
+    }
+
+    if isFloat {
+        return ConsumeFloatSuffix(source, position, length)
+    }
+
+    if position < length && (source[position] == 'm' || source[position] == 'M') {
+        return position + 1
+    }
+
+    return ConsumeIntegerSuffix(source, position, length)
+}
+
+func ConsumeFloatSuffix(source: string, position: int, length: int): int {
+    if position < length && (source[position] == 'f' || source[position] == 'F' || source[position] == 'd' || source[position] == 'D' || source[position] == 'm' || source[position] == 'M') {
+        return position + 1
+    }
+
+    return position
+}
+
+func ConsumeIntegerSuffix(source: string, position: int, length: int): int {
+    if position < length && (source[position] == 'u' || source[position] == 'U') {
+        position = position + 1
+        if position < length && (source[position] == 'l' || source[position] == 'L') {
+            position = position + 1
+        }
+        return position
+    }
+
+    if position < length && (source[position] == 'l' || source[position] == 'L') {
+        position = position + 1
+        if position < length && (source[position] == 'u' || source[position] == 'U') {
+            position = position + 1
+        }
+        return position
+    }
+
+    return position
+}
+
+func ScanOperator(source: string, position: int, length: int): int {
+    ch := source[position]
+    if position + 1 >= length {
+        return position + 1
+    }
+
+    next := source[position + 1]
+    if ch == ':' && (next == '=' || next == ':') {
+        return position + 2
+    }
+
+    if ch == '=' && (next == '=' || next == '>') {
+        return position + 2
+    }
+
+    if ch == '!' && next == '=' {
+        return position + 2
+    }
+
+    if ch == '<' && (next == '=' || next == '<') {
+        return position + 2
+    }
+
+    if ch == '>' && (next == '=' || next == '>') {
+        return position + 2
+    }
+
+    if ch == '&' && next == '&' {
+        return position + 2
+    }
+
+    if ch == '|' && next == '|' {
+        return position + 2
+    }
+
+    if ch == '+' && (next == '+' || next == '=') {
+        return position + 2
+    }
+
+    if ch == '-' && (next == '-' || next == '=') {
+        return position + 2
+    }
+
+    if ch == '*' && next == '=' {
+        return position + 2
+    }
+
+    if ch == '/' && next == '=' {
+        return position + 2
+    }
+
+    if ch == '?' {
+        if next == '.' || next == '[' {
+            return position + 2
+        }
+
+        if next == '?' {
+            if position + 2 < length && source[position + 2] == '=' {
+                return position + 3
+            }
+
+            return position + 2
+        }
+    }
+
+    if ch == '.' && next == '.' {
+        if position + 2 < length && source[position + 2] == '.' {
+            return position + 3
+        }
+
+        return position + 2
+    }
+
+    return position + 1
+}
+
+func IsWhitespaceExceptNewline(ch: char): bool {
+    return ch == ' ' || ch == '\t' || ch == '\f' || ch == '\v'
+}
+
+func IsIdentifierStart(ch: char): bool {
+    return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+}
+
+func IsIdentifierPart(ch: char): bool {
+    return IsIdentifierStart(ch) || IsDigit(ch)
+}
+
+func IsDigit(ch: char): bool {
+    return ch >= '0' && ch <= '9'
+}
+
+func IsHexDigit(ch: char): bool {
+    return IsDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
+}
+""";
+}
+
+internal static class CompilerLexerCorpusSources
+{
+    public static string Build(CompilerLexerCorpus corpus) => corpus switch
+    {
+        CompilerLexerCorpus.Representative => BuildRepresentativeCorpus(),
+        CompilerLexerCorpus.LargeGenerated => BuildLargeGeneratedCorpus(),
+        _ => throw new InvalidOperationException($"Unknown lexer corpus: {corpus}")
+    };
 
     private static string BuildRepresentativeCorpus()
     {
@@ -146,6 +576,379 @@ public class CompilerServiceLexerBenchmarks
 
         return builder.ToString();
     }
+}
+
+internal static class CompilerLexerCountingScanner
+{
+    public static int CountTokens(string source)
+    {
+        var position = 0;
+        var count = 0;
+        var length = source.Length;
+
+        while (position < length)
+        {
+            var ch = source[position];
+
+            if (IsWhitespaceExceptNewline(ch))
+            {
+                position++;
+                continue;
+            }
+
+            if (ch == '\n')
+            {
+                count++;
+                position++;
+                continue;
+            }
+
+            if (ch == '\r')
+            {
+                count++;
+                position++;
+                if (position < length && source[position] == '\n')
+                {
+                    position++;
+                }
+                continue;
+            }
+
+            if (ch == '/' && position + 1 < length)
+            {
+                var next = source[position + 1];
+                if (next == '/')
+                {
+                    position += 2;
+                    while (position < length && source[position] != '\n' && source[position] != '\r')
+                    {
+                        position++;
+                    }
+                    continue;
+                }
+
+                if (next == '*')
+                {
+                    position += 2;
+                    while (position < length)
+                    {
+                        if (source[position] == '*' && position + 1 < length && source[position + 1] == '/')
+                        {
+                            position += 2;
+                            break;
+                        }
+
+                        position++;
+                    }
+                    continue;
+                }
+            }
+
+            if (ch == '$' && position + 1 < length && source[position + 1] == '"')
+            {
+                count++;
+                position = position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"'
+                    ? ScanRawString(source, position + 4)
+                    : ScanString(source, position + 1, isInterpolated: true);
+                continue;
+            }
+
+            if (ch == '"')
+            {
+                count++;
+                position = position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"'
+                    ? ScanRawString(source, position + 3)
+                    : ScanString(source, position, isInterpolated: false);
+                continue;
+            }
+
+            if (ch == '\'')
+            {
+                count++;
+                position = ScanCharLiteral(source, position);
+                continue;
+            }
+
+            if (IsDigit(ch))
+            {
+                count++;
+                position = ScanNumber(source, position);
+                continue;
+            }
+
+            if (IsIdentifierStart(ch))
+            {
+                count++;
+                position++;
+                while (position < length && IsIdentifierPart(source[position]))
+                {
+                    position++;
+                }
+                continue;
+            }
+
+            count++;
+            position = ScanOperator(source, position);
+        }
+
+        return count + 1;
+    }
+
+    private static int ScanString(string source, int position, bool isInterpolated)
+    {
+        position++;
+        var interpolationDepth = 0;
+        var nestedStringDepth = 0;
+
+        while (position < source.Length)
+        {
+            var ch = source[position];
+            if (ch is '\n' or '\r')
+            {
+                return position;
+            }
+
+            if (isInterpolated)
+            {
+                if (nestedStringDepth > 0)
+                {
+                    if (ch == '\\')
+                    {
+                        position += 2;
+                        continue;
+                    }
+
+                    if (ch == '"')
+                    {
+                        nestedStringDepth--;
+                    }
+
+                    position++;
+                    continue;
+                }
+
+                if (ch == '{')
+                {
+                    interpolationDepth++;
+                    position++;
+                    continue;
+                }
+
+                if (ch == '}' && interpolationDepth > 0)
+                {
+                    interpolationDepth--;
+                    position++;
+                    continue;
+                }
+
+                if (ch == '"' && interpolationDepth > 0)
+                {
+                    nestedStringDepth++;
+                    position++;
+                    continue;
+                }
+
+                if (ch == '"' && interpolationDepth == 0)
+                {
+                    return position + 1;
+                }
+            }
+            else if (ch == '"')
+            {
+                return position + 1;
+            }
+
+            position += ch == '\\' ? 2 : 1;
+        }
+
+        return position;
+    }
+
+    private static int ScanRawString(string source, int position)
+    {
+        while (position < source.Length)
+        {
+            if (source[position] == '"' &&
+                position + 2 < source.Length &&
+                source[position + 1] == '"' &&
+                source[position + 2] == '"')
+            {
+                return position + 3;
+            }
+
+            position++;
+        }
+
+        return position;
+    }
+
+    private static int ScanCharLiteral(string source, int position)
+    {
+        position++;
+        if (position >= source.Length || source[position] is '\n' or '\r')
+        {
+            return position;
+        }
+
+        position += source[position] == '\\' ? 2 : 1;
+        if (position < source.Length && source[position] == '\'')
+        {
+            position++;
+        }
+
+        return position;
+    }
+
+    private static int ScanNumber(string source, int position)
+    {
+        if (source[position] == '0' &&
+            position + 1 < source.Length &&
+            (source[position + 1] == 'x' || source[position + 1] == 'X'))
+        {
+            position += 2;
+            while (position < source.Length && (IsHexDigit(source[position]) || source[position] == '_'))
+            {
+                position++;
+            }
+
+            return ConsumeIntegerSuffix(source, position);
+        }
+
+        if (source[position] == '0' &&
+            position + 1 < source.Length &&
+            (source[position + 1] == 'b' || source[position + 1] == 'B'))
+        {
+            position += 2;
+            while (position < source.Length &&
+                   (source[position] == '0' || source[position] == '1' || source[position] == '_'))
+            {
+                position++;
+            }
+
+            return ConsumeIntegerSuffix(source, position);
+        }
+
+        var isFloat = false;
+        while (position < source.Length &&
+               (IsDigit(source[position]) || source[position] == '.' || source[position] == '_'))
+        {
+            if (source[position] == '.')
+            {
+                if (position + 1 < source.Length && source[position + 1] == '.')
+                {
+                    break;
+                }
+
+                if (position + 1 >= source.Length || !IsDigit(source[position + 1]))
+                {
+                    break;
+                }
+
+                isFloat = true;
+            }
+
+            position++;
+        }
+
+        if (position < source.Length && (source[position] == 'e' || source[position] == 'E'))
+        {
+            isFloat = true;
+            position++;
+            if (position < source.Length && (source[position] == '+' || source[position] == '-'))
+            {
+                position++;
+            }
+
+            while (position < source.Length && (IsDigit(source[position]) || source[position] == '_'))
+            {
+                position++;
+            }
+        }
+
+        if (isFloat)
+        {
+            return ConsumeFloatSuffix(source, position);
+        }
+
+        if (position < source.Length && (source[position] == 'm' || source[position] == 'M'))
+        {
+            return position + 1;
+        }
+
+        return ConsumeIntegerSuffix(source, position);
+    }
+
+    private static int ConsumeFloatSuffix(string source, int position)
+    {
+        return position < source.Length &&
+               (source[position] == 'f' || source[position] == 'F' ||
+                source[position] == 'd' || source[position] == 'D' ||
+                source[position] == 'm' || source[position] == 'M')
+            ? position + 1
+            : position;
+    }
+
+    private static int ConsumeIntegerSuffix(string source, int position)
+    {
+        if (position < source.Length && (source[position] == 'u' || source[position] == 'U'))
+        {
+            position++;
+            if (position < source.Length && (source[position] == 'l' || source[position] == 'L'))
+            {
+                position++;
+            }
+            return position;
+        }
+
+        if (position < source.Length && (source[position] == 'l' || source[position] == 'L'))
+        {
+            position++;
+            if (position < source.Length && (source[position] == 'u' || source[position] == 'U'))
+            {
+                position++;
+            }
+            return position;
+        }
+
+        return position;
+    }
+
+    private static int ScanOperator(string source, int position)
+    {
+        var ch = source[position];
+        if (position + 1 >= source.Length)
+        {
+            return position + 1;
+        }
+
+        var next = source[position + 1];
+        return ch switch
+        {
+            ':' when next is '=' or ':' => position + 2,
+            '=' when next is '=' or '>' => position + 2,
+            '!' when next == '=' => position + 2,
+            '<' when next is '=' or '<' => position + 2,
+            '>' when next is '=' or '>' => position + 2,
+            '&' when next == '&' => position + 2,
+            '|' when next == '|' => position + 2,
+            '+' when next is '+' or '=' => position + 2,
+            '-' when next is '-' or '=' => position + 2,
+            '*' when next == '=' => position + 2,
+            '/' when next == '=' => position + 2,
+            '?' when next is '.' or '[' => position + 2,
+            '?' when next == '?' && position + 2 < source.Length && source[position + 2] == '=' => position + 3,
+            '?' when next == '?' => position + 2,
+            '.' when next == '.' && position + 2 < source.Length && source[position + 2] == '.' => position + 3,
+            '.' when next == '.' => position + 2,
+            _ => position + 1
+        };
+    }
+
+    private static bool IsWhitespaceExceptNewline(char ch) => ch is ' ' or '\t' or '\f' or '\v';
+    private static bool IsIdentifierStart(char ch) => ch == '_' || ch is >= 'A' and <= 'Z' || ch is >= 'a' and <= 'z';
+    private static bool IsIdentifierPart(char ch) => IsIdentifierStart(ch) || IsDigit(ch);
+    private static bool IsDigit(char ch) => ch is >= '0' and <= '9';
+    private static bool IsHexDigit(char ch) => IsDigit(ch) || ch is >= 'a' and <= 'f' || ch is >= 'A' and <= 'F';
 }
 
 public enum CompilerLexerCorpus

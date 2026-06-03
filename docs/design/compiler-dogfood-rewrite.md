@@ -48,10 +48,23 @@ Benchmark command shape:
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceLexer*'
 ```
 
-The first landed dogfood benchmark is `CompilerServiceLexerBenchmarks`. It currently records only
-the C# baseline for `Lexer.Tokenize()` on representative and large generated corpora. A ported
-N# lexer must add a matching benchmark method over those exact corpora and return the same token
-count before any speedup claim is accepted.
+Current lexer dogfood benchmarks:
+
+- `CompilerServiceLexerBenchmarks` records the current full C# `Lexer.Tokenize()` implementation on
+  representative and large generated corpora. A production N# lexer replacement must add a matching
+  token-producing benchmark over those exact corpora and prove token-sequence parity before any
+  lexer rewrite claim is accepted.
+- `CompilerServiceLexerScannerBenchmarks` is an early scanner-only benchmark. It embeds an N#
+  count-only scanner and pairs it with an equivalent C# count-only scanner. Benchmark setup verifies
+  both scanners return the same token count as the real C# lexer on both corpora. This is useful
+  pressure for N# emitted hot-loop quality, but it is not a production lexer replacement because it
+  does not produce token objects, trivia, indentation tokens outside the explicit-brace corpus, or
+  diagnostics.
+
+Dry-run evidence on 2026-06-03 (`--job Dry`) showed the N# scanner compiling and passing parity
+checks, with no per-operation managed allocations reported. The dry timings were mixed: N# was
+slower on the small representative corpus and faster on the large generated corpus. Dry jobs are
+not acceptance evidence, and neither result is close to the required 5x speedup gate.
 
 ## Rewrite Order
 
