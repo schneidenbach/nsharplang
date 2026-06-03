@@ -8,8 +8,38 @@ func CodeIntelligenceIdentifierSpanChecksumInto(
     queryColumns: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
-    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    CodeIntelligenceIdentifierSpansInto(
+        source,
+        lineStarts,
+        lineLengths,
+        queryLines,
+        queryColumns,
+        resultStarts,
+        resultLengths)
+
     checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        spanStart := resultStarts[i]
+        spanLength := resultLengths[i]
+        checksum = checksum + spanStart * 31 + spanLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceIdentifierSpansInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    foundCount := 0
     i := 0
 
     while i < queryLines.Length {
@@ -58,11 +88,14 @@ func CodeIntelligenceIdentifierSpanChecksumInto(
 
         resultStarts[i] = spanStart
         resultLengths[i] = spanLength
-        checksum = checksum + spanStart * 31 + spanLength * 17
+        if spanStart >= 0 {
+            foundCount = foundCount + 1
+        }
+
         i = i + 1
     }
 
-    return checksum
+    return foundCount
 }
 
 func CodeIntelligenceMemberReceiverChecksumInto(
@@ -73,8 +106,38 @@ func CodeIntelligenceMemberReceiverChecksumInto(
     memberStartColumns: int[],
     resultStarts: int[],
     resultLengths: int[]): int {
-    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    CodeIntelligenceMemberReceiversInto(
+        source,
+        lineStarts,
+        lineLengths,
+        queryLines,
+        memberStartColumns,
+        resultStarts,
+        resultLengths)
+
     checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        receiverStartColumn := resultStarts[i]
+        receiverLength := resultLengths[i]
+        checksum = checksum + receiverStartColumn * 31 + receiverLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceMemberReceiversInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    memberStartColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    foundCount := 0
     i := 0
     queryCount := queryLines.Length
 
@@ -160,6 +223,43 @@ func CodeIntelligenceMemberReceiverChecksumInto(
 
         resultStarts[i] = receiverStartColumn
         resultLengths[i] = receiverLength
+        if receiverStartColumn >= 0 {
+            foundCount = foundCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return foundCount
+}
+
+func CodeIntelligenceMemberReceiverCachedChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    receiverStartsBySeparator: int[],
+    receiverLengthsBySeparator: int[],
+    queryLines: int[],
+    memberStartColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    CodeIntelligenceMemberReceiversCachedInto(
+        source,
+        lineStarts,
+        lineLengths,
+        receiverStartsBySeparator,
+        receiverLengthsBySeparator,
+        queryLines,
+        memberStartColumns,
+        resultStarts,
+        resultLengths)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        receiverStartColumn := resultStarts[i]
+        receiverLength := resultLengths[i]
         checksum = checksum + receiverStartColumn * 31 + receiverLength * 17
         i = i + 1
     }
@@ -167,7 +267,7 @@ func CodeIntelligenceMemberReceiverChecksumInto(
     return checksum
 }
 
-func CodeIntelligenceMemberReceiverCachedChecksumInto(
+func CodeIntelligenceMemberReceiversCachedInto(
     source: string,
     lineStarts: int[],
     lineLengths: int[],
@@ -186,7 +286,7 @@ func CodeIntelligenceMemberReceiverCachedChecksumInto(
         receiverStartsBySeparator,
         receiverLengthsBySeparator)
 
-    checksum := 0
+    foundCount := 0
     i := 0
     queryCount := queryLines.Length
 
@@ -217,11 +317,14 @@ func CodeIntelligenceMemberReceiverCachedChecksumInto(
 
         resultStarts[i] = receiverStartColumn
         resultLengths[i] = receiverLength
-        checksum = checksum + receiverStartColumn * 31 + receiverLength * 17
+        if receiverStartColumn >= 0 {
+            foundCount = foundCount + 1
+        }
+
         i = i + 1
     }
 
-    return checksum
+    return foundCount
 }
 
 func BuildCodeIntelligenceMemberReceiverCacheInto(

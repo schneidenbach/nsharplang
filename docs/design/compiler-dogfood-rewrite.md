@@ -166,7 +166,8 @@ Current code-intelligence dogfood benchmarks:
   `CodeIntelligenceService` behavior: each position query calls `source.Split('\n')` and scans the
   selected line with the same 3-column snap-to-neighbor rules. The N# candidate builds
   line ranges once into caller-owned arrays, processes the query batch in one compiled N# method,
-  and writes start/length pairs into caller-owned result buffers. The dry benchmark uses 1024
+  and writes start/length pairs into caller-owned result buffers through the production-shaped
+  `CodeIntelligenceIdentifierSpansInto` API. The benchmark uses 1024
   representative-corpus position queries and 128 large-corpus position queries so the large C#
   split-per-query baseline stays bounded while each row still compares the same query workload for
   C# and N#.
@@ -176,37 +177,33 @@ Current code-intelligence dogfood benchmarks:
   from the member name, and allocates the receiver substring for each query. The accepted N#
   candidate builds line ranges, builds a per-source receiver cache keyed by separator offset into
   caller-owned arrays, and then answers the query batch by copying start/length pairs into
-  caller-owned result buffers. It intentionally preserves the current branch order, including the
-  nullable member access edge where `customer?.Name` does not reach the later `?.` branch because
-  the `'.'` branch runs first.
+  caller-owned result buffers through the production-shaped `CodeIntelligenceMemberReceiversCachedInto`
+  API. It intentionally preserves the current branch order, including the nullable member access
+  edge where `customer?.Name` does not reach the later `?.` branch because the `'.'` branch runs
+  first.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
 standalone-CR input, Unicode identifier characters, member receivers with whitespace before the dot,
-and the current nullable-member-access edge. It verifies both the direct member receiver scanner and
-the cached receiver-cache API. The N# candidate imports `System`, uses ASCII fast paths, and falls
-back to `Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C# identifier and
-whitespace rules without putting the runtime predicates on the common ASCII path.
+and the current nullable-member-access edge. It verifies the production-shaped match-count APIs,
+the checksum parity helpers, the direct member receiver scanner, and the cached receiver-cache API.
+The N# candidate imports `System`, uses ASCII fast paths, and falls back to
+`Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C# identifier and whitespace
+rules without putting the runtime predicates on the common ASCII path.
 
-The identifier-span dry run on 2026-06-03 passed checksum and buffer parity and reported zero
-managed allocation on the N# path. After switching the N# predicate to the production-compatible
-`Char.IsLetterOrDigit` call, the representative batch corpus still ran about 6.6x faster than the
-current C# split-per-query baseline (100 us vs 655 us, 0 B vs 4.1 MB). The large generated corpus
-ran about 266x faster (191 us vs 51.0 ms, 0 B vs 129.6 MB). This crosses the dry smoke speed
-threshold for the batched service shape, but it is not acceptance evidence until a normal
-BenchmarkDotNet run confirms the ratio and production query/hover/definition/reference paths call
-the N# implementation.
+The normal BenchmarkDotNet run on 2026-06-03 passed match-count and buffer parity and reported zero
+managed allocation on the N# code-intelligence paths. `CodeIntelligenceIdentifierSpansInto` ran
+about 81x faster than the current C# split-per-query baseline on the representative corpus
+(5.56 us vs 448.94 us, 0 B vs 4.1 MB) and about 682x faster on the large generated corpus
+(91.76 us vs 62.57 ms, 0 B vs 129.6 MB).
 
-The member-receiver dry run on 2026-06-03 passed checksum and buffer parity and reported zero
-managed allocation on the N# path. The first direct-scan N# shape exposed a short-scan codegen
-weakness on the representative corpus, so the accepted dogfood candidate now builds a compact
-receiver cache once per source and answers the batch from integer arrays. That cached build-and-query
-shape ran about 10.6x faster on the representative corpus (73 us vs 773 us, 0 B vs 4.6 MB) and about
-164x faster on the large generated corpus (301 us vs 49.2 ms, 0 B vs 129.6 MB). This crosses the
-dry smoke threshold for the cached compiler-service shape, but it is not acceptance evidence until a
-normal BenchmarkDotNet run confirms the ratio and production query/completion paths call the N#
-implementation.
+`CodeIntelligenceMemberReceiversCachedInto` also cleared the normal BenchmarkDotNet speed gate. It
+ran about 174x faster on the representative corpus (2.88 us vs 500.69 us, 0 B vs 4.6 MB) and about
+233x faster on the large generated corpus (225.03 us vs 52.51 ms, 0 B vs 129.6 MB). This is
+acceptance-grade benchmark evidence for the batched code-intelligence service shape, but the
+production CLI/LSP query, hover, definition, reference, and completion paths still need an adapter
+and swap proof before those surfaces can be claimed as dogfooded.
 
 ## Rewrite Order
 
@@ -277,8 +274,8 @@ compiler-service loops as the normal programming model.
 Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
 queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct
 `Char.IsLetterOrDigit` runtime static call from an imported `System` namespace while keeping the
-dry speed gate above 5x, so the remaining work is a production adapter and full BenchmarkDotNet
-acceptance run rather than an identifier-character semantic gap. The member-receiver candidate shows
-the next gap: allocation-free N# wins decisively once C# repeatedly splits a large source file, but
-short-file backward scans still lose to optimized C# unless helper calls and branch-heavy character
-classification are flattened further by the language/compiler.
+normal BenchmarkDotNet speed gate above 5x, so the remaining work is a production adapter and swap
+proof rather than an identifier-character semantic gap. The member-receiver candidate shows the next
+API lesson: the 5x win comes from a source-level receiver cache plus caller-owned buffers, not from
+calling a tiny backward scanner once per request. Production code-intelligence adapters should keep
+that cache lifetime explicit.

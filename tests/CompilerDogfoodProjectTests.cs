@@ -88,14 +88,26 @@ public class CompilerDogfoodProjectTests
                     "CodeIntelligenceIdentifierSpanChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceIdentifierSpanChecksumInto.");
+            var codeIntelligenceIdentifierSpansInto = programType.GetMethod(
+                    "CodeIntelligenceIdentifierSpansInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceIdentifierSpansInto.");
             var codeIntelligenceMemberReceiverChecksumInto = programType.GetMethod(
                     "CodeIntelligenceMemberReceiverChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiverChecksumInto.");
+            var codeIntelligenceMemberReceiversInto = programType.GetMethod(
+                    "CodeIntelligenceMemberReceiversInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiversInto.");
             var codeIntelligenceMemberReceiverCachedChecksumInto = programType.GetMethod(
                     "CodeIntelligenceMemberReceiverCachedChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiverCachedChecksumInto.");
+            var codeIntelligenceMemberReceiversCachedInto = programType.GetMethod(
+                    "CodeIntelligenceMemberReceiversCachedInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiversCachedInto.");
 
             const string source = """"
 import System
@@ -228,16 +240,20 @@ func main() {
     print value
 }
 """,
-                codeIntelligenceIdentifierSpanChecksumInto);
+                codeIntelligenceIdentifierSpanChecksumInto,
+                codeIntelligenceIdentifierSpansInto);
             AssertIdentifierSpansLikeProduction(
                 "package CompilerDogfood.Tests\r\nfunc main(): int {\r\n    return value\r\n}\r\n",
-                codeIntelligenceIdentifierSpanChecksumInto);
+                codeIntelligenceIdentifierSpanChecksumInto,
+                codeIntelligenceIdentifierSpansInto);
             AssertIdentifierSpansLikeProduction(
                 "func main() {\r    value := input.Count\r}\n",
-                codeIntelligenceIdentifierSpanChecksumInto);
+                codeIntelligenceIdentifierSpanChecksumInto,
+                codeIntelligenceIdentifierSpansInto);
             AssertIdentifierSpansLikeProduction(
                 "func main() {\n    café42 := résumé.Count\n    print café42\n}\n",
-                codeIntelligenceIdentifierSpanChecksumInto);
+                codeIntelligenceIdentifierSpanChecksumInto,
+                codeIntelligenceIdentifierSpansInto);
 
             AssertMemberReceiversLikeProduction(
                 """
@@ -249,7 +265,9 @@ func main(customer: Customer, résumé: Profile) {
 }
 """,
                 codeIntelligenceMemberReceiverChecksumInto,
-                codeIntelligenceMemberReceiverCachedChecksumInto);
+                codeIntelligenceMemberReceiversInto,
+                codeIntelligenceMemberReceiverCachedChecksumInto,
+                codeIntelligenceMemberReceiversCachedInto);
         }
         finally
         {
@@ -544,7 +562,8 @@ func main(customer: Customer, résumé: Profile) {
 
     private static void AssertIdentifierSpansLikeProduction(
         string source,
-        MethodInfo codeIntelligenceIdentifierSpanChecksumInto)
+        MethodInfo codeIntelligenceIdentifierSpanChecksumInto,
+        MethodInfo codeIntelligenceIdentifierSpansInto)
     {
         var lines = source.Split('\n');
         var queries = new List<(int Line, int Column)>
@@ -574,6 +593,7 @@ func main(customer: Customer, résumé: Profile) {
         var expectedStarts = new int[queries.Count];
         var expectedLengths = new int[queries.Count];
         var expectedChecksum = 0;
+        var expectedCount = 0;
         for (var i = 0; i < queries.Count; i++)
         {
             var span = ExtractIdentifierSpanAtPosition(source, queryLines[i], queryColumns[i]);
@@ -582,6 +602,8 @@ func main(customer: Customer, résumé: Profile) {
             expectedStarts[i] = start;
             expectedLengths[i] = length;
             expectedChecksum += start * 31 + length * 17;
+            if (start >= 0)
+                expectedCount++;
         }
 
         var lineStarts = new int[source.Length + 1];
@@ -595,12 +617,35 @@ func main(customer: Customer, résumé: Profile) {
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expectedStarts, actualStarts);
         Assert.Equal(expectedLengths, actualLengths);
+
+        var productionLineStarts = new int[source.Length + 1];
+        var productionLineLengths = new int[source.Length + 1];
+        var productionStarts = new int[queries.Count];
+        var productionLengths = new int[queries.Count];
+        var actualCount = (int)(codeIntelligenceIdentifierSpansInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionLineStarts,
+                productionLineLengths,
+                queryLines,
+                queryColumns,
+                productionStarts,
+                productionLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        Assert.Equal(expectedStarts, productionStarts);
+        Assert.Equal(expectedLengths, productionLengths);
     }
 
     private static void AssertMemberReceiversLikeProduction(
         string source,
         MethodInfo codeIntelligenceMemberReceiverChecksumInto,
-        MethodInfo codeIntelligenceMemberReceiverCachedChecksumInto)
+        MethodInfo codeIntelligenceMemberReceiversInto,
+        MethodInfo codeIntelligenceMemberReceiverCachedChecksumInto,
+        MethodInfo codeIntelligenceMemberReceiversCachedInto)
     {
         var lines = source.Split('\n');
         var queries = new List<(int Line, int MemberStartColumn)>
@@ -631,6 +676,7 @@ func main(customer: Customer, résumé: Profile) {
         var expectedStarts = new int[queries.Count];
         var expectedLengths = new int[queries.Count];
         var expectedChecksum = 0;
+        var expectedCount = 0;
         for (var i = 0; i < queries.Count; i++)
         {
             var span = ExtractMemberReceiverSpan(source, queryLines[i], memberStartColumns[i]);
@@ -639,6 +685,8 @@ func main(customer: Customer, résumé: Profile) {
             expectedStarts[i] = start;
             expectedLengths[i] = length;
             expectedChecksum += start * 31 + length * 17;
+            if (start >= 0)
+                expectedCount++;
         }
 
         var lineStarts = new int[source.Length + 1];
@@ -652,6 +700,27 @@ func main(customer: Customer, résumé: Profile) {
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expectedStarts, actualStarts);
         Assert.Equal(expectedLengths, actualLengths);
+
+        var productionLineStarts = new int[source.Length + 1];
+        var productionLineLengths = new int[source.Length + 1];
+        var productionStarts = new int[queries.Count];
+        var productionLengths = new int[queries.Count];
+        var actualCount = (int)(codeIntelligenceMemberReceiversInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionLineStarts,
+                productionLineLengths,
+                queryLines,
+                memberStartColumns,
+                productionStarts,
+                productionLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        Assert.Equal(expectedStarts, productionStarts);
+        Assert.Equal(expectedLengths, productionLengths);
 
         var cachedLineStarts = new int[source.Length + 1];
         var cachedLineLengths = new int[source.Length + 1];
@@ -677,6 +746,31 @@ func main(customer: Customer, résumé: Profile) {
         Assert.Equal(expectedChecksum, cachedChecksum);
         Assert.Equal(expectedStarts, cachedStarts);
         Assert.Equal(expectedLengths, cachedLengths);
+
+        var productionCachedLineStarts = new int[source.Length + 1];
+        var productionCachedLineLengths = new int[source.Length + 1];
+        var productionReceiverStartsBySeparator = new int[source.Length + 1];
+        var productionReceiverLengthsBySeparator = new int[source.Length + 1];
+        var productionCachedStarts = new int[queries.Count];
+        var productionCachedLengths = new int[queries.Count];
+        var actualCachedCount = (int)(codeIntelligenceMemberReceiversCachedInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionCachedLineStarts,
+                productionCachedLineLengths,
+                productionReceiverStartsBySeparator,
+                productionReceiverLengthsBySeparator,
+                queryLines,
+                memberStartColumns,
+                productionCachedStarts,
+                productionCachedLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCachedCount);
+        Assert.Equal(expectedStarts, productionCachedStarts);
+        Assert.Equal(expectedLengths, productionCachedLengths);
     }
 
     private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)

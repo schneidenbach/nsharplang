@@ -21,7 +21,7 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
     private const int LargeQueryCount = 128;
     private const int RepresentativeQueryCount = 1024;
 
-    private Func<string, int[], int[], int[], int[], int[], int[], int> _nsharpIdentifierSpanChecksumInto =
+    private Func<string, int[], int[], int[], int[], int[], int[], int> _nsharpIdentifierSpansInto =
         (_, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
     private int[] _csharpSpanLengths = Array.Empty<int>();
     private int[] _csharpSpanStarts = Array.Empty<int>();
@@ -44,10 +44,10 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
         _queryCount = Corpus == CompilerLexerCorpus.Representative
             ? RepresentativeQueryCount
             : LargeQueryCount;
-        _nsharpIdentifierSpanChecksumInto =
+        _nsharpIdentifierSpansInto =
             NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int[], int>>(
                 DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
-                "CodeIntelligenceIdentifierSpanChecksumInto");
+                "CodeIntelligenceIdentifierSpansInto");
 
         _lineStarts = new int[_source.Length + 1];
         _lineLengths = new int[_source.Length + 1];
@@ -58,12 +58,12 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
 
         BuildQueries();
 
-        var expectedChecksum = CSharpCodeIntelligenceIdentifierSpans_QueryBatch();
-        var actualChecksum = NSharpCodeIntelligenceIdentifierSpans_QueryBatch();
-        if (expectedChecksum != actualChecksum)
+        var expectedCount = CSharpCodeIntelligenceIdentifierSpans_QueryBatch();
+        var actualCount = NSharpCodeIntelligenceIdentifierSpans_QueryBatch();
+        if (expectedCount != actualCount)
         {
             throw new InvalidOperationException(
-                $"N# identifier span checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+                $"N# identifier span match count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
         }
 
         if (!_csharpSpanStarts.SequenceEqual(_nsharpSpanStarts)
@@ -81,7 +81,7 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
     [Benchmark(Baseline = true)]
     public int CSharpCodeIntelligenceIdentifierSpans_QueryBatch()
     {
-        var checksum = 0;
+        var foundCount = 0;
         for (var i = 0; i < _queryLines.Length; i++)
         {
             var span = ExtractIdentifierSpanAtPosition(_source, _queryLines[i], _queryColumns[i]);
@@ -89,15 +89,18 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
             var length = span?.Length ?? 0;
             _csharpSpanStarts[i] = start;
             _csharpSpanLengths[i] = length;
-            checksum += start * 31 + length * 17;
+            if (start >= 0)
+            {
+                foundCount++;
+            }
         }
 
-        return checksum;
+        return foundCount;
     }
 
     [Benchmark]
     public int NSharpCodeIntelligenceIdentifierSpans_QueryBatch() =>
-        _nsharpIdentifierSpanChecksumInto(
+        _nsharpIdentifierSpansInto(
             _source,
             _lineStarts,
             _lineLengths,
@@ -304,7 +307,7 @@ public class CompilerServiceCodeIntelligenceMemberReceiverBenchmarks
     private const int LargeQueryCount = 128;
     private const int RepresentativeQueryCount = 1024;
 
-    private Func<string, int[], int[], int[], int[], int[], int[], int[], int[], int> _nsharpMemberReceiverCachedChecksumInto =
+    private Func<string, int[], int[], int[], int[], int[], int[], int[], int[], int> _nsharpMemberReceiversCachedInto =
         (_, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
     private int[] _csharpReceiverLengths = Array.Empty<int>();
     private int[] _csharpReceiverStarts = Array.Empty<int>();
@@ -336,10 +339,10 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
         _queryCount = Corpus == CompilerLexerCorpus.Representative
             ? RepresentativeQueryCount
             : LargeQueryCount;
-        _nsharpMemberReceiverCachedChecksumInto =
+        _nsharpMemberReceiversCachedInto =
             NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int[], int[], int[], int>>(
                 DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
-                "CodeIntelligenceMemberReceiverCachedChecksumInto");
+                "CodeIntelligenceMemberReceiversCachedInto");
 
         _lineStarts = new int[_source.Length + 1];
         _lineLengths = new int[_source.Length + 1];
@@ -352,12 +355,12 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
 
         BuildQueries();
 
-        var expectedChecksum = CSharpCodeIntelligenceMemberReceivers_QueryBatch();
-        var actualChecksum = NSharpCodeIntelligenceMemberReceivers_QueryBatch();
-        if (expectedChecksum != actualChecksum)
+        var expectedCount = CSharpCodeIntelligenceMemberReceivers_QueryBatch();
+        var actualCount = NSharpCodeIntelligenceMemberReceivers_QueryBatch();
+        if (expectedCount != actualCount)
         {
             throw new InvalidOperationException(
-                $"N# member receiver checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+                $"N# member receiver match count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
         }
 
         if (!_csharpReceiverStarts.SequenceEqual(_nsharpReceiverStarts)
@@ -375,7 +378,7 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
     [Benchmark(Baseline = true)]
     public int CSharpCodeIntelligenceMemberReceivers_QueryBatch()
     {
-        var checksum = 0;
+        var foundCount = 0;
         for (var i = 0; i < _queryLines.Length; i++)
         {
             var span = ExtractMemberReceiverSpan(_source, _queryLines[i], _memberStartColumns[i]);
@@ -383,15 +386,18 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
             var length = span?.Length ?? 0;
             _csharpReceiverStarts[i] = start;
             _csharpReceiverLengths[i] = length;
-            checksum += start * 31 + length * 17;
+            if (start >= 0)
+            {
+                foundCount++;
+            }
         }
 
-        return checksum;
+        return foundCount;
     }
 
     [Benchmark]
     public int NSharpCodeIntelligenceMemberReceivers_QueryBatch() =>
-        _nsharpMemberReceiverCachedChecksumInto(
+        _nsharpMemberReceiversCachedInto(
             _source,
             _lineStarts,
             _lineLengths,
