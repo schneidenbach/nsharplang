@@ -1,6 +1,6 @@
 # Systems N# Verification Summary
 
-Date: 2026-06-02
+Date: 2026-06-03
 Scope: current implementation pass for `docs/design/systems-nsharp.md`
 
 This file records command evidence for the current Systems N# implementation
@@ -138,15 +138,17 @@ Coverage:
   no delegate, boxing, dispatch, closure, boundary-leak, trap, hot-readiness, or
   AOT blocker sites, the emitted assembly runs, and the proof test verifies
   preserved `[GeneratedRegex]` metadata plus cached `Regex` factory behavior.
-  This is IL-backend generated-regex evidence, not a NativeAOT native image or a
-  full arbitrary source-generator execution claim.
+  This is IL-backend generated-regex evidence, not a NativeAOT native image;
+  `[GeneratedRegex]` remains a dedicated temporary hook even though the general
+  Roslyn source-generator pipeline now supports generated C# sources.
 - Proof 28 covers a NativeAOT-targeted JSON CLI: `nlc check --systems-report`
   passes with six reviewed boundary warnings, `nlc build --perf-report` reports
   three boundary allocations and no delegate, boxing, dispatch, closure,
   boundary-leak, trap, hot-readiness, or AOT blocker sites, the emitted assembly
   prints `{"Input":"input.txt","Verbose":true}`, and the proof test verifies the
-  generated `JsonSerializerContext.Default`, `JsonTypeInfo<T>` property,
-  converter shape, and `aot.analysis=pass`/`trimSafe=true`.
+  real System.Text.Json generator output: `JsonSerializerContext.Default`,
+  `JsonTypeInfo<T>` property, converter implementation, and
+  `aot.analysis=pass`/`trimSafe=true`.
 - Proof 30 covers an allocation-free hot parser plus a boundary cold-failure
   logger. The perf report intentionally records one allocation site in
   `LogColdFailure`; the emitted assembly runs and verifies cleanly with

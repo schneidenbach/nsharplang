@@ -5,6 +5,7 @@ using System.Linq;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.ILCompiler;
 using NSharpLang.Compiler.Performance;
+using NSharpLang.Compiler.SourceGenerators;
 
 namespace NSharpLang.Compiler;
 
@@ -35,6 +36,8 @@ public class MultiFileCompiler
     private readonly HashSet<string> _filesInReportedImportCycles = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _resolvedFileImportDiagnosticKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly PerformanceFactStore _performanceFacts = new();
+    private SourceGeneratorRunResult _sourceGeneratorAnalysisResult = SourceGeneratorRunResult.Inactive;
+    private bool _sourceGeneratorAnalysisAttempted;
 
     /// <summary>
     /// Public read-only accessors for code intelligence tooling.
@@ -572,6 +575,71 @@ public class MultiFileCompiler
         AnalyzeSystemsPolicy();
     }
 
+    private void RunSourceGeneratorsForAnalysisIfNeeded(string? assemblyName = null)
+    {
+        if (_sourceGeneratorAnalysisAttempted || _config == null)
+        {
+            return;
+        }
+
+        _sourceGeneratorAnalysisAttempted = true;
+        if (_compilationUnits.Count == 0)
+        {
+            return;
+        }
+
+        var orderedUnits = _sourceFiles
+            .Select(sourceFile => _compilationUnits.TryGetValue(sourceFile, out var compilationUnit) ? compilationUnit : null)
+            .Where(compilationUnit => compilationUnit != null)
+            .Cast<CompilationUnit>()
+            .ToList();
+
+        if (orderedUnits.Count == 0)
+        {
+            return;
+        }
+
+        var effectiveAssemblyName = !string.IsNullOrWhiteSpace(assemblyName)
+            ? assemblyName!
+            : GetProjectAssemblyName();
+        var stubSource = CompilationStubEmitter.Generate(_config, orderedUnits);
+        var stubPath = Path.Combine(
+            _projectRoot,
+            "obj",
+            "nsharp",
+            "generator-input",
+            $"{SanitizeGeneratedInputFileName(effectiveAssemblyName)}.AnalysisStub.g.cs");
+
+        _sourceGeneratorAnalysisResult = SourceGeneratorPipeline.RunForAnalysis(
+            _config,
+            _projectRoot,
+            effectiveAssemblyName,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [stubPath] = stubSource
+            },
+            orderedUnits);
+
+        if (!_sourceGeneratorAnalysisResult.IsActive)
+        {
+            return;
+        }
+
+        _allErrors.AddRange(_sourceGeneratorAnalysisResult.Diagnostics);
+        _sharedAnalyzer.SetGeneratedSymbols(_sourceGeneratorAnalysisResult.GeneratedSymbols);
+
+        if (!string.IsNullOrWhiteSpace(_sourceGeneratorAnalysisResult.AnalysisAssemblyPath)
+            && File.Exists(_sourceGeneratorAnalysisResult.AnalysisAssemblyPath))
+        {
+            _sharedAnalyzer.LoadReferencedAssembly(_sourceGeneratorAnalysisResult.AnalysisAssemblyPath);
+        }
+    }
+
+    private bool ShouldEmitWithSourceGenerators()
+        => _sourceGeneratorAnalysisResult is { IsActive: true, HasLoadedGenerators: true }
+           && _sourceGeneratorAnalysisResult.GeneratedSourcePaths.Count > 0
+           && !_sourceGeneratorAnalysisResult.Diagnostics.Any(diagnostic => diagnostic.Severity == ErrorSeverity.Error);
+
     /// <summary>
     /// AOT-blocker analysis pass: classifies each file's ABI surface, walks every compilation
     /// unit for reflection / dynamic-code / runtime-generic / expression-tree constructs, and
@@ -725,6 +793,7 @@ public class MultiFileCompiler
     {
         ParseAllFiles();
         DetectCircularFileImports();
+        RunSourceGeneratorsForAnalysisIfNeeded();
         AnalyzeAllFiles();
     }
 
@@ -745,6 +814,7 @@ public class MultiFileCompiler
         // syntax and semantic diagnostics in a single compilation pass.
         DetectCircularFileImports();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles START");
+        RunSourceGeneratorsForAnalysisIfNeeded();
         AnalyzeAllFiles();
         AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}] AnalyzeAllFiles END");
 
@@ -788,6 +858,7 @@ public class MultiFileCompiler
         }
 
         DetectCircularFileImports();
+        RunSourceGeneratorsForAnalysisIfNeeded(assemblyName);
         AnalyzeAllFiles();
 
         // Under `--aot`, every AOT blocker becomes a build-blocking error before emission.
@@ -806,14 +877,32 @@ public class MultiFileCompiler
 
         try
         {
-            var mergedCompilationUnit = CreateMergedCompilationUnit();
             Directory.CreateDirectory(Path.GetDirectoryName(outputPath) ?? _projectRoot);
 
-            var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config)
+            if (ShouldEmitWithSourceGenerators())
             {
-                AotRequirements = AotRequirements.FromBlockers(_aotBlockers),
-            };
-            compiler.Compile();
+                ExportAllFilesToCSharp();
+                if (!_allErrors.Any(e => e.Severity == ErrorSeverity.Error))
+                {
+                    var emitResult = SourceGeneratorPipeline.EmitFinalAssembly(
+                        _config!,
+                        _projectRoot,
+                        assemblyName,
+                        _exportedCSharpFiles,
+                        _compilationUnits.Values,
+                        outputPath);
+                    _allErrors.AddRange(emitResult.Diagnostics);
+                }
+            }
+            else
+            {
+                var mergedCompilationUnit = CreateMergedCompilationUnit();
+                var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config)
+                {
+                    AotRequirements = AotRequirements.FromBlockers(_aotBlockers),
+                };
+                compiler.Compile();
+            }
         }
         catch (Exception ex)
         {
@@ -848,6 +937,20 @@ public class MultiFileCompiler
         var value = Environment.GetEnvironmentVariable(DebugLogEnvVar);
         return string.Equals(value, "1", StringComparison.Ordinal) ||
             string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string GetProjectAssemblyName()
+        => !string.IsNullOrWhiteSpace(_config?.Name)
+            ? _config!.Name!
+            : Path.GetFileName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(_projectRoot))) ?? "Project";
+
+    private static string SanitizeGeneratedInputFileName(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var chars = value
+            .Select(character => invalid.Contains(character) ? '_' : character)
+            .ToArray();
+        return chars.Length == 0 ? "Project" : new string(chars);
     }
 
     private void AppendDebugLog(string message)

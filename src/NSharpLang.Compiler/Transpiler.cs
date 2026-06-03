@@ -29,6 +29,7 @@ public class Transpiler
     private Dictionary<string, string>? _activePatternBindingAliases;
     private readonly Stack<HashSet<string>> _reservedPatternBindingNames = new();
     private int _patternBindingAliasCounter;
+    private GenericTypeReference? _currentResultReturnType;
 
     public Transpiler(CompilationUnit compilationUnit, ProjectConfig? projectConfig = null, SemanticModel? semanticModel = null, string? sourceFilePath = null, HashSet<string>? autoResolvedNamespaces = null, HashSet<string>? externalStringEnumNames = null)
     {
@@ -771,6 +772,8 @@ public class Transpiler
         _output.Append(constraints);
 
         var reservedPatternNames = CollectReservedPatternBindingNames(func);
+        var previousResultReturnType = _currentResultReturnType;
+        _currentResultReturnType = TryGetResultReturnType(func.ReturnType);
         _reservedPatternBindingNames.Push(reservedPatternNames);
         try
         {
@@ -791,6 +794,7 @@ public class Transpiler
         }
         finally
         {
+            _currentResultReturnType = previousResultReturnType;
             _reservedPatternBindingNames.Pop();
         }
 
@@ -2943,6 +2947,11 @@ public class Transpiler
     {
         var callee = TranspileExpression(call.Callee);
 
+        if (TryTranspileResultFactoryCall(call, out var resultFactoryCall))
+        {
+            return resultFactoryCall;
+        }
+
         // Newtype construction: UserId(42) → new UserId(42)
         if (call.Callee is IdentifierExpression id && _newtypeNames.Contains(id.Name))
         {
@@ -2985,6 +2994,27 @@ public class Transpiler
         }));
         return $"{callee}{typeArgs}({args})";
     }
+
+    private bool TryTranspileResultFactoryCall(CallExpression call, out string result)
+    {
+        result = string.Empty;
+        if (_currentResultReturnType == null
+            || call.Callee is not IdentifierExpression { Name: "Ok" or "Err" } identifier
+            || call.Arguments.Count != 1)
+        {
+            return false;
+        }
+
+        var returnType = TranspileTypeReference(_currentResultReturnType);
+        var argument = TranspileExpression(call.Arguments[0].Value);
+        result = $"{returnType}.{identifier.Name}({argument})";
+        return true;
+    }
+
+    private static GenericTypeReference? TryGetResultReturnType(TypeReference? returnType)
+        => returnType is GenericTypeReference { Name: "Result", TypeArguments.Count: 2 } resultType
+            ? resultType
+            : null;
 
     private string TranspileAssignmentExpression(AssignmentExpression assign)
     {

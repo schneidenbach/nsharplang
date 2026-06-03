@@ -24,13 +24,14 @@ pass. Current executable proof projects:
   `nlc build --perf-report`, native-import no-managed-body assertion, and
   direct IL verification.
 - `proofs/28-nativeaot-json-cli`: `nlc check --systems-report`,
-  `nlc build --perf-report`, emitted assembly run, generated
-  `JsonSerializerContext` shape evidence, and NativeAOT/trim analysis. It does
-  not claim native image publication yet.
+  `nlc build --perf-report`, emitted assembly run, real System.Text.Json
+  Roslyn source-generator `JsonSerializerContext` evidence, and
+  NativeAOT/trim analysis. It does not claim native image publication yet.
 - `proofs/29-generated-regex-boundary`: `nlc check --systems-report`,
   `nlc build --perf-report`, emitted assembly run, and generated-regex factory
   evidence for preserved `[GeneratedRegex]` metadata plus cached `Regex`
-  behavior.
+  behavior. `[GeneratedRegex]` remains a dedicated IL-backend hook rather than
+  the general Roslyn source-generator path.
 - `proofs/30-cold-failure-logging`: `nlc check --systems-report`,
   `nlc build --perf-report`, and emitted assembly run.
 - `proofs/31-hot-metrics`: `nlc check --systems-report` and
@@ -73,8 +74,9 @@ pass. Current executable proof projects:
   boundary contract. It does not claim direct Dapper NuGet execution.
 - `proofs/47-cli-startup-honesty`: `nlc check --systems-report`,
   `nlc build --perf-report`, emitted assembly run, warmup registration evidence,
-  generated `JsonSerializerContext` shape evidence, and NativeAOT/trim analysis.
-  It does not claim native image startup timing yet.
+  real System.Text.Json Roslyn source-generator `JsonSerializerContext`
+  evidence, and NativeAOT/trim analysis. It does not claim native image startup
+  timing yet.
 - `proofs/48-effect-drift`: `nlc check --systems-report` and
   `nlc build --perf-report`.
 

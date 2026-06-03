@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Daemon;
+using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
@@ -1004,7 +1005,12 @@ public static class QueryCommand
 
         try
         {
-            return Service.LoadProject(projectDir);
+            var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(Path.GetFileName(projectDir));
+            CompilationReferenceResolver.AddResolvedDllReferences(
+                projectDir,
+                config,
+                new ReferenceResolutionOptions(Quiet: true));
+            return Service.LoadProject(projectDir, config);
         }
         catch (Exception ex)
         {
@@ -1022,7 +1028,12 @@ public static class QueryCommand
             throw new DirectoryNotFoundException($"Project directory not found: {projectDir}");
         }
 
-        return Service.LoadProject(projectDir);
+        var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(Path.GetFileName(projectDir));
+        CompilationReferenceResolver.AddResolvedDllReferences(
+            projectDir,
+            config,
+            new ReferenceResolutionOptions(Quiet: true));
+        return Service.LoadProject(projectDir, config);
     }
 
     private static string GetRelativePath(string basePath, string filePath)

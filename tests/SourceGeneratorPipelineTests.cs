@@ -1,0 +1,765 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.Loader;
+using System.Text.Json;
+using NSharpLang.Cli.Commands;
+using NSharpLang.Compiler;
+using NSharpLang.Compiler.CodeIntelligence;
+using Xunit;
+
+namespace NSharpLang.Tests;
+
+[Collection("ProcessState")]
+public class SourceGeneratorPipelineTests
+{
+    private const string PackageId = "NSharpLang.TestSourceGenerator";
+    private const string PackageVersion = "1.0.0";
+
+    private static readonly Lazy<GeneratorAssets> Generator = new(BuildGeneratorAssets);
+
+    [Fact]
+    public void DirectSourceGenerator_EmitsStandaloneTypeConsumedFromNSharp()
+    {
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return GeneratedTools.Value + 1
+}
+"""));
+
+        var config = CreateLibraryConfig("DirectGeneratedType");
+        AddDirectGenerator(config);
+
+        var result = CompileAndInvoke(project.Root, config, "Run");
+
+        Assert.Equal(42, result);
+    }
+
+    [Fact]
+    public void PackageReferenceSourceGenerator_RunsFromNuGetAnalyzerAssets()
+    {
+        using var packages = UseSyntheticNuGetPackages();
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return GeneratedTools.Value + 2
+}
+"""));
+
+        var config = CreateLibraryConfig("PackageGeneratedType");
+        config.Dependencies.Add(new Reference { Nuget = PackageId, Version = PackageVersion });
+
+        var result = CompileAndInvoke(project.Root, config, "Run");
+
+        Assert.Equal(43, result);
+    }
+
+    [Fact]
+    public void ProjectReferenceSourceGenerator_RunsFromCSharpProjectReference()
+    {
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return GeneratedTools.Value + 3
+}
+"""));
+
+        var config = CreateLibraryConfig("ProjectReferenceGeneratedType");
+        config.Dependencies.Add(new Reference { Project = Generator.Value.ProjectPath });
+
+        var result = CompileAndInvoke(project.Root, config, "Run");
+
+        Assert.Equal(44, result);
+    }
+
+    [Fact]
+    public void GeneratedPartialMembers_AreVisibleToAnalyzerAndCodeIntelligence()
+    {
+        using var project = CreateProject(("Program.nl", """
+namespace Demo
+
+partial class Widget {
+}
+
+func Run(): int {
+    return Widget.Answer
+}
+"""));
+
+        var config = CreateLibraryConfig("GeneratedPartialAnalyzer");
+        AddDirectGenerator(config);
+
+        var service = new CodeIntelligenceService();
+        var snapshot = service.LoadProject(project.Root, config);
+
+        Assert.DoesNotContain(snapshot.AllErrors, error => error.DiagnosticId == "NL303");
+
+        var line = FindLine(project.File("Program.nl"), "Widget.Answer");
+        var col = FindColumn(project.File("Program.nl"), line, "Widget.") + "Widget.".Length - 1;
+        var completions = new CompletionEngine().GetCompletions(snapshot, "Program.nl", line, col);
+        var allItems = completions.Completions.Values.SelectMany(items => items).ToArray();
+
+        Assert.Contains(allItems, item => item.Name == "Answer");
+        Assert.Contains(allItems, item => item.Name == "Label");
+    }
+
+    [Fact]
+    public void QueryCommand_LoadsPackageSourceGeneratorsForTypeQueries()
+    {
+        using var packages = UseSyntheticNuGetPackages();
+        using var project = CreateProject(
+            ("project.yml", $"""
+name: QueryGeneratedMember
+version: 1.0.0
+entry: Program.nl
+outputType: library
+targetFramework: net10.0
+dependencies:
+  - nuget: {PackageId}
+    version: {PackageVersion}
+"""),
+            ("Program.nl", """
+namespace Demo
+
+partial class Widget {
+}
+
+func Run(): int {
+    return Widget.Answer
+}
+"""));
+
+        var line = FindLine(project.File("Program.nl"), "Widget.Answer");
+        var col = FindColumn(project.File("Program.nl"), line, "Answer");
+        var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+        {
+            "type",
+            "--project", project.Root,
+            "--no-daemon",
+            "--file", "Program.nl",
+            "--pos", $"{line}:{col}"
+        }));
+
+        Assert.Equal(0, exitCode);
+        Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+
+        using var document = JsonDocument.Parse(stdout);
+        Assert.Equal(1, document.RootElement.GetProperty("schemaVersion").GetInt32());
+        Assert.Equal("type", document.RootElement.GetProperty("command").GetString());
+        Assert.Equal("int", document.RootElement.GetProperty("result").GetProperty("resolvedType").GetString());
+    }
+
+    [Fact]
+    public void SystemTextJsonSourceGeneration_RunsActualGeneratorAndCompilesGeneratedOutput()
+    {
+        using var project = CreateProject(("Program.nl", """
+import System.Text.Json
+import System.Text.Json.Serialization
+
+record Payload {
+    Name: string
+    Count: int
+}
+
+[JsonSerializable(typeof(Payload))]
+partial class PayloadJsonContext : JsonSerializerContext {
+}
+
+func Run(): string {
+    payload := new Payload { Name: "alpha", Count: 7 }
+    return JsonSerializer.Serialize(payload, PayloadJsonContext.Default.Payload)
+}
+"""));
+
+        var config = CreateLibraryConfig("SystemTextJsonGeneratedContext");
+        var result = CompileAndInvoke(project.Root, config, "Run");
+
+        Assert.Equal("""{"Name":"alpha","Count":7}""", result);
+        Assert.Contains(
+            Directory.GetFiles(project.Root, "PayloadJsonContext.g.cs", SearchOption.AllDirectories),
+            path => path.Contains(Path.Combine("obj", "nsharp", "generated"), StringComparison.Ordinal));
+        Assert.Empty(Directory.GetFiles(project.Root, "*.cs", SearchOption.AllDirectories)
+            .Where(path => File.ReadAllText(path).Contains("__NSharpJson", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void MissingGeneratorAssembly_ReportsStableLoadDiagnostic()
+    {
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return 1
+}
+"""));
+
+        var config = CreateLibraryConfig("MissingGenerator");
+        config.SourceGenerators.Add(new SourceGeneratorReference(
+            Path.Combine(project.Root, "missing-generator.dll"),
+            SourceGeneratorReferenceKind.Direct,
+            "missing-generator"));
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        var result = compiler.CompileToIlAssembly("MissingGenerator", project.OutputPath("MissingGenerator"));
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, error => error.DiagnosticId == "NL920" && error.Severity == ErrorSeverity.Error);
+    }
+
+    [Fact]
+    public void GeneratorDiagnostic_IsSurfacedAsSourceGeneratorDiagnostic()
+    {
+        using var project = CreateProject(("Program.nl", """
+class NSharpGeneratorDiagnosticMarker {
+}
+
+func Run(): int {
+    return 1
+}
+"""));
+
+        var config = CreateLibraryConfig("GeneratorDiagnostic");
+        AddDirectGenerator(config);
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        var result = compiler.CompileToIlAssembly("GeneratorDiagnostic", project.OutputPath("GeneratorDiagnostic"));
+
+        Assert.True(result.Success, FormatErrors(result.Errors));
+        Assert.Contains(result.Errors, error =>
+            error.DiagnosticId == "NL921"
+            && error.Severity == ErrorSeverity.Warning
+            && error.RelatedInfo?["roslynDiagnosticId"] == "TSG001");
+    }
+
+    [Fact]
+    public void InvalidGeneratedCode_IsReportedAsGeneratedSourceInvalid()
+    {
+        using var project = CreateProject(("Program.nl", """
+class NSharpGeneratorInvalidMarker {
+}
+
+func Run(): int {
+    return 1
+}
+"""));
+
+        var config = CreateLibraryConfig("InvalidGeneratedCode");
+        AddDirectGenerator(config);
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        var result = compiler.CompileToIlAssembly("InvalidGeneratedCode", project.OutputPath("InvalidGeneratedCode"));
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, error => error.DiagnosticId == "NL922" && error.Severity == ErrorSeverity.Error);
+    }
+
+    [Fact]
+    public void GeneratorCrash_IsReportedAsSourceGeneratorFailure()
+    {
+        using var project = CreateProject(("Program.nl", """
+class NSharpGeneratorCrashMarker {
+}
+
+func Run(): int {
+    return 1
+}
+"""));
+
+        var config = CreateLibraryConfig("GeneratorCrash");
+        AddDirectGenerator(config);
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        var result = compiler.CompileToIlAssembly("GeneratorCrash", project.OutputPath("GeneratorCrash"));
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, error =>
+            error.DiagnosticId == "NL921"
+            && error.Severity == ErrorSeverity.Error
+            && error.Message.Contains("crashed", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void DeterministicRebuild_WritesStableGeneratedSources()
+    {
+        using var project = CreateProject(("Program.nl", """
+namespace Demo
+
+partial class Widget {
+}
+
+func Run(): int {
+    return Widget.Answer
+}
+"""));
+
+        var config = CreateLibraryConfig("DeterministicGeneratedSources");
+        AddDirectGenerator(config);
+
+        var first = CompileProject(project.Root, config, "DeterministicGeneratedSources");
+        Assert.True(first.Success, FormatErrors(first.Errors));
+        var firstSnapshot = ReadGeneratedSources(project.Root, "DeterministicGeneratedSources");
+
+        var second = CompileProject(project.Root, config, "DeterministicGeneratedSources");
+        Assert.True(second.Success, FormatErrors(second.Errors));
+        var secondSnapshot = ReadGeneratedSources(project.Root, "DeterministicGeneratedSources");
+
+        Assert.Equal(firstSnapshot, secondSnapshot);
+    }
+
+    [Fact]
+    public void Rebuild_RemovesStaleGeneratedOutputs()
+    {
+        using var project = CreateProject(("Program.nl", """
+class NSharpStaleOn {
+}
+
+func Run(): int {
+    return StaleOnly.Value
+}
+"""));
+
+        var config = CreateLibraryConfig("StaleGeneratedSources");
+        AddDirectGenerator(config);
+
+        var first = CompileProject(project.Root, config, "StaleGeneratedSources");
+        Assert.True(first.Success, FormatErrors(first.Errors));
+        Assert.Contains(
+            Directory.GetFiles(project.Root, "StaleOnly.g.cs", SearchOption.AllDirectories),
+            path => path.Contains(Path.Combine("obj", "nsharp", "generated"), StringComparison.Ordinal));
+
+        File.WriteAllText(project.File("Program.nl"), """
+func Run(): int {
+    return GeneratedTools.Value
+}
+""");
+
+        var second = CompileProject(project.Root, config, "StaleGeneratedSources");
+        Assert.True(second.Success, FormatErrors(second.Errors));
+        Assert.DoesNotContain(
+            Directory.GetFiles(project.Root, "StaleOnly.g.cs", SearchOption.AllDirectories),
+            path => path.Contains(Path.Combine("obj", "nsharp", "generated"), StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DuplicateGeneratedSymbols_AreReportedAsGeneratedSourceInvalid()
+    {
+        using var project = CreateProject(("Program.nl", """
+namespace Demo
+
+partial class Widget {
+    static Answer: int = 1
+}
+
+func Run(): int {
+    return Widget.Answer
+}
+"""));
+
+        var config = CreateLibraryConfig("DuplicateGeneratedSymbols");
+        AddDirectGenerator(config);
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        var result = compiler.CompileToIlAssembly("DuplicateGeneratedSymbols", project.OutputPath("DuplicateGeneratedSymbols"));
+
+        Assert.False(result.Success);
+        Assert.Contains(result.Errors, error => error.DiagnosticId == "NL922" && error.Severity == ErrorSeverity.Error);
+    }
+
+    [Fact]
+    public void NamespaceCollisions_DoNotLeakGeneratedMembersBetweenTypes()
+    {
+        using var project = CreateProject(
+            ("Alpha.nl", """
+namespace Alpha
+
+partial class Widget {
+}
+
+func Read(): int {
+    return Widget.Answer
+}
+"""),
+            ("Beta.nl", """
+namespace Beta
+
+partial class Widget {
+}
+
+func Read(): int {
+    return Widget.Answer
+}
+"""));
+
+        var config = CreateLibraryConfig("NamespaceCollision");
+        AddDirectGenerator(config);
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        compiler.CompileForAnalysis();
+
+        Assert.Contains(compiler.AllErrors, error =>
+            error.DiagnosticId == "NL303"
+            && error.FileName != null
+            && error.FileName.EndsWith("Beta.nl", StringComparison.Ordinal));
+        Assert.DoesNotContain(compiler.AllErrors, error =>
+            error.DiagnosticId == "NL303"
+            && error.FileName != null
+            && error.FileName.EndsWith("Alpha.nl", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PartialTypes_CanConsumeGeneratedMembersAcrossSourceFiles()
+    {
+        using var project = CreateProject(
+            ("Widget.One.nl", """
+namespace Demo
+
+partial class Widget {
+}
+"""),
+            ("Widget.Two.nl", """
+namespace Demo
+
+partial class Widget {
+    func Value(): int {
+        return Widget.Answer
+    }
+}
+"""),
+            ("Program.nl", """
+namespace Demo
+
+func Run(widget: Widget): int {
+    return widget.Value()
+}
+"""));
+
+        var config = CreateLibraryConfig("PartialGeneratedMembers");
+        AddDirectGenerator(config);
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        compiler.CompileForAnalysis();
+
+        Assert.DoesNotContain(compiler.AllErrors, error => error.Severity == ErrorSeverity.Error);
+    }
+
+    private static void AddDirectGenerator(ProjectConfig config)
+    {
+        config.SourceGenerators.Add(new SourceGeneratorReference(
+            Generator.Value.AssemblyPath,
+            SourceGeneratorReferenceKind.Direct,
+            "test-generator"));
+    }
+
+    private static MultiFileCompilationResult CompileProject(string projectRoot, ProjectConfig config, string assemblyName)
+    {
+        var sourceFiles = config.GetSourceFiles(projectRoot, includeTests: false);
+        var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
+        return compiler.CompileToIlAssembly(assemblyName, Path.Combine(projectRoot, "bin", $"{assemblyName}.dll"));
+    }
+
+    private static object? CompileAndInvoke(string projectRoot, ProjectConfig config, string functionName)
+    {
+        var assemblyName = config.Name ?? "SourceGeneratorTest";
+        var result = CompileProject(projectRoot, config, assemblyName);
+        Assert.True(result.Success, FormatErrors(result.Errors));
+        Assert.NotNull(result.OutputAssemblyPath);
+
+        AssemblyLoadContext? loadContext = null;
+        try
+        {
+            loadContext = new AssemblyLoadContext($"{assemblyName}_{Guid.NewGuid():N}", isCollectible: true);
+            var assembly = loadContext.LoadFromAssemblyPath(result.OutputAssemblyPath!);
+            var method = assembly.GetTypes()
+                .Select(type => type.GetMethod(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
+                .FirstOrDefault(method => method != null && method.GetParameters().Length == 0);
+            Assert.NotNull(method);
+            return method.IsStatic
+                ? method.Invoke(null, null)
+                : method.Invoke(Activator.CreateInstance(method.DeclaringType!), null);
+        }
+        finally
+        {
+            loadContext?.Unload();
+        }
+    }
+
+    private static ProjectConfig CreateLibraryConfig(string name)
+    {
+        return new ProjectConfig
+        {
+            Name = name,
+            OutputType = "library",
+            TargetFramework = "net10.0"
+        };
+    }
+
+    private static TemporaryProject CreateProject(params (string RelativePath, string Source)[] files)
+    {
+        var root = Directory.CreateTempSubdirectory("nsharp-source-generator-").FullName;
+        var hasProjectFile = files.Any(file => string.Equals(file.RelativePath, "project.yml", StringComparison.OrdinalIgnoreCase));
+        if (!hasProjectFile)
+        {
+            File.WriteAllText(Path.Combine(root, "project.yml"), """
+name: SourceGeneratorTemp
+version: 1.0.0
+entry: Program.nl
+outputType: library
+targetFramework: net10.0
+""");
+        }
+
+        foreach (var (relativePath, source) in files)
+        {
+            var path = Path.Combine(root, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, source);
+        }
+
+        return new TemporaryProject(root);
+    }
+
+    private static IReadOnlyDictionary<string, string> ReadGeneratedSources(string projectRoot, string assemblyName)
+    {
+        var generatedRoot = Path.Combine(projectRoot, "obj", "nsharp", "generated", assemblyName, "emit");
+        return Directory.Exists(generatedRoot)
+            ? Directory.GetFiles(generatedRoot, "*.cs", SearchOption.AllDirectories)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    path => Path.GetRelativePath(generatedRoot, path).Replace('\\', '/'),
+                    File.ReadAllText,
+                    StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
+    }
+
+    private static GeneratorAssets BuildGeneratorAssets()
+    {
+        var root = Directory.CreateTempSubdirectory("nsharp-test-generator-assets-").FullName;
+        var projectPath = Path.Combine(root, "NSharpLang.TestSourceGenerator.csproj");
+        var sourcePath = Path.Combine(root, "TestSourceGenerator.cs");
+        File.WriteAllText(projectPath, """
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>NSharpLang.TestSourceGenerator</AssemblyName>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <EnforceExtendedAnalyzerRules>false</EnforceExtendedAnalyzerRules>
+    <NoWarn>$(NoWarn);RS1036;RS1042;RS2008</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
+""");
+        File.WriteAllText(sourcePath, """"
+using System;
+using System.Linq;
+using System.Text;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Text;
+
+[Generator]
+public sealed class TestSourceGenerator : ISourceGenerator
+{
+    private static readonly DiagnosticDescriptor TestDiagnostic = new(
+        "TSG001",
+        "Test generator diagnostic",
+        "Test generator diagnostic for {0}",
+        "NSharpLang.Tests",
+        DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public void Initialize(GeneratorInitializationContext context)
+    {
+    }
+
+    public void Execute(GeneratorExecutionContext context)
+    {
+        var input = string.Join("\n", context.Compilation.SyntaxTrees.Select(tree => tree.GetText().ToString()));
+
+        if (Has(input, "NSharpGeneratorCrashMarker"))
+        {
+            throw new InvalidOperationException("test generator crash");
+        }
+
+        if (Has(input, "NSharpGeneratorDiagnosticMarker"))
+        {
+            context.ReportDiagnostic(Diagnostic.Create(TestDiagnostic, Location.None, "N#"));
+        }
+
+        if (Has(input, "NSharpGeneratorInvalidMarker"))
+        {
+            Add(context, "InvalidGeneratedCode.g.cs", "public class InvalidGeneratedCode {");
+            return;
+        }
+
+        Add(context, "GeneratedTools.g.cs", """
+public static class GeneratedTools
+{
+    public static int Value => 41;
+}
+""");
+
+        Add(context, "Demo.Widget.g.cs", """
+namespace Demo
+{
+    public partial class Widget
+    {
+        public static int Answer => 42;
+        public static string Label => "generated";
+    }
+}
+""");
+
+        Add(context, "Alpha.Widget.g.cs", """
+namespace Alpha
+{
+    public partial class Widget
+    {
+        public static int Answer => 1;
+    }
+}
+""");
+
+        if (Has(input, "NSharpStaleOn"))
+        {
+            Add(context, "StaleOnly.g.cs", """
+public static class StaleOnly
+{
+    public static int Value => 7;
+}
+""");
+        }
+    }
+
+    private static bool Has(string input, string marker)
+        => input.IndexOf(marker, StringComparison.Ordinal) >= 0;
+
+    private static void Add(GeneratorExecutionContext context, string hintName, string source)
+        => context.AddSource(hintName, SourceText.From(source, Encoding.UTF8));
+}
+"""");
+
+        RunDotnetBuild(projectPath, root);
+
+        var assemblyPath = Path.Combine(root, "bin", "Debug", "netstandard2.0", "NSharpLang.TestSourceGenerator.dll");
+        Assert.True(File.Exists(assemblyPath), $"Expected generator assembly at {assemblyPath}");
+
+        var packageRoot = Path.Combine(root, "packages");
+        var analyzerDirectory = Path.Combine(packageRoot, PackageId.ToLowerInvariant(), PackageVersion, "analyzers", "dotnet", "cs");
+        Directory.CreateDirectory(analyzerDirectory);
+        File.Copy(assemblyPath, Path.Combine(analyzerDirectory, Path.GetFileName(assemblyPath)), overwrite: true);
+
+        return new GeneratorAssets(root, projectPath, assemblyPath, packageRoot);
+    }
+
+    private static IDisposable UseSyntheticNuGetPackages()
+    {
+        var previous = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
+        Environment.SetEnvironmentVariable("NUGET_PACKAGES", Generator.Value.PackageRoot);
+        return new RestoreEnvironmentVariable("NUGET_PACKAGES", previous);
+    }
+
+    private static void RunDotnetBuild(string projectPath, string workingDirectory)
+    {
+        var startInfo = new ProcessStartInfo("dotnet")
+        {
+            WorkingDirectory = workingDirectory,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        startInfo.ArgumentList.Add("build");
+        startInfo.ArgumentList.Add(projectPath);
+        startInfo.ArgumentList.Add("--nologo");
+        startInfo.ArgumentList.Add("-v:q");
+        startInfo.ArgumentList.Add("--disable-build-servers");
+
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("Could not start dotnet build.");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        Assert.True(process.ExitCode == 0, stdout + Environment.NewLine + stderr);
+    }
+
+    private static int FindLine(string filePath, string needle)
+    {
+        var lineNumber = 0;
+        foreach (var line in File.ReadLines(filePath))
+        {
+            lineNumber++;
+            if (line.Contains(needle, StringComparison.Ordinal))
+            {
+                return lineNumber;
+            }
+        }
+
+        throw new Xunit.Sdk.XunitException($"Could not find '{needle}' in {filePath}");
+    }
+
+    private static int FindColumn(string filePath, int lineNumber, string needle)
+    {
+        var line = File.ReadLines(filePath).Skip(lineNumber - 1).First();
+        var index = line.IndexOf(needle, StringComparison.Ordinal);
+        Assert.True(index >= 0, $"Could not find '{needle}' on line {lineNumber}: {line}");
+        return index + 1;
+    }
+
+    private static string FormatErrors(IEnumerable<CompilerError> errors)
+        => string.Join(Environment.NewLine, errors.Select(error =>
+            $"{error.DiagnosticId}: {error.Message} ({error.FileName}:{error.Line}:{error.Column})"));
+
+    private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action)
+    {
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            var exitCode = action();
+            return (exitCode, stdout.ToString(), stderr.ToString());
+        }
+        finally
+        {
+            Console.SetOut(originalOut);
+            Console.SetError(originalError);
+        }
+    }
+
+    private sealed record GeneratorAssets(
+        string Root,
+        string ProjectPath,
+        string AssemblyPath,
+        string PackageRoot);
+
+    private sealed class TemporaryProject(string root) : IDisposable
+    {
+        public string Root { get; } = root;
+
+        public string[] SourceFiles => ProjectConfig.EnumerateSourceFiles(Root).ToArray();
+
+        public string File(string relativePath) => Path.Combine(Root, relativePath);
+
+        public string OutputPath(string assemblyName) => Path.Combine(Root, "bin", $"{assemblyName}.dll");
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Root))
+            {
+                Directory.Delete(Root, recursive: true);
+            }
+        }
+    }
+
+    private sealed class RestoreEnvironmentVariable(string name, string? previousValue) : IDisposable
+    {
+        public void Dispose()
+        {
+            Environment.SetEnvironmentVariable(name, previousValue);
+        }
+    }
+}

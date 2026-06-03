@@ -826,7 +826,7 @@ func Emit(payload: Payload): string {
     [Fact]
     public void SourceGeneratedJsonContext_CompilesAndSerializesWithGeneratedTypeInfo()
     {
-        var result = CompileAndInvoke("""
+        var result = CompileProjectAndInvoke("""
 import System.Text.Json
 import System.Text.Json.Serialization
 
@@ -1484,8 +1484,7 @@ class Box {}
         AssertJsonContextShape(
             nativeAotJsonAssembly,
             "SystemsProofs.NativeAotJsonCli.CliJsonContext",
-            "CliOptions",
-            "SystemsProofs.NativeAotJsonCli.CliJsonContext.__NSharpJsonConverter_CliOptions");
+            "CliOptions");
         var nativeAotJsonRun = DotnetRunner.Run($"\"{nativeAotJsonAssembly}\" input.txt --verbose", nativeAotJsonOutputDir);
         Assert.True(nativeAotJsonRun.ExitCode == 0,
             $"native AOT JSON CLI proof failed to run\nstdout:\n{nativeAotJsonRun.Stdout}\nstderr:\n{nativeAotJsonRun.Stderr}");
@@ -1949,8 +1948,7 @@ class Box {}
         AssertJsonContextShape(
             cliStartupAssembly,
             "SystemsProofs.CliStartupHonesty.StartupJsonContext",
-            "StartupReport",
-            "SystemsProofs.CliStartupHonesty.StartupJsonContext.__NSharpJsonConverter_StartupReport");
+            "StartupReport");
         var cliStartupRun = DotnetRunner.Run($"\"{cliStartupAssembly}\"", cliStartupOutputDir);
         Assert.True(cliStartupRun.ExitCode == 0,
             $"CLI startup honesty proof failed to run\nstdout:\n{cliStartupRun.Stdout}\nstderr:\n{cliStartupRun.Stderr}");
@@ -2171,8 +2169,7 @@ class Box {}
     private static void AssertJsonContextShape(
         string assemblyPath,
         string contextTypeName,
-        string jsonTypeInfoPropertyName,
-        string converterTypeName)
+        string jsonTypeInfoPropertyName)
     {
         Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
 
@@ -2220,11 +2217,9 @@ class Box {}
             Assert.NotNull(getTypeInfo);
             Assert.NotSame(typeof(JsonSerializerContext), getTypeInfo!.DeclaringType);
 
-            var converterType = assembly.GetType(converterTypeName);
-            Assert.NotNull(converterType);
-            Assert.True(converterType!.IsSealed);
-            Assert.True(converterType.BaseType?.IsGenericType == true);
-            Assert.Equal(typeof(JsonConverter<>), converterType.BaseType!.GetGenericTypeDefinition());
+            Assert.DoesNotContain(
+                assembly.GetTypes(),
+                type => type.FullName?.Contains("__NSharpJson", StringComparison.Ordinal) == true);
         }
         finally
         {
@@ -2290,7 +2285,23 @@ class Box {}
 
             File.WriteAllText(Path.Combine(tempDir, "Program.cs"), """
 using System;
+using System.IO;
+using System.Reflection;
+using System.Runtime.Loader;
 using SystemsProofs.CsharpHotParserApi;
+
+AssemblyLoadContext.Default.Resolving += (_, assemblyName) =>
+{
+    if (assemblyName.Name != "SystemsProof40CsharpHotParserApi")
+    {
+        return null;
+    }
+
+    var localAssemblyPath = Path.Combine(AppContext.BaseDirectory, "SystemsProof40CsharpHotParserApi.dll");
+    return File.Exists(localAssemblyPath)
+        ? AssemblyLoadContext.Default.LoadFromAssemblyPath(localAssemblyPath)
+        : null;
+};
 
 var ok = PacketApi.ParseHeader(new byte[] { 1, 0, 5, 0, 0, 0 });
 if (!ok.TryGetOk(out var header))
@@ -2783,6 +2794,47 @@ func Run(): int {
             }
         }
     }
+
+    private static object? CompileProjectAndInvoke(string source, string functionName)
+    {
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-systems-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectRoot);
+        var programPath = Path.Combine(projectRoot, "Program.nl");
+        var outputPath = Path.Combine(projectRoot, "bin", "SystemsCompile.dll");
+        AssemblyLoadContext? loadContext = null;
+
+        try
+        {
+            File.WriteAllText(programPath, source);
+            var config = ProjectFileParser.CreateDefault("SystemsCompile");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
+            var result = compiler.CompileToIlAssembly("SystemsCompile", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(FormatCompilerError)));
+            Assert.NotNull(result.OutputAssemblyPath);
+
+            loadContext = new AssemblyLoadContext($"SystemsCompile_{Guid.NewGuid():N}", isCollectible: true);
+            var assembly = loadContext.LoadFromAssemblyPath(result.OutputAssemblyPath!);
+            var method = assembly.GetTypes()
+                .Select(type => type.GetMethod(functionName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                .FirstOrDefault(method => method != null);
+            Assert.NotNull(method);
+            return method.Invoke(null, null);
+        }
+        finally
+        {
+            loadContext?.Unload();
+            if (Directory.Exists(projectRoot))
+            {
+                Directory.Delete(projectRoot, recursive: true);
+            }
+        }
+    }
+
+    private static string FormatCompilerError(CompilerError error)
+        => $"{error.DiagnosticId}: {error.Message} ({error.FileName}:{error.Line}:{error.Column})";
 
     private static string CreateTempProject(string languageConfig, string program)
     {

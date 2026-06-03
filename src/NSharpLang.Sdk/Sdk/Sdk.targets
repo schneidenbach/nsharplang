@@ -189,6 +189,7 @@
       References="@(ReferencePath)"
       ProjectRoot="$(MSBuildProjectDirectory)"
       ProjectFile="$(NSharpProjectFile)"
+      AssemblyVersion="$(AssemblyVersion)"
       TargetAssemblyPath="@(IntermediateAssembly)"
       TargetReferenceAssemblyPath="$(TargetRefPath)" />
   </Target>

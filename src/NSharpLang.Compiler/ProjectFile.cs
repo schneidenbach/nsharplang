@@ -94,6 +94,14 @@ public class ProjectConfig
     public CompilationBackend EffectiveBackend => CompilationBackendExtensions.Parse(Backend);
 
     /// <summary>
+    /// Source generator assemblies discovered from package, framework, and project references.
+    /// This is compiler-internal state: project.yml remains the source of user-authored
+    /// references, while resolver stages populate concrete generator assembly paths.
+    /// </summary>
+    [YamlIgnore]
+    public List<SourceGeneratorReference> SourceGenerators { get; set; } = new();
+
+    /// <summary>
     /// Gets all .nl files in the project directory, excluding test files and files matching exclude patterns
     /// </summary>
     /// <param name="projectRoot">Root directory of the project</param>
@@ -200,6 +208,20 @@ public class ProjectConfig
         return System.Text.RegularExpressions.Regex.IsMatch(path, regexPattern);
     }
 }
+
+public enum SourceGeneratorReferenceKind
+{
+    Package,
+    Project,
+    Framework,
+    Direct
+}
+
+public sealed record SourceGeneratorReference(
+    string Path,
+    SourceGeneratorReferenceKind Kind,
+    string Origin,
+    bool IsImplicitFramework = false);
 
 /// <summary>
 /// Reference to an external dependency

@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.SourceGenerators;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -567,7 +568,24 @@ public class CompletionEngine
             if (item != null) items.Add(item);
         }
 
+        foreach (var member in snapshot.SharedAnalyzer.GetGeneratedMembers(typeInfo, includeStaticMembers: true))
+        {
+            items.Add(GeneratedMemberToCompletionItem(member));
+        }
+
         return items;
+    }
+
+    private static CompletionItem GeneratedMemberToCompletionItem(GeneratedMemberSymbol member)
+    {
+        var kind = member.Kind switch
+        {
+            GeneratedMemberKind.Method => "method",
+            GeneratedMemberKind.NestedType => "type",
+            _ => "property"
+        };
+
+        return new CompletionItem(member.Name, kind, FormatTypeInfo(member.Type), null, null, member.IsStatic);
     }
 
     private static TypeInfo? ResolveSourceTypeByName(string name, ProjectSnapshot snapshot)

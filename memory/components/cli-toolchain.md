@@ -170,6 +170,36 @@ Current status:
 - Generated-C# export no longer exists as a backend or build path.
 - `nlc export csharp` is the only supported product surface for C# generation.
 
+### Source Generators
+
+N# runs real Roslyn C# source generators during `nlc check`, `nlc build`, SDK
+builds, and semantic query loading when generator references are discoverable
+from project inputs. The generator input is a deterministic C# compatibility
+model for the N# project; generated C# is written under
+`obj/nsharp/generated/<assembly>/<analysis|emit>/...`, compiled into the final
+assembly when generators produce source, and loaded into semantic analysis so
+generated members are visible to `nlc query` and code-intelligence responses.
+
+Discovery currently covers:
+- NuGet/package references in `project.yml` with `analyzers/dotnet/cs/*.dll`
+  assets.
+- C# project references in `project.yml` that build to analyzer assemblies.
+- `System.Text.Json` source generation when N# source declares
+  `[JsonSerializable]` `JsonSerializerContext` types.
+
+Generator diagnostics are surfaced through the existing versioned diagnostic
+envelopes (`schemaVersion: 1` for `check` and `query diagnostics`):
+- `NL920` — source generator assembly was discovered but cannot be loaded.
+- `NL921` — a generator reported a diagnostic or crashed while running.
+- `NL922` — generated C# failed compilation.
+
+Current limitations are explicit: generator runs are deterministic and clean
+stale generated output, but there is no persistent incremental cache yet;
+analyzer config options and additional files are not modeled yet; IDE live
+generation has not been separately wired into the language server; and
+`[GeneratedRegex]` still uses the existing dedicated IL-backend hook rather than
+the general Roslyn source-generator path.
+
 ### `nlc fix` — Auto-Apply Suggestions
 
 The N# equivalent of `cargo clippy --fix`. Reads diagnostics, finds available code fixes, and applies them to source files.

@@ -5,10 +5,9 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.SourceGenerators;
 
 namespace NSharpLang.Compiler;
 
@@ -149,6 +148,7 @@ public class Analyzer : IDisposable
     private readonly Dictionary<string, string?> _projectFileNamespaceCache = new(StringComparer.OrdinalIgnoreCase); // file path -> declared namespace/package
     private readonly Dictionary<string, string> _typeDeclarationFiles = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _projectSourceTexts = new(StringComparer.OrdinalIgnoreCase);
+    private GeneratedSymbolIndex _generatedSymbols = GeneratedSymbolIndex.Empty;
     private SemanticModel _semanticModel = new(); // Semantic model for IDE features
     private BindingMap _bindingMap = new(); // Binding map for semantic references
     private readonly Stack<int> _semanticScopeIds = new(); // Parallel scope ID stack for SemanticModel
@@ -201,6 +201,23 @@ public class Analyzer : IDisposable
         {
             _projectSourceTexts[Path.GetFullPath(path)] = text;
         }
+    }
+
+    public void SetGeneratedSymbols(GeneratedSymbolIndex symbols)
+    {
+        _generatedSymbols = symbols ?? GeneratedSymbolIndex.Empty;
+    }
+
+    public IReadOnlyList<GeneratedMemberSymbol> GetGeneratedMembers(TypeInfo receiverType, bool includeStaticMembers)
+    {
+        receiverType = ResolveAliasAndMetadata(receiverType);
+
+        return TryGetGeneratedTypeFullName(receiverType, out var fullName)
+            && _generatedSymbols.TryGetType(fullName, out var type)
+            ? type.Members
+                .Where(member => includeStaticMembers || !member.IsStatic)
+                .ToArray()
+            : Array.Empty<GeneratedMemberSymbol>();
     }
 
     /// <summary>
@@ -5395,7 +5412,7 @@ public class Analyzer : IDisposable
         if (receiverType is ClassTypeInfo classType)
         {
             var members = GetDeclaredMemberNames(classType.Declaration.Members);
-            members.AddRange(GetJsonContextGeneratedMemberNames(classType.Declaration, includeStaticMembers));
+            members.AddRange(GetGeneratedMemberNames(classType, includeStaticMembers));
             members.AddRange(GetPrimaryConstructorParameterNames(classType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             if (classType.Declaration.BaseClass != null)
@@ -5406,6 +5423,7 @@ public class Analyzer : IDisposable
         if (receiverType is StructTypeInfo structType)
         {
             var members = GetDeclaredMemberNames(structType.Declaration.Members);
+            members.AddRange(GetGeneratedMemberNames(structType, includeStaticMembers));
             members.AddRange(GetPrimaryConstructorParameterNames(structType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
@@ -5414,6 +5432,7 @@ public class Analyzer : IDisposable
         if (receiverType is RecordTypeInfo recordType)
         {
             var members = GetDeclaredMemberNames(recordType.Declaration.Members);
+            members.AddRange(GetGeneratedMemberNames(recordType, includeStaticMembers));
             members.AddRange(GetPrimaryConstructorParameterNames(recordType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             return members;
@@ -5668,12 +5687,12 @@ public class Analyzer : IDisposable
         // Handle declared types
         if (objectType is ClassTypeInfo classType)
         {
-            if (TryResolveJsonContextGeneratedMember(classType, memberName, includeStaticMembers, out var jsonContextMember))
-                return jsonContextMember;
-
             var resolvedMember = ResolveDeclaredMember(classType.Declaration.Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
+
+            if (TryResolveGeneratedMember(classType, memberName, includeStaticMembers, out var generatedMember))
+                return generatedMember;
 
             if (!includeStaticMembers
                 && TryResolvePrimaryConstructorParameter(classType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
@@ -5706,6 +5725,9 @@ public class Analyzer : IDisposable
             if (resolvedMember != null)
                 return resolvedMember;
 
+            if (TryResolveGeneratedMember(structType, memberName, includeStaticMembers, out var generatedMember))
+                return generatedMember;
+
             if (!includeStaticMembers
                 && TryResolvePrimaryConstructorParameter(structType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
             {
@@ -5727,6 +5749,9 @@ public class Analyzer : IDisposable
             var resolvedMember = ResolveDeclaredMember(recordType.Declaration.Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
+
+            if (TryResolveGeneratedMember(recordType, memberName, includeStaticMembers, out var generatedMember))
+                return generatedMember;
 
             if (!includeStaticMembers
                 && TryResolvePrimaryConstructorParameter(recordType.Declaration.PrimaryConstructorParameters, memberName, out var primaryConstructorMember))
@@ -5881,187 +5906,141 @@ public class Analyzer : IDisposable
         return null;
     }
 
-    private bool TryResolveJsonContextGeneratedMember(
-        ClassTypeInfo classType,
+    private static bool IsJsonTypeInfoGenericName(string name)
+        => name is "JsonTypeInfo" or "System.Text.Json.Serialization.Metadata.JsonTypeInfo";
+
+    private IEnumerable<string> GetGeneratedMemberNames(TypeInfo receiverType, bool includeStaticMembers)
+    {
+        return TryGetGeneratedTypeFullName(receiverType, out var fullName)
+            ? _generatedSymbols.GetMemberNames(fullName, includeStaticMembers)
+            : Enumerable.Empty<string>();
+    }
+
+    private bool TryResolveGeneratedMember(
+        TypeInfo receiverType,
         string memberName,
         bool includeStaticMembers,
         out TypeInfo memberType)
     {
         memberType = BuiltInTypes.Unknown;
-        if (!IsJsonSerializerContextClass(classType.Declaration))
+        if (!TryGetGeneratedTypeFullName(receiverType, out var fullName)
+            || !_generatedSymbols.TryResolveMember(fullName, memberName, includeStaticMembers, out var member))
         {
             return false;
         }
 
-        if (memberName == "Default")
+        memberType = ResolveGeneratedMemberType(receiverType, fullName, member.Type);
+        return true;
+    }
+
+    private TypeInfo ResolveGeneratedMemberType(TypeInfo receiverType, string receiverFullName, TypeInfo generatedType)
+    {
+        if (generatedType is ExternalTypeInfo externalType
+            && TypeFullNameEquals(externalType.Name, receiverFullName))
         {
-            memberType = classType;
-            return true;
+            return receiverType;
         }
 
-        if (!includeStaticMembers
-            && TryGetJsonSerializableTargetByPropertyName(classType.Declaration, memberName, out var targetType))
+        if (generatedType is ExternalTypeInfo externalProjectType
+            && TryResolveProjectTypeByFullName(externalProjectType.Name, out var projectType))
         {
-            memberType = new GenericTypeInfo(
-                "JsonTypeInfo",
-                new List<TypeInfo> { targetType });
-            return true;
+            return projectType;
         }
 
+        if (generatedType is GenericTypeInfo genericType)
+        {
+            return new GenericTypeInfo(
+                genericType.Name,
+                genericType.TypeArguments
+                    .Select(type => ResolveGeneratedMemberType(receiverType, receiverFullName, type))
+                    .ToList());
+        }
+
+        if (generatedType is ArrayTypeInfo arrayType)
+        {
+            return new ArrayTypeInfo(ResolveGeneratedMemberType(receiverType, receiverFullName, arrayType.ElementType));
+        }
+
+        return generatedType;
+    }
+
+    private bool TryGetGeneratedTypeFullName(TypeInfo type, out string fullName)
+    {
+        var declaration = GetTypeDeclaration(type);
+        if (declaration == null)
+        {
+            fullName = string.Empty;
+            return false;
+        }
+
+        foreach (var symbols in _projectSymbols.Values)
+        {
+            foreach (var symbol in symbols)
+            {
+                if (TypeInfoContainsDeclaration(symbol.Type, declaration))
+                {
+                    fullName = BuildProjectTypeFullName(symbol.Namespace, symbol.Name);
+                    return true;
+                }
+            }
+        }
+
+        fullName = string.Empty;
         return false;
     }
 
-    private IEnumerable<string> GetJsonContextGeneratedMemberNames(ClassDeclaration classDecl, bool includeStaticMembers)
+    private static Declaration? GetTypeDeclaration(TypeInfo type) => type switch
     {
-        if (!IsJsonSerializerContextClass(classDecl))
-        {
-            yield break;
-        }
+        ClassTypeInfo classType => classType.Declaration,
+        StructTypeInfo structType => structType.Declaration,
+        RecordTypeInfo recordType => recordType.Declaration,
+        _ => null
+    };
 
-        if (includeStaticMembers)
-        {
-            yield return "Default";
-            yield break;
-        }
-
-        foreach (var (_, propertyName) in GetJsonSerializableTargets(classDecl))
-        {
-            yield return propertyName;
-        }
-    }
-
-    private bool IsJsonSerializerContextClass(ClassDeclaration classDecl)
+    private bool TryResolveProjectTypeByFullName(string fullName, out TypeInfo type)
     {
-        if (classDecl.BaseClass == null)
+        foreach (var symbol in _projectSymbols.Values.SelectMany(symbols => symbols))
         {
-            return false;
-        }
-
-        var baseType = ResolveType(classDecl.BaseClass);
-        return baseType switch
-        {
-            ReflectionTypeInfo { Type: var reflectionType } =>
-                string.Equals(GetTypeFullNameOrName(reflectionType), typeof(JsonSerializerContext).FullName, StringComparison.Ordinal),
-            ExternalTypeInfo { Name: "JsonSerializerContext" or "System.Text.Json.Serialization.JsonSerializerContext" } => true,
-            SimpleTypeInfo { Name: "JsonSerializerContext" or "System.Text.Json.Serialization.JsonSerializerContext" } => true,
-            _ => baseType.ToString() is "JsonSerializerContext" or "System.Text.Json.Serialization.JsonSerializerContext"
-        };
-    }
-
-    private static string GetTypeFullNameOrName(Type type)
-    {
-        try
-        {
-            return type.FullName ?? type.Name;
-        }
-        catch (NotSupportedException)
-        {
-            return type.Name;
-        }
-    }
-
-    private static bool IsJsonTypeInfoGenericName(string name)
-        => name is "JsonTypeInfo" or "System.Text.Json.Serialization.Metadata.JsonTypeInfo";
-
-    private bool TryGetJsonSerializableTargetByPropertyName(
-        ClassDeclaration classDecl,
-        string propertyName,
-        out TypeInfo targetType)
-    {
-        foreach (var (candidateType, candidatePropertyName) in GetJsonSerializableTargets(classDecl))
-        {
-            if (candidatePropertyName == propertyName)
+            if (TypeFullNameEquals(BuildProjectTypeFullName(symbol.Namespace, symbol.Name), fullName))
             {
-                targetType = candidateType;
+                type = symbol.Type;
                 return true;
             }
         }
 
-        targetType = BuiltInTypes.Unknown;
+        type = BuiltInTypes.Unknown;
         return false;
     }
 
-    private IEnumerable<(TypeInfo TargetType, string PropertyName)> GetJsonSerializableTargets(ClassDeclaration classDecl)
-    {
-        foreach (var attribute in classDecl.Attributes.Where(IsJsonSerializableAttribute))
-        {
-            foreach (var argument in attribute.Arguments)
-            {
-                var (name, value) = NormalizeAttributeArgument(argument);
-                if (name != null || value is not TypeOfExpression typeOfExpression)
-                {
-                    continue;
-                }
+    private static string BuildProjectTypeFullName(string? namespaceName, string name)
+        => string.IsNullOrWhiteSpace(namespaceName) ? name : $"{namespaceName}.{name}";
 
-                var targetType = ResolveType(typeOfExpression.Type);
-                yield return (targetType, GetJsonContextPropertyName(targetType));
-                break;
-            }
+    private static bool TypeFullNameEquals(string left, string right)
+    {
+        left = StripGlobalPrefix(left);
+        right = StripGlobalPrefix(right);
+        if (string.Equals(left, right, StringComparison.Ordinal))
+        {
+            return true;
         }
+
+        return (!IsQualifiedTypeName(left) || !IsQualifiedTypeName(right))
+            && string.Equals(GetUnqualifiedTypeName(left), GetUnqualifiedTypeName(right), StringComparison.Ordinal);
     }
 
-    private static bool IsJsonSerializableAttribute(AttributeNode attribute)
+    private static string StripGlobalPrefix(string value)
+        => value.StartsWith("global::", StringComparison.Ordinal)
+            ? value["global::".Length..]
+            : value;
+
+    private static string GetUnqualifiedTypeName(string value)
     {
-        var name = attribute.Name;
-        var lastDot = name.LastIndexOf('.');
-        if (lastDot >= 0)
-        {
-            name = name[(lastDot + 1)..];
-        }
-
-        if (name.EndsWith("Attribute", StringComparison.Ordinal))
-        {
-            name = name[..^"Attribute".Length];
-        }
-
-        return name == "JsonSerializable";
+        var lastDot = value.LastIndexOf('.');
+        return lastDot >= 0 ? value[(lastDot + 1)..] : value;
     }
 
-    private static (string? Name, Expression Value) NormalizeAttributeArgument(Argument argument)
-    {
-        var argumentName = argument.Name;
-        var valueExpression = argument.Value;
-        if (argumentName == null
-            && valueExpression is AssignmentExpression assignmentExpression
-            && assignmentExpression.Target is IdentifierExpression identifierExpression)
-        {
-            argumentName = identifierExpression.Name;
-            valueExpression = assignmentExpression.Value;
-        }
-
-        return (argumentName, valueExpression);
-    }
-
-    private static string GetJsonContextPropertyName(TypeInfo type)
-    {
-        var name = type switch
-        {
-            ReflectionTypeInfo { Type: var reflectionType } => reflectionType.Name,
-            ClassTypeInfo { Declaration.Name: var className } => className,
-            StructTypeInfo { Declaration.Name: var structName } => structName,
-            RecordTypeInfo { Declaration.Name: var recordName } => recordName,
-            ExternalTypeInfo { Name: var externalName } => externalName,
-            SimpleTypeInfo { Name: var simpleName } => simpleName,
-            _ => type.ToString()
-        };
-
-        var lastDot = name.LastIndexOf('.');
-        if (lastDot >= 0)
-        {
-            name = name[(lastDot + 1)..];
-        }
-
-        var tickIndex = name.IndexOf('`');
-        if (tickIndex >= 0)
-        {
-            name = name[..tickIndex];
-        }
-
-        var chars = name
-            .Select(ch => char.IsLetterOrDigit(ch) || ch == '_' ? ch : '_')
-            .ToArray();
-        return chars.Length == 0 ? "JsonType" : new string(chars);
-    }
+    private static bool IsQualifiedTypeName(string value)
+        => value.Contains('.', StringComparison.Ordinal) || value.Contains('+', StringComparison.Ordinal);
 
     private bool TryResolvePrimaryConstructorParameter(
         List<Parameter>? parameters,

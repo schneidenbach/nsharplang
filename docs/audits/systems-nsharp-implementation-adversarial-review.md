@@ -1,6 +1,6 @@
 # Systems N# Implementation Adversarial Review
 
-Date: 2026-06-02
+Date: 2026-06-03
 Scope: implementation pass for `docs/design/systems-nsharp.md`
 
 ## Review Position
@@ -17,8 +17,8 @@ data-race freedom.
 - HotSummary data model and BCL seed catalog for span/string/array helpers,
   `BinaryPrimitives`, `MemoryMarshal`, `BitOperations`, `Math`, `Vector`,
   `Volatile`, `Interlocked`, `Thread.MemoryBarrier`, pool APIs, `LibraryImport`,
-  and `GeneratedRegex`, plus analyzer handling for source-generated
-  `System.Text.Json` calls.
+  and `GeneratedRegex`, plus analyzer handling for real Roslyn-generated
+  `System.Text.Json` members.
 - Sidecar HotSummary loading via `language.systems.hotSummaryFiles`, with
   fail-closed `[hot]` behavior unless `allowHotSidecars` is explicitly true,
   and `NSYS150` drift diagnostics when a sidecar omits body/package identity.
@@ -41,7 +41,8 @@ data-race freedom.
   C# interop notes for the ten executable v1 scenarios.
 - Executable proof projects 24-48 now cover the zero-copy span
   reader, trusted memory copy, native import surfaces, generated-regex boundary
-  parsing, source-generated JSON contexts, cold failure logging, hot metrics,
+  parsing through a dedicated IL hook, real System.Text.Json source-generated
+  JSON contexts, cold failure logging, hot metrics,
   cache prewarm, pool/resource handoff, async boundary IO, dictionary setup with
   hot reads, fixed-capacity maps, constrained generic sortable records,
   hot-compatible extension pipelines, C# hot parser ABI, structured error
@@ -80,7 +81,8 @@ data-race freedom.
 4. AOT is analysis-only. Reports explicitly set `nativeImageEmitted: false`
    until `nlc publish --aot` emits and verifies a native image.
 5. The acceptance gauntlet is intentionally source/analyzer focused. Broader
-   C# ABI matrices, full NativeAOT, and source-generator deployment projects
+   C# ABI matrices, full NativeAOT, IDE live source-generation, analyzer config
+   and additional-file inputs, and persistent incremental generator caching
    should become separate preview gates as those surfaces mature.
 6. Proof-project claims remain narrow: `docs/audits/systems-proof-project-audit.md`
    records the exact check/build/run/shape gates each executable proof may cite,

@@ -9,6 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Xml.Linq;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.SourceGenerators;
 
 namespace NSharpLang.Cli;
 
@@ -127,6 +128,14 @@ internal static class CompilationReferenceResolver
                 AddDllReference(config, runtimeAsset);
                 result.AddRuntimeAsset(runtimeAsset);
             }
+
+            foreach (var analyzerAssembly in packageAssets.AnalyzerAssemblies)
+            {
+                SourceGeneratorReferenceResolver.AddDirectReference(
+                    config,
+                    analyzerAssembly,
+                    $"{packageReference.Nuget}@{packageReference.Version ?? "latest"}");
+            }
         }
 
         foreach (var projectReference in config.Dependencies
@@ -138,8 +147,23 @@ internal static class CompilationReferenceResolver
                 continue;
             }
 
+            var resolvedProjectReferencePath = ResolveProjectReferencePath(projectRoot, projectReference.Project!);
+            if (resolvedProjectReferencePath.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                && !ProjectReferenceResolver.IsNSharpProjectReference(resolvedProjectReferencePath))
+            {
+                var outputAssembly = BuildCSharpProjectReference(resolvedProjectReferencePath, options);
+                AddDllReference(config, outputAssembly);
+                result.AddRuntimeAsset(outputAssembly);
+                SourceGeneratorReferenceResolver.AddDirectReference(
+                    config,
+                    outputAssembly,
+                    projectReference.Project!);
+                config.Dependencies.Remove(projectReference);
+                continue;
+            }
+
             var referencedProjectRoot = ProjectReferenceResolver.ResolveNSharpProjectRoot(
-                ResolveProjectReferencePath(projectRoot, projectReference.Project!));
+                resolvedProjectReferencePath);
             var referencedProjectYml = Path.Combine(referencedProjectRoot, "project.yml");
             var referencedConfig = ProjectFileParser.Parse(referencedProjectYml);
 
@@ -234,6 +258,87 @@ internal static class CompilationReferenceResolver
         finally
         {
             _ = context.ActiveProjectRoots.Pop();
+        }
+    }
+
+    private static string BuildCSharpProjectReference(string projectPath, ReferenceResolutionOptions options)
+    {
+        projectPath = Path.GetFullPath(projectPath);
+        if (!File.Exists(projectPath))
+        {
+            throw new FileNotFoundException($"Project reference not found: {projectPath}", projectPath);
+        }
+
+        if (!options.Quiet)
+        {
+            Console.Error.WriteLine($"Building C# project reference {projectPath}");
+        }
+
+        var startInfo = new System.Diagnostics.ProcessStartInfo("dotnet")
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            WorkingDirectory = Path.GetDirectoryName(projectPath) ?? Environment.CurrentDirectory
+        };
+        startInfo.ArgumentList.Add("build");
+        startInfo.ArgumentList.Add(projectPath);
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(options.Configuration);
+        startInfo.ArgumentList.Add("--nologo");
+        startInfo.ArgumentList.Add("-v:q");
+        startInfo.ArgumentList.Add("--disable-build-servers");
+
+        using var process = System.Diagnostics.Process.Start(startInfo)
+            ?? throw new InvalidOperationException($"Could not start dotnet build for project reference '{projectPath}'.");
+        var stdout = process.StandardOutput.ReadToEnd();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+
+        if (process.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                $"Project reference '{projectPath}' failed to build with exit code {process.ExitCode}.{Environment.NewLine}{stdout}{stderr}");
+        }
+
+        var outputAssembly = FindBuiltCSharpProjectAssembly(projectPath, options.Configuration);
+        if (outputAssembly == null)
+        {
+            throw new InvalidOperationException(
+                $"Project reference '{projectPath}' built successfully, but no output assembly was found under bin/{options.Configuration}.");
+        }
+
+        return outputAssembly;
+    }
+
+    private static string? FindBuiltCSharpProjectAssembly(string projectPath, string configuration)
+    {
+        var projectDirectory = Path.GetDirectoryName(projectPath) ?? Environment.CurrentDirectory;
+        var assemblyName = ReadCSharpProjectAssemblyName(projectPath) ?? Path.GetFileNameWithoutExtension(projectPath);
+        var outputRoot = Path.Combine(projectDirectory, "bin", configuration);
+        if (!Directory.Exists(outputRoot))
+        {
+            return null;
+        }
+
+        return Directory.GetFiles(outputRoot, $"{assemblyName}.dll", SearchOption.AllDirectories)
+            .Where(path => !path.Split(Path.DirectorySeparatorChar).Any(part => string.Equals(part, "ref", StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+    }
+
+    private static string? ReadCSharpProjectAssemblyName(string projectPath)
+    {
+        try
+        {
+            var document = XDocument.Load(projectPath);
+            return document.Descendants()
+                .FirstOrDefault(element => element.Name.LocalName == "AssemblyName")
+                ?.Value;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -375,6 +480,11 @@ internal static class CompilationReferenceResolver
             {
                 assets.CompileAssemblies.Add(runtimeAssembly);
             }
+        }
+
+        foreach (var analyzerAssembly in SourceGeneratorReferenceResolver.EnumerateAnalyzerAssemblies(versionDirectory))
+        {
+            assets.AnalyzerAssemblies.Add(analyzerAssembly);
         }
 
         return assets;
@@ -786,6 +896,7 @@ internal static class CompilationReferenceResolver
     {
         public HashSet<string> CompileAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
         public HashSet<string> RuntimeAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> AnalyzerAssemblies { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         public void Add(NuGetPackageAssets other)
         {
@@ -797,6 +908,11 @@ internal static class CompilationReferenceResolver
             foreach (var assembly in other.RuntimeAssemblies)
             {
                 RuntimeAssemblies.Add(assembly);
+            }
+
+            foreach (var assembly in other.AnalyzerAssemblies)
+            {
+                AnalyzerAssemblies.Add(assembly);
             }
         }
     }

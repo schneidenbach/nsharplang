@@ -26,6 +26,8 @@ public class EmitIlAssembly : Task
 
     public string? TargetReferenceAssemblyPath { get; set; }
 
+    public string? AssemblyVersion { get; set; }
+
     public override bool Execute()
     {
         try
@@ -58,6 +60,11 @@ public class EmitIlAssembly : Task
             var config = !string.IsNullOrEmpty(ProjectFile) && File.Exists(ProjectFile)
                 ? ProjectFileParser.Parse(ProjectFile)
                 : ProjectFileParser.CreateDefault(Path.GetFileName(ProjectRoot));
+            if (string.IsNullOrWhiteSpace(config.Version) && !string.IsNullOrWhiteSpace(AssemblyVersion))
+            {
+                config.Version = AssemblyVersion;
+            }
+
             AddResolvedDllReferences(config, TargetAssemblyPath, TargetReferenceAssemblyPath);
 
             var compiler = new MultiFileCompiler(sourceFiles, ProjectRoot, config);

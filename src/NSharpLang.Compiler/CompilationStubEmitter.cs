@@ -32,6 +32,14 @@ public static class CompilationStubEmitter
         return new Writer(config, compilationUnits).Write();
     }
 
+    public static string Generate(ProjectConfig config, IEnumerable<CompilationUnit> compilationUnits)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(compilationUnits);
+
+        return new Writer(config, compilationUnits.ToList()).Write();
+    }
+
     private sealed class Writer(ProjectConfig config, IReadOnlyList<CompilationUnit> compilationUnits)
     {
         private readonly ProjectConfig _config = config;
@@ -342,6 +350,7 @@ public static class CompilationStubEmitter
 
         private void EmitClass(ClassDeclaration declaration, bool isNestedType)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
             var bases = new List<string>();
@@ -373,6 +382,7 @@ public static class CompilationStubEmitter
 
         private void EmitStruct(StructDeclaration declaration, bool isNestedType)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
             var bases = declaration.Interfaces.Select(TranspileTypeReference).ToList();
@@ -399,6 +409,7 @@ public static class CompilationStubEmitter
 
         private void EmitRecord(RecordDeclaration declaration, bool isNestedType)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name, forceSealed: true);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
             var bases = declaration.Interfaces.Select(TranspileTypeReference).ToList();
@@ -439,6 +450,7 @@ public static class CompilationStubEmitter
 
         private void EmitInterface(InterfaceDeclaration declaration, bool isNestedType)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             var typeParameters = FormatTypeParameters(declaration.TypeParameters);
 
@@ -458,6 +470,7 @@ public static class CompilationStubEmitter
 
         private void EmitEnum(EnumDeclaration declaration, bool isNestedType)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name);
             if (declaration.Type == EnumType.String)
             {
@@ -489,6 +502,7 @@ public static class CompilationStubEmitter
 
         private void EmitUnion(UnionDeclaration declaration, bool isNestedType)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = GetTypeModifierString(declaration.Modifiers, isNestedType, declaration.Name, forceAbstract: true);
             WriteLine($"{modifiers}class {declaration.Name}");
             WriteLine("{");
@@ -550,6 +564,7 @@ public static class CompilationStubEmitter
                 return;
             }
 
+            EmitAttributes(declaration.Attributes);
             var shouldEmitAsProperty = (ownerKind is TypeMemberOwnerKind.Class or TypeMemberOwnerKind.Record
                     && VisibilityConventions.IsExportedIdentifier(declaration.Name, declaration.Modifiers))
                 || declaration.PropertyModifier.HasFlag(PropertyModifier.Required)
@@ -587,6 +602,7 @@ public static class CompilationStubEmitter
 
         private void EmitProperty(PropertyDeclaration declaration, bool isInterfaceMember)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = isInterfaceMember ? string.Empty : GetMemberModifierString(declaration.Modifiers, declaration.Name);
             if (declaration.PropertyModifier.HasFlag(PropertyModifier.Required) && !isInterfaceMember)
             {
@@ -642,6 +658,7 @@ public static class CompilationStubEmitter
                 return;
             }
 
+            EmitAttributes(declaration.Attributes);
             var modifiers = GetConstructorModifierString(declaration.Modifiers);
             var parameters = string.Join(", ", declaration.Parameters.Select(FormatParameter));
             WriteLine($"{modifiers}{containingTypeName ?? "__NSharpStub"}({parameters})");
@@ -651,6 +668,7 @@ public static class CompilationStubEmitter
 
         private void EmitIndexer(IndexerDeclaration declaration, bool isInterfaceMember)
         {
+            EmitAttributes(declaration.Attributes);
             var modifiers = isInterfaceMember ? string.Empty : GetIndexerModifierString(declaration.Modifiers);
             var parameters = string.Join(", ", declaration.Parameters.Select(FormatParameter));
             var typeName = TranspileTypeReference(declaration.Type);
@@ -679,10 +697,15 @@ public static class CompilationStubEmitter
 
         private void EmitFunction(FunctionDeclaration declaration, bool isInterfaceMember, bool isTopLevelFunction, string? containingTypeName)
         {
+            EmitAttributes(declaration.Attributes);
             var signature = FormatFunctionSignature(declaration, isInterfaceMember, isTopLevelFunction, containingTypeName);
             var constraints = FormatGenericConstraints(declaration.Constraints);
 
-            if (isInterfaceMember || declaration.Modifiers.HasFlag(Modifiers.Abstract))
+            if (isInterfaceMember
+                || declaration.Modifiers.HasFlag(Modifiers.Abstract)
+                || (declaration.Modifiers.HasFlag(Modifiers.Partial)
+                    && declaration.Body == null
+                    && declaration.ExpressionBody == null))
             {
                 WriteLine($"{signature}{constraints};");
                 return;
@@ -793,6 +816,11 @@ public static class CompilationStubEmitter
             if (modifiers.HasFlag(Modifiers.Abstract))
             {
                 parts.Add("abstract");
+            }
+
+            if (modifiers.HasFlag(Modifiers.Partial))
+            {
+                parts.Add("partial");
             }
 
             return string.Join(" ", parts.Where(part => !string.IsNullOrWhiteSpace(part))) + " ";
@@ -995,8 +1023,12 @@ public static class CompilationStubEmitter
 
         private static string FormatParameter(Parameter parameter)
         {
-            var attributePrefix = parameter.Attributes is { Count: > 0 }
-                ? string.Join(" ", parameter.Attributes.Select(FormatAttributeInline)) + " "
+            var parameterAttributes = (parameter.Attributes ?? Enumerable.Empty<AttributeNode>())
+                .Where(attribute => !IsSystemsPolicyAttribute(attribute))
+                .Select(FormatAttributeInline)
+                .ToArray();
+            var attributePrefix = parameterAttributes.Length > 0
+                ? string.Join(" ", parameterAttributes) + " "
                 : string.Empty;
 
             TypeReference parameterType = parameter.Type;
@@ -1030,12 +1062,39 @@ public static class CompilationStubEmitter
             return $"[{attribute.Name}{arguments}]";
         }
 
+        private void EmitAttributes(IEnumerable<AttributeNode> attributes)
+        {
+            foreach (var attribute in attributes.Where(attribute => !IsSystemsPolicyAttribute(attribute)))
+            {
+                WriteLine(FormatAttributeInline(attribute));
+            }
+        }
+
+        private static bool IsSystemsPolicyAttribute(AttributeNode attribute)
+        {
+            var name = attribute.Name;
+            if (name.Contains('.', StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            if (name.EndsWith("Attribute", StringComparison.Ordinal))
+            {
+                name = name[..^"Attribute".Length];
+            }
+
+            return name is "hot" or "boundary" or "alloc" or "allow" or "trusted" or "memory";
+        }
+
         private static string FormatAttributeArgument(Argument argument)
         {
-            var value = TryFormatConstantExpression(argument.Value)
-                ?? (argument.Value is AssignmentExpression { Target: IdentifierExpression identifier } assignment
+            var value = argument.Value is AssignmentExpression
+                {
+                    Operator: AssignmentOperator.Assign,
+                    Target: IdentifierExpression identifier
+                } assignment
                     ? $"{identifier.Name} = {TryFormatConstantExpression(assignment.Value) ?? "null"}"
-                    : null);
+                    : TryFormatConstantExpression(argument.Value);
 
             if (argument.Name != null)
             {
@@ -1056,12 +1115,24 @@ public static class CompilationStubEmitter
                 StringLiteralExpression literal => FormatStringLiteralForCSharp(literal.Value),
                 BoolLiteralExpression literal => literal.Value ? "true" : "false",
                 NullLiteralExpression => "null",
+                TypeOfExpression typeOf => $"typeof({TranspileTypeReference(typeOf.Type)})",
+                NameofExpression nameOf => $"nameof({TryFormatNameofTarget(nameOf.Target) ?? TryFormatConstantExpression(nameOf.Target) ?? "null"})",
                 UnaryExpression { Operator: UnaryOperator.Negate, Operand: IntLiteralExpression literal } => "-" + literal.Value,
                 UnaryExpression { Operator: UnaryOperator.Negate, Operand: FloatLiteralExpression literal } => "-" + literal.Value,
                 IdentifierExpression identifier => identifier.Name,
                 MemberAccessExpression memberAccess => $"{TryFormatConstantExpression(memberAccess.Object) ?? "null"}.{memberAccess.MemberName}",
                 BinaryExpression binary => TryFormatBinaryConstantExpression(binary),
                 ArrayLiteralExpression arrayLiteral => $"new[] {{ {string.Join(", ", arrayLiteral.Elements.Select(element => TryFormatConstantExpression(element) ?? "null"))} }}",
+                _ => null
+            };
+        }
+
+        private static string? TryFormatNameofTarget(Expression expression)
+        {
+            return expression switch
+            {
+                IdentifierExpression identifier => identifier.Name,
+                MemberAccessExpression memberAccess => $"{TryFormatNameofTarget(memberAccess.Object) ?? TryFormatConstantExpression(memberAccess.Object) ?? "null"}.{memberAccess.MemberName}",
                 _ => null
             };
         }
