@@ -159,16 +159,18 @@ Current code-intelligence dogfood benchmarks:
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
-and standalone-CR input. This first candidate intentionally follows the ASCII identifier character
-set used by the N# lexer scanner; production C# still uses `char.IsLetterOrDigit`, so Unicode
-identifier handling remains a documented parity gap before any production swap.
+standalone-CR input, and Unicode identifier characters. The N# candidate imports `System` and calls
+`Char.IsLetterOrDigit`, matching the current C# identifier-character rule instead of relying on the
+ASCII-only lexer-scanner helper.
 
 The identifier-span dry run on 2026-06-03 passed checksum and buffer parity and reported zero
-managed allocation on the N# path. The representative batch corpus ran about 6.9x faster than the
-current C# split-per-query baseline (98 us vs 679 us, 0 B vs 4.1 MB). The large generated corpus ran
-about 266x faster (188 us vs 50.0 ms, 0 B vs 129.6 MB). This crosses the dry smoke speed threshold
-for the batched service shape, but it is not acceptance evidence until a normal BenchmarkDotNet run
-confirms the ratio and production query/hover/definition/reference paths call the N# implementation.
+managed allocation on the N# path. After switching the N# predicate to the production-compatible
+`Char.IsLetterOrDigit` call, the representative batch corpus still ran about 6.6x faster than the
+current C# split-per-query baseline (100 us vs 655 us, 0 B vs 4.1 MB). The large generated corpus
+ran about 266x faster (191 us vs 51.0 ms, 0 B vs 129.6 MB). This crosses the dry smoke speed
+threshold for the batched service shape, but it is not acceptance evidence until a normal
+BenchmarkDotNet run confirms the ratio and production query/hover/definition/reference paths call
+the N# implementation.
 
 ## Rewrite Order
 
@@ -236,6 +238,7 @@ that let compiler services build line maps without materializing strings or repe
 through BCL calls.
 
 Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
-queries and using ASCII identifier checks that match the lexer scanner. Before production swap, the
-language needs either a documented ASCII-only identifier rule for tooling or a systems-friendly
-Unicode identifier predicate that does not pull `char.IsLetterOrDigit` into the hot loop.
+queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct
+`Char.IsLetterOrDigit` runtime static call from an imported `System` namespace while keeping the
+dry speed gate above 5x, so the remaining work is a production adapter and full BenchmarkDotNet
+acceptance run rather than an identifier-character semantic gap.

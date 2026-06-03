@@ -600,7 +600,7 @@ internal static class DogfoodCompilerSources
     public static string LexerTokenKindScanner => ReadResource(LexerTokenKindScannerResourceName);
     public static string SourceTextLines => ReadResource(SourceTextLinesResourceName);
     public static string CodeIntelligenceIdentifierSpans =>
-        SourceTextLines + Environment.NewLine + ReadResource(IdentifierSpansResourceName);
+        ReadResource(IdentifierSpansResourceName) + Environment.NewLine + SourceTextLines;
 
     private static string ReadResource(string resourceName)
     {

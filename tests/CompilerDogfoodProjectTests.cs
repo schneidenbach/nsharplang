@@ -194,6 +194,9 @@ func main() {
             AssertIdentifierSpansLikeProduction(
                 "func main() {\r    value := input.Count\r}\n",
                 codeIntelligenceIdentifierSpanChecksumInto);
+            AssertIdentifierSpansLikeProduction(
+                "func main() {\n    café42 := résumé.Count\n    print café42\n}\n",
+                codeIntelligenceIdentifierSpanChecksumInto);
         }
         finally
         {

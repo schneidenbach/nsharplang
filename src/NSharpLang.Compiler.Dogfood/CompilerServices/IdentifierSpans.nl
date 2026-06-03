@@ -1,3 +1,5 @@
+import System
+
 func CodeIntelligenceIdentifierSpanChecksumInto(
     source: string,
     lineStarts: int[],
@@ -123,7 +125,7 @@ func FindNearestCodeIntelligenceIdentifierIndex(
 }
 
 func IsCodeIntelligenceIdentifierChar(ch: char): bool {
-    return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')
+    return Char.IsLetterOrDigit(ch) || ch == '_'
 }
 
 func IsCodeIntelligenceSnapFriendlyNeighbor(
