@@ -1,7 +1,13 @@
 func TokenizeKinds(source: string): int[] {
-    position := 0
     length := source.Length
     buffer := new int[](length + 1)
+    count := TokenizeKindsInto(source, buffer)
+    return CopyKinds(buffer, count)
+}
+
+func TokenizeKindsInto(source: string, buffer: int[]): int {
+    position := 0
+    length := source.Length
     count := 0
 
     while position < length {
@@ -110,7 +116,7 @@ func TokenizeKinds(source: string): int[] {
     }
 
     count = AddKind(buffer, count, 135)
-    return CopyKinds(buffer, count)
+    return count
 }
 
 func AddKind(buffer: int[], count: int, kind: int): int {

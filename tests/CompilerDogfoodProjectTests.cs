@@ -39,6 +39,10 @@ public class CompilerDogfoodProjectTests
                     "TokenizeKinds",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeKinds.");
+            var tokenizeKindsInto = programType.GetMethod(
+                    "TokenizeKindsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeKindsInto.");
 
             const string source = """"
 import System
@@ -65,9 +69,13 @@ world
             var count = (int)(tokenizeCount.Invoke(null, new object[] { source }) ?? -1);
             var kinds = (int[])(tokenizeKinds.Invoke(null, new object[] { source })
                 ?? throw new InvalidOperationException("TokenizeKinds returned null."));
+            var buffer = new int[source.Length + 1];
+            var bufferedCount = (int)(tokenizeKindsInto.Invoke(null, new object[] { source, buffer }) ?? -1);
 
             Assert.Equal(expectedKinds.Length, count);
             Assert.Equal(expectedKinds, kinds);
+            Assert.Equal(expectedKinds.Length, bufferedCount);
+            Assert.Equal(expectedKinds, buffer.Take(bufferedCount).ToArray());
         }
         finally
         {

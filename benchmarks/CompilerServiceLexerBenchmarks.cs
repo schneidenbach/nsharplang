@@ -158,6 +158,92 @@ public class CompilerServiceLexerTokenKindBenchmarks
             : "<missing>";
 }
 
+/// <summary>
+/// Token-kind benchmark for the caller-owned buffer shape the production lexer needs.
+///
+/// This keeps the token-kind parity requirement while removing the known N# pressure point where
+/// returning an exact array forces a second copy of the filled prefix. The benchmark still compares
+/// against the current C# lexer as the production baseline; the N# path writes compact token kinds
+/// into a reusable buffer and returns the filled count.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceLexerReusableTokenKindBenchmarks
+{
+    private Func<string, int[], int> _nsharpTokenizeKindsInto =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpBuffer = Array.Empty<int>();
+    private int[] _expectedKinds = Array.Empty<int>();
+    private int[] _nsharpBuffer = Array.Empty<int>();
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus);
+        _nsharpTokenizeKindsInto = NSharpCompiledMethod.Bind<Func<string, int[], int>>(
+            CompilerServiceLexerScannerBenchmarks.NSharpScannerSource,
+            "TokenizeKindsInto");
+        _csharpBuffer = new int[_source.Length + 1];
+        _nsharpBuffer = new int[_source.Length + 1];
+        _expectedKinds = BuildExpectedKinds();
+
+        var csharpCount = CSharpLexer_TokenKindsIntoBuffer();
+        VerifyBuffer("C# lexer buffer", _expectedKinds, _csharpBuffer, csharpCount, Corpus);
+
+        var nsharpCount = _nsharpTokenizeKindsInto(_source, _nsharpBuffer);
+        VerifyBuffer("N# token-kind buffer", _expectedKinds, _nsharpBuffer, nsharpCount, Corpus);
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpLexer_TokenKindsIntoBuffer()
+    {
+        var tokens = new Lexer(_source, $"{Corpus}.nl").Tokenize();
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            _csharpBuffer[i] = (int)tokens[i].Type;
+        }
+
+        return tokens.Count;
+    }
+
+    [Benchmark]
+    public int NSharpScanner_TokenKindsIntoBuffer() => _nsharpTokenizeKindsInto(_source, _nsharpBuffer);
+
+    private int[] BuildExpectedKinds()
+    {
+        var lexer = new Lexer(_source, $"{Corpus}.nl");
+        return lexer.Tokenize().Select(static token => (int)token.Type).ToArray();
+    }
+
+    private static void VerifyBuffer(
+        string label,
+        int[] expected,
+        int[] actual,
+        int actualCount,
+        CompilerLexerCorpus corpus)
+    {
+        if (actualCount != expected.Length)
+        {
+            throw new InvalidOperationException(
+                $"{label} count mismatch for {corpus}: expected {expected.Length}, got {actualCount}.");
+        }
+
+        for (var i = 0; i < expected.Length; i++)
+        {
+            if (expected[i] != actual[i])
+            {
+                throw new InvalidOperationException(
+                    $"{label} mismatch for {corpus} at index {i}: " +
+                    $"expected {(TokenType)expected[i]}({expected[i]}), got {(TokenType)actual[i]}({actual[i]}).");
+            }
+        }
+    }
+}
+
 internal static class CompilerLexerCorpusSources
 {
     public static string Build(CompilerLexerCorpus corpus) => corpus switch

@@ -65,6 +65,10 @@ Current lexer dogfood benchmarks:
   sequence against the current C# lexer on both corpora. It still is not a production lexer
   replacement because it does not emit token text, source positions, comment trivia, diagnostics, or
   general indentation-token behavior.
+- `CompilerServiceLexerReusableTokenKindBenchmarks` measures the next production-shaped API:
+  `TokenizeKindsInto(source, buffer)` writes token kinds into caller-owned storage and returns the
+  filled count. This removes the known exact-array copy from the hot path while still verifying the
+  full token-kind sequence against the current C# lexer on both corpora.
 
 The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
 project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it
@@ -80,6 +84,13 @@ generated corpus. The token-kind scanner also passed sequence parity on both cor
 was faster than the current full C# lexer token-kind extraction on both corpora and allocated much
 less memory, but still did not reach the required 5x speedup gate. Dry jobs are not acceptance
 evidence.
+
+The same dry run style for `CompilerServiceLexerReusableTokenKindBenchmarks` showed
+`TokenizeKindsInto(source, buffer)` eliminating per-operation managed allocation on the N# path. The
+large generated corpus ran about 3.5x faster than the current C# lexer filling a caller-owned kind
+buffer (1.92 ms vs 6.80 ms), while the representative corpus was only slightly faster. This proves
+the reusable-buffer shape removes the forced copy/allocation pressure, but it still is not 5x
+acceptance evidence and the benchmark remains a dry smoke run.
 
 ## Rewrite Order
 
@@ -134,6 +145,7 @@ The language change is accepted only with the same evidence: semantic tests, IL-
 where applicable, and dogfood benchmarks showing the compiler-service win.
 
 Current lexer pressure point: the token-kind scanner can use `new int[](length)` as a dynamic
-buffer and write by index from N#-emitted IL, but returning an exact `int[]` still requires a second
-copy. A production lexer buffer should expose a slice/span over the filled prefix or an owned token
-buffer type so the fast path does not choose between over-returning capacity and copying.
+buffer and write by index from N#-emitted IL. The reusable-buffer API proves the hot path can avoid
+the exact-array copy when the caller owns storage, but N# still needs a slice/span or owned token
+buffer type for production APIs that return a filled prefix without exposing unused capacity or
+copying.
