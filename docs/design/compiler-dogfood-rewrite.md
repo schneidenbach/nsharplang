@@ -158,19 +158,21 @@ Current code-intelligence dogfood benchmarks:
 - `CompilerServiceCodeIntelligenceMemberReceiverBenchmarks` targets receiver extraction before a
   member access, currently used when source-context fallback tries to resolve `receiver.Member`.
   The C# baseline mirrors `ExtractMemberReceiverName`: it calls `source.Split('\n')`, scans backward
-  from the member name, and allocates the receiver substring for each query. The N# candidate reuses
-  line ranges, scans the batch in one compiled method, and writes receiver start/length pairs into
-  caller-owned buffers. It intentionally preserves the current branch order, including the nullable
-  member access edge where `customer?.Name` does not reach the later `?.` branch because the `'.'`
-  branch runs first.
+  from the member name, and allocates the receiver substring for each query. The accepted N#
+  candidate builds line ranges, builds a per-source receiver cache keyed by separator offset into
+  caller-owned arrays, and then answers the query batch by copying start/length pairs into
+  caller-owned result buffers. It intentionally preserves the current branch order, including the
+  nullable member access edge where `customer?.Name` does not reach the later `?.` branch because
+  the `'.'` branch runs first.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
 standalone-CR input, Unicode identifier characters, member receivers with whitespace before the dot,
-and the current nullable-member-access edge. The N# candidate imports `System`, uses ASCII fast
-paths, and falls back to `Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C#
-identifier and whitespace rules without putting the runtime predicates on the common ASCII path.
+and the current nullable-member-access edge. It verifies both the direct member receiver scanner and
+the cached receiver-cache API. The N# candidate imports `System`, uses ASCII fast paths, and falls
+back to `Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C# identifier and
+whitespace rules without putting the runtime predicates on the common ASCII path.
 
 The identifier-span dry run on 2026-06-03 passed checksum and buffer parity and reported zero
 managed allocation on the N# path. After switching the N# predicate to the production-compatible
@@ -182,13 +184,14 @@ BenchmarkDotNet run confirms the ratio and production query/hover/definition/ref
 the N# implementation.
 
 The member-receiver dry run on 2026-06-03 passed checksum and buffer parity and reported zero
-managed allocation on the N# path. The large generated corpus crossed the dry smoke threshold by a
-wide margin (188 us vs 49.6 ms, 0 B vs 129.6 MB), but the small representative corpus exposed a
-remaining N# hot-loop/codegen weakness: the N# batch path was slower than the current C#
-split/substr baseline (1.47 ms vs 753 us, 0 B vs 4.6 MB). This is not accepted as rewritten; it is
-pressure evidence that the systems subset needs better generated shape for short backward scans or
-that this helper should be folded into the already-accepted identifier-span batch so the receiver
-scan is only paid when the selected token is known to be a member access.
+managed allocation on the N# path. The first direct-scan N# shape exposed a short-scan codegen
+weakness on the representative corpus, so the accepted dogfood candidate now builds a compact
+receiver cache once per source and answers the batch from integer arrays. That cached build-and-query
+shape ran about 10.6x faster on the representative corpus (73 us vs 773 us, 0 B vs 4.6 MB) and about
+164x faster on the large generated corpus (301 us vs 49.2 ms, 0 B vs 129.6 MB). This crosses the
+dry smoke threshold for the cached compiler-service shape, but it is not acceptance evidence until a
+normal BenchmarkDotNet run confirms the ratio and production query/completion paths call the N#
+implementation.
 
 ## Rewrite Order
 

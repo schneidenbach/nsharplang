@@ -80,6 +80,10 @@ public class CompilerDogfoodProjectTests
                     "CodeIntelligenceMemberReceiverChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiverChecksumInto.");
+            var codeIntelligenceMemberReceiverCachedChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceMemberReceiverCachedChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceMemberReceiverCachedChecksumInto.");
 
             const string source = """"
 import System
@@ -211,7 +215,8 @@ func main(customer: Customer, résumé: Profile) {
     print résumé.Count
 }
 """,
-                codeIntelligenceMemberReceiverChecksumInto);
+                codeIntelligenceMemberReceiverChecksumInto,
+                codeIntelligenceMemberReceiverCachedChecksumInto);
         }
         finally
         {
@@ -442,7 +447,8 @@ func main(customer: Customer, résumé: Profile) {
 
     private static void AssertMemberReceiversLikeProduction(
         string source,
-        MethodInfo codeIntelligenceMemberReceiverChecksumInto)
+        MethodInfo codeIntelligenceMemberReceiverChecksumInto,
+        MethodInfo codeIntelligenceMemberReceiverCachedChecksumInto)
     {
         var lines = source.Split('\n');
         var queries = new List<(int Line, int MemberStartColumn)>
@@ -494,6 +500,31 @@ func main(customer: Customer, résumé: Profile) {
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expectedStarts, actualStarts);
         Assert.Equal(expectedLengths, actualLengths);
+
+        var cachedLineStarts = new int[source.Length + 1];
+        var cachedLineLengths = new int[source.Length + 1];
+        var receiverStartsBySeparator = new int[source.Length + 1];
+        var receiverLengthsBySeparator = new int[source.Length + 1];
+        var cachedStarts = new int[queries.Count];
+        var cachedLengths = new int[queries.Count];
+        var cachedChecksum = (int)(codeIntelligenceMemberReceiverCachedChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                cachedLineStarts,
+                cachedLineLengths,
+                receiverStartsBySeparator,
+                receiverLengthsBySeparator,
+                queryLines,
+                memberStartColumns,
+                cachedStarts,
+                cachedLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, cachedChecksum);
+        Assert.Equal(expectedStarts, cachedStarts);
+        Assert.Equal(expectedLengths, cachedLengths);
     }
 
     private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)

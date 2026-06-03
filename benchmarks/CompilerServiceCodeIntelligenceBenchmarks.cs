@@ -304,8 +304,8 @@ public class CompilerServiceCodeIntelligenceMemberReceiverBenchmarks
     private const int LargeQueryCount = 128;
     private const int RepresentativeQueryCount = 1024;
 
-    private Func<string, int[], int[], int[], int[], int[], int[], int> _nsharpMemberReceiverChecksumInto =
-        (_, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string, int[], int[], int[], int[], int[], int[], int[], int[], int> _nsharpMemberReceiverCachedChecksumInto =
+        (_, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
     private int[] _csharpReceiverLengths = Array.Empty<int>();
     private int[] _csharpReceiverStarts = Array.Empty<int>();
     private int[] _lineLengths = Array.Empty<int>();
@@ -314,6 +314,8 @@ public class CompilerServiceCodeIntelligenceMemberReceiverBenchmarks
     private int[] _nsharpReceiverLengths = Array.Empty<int>();
     private int[] _nsharpReceiverStarts = Array.Empty<int>();
     private int[] _queryLines = Array.Empty<int>();
+    private int[] _receiverLengthsBySeparator = Array.Empty<int>();
+    private int[] _receiverStartsBySeparator = Array.Empty<int>();
     private int _queryCount;
     private string _source = string.Empty;
 
@@ -334,10 +336,10 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
         _queryCount = Corpus == CompilerLexerCorpus.Representative
             ? RepresentativeQueryCount
             : LargeQueryCount;
-        _nsharpMemberReceiverChecksumInto =
-            NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int[], int>>(
+        _nsharpMemberReceiverCachedChecksumInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int[], int[], int[], int>>(
                 DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
-                "CodeIntelligenceMemberReceiverChecksumInto");
+                "CodeIntelligenceMemberReceiverCachedChecksumInto");
 
         _lineStarts = new int[_source.Length + 1];
         _lineLengths = new int[_source.Length + 1];
@@ -345,6 +347,8 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
         _csharpReceiverLengths = new int[_queryCount];
         _nsharpReceiverStarts = new int[_queryCount];
         _nsharpReceiverLengths = new int[_queryCount];
+        _receiverStartsBySeparator = new int[_source.Length + 1];
+        _receiverLengthsBySeparator = new int[_source.Length + 1];
 
         BuildQueries();
 
@@ -387,10 +391,12 @@ func memberReceiverProbe(customer: Customer, résumé: Profile) {
 
     [Benchmark]
     public int NSharpCodeIntelligenceMemberReceivers_QueryBatch() =>
-        _nsharpMemberReceiverChecksumInto(
+        _nsharpMemberReceiverCachedChecksumInto(
             _source,
             _lineStarts,
             _lineLengths,
+            _receiverStartsBySeparator,
+            _receiverLengthsBySeparator,
             _queryLines,
             _memberStartColumns,
             _nsharpReceiverStarts,
