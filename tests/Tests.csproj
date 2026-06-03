@@ -38,9 +38,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\src\NSharpLang.Cli\Cli.csproj" />
+    <ProjectReference Include="..\src\NSharpLang.Cli\Cli.csproj" Properties="SkipNSharpDogfoodCompilerServices=true" />
     <ProjectReference Include="..\src\NSharpLang.Compiler\Compiler.csproj" />
-    <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" />
+    <ProjectReference Include="..\src\NSharpLang.LanguageServer\LanguageServer.csproj" Properties="SkipNSharpDogfoodCompilerServices=true" />
     <ProjectReference Include="..\src\NSharpLang.Playground\NSharpLang.Playground.csproj" />
   </ItemGroup>
 
@@ -61,5 +61,7 @@
     <Compile Remove="NSharpLang.IntegrationTests\**" />
     <Compile Remove="NSharpLang.CSharpInteropTests\**" />
   </ItemGroup>
+
+  <Import Project="..\src\NSharpLang.Compiler.Dogfood\NSharpLang.Compiler.Dogfood.targets" />
 
 </Project>

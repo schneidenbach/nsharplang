@@ -39,6 +39,26 @@ func CodeIntelligenceIdentifierSpansInto(
     resultStarts: int[],
     resultLengths: int[]): int {
     lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceIdentifierSpansFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        queryColumns,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceIdentifierSpansFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
     foundCount := 0
     i := 0
 
@@ -137,6 +157,26 @@ func CodeIntelligenceMemberReceiversInto(
     resultStarts: int[],
     resultLengths: int[]): int {
     lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceMemberReceiversFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        memberStartColumns,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceMemberReceiversFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    memberStartColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
     foundCount := 0
     i := 0
     queryCount := queryLines.Length
@@ -286,6 +326,30 @@ func CodeIntelligenceMemberReceiversCachedInto(
         receiverStartsBySeparator,
         receiverLengthsBySeparator)
 
+    return CodeIntelligenceMemberReceiversFromCacheInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        receiverStartsBySeparator,
+        receiverLengthsBySeparator,
+        queryLines,
+        memberStartColumns,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceMemberReceiversFromCacheInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    receiverStartsBySeparator: int[],
+    receiverLengthsBySeparator: int[],
+    queryLines: int[],
+    memberStartColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
     foundCount := 0
     i := 0
     queryCount := queryLines.Length

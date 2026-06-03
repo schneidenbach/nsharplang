@@ -817,6 +817,19 @@ func Main() {
     }
 
     [Fact]
+    public void NL010_UnusedImport_NoWarnForSystemWhenCharUsed()
+    {
+        var source = @"
+import System
+
+func Main(): bool {
+    return Char.IsWhiteSpace(' ')
+}";
+        var diagnostics = Lint(source);
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL010");
+    }
+
+    [Fact]
     public void NL010_UnusedImport_NoWarnForUnknownNamespace()
     {
         // Imports from namespaces we don't track — conservatively marked as used

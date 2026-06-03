@@ -2380,15 +2380,27 @@ public class CodeIntelligenceService
 
     private static string? ExtractWordAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
-        if (span == null)
-            return null;
-
         try
         {
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractIdentifierName(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    col,
+                    out var dogfoodName))
+            {
+                return dogfoodName;
+            }
+
+            var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+            if (span == null)
+                return null;
+
             var lines = source.Split('\n');
             var lineText = lines[line - 1];
             var startIndex = span.Value.StartColumn - 1;
@@ -2408,6 +2420,18 @@ public class CodeIntelligenceService
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractMemberReceiverName(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    memberStartColumn,
+                    out var dogfoodReceiverName))
+            {
+                return dogfoodReceiverName;
+            }
+
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length)
                 return null;
@@ -2469,6 +2493,18 @@ public class CodeIntelligenceService
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractIdentifierSpan(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    col,
+                    out var dogfoodSpan))
+            {
+                return dogfoodSpan;
+            }
+
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length)
                 return null;

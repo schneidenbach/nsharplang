@@ -5,12 +5,60 @@ using System.Linq;
 using System.Reflection;
 using NSharpLang.Cli;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
 
 namespace NSharpLang.Tests;
 
 public class CompilerDogfoodProjectTests
 {
+    [Fact]
+    public void CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly()
+    {
+        var source = """
+func main() {
+    value := input.Count
+    print value
+}
+""";
+        var filePath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), $"dogfood-adapter-{Guid.NewGuid():N}.nl"));
+        var snapshot = new ProjectSnapshot(
+            Path.GetTempPath(),
+            new Dictionary<string, CompilationUnit>(),
+            new Dictionary<string, SemanticModel>(),
+            Array.Empty<CompilerError>(),
+            new Analyzer(),
+            new[] { filePath },
+            sourceTexts: new Dictionary<string, string> { [filePath] = source });
+
+        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
+                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
+            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryExtractIdentifierName = adapterType.GetMethod(
+                "TryExtractIdentifierName",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractIdentifierName.");
+        var identifierArgs = new object?[] { snapshot, filePath, source, 2, 15, null };
+        Assert.True((bool)(tryExtractIdentifierName.Invoke(null, identifierArgs) ?? false));
+        Assert.Equal("input", identifierArgs[5]);
+
+        var tryExtractMemberReceiverName = adapterType.GetMethod(
+                "TryExtractMemberReceiverName",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractMemberReceiverName.");
+        var receiverArgs = new object?[] { snapshot, filePath, source, 2, 20, null };
+        Assert.True((bool)(tryExtractMemberReceiverName.Invoke(null, receiverArgs) ?? false));
+        Assert.Equal("input", receiverArgs[5]);
+    }
+
     [Fact]
     public void LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer()
     {

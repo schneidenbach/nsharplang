@@ -201,9 +201,19 @@ about 81x faster than the current C# split-per-query baseline on the representat
 `CodeIntelligenceMemberReceiversCachedInto` also cleared the normal BenchmarkDotNet speed gate. It
 ran about 174x faster on the representative corpus (2.88 us vs 500.69 us, 0 B vs 4.6 MB) and about
 233x faster on the large generated corpus (225.03 us vs 52.51 ms, 0 B vs 129.6 MB). This is
-acceptance-grade benchmark evidence for the batched code-intelligence service shape, but the
-production CLI/LSP query, hover, definition, reference, and completion paths still need an adapter
-and swap proof before those surfaces can be claimed as dogfooded.
+acceptance-grade benchmark evidence for the batched code-intelligence service shape.
+
+The production swap slice for those two extraction helpers now ships the dogfood assembly beside the
+CLI, language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
+`CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
+The adapter caches line ranges and receiver caches per `ProjectSnapshot`/file and falls back to the
+old C# scanner only when the dogfood assembly is unavailable. `CompilerDogfoodProjectTests` verifies
+the packaged adapter can load
+`NSharpLang.Compiler.Dogfood.dll` and answer identifier/receiver queries through the compiled N#
+methods; `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output.
+This is swap evidence for the identifier-span and member-receiver extraction slice only. Broader
+query, hover, definition, reference, completion, binding, and CLI command logic still contains C#
+implementation code and remains in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -274,8 +284,8 @@ compiler-service loops as the normal programming model.
 Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
 queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct
 `Char.IsLetterOrDigit` runtime static call from an imported `System` namespace while keeping the
-normal BenchmarkDotNet speed gate above 5x, so the remaining work is a production adapter and swap
-proof rather than an identifier-character semantic gap. The member-receiver candidate shows the next
-API lesson: the 5x win comes from a source-level receiver cache plus caller-owned buffers, not from
-calling a tiny backward scanner once per request. Production code-intelligence adapters should keep
-that cache lifetime explicit.
+normal BenchmarkDotNet speed gate above 5x. The member-receiver candidate shows the next API lesson:
+the 5x win comes from a source-level receiver cache plus caller-owned buffers, not from calling a
+tiny backward scanner once per request. The production adapter keeps that cache lifetime explicit,
+but the remaining code-intelligence work still needs N# implementations for semantic lookup,
+completion construction, output shaping, and CLI command orchestration.
