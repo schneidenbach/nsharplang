@@ -43,6 +43,14 @@ public class CompilerDogfoodProjectTests
                     "TokenizeKindsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeKindsInto.");
+            var splitLogicalLines = programType.GetMethod(
+                    "SplitLogicalLines",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SplitLogicalLines.");
+            var splitLogicalLineRangesInto = programType.GetMethod(
+                    "SplitLogicalLineRangesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SplitLogicalLineRangesInto.");
 
             const string source = """"
 import System
@@ -72,6 +80,14 @@ with type assert operator required init ref out lock file params checked uncheck
 throws
 """;
             AssertTokenizesLikeProductionLexer(keywordSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+
+            AssertSplitsLikeProductionSourceTextLines("", splitLogicalLines, splitLogicalLineRangesInto);
+            AssertSplitsLikeProductionSourceTextLines("one", splitLogicalLines, splitLogicalLineRangesInto);
+            AssertSplitsLikeProductionSourceTextLines("one\n", splitLogicalLines, splitLogicalLineRangesInto);
+            AssertSplitsLikeProductionSourceTextLines("one\r\n", splitLogicalLines, splitLogicalLineRangesInto);
+            AssertSplitsLikeProductionSourceTextLines("one\rtwo", splitLogicalLines, splitLogicalLineRangesInto);
+            AssertSplitsLikeProductionSourceTextLines("one\r\ntwo\rthree\n", splitLogicalLines, splitLogicalLineRangesInto);
+            AssertSplitsLikeProductionSourceTextLines("\r\n\r\n\n\r", splitLogicalLines, splitLogicalLineRangesInto);
         }
         finally
         {
@@ -103,6 +119,27 @@ throws
         Assert.Equal(expectedKinds, kinds);
         Assert.Equal(expectedKinds.Length, bufferedCount);
         Assert.Equal(expectedKinds, buffer.Take(bufferedCount).ToArray());
+    }
+
+    private static void AssertSplitsLikeProductionSourceTextLines(
+        string source,
+        MethodInfo splitLogicalLines,
+        MethodInfo splitLogicalLineRangesInto)
+    {
+        var expected = SourceTextLines.SplitLogicalLines(source);
+        var actual = (string[])(splitLogicalLines.Invoke(null, new object[] { source })
+            ?? throw new InvalidOperationException("SplitLogicalLines returned null."));
+
+        Assert.Equal(expected, actual);
+
+        var starts = new int[source.Length + 1];
+        var lengths = new int[source.Length + 1];
+        var count = (int)(splitLogicalLineRangesInto.Invoke(null, new object[] { source, starts, lengths }) ?? -1);
+        Assert.Equal(expected.Length, count);
+        for (var i = 0; i < count; i++)
+        {
+            Assert.Equal(expected[i], source.Substring(starts[i], lengths[i]));
+        }
     }
 
     private static string FindRepoRoot()

@@ -46,6 +46,7 @@ Benchmark command shape:
 
 ```bash
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceLexer*'
+dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -97,6 +98,25 @@ acceptance evidence and the benchmark remains a dry smoke run.
 
 `CompilerDogfoodProjectTests` now includes a production-keyword sweep plus a near-miss identifier
 (`throws`) to pin the optimized keyword dispatch to the actual C# `Lexer.Keywords` behavior.
+
+Current source-text dogfood benchmarks:
+
+- `CompilerServiceSourceTextLineBenchmarks` records the current C# `SourceTextLines.SplitLogicalLines`
+  helper against an N# implementation that returns the same `string[]` result. The N# candidate
+  avoids the current helper's whole-source replacement strings and allocates less memory, but dry
+  smoke timings remain slower on the large mixed-newline corpus (407 us vs 332 us). This is parity
+  evidence and allocation-pressure evidence only, not speed acceptance.
+- `CompilerServiceSourceTextLineRangeBenchmarks` measures the lower-level line-map shape:
+  `SplitLogicalLineRangesInto(source, starts, lengths)` fills caller-owned arrays with source
+  ranges. The N# path reports zero per-operation managed allocation and, after switching separator
+  search to `string.IndexOf`, the large mixed-newline dry smoke run is faster than the current C#
+  split-then-copy baseline (228 us vs 313 us). It is still far below the 5x speed gate and has not
+  been swapped into production fix/diagnostic code.
+
+The dogfood project also includes `CompilerServices/SourceTextLines.nl`; `CompilerDogfoodProjectTests`
+compiles it through the SDK project and verifies both returned strings and range buffers against the
+current C# `SourceTextLines.SplitLogicalLines` behavior for empty, trailing-separator, CRLF,
+standalone-CR, LF, and mixed-newline cases.
 
 ## Rewrite Order
 
@@ -155,3 +175,10 @@ buffer and write by index from N#-emitted IL. The reusable-buffer API proves the
 the exact-array copy when the caller owns storage, but N# still needs a slice/span or owned token
 buffer type for production APIs that return a filled prefix without exposing unused capacity or
 copying.
+
+Current source-text pressure point: direct N# character loops are not yet competitive enough for
+line splitting. Calling optimized BCL `string.IndexOf` improved the range-buffer candidate, but the
+result is still only about 1.4x faster than the current allocation-heavy C# helper on the large dry
+corpus. To reach the 5x goal, N# needs a faster native/string scanning primitive or span/index APIs
+that let compiler services build line maps without materializing strings or repeatedly crossing
+through BCL calls.

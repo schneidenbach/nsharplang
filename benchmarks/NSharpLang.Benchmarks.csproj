@@ -35,6 +35,9 @@
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/LexerTokenKindScanner.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.LexerTokenKindScanner.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/SourceTextLines.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl" />
   </ItemGroup>
 
 </Project>
