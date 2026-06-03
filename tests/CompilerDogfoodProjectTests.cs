@@ -72,6 +72,10 @@ public class CompilerDogfoodProjectTests
                     "GetOffsetFromLineColumn",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit GetOffsetFromLineColumn.");
+            var codeIntelligenceIdentifierSpanChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceIdentifierSpanChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceIdentifierSpanChecksumInto.");
 
             const string source = """"
 import System
@@ -175,6 +179,21 @@ func values(): int {
                 getLineIndexFromOffset,
                 getColumnFromOffset,
                 getOffsetFromLineColumn);
+
+            AssertIdentifierSpansLikeProduction(
+                """
+func main() {
+    value := input.Count
+    print value
+}
+""",
+                codeIntelligenceIdentifierSpanChecksumInto);
+            AssertIdentifierSpansLikeProduction(
+                "package CompilerDogfood.Tests\r\nfunc main(): int {\r\n    return value\r\n}\r\n",
+                codeIntelligenceIdentifierSpanChecksumInto);
+            AssertIdentifierSpansLikeProduction(
+                "func main() {\r    value := input.Count\r}\n",
+                codeIntelligenceIdentifierSpanChecksumInto);
         }
         finally
         {
@@ -346,6 +365,158 @@ func values(): int {
             null,
             new object[] { starts, lengths, count, source.Length, expected.Length + 1, 0 }) ?? -2);
         Assert.Equal(-1, invalidLineOffset);
+    }
+
+    private static void AssertIdentifierSpansLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceIdentifierSpanChecksumInto)
+    {
+        var lines = source.Split('\n');
+        var queries = new List<(int Line, int Column)>
+        {
+            (0, 0),
+            (lines.Length + 1, 1)
+        };
+
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+        {
+            var line = lineIndex + 1;
+            var lineText = lines[lineIndex];
+            queries.Add((line, 0));
+            queries.Add((line, 1));
+            queries.Add((line, lineText.Length));
+            queries.Add((line, lineText.Length + 8));
+
+            var identifier = FindFirstIdentifierSpan(lineText);
+            queries.Add((line, identifier.StartColumn));
+            queries.Add((line, Math.Max(1, identifier.StartColumn - 1)));
+            queries.Add((line, Math.Min(Math.Max(1, lineText.Length), identifier.StartColumn + identifier.Length)));
+            queries.Add((line, Math.Min(Math.Max(1, lineText.Length), identifier.StartColumn + identifier.Length + 1)));
+        }
+
+        var queryLines = queries.Select(static query => query.Line).ToArray();
+        var queryColumns = queries.Select(static query => query.Column).ToArray();
+        var expectedStarts = new int[queries.Count];
+        var expectedLengths = new int[queries.Count];
+        var expectedChecksum = 0;
+        for (var i = 0; i < queries.Count; i++)
+        {
+            var span = ExtractIdentifierSpanAtPosition(source, queryLines[i], queryColumns[i]);
+            var start = span?.StartColumn ?? -1;
+            var length = span?.Length ?? 0;
+            expectedStarts[i] = start;
+            expectedLengths[i] = length;
+            expectedChecksum += start * 31 + length * 17;
+        }
+
+        var lineStarts = new int[source.Length + 1];
+        var lineLengths = new int[source.Length + 1];
+        var actualStarts = new int[queries.Count];
+        var actualLengths = new int[queries.Count];
+        var actualChecksum = (int)(codeIntelligenceIdentifierSpanChecksumInto.Invoke(
+            null,
+            new object[] { source, lineStarts, lineLengths, queryLines, queryColumns, actualStarts, actualLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedLengths, actualLengths);
+    }
+
+    private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)
+    {
+        for (var i = 0; i < lineText.Length; i++)
+        {
+            if (!IsIdentifierChar(lineText[i]))
+                continue;
+
+            var start = i;
+            while (i + 1 < lineText.Length && IsIdentifierChar(lineText[i + 1]))
+                i++;
+
+            return (start + 1, i - start + 1);
+        }
+
+        return (1, 1);
+    }
+
+    private static (int StartColumn, int Length)? ExtractIdentifierSpanAtPosition(string source, int line, int col)
+    {
+        try
+        {
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length)
+                return null;
+
+            var lineText = lines[line - 1];
+            if (lineText.Length == 0)
+                return null;
+
+            var index = FindNearestIdentifierIndex(lineText, Math.Clamp(col - 1, 0, lineText.Length - 1));
+            if (index < 0)
+                return null;
+
+            var start = index;
+            while (start > 0 && IsIdentifierChar(lineText[start - 1]))
+                start--;
+
+            var end = index;
+            while (end + 1 < lineText.Length && IsIdentifierChar(lineText[end + 1]))
+                end++;
+
+            return (start + 1, end - start + 1);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int FindNearestIdentifierIndex(string lineText, int index)
+    {
+        if (lineText.Length == 0)
+            return -1;
+
+        if (index >= 0 && index < lineText.Length && IsIdentifierChar(lineText[index]))
+            return index;
+
+        const int MaxDistance = 3;
+        for (var distance = 1; distance <= MaxDistance; distance++)
+        {
+            var left = index - distance;
+            if (left >= 0 && IsIdentifierChar(lineText[left]) && IsSnapFriendlyNeighbor(lineText, left + 1, index))
+                return left;
+
+            var right = index + distance;
+            if (right < lineText.Length && IsIdentifierChar(lineText[right]) && IsSnapFriendlyNeighbor(lineText, index, right - 1))
+                return right;
+        }
+
+        return -1;
+    }
+
+    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private static bool IsSnapFriendlyNeighbor(string lineText, int start, int end)
+    {
+        if (start > end)
+            return true;
+
+        for (var i = start; i <= end; i++)
+        {
+            if (i < 0 || i >= lineText.Length)
+                continue;
+
+            var ch = lineText[i];
+            if (char.IsWhiteSpace(ch))
+                continue;
+
+            if (ch is '.' or '?' or '(' or ')' or '[' or ']' or '{' or '}' or ',' or ';' or ':')
+                continue;
+
+            return false;
+        }
+
+        return true;
     }
 
     private static int LineIndexFromOffset(int[] starts, int sourceLength, int offset)

@@ -38,6 +38,9 @@
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/SourceTextLines.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/IdentifierSpans.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.IdentifierSpans.nl" />
   </ItemGroup>
 
 </Project>

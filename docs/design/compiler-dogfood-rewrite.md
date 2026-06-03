@@ -47,6 +47,7 @@ Benchmark command shape:
 ```bash
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceLexer*'
 dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
+dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligenceIdentifierSpan*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -143,6 +144,32 @@ split-derived line-map baseline (84 us vs 340 us), while the large mixed-newline
 1.9x faster (383 us vs 735 us). This is useful evidence for the compact map shape, but it is still
 below the 5x acceptance gate and has not been swapped into production code.
 
+Current code-intelligence dogfood benchmarks:
+
+- `CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks` targets identifier span extraction used
+  by query, hover, definition, and reference flows. The C# baseline mirrors the current
+  `CodeIntelligenceService` behavior: each position query calls `source.Split('\n')` and scans the
+  selected line with the same 3-column snap-to-neighbor rules. The N# candidate builds
+  line ranges once into caller-owned arrays, processes the query batch in one compiled N# method,
+  and writes start/length pairs into caller-owned result buffers. The dry benchmark uses 1024
+  representative-corpus position queries and 128 large-corpus position queries so the large C#
+  split-per-query baseline stays bounded while each row still compares the same query workload for
+  C# and N#.
+
+The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
+compiles it through the SDK project and checks returned spans against the production snap rules for
+valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
+and standalone-CR input. This first candidate intentionally follows the ASCII identifier character
+set used by the N# lexer scanner; production C# still uses `char.IsLetterOrDigit`, so Unicode
+identifier handling remains a documented parity gap before any production swap.
+
+The identifier-span dry run on 2026-06-03 passed checksum and buffer parity and reported zero
+managed allocation on the N# path. The representative batch corpus ran about 6.9x faster than the
+current C# split-per-query baseline (98 us vs 679 us, 0 B vs 4.1 MB). The large generated corpus ran
+about 266x faster (188 us vs 50.0 ms, 0 B vs 129.6 MB). This crosses the dry smoke speed threshold
+for the batched service shape, but it is not acceptance evidence until a normal BenchmarkDotNet run
+confirms the ratio and production query/hover/definition/reference paths call the N# implementation.
+
 ## Rewrite Order
 
 Start with compiler-service hot paths that are deterministic, independently testable, and used by
@@ -207,3 +234,8 @@ result is still only about 1.4x faster than the current allocation-heavy C# help
 corpus. To reach the 5x goal, N# needs a faster native/string scanning primitive or span/index APIs
 that let compiler services build line maps without materializing strings or repeatedly crossing
 through BCL calls.
+
+Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
+queries and using ASCII identifier checks that match the lexer scanner. Before production swap, the
+language needs either a documented ASCII-only identifier rule for tooling or a systems-friendly
+Unicode identifier predicate that does not pull `char.IsLetterOrDigit` into the hot loop.

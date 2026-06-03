@@ -594,9 +594,13 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.LexerTokenKindScanner.nl";
     private const string SourceTextLinesResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl";
+    private const string IdentifierSpansResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.IdentifierSpans.nl";
 
     public static string LexerTokenKindScanner => ReadResource(LexerTokenKindScannerResourceName);
     public static string SourceTextLines => ReadResource(SourceTextLinesResourceName);
+    public static string CodeIntelligenceIdentifierSpans =>
+        SourceTextLines + Environment.NewLine + ReadResource(IdentifierSpansResourceName);
 
     private static string ReadResource(string resourceName)
     {
