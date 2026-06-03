@@ -86,11 +86,13 @@ less memory, but still did not reach the required 5x speedup gate. Dry jobs are 
 evidence.
 
 The same dry run style for `CompilerServiceLexerReusableTokenKindBenchmarks` showed
-`TokenizeKindsInto(source, buffer)` eliminating per-operation managed allocation on the N# path. The
-large generated corpus ran about 3.5x faster than the current C# lexer filling a caller-owned kind
-buffer (1.92 ms vs 6.80 ms), while the representative corpus was only slightly faster. This proves
-the reusable-buffer shape removes the forced copy/allocation pressure, but it still is not 5x
-acceptance evidence and the benchmark remains a dry smoke run.
+`TokenizeKindsInto(source, buffer)` eliminating per-operation managed allocation on the N# path.
+After replacing per-token helper emission and duplicate operator scanning with direct buffer writes
+and an encoded operator kind/width result, the large generated corpus ran about 4.0x faster than the
+current C# lexer filling a caller-owned kind buffer (1.71 ms vs 6.91 ms), while the representative
+corpus remained only slightly faster (101 us vs 108 us). This proves the reusable-buffer shape
+removes the forced copy/allocation pressure, but it still is not 5x acceptance evidence and the
+benchmark remains a dry smoke run.
 
 ## Rewrite Order
 

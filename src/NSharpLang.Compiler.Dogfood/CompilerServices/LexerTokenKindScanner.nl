@@ -19,13 +19,15 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
         }
 
         if ch == '\n' {
-            count = AddKind(buffer, count, 136)
+            buffer[count] = 136
+            count = count + 1
             position = position + 1
             continue
         }
 
         if ch == '\r' {
-            count = AddKind(buffer, count, 136)
+            buffer[count] = 136
+            count = count + 1
             position = position + 1
             if position < length && source[position] == '\n' {
                 position = position + 1
@@ -34,7 +36,8 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
         }
 
         if ch == '#' {
-            count = AddKind(buffer, count, 138)
+            buffer[count] = 138
+            count = count + 1
             position = position + 1
             while position < length && source[position] != '\n' && source[position] != '\r' {
                 position = position + 1
@@ -68,10 +71,12 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
 
         if ch == '$' && position + 1 < length && source[position + 1] == '"' {
             if position + 3 < length && source[position + 2] == '"' && source[position + 3] == '"' {
-                count = AddKind(buffer, count, 6)
+                buffer[count] = 6
+                count = count + 1
                 position = ScanRawString(source, position + 4, length)
             } else {
-                count = AddKind(buffer, count, 4)
+                buffer[count] = 4
+                count = count + 1
                 position = ScanString(source, position + 1, length, true)
             }
             continue
@@ -79,23 +84,27 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
 
         if ch == '"' {
             if position + 2 < length && source[position + 1] == '"' && source[position + 2] == '"' {
-                count = AddKind(buffer, count, 5)
+                buffer[count] = 5
+                count = count + 1
                 position = ScanRawString(source, position + 3, length)
             } else {
-                count = AddKind(buffer, count, 4)
+                buffer[count] = 4
+                count = count + 1
                 position = ScanString(source, position, length, false)
             }
             continue
         }
 
         if ch == '\'' {
-            count = AddKind(buffer, count, 3)
+            buffer[count] = 3
+            count = count + 1
             position = ScanCharLiteral(source, position, length)
             continue
         }
 
         if IsDigit(ch) {
-            count = AddKind(buffer, count, ScanNumberKind(source, position, length))
+            buffer[count] = ScanNumberKind(source, position, length)
+            count = count + 1
             position = ScanNumber(source, position, length)
             continue
         }
@@ -107,21 +116,21 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
                 position = position + 1
             }
 
-            count = AddKind(buffer, count, KeywordKind(source, start, position - start))
+            buffer[count] = KeywordKind(source, start, position - start)
+            count = count + 1
             continue
         }
 
-        count = AddKind(buffer, count, OperatorKind(source, position, length))
-        position = ScanOperator(source, position, length)
+        operatorInfo := OperatorInfo(source, position, length)
+        operatorKind := operatorInfo / 4
+        buffer[count] = operatorKind
+        count = count + 1
+        position = position + (operatorInfo - operatorKind * 4)
     }
 
-    count = AddKind(buffer, count, 135)
+    buffer[count] = 135
+    count = count + 1
     return count
-}
-
-func AddKind(buffer: int[], count: int, kind: int): int {
-    buffer[count] = kind
-    return count + 1
 }
 
 func CopyKinds(buffer: int[], count: int): int[] {
@@ -450,208 +459,209 @@ func ConsumeIntegerSuffix(source: string, position: int, length: int): int {
     return position
 }
 
-func OperatorKind(source: string, position: int, length: int): int {
+// Encodes token kind and source width as kind * 4 + width to avoid tuple/out parameters.
+func OperatorInfo(source: string, position: int, length: int): int {
     ch := source[position]
     if position + 1 < length {
         next := source[position + 1]
         if ch == ':' {
             if next == '=' {
-                return 121
+                return 486
             }
             if next == ':' {
-                return 123
+                return 494
             }
         }
 
         if ch == '=' {
             if next == '=' {
-                return 98
+                return 394
             }
             if next == '>' {
-                return 120
+                return 482
             }
         }
 
         if ch == '!' && next == '=' {
-            return 99
+            return 398
         }
 
         if ch == '<' {
             if next == '=' {
-                return 101
+                return 406
             }
             if next == '<' {
-                return 111
+                return 446
             }
         }
 
         if ch == '>' {
             if next == '=' {
-                return 103
+                return 414
             }
             if next == '>' {
-                return 112
+                return 450
             }
         }
 
         if ch == '&' && next == '&' {
-            return 104
+            return 418
         }
 
         if ch == '|' && next == '|' {
-            return 105
+            return 422
         }
 
         if ch == '+' {
             if next == '+' {
-                return 113
+                return 454
             }
             if next == '=' {
-                return 94
+                return 378
             }
         }
 
         if ch == '-' {
             if next == '-' {
-                return 114
+                return 458
             }
             if next == '=' {
-                return 95
+                return 382
             }
         }
 
         if ch == '*' && next == '=' {
-            return 96
+            return 386
         }
 
         if ch == '/' && next == '=' {
-            return 97
+            return 390
         }
 
         if ch == '?' {
             if next == '?' {
                 if position + 2 < length && source[position + 2] == '=' {
-                    return 117
+                    return 471
                 }
 
-                return 116
+                return 466
             }
 
             if next == '.' {
-                return 118
+                return 474
             }
 
             if next == '[' {
-                return 119
+                return 478
             }
         }
 
         if ch == '.' && next == '.' {
             if position + 2 < length && source[position + 2] == '.' {
-                return 126
+                return 507
             }
 
-            return 125
+            return 502
         }
     }
 
     if ch == '+' {
-        return 88
+        return 353
     }
 
     if ch == '-' {
-        return 89
+        return 357
     }
 
     if ch == '*' {
-        return 90
+        return 361
     }
 
     if ch == '/' {
-        return 91
+        return 365
     }
 
     if ch == '%' {
-        return 92
+        return 369
     }
 
     if ch == '=' {
-        return 93
+        return 373
     }
 
     if ch == '<' {
-        return 100
+        return 401
     }
 
     if ch == '>' {
-        return 102
+        return 409
     }
 
     if ch == '!' {
-        return 106
+        return 425
     }
 
     if ch == '&' {
-        return 107
+        return 429
     }
 
     if ch == '|' {
-        return 108
+        return 433
     }
 
     if ch == '^' {
-        return 109
+        return 437
     }
 
     if ch == '~' {
-        return 110
+        return 441
     }
 
     if ch == '?' {
-        return 115
+        return 461
     }
 
     if ch == ':' {
-        return 122
+        return 489
     }
 
     if ch == '.' {
-        return 124
+        return 497
     }
 
     if ch == '(' {
-        return 127
+        return 509
     }
 
     if ch == ')' {
-        return 128
+        return 513
     }
 
     if ch == '{' {
-        return 129
+        return 517
     }
 
     if ch == '}' {
-        return 130
+        return 521
     }
 
     if ch == '[' {
-        return 131
+        return 525
     }
 
     if ch == ']' {
-        return 132
+        return 529
     }
 
     if ch == ';' {
-        return 133
+        return 533
     }
 
     if ch == ',' {
-        return 134
+        return 537
     }
 
-    return 137
+    return 549
 }
 
 func KeywordKind(source: string, start: int, length: int): int {
@@ -951,7 +961,11 @@ func IsKeyword(source: string, start: int, length: int, keyword: string): bool {
         return false
     }
 
-    i := 0
+    if source[start] != keyword[0] {
+        return false
+    }
+
+    i := 1
     while i < length {
         if source[start + i] != keyword[i] {
             return false
