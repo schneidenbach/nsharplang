@@ -19,13 +19,24 @@ func ParseArgs(args: string[]): Result<CliOptions, string> {
         return Err("missing input")
     }
 
-    return Ok(CliOptions { Input: args[0], Verbose: args.Length > 1 })
+    return Ok(new CliOptions { Input: args[0], Verbose: args.Length > 1 })
 }
 
 [boundary]
 func Main(): int {
-    options := ParseArgs(Environment.GetCommandLineArgs())
-    json := JsonSerializer.Serialize(options, CliJsonContext.Default.CliOptions)
+    rawArgs := Environment.GetCommandLineArgs()
+    args := new string[rawArgs.Length - 1]
+    for i := 1; i < rawArgs.Length; i++ {
+        args[i - 1] = rawArgs[i]
+    }
+
+    options := ParseArgs(args)
+    if options.IsOk == false {
+        Console.Error.WriteLine(options.ErrValueUnchecked)
+        return 1
+    }
+
+    json := JsonSerializer.Serialize(options.OkValueUnchecked, CliJsonContext.Default.CliOptions)
     Console.Out.WriteLine(json)
     return 0
 }

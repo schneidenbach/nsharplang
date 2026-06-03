@@ -6,6 +6,9 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.InteropServices;
 using System.Runtime.Loader;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -120,6 +123,7 @@ public partial class ILCompiler
     private readonly HashSet<GenericSpecialization> _emittedSpecializationBodies = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<FunctionDeclaration, List<AnonymousUnionShim>> _anonymousUnionShimsByDeclaration = new(ReferenceEqualityComparer.Instance);
     private readonly Dictionary<FunctionDeclaration, FieldBuilder> _generatedRegexCacheFields = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<ClassDeclaration, JsonContextEmission> _jsonContextEmissions = new(ReferenceEqualityComparer.Instance);
 
     /// <summary>
     /// Functions whose by-value struct parameters were lowered to pass-by-<c>in</c> during
@@ -237,6 +241,33 @@ public partial class ILCompiler
     private sealed record DeclaredConstructorOverload(ConstructorDeclaration Declaration, ConstructorBuilder Builder);
     private sealed record NativeImportInfo(string LibraryName, string EntryPoint);
     private sealed record GeneratedRegexInfo(string Pattern, RegexOptions Options, int? MatchTimeoutMilliseconds);
+    private sealed record JsonSerializableConverterEmission(
+        TypeBuilder Type,
+        ConstructorBuilder Constructor,
+        MethodBuilder ReadMethod,
+        MethodBuilder WriteMethod);
+    private sealed record JsonSerializableTypeEmission(
+        Type TargetType,
+        string PropertyName,
+        FieldBuilder CacheField,
+        MethodBuilder Getter,
+        MethodBuilder CreateMethod,
+        TypeBuilder ConverterType,
+        ConstructorBuilder ConverterConstructor,
+        MethodBuilder ConverterReadMethod,
+        MethodBuilder ConverterWriteMethod);
+    private sealed record JsonSerializableMember(string Name, Type Type, MethodInfo? Getter, FieldInfo? Field);
+    private sealed record JsonContextEmission(
+        TypeBuilder ContextType,
+        FieldBuilder DefaultField,
+        FieldBuilder DefaultOptionsField,
+        ConstructorBuilder DefaultConstructor,
+        ConstructorBuilder OptionsConstructor,
+        MethodBuilder DefaultGetter,
+        MethodBuilder GeneratedOptionsGetter,
+        MethodBuilder PublicGetTypeInfo,
+        MethodBuilder ResolverGetTypeInfo,
+        IReadOnlyList<JsonSerializableTypeEmission> SerializableTypes);
     private sealed record AnonymousUnionShim(
         MethodBuilder Builder,
         MethodBuilder Target,
@@ -4882,6 +4913,279 @@ public partial class ILCompiler
             .Select(ch => char.IsLetterOrDigit(ch) || ch == '_' ? ch : '_')
             .ToArray();
         return chars.Length == 0 ? "Regex" : new string(chars);
+    }
+
+    private static bool IsJsonSerializableAttribute(AttributeNode attribute)
+    {
+        var name = attribute.Name;
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+        {
+            name = name[(lastDot + 1)..];
+        }
+
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            name = name[..^"Attribute".Length];
+        }
+
+        return name == "JsonSerializable";
+    }
+
+    private static string GetJsonContextPropertyName(Type type)
+    {
+        var name = type.Name;
+        var tickIndex = name.IndexOf('`');
+        if (tickIndex >= 0)
+        {
+            name = name[..tickIndex];
+        }
+
+        return SanitizeGeneratedMemberName(name);
+    }
+
+    private JsonSerializableConverterEmission DeclareJsonSerializableConverter(
+        TypeBuilder contextType,
+        Type targetType,
+        string propertyName)
+    {
+        if (_moduleBuilder == null)
+        {
+            throw new InvalidOperationException("Module builder has not been initialized.");
+        }
+
+        var converterBaseType = typeof(JsonConverter<>).MakeGenericType(targetType);
+        var converterType = _moduleBuilder.DefineType(
+            $"{GetTypeKey(contextType)}.__NSharpJsonConverter_{propertyName}",
+            TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
+            converterBaseType);
+        _generatedHelperTypes.Add(converterType);
+
+        var converterConstructor = converterType.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            Type.EmptyTypes);
+        var readMethod = converterType.DefineMethod(
+            nameof(JsonConverter<object>.Read),
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            targetType,
+            new[] { typeof(Utf8JsonReader).MakeByRefType(), typeof(Type), typeof(JsonSerializerOptions) });
+        var writeMethod = converterType.DefineMethod(
+            nameof(JsonConverter<object>.Write),
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(void),
+            new[] { typeof(Utf8JsonWriter), targetType, typeof(JsonSerializerOptions) });
+
+        var openReadMethod = typeof(JsonConverter<>)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Single(method =>
+            {
+                if (method.Name != nameof(JsonConverter<object>.Read))
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 3
+                    && parameters[0].ParameterType.IsByRef
+                    && parameters[0].ParameterType.GetElementType() == typeof(Utf8JsonReader)
+                    && parameters[1].ParameterType == typeof(Type)
+                    && parameters[2].ParameterType == typeof(JsonSerializerOptions);
+            });
+        var openWriteMethod = typeof(JsonConverter<>)
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Single(method =>
+            {
+                if (method.Name != nameof(JsonConverter<object>.Write))
+                {
+                    return false;
+                }
+
+                var parameters = method.GetParameters();
+                return parameters.Length == 3
+                    && parameters[0].ParameterType == typeof(Utf8JsonWriter)
+                    && parameters[2].ParameterType == typeof(JsonSerializerOptions);
+            });
+
+        converterType.DefineMethodOverride(readMethod, TypeBuilder.GetMethod(converterBaseType, openReadMethod));
+        converterType.DefineMethodOverride(writeMethod, TypeBuilder.GetMethod(converterBaseType, openWriteMethod));
+
+        return new JsonSerializableConverterEmission(
+            converterType,
+            converterConstructor,
+            readMethod,
+            writeMethod);
+    }
+
+    private bool IsJsonSerializerContextClass(ClassDeclaration classDecl)
+    {
+        if (classDecl.BaseClass == null)
+        {
+            return false;
+        }
+
+        var genericParameters = _currentTypeBuilder == null ? null : GetTypeGenericParameters(_currentTypeBuilder);
+        var baseType = ResolveType(classDecl.BaseClass, genericParameters);
+        return baseType == typeof(JsonSerializerContext)
+            || string.Equals(baseType.FullName, typeof(JsonSerializerContext).FullName, StringComparison.Ordinal);
+    }
+
+    private IReadOnlyList<Type> GetJsonSerializableTargetTypes(ClassDeclaration classDecl)
+    {
+        var targets = new List<Type>();
+        foreach (var attribute in classDecl.Attributes.Where(IsJsonSerializableAttribute))
+        {
+            foreach (var argument in attribute.Arguments)
+            {
+                var (name, valueExpression) = NormalizeAttributeArgument(argument);
+                if (name != null || valueExpression is not TypeOfExpression typeOfExpression)
+                {
+                    continue;
+                }
+
+                var genericParameters = _currentTypeBuilder == null ? null : GetTypeGenericParameters(_currentTypeBuilder);
+                var targetType = ResolveType(typeOfExpression.Type, genericParameters);
+                if (!targets.Contains(targetType))
+                {
+                    targets.Add(targetType);
+                }
+
+                break;
+            }
+        }
+
+        return targets;
+    }
+
+    private void DeclareJsonSerializerContextMembers(ClassDeclaration classDecl, TypeBuilder typeBuilder)
+    {
+        if (!IsJsonSerializerContextClass(classDecl))
+        {
+            return;
+        }
+
+        var targetTypes = GetJsonSerializableTargetTypes(classDecl);
+        if (targetTypes.Count == 0)
+        {
+            return;
+        }
+
+        TrackInterfaceImplementation(typeBuilder, typeof(IJsonTypeInfoResolver));
+
+        var defaultField = typeBuilder.DefineField(
+            "__nsharpJsonContextDefault",
+            typeBuilder,
+            FieldAttributes.Private | FieldAttributes.Static);
+        var defaultOptionsField = typeBuilder.DefineField(
+            "__nsharpJsonContextDefaultOptions",
+            typeof(JsonSerializerOptions),
+            FieldAttributes.Private | FieldAttributes.Static | FieldAttributes.InitOnly);
+        _fields[GetFieldKey(typeBuilder, "__nsharpJsonContextDefault")] = defaultField;
+        _fields[GetFieldKey(typeBuilder, "__nsharpJsonContextDefaultOptions")] = defaultOptionsField;
+
+        var defaultConstructor = typeBuilder.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            Type.EmptyTypes);
+        var optionsConstructor = typeBuilder.DefineConstructor(
+            MethodAttributes.Public,
+            CallingConventions.Standard,
+            new[] { typeof(JsonSerializerOptions) });
+        _constructors[GetConstructorKey(typeBuilder)] = defaultConstructor;
+
+        var defaultGetter = typeBuilder.DefineMethod(
+            "get_Default",
+            MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+            typeBuilder,
+            Type.EmptyTypes);
+        var defaultProperty = typeBuilder.DefineProperty("Default", PropertyAttributes.None, typeBuilder, Type.EmptyTypes);
+        defaultProperty.SetGetMethod(defaultGetter);
+        _methods[GetMethodKey(typeBuilder, "get_Default")] = defaultGetter;
+
+        var generatedOptionsGetter = typeBuilder.DefineMethod(
+            "get_GeneratedSerializerOptions",
+            MethodAttributes.Family | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.SpecialName,
+            typeof(JsonSerializerOptions),
+            Type.EmptyTypes);
+        var generatedOptionsProperty = typeBuilder.DefineProperty("GeneratedSerializerOptions", PropertyAttributes.None, typeof(JsonSerializerOptions), Type.EmptyTypes);
+        generatedOptionsProperty.SetGetMethod(generatedOptionsGetter);
+        var generatedOptionsBaseGetter = typeof(JsonSerializerContext).GetProperty(
+            "GeneratedSerializerOptions",
+            BindingFlags.Instance | BindingFlags.NonPublic)?.GetMethod;
+        if (generatedOptionsBaseGetter != null)
+        {
+            typeBuilder.DefineMethodOverride(generatedOptionsGetter, generatedOptionsBaseGetter);
+        }
+        _methods[GetMethodKey(typeBuilder, "get_GeneratedSerializerOptions")] = generatedOptionsGetter;
+
+        var publicGetTypeInfo = typeBuilder.DefineMethod(
+            nameof(JsonSerializerContext.GetTypeInfo),
+            MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+            typeof(JsonTypeInfo),
+            new[] { typeof(Type) });
+        typeBuilder.DefineMethodOverride(publicGetTypeInfo, typeof(JsonSerializerContext).GetMethod(nameof(JsonSerializerContext.GetTypeInfo))!);
+        _methods[GetMethodKey(typeBuilder, nameof(JsonSerializerContext.GetTypeInfo))] = publicGetTypeInfo;
+
+        var resolverGetTypeInfo = typeBuilder.DefineMethod(
+            "System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver.GetTypeInfo",
+            MethodAttributes.Private | MethodAttributes.Final | MethodAttributes.Virtual | MethodAttributes.HideBySig | MethodAttributes.NewSlot,
+            typeof(JsonTypeInfo),
+            new[] { typeof(Type), typeof(JsonSerializerOptions) });
+        typeBuilder.DefineMethodOverride(
+            resolverGetTypeInfo,
+            typeof(IJsonTypeInfoResolver).GetMethod(nameof(IJsonTypeInfoResolver.GetTypeInfo))!);
+
+        var serializableTypes = new List<JsonSerializableTypeEmission>();
+        foreach (var targetType in targetTypes)
+        {
+            var propertyName = GetJsonContextPropertyName(targetType);
+            var jsonTypeInfoType = typeof(JsonTypeInfo<>).MakeGenericType(targetType);
+            var cacheField = typeBuilder.DefineField(
+                $"__nsharpJsonTypeInfo_{propertyName}",
+                jsonTypeInfoType,
+                FieldAttributes.Private);
+
+            var getter = typeBuilder.DefineMethod(
+                $"get_{propertyName}",
+                MethodAttributes.Public | MethodAttributes.SpecialName | MethodAttributes.HideBySig,
+                jsonTypeInfoType,
+                Type.EmptyTypes);
+            var property = typeBuilder.DefineProperty(propertyName, PropertyAttributes.None, jsonTypeInfoType, Type.EmptyTypes);
+            property.SetGetMethod(getter);
+
+            var createMethod = typeBuilder.DefineMethod(
+                $"__nsharpCreateJsonTypeInfo_{propertyName}",
+                MethodAttributes.Private | MethodAttributes.HideBySig,
+                jsonTypeInfoType,
+                new[] { typeof(JsonSerializerOptions) });
+            var converter = DeclareJsonSerializableConverter(typeBuilder, targetType, propertyName);
+
+            _fields[GetFieldKey(typeBuilder, cacheField.Name)] = cacheField;
+            _methods[GetMethodKey(typeBuilder, $"get_{propertyName}")] = getter;
+            _methods[GetMethodKey(typeBuilder, createMethod.Name)] = createMethod;
+            serializableTypes.Add(new JsonSerializableTypeEmission(
+                targetType,
+                propertyName,
+                cacheField,
+                getter,
+                createMethod,
+                converter.Type,
+                converter.Constructor,
+                converter.ReadMethod,
+                converter.WriteMethod));
+        }
+
+        _jsonContextEmissions[classDecl] = new JsonContextEmission(
+            typeBuilder,
+            defaultField,
+            defaultOptionsField,
+            defaultConstructor,
+            optionsConstructor,
+            defaultGetter,
+            generatedOptionsGetter,
+            publicGetTypeInfo,
+            resolverGetTypeInfo,
+            serializableTypes);
     }
 
     private static bool IsNativeImportAttribute(AttributeNode attribute)
@@ -20560,9 +20864,13 @@ public partial class ILCompiler
 
         // Check if there's any constructor declared
         bool hasConstructor = classDecl.Members.Any(m => m is ConstructorDeclaration);
+        var hasGeneratedJsonContext = IsJsonSerializerContextClass(classDecl)
+            && GetJsonSerializableTargetTypes(classDecl).Count > 0;
 
         // If no constructor is declared, create a default parameterless constructor
-        if (!hasConstructor && (classDecl.PrimaryConstructorParameters == null || classDecl.PrimaryConstructorParameters.Count == 0))
+        if (!hasConstructor
+            && !hasGeneratedJsonContext
+            && (classDecl.PrimaryConstructorParameters == null || classDecl.PrimaryConstructorParameters.Count == 0))
         {
             var defaultCtor = typeBuilder.DefineConstructor(
                 MethodAttributes.Public,
@@ -20570,6 +20878,11 @@ public partial class ILCompiler
                 Type.EmptyTypes);
 
             _constructors[GetConstructorKey(typeBuilder)] = defaultCtor;
+        }
+
+        if (hasGeneratedJsonContext)
+        {
+            DeclareJsonSerializerContextMembers(classDecl, typeBuilder);
         }
 
         foreach (var member in classDecl.Members)
@@ -21155,6 +21468,493 @@ public partial class ILCompiler
         }
     }
 
+    private void EmitJsonSerializerContextBodies(ClassDeclaration classDecl)
+    {
+        if (!_jsonContextEmissions.TryGetValue(classDecl, out var emission))
+        {
+            return;
+        }
+
+        EmitJsonContextTypeInitializer(emission);
+        EmitJsonContextDefaultConstructor(emission);
+        EmitJsonContextOptionsConstructor(emission);
+        EmitJsonContextDefaultGetter(emission);
+        EmitJsonContextGeneratedOptionsGetter(emission);
+        EmitJsonContextPublicGetTypeInfo(emission);
+        EmitJsonContextResolverGetTypeInfo(emission);
+
+        foreach (var serializableType in emission.SerializableTypes)
+        {
+            EmitJsonContextTypeInfoGetter(emission, serializableType);
+            EmitJsonContextTypeInfoFactory(emission, serializableType);
+            EmitJsonConverterBodies(serializableType);
+        }
+    }
+
+    private static ConstructorInfo GetJsonSerializerContextOptionsConstructor()
+        => typeof(JsonSerializerContext).GetConstructor(
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            binder: null,
+            new[] { typeof(JsonSerializerOptions) },
+            modifiers: null)
+        ?? throw new InvalidOperationException("Could not resolve JsonSerializerContext(JsonSerializerOptions).");
+
+    private static void EmitJsonContextTypeInitializer(JsonContextEmission emission)
+    {
+        var il = emission.ContextType.DefineTypeInitializer().GetILGenerator();
+        var optionsCtor = typeof(JsonSerializerOptions).GetConstructor(Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve JsonSerializerOptions().");
+
+        il.Emit(OpCodes.Newobj, optionsCtor);
+        il.Emit(OpCodes.Stsfld, emission.DefaultOptionsField);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitJsonContextDefaultConstructor(JsonContextEmission emission)
+    {
+        var il = emission.DefaultConstructor.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Call, GetJsonSerializerContextOptionsConstructor());
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitJsonContextOptionsConstructor(JsonContextEmission emission)
+    {
+        var il = emission.OptionsConstructor.GetILGenerator();
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Call, GetJsonSerializerContextOptionsConstructor());
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitJsonContextDefaultGetter(JsonContextEmission emission)
+    {
+        var il = emission.DefaultGetter.GetILGenerator();
+        var returnCached = il.DefineLabel();
+        var optionsCopyCtor = typeof(JsonSerializerOptions).GetConstructor(new[] { typeof(JsonSerializerOptions) })
+            ?? throw new InvalidOperationException("Could not resolve JsonSerializerOptions(JsonSerializerOptions).");
+
+        il.Emit(OpCodes.Ldsfld, emission.DefaultField);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Brtrue_S, returnCached);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ldsfld, emission.DefaultOptionsField);
+        il.Emit(OpCodes.Newobj, optionsCopyCtor);
+        il.Emit(OpCodes.Newobj, emission.OptionsConstructor);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Stsfld, emission.DefaultField);
+        il.MarkLabel(returnCached);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitJsonContextGeneratedOptionsGetter(JsonContextEmission emission)
+    {
+        var il = emission.GeneratedOptionsGetter.GetILGenerator();
+        il.Emit(OpCodes.Ldsfld, emission.DefaultOptionsField);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitJsonContextPublicGetTypeInfo(JsonContextEmission emission)
+    {
+        var il = emission.PublicGetTypeInfo.GetILGenerator();
+        var typeInfoLocal = il.DeclareLocal(typeof(JsonTypeInfo));
+        var optionsGetter = typeof(JsonSerializerContext).GetProperty(nameof(JsonSerializerContext.Options))?.GetMethod
+            ?? throw new InvalidOperationException("Could not resolve JsonSerializerContext.Options.");
+        var tryGetTypeInfo = typeof(JsonSerializerOptions).GetMethod(
+            nameof(JsonSerializerOptions.TryGetTypeInfo),
+            new[] { typeof(Type), typeof(JsonTypeInfo).MakeByRefType() })
+            ?? throw new InvalidOperationException("Could not resolve JsonSerializerOptions.TryGetTypeInfo(Type, out JsonTypeInfo).");
+
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, optionsGetter);
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldloca_S, typeInfoLocal);
+        il.Emit(OpCodes.Callvirt, tryGetTypeInfo);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ldloc, typeInfoLocal);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private void EmitJsonContextResolverGetTypeInfo(JsonContextEmission emission)
+    {
+        var il = emission.ResolverGetTypeInfo.GetILGenerator();
+        var end = il.DefineLabel();
+        var resultLocal = il.DeclareLocal(typeof(JsonTypeInfo));
+
+        foreach (var serializableType in emission.SerializableTypes)
+        {
+            var next = il.DefineLabel();
+            EmitTypeEqualityCheck(il, serializableType.TargetType, next);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldarg_2);
+            il.Emit(OpCodes.Call, serializableType.CreateMethod);
+            il.Emit(OpCodes.Stloc, resultLocal);
+            il.Emit(OpCodes.Br, end);
+            il.MarkLabel(next);
+        }
+
+        foreach (var primitiveType in GetJsonContextPrimitiveTypes(emission).Distinct())
+        {
+            var next = il.DefineLabel();
+            EmitTypeEqualityCheck(il, primitiveType, next);
+            EmitJsonPrimitiveTypeInfo(il, primitiveType);
+            il.Emit(OpCodes.Stloc, resultLocal);
+            il.Emit(OpCodes.Br, end);
+            il.MarkLabel(next);
+        }
+
+        il.Emit(OpCodes.Ldnull);
+        il.Emit(OpCodes.Stloc, resultLocal);
+        il.MarkLabel(end);
+        il.Emit(OpCodes.Ldloc, resultLocal);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private IEnumerable<Type> GetJsonContextPrimitiveTypes(JsonContextEmission emission)
+    {
+        foreach (var serializableType in emission.SerializableTypes)
+        {
+            foreach (var member in GetJsonSerializableMembers(serializableType.TargetType))
+            {
+                if (TryGetJsonMetadataServicesConverterProperty(member.Type, out _))
+                {
+                    yield return member.Type;
+                }
+            }
+        }
+    }
+
+    private static void EmitTypeEqualityCheck(ILGenerator il, Type targetType, Label notEqualLabel)
+    {
+        var typeEquality = typeof(Type).GetMethod("op_Equality", new[] { typeof(Type), typeof(Type) })
+            ?? throw new InvalidOperationException("Could not resolve Type.op_Equality.");
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldtoken, targetType);
+        il.Emit(OpCodes.Call, typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle))!);
+        il.Emit(OpCodes.Call, typeEquality);
+        il.Emit(OpCodes.Brfalse, notEqualLabel);
+    }
+
+    private static void EmitJsonPrimitiveTypeInfo(ILGenerator il, Type primitiveType)
+    {
+        if (!TryGetJsonMetadataServicesConverterProperty(primitiveType, out var converterProperty))
+        {
+            throw new InvalidOperationException($"No System.Text.Json metadata converter is available for {primitiveType}.");
+        }
+
+        var createValueInfo = typeof(JsonMetadataServices).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(method => method.Name == nameof(JsonMetadataServices.CreateValueInfo)
+                              && method.IsGenericMethodDefinition
+                              && method.GetParameters().Length == 2)
+            .MakeGenericMethod(primitiveType);
+
+        il.Emit(OpCodes.Ldarg_2);
+        il.Emit(OpCodes.Call, converterProperty.GetMethod!);
+        il.Emit(OpCodes.Call, createValueInfo);
+    }
+
+    private static bool TryGetJsonMetadataServicesConverterProperty(Type type, out PropertyInfo property)
+    {
+        var propertyName = type switch
+        {
+            _ when type == typeof(string) => "StringConverter",
+            _ when type == typeof(bool) => "BooleanConverter",
+            _ when type == typeof(byte) => "ByteConverter",
+            _ when type == typeof(sbyte) => "SByteConverter",
+            _ when type == typeof(short) => "Int16Converter",
+            _ when type == typeof(ushort) => "UInt16Converter",
+            _ when type == typeof(int) => "Int32Converter",
+            _ when type == typeof(uint) => "UInt32Converter",
+            _ when type == typeof(long) => "Int64Converter",
+            _ when type == typeof(ulong) => "UInt64Converter",
+            _ when type == typeof(float) => "SingleConverter",
+            _ when type == typeof(double) => "DoubleConverter",
+            _ when type == typeof(decimal) => "DecimalConverter",
+            _ => null
+        };
+
+        property = propertyName == null
+            ? null!
+            : typeof(JsonMetadataServices).GetProperty(propertyName, BindingFlags.Public | BindingFlags.Static)!;
+        return property != null;
+    }
+
+    private static void EmitJsonContextTypeInfoGetter(JsonContextEmission emission, JsonSerializableTypeEmission serializableType)
+    {
+        var il = serializableType.Getter.GetILGenerator();
+        var returnCached = il.DefineLabel();
+        var typeInfoLocal = il.DeclareLocal(serializableType.CacheField.FieldType);
+        var optionsGetter = typeof(JsonSerializerContext).GetProperty(nameof(JsonSerializerContext.Options))?.GetMethod
+            ?? throw new InvalidOperationException("Could not resolve JsonSerializerContext.Options.");
+        var getTypeInfo = typeof(JsonSerializerOptions).GetMethod(
+            nameof(JsonSerializerOptions.GetTypeInfo),
+            new[] { typeof(Type) })
+            ?? throw new InvalidOperationException("Could not resolve JsonSerializerOptions.GetTypeInfo(Type).");
+
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldfld, serializableType.CacheField);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Brtrue_S, returnCached);
+        il.Emit(OpCodes.Pop);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, optionsGetter);
+        il.Emit(OpCodes.Ldtoken, serializableType.TargetType);
+        il.Emit(OpCodes.Call, typeof(Type).GetMethod(nameof(Type.GetTypeFromHandle))!);
+        il.Emit(OpCodes.Callvirt, getTypeInfo);
+        il.Emit(OpCodes.Castclass, serializableType.CacheField.FieldType);
+        il.Emit(OpCodes.Stloc, typeInfoLocal);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Ldloc, typeInfoLocal);
+        il.Emit(OpCodes.Stfld, serializableType.CacheField);
+        il.Emit(OpCodes.Ldloc, typeInfoLocal);
+        il.MarkLabel(returnCached);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitJsonContextTypeInfoFactory(JsonContextEmission emission, JsonSerializableTypeEmission serializableType)
+    {
+        var il = serializableType.CreateMethod.GetILGenerator();
+        var createValueInfo = typeof(JsonMetadataServices).GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Single(method => method.Name == nameof(JsonMetadataServices.CreateValueInfo)
+                              && method.IsGenericMethodDefinition
+                              && method.GetParameters().Length == 2)
+            .MakeGenericMethod(serializableType.TargetType);
+        var setOriginatingResolver = typeof(JsonTypeInfo).GetProperty(nameof(JsonTypeInfo.OriginatingResolver))?.SetMethod
+            ?? throw new InvalidOperationException("Could not resolve JsonTypeInfo.OriginatingResolver setter.");
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Newobj, serializableType.ConverterConstructor);
+        il.Emit(OpCodes.Call, createValueInfo);
+        il.Emit(OpCodes.Dup);
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Callvirt, setOriginatingResolver);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private void EmitJsonConverterBodies(JsonSerializableTypeEmission serializableType)
+    {
+        EmitJsonConverterConstructor(serializableType);
+        EmitJsonConverterRead(serializableType);
+        EmitJsonConverterWrite(serializableType);
+    }
+
+    private static void EmitJsonConverterConstructor(JsonSerializableTypeEmission serializableType)
+    {
+        var il = serializableType.ConverterConstructor.GetILGenerator();
+        var converterBaseType = typeof(JsonConverter<>).MakeGenericType(serializableType.TargetType);
+        var openBaseConstructor = typeof(JsonConverter<>).GetConstructor(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+                binder: null,
+                Type.EmptyTypes,
+                modifiers: null)
+            ?? throw new InvalidOperationException("Could not resolve JsonConverter<T>().");
+        var baseConstructor = TypeBuilder.GetConstructor(converterBaseType, openBaseConstructor);
+
+        il.Emit(OpCodes.Ldarg_0);
+        il.Emit(OpCodes.Call, baseConstructor);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static void EmitJsonConverterRead(JsonSerializableTypeEmission serializableType)
+    {
+        var il = serializableType.ConverterReadMethod.GetILGenerator();
+        var exceptionConstructor = typeof(NotSupportedException).GetConstructor(new[] { typeof(string) })
+            ?? throw new InvalidOperationException("Could not resolve NotSupportedException(string).");
+
+        il.Emit(OpCodes.Ldstr, "Generated N# JSON contexts currently support serialization only.");
+        il.Emit(OpCodes.Newobj, exceptionConstructor);
+        il.Emit(OpCodes.Throw);
+    }
+
+    private void EmitJsonConverterWrite(JsonSerializableTypeEmission serializableType)
+    {
+        var il = serializableType.ConverterWriteMethod.GetILGenerator();
+        var writeNullValue = typeof(Utf8JsonWriter).GetMethod(nameof(Utf8JsonWriter.WriteNullValue), Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve Utf8JsonWriter.WriteNullValue().");
+        var writeStartObject = typeof(Utf8JsonWriter).GetMethod(nameof(Utf8JsonWriter.WriteStartObject), Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve Utf8JsonWriter.WriteStartObject().");
+        var writeEndObject = typeof(Utf8JsonWriter).GetMethod(nameof(Utf8JsonWriter.WriteEndObject), Type.EmptyTypes)
+            ?? throw new InvalidOperationException("Could not resolve Utf8JsonWriter.WriteEndObject().");
+        var isValueType = IsJsonSerializableValueType(serializableType.TargetType);
+
+        if (!isValueType)
+        {
+            var hasValue = il.DefineLabel();
+            il.Emit(OpCodes.Ldarg_2);
+            il.Emit(OpCodes.Brtrue_S, hasValue);
+            il.Emit(OpCodes.Ldarg_1);
+            il.Emit(OpCodes.Callvirt, writeNullValue);
+            il.Emit(OpCodes.Ret);
+            il.MarkLabel(hasValue);
+        }
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Callvirt, writeStartObject);
+
+        foreach (var member in GetJsonSerializableMembers(serializableType.TargetType))
+        {
+            EmitJsonWriteMember(il, member);
+        }
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Callvirt, writeEndObject);
+        il.Emit(OpCodes.Ret);
+    }
+
+    private static bool IsJsonSerializableValueType(Type type)
+    {
+        try
+        {
+            return type.IsValueType;
+        }
+        catch (NotSupportedException)
+        {
+            return type is TypeBuilder { BaseType: { } baseType }
+                && (baseType == typeof(ValueType) || baseType == typeof(Enum));
+        }
+    }
+
+    private void EmitJsonWriteMember(ILGenerator il, JsonSerializableMember member)
+    {
+        var writeMethod = ResolveUtf8JsonWriterMemberMethod(member.Type)
+            ?? throw new InvalidOperationException(
+                $"Generated JSON serialization for member '{member.Name}' of type '{member.Type}' is not supported yet.");
+
+        il.Emit(OpCodes.Ldarg_1);
+        il.Emit(OpCodes.Ldstr, member.Name);
+        il.Emit(OpCodes.Ldarg_2);
+        if (member.Getter != null)
+        {
+            il.Emit(OpCodes.Callvirt, member.Getter);
+        }
+        else if (member.Field != null)
+        {
+            il.Emit(OpCodes.Ldfld, member.Field);
+        }
+        else
+        {
+            throw new InvalidOperationException($"Generated JSON member '{member.Name}' has no getter or field.");
+        }
+
+        il.Emit(OpCodes.Callvirt, writeMethod);
+    }
+
+    private static MethodInfo? ResolveUtf8JsonWriterMemberMethod(Type memberType)
+    {
+        var methodName = memberType == typeof(bool)
+            ? nameof(Utf8JsonWriter.WriteBoolean)
+            : memberType == typeof(string)
+                ? nameof(Utf8JsonWriter.WriteString)
+                : IsJsonNumberType(memberType)
+                    ? nameof(Utf8JsonWriter.WriteNumber)
+                    : null;
+        return methodName == null
+            ? null
+            : typeof(Utf8JsonWriter).GetMethod(methodName, new[] { typeof(string), memberType });
+    }
+
+    private static bool IsJsonNumberType(Type type)
+        => type == typeof(byte)
+           || type == typeof(sbyte)
+           || type == typeof(short)
+           || type == typeof(ushort)
+           || type == typeof(int)
+           || type == typeof(uint)
+           || type == typeof(long)
+           || type == typeof(ulong)
+           || type == typeof(float)
+           || type == typeof(double)
+           || type == typeof(decimal);
+
+    private IReadOnlyList<JsonSerializableMember> GetJsonSerializableMembers(Type targetType)
+    {
+        if (!TryGetUserTypeDefinition(targetType, out var typeBuilder)
+            || !TryGetDeclaredTypeInfo(GetTypeKey(typeBuilder), out var declaredType))
+        {
+            throw new InvalidOperationException(
+                $"Generated JSON serialization currently supports N# record/class/struct targets; '{targetType}' is not a declared N# type.");
+        }
+
+        return declaredType.Declaration switch
+        {
+            RecordDeclaration recordDecl => GetJsonSerializableRecordMembers(typeBuilder, recordDecl),
+            ClassDeclaration classDecl => GetJsonSerializableNominalMembers(typeBuilder, classDecl.Members, FieldOwnerKind.Class),
+            StructDeclaration structDecl => GetJsonSerializableNominalMembers(typeBuilder, structDecl.Members, FieldOwnerKind.Struct),
+            _ => throw new InvalidOperationException(
+                $"Generated JSON serialization currently supports records, classes, and structs; '{GetTypeKey(typeBuilder)}' is a {declaredType.Declaration.GetType().Name}.")
+        };
+    }
+
+    private IReadOnlyList<JsonSerializableMember> GetJsonSerializableRecordMembers(TypeBuilder typeBuilder, RecordDeclaration recordDecl)
+    {
+        var members = new List<JsonSerializableMember>();
+        if (recordDecl.PrimaryConstructorParameters != null)
+        {
+            foreach (var parameter in recordDecl.PrimaryConstructorParameters)
+            {
+                var getterKey = GetMethodKey(typeBuilder, $"get_{parameter.Name}");
+                if (!_methods.TryGetValue(getterKey, out var getter))
+                {
+                    throw new InvalidOperationException($"Generated JSON serialization could not find getter for record member '{parameter.Name}'.");
+                }
+
+                members.Add(new JsonSerializableMember(parameter.Name, ResolveType(parameter.Type, GetTypeGenericParameters(typeBuilder)), getter, null));
+            }
+        }
+
+        members.AddRange(GetJsonSerializableNominalMembers(typeBuilder, recordDecl.Members, FieldOwnerKind.Record));
+        return members;
+    }
+
+    private IReadOnlyList<JsonSerializableMember> GetJsonSerializableNominalMembers(
+        TypeBuilder typeBuilder,
+        IEnumerable<Declaration> declarations,
+        FieldOwnerKind ownerKind)
+    {
+        var members = new List<JsonSerializableMember>();
+        foreach (var declaration in declarations)
+        {
+            switch (declaration)
+            {
+                case FieldDeclaration fieldDecl when VisibilityConventions.IsExportedIdentifier(fieldDecl.Name, fieldDecl.Modifiers):
+                {
+                    var type = fieldDecl.Type != null
+                        ? ResolveType(fieldDecl.Type, GetTypeGenericParameters(typeBuilder))
+                        : ResolveFieldDeclarationType(fieldDecl, typeBuilder);
+                    MethodInfo? getter = null;
+                    FieldInfo? field = null;
+                    if (GetFieldEmission(fieldDecl, ownerKind).EmitsAsAutoProperty)
+                    {
+                        _methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{fieldDecl.Name}"), out var getterBuilder);
+                        getter = getterBuilder;
+                    }
+                    else
+                    {
+                        _fields.TryGetValue(GetFieldKey(typeBuilder, fieldDecl.Name), out var fieldBuilder);
+                        field = fieldBuilder;
+                    }
+
+                    members.Add(new JsonSerializableMember(fieldDecl.Name, type, getter, field));
+                    break;
+                }
+                case PropertyDeclaration propDecl when VisibilityConventions.IsExportedIdentifier(propDecl.Name, propDecl.Modifiers):
+                {
+                    _methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{propDecl.Name}"), out var getterBuilder);
+                    members.Add(new JsonSerializableMember(
+                        propDecl.Name,
+                        ResolveType(propDecl.Type, GetTypeGenericParameters(typeBuilder)),
+                        getterBuilder,
+                        null));
+                    break;
+                }
+            }
+        }
+
+        return members;
+    }
+
     /// <summary>
     /// Emit class method bodies (third pass)
     /// </summary>
@@ -21172,7 +21972,11 @@ public partial class ILCompiler
         bool hasConstructor = classDecl.Members.Any(m => m is ConstructorDeclaration);
 
         // If no constructor was declared, emit the synthesized constructor body
-        if (!hasConstructor && classDecl.PrimaryConstructorParameters != null && classDecl.PrimaryConstructorParameters.Count > 0)
+        if (_jsonContextEmissions.ContainsKey(classDecl))
+        {
+            EmitJsonSerializerContextBodies(classDecl);
+        }
+        else if (!hasConstructor && classDecl.PrimaryConstructorParameters != null && classDecl.PrimaryConstructorParameters.Count > 0)
         {
             EmitPrimaryConstructorBody(typeBuilder, classDecl.PrimaryConstructorParameters, isValueType: false, classDecl.Members);
         }

@@ -9,8 +9,8 @@ The implementation covers a meaningful executable slice of the v1 product
 surface as an enforceable policy lane, but it does not cover the whole proposal.
 Systems N# currently proves source-level and summarized hot-path effects for the
 compiler fixtures and CLI gates listed below. It does not prove process-wide
-pause freedom, native-image emission, arbitrary third-party package safety,
-data-race freedom, or every design proof project in the use-case appendix.
+pause freedom, native-image emission, arbitrary third-party package safety, or
+data-race freedom.
 
 ## Concrete Coverage Added
 
@@ -39,16 +39,17 @@ data-race freedom, or every design proof project in the use-case appendix.
 - Acceptance gauntlet fixtures under `tests/fixtures/systems-gauntlet/` with
   source, systems JSON golden, human diagnostic golden, perf-report golden, and
   C# interop notes for the ten executable v1 scenarios.
-- Executable proof projects 24-27, 29-46, and 48 now cover the zero-copy span
+- Executable proof projects 24-48 now cover the zero-copy span
   reader, trusted memory copy, native import surfaces, generated-regex boundary
-  parsing, cold failure logging, hot metrics, cache prewarm, pool/resource
-  handoff, async boundary IO, dictionary setup with hot reads, fixed-capacity
-  maps, constrained generic sortable records, hot-compatible extension
-  pipelines, C# hot parser ABI, structured error values, AOT/Mono-WASM target
-  analysis, CI allocation gates, trusted-audit queries, database boundary
-  adapters, and effect drift through `nlc check --systems-report`, `nlc build
-  --perf-report`, plus the extra run, IL-shape, native-import, query, and C#
-  consumer gates listed in the proof audit.
+  parsing, source-generated JSON contexts, cold failure logging, hot metrics,
+  cache prewarm, pool/resource handoff, async boundary IO, dictionary setup with
+  hot reads, fixed-capacity maps, constrained generic sortable records,
+  hot-compatible extension pipelines, C# hot parser ABI, structured error
+  values, AOT/Mono-WASM target analysis, CLI startup honesty, CI allocation
+  gates, trusted-audit queries, database boundary adapters, and effect drift
+  through `nlc check --systems-report`, `nlc build --perf-report`, plus the
+  extra run, IL/reflection-shape, native-import, query, and C# consumer gates
+  listed in the proof audit.
 - Proof 40 additionally has a real C# `ProjectReference` consumer gate covering
   minimal N# SDK projects, `project.yml` assembly/version identity, the
   `Result<T,E>` runtime ABI, and a `ReadOnlySpan<byte>` parser API.
@@ -61,9 +62,9 @@ data-race freedom, or every design proof project in the use-case appendix.
   hard 1.00 ratio against matched C# baselines.
   Current command evidence is recorded in
   `docs/audits/systems-nsharp-verification-summary.md`.
-- A proof-project audit for the design-only projects under
-  `docs/design/systems-samples/proofs/`, explicitly recording that they are not
-  passing executable evidence yet.
+- A proof-project audit for all projects under
+  `docs/design/systems-samples/proofs/`, explicitly recording the executable
+  evidence that each proof may cite.
 
 ## Remaining Hard Edges
 
@@ -81,9 +82,10 @@ data-race freedom, or every design proof project in the use-case appendix.
 5. The acceptance gauntlet is intentionally source/analyzer focused. Broader
    C# ABI matrices, full NativeAOT, and source-generator deployment projects
    should become separate preview gates as those surfaces mature.
-6. Remaining design-only proof projects are explicitly tracked in
-   `docs/audits/systems-proof-project-audit.md`; only rows marked
-   `executable` are current compiler evidence.
+6. Proof-project claims remain narrow: `docs/audits/systems-proof-project-audit.md`
+   records the exact check/build/run/shape gates each executable proof may cite,
+   and NativeAOT rows do not claim native image emission until a publish gate
+   exists.
 
 ## Adversarial Smoke Cases
 

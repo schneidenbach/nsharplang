@@ -1,14 +1,13 @@
 # Systems Proof Project Audit
 
 Date: 2026-06-02
-Status: mixed executable proof report and compiler audit
+Status: executable proof report and compiler audit
 
-The projects under `docs/design/systems-samples/proofs/` are design proof inputs
-for use cases 24-48 in `docs/design/systems-nsharp.md`. Only projects marked
-`executable` below are current compiler evidence, and only for the listed gates.
-Projects marked `design-only` must not be cited as passing implementation
-evidence until migrated and verified by `nlc check --systems-report`,
-`nlc build --perf-report`, and any required interop/AOT gate.
+The projects under `docs/design/systems-samples/proofs/` are executable proof
+inputs for use cases 24-48 in `docs/design/systems-nsharp.md`. They are current
+compiler evidence only for the listed gates. Native image emission is still not
+claimed by any row unless the row explicitly says so; NativeAOT rows currently
+prove analysis/build/runtime behavior and keep `nativeImageEmitted=false`.
 
 Current audit command shape:
 
@@ -24,7 +23,7 @@ Current status summary from the 2026-06-02 audit:
 | `25-trusted-memory-copy` | executable | passes, 0 errors, 0 warnings | passes `nlc build --perf-report`; no allocation, boxing, dispatch, trap, hot-readiness, or AOT blockers; reports trusted site | emitted assembly runs with copied runtime asset; passes `nlc query trusted`; hot `CopyExact` uses governed `Buffer.MemoryCopy` through `Span<T>.ptr`/`ReadOnlySpan<T>.ptr` | Broader pointer syntax remains intentionally narrow; v1 only supports span `.ptr` for trusted memory-copy wrappers. |
 | `26-native-device-handle` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no allocation, dispatch, trap, or AOT blockers | native `LibraryImport` declarations emit no managed body; direct IL verification passes | Portable execution is not claimed because native library resolution is platform/deployment-specific. |
 | `27-c-library-cli` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no allocation, trap, dispatch, or AOT blockers | native `LibraryImport` declaration emits no managed body; direct IL verification passes | Real native library execution and NativeAOT publish remain external deployment proofs. |
-| `28-nativeaot-json-cli` | design-only | 7 errors, 3 warnings | missing | native image deferred | NativeAOT publish proof is analysis-only; sample syntax is not current. |
+| `28-nativeaot-json-cli` | executable | passes, 0 errors, 6 warnings | passes `nlc build --perf-report`; reports three reviewed boundary allocation sites and no delegate, boxing, dispatch, closure, boundary leak, trap, hot-readiness, or AOT blockers | emitted assembly runs with copied runtime asset and prints `{"Input":"input.txt","Verbose":true}`; proof test verifies generated `JsonSerializerContext.Default`, `CliOptions` `JsonTypeInfo<T>` property, generated converter shape, and `aot.analysis=pass`/`trimSafe=true` | NativeAOT native image emission remains a deployment proof; current evidence is IL-backend source-generated JSON context support plus AOT/trim analysis. |
 | `29-generated-regex-boundary` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports one boundary allocation in `ParseRoute` and no delegate, boxing, dispatch, closure, boundary leak, trap, hot-readiness, or AOT blockers | emitted assembly runs with copied runtime asset; proof test verifies the `RouteRegex` factory preserves `[GeneratedRegex]`, returns a cached `Regex`, and accepts/rejects the expected routes | Current evidence is an IL-backend generated-regex factory, not a NativeAOT native image or full arbitrary .NET source-generator execution pipeline. |
 | `30-cold-failure-logging` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports one boundary allocation in `LogColdFailure` and no delegate, boxing, dispatch, trap, hot-readiness, or AOT blockers | emitted assembly runs with copied runtime asset; direct IL verification passes; hot `ParseMagic` stays allocation-free while boundary `ParseWithColdLogging` logs only after an error | The logger uses a generic message because interpolated-string holes are not currently counted as parameter reads by unused-parameter diagnostics; richer diagnostic-detail logging remains follow-up polish. |
 | `31-hot-metrics` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; no allocation, trap, or AOT blockers | hot metrics proof covers `Interlocked.Increment` on byref struct fields | Console output remains a known non-hot warning in `Main`. |
@@ -43,11 +42,11 @@ Current status summary from the 2026-06-02 audit:
 | `44-ci-allocation-gate` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports boundary allocation and no AOT blockers | fast Systems BenchmarkDotNet gate covers allocation/perf CI enforcement; detailed matrix remains explicit deep mode | No native image proof required for this use case. |
 | `45-trusted-audit` | executable | passes, 0 errors, 0 warnings | passes `nlc build --perf-report`; reports trusted site | passes `nlc query trusted` with owner/review/expiry/unsafe metadata | Broader unsafe-wrapper projects still pending. |
 | `46-dapper-boundary` | executable | passes, 0 errors, 2 warnings | passes `nlc build --perf-report`; reports two boundary allocation sites and no delegate, boxing, dispatch, boundary leak, trap, hot-readiness, or AOT blockers | emitted assembly runs with copied runtime asset | Direct proof uses a self-contained database-adapter boundary; real Dapper/EF NuGet execution remains external package interop work. |
-| `47-cli-startup-honesty` | design-only | 12 errors, 4 warnings | missing | native image deferred | Startup/AOT/readiness proof is broader than current implementation. |
+| `47-cli-startup-honesty` | executable | passes, 0 errors, 5 warnings | passes `nlc build --perf-report`; reports four reviewed boundary allocation sites and no delegate, boxing, dispatch, closure, boundary leak, trap, hot-readiness, or AOT blockers | emitted assembly runs with copied runtime asset and prints `{"Ready":true,"Mode":"run"}`; proof test verifies warmup registration plus generated `StartupJsonContext` `JsonTypeInfo<T>`/converter shape and `aot.analysis=pass`/`trimSafe=true` | Native image startup timing is not claimed yet; current evidence keeps CLI startup costs visible through boundary allocation warnings and AOT/trim analysis. |
 | `48-effect-drift` | executable | passes, 0 errors, 1 warning | passes `nlc build --perf-report`; reports boundary allocation and no hot-readiness/trap/AOT blockers | source-inferred helper allocation drift is covered by an adversarial systems test | Broad external package identity drift proof remains deferred to sidecar/package coverage. |
 
 Executable Systems N# evidence currently lives in
-`tests/fixtures/systems-gauntlet/`, the executable proof projects listed above,
+`tests/fixtures/systems-gauntlet/`, the proof projects listed above,
 `tests/SystemsNSharpTests.cs`, the fast BenchmarkDotNet gate, and the detailed
 BenchmarkDotNet matrix mode in `benchmarks/Systems*Benchmarks.cs` enforced by
 `scripts/benchmark-systems.sh`.

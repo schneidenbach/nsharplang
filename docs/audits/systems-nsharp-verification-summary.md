@@ -42,21 +42,20 @@ Gate result:
 - Observed rows: 12
 - Allocation gate: every row reported `Allocated=0 B`
 - Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
-  against matched C# baselines. Recent passing runs after the
-  `HotResultCombinations` aggregate fix observed worst computed N# ratios below
-  the hard cap, with representative values `0.9792`, `0.9852`, `0.9863`,
-  `0.9894`, and `0.9910`.
+  against matched C# baselines. The recorded pre-commit isolated full gate after
+  generated JSON context proof promotion observed worst computed N# ratio
+  `0.9903`, below the hard cap.
 
-Worst throughput ratios from a representative passing run:
+Worst throughput ratios from that recorded passing isolated run:
 
 | Row | Mean | Ratio | Allocated |
 | --- | ---: | ---: | ---: |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 155.221 μs | 0.98 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.908 μs | 0.87 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.234 μs | 0.86 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.267 μs | 0.85 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 4.520 μs | 0.67 | 0 B |
-| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.027 μs | 0.43 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotResultCombinations]` | 156.362 μs | 0.99 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=CallerBuffers]` | 6.919 μs | 0.87 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=SpanHandoff]` | 7.316 μs | 0.86 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=ResultAbi]` | 8.298 μs | 0.84 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=PooledBoundary]` | 4.566 μs | 0.66 | 0 B |
+| `SystemsFastGateBenchmarks.NSharp [Scenario=HotLoops]` | 5.139 μs | 0.42 | 0 B |
 
 Regression addressed in this wave:
 
@@ -114,16 +113,18 @@ Proof-promotion command:
 
 ```bash
 dotnet test tests/Tests.csproj \
-  --filter "FullyQualifiedName~AnalyzerTests.GeneratedRegex|FullyQualifiedName~SystemsNSharpTests.SystemsProofProjects_AreDesignOnlyAndCoveredByAudit|FullyQualifiedName~SystemsNSharpTests.ExecutableSystemsProofProjects" \
+  --filter "FullyQualifiedName~AnalyzerTests.GeneratedRegex|FullyQualifiedName~SystemsNSharpTests.SystemsProofProjects_AreExecutableAndCoveredByAudit|FullyQualifiedName~SystemsNSharpTests.ExecutableSystemsProofProjects" \
   --no-restore -v q --nologo
 ```
 
-Result: passed, 5/5 tests, 18s reported test duration.
+Result: focused proof/docs/JSON slice passed, 3/3 tests, 17.98s reported test
+duration after the numeric JSON writer assertion was added.
 
 Coverage:
 
-- Executable systems proof projects now include proofs 24-27, proof 29,
-  proofs 30-46, and proof 48. Proofs 28 and 47 remain design-only.
+- Executable systems proof projects now include proofs 24-48. Proofs 28 and 47
+  are executable JSON-context/AOT-analysis proofs; native image publication is
+  still not claimed.
 - Proof 26 covers native `LibraryImport` declarations for open/close handles.
   Check/build pass with one expected boundary console warning, the perf report
   emits no sites, the emitted native methods have no managed body, and direct
@@ -139,6 +140,13 @@ Coverage:
   preserved `[GeneratedRegex]` metadata plus cached `Regex` factory behavior.
   This is IL-backend generated-regex evidence, not a NativeAOT native image or a
   full arbitrary source-generator execution claim.
+- Proof 28 covers a NativeAOT-targeted JSON CLI: `nlc check --systems-report`
+  passes with six reviewed boundary warnings, `nlc build --perf-report` reports
+  three boundary allocations and no delegate, boxing, dispatch, closure,
+  boundary-leak, trap, hot-readiness, or AOT blocker sites, the emitted assembly
+  prints `{"Input":"input.txt","Verbose":true}`, and the proof test verifies the
+  generated `JsonSerializerContext.Default`, `JsonTypeInfo<T>` property,
+  converter shape, and `aot.analysis=pass`/`trimSafe=true`.
 - Proof 30 covers an allocation-free hot parser plus a boundary cold-failure
   logger. The perf report intentionally records one allocation site in
   `LogColdFailure`; the emitted assembly runs and verifies cleanly with
@@ -175,6 +183,13 @@ Coverage:
   records the two boundary allocation sites and has no delegate, boxing,
   dispatch, boundary leak, trap, hot-readiness, or AOT blockers. Real Dapper/EF
   NuGet execution remains external package interop work.
+- Proof 47 covers CLI startup honesty with source-generated JSON:
+  `nlc check --systems-report` passes with five reviewed boundary warnings,
+  `nlc build --perf-report` reports four boundary allocations and no delegate,
+  boxing, dispatch, closure, boundary-leak, trap, hot-readiness, or AOT blocker
+  sites, warmup registration is present, the emitted assembly prints
+  `{"Ready":true,"Mode":"run"}`, and the proof test verifies generated
+  `StartupJsonContext` shape plus `aot.analysis=pass`/`trimSafe=true`.
 - Proof 41 was rebuilt, run, and directly IL-verified after the enum metadata
   fix to keep generated-struct `Result<T,E>` access covered.
 - Proof 42 covers a NativeAOT-targeted public API report: `nlc check
@@ -216,30 +231,28 @@ Result: passed.
 
 Highlights:
 
-- Unit tests: passed, 3323/3323.
+- Unit tests: passed, 3324/3324.
 - Systems BenchmarkDotNet gate: passed, 12 rows, all `0 B`, worst ratio `0.99`
-  and worst computed ratio below the hard `1.00` cap (`0.9894`-`0.9910` in
-  fresh passing full gates after proof 29 promotion).
+  and worst computed ratio `0.9903`, below the hard `1.00` cap.
 - VS Code smoke tests: passed, 40/40.
 - C# interop tests: passed, 31/31.
 - Template creation/build, example builds/checks, and IL verification: passed.
 - IL verification: passed, 84/84 N# assemblies.
-- Fresh isolated run duration: `4m17s`-`4m27s` in fresh passing gates after the
-  benchmark, full-suite throughput, generated-regex proof, and build-path
-  duplicate-pass fixes.
-- Timing from recent passing isolated runs: BenchmarkDotNet `1m12s`-`1m23s`,
-  unit tests `1m04s`-`1m16s`, VS Code smoke `45s`-`55s`, IL verification
-  `24s`-`25s`; all other full-gate steps were single-digit seconds.
+- Fresh isolated run duration: `4m20s` after generated JSON context proof
+  promotion.
+- Timing from the recorded pre-commit isolated run: BenchmarkDotNet `1m17s`,
+  unit tests `1m14s`, VS Code smoke `53s`, IL verification `25s`; all other
+  full-gate steps were single-digit seconds.
 
 Measured slow stages from the passing run:
 
 | Stage | Duration |
 | --- | ---: |
-| Systems BenchmarkDotNet gate | 1m 20s-1m 22s |
-| Unit tests | 1m 11s-1m 12s |
-| VS Code smoke tests | 0m 53s-0m 56s |
-| IL verification gate | 0m 24s-0m 25s |
-| Full isolated run | 4m 17s-4m 27s |
+| Systems BenchmarkDotNet gate | 1m 17s |
+| Unit tests | 1m 14s |
+| VS Code smoke tests | 0m 53s |
+| IL verification gate | 0m 25s |
+| Full isolated run | 4m 20s |
 
 Harness speedups landed in this wave:
 
@@ -266,7 +279,7 @@ Harness speedups landed in this wave:
   IL emission instead of reparsing every source file in a separate lint
   preflight.
 - The executable systems proof-matrix unit test remains intentionally slower
-  than ordinary analyzer tests because it builds 23 proof projects, checks perf
+  than ordinary analyzer tests because it builds 25 proof projects, checks perf
   reports, runs selected emitted assemblies, inspects IL/reflection shape, and
   validates one real C# project-reference consumer.
 

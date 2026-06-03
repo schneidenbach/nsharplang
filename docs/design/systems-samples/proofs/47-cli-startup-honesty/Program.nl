@@ -1,6 +1,5 @@
 namespace SystemsProofs.CliStartupHonesty
 
-import System
 import System.Text.Json
 import System.Text.Json.Serialization
 
@@ -16,13 +15,13 @@ partial class StartupJsonContext : JsonSerializerContext {
 [boundary]
 func Warmup() {
     _ = JsonSerializer.Serialize(
-        StartupReport { Ready: true, Mode: "warmup" },
+        new StartupReport { Ready: true, Mode: "warmup" },
         StartupJsonContext.Default.StartupReport)
 }
 
 [boundary]
 func Main() {
     Warmup()
-    report := StartupReport { Ready: true, Mode: "run" }
+    report := new StartupReport { Ready: true, Mode: "run" }
     print JsonSerializer.Serialize(report, StartupJsonContext.Default.StartupReport)
 }

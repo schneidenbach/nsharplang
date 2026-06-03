@@ -5,6 +5,8 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
 
@@ -5393,6 +5395,7 @@ public class Analyzer : IDisposable
         if (receiverType is ClassTypeInfo classType)
         {
             var members = GetDeclaredMemberNames(classType.Declaration.Members);
+            members.AddRange(GetJsonContextGeneratedMemberNames(classType.Declaration, includeStaticMembers));
             members.AddRange(GetPrimaryConstructorParameterNames(classType.Declaration.PrimaryConstructorParameters, includeStaticMembers));
             members.AddRange(GetSourceObjectMemberNames(includeStaticMembers));
             if (classType.Declaration.BaseClass != null)
@@ -5665,6 +5668,9 @@ public class Analyzer : IDisposable
         // Handle declared types
         if (objectType is ClassTypeInfo classType)
         {
+            if (TryResolveJsonContextGeneratedMember(classType, memberName, includeStaticMembers, out var jsonContextMember))
+                return jsonContextMember;
+
             var resolvedMember = ResolveDeclaredMember(classType.Declaration.Members, memberName);
             if (resolvedMember != null)
                 return resolvedMember;
@@ -5873,6 +5879,188 @@ public class Analyzer : IDisposable
             return new NSharpMethodGroupInfo(matchingFunctions);
 
         return null;
+    }
+
+    private bool TryResolveJsonContextGeneratedMember(
+        ClassTypeInfo classType,
+        string memberName,
+        bool includeStaticMembers,
+        out TypeInfo memberType)
+    {
+        memberType = BuiltInTypes.Unknown;
+        if (!IsJsonSerializerContextClass(classType.Declaration))
+        {
+            return false;
+        }
+
+        if (memberName == "Default")
+        {
+            memberType = classType;
+            return true;
+        }
+
+        if (!includeStaticMembers
+            && TryGetJsonSerializableTargetByPropertyName(classType.Declaration, memberName, out var targetType))
+        {
+            memberType = new GenericTypeInfo(
+                "JsonTypeInfo",
+                new List<TypeInfo> { targetType });
+            return true;
+        }
+
+        return false;
+    }
+
+    private IEnumerable<string> GetJsonContextGeneratedMemberNames(ClassDeclaration classDecl, bool includeStaticMembers)
+    {
+        if (!IsJsonSerializerContextClass(classDecl))
+        {
+            yield break;
+        }
+
+        if (includeStaticMembers)
+        {
+            yield return "Default";
+            yield break;
+        }
+
+        foreach (var (_, propertyName) in GetJsonSerializableTargets(classDecl))
+        {
+            yield return propertyName;
+        }
+    }
+
+    private bool IsJsonSerializerContextClass(ClassDeclaration classDecl)
+    {
+        if (classDecl.BaseClass == null)
+        {
+            return false;
+        }
+
+        var baseType = ResolveType(classDecl.BaseClass);
+        return baseType switch
+        {
+            ReflectionTypeInfo { Type: var reflectionType } =>
+                string.Equals(GetTypeFullNameOrName(reflectionType), typeof(JsonSerializerContext).FullName, StringComparison.Ordinal),
+            ExternalTypeInfo { Name: "JsonSerializerContext" or "System.Text.Json.Serialization.JsonSerializerContext" } => true,
+            SimpleTypeInfo { Name: "JsonSerializerContext" or "System.Text.Json.Serialization.JsonSerializerContext" } => true,
+            _ => baseType.ToString() is "JsonSerializerContext" or "System.Text.Json.Serialization.JsonSerializerContext"
+        };
+    }
+
+    private static string GetTypeFullNameOrName(Type type)
+    {
+        try
+        {
+            return type.FullName ?? type.Name;
+        }
+        catch (NotSupportedException)
+        {
+            return type.Name;
+        }
+    }
+
+    private static bool IsJsonTypeInfoGenericName(string name)
+        => name is "JsonTypeInfo" or "System.Text.Json.Serialization.Metadata.JsonTypeInfo";
+
+    private bool TryGetJsonSerializableTargetByPropertyName(
+        ClassDeclaration classDecl,
+        string propertyName,
+        out TypeInfo targetType)
+    {
+        foreach (var (candidateType, candidatePropertyName) in GetJsonSerializableTargets(classDecl))
+        {
+            if (candidatePropertyName == propertyName)
+            {
+                targetType = candidateType;
+                return true;
+            }
+        }
+
+        targetType = BuiltInTypes.Unknown;
+        return false;
+    }
+
+    private IEnumerable<(TypeInfo TargetType, string PropertyName)> GetJsonSerializableTargets(ClassDeclaration classDecl)
+    {
+        foreach (var attribute in classDecl.Attributes.Where(IsJsonSerializableAttribute))
+        {
+            foreach (var argument in attribute.Arguments)
+            {
+                var (name, value) = NormalizeAttributeArgument(argument);
+                if (name != null || value is not TypeOfExpression typeOfExpression)
+                {
+                    continue;
+                }
+
+                var targetType = ResolveType(typeOfExpression.Type);
+                yield return (targetType, GetJsonContextPropertyName(targetType));
+                break;
+            }
+        }
+    }
+
+    private static bool IsJsonSerializableAttribute(AttributeNode attribute)
+    {
+        var name = attribute.Name;
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+        {
+            name = name[(lastDot + 1)..];
+        }
+
+        if (name.EndsWith("Attribute", StringComparison.Ordinal))
+        {
+            name = name[..^"Attribute".Length];
+        }
+
+        return name == "JsonSerializable";
+    }
+
+    private static (string? Name, Expression Value) NormalizeAttributeArgument(Argument argument)
+    {
+        var argumentName = argument.Name;
+        var valueExpression = argument.Value;
+        if (argumentName == null
+            && valueExpression is AssignmentExpression assignmentExpression
+            && assignmentExpression.Target is IdentifierExpression identifierExpression)
+        {
+            argumentName = identifierExpression.Name;
+            valueExpression = assignmentExpression.Value;
+        }
+
+        return (argumentName, valueExpression);
+    }
+
+    private static string GetJsonContextPropertyName(TypeInfo type)
+    {
+        var name = type switch
+        {
+            ReflectionTypeInfo { Type: var reflectionType } => reflectionType.Name,
+            ClassTypeInfo { Declaration.Name: var className } => className,
+            StructTypeInfo { Declaration.Name: var structName } => structName,
+            RecordTypeInfo { Declaration.Name: var recordName } => recordName,
+            ExternalTypeInfo { Name: var externalName } => externalName,
+            SimpleTypeInfo { Name: var simpleName } => simpleName,
+            _ => type.ToString()
+        };
+
+        var lastDot = name.LastIndexOf('.');
+        if (lastDot >= 0)
+        {
+            name = name[(lastDot + 1)..];
+        }
+
+        var tickIndex = name.IndexOf('`');
+        if (tickIndex >= 0)
+        {
+            name = name[..tickIndex];
+        }
+
+        var chars = name
+            .Select(ch => char.IsLetterOrDigit(ch) || ch == '_' ? ch : '_')
+            .ToArray();
+        return chars.Length == 0 ? "JsonType" : new string(chars);
     }
 
     private bool TryResolvePrimaryConstructorParameter(
@@ -6666,6 +6854,8 @@ public class Analyzer : IDisposable
             "ValueTask" when genericType.TypeArguments.Count == 1 => wkt.ValueTaskOpen,
             "Result" when genericType.TypeArguments.Count == 2 => wkt.RuntimeResultOpen,
             "NSharpLang.Runtime.Result" when genericType.TypeArguments.Count == 2 => wkt.RuntimeResultOpen,
+            "JsonTypeInfo" when genericType.TypeArguments.Count == 1 => wkt.JsonTypeInfoOpen,
+            "System.Text.Json.Serialization.Metadata.JsonTypeInfo" when genericType.TypeArguments.Count == 1 => wkt.JsonTypeInfoOpen,
             "Func" when genericType.TypeArguments.Count == 1 => wkt.Func1,
             "Func" when genericType.TypeArguments.Count == 2 => wkt.Func2,
             "Func" when genericType.TypeArguments.Count == 3 => wkt.Func3,
@@ -6684,7 +6874,10 @@ public class Analyzer : IDisposable
         var typeArguments = new List<Type>();
         foreach (var typeArgument in genericType.TypeArguments)
         {
-            var clrTypeArgument = TryConvertTypeInfoToClrType(typeArgument);
+            var clrTypeArgument = TryConvertTypeInfoToClrType(typeArgument)
+                ?? (IsJsonTypeInfoGenericName(genericType.Name)
+                    ? TryConvertTypeInfoToClrTypeForBinding(typeArgument)
+                    : null);
             if (clrTypeArgument == null)
                 return null;
 
@@ -14516,6 +14709,9 @@ public class Analyzer : IDisposable
         public readonly Type? RuntimeUnionOpen;
         public readonly Type? RuntimeResultOpen;
 
+        // System.Text.Json
+        public readonly Type? JsonTypeInfoOpen;
+
         // Action/Func delegates
         public readonly Type? Action;
         public readonly Type? Action1;
@@ -14579,6 +14775,13 @@ public class Analyzer : IDisposable
                 RuntimeResultOpen = runtime.GetType("NSharpLang.Runtime.Result`2");
             }
             catch { /* runtime assembly not available in analysis-only contexts */ }
+
+            try
+            {
+                var json = mlc.LoadFromAssemblyName("System.Text.Json");
+                JsonTypeInfoOpen = json.GetType("System.Text.Json.Serialization.Metadata.JsonTypeInfo`1");
+            }
+            catch { /* System.Text.Json assembly not available in analysis-only contexts */ }
 
             // Collections — may be in a separate assembly
             try

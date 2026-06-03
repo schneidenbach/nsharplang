@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -6,10 +7,14 @@ using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
+using System.Threading.Tasks;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.Performance;
 using NSharpLang.Tests.PerfEvidence;
 using Xunit;
@@ -819,6 +824,32 @@ func Emit(payload: Payload): string {
     }
 
     [Fact]
+    public void SourceGeneratedJsonContext_CompilesAndSerializesWithGeneratedTypeInfo()
+    {
+        var result = CompileAndInvoke("""
+import System.Text.Json
+import System.Text.Json.Serialization
+
+record Payload {
+    Name: string
+    Enabled: bool
+    Count: int
+}
+
+[JsonSerializable(typeof(Payload))]
+partial class PayloadJsonContext : JsonSerializerContext {
+}
+
+func Run(): string {
+    payload := new Payload { Name: "alpha", Enabled: true, Count: 7 }
+    return JsonSerializer.Serialize(payload, PayloadJsonContext.Default.Payload)
+}
+""", "Run");
+
+        Assert.Equal("""{"Name":"alpha","Enabled":true,"Count":7}""", result);
+    }
+
+    [Fact]
     public void ReflectionJsonBoundary_IsTargetQualifiedAotBlocker()
     {
         var report = Analyze("""
@@ -1164,7 +1195,7 @@ class Box {}
     }
 
     [Fact]
-    public void SystemsProofProjects_AreDesignOnlyAndCoveredByAudit()
+    public void SystemsProofProjects_AreExecutableAndCoveredByAudit()
     {
         var repoRoot = FindRepoRoot();
         var proofsRoot = Path.Combine(repoRoot, "docs", "design", "systems-samples", "proofs");
@@ -1182,6 +1213,7 @@ class Box {}
             "25-trusted-memory-copy",
             "26-native-device-handle",
             "27-c-library-cli",
+            "28-nativeaot-json-cli",
             "29-generated-regex-boundary",
             "30-cold-failure-logging",
             "31-hot-metrics",
@@ -1200,19 +1232,21 @@ class Box {}
             "44-ci-allocation-gate",
             "45-trusted-audit",
             "46-dapper-boundary",
+            "47-cli-startup-honesty",
             "48-effect-drift"
         };
         var designOnlyProjects = proofProjects.Except(executableProofProjects, StringComparer.Ordinal).ToArray();
 
         Assert.Equal(25, proofProjects.Length);
+        Assert.Empty(designOnlyProjects);
         Assert.True(File.Exists(auditPath), "Systems proof projects must have an explicit audit artifact.");
 
         var readme = File.ReadAllText(readmePath);
-        Assert.Contains("Status: mixed executable and design proof samples", readme, StringComparison.Ordinal);
+        Assert.Contains("Status: executable proof samples", readme, StringComparison.Ordinal);
         Assert.Contains("Executable proof projects", readme, StringComparison.Ordinal);
 
         var audit = File.ReadAllText(auditPath);
-        Assert.Contains("Status: mixed executable proof report and compiler audit", audit, StringComparison.Ordinal);
+        Assert.Contains("Status: executable proof report and compiler audit", audit, StringComparison.Ordinal);
         foreach (var project in executableProofProjects)
         {
             Assert.Contains($"`{project}` | executable", audit, StringComparison.Ordinal);
@@ -1233,6 +1267,7 @@ class Box {}
         var trustedMemoryCopy = Path.Combine(proofsRoot, "25-trusted-memory-copy");
         var nativeDeviceHandle = Path.Combine(proofsRoot, "26-native-device-handle");
         var cLibraryCli = Path.Combine(proofsRoot, "27-c-library-cli");
+        var nativeAotJsonCli = Path.Combine(proofsRoot, "28-nativeaot-json-cli");
         var generatedRegexBoundary = Path.Combine(proofsRoot, "29-generated-regex-boundary");
         var coldFailureLogging = Path.Combine(proofsRoot, "30-cold-failure-logging");
         var hotMetrics = Path.Combine(proofsRoot, "31-hot-metrics");
@@ -1251,7 +1286,39 @@ class Box {}
         var allocationGate = Path.Combine(proofsRoot, "44-ci-allocation-gate");
         var trustedAudit = Path.Combine(proofsRoot, "45-trusted-audit");
         var dapperBoundary = Path.Combine(proofsRoot, "46-dapper-boundary");
+        var cliStartupHonesty = Path.Combine(proofsRoot, "47-cli-startup-honesty");
         var effectDrift = Path.Combine(proofsRoot, "48-effect-drift");
+
+        var proofBuilds = BuildSystemsProofProjects(new[]
+        {
+            zeroCopyFrameReader,
+            trustedMemoryCopy,
+            nativeDeviceHandle,
+            cLibraryCli,
+            nativeAotJsonCli,
+            generatedRegexBoundary,
+            coldFailureLogging,
+            hotMetrics,
+            cachePrewarm,
+            arrayPoolFileIo,
+            memoryPoolDisposal,
+            asyncFileHotParser,
+            dictionarySetup,
+            fixedCapacityMap,
+            unmanagedSortComparer,
+            hotLinqPipeline,
+            csharpHotParserApi,
+            structuredErrors,
+            aotFriendlyPublicApi,
+            monoWasmPlugin,
+            allocationGate,
+            trustedAudit,
+            dapperBoundary,
+            cliStartupHonesty,
+            effectDrift
+        });
+
+        SystemsProofBuildResult BuildProof(string projectDir) => proofBuilds[projectDir];
 
         var zeroCopyCheck = CaptureConsole(() =>
             CheckCommand.Execute(new[] { "--project", zeroCopyFrameReader, "--systems-report" }));
@@ -1274,9 +1341,9 @@ class Box {}
             Assert.True(nextFrame.GetProperty("effects").GetProperty("aotSafe").GetBoolean());
         }
 
-        var zeroCopyBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", zeroCopyFrameReader, "--perf-report"));
+        var zeroCopyBuild = BuildProof(zeroCopyFrameReader);
         Assert.Equal(0, zeroCopyBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(zeroCopyBuild.Stderr, expectedWarnings: 0);
         using (var doc = JsonDocument.Parse(zeroCopyBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1296,10 +1363,9 @@ class Box {}
         Assert.True(zeroCopyRun.ExitCode == 0,
             $"zero-copy frame reader proof failed to run\nstdout:\n{zeroCopyRun.Stdout}\nstderr:\n{zeroCopyRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(trustedMemoryCopy, expectedWarnings: 0);
-        var trustedCopyBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", trustedMemoryCopy, "--perf-report"));
+        var trustedCopyBuild = BuildProof(trustedMemoryCopy);
         Assert.Equal(0, trustedCopyBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(trustedCopyBuild.Stderr, expectedWarnings: 0);
         using (var doc = JsonDocument.Parse(trustedCopyBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1324,10 +1390,9 @@ class Box {}
         Assert.True(trustedCopyRun.ExitCode == 0,
             $"trusted memory copy proof failed to run\nstdout:\n{trustedCopyRun.Stdout}\nstderr:\n{trustedCopyRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(nativeDeviceHandle, expectedWarnings: 1);
-        var nativeDeviceBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", nativeDeviceHandle, "--perf-report"));
+        var nativeDeviceBuild = BuildProof(nativeDeviceHandle);
         Assert.Equal(0, nativeDeviceBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(nativeDeviceBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(nativeDeviceBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1362,10 +1427,9 @@ class Box {}
             Assert.Equal("2027-06-01", result.GetProperty("expires").GetString());
         }
 
-        AssertSystemsProofCheckPasses(cLibraryCli, expectedWarnings: 1);
-        var cLibraryBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", cLibraryCli, "--perf-report"));
+        var cLibraryBuild = BuildProof(cLibraryCli);
         Assert.Equal(0, cLibraryBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(cLibraryBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(cLibraryBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1382,10 +1446,54 @@ class Box {}
             "SystemsProofs.CLibraryCli.NativeHash",
             "Hash64");
 
-        AssertSystemsProofCheckPasses(generatedRegexBoundary, expectedWarnings: 2);
-        var generatedRegexBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", generatedRegexBoundary, "--perf-report"));
+        var nativeAotJsonCheck = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", nativeAotJsonCli, "--systems-report" }));
+        Assert.Equal(0, nativeAotJsonCheck.ExitCode);
+        using (var doc = JsonDocument.Parse(nativeAotJsonCheck.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+            Assert.Equal(6, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
+
+            var report = doc.RootElement.GetProperty("systemsReport");
+            Assert.Equal("pass", report.GetProperty("aot").GetProperty("analysis").GetString());
+            Assert.True(report.GetProperty("aot").GetProperty("trimSafe").GetBoolean());
+        }
+
+        var nativeAotJsonBuild = BuildProof(nativeAotJsonCli);
+        Assert.Equal(0, nativeAotJsonBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(nativeAotJsonBuild.Stderr, expectedWarnings: 6);
+        using (var doc = JsonDocument.Parse(nativeAotJsonBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Equal(3, perf.GetProperty("allocationSites").EnumerateArray().Count());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("closureCaptures").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var nativeAotJsonOutputDir = Path.Combine(nativeAotJsonCli, "bin", "Debug", "net10.0");
+        var nativeAotJsonAssembly = Path.Combine(nativeAotJsonOutputDir, "SystemsProof28NativeAotJsonCli.dll");
+        Assert.True(File.Exists(Path.Combine(nativeAotJsonOutputDir, "NSharpLang.Runtime.dll")));
+        AssertJsonContextShape(
+            nativeAotJsonAssembly,
+            "SystemsProofs.NativeAotJsonCli.CliJsonContext",
+            "CliOptions",
+            "SystemsProofs.NativeAotJsonCli.CliJsonContext.__NSharpJsonConverter_CliOptions");
+        var nativeAotJsonRun = DotnetRunner.Run($"\"{nativeAotJsonAssembly}\" input.txt --verbose", nativeAotJsonOutputDir);
+        Assert.True(nativeAotJsonRun.ExitCode == 0,
+            $"native AOT JSON CLI proof failed to run\nstdout:\n{nativeAotJsonRun.Stdout}\nstderr:\n{nativeAotJsonRun.Stderr}");
+        Assert.Equal("""{"Input":"input.txt","Verbose":true}""", nativeAotJsonRun.Stdout.Trim());
+
+        var generatedRegexBuild = BuildProof(generatedRegexBoundary);
         Assert.Equal(0, generatedRegexBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(generatedRegexBuild.Stderr, expectedWarnings: 2);
         using (var doc = JsonDocument.Parse(generatedRegexBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1414,10 +1522,9 @@ class Box {}
         Assert.True(generatedRegexRun.ExitCode == 0,
             $"generated regex boundary proof failed to run\nstdout:\n{generatedRegexRun.Stdout}\nstderr:\n{generatedRegexRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(coldFailureLogging, expectedWarnings: 2);
-        var coldLoggingBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", coldFailureLogging, "--perf-report"));
+        var coldLoggingBuild = BuildProof(coldFailureLogging);
         Assert.Equal(0, coldLoggingBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(coldLoggingBuild.Stderr, expectedWarnings: 2);
         using (var doc = JsonDocument.Parse(coldLoggingBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1440,10 +1547,9 @@ class Box {}
         Assert.True(coldLoggingRun.ExitCode == 0,
             $"cold failure logging proof failed to run\nstdout:\n{coldLoggingRun.Stdout}\nstderr:\n{coldLoggingRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(hotMetrics, expectedWarnings: 1);
-        var metricsBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", hotMetrics, "--perf-report"));
+        var metricsBuild = BuildProof(hotMetrics);
         Assert.Equal(0, metricsBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(metricsBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(metricsBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1453,10 +1559,9 @@ class Box {}
             Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
         }
 
-        AssertSystemsProofCheckPasses(cachePrewarm, expectedWarnings: 1);
-        var cacheBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", cachePrewarm, "--perf-report"));
+        var cacheBuild = BuildProof(cachePrewarm);
         Assert.Equal(0, cacheBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(cacheBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(cacheBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1466,10 +1571,9 @@ class Box {}
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
-        AssertSystemsProofCheckPasses(arrayPoolFileIo, expectedWarnings: 2);
-        var arrayPoolBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", arrayPoolFileIo, "--perf-report"));
+        var arrayPoolBuild = BuildProof(arrayPoolFileIo);
         Assert.Equal(0, arrayPoolBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(arrayPoolBuild.Stderr, expectedWarnings: 2);
         using (var doc = JsonDocument.Parse(arrayPoolBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1490,10 +1594,9 @@ class Box {}
         Assert.True(arrayPoolRun.ExitCode == 0,
             $"array pool file IO proof failed to run\nstdout:\n{arrayPoolRun.Stdout}\nstderr:\n{arrayPoolRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(memoryPoolDisposal, expectedWarnings: 0);
-        var memoryPoolBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", memoryPoolDisposal, "--perf-report"));
+        var memoryPoolBuild = BuildProof(memoryPoolDisposal);
         Assert.Equal(0, memoryPoolBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(memoryPoolBuild.Stderr, expectedWarnings: 0);
         using (var doc = JsonDocument.Parse(memoryPoolBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1514,10 +1617,9 @@ class Box {}
         Assert.True(memoryPoolRun.ExitCode == 0,
             $"memory pool disposal proof failed to run\nstdout:\n{memoryPoolRun.Stdout}\nstderr:\n{memoryPoolRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(asyncFileHotParser, expectedWarnings: 4);
-        var asyncFileBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", asyncFileHotParser, "--perf-report"));
+        var asyncFileBuild = BuildProof(asyncFileHotParser);
         Assert.Equal(0, asyncFileBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(asyncFileBuild.Stderr, expectedWarnings: 4);
         using (var doc = JsonDocument.Parse(asyncFileBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1546,10 +1648,9 @@ class Box {}
         Assert.True(asyncFileRun.ExitCode == 0,
             $"async file hot parser proof failed to run\nstdout:\n{asyncFileRun.Stdout}\nstderr:\n{asyncFileRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(dictionarySetup, expectedWarnings: 3);
-        var dictionaryBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", dictionarySetup, "--perf-report"));
+        var dictionaryBuild = BuildProof(dictionarySetup);
         Assert.Equal(0, dictionaryBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(dictionaryBuild.Stderr, expectedWarnings: 3);
         using (var doc = JsonDocument.Parse(dictionaryBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1565,10 +1666,9 @@ class Box {}
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
-        AssertSystemsProofCheckPasses(fixedCapacityMap, expectedWarnings: 1);
-        var fixedMapBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", fixedCapacityMap, "--perf-report"));
+        var fixedMapBuild = BuildProof(fixedCapacityMap);
         Assert.Equal(0, fixedMapBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(fixedMapBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(fixedMapBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1591,10 +1691,9 @@ class Box {}
         Assert.True(fixedMapRun.ExitCode == 0,
             $"fixed-capacity map proof failed to run\nstdout:\n{fixedMapRun.Stdout}\nstderr:\n{fixedMapRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(unmanagedSortComparer, expectedWarnings: 1);
-        var unmanagedSortBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", unmanagedSortComparer, "--perf-report"));
+        var unmanagedSortBuild = BuildProof(unmanagedSortComparer);
         Assert.Equal(0, unmanagedSortBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(unmanagedSortBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(unmanagedSortBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1621,10 +1720,9 @@ class Box {}
         Assert.True(unmanagedSortRun.ExitCode == 0,
             $"unmanaged sort comparer proof failed to run\nstdout:\n{unmanagedSortRun.Stdout}\nstderr:\n{unmanagedSortRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(hotLinqPipeline, expectedWarnings: 1);
-        var hotLinqBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", hotLinqPipeline, "--perf-report"));
+        var hotLinqBuild = BuildProof(hotLinqPipeline);
         Assert.Equal(0, hotLinqBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(hotLinqBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(hotLinqBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1649,10 +1747,9 @@ class Box {}
         Assert.True(hotLinqRun.ExitCode == 0,
             $"hot LINQ pipeline proof failed to run\nstdout:\n{hotLinqRun.Stdout}\nstderr:\n{hotLinqRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(csharpHotParserApi, expectedWarnings: 0);
-        var parserApiBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", csharpHotParserApi, "--perf-report"));
+        var parserApiBuild = BuildProof(csharpHotParserApi);
         Assert.Equal(0, parserApiBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(parserApiBuild.Stderr, expectedWarnings: 0);
         using (var doc = JsonDocument.Parse(parserApiBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1665,10 +1762,9 @@ class Box {}
 
         AssertCSharpConsumerCanCallParserApi(csharpHotParserApi);
 
-        AssertSystemsProofCheckPasses(structuredErrors, expectedWarnings: 0);
-        var structuredErrorsBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", structuredErrors, "--perf-report"));
+        var structuredErrorsBuild = BuildProof(structuredErrors);
         Assert.Equal(0, structuredErrorsBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(structuredErrorsBuild.Stderr, expectedWarnings: 0);
         using (var doc = JsonDocument.Parse(structuredErrorsBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1708,9 +1804,9 @@ class Box {}
             Assert.True(normalize.GetProperty("effects").GetProperty("aotSafe").GetBoolean());
         }
 
-        var aotBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", aotFriendlyPublicApi, "--perf-report"));
+        var aotBuild = BuildProof(aotFriendlyPublicApi);
         Assert.Equal(0, aotBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(aotBuild.Stderr, expectedWarnings: 2);
         using (var doc = JsonDocument.Parse(aotBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1728,10 +1824,9 @@ class Box {}
         Assert.True(File.Exists(Path.Combine(aotOutputDir, "SystemsProof42AotFriendlyPublicApi.dll")));
         Assert.True(File.Exists(Path.Combine(aotOutputDir, "NSharpLang.Runtime.dll")));
 
-        AssertSystemsProofCheckPasses(monoWasmPlugin, expectedWarnings: 0);
-        var monoWasmBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", monoWasmPlugin, "--perf-report"));
+        var monoWasmBuild = BuildProof(monoWasmPlugin);
         Assert.Equal(0, monoWasmBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(monoWasmBuild.Stderr, expectedWarnings: 0);
         using (var doc = JsonDocument.Parse(monoWasmBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1742,10 +1837,9 @@ class Box {}
             Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
         }
 
-        AssertSystemsProofCheckPasses(allocationGate, expectedWarnings: 2);
-        var allocationBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", allocationGate, "--perf-report"));
+        var allocationBuild = BuildProof(allocationGate);
         Assert.Equal(0, allocationBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(allocationBuild.Stderr, expectedWarnings: 2);
         using (var doc = JsonDocument.Parse(allocationBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1758,10 +1852,9 @@ class Box {}
             Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
         }
 
-        AssertSystemsProofCheckPasses(trustedAudit, expectedWarnings: 0);
-        var trustedBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", trustedAudit, "--perf-report"));
+        var trustedBuild = BuildProof(trustedAudit);
         Assert.Equal(0, trustedBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(trustedBuild.Stderr, expectedWarnings: 0);
         using (var doc = JsonDocument.Parse(trustedBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1785,10 +1878,9 @@ class Box {}
             Assert.Equal("2027-06-01", result.GetProperty("expires").GetString());
         }
 
-        AssertSystemsProofCheckPasses(dapperBoundary, expectedWarnings: 2);
-        var dapperBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", dapperBoundary, "--perf-report"));
+        var dapperBuild = BuildProof(dapperBoundary);
         Assert.Equal(0, dapperBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(dapperBuild.Stderr, expectedWarnings: 2);
         using (var doc = JsonDocument.Parse(dapperBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1817,10 +1909,56 @@ class Box {}
         Assert.True(dapperRun.ExitCode == 0,
             $"database boundary proof failed to run\nstdout:\n{dapperRun.Stdout}\nstderr:\n{dapperRun.Stderr}");
 
-        AssertSystemsProofCheckPasses(effectDrift, expectedWarnings: 1);
-        var driftBuild = CaptureConsole(() =>
-            ExecuteProgram("build", "--project", effectDrift, "--perf-report"));
+        var cliStartupCheck = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", cliStartupHonesty, "--systems-report" }));
+        Assert.Equal(0, cliStartupCheck.ExitCode);
+        using (var doc = JsonDocument.Parse(cliStartupCheck.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+            Assert.Equal(5, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
+
+            var report = doc.RootElement.GetProperty("systemsReport");
+            Assert.Equal("pass", report.GetProperty("aot").GetProperty("analysis").GetString());
+            Assert.True(report.GetProperty("aot").GetProperty("trimSafe").GetBoolean());
+            Assert.Contains(report.GetProperty("warmup").EnumerateArray(),
+                warmup => warmup.GetString() == "SystemsProofs.CliStartupHonesty.Warmup");
+        }
+
+        var cliStartupBuild = BuildProof(cliStartupHonesty);
+        Assert.Equal(0, cliStartupBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(cliStartupBuild.Stderr, expectedWarnings: 5);
+        using (var doc = JsonDocument.Parse(cliStartupBuild.Stdout))
+        {
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var perf = doc.RootElement.GetProperty("perfReport");
+            Assert.Equal(4, perf.GetProperty("allocationSites").EnumerateArray().Count());
+            Assert.Empty(perf.GetProperty("delegateSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boxingSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("dispatchSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("closureCaptures").EnumerateArray());
+            Assert.Empty(perf.GetProperty("boundaryLeakSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("implicitTrapSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("hotReadinessSites").EnumerateArray());
+            Assert.Empty(perf.GetProperty("aotBlockers").EnumerateArray());
+        }
+
+        var cliStartupOutputDir = Path.Combine(cliStartupHonesty, "bin", "Debug", "net10.0");
+        var cliStartupAssembly = Path.Combine(cliStartupOutputDir, "SystemsProof47CliStartupHonesty.dll");
+        Assert.True(File.Exists(Path.Combine(cliStartupOutputDir, "NSharpLang.Runtime.dll")));
+        AssertJsonContextShape(
+            cliStartupAssembly,
+            "SystemsProofs.CliStartupHonesty.StartupJsonContext",
+            "StartupReport",
+            "SystemsProofs.CliStartupHonesty.StartupJsonContext.__NSharpJsonConverter_StartupReport");
+        var cliStartupRun = DotnetRunner.Run($"\"{cliStartupAssembly}\"", cliStartupOutputDir);
+        Assert.True(cliStartupRun.ExitCode == 0,
+            $"CLI startup honesty proof failed to run\nstdout:\n{cliStartupRun.Stdout}\nstderr:\n{cliStartupRun.Stderr}");
+        Assert.Equal("""{"Ready":true,"Mode":"run"}""", cliStartupRun.Stdout.Trim());
+
+        var driftBuild = BuildProof(effectDrift);
         Assert.Equal(0, driftBuild.ExitCode);
+        AssertSystemsProofBuildDiagnostics(driftBuild.Stderr, expectedWarnings: 1);
         using (var doc = JsonDocument.Parse(driftBuild.Stdout))
         {
             Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
@@ -1834,19 +1972,132 @@ class Box {}
         }
     }
 
-    private static void AssertSystemsProofCheckPasses(string projectDir, int expectedWarnings)
-    {
-        var result = CaptureConsole(() =>
-            CheckCommand.Execute(new[] { "--project", projectDir, "--systems-report" }));
+    private sealed record SystemsProofBuildResult(
+        int ExitCode,
+        string Stdout,
+        string Stderr,
+        string AssemblyPath,
+        SystemsReport SystemsReport,
+        IReadOnlyList<CompilerError> Diagnostics);
 
-        Assert.Equal(0, result.ExitCode);
-        Assert.True(string.IsNullOrWhiteSpace(result.Stderr));
-        using var doc = JsonDocument.Parse(result.Stdout);
-        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
-        Assert.Equal(0, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
-        Assert.Equal(expectedWarnings, doc.RootElement.GetProperty("summary").GetProperty("warnings").GetInt32());
-        Assert.Equal(0, doc.RootElement.GetProperty("systemsReport").GetProperty("summary").GetProperty("errors").GetInt32());
+    private static IReadOnlyDictionary<string, SystemsProofBuildResult> BuildSystemsProofProjects(IEnumerable<string> projectDirs)
+    {
+        var results = new ConcurrentDictionary<string, SystemsProofBuildResult>(StringComparer.Ordinal);
+        var uniqueProjects = projectDirs.Distinct(StringComparer.Ordinal).ToArray();
+        var options = new ParallelOptions
+        {
+            MaxDegreeOfParallelism = Math.Max(1, Math.Min(8, Environment.ProcessorCount))
+        };
+
+        Parallel.ForEach(uniqueProjects, options, projectDir =>
+        {
+            results[projectDir] = BuildSystemsProofProject(projectDir);
+        });
+
+        return results;
     }
+
+    private static SystemsProofBuildResult BuildSystemsProofProject(string projectDir)
+    {
+        var projectRoot = Path.GetFullPath(projectDir);
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var configuration = "Debug";
+        var outputDir = CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
+        var references = CompilationReferenceResolver.AddResolvedDllReferences(
+            projectRoot,
+            config,
+            new ReferenceResolutionOptions(Configuration: configuration, Quiet: true));
+
+        Directory.CreateDirectory(outputDir);
+        var assemblyName = CompilationReferenceResolver.GetProjectAssemblyName(projectRoot, config);
+        var outputPath = Path.Combine(outputDir, $"{assemblyName}.dll");
+        var sourceFiles = config.GetSourceFiles(projectRoot, includeTests: false);
+        var compiler = new MultiFileCompiler(sourceFiles, projectRoot, config);
+        var result = compiler.CompileToIlAssembly(assemblyName, outputPath, validateStrictLint: true);
+
+        if (result.Success && !string.IsNullOrWhiteSpace(result.OutputAssemblyPath))
+        {
+            if (string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
+            {
+                CompilationArtifacts.WriteRuntimeConfig(config, result.OutputAssemblyPath);
+            }
+
+            references.CopyRuntimeAssets(outputDir);
+        }
+
+        var diagnostics = result.Errors.ToArray();
+        return new SystemsProofBuildResult(
+            result.Success ? 0 : 1,
+            BuildSystemsProofPerfReportJson(projectRoot, result.Success, compiler),
+            string.Join(Environment.NewLine, diagnostics.Select(error => error.Format())),
+            result.OutputAssemblyPath ?? outputPath,
+            compiler.SystemsReport,
+            diagnostics);
+    }
+
+    private static string BuildSystemsProofPerfReportJson(string projectRoot, bool ok, MultiFileCompiler compiler)
+    {
+        var sites = compiler.SystemsReport.Findings
+            .Select(finding => new OutputFormatter.PerfReportSite(
+                finding.Code,
+                finding.Effect,
+                finding.File,
+                finding.Line,
+                finding.Column,
+                finding.Message,
+                finding.Function,
+                finding.Suggestion))
+            .ToArray();
+
+        return OutputFormatter.BuildPerfReportToJson(
+            projectRoot,
+            ok,
+            aotBlockers: compiler.AotBlockers.Select(ToPerfReportBlocker).ToArray(),
+            allocationSites: sites.Where(site => site.Effect is "allocation").ToArray(),
+            delegateSites: sites.Where(site => site.Effect is "delegate").ToArray(),
+            boxingSites: sites.Where(site => site.Effect is "boxing").ToArray(),
+            dispatchSites: sites.Where(site => site.Effect is "dispatch").ToArray(),
+            closureCaptures: sites.Where(site => site.Effect is "closure").ToArray(),
+            poolSites: sites.Where(site => site.Effect is "pool").ToArray(),
+            resourceSites: sites.Where(site => site.Effect is "resource").ToArray(),
+            boundaryLeakSites: sites.Where(site => site.Effect is "boundaryLeak").ToArray(),
+            hotReadinessSites: sites.Where(site => site.Effect is "hotReadiness").ToArray(),
+            implicitTrapSites: sites.Where(site => site.Effect is "implicitTrap").ToArray(),
+            trustedSites: compiler.SystemsReport.TrustedSites
+                .Select(site => new OutputFormatter.PerfReportTrustedSite(
+                    site.Function,
+                    site.File,
+                    site.Line,
+                    site.Column,
+                    site.Owner,
+                    site.Review,
+                    site.Expires,
+                    site.HasUnsafe,
+                    site.BodyStatementCount))
+                .ToArray());
+    }
+
+    private static OutputFormatter.PerfReportAotBlocker ToPerfReportBlocker(AotBlocker blocker)
+        => new(
+            Code: $"NL{(int)blocker.DiagnosticCode:D3}",
+            Kind: blocker.Kind.ToString(),
+            File: blocker.File,
+            Line: blocker.Line,
+            Column: blocker.Column,
+            Construct: blocker.Construct,
+            EnclosingBoundary: blocker.EnclosingBoundary.ToString(),
+            EnclosingDeclaration: blocker.EnclosingDeclaration,
+            OnPublicSurface: blocker.IsOnPublicSurface);
+
+    private static void AssertSystemsProofBuildDiagnostics(string stderr, int expectedWarnings)
+    {
+        var normalized = StripAnsi(stderr);
+        Assert.DoesNotContain("-- ERROR", normalized, StringComparison.Ordinal);
+        Assert.Equal(expectedWarnings, Regex.Matches(normalized, "-- WARNING").Count);
+    }
+
+    private static string StripAnsi(string value)
+        => Regex.Replace(value, "\u001B\\[[0-?]*[ -/]*[@-~]", string.Empty);
 
     private static string[] DecodeMethodOpcodeNames(string assemblyPath, string methodName)
     {
@@ -1910,6 +2161,70 @@ class Box {}
                 field => field.FieldType == typeof(Regex)
                          && field.Name.Contains("GeneratedRegex", StringComparison.Ordinal));
             Assert.Same(first, cacheField.GetValue(null));
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
+    private static void AssertJsonContextShape(
+        string assemblyPath,
+        string contextTypeName,
+        string jsonTypeInfoPropertyName,
+        string converterTypeName)
+    {
+        Assert.True(File.Exists(assemblyPath), $"Expected proof assembly at {assemblyPath}");
+
+        var outputDir = Path.GetDirectoryName(assemblyPath)!;
+        var loadContext = new AssemblyLoadContext($"SystemsProofJsonContext_{Guid.NewGuid():N}", isCollectible: true);
+        loadContext.Resolving += (context, assemblyName) =>
+        {
+            var localAssemblyPath = Path.Combine(outputDir, $"{assemblyName.Name}.dll");
+            return File.Exists(localAssemblyPath) ? context.LoadFromAssemblyPath(localAssemblyPath) : null;
+        };
+
+        try
+        {
+            using var stream = File.OpenRead(assemblyPath);
+            var assembly = loadContext.LoadFromStream(stream);
+            var contextType = assembly.GetType(contextTypeName);
+            Assert.NotNull(contextType);
+            Assert.True(typeof(JsonSerializerContext).IsAssignableFrom(contextType));
+            Assert.True(typeof(IJsonTypeInfoResolver).IsAssignableFrom(contextType));
+
+            var defaultProperty = contextType!.GetProperty(
+                "Default",
+                BindingFlags.Public | BindingFlags.Static);
+            Assert.NotNull(defaultProperty);
+            Assert.Equal(contextType, defaultProperty!.PropertyType);
+            var contextInstance = defaultProperty.GetValue(null);
+            Assert.NotNull(contextInstance);
+
+            var jsonTypeInfoProperty = contextType.GetProperty(
+                jsonTypeInfoPropertyName,
+                BindingFlags.Public | BindingFlags.Instance);
+            Assert.NotNull(jsonTypeInfoProperty);
+            Assert.True(jsonTypeInfoProperty!.PropertyType.IsGenericType);
+            Assert.Equal(typeof(JsonTypeInfo<>), jsonTypeInfoProperty.PropertyType.GetGenericTypeDefinition());
+
+            var typeInfo = Assert.IsAssignableFrom<JsonTypeInfo>(jsonTypeInfoProperty.GetValue(contextInstance));
+            Assert.Equal(contextInstance, typeInfo.OriginatingResolver);
+
+            var getTypeInfo = contextType.GetMethod(
+                nameof(JsonSerializerContext.GetTypeInfo),
+                BindingFlags.Public | BindingFlags.Instance,
+                binder: null,
+                new[] { typeof(Type) },
+                modifiers: null);
+            Assert.NotNull(getTypeInfo);
+            Assert.NotSame(typeof(JsonSerializerContext), getTypeInfo!.DeclaringType);
+
+            var converterType = assembly.GetType(converterTypeName);
+            Assert.NotNull(converterType);
+            Assert.True(converterType!.IsSealed);
+            Assert.True(converterType.BaseType?.IsGenericType == true);
+            Assert.Equal(typeof(JsonConverter<>), converterType.BaseType!.GetGenericTypeDefinition());
         }
         finally
         {
