@@ -103,9 +103,10 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
         }
 
         if IsDigit(ch) {
-            buffer[count] = ScanNumberKind(source, position, length)
+            numberInfo := ScanNumberInfo(source, position, length)
+            buffer[count] = numberInfo & 3
             count = count + 1
-            position = ScanNumber(source, position, length)
+            position = numberInfo >> 2
             continue
         }
 
@@ -347,8 +348,9 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         }
 
         if IsDigit(ch) {
-            nextPosition := ScanNumber(source, position, length)
-            kinds[count] = ScanNumberKind(source, position, length)
+            numberInfo := ScanNumberInfo(source, position, length)
+            nextPosition := numberInfo >> 2
+            kinds[count] = numberInfo & 3
             starts[count] = start
             valueLengths[count] = NumberValueLength(source, start, nextPosition)
             lines[count] = tokenLine
@@ -668,6 +670,66 @@ func ScanNumber(source: string, position: int, length: int): int {
     return ConsumeIntegerSuffix(source, position, length)
 }
 
+// Encodes the exclusive end offset and token kind as end * 4 + kind.
+func ScanNumberInfo(source: string, position: int, length: int): int {
+    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'x' || source[position + 1] == 'X') {
+        position = position + 2
+        while position < length && (IsHexDigit(source[position]) || source[position] == '_') {
+            position = position + 1
+        }
+
+        return (ConsumeIntegerSuffix(source, position, length) << 2) | 1
+    }
+
+    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'b' || source[position + 1] == 'B') {
+        position = position + 2
+        while position < length && (source[position] == '0' || source[position] == '1' || source[position] == '_') {
+            position = position + 1
+        }
+
+        return (ConsumeIntegerSuffix(source, position, length) << 2) | 1
+    }
+
+    isFloat := false
+    while position < length && (IsDigit(source[position]) || source[position] == '.' || source[position] == '_') {
+        if source[position] == '.' {
+            if position + 1 < length && source[position + 1] == '.' {
+                break
+            }
+
+            if position + 1 >= length || !IsDigit(source[position + 1]) {
+                break
+            }
+
+            isFloat = true
+        }
+
+        position = position + 1
+    }
+
+    if position < length && (source[position] == 'e' || source[position] == 'E') {
+        isFloat = true
+        position = position + 1
+        if position < length && (source[position] == '+' || source[position] == '-') {
+            position = position + 1
+        }
+
+        while position < length && (IsDigit(source[position]) || source[position] == '_') {
+            position = position + 1
+        }
+    }
+
+    if isFloat {
+        return (ConsumeFloatSuffix(source, position, length) << 2) | 2
+    }
+
+    if position < length && (source[position] == 'm' || source[position] == 'M') {
+        return ((position + 1) << 2) | 2
+    }
+
+    return (ConsumeIntegerSuffix(source, position, length) << 2) | 1
+}
+
 func NumberValueLength(source: string, start: int, end: int): int {
     position := start
     valueLength := 0
@@ -689,42 +751,6 @@ func RawStringValueLength(source: string, start: int, end: int): int {
     }
 
     return valueLength
-}
-
-func ScanNumberKind(source: string, position: int, length: int): int {
-    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'x' || source[position + 1] == 'X') {
-        return 1
-    }
-
-    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'b' || source[position + 1] == 'B') {
-        return 1
-    }
-
-    while position < length && (IsDigit(source[position]) || source[position] == '.' || source[position] == '_') {
-        if source[position] == '.' {
-            if position + 1 < length && source[position + 1] == '.' {
-                return 1
-            }
-
-            if position + 1 >= length || !IsDigit(source[position + 1]) {
-                return 1
-            }
-
-            return 2
-        }
-
-        position = position + 1
-    }
-
-    if position < length && (source[position] == 'e' || source[position] == 'E') {
-        return 2
-    }
-
-    if position < length && (source[position] == 'm' || source[position] == 'M') {
-        return 2
-    }
-
-    return 1
 }
 
 func ConsumeFloatSuffix(source: string, position: int, length: int): int {

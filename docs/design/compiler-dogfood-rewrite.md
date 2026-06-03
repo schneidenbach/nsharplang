@@ -125,6 +125,15 @@ corpus stayed near parity at 104 us vs 116 us. The next lexer work should theref
 fixed overhead on small/representative files and on a production compact-token table, not on claiming
 the lexer rewrite gate is met.
 
+Later on 2026-06-03 the reusable kind-buffer and metadata-buffer lexer paths collapsed numeric token
+scanning from separate end-position and token-kind passes into one packed result (`end << 2 | kind`).
+The dry reusable-token-kind smoke run reported zero managed allocation on the N# path, 92.29 us vs
+115.54 us on the representative corpus (about 1.25x), and 1.045 ms vs 7.153 ms on the large generated
+corpus (about 6.85x). The matching metadata-buffer dry smoke run also reported zero managed
+allocation, 96.83 us vs 111.88 us representative (about 1.16x), and 1.018 ms vs 7.164 ms large
+(about 7.04x). This improves the large lexer path and keeps small-file lexer overhead explicit; it is
+still dry smoke evidence, not lexer acceptance.
+
 `CompilerDogfoodProjectTests` now includes a production-keyword sweep plus a near-miss identifier
 (`throws`) to pin the optimized keyword dispatch to the actual C# `Lexer.Keywords` behavior. It also
 checks `TokenizeMetadataInto` against production token kind, source start, token value length, line,
