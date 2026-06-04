@@ -360,6 +360,61 @@ func main() {
     }
 
     [Fact]
+    public void QueryCommand_Diagnostics_SeverityFilter_IsCaseInsensitive()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-diagnostic-severity-filter-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: SeverityFilterDiagnostics
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, ".editorconfig"), """
+root = true
+
+[*.nl]
+dotnet_diagnostic.NL001.severity = warning
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func main() {
+    unused := 42
+    undefinedFromCli()
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "diagnostics",
+                "--project", tempDir,
+                "--file", "Program.nl",
+                "--severity", "WARNING",
+                "--no-daemon"
+            }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            var results = doc.RootElement.GetProperty("results").EnumerateArray().ToArray();
+            var diagnostic = Assert.Single(results);
+            Assert.Equal("NL001", diagnostic.GetProperty("code").GetString());
+            Assert.Equal("warning", diagnostic.GetProperty("severity").GetString());
+
+            var summary = doc.RootElement.GetProperty("summary");
+            Assert.Equal(0, summary.GetProperty("errors").GetInt32());
+            Assert.Equal(1, summary.GetProperty("warnings").GetInt32());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommand_Definition_SnapsFromClosingParen()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]

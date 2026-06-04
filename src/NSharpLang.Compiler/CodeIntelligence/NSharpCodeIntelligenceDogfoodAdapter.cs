@@ -27,6 +27,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
     [ThreadStatic]
+    private static DiagnosticSeverityFilterScratch? t_diagnosticSeverityFilterScratch;
+    [ThreadStatic]
     private static DiagnosticClusterGroupingScratch? t_diagnosticClusterGroupingScratch;
     [ThreadStatic]
     private static ReferenceFileSummaryScratch? t_diagnosticClusterFileSummaryScratch;
@@ -555,6 +557,55 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             scratch.Counts[0] = 0;
             scratch.Counts[1] = 0;
             scratch.Counts[2] = 0;
+        }
+    }
+
+    internal static bool TryFilterDiagnosticSeverities(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        string targetSeverity,
+        out int[] resultIndices,
+        out int count)
+    {
+        resultIndices = Array.Empty<int>();
+        count = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var diagnosticCount = diagnostics.Count;
+        if (diagnosticCount == 0)
+            return true;
+
+        var scratch = t_diagnosticSeverityFilterScratch ??= new DiagnosticSeverityFilterScratch();
+        scratch.EnsureCapacity(diagnosticCount);
+
+        try
+        {
+            var targetRank = scratch.BuildRanks(diagnostics, targetSeverity);
+            count = bindings.DiagnosticSeverityFilter(
+                scratch.SeverityRanks,
+                targetRank,
+                scratch.ResultIndices);
+
+            if (count < 0 || count > diagnosticCount)
+            {
+                count = 0;
+                return false;
+            }
+
+            resultIndices = scratch.ResultIndices;
+            return true;
+        }
+        catch
+        {
+            resultIndices = Array.Empty<int>();
+            count = 0;
+            return false;
+        }
+        finally
+        {
+            scratch.Reset();
         }
     }
 
@@ -1368,6 +1419,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CompletionItemKindGroupsInto>(programType, "CompletionItemKindGroupsInto"),
                 CreateDelegate<CompletionMethodOverloadGroupsInto>(programType, "CompletionMethodOverloadGroupsInto"),
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
+                CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(programType, "DiagnosticClusterCompactGroupMembersInto"),
@@ -1567,6 +1619,11 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int count,
         int[] resultCounts);
 
+    private delegate int DiagnosticSeverityFilterIndicesInto(
+        int[] severityRanks,
+        int targetRank,
+        int[] resultIndices);
+
     private delegate int DiagnosticClusterCompactGroupsInto(
         int[] codeIds,
         int[] severityIds,
@@ -1765,6 +1822,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CompletionItemKindGroupsInto CompletionItemKindGroups,
         CompletionMethodOverloadGroupsInto CompletionMethodOverloadGroups,
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
+        DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
         DiagnosticClusterCompactGroupMembersInto DiagnosticClusterCompactGroupMembers,
@@ -1975,6 +2033,47 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             {
                 Severities = new string[count];
             }
+        }
+    }
+
+    private sealed class DiagnosticSeverityFilterScratch
+    {
+        private readonly Dictionary<string, int> _severityRanks = new(StringComparer.OrdinalIgnoreCase);
+
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SeverityRanks = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (SeverityRanks.Length != count)
+            {
+                SeverityRanks = new int[count];
+                ResultIndices = new int[count];
+            }
+        }
+
+        public int BuildRanks(IReadOnlyList<DiagnosticResult> diagnostics, string targetSeverity)
+        {
+            _severityRanks.Clear();
+            var targetRank = GetSeverityRank(targetSeverity);
+            for (var i = 0; i < diagnostics.Count; i++)
+            {
+                SeverityRanks[i] = GetSeverityRank(diagnostics[i].Severity ?? string.Empty);
+            }
+
+            return targetRank;
+        }
+
+        public void Reset() => _severityRanks.Clear();
+
+        private int GetSeverityRank(string severity)
+        {
+            if (_severityRanks.TryGetValue(severity, out var rank))
+                return rank;
+
+            rank = _severityRanks.Count + 1;
+            _severityRanks.Add(severity, rank);
+            return rank;
         }
     }
 

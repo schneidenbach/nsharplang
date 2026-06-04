@@ -133,6 +133,39 @@ public static class OutputFormatter
             Info: results.Count(d => d.Severity == "info"));
     }
 
+    public static List<DiagnosticResult> FilterDiagnosticsBySeverity(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        string severity)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFilterDiagnosticSeverities(
+            diagnostics,
+            severity,
+            out var resultIndices,
+            out var resultCount))
+        {
+            var results = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                    return FilterDiagnosticsBySeverityWithLinq(diagnostics, severity);
+
+                results.Add(diagnostics[diagnosticIndex]);
+            }
+
+            return results;
+        }
+
+        return FilterDiagnosticsBySeverityWithLinq(diagnostics, severity);
+    }
+
+    private static List<DiagnosticResult> FilterDiagnosticsBySeverityWithLinq(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        string severity) =>
+        diagnostics
+            .Where(diagnostic => diagnostic.Severity.Equals(severity, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
     public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)
     {
         if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateDiagnostics(

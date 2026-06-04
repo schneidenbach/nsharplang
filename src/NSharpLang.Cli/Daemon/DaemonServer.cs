@@ -347,7 +347,7 @@ public class DaemonServer
     {
         var results = _service.GetDiagnostics(_snapshot!, file);
         if (severity != null)
-            results = results.Where(d => d.Severity.Equals(severity, StringComparison.OrdinalIgnoreCase)).ToList();
+            results = OutputFormatter.FilterDiagnosticsBySeverity(results, severity);
         return clusters
             ? OutputFormatter.DiagnosticClustersToJson(results, _snapshot!.ProjectRoot)
             : OutputFormatter.DiagnosticsToJson(results, _snapshot!.ProjectRoot);

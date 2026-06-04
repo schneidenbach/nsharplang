@@ -260,9 +260,7 @@ internal static class BatchQueryRunner
         var results = service.GetDiagnostics(snapshot, request.File);
         if (!string.IsNullOrWhiteSpace(request.Severity))
         {
-            results = results
-                .Where(diagnostic => diagnostic.Severity.Equals(request.Severity, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            results = OutputFormatter.FilterDiagnosticsBySeverity(results, request.Severity);
         }
 
         return request.Clusters

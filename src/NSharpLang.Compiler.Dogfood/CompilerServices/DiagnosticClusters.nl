@@ -54,6 +54,72 @@ func DiagnosticSeverityFilterIndicesInto(
     matchCount := 0
     length := severityRanks.Length
     i := 0
+
+    if resultIndices.Length >= length {
+        unrolledLimit := length - 8
+        while i <= unrolledLimit {
+            if severityRanks[i] == targetRank {
+                resultIndices[matchCount] = i
+                matchCount = matchCount + 1
+            }
+
+            next := i + 1
+            if severityRanks[next] == targetRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 2
+            if severityRanks[next] == targetRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 3
+            if severityRanks[next] == targetRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 4
+            if severityRanks[next] == targetRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 5
+            if severityRanks[next] == targetRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 6
+            if severityRanks[next] == targetRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 7
+            if severityRanks[next] == targetRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            i = i + 8
+        }
+
+        while i < length {
+            if severityRanks[i] == targetRank {
+                resultIndices[matchCount] = i
+                matchCount = matchCount + 1
+            }
+
+            i = i + 1
+        }
+
+        return matchCount
+    }
+
     unrolledLimit := length - 4
     while i <= unrolledLimit {
         if severityRanks[i] == targetRank {
@@ -113,16 +179,98 @@ func DiagnosticSeverityFilterChecksumInto(
     severityRanks: int[],
     targetRank: int,
     resultIndices: int[]): int {
-    matchCount := DiagnosticSeverityFilterIndicesInto(severityRanks, targetRank, resultIndices)
-    checksum := matchCount
+    if targetRank <= 0 {
+        return 0
+    }
+
+    length := severityRanks.Length
+    if resultIndices.Length < length {
+        matchCount := DiagnosticSeverityFilterIndicesInto(severityRanks, targetRank, resultIndices)
+        checksum := matchCount
+        i := 0
+        while i < matchCount && i < resultIndices.Length {
+            index := resultIndices[i]
+            checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + severityRanks[index] * 17
+            i = i + 1
+        }
+
+        return checksum
+    }
+
+    matchCount := 0
+    checksum := 0
     i := 0
-    while i < matchCount && i < resultIndices.Length {
-        index := resultIndices[i]
-        checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + severityRanks[index] * 17
+    unrolledLimit := length - 8
+    while i <= unrolledLimit {
+        if severityRanks[i] == targetRank {
+            resultIndices[matchCount] = i
+            checksum = checksum + (matchCount + 1) * 97 + (i + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        next := i + 1
+        if severityRanks[next] == targetRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 2
+        if severityRanks[next] == targetRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 3
+        if severityRanks[next] == targetRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 4
+        if severityRanks[next] == targetRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 5
+        if severityRanks[next] == targetRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 6
+        if severityRanks[next] == targetRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 7
+        if severityRanks[next] == targetRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
+        i = i + 8
+    }
+
+    while i < length {
+        if severityRanks[i] == targetRank {
+            resultIndices[matchCount] = i
+            checksum = checksum + (matchCount + 1) * 97 + (i + 1) * 31 + targetRank * 17
+            matchCount = matchCount + 1
+        }
+
         i = i + 1
     }
 
-    return checksum
+    return checksum + matchCount
 }
 
 func DiagnosticClusterTraitsInto(

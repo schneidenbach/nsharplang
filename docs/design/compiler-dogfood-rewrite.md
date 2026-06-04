@@ -871,14 +871,13 @@ measured CLI command-parser pressure, not acceptance evidence, and production CL
 must keep the current C# helper until N# string comparison/helper-call overhead clears the 5x gate.
 
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
-normal BenchmarkDotNet evidence tier, but missed the 5x speed gate for CLI diagnostic severity
-filtering. The best measured N# path uses compact case-insensitive severity ranks and a four-wide
-unrolled scan. It ran about 4.0x faster on the representative diagnostic corpus (670.255 ns vs
-2.713 us, 0 B vs 2,840 B) and about 4.0x faster on the large generated diagnostic corpus
-(5.395 us vs 21.798 us, 0 B vs 21,944 B). This is measured CLI command-orchestration pressure, not
-acceptance evidence, and production `nlc query diagnostics`, batch diagnostics, and daemon
-diagnostics must keep the current C# severity-filter path until N# indexed-array scans clear the
-5x gate.
+normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path
+uses compact case-insensitive severity ranks, an eight-wide unrolled scan for caller-owned result
+buffers, and a single-pass checksum wrapper. It ran about 7.2x faster on the representative
+diagnostic corpus (371.7 ns vs 2.687 us, 0 B vs 2,840 B) and about 6.4x faster on the large
+generated diagnostic corpus (3.438 us vs 21.874 us, 0 B vs 21,944 B). This is acceptance-grade
+benchmark evidence for `nlc query diagnostics`, batch diagnostics, and daemon diagnostics after the
+host has assigned compact case-insensitive severity ranks.
 
 `CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster
@@ -942,6 +941,10 @@ with the previous LINQ `Distinct`/`OrderBy` path kept as the fallback.
 Diagnostic, clustered diagnostic, check, and lint JSON envelopes, Elm-style diagnostic text
 summaries, and CLI diagnostic exit decisions now use the compiled N# severity summary pass when the
 dogfood assembly is available, with the previous C# LINQ counts kept as the fallback.
+`nlc query diagnostics`, batch diagnostics, and daemon diagnostics now route `--severity` filtering
+through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
+severity filter when the dogfood assembly is available, with the previous C# LINQ
+`Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -1014,11 +1017,11 @@ cluster file-list ordering, diagnostic deduplication, reference result deduplica
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering, CLI tree dependency deduplication, text-edit ordering, inspect-summary reference-file
-summaries, and the pressure-only path-matching, CLI positional-argument, and diagnostic severity
-filter kernels through the compiled N# methods; `CliCommandTests` verifies both
+ordering, CLI tree dependency deduplication, diagnostic severity filtering, text-edit ordering,
+inspect-summary reference-file summaries, and the pressure-only path-matching and
+CLI positional-argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc doc` symbol/member
-ordering, and `nlc tree` dependency deduplication;
+ordering, `nlc tree` dependency deduplication, and `nlc query diagnostics --severity` filtering;
 `CodeFixTests` verifies the production fix-applicator ordering route.
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -1037,12 +1040,14 @@ selection in CLI/daemon identifier completion plus scoped receiver identifier lo
 member-access completion plus reflected method overload grouping and grouped member-completion
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
 ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
-application ordering in `nlc fix`, plus inspect-summary reference-file ordering in `nlc query inspect`.
+application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
+batch diagnostics, and daemon diagnostics, plus inspect-summary reference-file ordering in
+`nlc query inspect`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
-Path matching, CLI positional-argument filtering, and diagnostic severity filtering have parity and
-benchmark evidence but are not routed through production code-intelligence, query, batch, or daemon
-paths because they currently miss the 5x speed gate.
+Path matching and CLI positional-argument filtering have parity and benchmark evidence but are not
+routed through production code-intelligence, query, batch, or daemon paths because they currently
+miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, and CLI command logic still
 contain C# implementation code and remain in scope for the dogfood rewrite.
@@ -1137,7 +1142,7 @@ lookup, and completion item construction remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
-severity summary counting, compact diagnostic cluster grouping, strict semantic binding lookup, and
+severity summary counting and filtering, compact diagnostic cluster grouping, strict semantic binding lookup, and
 nearest same-file declaration index construction and lookup, semantic scope index construction, scoped visible-variable
 selection, and reference result deduplication/order are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain
@@ -1146,7 +1151,9 @@ These public string materialization misses are specifically about short string c
 N# message-pattern construction, direct N# field hashing, and direct N# command-buffer construction
 all beat their C# formatter-shaped helpers modestly, but they remain far below the 5x gate. The
 CLI query position parser also shows helper-call overhead on tiny strings: direct parsing removes
-all split allocation but still only reaches about 2.4x on the measured batch. The
+all split allocation but still only reaches about 2.4x on the measured batch. Diagnostic severity
+filtering cleared the gate once its compact-rank scan moved to an eight-wide unrolled path and the
+checksum evidence stopped rescanning the output. The
 strict reference/rename declaration-name guard now uses the same line-range cache, and semantic scope
 index sorting has moved into N#, but broader semantic binding/scope table construction and compact
 cache materialization around the N# lookup kernels are still C# host logic.

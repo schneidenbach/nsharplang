@@ -401,7 +401,7 @@ public static class QueryCommand
         var severityFilter = GetOption(args, "--severity");
         if (severityFilter != null)
         {
-            results = results.Where(d => d.Severity.Equals(severityFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+            results = OutputFormatter.FilterDiagnosticsBySeverity(results, severityFilter);
         }
 
         var summary = OutputFormatter.SummarizeDiagnostics(results);
