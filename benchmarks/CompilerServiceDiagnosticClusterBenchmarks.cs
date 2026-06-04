@@ -273,6 +273,147 @@ public class CompilerServiceCodeIntelligenceDiagnosticClusterIdBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for diagnostic cluster next-command construction used by clustered diagnostic
+/// JSON and text output.
+///
+/// The C# baseline mirrors the current formatter helper: escape the root file path with a LINQ
+/// safety scan and replacement-based quoting, then materialize <c>nlc query inspect</c>. The N#
+/// candidate performs the safety scan directly and writes commands into caller-owned storage.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDiagnosticClusterNextCommandBenchmarks
+{
+    private const int LargeClusterCount = 8192;
+    private const int RepresentativeClusterCount = 1024;
+
+    private Func<string[], int[], int[], string[], int> _nsharpDiagnosticClusterNextCommandChecksumInto =
+        (_, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _csharpCommands = Array.Empty<string>();
+    private int _clusterCount;
+    private int[] _columns = Array.Empty<int>();
+    private string[] _files = Array.Empty<string>();
+    private int[] _lines = Array.Empty<int>();
+    private string[] _nsharpCommands = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _clusterCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeClusterCount
+            : LargeClusterCount;
+        _nsharpDiagnosticClusterNextCommandChecksumInto =
+            NSharpCompiledMethod.Bind<Func<string[], int[], int[], string[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceDiagnosticClusters,
+                "DiagnosticClusterNextCommandChecksumInto");
+
+        _files = new string[_clusterCount];
+        _lines = new int[_clusterCount];
+        _columns = new int[_clusterCount];
+        _csharpCommands = new string[_clusterCount];
+        _nsharpCommands = new string[_clusterCount];
+
+        BuildRootLocations();
+
+        var expectedChecksum = CSharpDiagnosticClusterNextCommands_QueryBatch();
+        var actualChecksum = NSharpDiagnosticClusterNextCommands_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster next-command checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpCommands.SequenceEqual(_nsharpCommands))
+        {
+            var mismatch = FirstMismatch();
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster next-command mismatch for {Corpus} at cluster {mismatch}: " +
+                $"expected {_csharpCommands[mismatch]}, got {_nsharpCommands[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpDiagnosticClusterNextCommands_QueryBatch()
+    {
+        var checksum = _clusterCount;
+        for (var i = 0; i < _clusterCount; i++)
+        {
+            var command = BuildDiagnosticClusterNextCommand(_files[i], _lines[i], _columns[i]);
+            _csharpCommands[i] = command;
+            checksum += command.Length * 31;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpDiagnosticClusterNextCommands_QueryBatch() =>
+        _nsharpDiagnosticClusterNextCommandChecksumInto(
+            _files,
+            _lines,
+            _columns,
+            _nsharpCommands);
+
+    private void BuildRootLocations()
+    {
+        for (var i = 0; i < _clusterCount; i++)
+        {
+            _files[i] = (i % 8) switch
+            {
+                0 => $"/repo/src/Program{i % 97}.nl",
+                1 => $"/repo/src/generated/File-{i % 193}.nl",
+                2 => $"/repo/src/with space/File {i % 89}.nl",
+                3 => $@"C:\repo\module\File{i % 157}.nl",
+                4 => $"/repo/src/quoted\"File{i % 71}.nl",
+                5 => "   ",
+                6 => $"/repo/src/café/Module{i % 67}.nl",
+                _ => $"/repo/src/[weird]/File{i % 101}.nl"
+            };
+            _lines[i] = i % 400 + 1;
+            _columns[i] = i % 80 + 1;
+        }
+    }
+
+    private static string BuildDiagnosticClusterNextCommand(string file, int line, int column)
+    {
+        file = EscapeCommandArgument(file);
+        return $"nlc query inspect --file {file} --pos {line}:{column}";
+    }
+
+    private static string EscapeCommandArgument(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return "\"\"";
+        }
+
+        if (value.All(c => char.IsLetterOrDigit(c) || c is '/' or '.' or '_' or '-'))
+        {
+            return value;
+        }
+
+        return $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
+    }
+
+    private int FirstMismatch()
+    {
+        for (var i = 0; i < _csharpCommands.Length; i++)
+        {
+            if (_csharpCommands[i] != _nsharpCommands[i])
+            {
+                return i;
+            }
+        }
+
+        return _csharpCommands.Length;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for diagnostic cluster trait classification used by CLI/query diagnostic
 /// grouping.
 ///

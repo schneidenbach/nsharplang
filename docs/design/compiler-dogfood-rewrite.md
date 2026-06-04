@@ -318,6 +318,11 @@ Current code-intelligence dogfood benchmarks:
   build a composite key string, hash the key characters, then materialize the public `diag-{hex}`
   id. The N# candidate hashes each stable cluster field directly and writes ids into caller-owned
   storage, avoiding the temporary composite key allocation.
+- `CompilerServiceCodeIntelligenceDiagnosticClusterNextCommandBenchmarks` targets the
+  `nlc query inspect` command emitted for each diagnostic cluster root. The C# baseline mirrors the
+  formatter helper: escape the root file path with a LINQ safety scan and replacement-based quoting,
+  then materialize the command string. The N# candidate scans directly, appends escaped path content
+  into one command buffer, and writes commands into caller-owned storage.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, and `CompilerServices/DiagnosticClusters.nl`.
@@ -341,13 +346,15 @@ Doc-comment span parity covers invalid declaration lines, blank lines immediatel
 declaration, `//`, `///`, and `////` prefixes, trimmed content, and empty comment content.
 Declaration-name match parity covers invalid lines, exact selected declaration spans, mismatched
 selected spans, Unicode names, missing names, and the current substring-search edge where the guard
-    can match a declaration name inside a larger token if the caller supplies that name and column. The
-    diagnostic cluster trait parity checks known-code classification, unknown-message fallback,
-    source-construct inference, and the compatibility message-pattern wrapper. Diagnostic cluster id
-    parity checks stable public ids against the production key/hash/hex algorithm without routing
-    through the formatter. Diagnostic severity summary parity covers error, warning, info, and ignored
-    unknown severities, including the explicit-count contract used by reusable host buffers. The N#
-    candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
+can match a declaration name inside a larger token if the caller supplies that name and column. The
+diagnostic cluster trait parity checks known-code classification, unknown-message fallback,
+source-construct inference, and the compatibility message-pattern wrapper. Diagnostic cluster id
+parity checks stable public ids against the production key/hash/hex algorithm without routing
+through the formatter. Diagnostic cluster next-command parity checks safe paths, whitespace paths,
+quoted paths, backslash escaping, embedded quotes, and Unicode file names against the current
+formatter command contract. Diagnostic severity summary parity covers error, warning, info, and
+ignored unknown severities, including the explicit-count contract used by reusable host buffers. The
+N# candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
 
@@ -436,6 +443,16 @@ and about 1.28x faster on the large generated diagnostic cluster corpus (1.867 m
 is measured language/runtime pressure, not acceptance evidence, and the production formatter must
 keep the C# id path until N# has a faster short-string/hex materialization strategy that clears the
 5x gate.
+
+`DiagnosticClusterNextCommandsInto` passed parity but also missed the normal BenchmarkDotNet speed
+gate for public next-command string materialization. After replacing N# string concatenation with a
+single final `StringBuilder` and direct path escaping, the N# path measured about 1.28x faster on the
+representative diagnostic cluster corpus (57.506 us vs 73.614 us) and about 1.11x faster on the
+large generated diagnostic cluster corpus (593.591 us vs 657.952 us), but still allocated about
+1.54x the C# formatter-shaped baseline because every command still requires a builder plus the final
+string. This is measured language/runtime pressure, not acceptance evidence, and the production
+formatter must keep the C# next-command path until N# has a lower-allocation public string
+construction strategy that clears the 5x gate.
 
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
@@ -552,10 +569,10 @@ identifier lookup uses a separate N# helper because editor hover/rename semantic
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification and diagnostic
 severity summary counting are now dogfooded, but message-pattern materialization, cluster id
-materialization, and full cluster grouping are still C# formatter work. The cluster id miss is
-specifically about short public string construction after hashing: direct N# field hashing removes
-most temporary allocation, but `Math.Abs(hash).ToString("x")` plus string concatenation keeps the
-wall-clock result far below the 5x gate. The
+materialization, next-command materialization, and full cluster grouping are still C# formatter work.
+The cluster id and next-command misses are specifically about short public string construction:
+direct N# field hashing removes most temporary allocation, and direct N# command-buffer construction
+beats the current C# helper modestly, but both remain far below the 5x gate. The
 strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
 binding tables and lookup policy are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still

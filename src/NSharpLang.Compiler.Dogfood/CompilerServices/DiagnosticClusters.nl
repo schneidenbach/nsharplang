@@ -258,6 +258,104 @@ func HashDiagnosticClusterIdPart(hash: int, text: string): int {
     return hash
 }
 
+func DiagnosticClusterNextCommandsInto(
+    files: string[],
+    lines: int[],
+    columns: int[],
+    resultCommands: string[]): int {
+    count := MinInt(files.Length, lines.Length)
+    count = MinInt(count, columns.Length)
+    count = MinInt(count, resultCommands.Length)
+
+    i := 0
+    while i < count {
+        resultCommands[i] = CreateDiagnosticClusterNextCommand(files[i], lines[i], columns[i])
+        i = i + 1
+    }
+
+    return count
+}
+
+func DiagnosticClusterNextCommandChecksumInto(
+    files: string[],
+    lines: int[],
+    columns: int[],
+    resultCommands: string[]): int {
+    count := DiagnosticClusterNextCommandsInto(files, lines, columns, resultCommands)
+
+    checksum := count
+    i := 0
+    while i < count {
+        checksum = checksum + resultCommands[i].Length * 31
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CreateDiagnosticClusterNextCommand(filePath: string, line: int, column: int): string {
+    builder := new StringBuilder(filePath.Length + 48)
+    builder.Append("nlc query inspect --file ")
+    AppendEscapedDiagnosticCommandArgument(builder, filePath)
+    builder.Append(" --pos ")
+    builder.Append(line)
+    builder.Append(':')
+    builder.Append(column)
+    return builder.ToString()
+}
+
+func EscapeDiagnosticCommandArgument(value: string): string {
+    builder := new StringBuilder(value.Length + 2)
+    AppendEscapedDiagnosticCommandArgument(builder, value)
+    return builder.ToString()
+}
+
+func AppendEscapedDiagnosticCommandArgument(builder: StringBuilder, value: string): void {
+    if IsBlank(value) {
+        builder.Append('"')
+        builder.Append('"')
+        return
+    }
+
+    i := 0
+    while i < value.Length {
+        if !IsSafeDiagnosticCommandArgumentChar(value[i]) {
+            AppendQuotedDiagnosticCommandArgument(builder, value)
+            return
+        }
+
+        i = i + 1
+    }
+
+    builder.Append(value)
+}
+
+func AppendQuotedDiagnosticCommandArgument(builder: StringBuilder, value: string): void {
+    builder.Append('"')
+
+    i := 0
+    while i < value.Length {
+        ch := value[i]
+        if ch == '\\' {
+            builder.Append('\\')
+            builder.Append('\\')
+        } else if ch == '"' {
+            builder.Append('\\')
+            builder.Append('"')
+        } else {
+            builder.Append(ch)
+        }
+
+        i = i + 1
+    }
+
+    builder.Append('"')
+}
+
+func IsSafeDiagnosticCommandArgumentChar(ch: char): bool {
+    return Char.IsLetterOrDigit(ch) || ch == '/' || ch == '.' || ch == '_' || ch == '-'
+}
+
 func ClassifyDiagnosticCategory(code: string, message: string): int {
     if code == "NL102" {
         if ContainsChar(message, ';') || ContainsIgnoreCase(message, "semicolon") {

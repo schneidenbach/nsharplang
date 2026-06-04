@@ -422,6 +422,14 @@ func documented(): int {
                     "DiagnosticClusterIdChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterIdChecksumInto.");
+            var diagnosticClusterNextCommandsInto = programType.GetMethod(
+                    "DiagnosticClusterNextCommandsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterNextCommandsInto.");
+            var diagnosticClusterNextCommandChecksumInto = programType.GetMethod(
+                    "DiagnosticClusterNextCommandChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterNextCommandChecksumInto.");
 
             const string source = """"
 import System
@@ -673,6 +681,9 @@ func main() {
             AssertDiagnosticClusterIdsLikeProduction(
                 diagnosticClusterIdsInto,
                 diagnosticClusterIdChecksumInto);
+            AssertDiagnosticClusterNextCommandsLikeProduction(
+                diagnosticClusterNextCommandsInto,
+                diagnosticClusterNextCommandChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2333,6 +2344,63 @@ func main() {
         }
 
         return $"diag-{Math.Abs(hash):x}";
+    }
+
+    private static void AssertDiagnosticClusterNextCommandsLikeProduction(
+        MethodInfo diagnosticClusterNextCommandsInto,
+        MethodInfo diagnosticClusterNextCommandChecksumInto)
+    {
+        var files = new[]
+        {
+            "/repo/src/Main.nl",
+            "/repo/src/Has Space.nl",
+            """C:\repo\quoted"name.nl""",
+            "   ",
+            "/repo/src/café.nl"
+        };
+        var lines = new[] { 12, 3, 44, 1, 9 };
+        var columns = new[] { 8, 1, 17, 1, 5 };
+        var expectedCommands = Enumerable.Range(0, files.Length)
+            .Select(i => CreateExpectedDiagnosticClusterNextCommand(files[i], lines[i], columns[i]))
+            .ToArray();
+
+        var checksumCommands = new string[files.Length];
+        var actualChecksum = (int)(diagnosticClusterNextCommandChecksumInto.Invoke(
+            null,
+            new object[] { files, lines, columns, checksumCommands }) ?? -1);
+
+        var expectedChecksum = files.Length;
+        foreach (var command in expectedCommands)
+        {
+            expectedChecksum += command.Length * 31;
+        }
+
+        Assert.Equal(expectedCommands, checksumCommands);
+        Assert.Equal(expectedChecksum, actualChecksum);
+
+        var actualCommands = new string[files.Length];
+        var actualCount = (int)(diagnosticClusterNextCommandsInto.Invoke(
+            null,
+            new object[] { files, lines, columns, actualCommands }) ?? -1);
+
+        Assert.Equal(files.Length, actualCount);
+        Assert.Equal(expectedCommands, actualCommands);
+    }
+
+    private static string CreateExpectedDiagnosticClusterNextCommand(string file, int line, int column)
+    {
+        return $"nlc query inspect --file {EscapeExpectedCommandArgument(file)} --pos {line}:{column}";
+    }
+
+    private static string EscapeExpectedCommandArgument(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "\"\"";
+
+        if (value.All(c => char.IsLetterOrDigit(c) || c is '/' or '.' or '_' or '-'))
+            return value;
+
+        return $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     }
 
     private static List<DiagnosticResult> BuildDiagnosticSeveritySummaryDiagnostics()
