@@ -532,6 +532,49 @@ func Main() {
     }
 
     [Fact]
+    public void BatchCommand_DuplicateRequestIds_AreRejectedInOrdinalOrder()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-duplicates-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            var requestsPath = Path.Combine(tempDir, "requests.json");
+            File.WriteAllText(requestsPath, """
+[
+  { "id": "zeta", "command": "doc", "query": "Console.WriteLine" },
+  { "id": "alpha", "command": "doc", "query": "String" },
+  { "id": " ", "command": "doc", "query": "Int32" },
+  { "id": "zeta", "command": "diagnostics" },
+  { "id": "Alpha", "command": "doc", "query": "Console" },
+  { "id": "alpha", "command": "symbols" }
+]
+""");
+
+            var exception = Assert.Throws<InvalidDataException>(() => BatchQueryRunner.LoadRequests(requestsPath));
+            Assert.Contains("Duplicate batch request ids are not allowed: alpha, zeta", exception.Message);
+
+            var requests = new List<BatchQueryRequest>
+            {
+                new("doc", Id: "zeta"),
+                new("doc", Id: "alpha"),
+                new("doc", Id: " "),
+                new("diagnostics", Id: "zeta"),
+                new("doc", Id: "Alpha"),
+                new("symbols", Id: "alpha")
+            };
+
+            Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+            Assert.True(NSharpCliDogfoodAdapter.TryFindDuplicateBatchRequestIds(requests, out var duplicateIds));
+            Assert.Equal(new[] { "alpha", "zeta" }, duplicateIds);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BatchCommand_TextMode_IsRejected()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");

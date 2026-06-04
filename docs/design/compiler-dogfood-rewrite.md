@@ -629,13 +629,19 @@ of the C# formatter-shaped baseline. This is measured language/runtime pressure,
 evidence, and the production formatter must keep the C# next-command path until N# has a
 lower-allocation public string construction strategy that clears the 5x gate.
 
-Current CLI dogfood benchmark:
+Current CLI dogfood benchmarks:
 
 - `CliQueryPositionParsingBenchmarks` targets `nlc query --pos line:col` parsing and daemon query
   dispatch position parsing. The C# baseline mirrors the current command parser shape: split on
   `:` and parse the two pieces with `int.TryParse`. The N# candidate scans once, handles
   whitespace/signs/overflow to match `int.TryParse` behavior, and writes line/column values into
   caller-owned buffers through `CliQueryPositionsInto`.
+- `CliQueryBatchDuplicateIdBenchmarks` targets duplicate request-id validation in `nlc query
+  batch`. The C# baseline mirrors the previous CLI LINQ shape: ignore null/whitespace ids, group
+  by ordinal string id, keep groups with more than one request, and sort duplicate ids by ordinal
+  string order. The N# candidate runs after the host has assigned dense sorted ordinal ranks to
+  nonblank ids, counts duplicate ranks in caller-owned buffers, and returns the duplicate ranks in
+  public error-order through `CliBatchDuplicateIdRanksInto`.
 
 `CliQueryPositionsInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier, but missed the speed gate for CLI position parsing. The best measured
@@ -644,6 +650,13 @@ N# path ran about 2.37x faster on the representative position corpus (11.56 us v
 0 B vs 857,760 B). This is measured CLI command-orchestration pressure, not acceptance evidence, and
 the production CLI/daemon position parser must keep the current C# path until N# helper-call and
 small string parsing overhead clears the 5x gate.
+
+`CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster
+on the representative batch corpus (1.075 us vs 23.400 us, 0 B vs 59,592 B) and about 23.2x faster
+on the large generated batch corpus (5.800 us vs 134.725 us, 0 B vs 278,384 B). This is
+acceptance-grade benchmark evidence for duplicate request-id validation after the host has assigned
+sorted ordinal ranks to public string ids.
 
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
@@ -691,6 +704,9 @@ CLI/daemon member-access completion now routes position-aware receiver identifie
 same compact `SemanticModel` cache and the compiled N# semantic-scope lookup kernel when the dogfood
 assembly is available, with the previous `SemanticModel.LookupIdentifierAtPosition` path kept as the
 fallback and the existing flat lookup still used as the last receiver fallback.
+`nlc query batch` duplicate request-id validation now routes through the compiled N# compact-rank
+duplicate detector when the dogfood assembly is available, preserving the previous sorted ordinal
+duplicate-id error output, with the previous LINQ grouping path kept as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
@@ -698,7 +714,7 @@ declaration-name match, scoped visible-variable, scoped identifier-lookup, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
 severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
 deduplication, stable diagnostic deduplication, strict binding lookup, nearest declaration lookup,
-and scoped visible-variable selection
+scoped visible-variable selection, and CLI batch duplicate-id validation
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -711,7 +727,7 @@ slices, plus strict semantic binding lookup and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
-member-access completion.
+member-access completion, plus batch duplicate-id validation in `nlc query batch`.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
 for the dogfood rewrite.

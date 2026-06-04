@@ -34,6 +34,77 @@ func CliQueryPositionsInto(
     return count
 }
 
+func CliBatchDuplicateIdRanksInto(
+    idRanks: int[],
+    uniqueIdCount: int,
+    countsByRank: int[],
+    resultRanks: int[]): int {
+    clearCount := uniqueIdCount + 1
+    if clearCount > countsByRank.Length {
+        clearCount = countsByRank.Length
+    }
+
+    i := 0
+    while i < clearCount {
+        countsByRank[i] = 0
+        i = i + 1
+    }
+
+    i = 0
+    while i < idRanks.Length {
+        rank := idRanks[i]
+        if rank > 0 && rank <= uniqueIdCount && rank < countsByRank.Length {
+            countsByRank[rank] = countsByRank[rank] + 1
+        }
+
+        i = i + 1
+    }
+
+    duplicateCount := 0
+    rank := 1
+    while rank <= uniqueIdCount && rank < countsByRank.Length {
+        if countsByRank[rank] > 1 {
+            if duplicateCount < resultRanks.Length {
+                resultRanks[duplicateCount] = rank
+            }
+
+            duplicateCount = duplicateCount + 1
+        }
+
+        rank = rank + 1
+    }
+
+    return duplicateCount
+}
+
+func CliBatchDuplicateIdRankChecksumInto(
+    idRanks: int[],
+    uniqueIdCount: int,
+    countsByRank: int[],
+    resultRanks: int[],
+    idLengthsByRank: int[]): int {
+    duplicateCount := CliBatchDuplicateIdRanksInto(
+        idRanks,
+        uniqueIdCount,
+        countsByRank,
+        resultRanks)
+
+    checksum := duplicateCount
+    i := 0
+    while i < duplicateCount && i < resultRanks.Length {
+        rank := resultRanks[i]
+        length := 0
+        if rank >= 0 && rank < idLengthsByRank.Length {
+            length = idLengthsByRank[rank]
+        }
+
+        checksum = checksum + rank * 31 + length * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func CliTryParsePositionInto(position: string, result: int[]): int {
     if result.Length < 2 {
         return 0

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Order;
@@ -157,4 +158,181 @@ public class CliQueryPositionParsingBenchmarks
     }
 
     private static string FormatPosition(string position) => $"\"{position}\"";
+}
+
+/// <summary>
+/// Dogfood benchmark for duplicate request-id validation in <c>nlc query batch</c>.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliQueryBatchDuplicateIdBenchmarks
+{
+    private const int LargeRequestCount = 8192;
+    private const int RepresentativeRequestCount = 1024;
+
+    private Func<int[], int, int[], int[], int[], int> _nsharpDuplicateIdChecksumInto =
+        (_, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int[] _countsByRank = Array.Empty<int>();
+    private string[] _ids = Array.Empty<string>();
+    private int[] _idLengthsByRank = Array.Empty<int>();
+    private int[] _idRanks = Array.Empty<int>();
+    private Dictionary<string, int> _ranksById = new(StringComparer.Ordinal);
+    private int[] _csharpResultRanks = Array.Empty<int>();
+    private int[] _nsharpResultRanks = Array.Empty<int>();
+    private int _requestCount;
+    private int _uniqueIdCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _requestCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeRequestCount
+            : LargeRequestCount;
+        _nsharpDuplicateIdChecksumInto =
+            NSharpCompiledMethod.Bind<Func<int[], int, int[], int[], int[], int>>(
+                DogfoodCompilerSources.CliQueryParsing,
+                "CliBatchDuplicateIdRankChecksumInto");
+
+        _ids = BuildRequestIds(_requestCount);
+        _idRanks = new int[_requestCount];
+        _countsByRank = new int[_requestCount + 1];
+        _csharpResultRanks = new int[_requestCount];
+        _nsharpResultRanks = new int[_requestCount];
+
+        BuildRanks();
+
+        var expectedChecksum = CSharpBatchDuplicateIds_QueryBatch();
+        var actualChecksum = NSharpBatchDuplicateIds_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI batch duplicate-id checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        var expectedCount = CountFilledResultRanks(_csharpResultRanks);
+        var actualCount = CountFilledResultRanks(_nsharpResultRanks);
+        if (expectedCount != actualCount)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI batch duplicate-id count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
+        }
+
+        for (var i = 0; i < expectedCount; i++)
+        {
+            if (_csharpResultRanks[i] != _nsharpResultRanks[i])
+            {
+                throw new InvalidOperationException(
+                    $"N# CLI batch duplicate-id mismatch for {Corpus} at result {i}: " +
+                    $"expected rank {_csharpResultRanks[i]}, got {_nsharpResultRanks[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpBatchDuplicateIds_QueryBatch()
+    {
+        Array.Clear(_csharpResultRanks);
+
+        var duplicateRanks = _ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .GroupBy(id => id, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => _ranksById[group.Key])
+            .OrderBy(rank => rank)
+            .ToArray();
+
+        var checksum = duplicateRanks.Length;
+        for (var i = 0; i < duplicateRanks.Length; i++)
+        {
+            var rank = duplicateRanks[i];
+            _csharpResultRanks[i] = rank;
+            checksum += rank * 31 + _idLengthsByRank[rank] * 17;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpBatchDuplicateIds_QueryBatch() =>
+        _nsharpDuplicateIdChecksumInto(
+            _idRanks,
+            _uniqueIdCount,
+            _countsByRank,
+            _nsharpResultRanks,
+            _idLengthsByRank);
+
+    private void BuildRanks()
+    {
+        var uniqueIds = _ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+
+        _uniqueIdCount = uniqueIds.Length;
+        _idLengthsByRank = new int[_uniqueIdCount + 1];
+        _ranksById = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < uniqueIds.Length; i++)
+        {
+            var rank = i + 1;
+            _ranksById.Add(uniqueIds[i], rank);
+            _idLengthsByRank[rank] = uniqueIds[i].Length;
+        }
+
+        for (var i = 0; i < _ids.Length; i++)
+        {
+            _idRanks[i] = string.IsNullOrWhiteSpace(_ids[i])
+                ? 0
+                : _ranksById[_ids[i]];
+        }
+    }
+
+    private static string[] BuildRequestIds(int count)
+    {
+        var ids = new string[count];
+        var uniqueCount = count / 4;
+        for (var i = 0; i < count; i++)
+        {
+            if (i % 17 == 0)
+            {
+                ids[i] = string.Empty;
+                continue;
+            }
+
+            if (i % 23 == 0)
+            {
+                ids[i] = " \t";
+                continue;
+            }
+
+            var key = i % uniqueCount;
+            ids[i] = (key % 7) switch
+            {
+                0 => $"inspect-{key % 97:00}",
+                1 => $"diagnostics/{key % 89}",
+                2 => $"Type:{key % 83}",
+                3 => $"definition {key % 79}",
+                4 => $"référence-{key % 73}",
+                5 => $"zeta-{key % 67}",
+                _ => $"alpha-{key % 61}"
+            };
+        }
+
+        return ids;
+    }
+
+    private static int CountFilledResultRanks(int[] ranks)
+    {
+        var count = 0;
+        while (count < ranks.Length && ranks[count] > 0)
+        {
+            count++;
+        }
+
+        return count;
+    }
 }

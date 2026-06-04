@@ -634,6 +634,14 @@ func documented(): int {
                     "CliQueryPositionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionChecksumInto.");
+            var cliBatchDuplicateIdRanksInto = programType.GetMethod(
+                    "CliBatchDuplicateIdRanksInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchDuplicateIdRanksInto.");
+            var cliBatchDuplicateIdRankChecksumInto = programType.GetMethod(
+                    "CliBatchDuplicateIdRankChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchDuplicateIdRankChecksumInto.");
             var codeIntelligenceDocCommentChecksumInto = programType.GetMethod(
                     "CodeIntelligenceDocCommentChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -988,6 +996,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
                 cliQueryPositionChecksumInto);
+            AssertCliBatchDuplicateIdsLikeProduction(
+                cliBatchDuplicateIdRanksInto,
+                cliBatchDuplicateIdRankChecksumInto);
             AssertDocCommentsLikeProduction(
                 """
 // ignored
@@ -2334,6 +2345,73 @@ func main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static void AssertCliBatchDuplicateIdsLikeProduction(
+        MethodInfo cliBatchDuplicateIdRanksInto,
+        MethodInfo cliBatchDuplicateIdRankChecksumInto)
+    {
+        var ids = new[]
+        {
+            "zeta",
+            "alpha",
+            string.Empty,
+            "beta",
+            "alpha",
+            " \t",
+            "zeta",
+            "résumé",
+            "beta",
+            "single",
+            "Alpha"
+        };
+        var uniqueIds = ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
+        var ranksById = uniqueIds
+            .Select((id, index) => new { id, rank = index + 1 })
+            .ToDictionary(item => item.id, item => item.rank, StringComparer.Ordinal);
+        var idRanks = ids
+            .Select(id => string.IsNullOrWhiteSpace(id) ? 0 : ranksById[id])
+            .ToArray();
+        var idLengthsByRank = new int[uniqueIds.Length + 1];
+        for (var i = 0; i < uniqueIds.Length; i++)
+        {
+            idLengthsByRank[i + 1] = uniqueIds[i].Length;
+        }
+
+        var expectedRanks = ids
+            .Where(id => !string.IsNullOrWhiteSpace(id))
+            .GroupBy(id => id, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => ranksById[group.Key])
+            .OrderBy(rank => rank)
+            .ToArray();
+        var expectedChecksum = expectedRanks.Length;
+        foreach (var rank in expectedRanks)
+        {
+            expectedChecksum += rank * 31 + idLengthsByRank[rank] * 17;
+        }
+
+        var checksumCountsByRank = new int[uniqueIds.Length + 1];
+        var checksumResultRanks = new int[ids.Length];
+        var actualChecksum = (int)(cliBatchDuplicateIdRankChecksumInto.Invoke(
+            null,
+            new object[] { idRanks, uniqueIds.Length, checksumCountsByRank, checksumResultRanks, idLengthsByRank }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedRanks, checksumResultRanks.Take(expectedRanks.Length));
+
+        var countsByRank = new int[uniqueIds.Length + 1];
+        var resultRanks = new int[ids.Length];
+        var actualCount = (int)(cliBatchDuplicateIdRanksInto.Invoke(
+            null,
+            new object[] { idRanks, uniqueIds.Length, countsByRank, resultRanks }) ?? -1);
+
+        Assert.Equal(expectedRanks.Length, actualCount);
+        Assert.Equal(expectedRanks, resultRanks.Take(actualCount));
     }
 
     private static void AssertDocCommentsLikeProduction(

@@ -105,13 +105,7 @@ internal static class BatchQueryRunner
             });
         }
 
-        var duplicateIds = requests
-            .Where(request => !string.IsNullOrWhiteSpace(request.Id))
-            .GroupBy(request => request.Id, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
+        var duplicateIds = FindDuplicateRequestIds(requests);
 
         if (duplicateIds.Length > 0)
         {
@@ -119,6 +113,20 @@ internal static class BatchQueryRunner
         }
 
         return requests;
+    }
+
+    private static string[] FindDuplicateRequestIds(IReadOnlyList<BatchQueryRequest> requests)
+    {
+        if (NSharpCliDogfoodAdapter.TryFindDuplicateBatchRequestIds(requests, out var duplicateIds))
+            return duplicateIds;
+
+        return requests
+            .Where(request => !string.IsNullOrWhiteSpace(request.Id))
+            .GroupBy(request => request.Id, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key!)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
     }
 
     public static BatchQueryExecutionResult Execute(
