@@ -551,6 +551,148 @@ public class CompilerServiceSemanticScopeIndexBuildBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for semantic-scope depth table construction used while materializing the
+/// compact cache behind scoped completion and identifier lookup.
+///
+/// The C# baseline mirrors the production cache builder: compute every scope depth by walking its
+/// parent chain. The N# candidate fills the caller-owned depth array in one pass for the normal
+/// source-order scope tree shape, falling back to a bounded parent walk for out-of-order parents.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceSemanticScopeDepthBuildBenchmarks
+{
+    private SemanticScopeBuildDepthsInto _nsharpBuildDepths = null!;
+    private SemanticScopeBuildDepthChecksumInto _nsharpChecksum = null!;
+
+    private int[] _csharpScopeDepths = Array.Empty<int>();
+    private int[] _nsharpScopeDepths = Array.Empty<int>();
+    private int[] _scopeParentIds = Array.Empty<int>();
+    private int _scopeCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _scopeCount = Corpus == CompilerLexerCorpus.Representative ? 2048 : 16384;
+        var depthPerChain = Corpus == CompilerLexerCorpus.Representative ? 32 : 64;
+        _nsharpBuildDepths =
+            NSharpCompiledMethod.Bind<SemanticScopeBuildDepthsInto>(
+                DogfoodCompilerSources.CodeIntelligenceSemanticScopes,
+                "SemanticScopeBuildDepthsInto");
+        _nsharpChecksum =
+            NSharpCompiledMethod.Bind<SemanticScopeBuildDepthChecksumInto>(
+                DogfoodCompilerSources.CodeIntelligenceSemanticScopes,
+                "SemanticScopeBuildDepthChecksumInto");
+
+        _scopeParentIds = new int[_scopeCount];
+        _csharpScopeDepths = new int[_scopeCount];
+        _nsharpScopeDepths = new int[_scopeCount];
+
+        BuildScopeParents(depthPerChain);
+
+        var expectedChecksum = CSharpSemanticScopeDepth_BuildChecksum();
+        var actualChecksum = NSharpSemanticScopeDepth_BuildChecksum();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# semantic scope depth checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpSemanticScopeDepth_Build()
+    {
+        BuildScopeDepthsWithCSharp(_csharpScopeDepths);
+
+        return _scopeCount
+            + _csharpScopeDepths[_scopeCount - 1] * 17
+            + _csharpScopeDepths[_scopeCount >> 1] * 31;
+    }
+
+    [Benchmark]
+    public int NSharpSemanticScopeDepth_Build()
+    {
+        var count = _nsharpBuildDepths(_scopeParentIds, _nsharpScopeDepths);
+
+        return count
+            + _nsharpScopeDepths[count - 1] * 17
+            + _nsharpScopeDepths[count >> 1] * 31;
+    }
+
+    private int CSharpSemanticScopeDepth_BuildChecksum()
+    {
+        BuildScopeDepthsWithCSharp(_csharpScopeDepths);
+        return CalculateChecksum(_csharpScopeDepths);
+    }
+
+    private int NSharpSemanticScopeDepth_BuildChecksum() =>
+        _nsharpChecksum(_scopeParentIds, _nsharpScopeDepths);
+
+    private void BuildScopeParents(int depthPerChain)
+    {
+        var index = 0;
+        var chainCount = _scopeCount / depthPerChain;
+        for (var chain = 0; chain < chainCount; chain++)
+        {
+            var parent = -1;
+            for (var depth = 0; depth < depthPerChain; depth++)
+            {
+                _scopeParentIds[index] = parent;
+                parent = index;
+                index++;
+            }
+        }
+    }
+
+    private void BuildScopeDepthsWithCSharp(int[] scopeDepths)
+    {
+        for (var i = 0; i < _scopeCount; i++)
+        {
+            scopeDepths[i] = ComputeScopeDepth(i);
+        }
+    }
+
+    private int ComputeScopeDepth(int scopeIndex)
+    {
+        var depth = 0;
+        var current = scopeIndex;
+        while (current >= 0 && current < _scopeParentIds.Length)
+        {
+            var parent = _scopeParentIds[current];
+            if (parent < 0 || parent == current)
+                break;
+
+            depth++;
+            current = parent;
+        }
+
+        return depth;
+    }
+
+    private int CalculateChecksum(int[] scopeDepths)
+    {
+        var checksum = _scopeCount * 17;
+        for (var i = 0; i < _scopeCount; i++)
+        {
+            checksum += (i + 1) * 31 + scopeDepths[i] * 7;
+        }
+
+        return checksum;
+    }
+
+    private delegate int SemanticScopeBuildDepthsInto(
+        int[] scopeParentIds,
+        int[] scopeDepths);
+
+    private delegate int SemanticScopeBuildDepthChecksumInto(
+        int[] scopeParentIds,
+        int[] scopeDepths);
+}
+
+/// <summary>
 /// Dogfood benchmark for position-aware scoped identifier lookup used by member completion.
 ///
 /// The C# baseline uses the production <see cref="SemanticModel.LookupIdentifierAtPosition"/>

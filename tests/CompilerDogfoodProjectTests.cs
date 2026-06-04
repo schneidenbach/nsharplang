@@ -987,6 +987,14 @@ func documented(): int {
                     "SemanticScopeBuildSortedIndexChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeBuildSortedIndexChecksumInto.");
+            var semanticScopeBuildDepthsInto = programType.GetMethod(
+                    "SemanticScopeBuildDepthsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeBuildDepthsInto.");
+            var semanticScopeBuildDepthChecksumInto = programType.GetMethod(
+                    "SemanticScopeBuildDepthChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeBuildDepthChecksumInto.");
             var semanticScopeLookupSymbolIndicesInto = programType.GetMethod(
                     "SemanticScopeLookupSymbolIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1318,6 +1326,8 @@ func main() {
                 semanticScopeVisibleSymbolChecksumInto,
                 semanticScopeBuildSortedIndexInto,
                 semanticScopeBuildSortedIndexChecksumInto,
+                semanticScopeBuildDepthsInto,
+                semanticScopeBuildDepthChecksumInto,
                 semanticScopeLookupSymbolIndicesInto,
                 semanticScopeLookupSymbolChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
@@ -4991,6 +5001,8 @@ func main() {
         MethodInfo semanticScopeVisibleSymbolChecksumInto,
         MethodInfo semanticScopeBuildSortedIndexInto,
         MethodInfo semanticScopeBuildSortedIndexChecksumInto,
+        MethodInfo semanticScopeBuildDepthsInto,
+        MethodInfo semanticScopeBuildDepthChecksumInto,
         MethodInfo semanticScopeLookupSymbolIndicesInto,
         MethodInfo semanticScopeLookupSymbolChecksumInto)
     {
@@ -5030,6 +5042,33 @@ func main() {
         var sortedScopeStartLines = sortedScopeIds.Select(id => scopeStartLines[id]).ToArray();
         var sortedScopeStartColumns = sortedScopeIds.Select(id => scopeStartColumns[id]).ToArray();
         var sortedScopeMaxEndLines = BuildPrefixMaxEndLines(sortedScopeIds, scopeEndLines);
+
+        var builtScopeDepths = new int[scopeParentIds.Length];
+        var builtDepthCount = (int)(semanticScopeBuildDepthsInto.Invoke(
+            null,
+            new object[] { scopeParentIds, builtScopeDepths }) ?? -1);
+        Assert.Equal(scopeParentIds.Length, builtDepthCount);
+        Assert.Equal(scopeDepths, builtScopeDepths);
+
+        var nestedScopeParentIds = new[] { -1, 0, 1, 2, 1, 4 };
+        var expectedNestedScopeDepths = new[] { 0, 1, 2, 3, 2, 3 };
+        var actualNestedScopeDepths = new int[nestedScopeParentIds.Length];
+        var nestedDepthCount = (int)(semanticScopeBuildDepthsInto.Invoke(
+            null,
+            new object[] { nestedScopeParentIds, actualNestedScopeDepths }) ?? -1);
+        Assert.Equal(nestedScopeParentIds.Length, nestedDepthCount);
+        Assert.Equal(expectedNestedScopeDepths, actualNestedScopeDepths);
+
+        var actualDepthChecksum = (int)(semanticScopeBuildDepthChecksumInto.Invoke(
+            null,
+            new object[] { nestedScopeParentIds, new int[nestedScopeParentIds.Length] }) ?? -1);
+        var expectedDepthChecksum = nestedScopeParentIds.Length * 17;
+        for (var i = 0; i < expectedNestedScopeDepths.Length; i++)
+        {
+            expectedDepthChecksum += (i + 1) * 31 + expectedNestedScopeDepths[i] * 7;
+        }
+
+        Assert.Equal(expectedDepthChecksum, actualDepthChecksum);
 
         var shuffledScopeStartLines = new[] { 12, 1, 18, 5 };
         var shuffledScopeStartColumns = new[] { 1, 1, 1, 1 };

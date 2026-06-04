@@ -295,6 +295,11 @@ Current code-intelligence dogfood benchmarks:
   sorted scope arrays and prefix max-end lines. The N# candidate writes caller-owned output arrays,
   detects the common source-order scope table in one pass, and falls back to comparer-free primitive
   quicksort for out-of-order scope tables.
+- `CompilerServiceSemanticScopeDepthBuildBenchmarks` targets scope-depth table construction inside
+  the compact `SemanticModel` cache. The C# baseline mirrors the current cache-builder shape:
+  compute each scope depth by walking its parent chain. The N# candidate fills the caller-owned depth
+  array in one source-order pass for normal scope trees, with a bounded parent-walk fallback for
+  out-of-order parents.
 - `CompilerServiceSemanticScopeLookupBenchmarks` targets position-aware scoped identifier lookup
   used by member-access completion when resolving a plain receiver name. The C# baseline uses the
   current `SemanticModel.LookupIdentifierAtPosition` containing-scope scan. The N# candidate reuses
@@ -521,6 +526,8 @@ declaration facts against the production same-file/name, preceding-line, line/co
 selection contract. Semantic scope lookup parity checks compact scope ranges and sorted start-index
 facts against production `SemanticModel.GetVisibleVariablesAtPosition` shadowing/order semantics,
 including root, nested, sibling, open-scope, and no-containing-scope queries. The
+semantic scope depth parity checks parent-id tables against expected root/nested depth arrays and
+checksum output. The
 text-edit ordering parity checks compact start/end position ranks against the production
 bottom-to-top, right-to-left, end-position, and same-position reverse-input ordering contract. The
 text-scanning candidates use ASCII fast paths and fall back to `Char.IsLetterOrDigit` /
@@ -592,6 +599,14 @@ builder-shaped benchmark measured 1.355 us vs 8.176 us on the representative sou
 7.9x, 0 B vs 32,856 B). This is acceptance-grade benchmark evidence for replacing the C#
 `Array.Sort(order, CompareScopeStartOrder)` semantic-scope index builder when the dogfood assembly is
 available, with fallback retained for unavailable or invalid N# output.
+
+`SemanticScopeBuildDepthsInto` passed parity in the normal BenchmarkDotNet evidence tier for compact
+semantic-scope cache depth construction. The production builder-shaped benchmark measured 1.523 us
+vs 22.553 us on the representative nested-scope corpus (about 14.8x faster) and 12.217 us vs
+562.741 us on the large generated nested-scope corpus (about 46.1x faster). The BenchmarkDotNet
+memory report was present and showed no managed allocation reported for either path. This is
+acceptance-grade benchmark evidence for replacing the C# per-scope parent-chain depth walk when the
+dogfood assembly is available, with fallback retained for unavailable or invalid N# output.
 
 `SemanticScopeLookupSymbolIndicesInto` passed parity in the normal BenchmarkDotNet evidence tier for
 position-aware scoped identifier lookup before member-completion type materialization. It ran about
@@ -999,7 +1014,7 @@ semantic reference result deduplication/order slices, plus strict binding candid
 strict semantic binding lookup, and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration lookup in the source-context definition fallback, semantic scope index
-construction, and scoped visible-variable
+and depth construction, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
 member-access completion plus reflected method overload grouping and grouped member-completion
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
@@ -1011,7 +1026,7 @@ Path matching, CLI positional-argument filtering, and diagnostic severity filter
 benchmark evidence but are not routed through production code-intelligence, query, batch, or daemon
 paths because they currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
-table construction, remaining semantic-scope cache materialization, and CLI command logic still
+table construction, remaining semantic-scope name/symbol table materialization, and CLI command logic still
 contain C# implementation code and remain in scope for the dogfood rewrite.
 
 ## Rewrite Order

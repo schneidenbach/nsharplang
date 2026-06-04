@@ -373,6 +373,53 @@ func SemanticScopeLookupSymbolChecksumInto(
     return checksum
 }
 
+func SemanticScopeBuildDepthsInto(
+    scopeParentIds: int[],
+    scopeDepths: int[]): int {
+    scopeCount := SemanticScopeMinInt(scopeParentIds.Length, scopeDepths.Length)
+
+    i := 0
+    while i < scopeCount {
+        parent := scopeParentIds[i]
+        if parent < 0 || parent == i {
+            scopeDepths[i] = 0
+        } else {
+            if parent >= 0 && parent < i {
+                scopeDepths[i] = scopeDepths[parent] + 1
+            } else {
+                computedDepth := SemanticScopeComputeDepthByWalk(scopeParentIds, scopeCount, i)
+                if computedDepth < 0 {
+                    return -1
+                }
+
+                scopeDepths[i] = computedDepth
+            }
+        }
+
+        i = i + 1
+    }
+
+    return scopeCount
+}
+
+func SemanticScopeBuildDepthChecksumInto(
+    scopeParentIds: int[],
+    scopeDepths: int[]): int {
+    count := SemanticScopeBuildDepthsInto(scopeParentIds, scopeDepths)
+    if count < 0 {
+        return count
+    }
+
+    checksum := count * 17
+    i := 0
+    while i < count {
+        checksum = checksum + (i + 1) * 31 + scopeDepths[i] * 7
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func SemanticScopeBuildSortedIndexInto(
     scopeStartLines: int[],
     scopeStartColumns: int[],
@@ -598,6 +645,31 @@ func SemanticScopeIdStartsBefore(
     }
 
     return left < right
+}
+
+func SemanticScopeComputeDepthByWalk(
+    scopeParentIds: int[],
+    scopeCount: int,
+    scopeIndex: int): int {
+    depth := 0
+    current := scopeIndex
+    guard := 0
+    while current >= 0 && current < scopeCount && guard <= scopeCount {
+        parent := scopeParentIds[current]
+        if parent < 0 || parent == current {
+            break
+        }
+
+        depth = depth + 1
+        current = parent
+        guard = guard + 1
+    }
+
+    if guard > scopeCount {
+        return -1
+    }
+
+    return depth
 }
 
 func SemanticScopeFindBestContainingScope(

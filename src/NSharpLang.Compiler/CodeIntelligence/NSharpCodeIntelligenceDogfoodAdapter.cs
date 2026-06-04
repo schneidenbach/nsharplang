@@ -1381,6 +1381,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
                 CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"),
                 CreateDelegate<SemanticScopeBuildSortedIndexInto>(programType, "SemanticScopeBuildSortedIndexInto"),
+                CreateDelegate<SemanticScopeBuildDepthsInto>(programType, "SemanticScopeBuildDepthsInto"),
                 CreateDelegate<SemanticScopeVisibleSymbolIndicesInto>(programType, "SemanticScopeVisibleSymbolIndicesInto"),
                 CreateDelegate<SemanticScopeLookupSymbolIndicesInto>(programType, "SemanticScopeLookupSymbolIndicesInto"));
         }
@@ -1708,6 +1709,10 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] sortedScopeStartColumns,
         int[] sortedScopeMaxEndLines);
 
+    private delegate int SemanticScopeBuildDepthsInto(
+        int[] scopeParentIds,
+        int[] scopeDepths);
+
     private delegate int SemanticScopeLookupSymbolIndicesInto(
         int[] scopeParentIds,
         int[] scopeStartLines,
@@ -1759,6 +1764,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
         BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices,
         SemanticScopeBuildSortedIndexInto SemanticScopeBuildSortedIndex,
+        SemanticScopeBuildDepthsInto SemanticScopeBuildDepths,
         SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices,
         SemanticScopeLookupSymbolIndicesInto SemanticScopeLookupSymbolIndices);
 
@@ -2891,13 +2897,25 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 _scopeSymbolCounts[i] = symbolIndex - _scopeSymbolStarts[i];
             }
 
+            BuildScopeDepths(bindings, scopeCount);
+
+            BuildSortedScopeIndex(bindings, scopeCount);
+            _version = _model.ScopeVersion;
+        }
+
+        private void BuildScopeDepths(Bindings bindings, int scopeCount)
+        {
+            if (scopeCount == 0)
+                return;
+
+            var dogfoodCount = bindings.SemanticScopeBuildDepths(_scopeParentIds, _scopeDepths);
+            if (dogfoodCount == scopeCount)
+                return;
+
             for (var i = 0; i < scopeCount; i++)
             {
                 _scopeDepths[i] = ComputeScopeDepth(i);
             }
-
-            BuildSortedScopeIndex(bindings, scopeCount);
-            _version = _model.ScopeVersion;
         }
 
         private void BuildSortedScopeIndex(Bindings bindings, int scopeCount)
