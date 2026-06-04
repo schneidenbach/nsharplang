@@ -779,6 +779,14 @@ func documented(): int {
                     "DiagnosticSeveritySummaryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSeveritySummaryChecksumInto.");
+            var diagnosticSeverityFilterIndicesInto = programType.GetMethod(
+                    "DiagnosticSeverityFilterIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSeverityFilterIndicesInto.");
+            var diagnosticSeverityFilterChecksumInto = programType.GetMethod(
+                    "DiagnosticSeverityFilterChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSeverityFilterChecksumInto.");
             var diagnosticClusterTraitsInto = programType.GetMethod(
                     "DiagnosticClusterTraitsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1206,6 +1214,9 @@ func main() {
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
+            AssertDiagnosticSeverityFilteringLikeProduction(
+                diagnosticSeverityFilterIndicesInto,
+                diagnosticSeverityFilterChecksumInto);
         }
         finally
         {
@@ -3217,6 +3228,82 @@ func main() {
 
         Assert.Equal(severities.Length, paddedCount);
         Assert.Equal(expectedCounts, paddedCounts);
+    }
+
+    private static void AssertDiagnosticSeverityFilteringLikeProduction(
+        MethodInfo diagnosticSeverityFilterIndicesInto,
+        MethodInfo diagnosticSeverityFilterChecksumInto)
+    {
+        var severities = new[] { "error", "warning", "info", "Error", "hint", "ERROR", "warning" };
+        const string targetSeverity = "eRrOr";
+        var ranks = BuildDiagnosticSeverityRanks(severities, targetSeverity, out var targetRank);
+        var expectedIndices = severities
+            .Select((severity, index) => (severity, index))
+            .Where(item => item.severity.Equals(targetSeverity, StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.index)
+            .ToArray();
+
+        var actualIndices = new int[severities.Length];
+        var actualCount = (int)(diagnosticSeverityFilterIndicesInto.Invoke(
+            null,
+            new object[] { ranks, targetRank, actualIndices }) ?? -1);
+
+        Assert.Equal(expectedIndices.Length, actualCount);
+        Assert.Equal(expectedIndices, actualIndices.Take(actualCount).ToArray());
+
+        var checksumIndices = new int[severities.Length];
+        var actualChecksum = (int)(diagnosticSeverityFilterChecksumInto.Invoke(
+            null,
+            new object[] { ranks, targetRank, checksumIndices }) ?? -1);
+        var expectedChecksum = DiagnosticSeverityFilterChecksum(expectedIndices, ranks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedIndices, checksumIndices.Take(expectedIndices.Length).ToArray());
+
+        var missingTargetRank = ranks.Max() + 1;
+        var missingIndices = new int[severities.Length];
+        var missingCount = (int)(diagnosticSeverityFilterIndicesInto.Invoke(
+            null,
+            new object[] { ranks, missingTargetRank, missingIndices }) ?? -1);
+
+        Assert.Equal(0, missingCount);
+    }
+
+    private static int[] BuildDiagnosticSeverityRanks(
+        string[] severities,
+        string targetSeverity,
+        out int targetRank)
+    {
+        var ranksBySeverity = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        void AddSeverity(string severity)
+        {
+            if (!ranksBySeverity.ContainsKey(severity))
+            {
+                ranksBySeverity.Add(severity, ranksBySeverity.Count + 1);
+            }
+        }
+
+        AddSeverity(targetSeverity);
+        foreach (var severity in severities)
+        {
+            AddSeverity(severity);
+        }
+
+        targetRank = ranksBySeverity[targetSeverity];
+        return severities.Select(severity => ranksBySeverity[severity]).ToArray();
+    }
+
+    private static int DiagnosticSeverityFilterChecksum(int[] orderedIndices, int[] severityRanks)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31 + severityRanks[index] * 17;
+        }
+
+        return checksum;
     }
 
     private static void AssertDiagnosticClusterTraitsLikeProduction(

@@ -710,6 +710,12 @@ Current CLI dogfood benchmarks:
   string order. The N# candidate runs after the host has assigned dense sorted ordinal ranks to
   nonblank ids, counts duplicate ranks in caller-owned buffers, and returns the duplicate ranks in
   public error-order through `CliBatchDuplicateIdRanksInto`.
+- `CliDiagnosticSeverityFilterBenchmarks` targets diagnostic severity filtering in
+  `nlc query diagnostics`, batch diagnostics, and daemon diagnostics. The C# baseline mirrors the
+  current CLI LINQ shape: case-insensitive severity comparison and list materialization. The N#
+  candidate runs after the host has assigned compact `StringComparer.OrdinalIgnoreCase` severity
+  ranks, scans an unrolled rank array, and writes matching diagnostic indices through
+  `DiagnosticSeverityFilterIndicesInto`.
 - `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
   The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
   `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
@@ -732,6 +738,16 @@ the large generated position corpus (90.57 us vs 220.43 us, 0 B vs 857,760 B). T
 command-orchestration pressure, not acceptance evidence, and the production CLI/daemon position
 parser must keep the current C# path until N# helper-call and small string parsing overhead clears
 the 5x gate.
+
+`DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
+normal BenchmarkDotNet evidence tier, but missed the 5x speed gate for CLI diagnostic severity
+filtering. The best measured N# path uses compact case-insensitive severity ranks and a four-wide
+unrolled scan. It ran about 4.0x faster on the representative diagnostic corpus (670.255 ns vs
+2.713 us, 0 B vs 2,840 B) and about 4.0x faster on the large generated diagnostic corpus
+(5.395 us vs 21.798 us, 0 B vs 21,944 B). This is measured CLI command-orchestration pressure, not
+acceptance evidence, and production `nlc query diagnostics`, batch diagnostics, and daemon
+diagnostics must keep the current C# severity-filter path until N# indexed-array scans clear the
+5x gate.
 
 `CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster
@@ -837,8 +853,8 @@ scoped identifier-lookup, and variable-declaration-name queries, plus diagnostic
 classifications and diagnostic severity summaries, compact diagnostic cluster grouping, diagnostic
 deduplication, reference result deduplication, stable diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration lookup,
-scoped visible-variable selection, CLI batch duplicate-id validation, and CLI doc symbol/member
-ordering
+scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
+ordering, and the pressure-only CLI diagnostic severity filter kernel
 through the compiled N# methods; `CliCommandTests` verifies both packaged CLI dogfood adapter routes
 for duplicate batch request ids and `nlc doc` symbol/member ordering;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
@@ -858,6 +874,8 @@ output, plus batch duplicate-id validation in `nlc query batch` and generated do
 ordering in `nlc doc`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
+CLI diagnostic severity filtering has parity and benchmark evidence but is not routed through the
+production query, batch, or daemon paths because it currently misses the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
 for the dogfood rewrite.

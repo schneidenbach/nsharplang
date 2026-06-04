@@ -43,6 +43,88 @@ func DiagnosticSeveritySummaryChecksumInto(severities: string[], count: int, res
     return count + resultCounts[0] * 31 + resultCounts[1] * 17 + resultCounts[2] * 13
 }
 
+func DiagnosticSeverityFilterIndicesInto(
+    severityRanks: int[],
+    targetRank: int,
+    resultIndices: int[]): int {
+    if targetRank <= 0 {
+        return 0
+    }
+
+    matchCount := 0
+    length := severityRanks.Length
+    i := 0
+    unrolledLimit := length - 4
+    while i <= unrolledLimit {
+        if severityRanks[i] == targetRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = i
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        next := i + 1
+        if severityRanks[next] == targetRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = next
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        next = i + 2
+        if severityRanks[next] == targetRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = next
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        next = i + 3
+        if severityRanks[next] == targetRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = next
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        i = i + 4
+    }
+
+    while i < length {
+        if severityRanks[i] == targetRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = i
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return matchCount
+}
+
+func DiagnosticSeverityFilterChecksumInto(
+    severityRanks: int[],
+    targetRank: int,
+    resultIndices: int[]): int {
+    matchCount := DiagnosticSeverityFilterIndicesInto(severityRanks, targetRank, resultIndices)
+    checksum := matchCount
+    i := 0
+    while i < matchCount && i < resultIndices.Length {
+        index := resultIndices[i]
+        checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + severityRanks[index] * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func DiagnosticClusterTraitsInto(
     codes: string[],
     messages: string[],
