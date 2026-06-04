@@ -208,6 +208,171 @@ func SemanticScopeVisibleSymbolChecksumInto(
     return checksum
 }
 
+func SemanticScopeLookupSymbolIndicesInto(
+    scopeParentIds: int[],
+    scopeStartLines: int[],
+    scopeStartColumns: int[],
+    scopeEndLines: int[],
+    scopeEndColumns: int[],
+    scopeDepths: int[],
+    scopeSymbolStarts: int[],
+    scopeSymbolCounts: int[],
+    symbolNameIds: int[],
+    sortedScopeIds: int[],
+    sortedScopeStartLines: int[],
+    sortedScopeStartColumns: int[],
+    sortedScopeMaxEndLines: int[],
+    queryNameIds: int[],
+    queryLines: int[],
+    queryColumns: int[],
+    resultScopeIds: int[],
+    resultSymbolIndices: int[]): int {
+    scopeCount := SemanticScopeMinInt(scopeParentIds.Length, scopeStartLines.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, scopeStartColumns.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, scopeEndLines.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, scopeEndColumns.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, scopeDepths.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, scopeSymbolStarts.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, scopeSymbolCounts.Length)
+
+    queryCount := SemanticScopeMinInt(queryNameIds.Length, queryLines.Length)
+    queryCount = SemanticScopeMinInt(queryCount, queryColumns.Length)
+    queryCount = SemanticScopeMinInt(queryCount, resultScopeIds.Length)
+    queryCount = SemanticScopeMinInt(queryCount, resultSymbolIndices.Length)
+
+    if scopeCount == 0 || queryCount == 0 {
+        return 0
+    }
+
+    symbolCount := symbolNameIds.Length
+    foundCount := 0
+    queryIndex := 0
+    while queryIndex < queryCount {
+        queryNameId := queryNameIds[queryIndex]
+        line := queryLines[queryIndex]
+        column := queryColumns[queryIndex]
+        bestScope := -1
+        resultSymbol := -1
+
+        bestScope = SemanticScopeFindBestContainingScope(
+            scopeStartLines,
+            scopeStartColumns,
+            scopeEndLines,
+            scopeEndColumns,
+            scopeDepths,
+            sortedScopeIds,
+            sortedScopeStartLines,
+            sortedScopeStartColumns,
+            sortedScopeMaxEndLines,
+            scopeCount,
+            line,
+            column)
+
+        if bestScope >= 0 && queryNameId > 0 {
+            current := bestScope
+            while current >= 0 && current < scopeCount && resultSymbol < 0 {
+                symbolStart := scopeSymbolStarts[current]
+                symbolEnd := symbolStart + scopeSymbolCounts[current]
+                symbolIndex := symbolStart
+
+                while symbolIndex < symbolEnd && resultSymbol < 0 {
+                    if symbolIndex >= 0 && symbolIndex < symbolCount {
+                        if symbolNameIds[symbolIndex] == queryNameId {
+                            resultSymbol = symbolIndex
+                            foundCount = foundCount + 1
+                        }
+                    }
+
+                    symbolIndex = symbolIndex + 1
+                }
+
+                parent := scopeParentIds[current]
+                if parent == current {
+                    break
+                }
+
+                current = parent
+            }
+        }
+
+        resultScopeIds[queryIndex] = bestScope
+        resultSymbolIndices[queryIndex] = resultSymbol
+        queryIndex = queryIndex + 1
+    }
+
+    return foundCount
+}
+
+func SemanticScopeLookupSymbolChecksumInto(
+    scopeParentIds: int[],
+    scopeStartLines: int[],
+    scopeStartColumns: int[],
+    scopeEndLines: int[],
+    scopeEndColumns: int[],
+    scopeDepths: int[],
+    scopeSymbolStarts: int[],
+    scopeSymbolCounts: int[],
+    symbolNameIds: int[],
+    symbolNameLengths: int[],
+    symbolTypeNameLengths: int[],
+    sortedScopeIds: int[],
+    sortedScopeStartLines: int[],
+    sortedScopeStartColumns: int[],
+    sortedScopeMaxEndLines: int[],
+    queryNameIds: int[],
+    queryLines: int[],
+    queryColumns: int[],
+    resultScopeIds: int[],
+    resultSymbolIndices: int[]): int {
+    foundCount := SemanticScopeLookupSymbolIndicesInto(
+        scopeParentIds,
+        scopeStartLines,
+        scopeStartColumns,
+        scopeEndLines,
+        scopeEndColumns,
+        scopeDepths,
+        scopeSymbolStarts,
+        scopeSymbolCounts,
+        symbolNameIds,
+        sortedScopeIds,
+        sortedScopeStartLines,
+        sortedScopeStartColumns,
+        sortedScopeMaxEndLines,
+        queryNameIds,
+        queryLines,
+        queryColumns,
+        resultScopeIds,
+        resultSymbolIndices)
+
+    if foundCount < 0 {
+        return foundCount
+    }
+
+    queryCount := SemanticScopeMinInt(queryNameIds.Length, queryLines.Length)
+    queryCount = SemanticScopeMinInt(queryCount, queryColumns.Length)
+    queryCount = SemanticScopeMinInt(queryCount, resultScopeIds.Length)
+    queryCount = SemanticScopeMinInt(queryCount, resultSymbolIndices.Length)
+    symbolCount := SemanticScopeMinInt(symbolNameLengths.Length, symbolTypeNameLengths.Length)
+
+    checksum := foundCount * 17
+    queryIndex := 0
+    while queryIndex < queryCount {
+        scopeId := resultScopeIds[queryIndex]
+        checksum = checksum + (scopeId + 1) * 31
+
+        symbolIndex := resultSymbolIndices[queryIndex]
+        if symbolIndex >= 0 && symbolIndex < symbolCount {
+            checksum = checksum
+                + symbolNameLengths[symbolIndex] * 13
+                + symbolTypeNameLengths[symbolIndex] * 7
+        }
+
+        queryIndex = queryIndex + 1
+    }
+
+    return checksum
+}
+
 func SemanticScopeFindBestContainingScope(
     scopeStartLines: int[],
     scopeStartColumns: int[],

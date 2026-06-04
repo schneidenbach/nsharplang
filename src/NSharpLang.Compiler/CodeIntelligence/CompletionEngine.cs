@@ -254,7 +254,7 @@ public class CompletionEngine
         // Try to resolve receiver as a variable from semantic model (position-aware, then flat)
         if (semanticModel != null)
         {
-            var typeInfo = semanticModel.LookupIdentifierAtPosition(receiver, line, col)
+            var typeInfo = LookupIdentifierAtPosition(semanticModel, receiver, line, col)
                           ?? semanticModel.LookupIdentifier(receiver);
             if (typeInfo != null)
             {
@@ -286,6 +286,21 @@ public class CompletionEngine
         }
 
         return EmptyResult(CompletionContext.MemberAccess);
+    }
+
+    private static TypeInfo? LookupIdentifierAtPosition(SemanticModel semanticModel, string name, int line, int column)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryLookupIdentifierAtPosition(
+                semanticModel,
+                name,
+                line,
+                column,
+                out var dogfoodTypeInfo))
+        {
+            return dogfoodTypeInfo;
+        }
+
+        return semanticModel.LookupIdentifierAtPosition(name, line, column);
     }
 
     // ── General Identifier Completions ──────────────────────────────────

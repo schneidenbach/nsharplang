@@ -52,6 +52,7 @@ func main() {
         semanticModel.RecordScopedVariable(innerScope, "z", BuiltInTypes.Double);
         semanticModel.CloseScope(innerScope, 8, 120);
         semanticModel.CloseScope(rootScope, 12, 120);
+        semanticModel.RecordProperty("Name", BuiltInTypes.String);
 
         var tryGetVisibleVariablesAtPosition = adapterType.GetMethod(
                 "TryGetVisibleVariablesAtPosition",
@@ -63,6 +64,27 @@ func main() {
         Assert.Equal("bool", visibleVariables["x"].ToString());
         Assert.Equal("string", visibleVariables["y"].ToString());
         Assert.Equal("double", visibleVariables["z"].ToString());
+
+        var tryLookupIdentifierAtPosition = adapterType.GetMethod(
+                "TryLookupIdentifierAtPosition",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryLookupIdentifierAtPosition.");
+
+        var innerLookupArgs = new object?[] { semanticModel, "x", 5, 10, null };
+        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, innerLookupArgs) ?? false));
+        Assert.Equal("bool", innerLookupArgs[4]?.ToString());
+
+        var outerLookupArgs = new object?[] { semanticModel, "y", 5, 10, null };
+        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, outerLookupArgs) ?? false));
+        Assert.Equal("string", outerLookupArgs[4]?.ToString());
+
+        var propertyLookupArgs = new object?[] { semanticModel, "Name", 5, 10, null };
+        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, propertyLookupArgs) ?? false));
+        Assert.Equal("string", propertyLookupArgs[4]?.ToString());
+
+        var missingLookupArgs = new object?[] { semanticModel, "missing", 5, 10, null };
+        Assert.True((bool)(tryLookupIdentifierAtPosition.Invoke(null, missingLookupArgs) ?? false));
+        Assert.Null(missingLookupArgs[4]);
 
         var tryExtractIdentifierName = adapterType.GetMethod(
                 "TryExtractIdentifierName",
@@ -697,6 +719,14 @@ func documented(): int {
                     "SemanticScopeVisibleSymbolChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeVisibleSymbolChecksumInto.");
+            var semanticScopeLookupSymbolIndicesInto = programType.GetMethod(
+                    "SemanticScopeLookupSymbolIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeLookupSymbolIndicesInto.");
+            var semanticScopeLookupSymbolChecksumInto = programType.GetMethod(
+                    "SemanticScopeLookupSymbolChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeLookupSymbolChecksumInto.");
 
             const string source = """"
 import System
@@ -972,7 +1002,9 @@ func main() {
                 bindingLookupFindNearestDeclarationChecksumInto);
             AssertSemanticScopeVisibleVariablesLikeProduction(
                 semanticScopeVisibleSymbolIndicesInto,
-                semanticScopeVisibleSymbolChecksumInto);
+                semanticScopeVisibleSymbolChecksumInto,
+                semanticScopeLookupSymbolIndicesInto,
+                semanticScopeLookupSymbolChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -3250,7 +3282,9 @@ func main() {
 
     private static void AssertSemanticScopeVisibleVariablesLikeProduction(
         MethodInfo semanticScopeVisibleSymbolIndicesInto,
-        MethodInfo semanticScopeVisibleSymbolChecksumInto)
+        MethodInfo semanticScopeVisibleSymbolChecksumInto,
+        MethodInfo semanticScopeLookupSymbolIndicesInto,
+        MethodInfo semanticScopeLookupSymbolChecksumInto)
     {
         var model = new SemanticModel();
         var root = model.OpenScope(-1, 1, 1);
@@ -3395,6 +3429,101 @@ func main() {
         }
 
         Assert.Equal(expectedChecksum, actualChecksum);
+
+        var lookupQueryNames = new[] { "x", "y", "z", "localFunc", "sibling", "openOnly", "x", "missing" };
+        var lookupQueryLines = new[] { 6, 6, 6, 6, 13, 19, 19, 30 };
+        var lookupQueryColumns = new[] { 10, 10, 10, 10, 10, 10, 10, 10 };
+        var lookupQueryNameIds = CreateQueryNameIds(symbolNames, symbolNameIds, lookupQueryNames);
+        var expectedLookupScopeIds = new[] { 1, 1, 1, 1, 2, 0, 0, -1 };
+        var lookupResultScopeIds = new int[lookupQueryNames.Length];
+        var lookupResultSymbolIndices = new int[lookupQueryNames.Length];
+
+        var found = (int)(semanticScopeLookupSymbolIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                scopeParentIds,
+                scopeStartLines,
+                scopeStartColumns,
+                scopeEndLines,
+                scopeEndColumns,
+                scopeDepths,
+                scopeSymbolStarts,
+                scopeSymbolCounts,
+                symbolNameIds,
+                sortedScopeIds,
+                sortedScopeStartLines,
+                sortedScopeStartColumns,
+                sortedScopeMaxEndLines,
+                lookupQueryNameIds,
+                lookupQueryLines,
+                lookupQueryColumns,
+                lookupResultScopeIds,
+                lookupResultSymbolIndices
+            }) ?? -1);
+
+        var expectedLookupTypes = lookupQueryNames
+            .Select((name, index) => model.LookupIdentifierAtPosition(name, lookupQueryLines[index], lookupQueryColumns[index]))
+            .ToArray();
+        Assert.Equal(expectedLookupTypes.Count(static type => type != null), found);
+        Assert.Equal(expectedLookupScopeIds, lookupResultScopeIds);
+        for (var queryIndex = 0; queryIndex < lookupQueryNames.Length; queryIndex++)
+        {
+            var expectedType = expectedLookupTypes[queryIndex];
+            var symbolIndex = lookupResultSymbolIndices[queryIndex];
+            if (expectedType == null)
+            {
+                Assert.Equal(-1, symbolIndex);
+            }
+            else
+            {
+                Assert.InRange(symbolIndex, 0, symbolTypeNames.Length - 1);
+                Assert.Equal(expectedType.ToString(), symbolTypeNames[symbolIndex]);
+            }
+        }
+
+        Array.Clear(lookupResultScopeIds);
+        Array.Clear(lookupResultSymbolIndices);
+
+        var actualLookupChecksum = (int)(semanticScopeLookupSymbolChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                scopeParentIds,
+                scopeStartLines,
+                scopeStartColumns,
+                scopeEndLines,
+                scopeEndColumns,
+                scopeDepths,
+                scopeSymbolStarts,
+                scopeSymbolCounts,
+                symbolNameIds,
+                symbolNameLengths,
+                symbolTypeNameLengths,
+                sortedScopeIds,
+                sortedScopeStartLines,
+                sortedScopeStartColumns,
+                sortedScopeMaxEndLines,
+                lookupQueryNameIds,
+                lookupQueryLines,
+                lookupQueryColumns,
+                lookupResultScopeIds,
+                lookupResultSymbolIndices
+            }) ?? -1);
+
+        var expectedLookupChecksum = found * 17;
+        for (var queryIndex = 0; queryIndex < lookupQueryNames.Length; queryIndex++)
+        {
+            expectedLookupChecksum += (expectedLookupScopeIds[queryIndex] + 1) * 31;
+            var expectedType = expectedLookupTypes[queryIndex];
+            if (expectedType != null)
+            {
+                expectedLookupChecksum += lookupQueryNames[queryIndex].Length * 13
+                    + expectedType.ToString().Length * 7;
+            }
+        }
+
+        Assert.Equal(expectedLookupChecksum, actualLookupChecksum);
     }
 
     private static int[] BuildPrefixMaxEndLines(int[] sortedScopeIds, int[] scopeEndLines)
@@ -3423,6 +3552,32 @@ func main() {
             {
                 id = idsByValue.Count + 1;
                 idsByValue.Add(values[i], id);
+            }
+
+            ids[i] = id;
+        }
+
+        return ids;
+    }
+
+    private static int[] CreateQueryNameIds(string[] symbolNames, int[] symbolNameIds, string[] queryNames)
+    {
+        var idsByValue = new Dictionary<string, int>(StringComparer.Ordinal);
+        var maxId = 0;
+        for (var i = 0; i < symbolNames.Length; i++)
+        {
+            idsByValue.TryAdd(symbolNames[i], symbolNameIds[i]);
+            if (symbolNameIds[i] > maxId)
+                maxId = symbolNameIds[i];
+        }
+
+        var ids = new int[queryNames.Length];
+        for (var i = 0; i < queryNames.Length; i++)
+        {
+            if (!idsByValue.TryGetValue(queryNames[i], out var id))
+            {
+                id = ++maxId;
+                idsByValue.Add(queryNames[i], id);
             }
 
             ids[i] = id;

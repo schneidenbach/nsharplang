@@ -48,6 +48,7 @@ Benchmark command shape:
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceLexer*'
 dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligence*'
+dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceSemanticScope*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -269,6 +270,13 @@ Current code-intelligence dogfood benchmarks:
   with prefix max-end lines, then writes visible symbol indices through
   `SemanticScopeVisibleSymbolIndicesInto`. The host still owns final `TypeInfo` objects and
   completion item materialization.
+- `CompilerServiceSemanticScopeLookupBenchmarks` targets position-aware scoped identifier lookup
+  used by member-access completion when resolving a plain receiver name. The C# baseline uses the
+  current `SemanticModel.LookupIdentifierAtPosition` containing-scope scan. The N# candidate reuses
+  the compact scope/symbol table and sorted scope-start index, finds the deepest containing scope,
+  walks the parent chain for the requested name id, and writes the resolved symbol index through
+  `SemanticScopeLookupSymbolIndicesInto`. The host still owns `TypeInfo` objects and the
+  properties/fields/types fallback boundary.
 - `CompilerServiceCodeIntelligenceNearestDeclarationLookupBenchmarks` targets the source-context
   fallback that chooses the nearest same-file declaration by name before AST declaration scans. The
   C# baseline mirrors the production LINQ shape: `FindDeclarationsByName`, file/line filtering,
@@ -457,6 +465,14 @@ semantic-scope corpus (2.473 ms vs 47.073 ms, 0 B vs 36,790,272 B). This is acce
 benchmark evidence for visible symbol selection after the host has built compact scope/symbol tables
 and the sorted scope-start index.
 
+`SemanticScopeLookupSymbolIndicesInto` passed parity in the normal BenchmarkDotNet evidence tier for
+position-aware scoped identifier lookup before member-completion type materialization. It ran about
+17.07x faster on the representative semantic-scope lookup corpus (210.411 us vs 3.593 ms) and about
+88.04x faster on the large generated semantic-scope lookup corpus (735.576 us vs 64.750 ms). The
+BenchmarkDotNet memory report was present and showed no managed allocation reported for either path.
+This is acceptance-grade benchmark evidence for scoped identifier selection after the host has built
+compact scope/symbol tables and the sorted scope-start index.
+
 `BindingLookupFindNearestDeclarationIndicesInto` passed parity and reported zero managed allocation
 in the same normal BenchmarkDotNet evidence tier for nearest same-file declaration selection by
 name. It ran about 231x faster on the representative declaration corpus (40.721 us vs 9.402 ms,
@@ -622,14 +638,18 @@ CLI/daemon identifier completion now routes scoped visible-variable selection th
 `SemanticModel` cache and the compiled N# semantic-scope kernel when the dogfood assembly is
 available, with the previous `SemanticModel.GetVisibleVariablesAtPosition` path kept as the
 fallback.
+CLI/daemon member-access completion now routes position-aware receiver identifier lookup through the
+same compact `SemanticModel` cache and the compiled N# semantic-scope lookup kernel when the dogfood
+assembly is available, with the previous `SemanticModel.LookupIdentifierAtPosition` path kept as the
+fallback and the existing flat lookup still used as the last receiver fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
-declaration-name match, and
+declaration-name match, scoped visible-variable, scoped identifier-lookup, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
 severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
 deduplication, strict binding lookup, nearest declaration lookup, and scoped visible-variable
-selection,
+selection
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -640,7 +660,8 @@ JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic
 semantic reference result deduplication/order slices, plus strict semantic binding lookup and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
-selection in CLI/daemon identifier completion.
+selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
+member-access completion.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
 for the dogfood rewrite.

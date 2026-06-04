@@ -697,6 +697,31 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryLookupIdentifierAtPosition(
+        SemanticModel semanticModel,
+        string name,
+        int line,
+        int column,
+        out TypeInfo? typeInfo)
+    {
+        typeInfo = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = s_semanticScopeCaches.GetValue(semanticModel, static model => new SemanticScopeCache(model));
+            return cache.TryLookupIdentifierAtPosition(bindings, name, line, column, out typeInfo);
+        }
+        catch
+        {
+            typeInfo = null;
+            return false;
+        }
+    }
+
     internal static bool TryClassifyCompletionReceiver(
         string beforeCursor,
         out bool isMemberAccess,
@@ -786,7 +811,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
                 CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"),
-                CreateDelegate<SemanticScopeVisibleSymbolIndicesInto>(programType, "SemanticScopeVisibleSymbolIndicesInto"));
+                CreateDelegate<SemanticScopeVisibleSymbolIndicesInto>(programType, "SemanticScopeVisibleSymbolIndicesInto"),
+                CreateDelegate<SemanticScopeLookupSymbolIndicesInto>(programType, "SemanticScopeLookupSymbolIndicesInto"));
         }
         catch
         {
@@ -1029,6 +1055,26 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] slotNameIds,
         int[] touchedSlots);
 
+    private delegate int SemanticScopeLookupSymbolIndicesInto(
+        int[] scopeParentIds,
+        int[] scopeStartLines,
+        int[] scopeStartColumns,
+        int[] scopeEndLines,
+        int[] scopeEndColumns,
+        int[] scopeDepths,
+        int[] scopeSymbolStarts,
+        int[] scopeSymbolCounts,
+        int[] symbolNameIds,
+        int[] sortedScopeIds,
+        int[] sortedScopeStartLines,
+        int[] sortedScopeStartColumns,
+        int[] sortedScopeMaxEndLines,
+        int[] queryNameIds,
+        int[] queryLines,
+        int[] queryColumns,
+        int[] resultScopeIds,
+        int[] resultSymbolIndices);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
@@ -1051,7 +1097,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
         BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices,
-        SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices);
+        SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices,
+        SemanticScopeLookupSymbolIndicesInto SemanticScopeLookupSymbolIndices);
 
     internal sealed class DiagnosticClusterGrouping
     {
@@ -1664,8 +1711,10 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private readonly object _gate = new();
         private readonly SemanticModel _model;
         private readonly Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
+        private readonly int[] _lookupResultSymbolIndices = new int[1];
         private readonly int[] _queryColumns = new int[1];
         private readonly int[] _queryLines = new int[1];
+        private readonly int[] _queryNameIds = new int[1];
         private readonly int[] _resultCounts = new int[1];
         private readonly int[] _resultScopeIds = new int[1];
         private readonly int[] _resultStarts = new int[1];
@@ -1768,6 +1817,72 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 }
 
                 visibleVariables = result;
+                return true;
+            }
+        }
+
+        public bool TryLookupIdentifierAtPosition(
+            Bindings bindings,
+            string name,
+            int line,
+            int column,
+            out TypeInfo? typeInfo)
+        {
+            typeInfo = null;
+
+            lock (_gate)
+            {
+                EnsureBuilt();
+                if (_scopeParentIds.Length == 0)
+                {
+                    typeInfo = _model.LookupIdentifier(name);
+                    return true;
+                }
+
+                var nameId = GetExistingNameId(name);
+                if (nameId < 0)
+                {
+                    typeInfo = LookupScopedFallback(name);
+                    return true;
+                }
+
+                _queryNameIds[0] = nameId;
+                _queryLines[0] = line;
+                _queryColumns[0] = column;
+                _resultScopeIds[0] = -1;
+                _lookupResultSymbolIndices[0] = -1;
+
+                var found = bindings.SemanticScopeLookupSymbolIndices(
+                    _scopeParentIds,
+                    _scopeStartLines,
+                    _scopeStartColumns,
+                    _scopeEndLines,
+                    _scopeEndColumns,
+                    _scopeDepths,
+                    _scopeSymbolStarts,
+                    _scopeSymbolCounts,
+                    _symbolNameIds,
+                    _sortedScopeIds,
+                    _sortedScopeStartLines,
+                    _sortedScopeStartColumns,
+                    _sortedScopeMaxEndLines,
+                    _queryNameIds,
+                    _queryLines,
+                    _queryColumns,
+                    _resultScopeIds,
+                    _lookupResultSymbolIndices);
+
+                if (found < 0)
+                    return false;
+
+                var symbolIndex = _lookupResultSymbolIndices[0];
+                if (symbolIndex >= 0 && symbolIndex < _symbolTypes.Length)
+                {
+                    typeInfo = _symbolTypes[symbolIndex];
+                    return true;
+                }
+
+                typeInfo = LookupScopedFallback(name);
                 return true;
             }
         }
@@ -1913,6 +2028,20 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             id = _nameIds.Count + 1;
             _nameIds.Add(name, id);
             return id;
+        }
+
+        private int GetExistingNameId(string name) => _nameIds.TryGetValue(name, out var id) ? id : -1;
+
+        private TypeInfo? LookupScopedFallback(string name)
+        {
+            if (_model.Properties.TryGetValue(name, out var propType))
+                return propType;
+            if (_model.Fields.TryGetValue(name, out var fieldType))
+                return fieldType;
+            if (_model.Types.TryGetValue(name, out var type))
+                return type;
+
+            return null;
         }
 
         private void EnsureQueryCapacity()

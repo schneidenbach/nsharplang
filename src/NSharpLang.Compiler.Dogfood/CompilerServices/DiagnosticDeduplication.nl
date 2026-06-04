@@ -6,10 +6,10 @@ func DiagnosticDeduplicateCompactInto(
     messageIds: int[],
     slotIndices: int[],
     resultIndices: int[]): int {
-    count := MinInt(codeIds.Length, fileRanks.Length)
-    count = MinInt(count, lineNumbers.Length)
-    count = MinInt(count, columns.Length)
-    count = MinInt(count, messageIds.Length)
+    count := DiagnosticDeduplicationMinInt(codeIds.Length, fileRanks.Length)
+    count = DiagnosticDeduplicationMinInt(count, lineNumbers.Length)
+    count = DiagnosticDeduplicationMinInt(count, columns.Length)
+    count = DiagnosticDeduplicationMinInt(count, messageIds.Length)
 
     maxResults := resultIndices.Length
     capacity := slotIndices.Length
@@ -32,7 +32,7 @@ func DiagnosticDeduplicateCompactInto(
             lineNumbers[index],
             columns[index],
             messageIds[index])
-        slot := PositiveModulo(hash, capacity)
+        slot := DiagnosticDeduplicationPositiveModulo(hash, capacity)
         probes := 0
         duplicate := false
 
@@ -113,8 +113,8 @@ func ReferenceDeduplicateCompactInto(
     columns: int[],
     slotIndices: int[],
     resultIndices: int[]): int {
-    count := MinInt(fileRanks.Length, lineNumbers.Length)
-    count = MinInt(count, columns.Length)
+    count := DiagnosticDeduplicationMinInt(fileRanks.Length, lineNumbers.Length)
+    count = DiagnosticDeduplicationMinInt(count, columns.Length)
 
     maxResults := resultIndices.Length
     capacity := slotIndices.Length
@@ -135,7 +135,7 @@ func ReferenceDeduplicateCompactInto(
             fileRanks[index],
             lineNumbers[index],
             columns[index])
-        slot := PositiveModulo(hash, capacity)
+        slot := DiagnosticDeduplicationPositiveModulo(hash, capacity)
         probes := 0
         duplicate := false
 
@@ -336,7 +336,7 @@ func IsDiagnosticDeduplicationIndexBefore(
     return left < right
 }
 
-func PositiveModulo(value: int, divisor: int): int {
+func DiagnosticDeduplicationPositiveModulo(value: int, divisor: int): int {
     result := value % divisor
     if result < 0 {
         return result + divisor
@@ -345,7 +345,7 @@ func PositiveModulo(value: int, divisor: int): int {
     return result
 }
 
-func MinInt(left: int, right: int): int {
+func DiagnosticDeduplicationMinInt(left: int, right: int): int {
     if left < right {
         return left
     }
