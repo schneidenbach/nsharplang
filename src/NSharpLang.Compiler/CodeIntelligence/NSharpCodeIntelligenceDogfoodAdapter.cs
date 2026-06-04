@@ -242,6 +242,29 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryExtractEditorIdentifierSpan(
+        string source,
+        int line,
+        int column,
+        out (int StartColumn, int EndColumn, string Name)? span)
+    {
+        span = null;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
+            return cache.TryExtractEditorIdentifierSpan(bindings, line, column, out span);
+        }
+        catch
+        {
+            span = null;
+            return false;
+        }
+    }
+
     internal static bool TryExtractVariableDeclarationName(
         ProjectSnapshot snapshot,
         string filePath,
@@ -287,6 +310,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
                 CreateDelegate<CodeIntelligenceDeclarationNameMatchesFromLinesInto>(programType, "CodeIntelligenceDeclarationNameMatchesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
+                CreateDelegate<CodeIntelligenceEditorIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceEditorIdentifierSpansFromLinesInto"),
                 CreateDelegate<CodeIntelligenceCompletionPrefixesFromLinesInto>(programType, "CodeIntelligenceCompletionPrefixesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceDocCommentLinesFromLinesInto>(programType, "CodeIntelligenceDocCommentLinesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
@@ -345,6 +369,16 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] nameLengthsByLine);
 
     private delegate int CodeIntelligenceIdentifierSpansFromLinesInto(
+        string source,
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int[] queryLines,
+        int[] queryColumns,
+        int[] resultStarts,
+        int[] resultLengths);
+
+    private delegate int CodeIntelligenceEditorIdentifierSpansFromLinesInto(
         string source,
         int[] lineStarts,
         int[] lineLengths,
@@ -427,6 +461,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
         CodeIntelligenceDeclarationNameMatchesFromLinesInto DeclarationNameMatchesFromLines,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
+        CodeIntelligenceEditorIdentifierSpansFromLinesInto EditorIdentifierSpansFromLines,
         CodeIntelligenceCompletionPrefixesFromLinesInto CompletionPrefixesFromLines,
         CodeIntelligenceDocCommentLinesFromLinesInto DocCommentLinesFromLines,
         CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
@@ -439,6 +474,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private readonly object _gate = new();
         private readonly int[] _lineLengths;
         private readonly int[] _lineStarts;
+        private readonly int[] _queryColumns = new int[1];
         private readonly int[] _queryLines = new int[1];
         private readonly int[] _resultLengths = new int[1];
         private readonly int[] _resultStarts = new int[1];
@@ -475,6 +511,40 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                     return true;
 
                 text = _source.Substring(start, _resultLengths[0]);
+                return true;
+            }
+        }
+
+        public bool TryExtractEditorIdentifierSpan(
+            Bindings bindings,
+            int line,
+            int column,
+            out (int StartColumn, int EndColumn, string Name)? span)
+        {
+            span = null;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                _queryLines[0] = line;
+                _queryColumns[0] = column;
+                bindings.EditorIdentifierSpansFromLines(
+                    _source,
+                    _lineStarts,
+                    _lineLengths,
+                    _lineCount,
+                    _queryLines,
+                    _queryColumns,
+                    _resultStarts,
+                    _resultLengths);
+
+                var start = _resultStarts[0];
+                var length = _resultLengths[0];
+                if (start < 0 || length <= 0)
+                    return true;
+
+                var absoluteStart = _lineStarts[line - 1] + start - 1;
+                span = (start, start + length - 1, _source.Substring(absoluteStart, length));
                 return true;
             }
         }

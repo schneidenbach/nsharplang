@@ -51,6 +51,28 @@ func main() {
         Assert.True((bool)(tryExtractIdentifierName.Invoke(null, identifierArgs) ?? false));
         Assert.Equal("input", identifierArgs[5]);
 
+        var tryExtractEditorIdentifierSpan = adapterType.GetMethod(
+                "TryExtractEditorIdentifierSpan",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractEditorIdentifierSpan.");
+        var editorSpanArgs = new object?[] { source, 2, 15, null };
+        Assert.True((bool)(tryExtractEditorIdentifierSpan.Invoke(null, editorSpanArgs) ?? false));
+        var editorSpan = Assert.IsType<ValueTuple<int, int, string>>(editorSpanArgs[3]);
+        Assert.Equal(14, editorSpan.Item1);
+        Assert.Equal(18, editorSpan.Item2);
+        Assert.Equal("input", editorSpan.Item3);
+
+        var editorPunctuationArgs = new object?[] { source, 2, 19, null };
+        Assert.True((bool)(tryExtractEditorIdentifierSpan.Invoke(null, editorPunctuationArgs) ?? false));
+        Assert.Null(editorPunctuationArgs[3]);
+
+        Assert.True(CodeIntelligenceTextUtilities.TryGetEditorIdentifierSpanAtPosition(source, 1, 14, out var publicEditorSpan));
+        Assert.Equal("input", publicEditorSpan.Name);
+        Assert.Equal(13, publicEditorSpan.StartCharacter);
+        Assert.Equal(18, publicEditorSpan.EndCharacter);
+        Assert.Equal("Count", CodeIntelligenceTextUtilities.GetEditorWordAtPosition(source, 1, 999));
+        Assert.False(CodeIntelligenceTextUtilities.TryGetEditorIdentifierSpanAtPosition(source, 1, 18, out _));
+
         var trySelectedSpanMatchesDeclarationName = adapterType.GetMethod(
                 "TrySelectedSpanMatchesDeclarationName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -229,6 +251,14 @@ func documented(): int {
                     "CodeIntelligenceIdentifierSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceIdentifierSpansInto.");
+            var codeIntelligenceEditorIdentifierSpanChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceEditorIdentifierSpanChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceEditorIdentifierSpanChecksumInto.");
+            var codeIntelligenceEditorIdentifierSpansInto = programType.GetMethod(
+                    "CodeIntelligenceEditorIdentifierSpansInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceEditorIdentifierSpansInto.");
             var codeIntelligenceDeclarationNameMatchChecksumInto = programType.GetMethod(
                     "CodeIntelligenceDeclarationNameMatchChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -459,6 +489,19 @@ func main() {
                 "func main() {\n    café42 := résumé.Count\n    print café42\n}\n",
                 codeIntelligenceIdentifierSpanChecksumInto,
                 codeIntelligenceIdentifierSpansInto);
+            AssertEditorIdentifierSpansLikeProduction(
+                """
+func main() {
+    value := input.Count
+    print value
+}
+""",
+                codeIntelligenceEditorIdentifierSpanChecksumInto,
+                codeIntelligenceEditorIdentifierSpansInto);
+            AssertEditorIdentifierSpansLikeProduction(
+                "func main() {\n    café42 := résumé.Count\n    print café42\n}\n",
+                codeIntelligenceEditorIdentifierSpanChecksumInto,
+                codeIntelligenceEditorIdentifierSpansInto);
             AssertDeclarationNameMatchesLikeProduction(
                 """
 func main() {
@@ -895,6 +938,85 @@ func main() {
         var productionStarts = new int[queries.Count];
         var productionLengths = new int[queries.Count];
         var actualCount = (int)(codeIntelligenceIdentifierSpansInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionLineStarts,
+                productionLineLengths,
+                queryLines,
+                queryColumns,
+                productionStarts,
+                productionLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        Assert.Equal(expectedStarts, productionStarts);
+        Assert.Equal(expectedLengths, productionLengths);
+    }
+
+    private static void AssertEditorIdentifierSpansLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceEditorIdentifierSpanChecksumInto,
+        MethodInfo codeIntelligenceEditorIdentifierSpansInto)
+    {
+        var lines = source.Split('\n');
+        var queries = new List<(int Line, int Column)>
+        {
+            (0, 0),
+            (lines.Length + 1, 1)
+        };
+
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+        {
+            var line = lineIndex + 1;
+            var lineText = lines[lineIndex];
+            queries.Add((line, 0));
+            queries.Add((line, 1));
+            queries.Add((line, lineText.Length));
+            queries.Add((line, lineText.Length + 8));
+
+            var identifier = FindFirstIdentifierSpan(lineText);
+            queries.Add((line, identifier.StartColumn));
+            queries.Add((line, identifier.StartColumn + Math.Max(0, identifier.Length - 1)));
+            queries.Add((line, identifier.StartColumn + identifier.Length));
+        }
+
+        var queryLines = queries.Select(static query => query.Line).ToArray();
+        var queryColumns = queries.Select(static query => query.Column).ToArray();
+        var expectedStarts = new int[queries.Count];
+        var expectedLengths = new int[queries.Count];
+        var expectedChecksum = 0;
+        var expectedCount = 0;
+        for (var i = 0; i < queries.Count; i++)
+        {
+            var span = ExtractEditorIdentifierSpanAtPosition(source, queryLines[i], queryColumns[i]);
+            var start = span?.StartColumn ?? -1;
+            var length = span?.Length ?? 0;
+            expectedStarts[i] = start;
+            expectedLengths[i] = length;
+            expectedChecksum += start * 31 + length * 17;
+            if (start >= 0)
+                expectedCount++;
+        }
+
+        var lineStarts = new int[source.Length + 1];
+        var lineLengths = new int[source.Length + 1];
+        var actualStarts = new int[queries.Count];
+        var actualLengths = new int[queries.Count];
+        var actualChecksum = (int)(codeIntelligenceEditorIdentifierSpanChecksumInto.Invoke(
+            null,
+            new object[] { source, lineStarts, lineLengths, queryLines, queryColumns, actualStarts, actualLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedLengths, actualLengths);
+
+        var productionLineStarts = new int[source.Length + 1];
+        var productionLineLengths = new int[source.Length + 1];
+        var productionStarts = new int[queries.Count];
+        var productionLengths = new int[queries.Count];
+        var actualCount = (int)(codeIntelligenceEditorIdentifierSpansInto.Invoke(
             null,
             new object[]
             {
@@ -1693,6 +1815,46 @@ func main() {
             var index = FindNearestIdentifierIndex(lineText, Math.Clamp(col - 1, 0, lineText.Length - 1));
             if (index < 0)
                 return null;
+
+            var start = index;
+            while (start > 0 && IsIdentifierChar(lineText[start - 1]))
+                start--;
+
+            var end = index;
+            while (end + 1 < lineText.Length && IsIdentifierChar(lineText[end + 1]))
+                end++;
+
+            return (start + 1, end - start + 1);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static (int StartColumn, int Length)? ExtractEditorIdentifierSpanAtPosition(string source, int line, int col)
+    {
+        try
+        {
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length || col <= 0)
+                return null;
+
+            var lineText = lines[line - 1];
+            if (lineText.Length == 0)
+                return null;
+
+            var index = col - 1;
+            if (index >= lineText.Length)
+            {
+                index = lineText.Length - 1;
+                if (!IsIdentifierChar(lineText[index]))
+                    return null;
+            }
+            else if (!IsIdentifierChar(lineText[index]))
+            {
+                return null;
+            }
 
             var start = index;
             while (start > 0 && IsIdentifierChar(lineText[start - 1]))

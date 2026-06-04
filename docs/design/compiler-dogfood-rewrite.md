@@ -335,25 +335,34 @@ the large generated corpus (82.435 ns vs 53.235 ms, 0 B vs 129,640,733 B). This 
 acceptance-grade benchmark evidence for cached declaration-name lookup after the per-source
 declaration-name cache is built.
 
+`CodeIntelligenceEditorIdentifierSpansFromLinesInto` passed parity and reported zero managed
+allocation in the same normal BenchmarkDotNet evidence tier for the strict LSP word-at-cursor
+behavior. It ran about 186x faster on the representative corpus (2.686 us vs 499.657 us, 0 B vs
+4,235,264 B) and about 224,000x faster on the large generated corpus (291.808 ns vs 65.221 ms, 0 B
+vs 129,590,546 B). This is acceptance-grade benchmark evidence for cached editor identifier lookup
+after line ranges are built.
+
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
 The adapter caches line ranges, receiver caches, and variable-declaration name caches per
 `ProjectSnapshot`/file, uses cached line ranges for the strict reference/rename declaration-name
 span guard, reference source-context and raw diagnostic-line materialization, completion-prefix
-extraction, and hover doc-comment extraction, and falls back to the old C# scanners only when the
-dogfood assembly is unavailable.
+extraction, hover doc-comment extraction, and strict editor word/span extraction used by the language
+server, and falls back to the old C# scanners only when the dogfood assembly is unavailable.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
-as `nlc lint` that do not carry a `ProjectSnapshot`.
+as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
-completion-prefix, doc-comment, declaration-name match, and variable-declaration-name queries
+completion-prefix, doc-comment, strict editor identifier, declaration-name match, and
+variable-declaration-name queries
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
 completion-prefix, hover doc-comment, strict reference/rename declaration-name guard, and variable
-declaration name extraction slice only. Broader query, hover, definition, diagnostic, completion
+declaration name extraction slice, plus LSP editor word/span lookup for hover, definition,
+references, and rename entry points. Broader query, hover, definition, diagnostic, completion
 candidate construction, binding, and CLI command logic still contains C# implementation code and
 remains in scope for the dogfood rewrite.
 
@@ -431,9 +440,11 @@ the 5x win comes from a source-level receiver cache plus caller-owned buffers, n
 tiny backward scanner once per request. The source-context candidate proves reusable line ranges and
 span outputs avoid split-and-trim allocation for reference output, and the production adapter now
 materializes reference contexts from those spans. Diagnostic snippets, completion prefixes, and hover
-doc comments now use the same cached-line-range shape for their extraction steps, while broader
-hover/diagnostic/completion output shaping still needs N# implementations. The strict
-reference/rename declaration-name guard now uses the same line-range cache, but the semantic binding
-tables and lookup policy are still C# host logic. The production adapter keeps cache lifetime
-explicit, but the remaining code-intelligence work still needs N# implementations for semantic
-lookup, completion construction, output shaping, and CLI command orchestration.
+doc comments now use the same cached-line-range shape for their extraction steps. Strict editor
+identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
+the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
+shaping still needs N# implementations. The strict reference/rename declaration-name guard now uses
+the same line-range cache, but the semantic binding tables and lookup policy are still C# host logic.
+The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
+needs N# implementations for semantic lookup, completion construction, output shaping, and CLI
+command orchestration.

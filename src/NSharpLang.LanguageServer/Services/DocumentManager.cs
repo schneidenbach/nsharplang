@@ -509,55 +509,14 @@ public class DocumentManager
 
     private static (int StartColumn, int EndColumn, string Name)? TryGetIdentifierSpanAtPosition(string text, int line0, int character0)
     {
-        var lines = text.Split('\n');
-        if (line0 < 0 || line0 >= lines.Length)
-        {
-            return null;
-        }
-
-        var lineText = lines[line0].TrimEnd('\r');
-        if (lineText.Length == 0)
-        {
-            return null;
-        }
-
-        var index = Math.Clamp(character0, 0, lineText.Length - 1);
-        if (!EditorUtilities.IsIdentifierChar(lineText[index]))
-        {
-            if (character0 > 0
-                && character0 <= lineText.Length
-                && !EditorUtilities.IsIdentifierChar(lineText[Math.Min(character0, lineText.Length - 1)])
-                && EditorUtilities.IsIdentifierChar(lineText[character0 - 1]))
-            {
-                index = character0 - 1;
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        var start = index;
-        while (start > 0 && EditorUtilities.IsIdentifierChar(lineText[start - 1]))
-        {
-            start--;
-        }
-
-        var end = index;
-        while (end + 1 < lineText.Length && EditorUtilities.IsIdentifierChar(lineText[end + 1]))
-        {
-            end++;
-        }
-
-        return (start + 1, end + 1, lineText.Substring(start, end - start + 1));
+        return CodeIntelligenceTextUtilities.TryGetEditorIdentifierSpanAtPosition(text, line0, character0, out var span)
+            ? (span.StartColumn, span.EndColumn, span.Name)
+            : null;
     }
 
     private static string GetSourceContext(string source, int line)
     {
-        var lines = source.Split('\n');
-        return line > 0 && line <= lines.Length
-            ? lines[line - 1].TrimEnd('\r')
-            : string.Empty;
+        return CodeIntelligenceTextUtilities.GetSourceLine(source, line) ?? string.Empty;
     }
 
     public bool HasSynchronizedProjectSnapshot(string uri)

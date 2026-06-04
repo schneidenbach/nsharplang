@@ -118,6 +118,126 @@ func CodeIntelligenceIdentifierSpansFromLinesInto(
     return foundCount
 }
 
+func CodeIntelligenceEditorIdentifierSpanChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    CodeIntelligenceEditorIdentifierSpansInto(
+        source,
+        lineStarts,
+        lineLengths,
+        queryLines,
+        queryColumns,
+        resultStarts,
+        resultLengths)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        spanStart := resultStarts[i]
+        spanLength := resultLengths[i]
+        checksum = checksum + spanStart * 31 + spanLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceEditorIdentifierSpansInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceEditorIdentifierSpansFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        queryColumns,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceEditorIdentifierSpansFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    foundCount := 0
+    i := 0
+
+    while i < queryLines.Length {
+        spanStart := -1
+        spanLength := 0
+        line := queryLines[i]
+        column := queryColumns[i]
+
+        if line > 0 && line <= lineCount && column > 0 {
+            lineIndex := line - 1
+            lineLength := lineLengths[lineIndex]
+
+            if lineLength > 0 {
+                character := column - 1
+                lineStart := lineStarts[lineIndex]
+
+                if character >= lineLength {
+                    character = lineLength - 1
+                    if !IsCodeIntelligenceIdentifierChar(source[lineStart + character]) {
+                        resultStarts[i] = spanStart
+                        resultLengths[i] = spanLength
+                        i = i + 1
+                        continue
+                    }
+                } else {
+                    if !IsCodeIntelligenceIdentifierChar(source[lineStart + character]) {
+                        resultStarts[i] = spanStart
+                        resultLengths[i] = spanLength
+                        i = i + 1
+                        continue
+                    }
+                }
+
+                start := character
+                while start > 0 && IsCodeIntelligenceIdentifierChar(source[lineStart + start - 1]) {
+                    start = start - 1
+                }
+
+                end := character
+                while end + 1 < lineLength && IsCodeIntelligenceIdentifierChar(source[lineStart + end + 1]) {
+                    end = end + 1
+                }
+
+                spanStart = start + 1
+                spanLength = end - start + 1
+            }
+        }
+
+        resultStarts[i] = spanStart
+        resultLengths[i] = spanLength
+        if spanStart >= 0 {
+            foundCount = foundCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return foundCount
+}
+
 func CodeIntelligenceDeclarationNameMatchChecksumInto(
     source: string,
     lineStarts: int[],

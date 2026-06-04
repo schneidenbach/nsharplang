@@ -295,6 +295,251 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for strict editor identifier extraction used by LSP hover, definition,
+/// references, and rename entry points.
+///
+/// The C# baseline is the previous editor utility shape: split the full source for each request and
+/// scan only when the cursor is directly on an identifier or at the end of one. The N# candidate
+/// reuses cached line ranges and writes identifier spans into caller-owned result buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceEditorIdentifierSpanBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int> _nsharpBuildLineRangesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string, int[], int[], int, int[], int[], int[], int[], int> _nsharpEditorIdentifierSpansFromLinesInto =
+        (_, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpSpanLengths = Array.Empty<int>();
+    private int[] _csharpSpanStarts = Array.Empty<int>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _nsharpSpanLengths = Array.Empty<int>();
+    private int[] _nsharpSpanStarts = Array.Empty<int>();
+    private int[] _queryColumns = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int _lineCount;
+    private int _queryCount;
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus)
+            + "\n    value := input.Count\n"
+            + "    other := value\n";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpBuildLineRangesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceLineRangesInto");
+        _nsharpEditorIdentifierSpansFromLinesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int, int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceEditorIdentifierSpansFromLinesInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpSpanStarts = new int[_queryCount];
+        _csharpSpanLengths = new int[_queryCount];
+        _nsharpSpanStarts = new int[_queryCount];
+        _nsharpSpanLengths = new int[_queryCount];
+
+        BuildQueries();
+        _lineCount = _nsharpBuildLineRangesInto(_source, _lineStarts, _lineLengths);
+
+        var expectedCount = CSharpCodeIntelligenceEditorIdentifierSpans_QueryBatch();
+        var actualCount = NSharpCodeIntelligenceEditorIdentifierSpans_CachedLineRanges_QueryBatch();
+        if (expectedCount != actualCount)
+        {
+            throw new InvalidOperationException(
+                $"N# editor identifier span match count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
+        }
+
+        if (!_csharpSpanStarts.SequenceEqual(_nsharpSpanStarts)
+            || !_csharpSpanLengths.SequenceEqual(_nsharpSpanLengths))
+        {
+            var mismatch = FirstMismatch(_csharpSpanStarts, _csharpSpanLengths, _nsharpSpanStarts, _nsharpSpanLengths);
+            throw new InvalidOperationException(
+                $"N# editor identifier span mismatch for {Corpus} at query {mismatch}: " +
+                $"line {_queryLines[mismatch]}, column {_queryColumns[mismatch]}, " +
+                $"expected {_csharpSpanStarts[mismatch]}/{_csharpSpanLengths[mismatch]}, " +
+                $"got {_nsharpSpanStarts[mismatch]}/{_nsharpSpanLengths[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceEditorIdentifierSpans_QueryBatch()
+    {
+        var foundCount = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var span = ExtractEditorIdentifierSpanAtPosition(_source, _queryLines[i], _queryColumns[i]);
+            var start = span?.StartColumn ?? -1;
+            var length = span?.Length ?? 0;
+            _csharpSpanStarts[i] = start;
+            _csharpSpanLengths[i] = length;
+            if (start >= 0)
+            {
+                foundCount++;
+            }
+        }
+
+        return foundCount;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceEditorIdentifierSpans_CachedLineRanges_QueryBatch() =>
+        _nsharpEditorIdentifierSpansFromLinesInto(
+            _source,
+            _lineStarts,
+            _lineLengths,
+            _lineCount,
+            _queryLines,
+            _queryColumns,
+            _nsharpSpanStarts,
+            _nsharpSpanLengths);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+        _queryColumns = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (i % 37 == 0)
+            {
+                _queryLines[i] = i % 2 == 0 ? 0 : lines.Length + 1;
+                _queryColumns[i] = i % 11;
+                continue;
+            }
+
+            var lineIndex = i * 19 % lines.Length;
+            var lineText = lines[lineIndex];
+            var identifier = FindFirstIdentifierSpan(lineText);
+            _queryLines[i] = lineIndex + 1;
+
+            if (lineText.Length == 0)
+            {
+                _queryColumns[i] = 1;
+                continue;
+            }
+
+            var dotColumn = lineText.IndexOf('.', StringComparison.Ordinal) + 1;
+            _queryColumns[i] = i % 7 switch
+            {
+                0 => identifier.StartColumn,
+                1 => identifier.StartColumn + Math.Max(0, identifier.Length - 1),
+                2 => identifier.StartColumn + identifier.Length,
+                3 => lineText.Length + 8,
+                4 => 0,
+                5 => dotColumn > 0 ? dotColumn : Math.Min(lineText.Length, identifier.StartColumn + identifier.Length),
+                _ => Math.Min(lineText.Length, i * 29 % lineText.Length + 1)
+            };
+        }
+    }
+
+    private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)
+    {
+        for (var i = 0; i < lineText.Length; i++)
+        {
+            if (!IsIdentifierChar(lineText[i]))
+            {
+                continue;
+            }
+
+            var start = i;
+            while (i + 1 < lineText.Length && IsIdentifierChar(lineText[i + 1]))
+            {
+                i++;
+            }
+
+            return (start + 1, i - start + 1);
+        }
+
+        return (1, 1);
+    }
+
+    private static (int StartColumn, int Length)? ExtractEditorIdentifierSpanAtPosition(string source, int line, int column)
+    {
+        try
+        {
+            var lines = source.Split('\n');
+            if (line <= 0 || line > lines.Length || column <= 0)
+            {
+                return null;
+            }
+
+            var lineText = lines[line - 1];
+            if (lineText.Length == 0)
+            {
+                return null;
+            }
+
+            var character = column - 1;
+            if (character >= lineText.Length)
+            {
+                character = lineText.Length - 1;
+                if (!IsIdentifierChar(lineText[character]))
+                {
+                    return null;
+                }
+            }
+            else if (!IsIdentifierChar(lineText[character]))
+            {
+                return null;
+            }
+
+            var start = character;
+            while (start > 0 && IsIdentifierChar(lineText[start - 1]))
+            {
+                start--;
+            }
+
+            var end = character;
+            while (end + 1 < lineText.Length && IsIdentifierChar(lineText[end + 1]))
+            {
+                end++;
+            }
+
+            return (start + 1, end - start + 1);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private static int FirstMismatch(
+        int[] expectedStarts,
+        int[] expectedLengths,
+        int[] actualStarts,
+        int[] actualLengths)
+    {
+        for (var i = 0; i < expectedStarts.Length; i++)
+        {
+            if (expectedStarts[i] != actualStarts[i] || expectedLengths[i] != actualLengths[i])
+            {
+                return i;
+            }
+        }
+
+        return expectedStarts.Length;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for the declaration-name span guard used by strict reference and rename flows.
 ///
 /// The current C# guard splits the whole file for each candidate declaration, searches the selected
