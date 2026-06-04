@@ -270,6 +270,12 @@ Current code-intelligence dogfood benchmarks:
   candidate consumes host-built declaration/binding arrays, prebuilt open-addressed slot tables, and
   candidate query columns, then writes declaration indices through
   `BindingLookupQueryDeclarationIndicesInto`.
+- `CompilerServiceCodeIntelligenceBindingCandidateColumnBenchmarks` targets strict binding
+  candidate-column ordering before declaration/binding lookup. The C# baseline mirrors the current
+  helper shape: `HashSet<int>` insertion for nearby columns plus the selected identifier span,
+  followed by stable distance ordering. The N# candidate emits the same ordered candidate columns
+  through a direct distance-order generator over caller-owned integer buffers. The host still owns
+  identifier-span extraction and the exact single-call `int[]` return shape.
 - `CompilerServiceSemanticScopeVisibleVariablesBenchmarks` targets scoped visible-variable lookup
   used by CLI/daemon identifier completion. The C# baseline uses the current
   `SemanticModel.GetVisibleVariablesAtPosition` scan/sort/dictionary path. The N# candidate consumes
@@ -436,10 +442,12 @@ first-diagnostic preservation and file/line/column ordering. Stable diagnostic d
 checks compact ids against the `GetDiagnostics` preserve-first-order duplicate-removal contract.
 Reference-result deduplication parity checks sorted file ranks against the production
 `(file,line,column)` grouping semantics, including first-reference preservation and
-file/line/column ordering. Binding lookup parity checks compact
-declaration and binding tables against production `BindingMap.GetBindingAt` semantics, including
-declaration-position hits, usage-position hits, misses, and declaration-first precedence when a
-binding shares a declaration key. Nearest-declaration lookup parity checks sorted compact
+file/line/column ordering. Binding candidate-column parity checks the current `HashSet<int>` plus
+stable distance-order contract for cursor columns, adjacent columns, invalid columns, and identifier
+span ranges. Binding lookup parity checks compact declaration and binding tables against production
+`BindingMap.GetBindingAt` semantics, including declaration-position hits, usage-position hits,
+misses, and declaration-first precedence when a binding shares a declaration key.
+Nearest-declaration lookup parity checks sorted compact
 declaration facts against the production same-file/name, preceding-line, line/column-descending
 selection contract. Semantic scope lookup parity checks compact scope ranges and sorted start-index
 facts against production `SemanticModel.GetVisibleVariablesAtPosition` shadowing/order semantics,
@@ -482,6 +490,14 @@ same normal BenchmarkDotNet evidence tier for strict semantic binding position l
 on the large generated binding corpus (646.484 us vs 3.378 ms). This is acceptance-grade benchmark
 evidence for batched declaration-first binding lookup after the host has built compact binding
 tables and slot arrays.
+
+`BindingLookupCandidateColumnsInto` passed parity and reported zero managed allocation in the same
+normal BenchmarkDotNet evidence tier for strict binding candidate-column ordering before lookup. It
+ran about 8.26x faster on the representative candidate corpus (122.958 us vs 1.016 ms,
+0 B vs 7,499,808 B) and about 7.72x faster on the large generated candidate corpus
+(1.056 ms vs 8.153 ms, 0 B vs 60,005,240 B). This is acceptance-grade benchmark evidence for the
+candidate ordering kernel after the host has identified the relevant source span and provided
+caller-owned result buffers.
 
 `SemanticScopeVisibleSymbolIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for scoped visible-variable selection before CLI completion
@@ -690,6 +706,9 @@ previous LINQ `GroupBy(...).Select(First)` shape kept as the fallback.
 `FindReferences` result deduplication and ordering now calls the compiled N# reference-deduplication
 kernel when the dogfood assembly is available, with the previous LINQ `GroupBy`/`OrderBy` path kept
 as the fallback.
+Strict definition/reference/hover binding candidate-column ordering now routes through the compiled
+N# direct distance-order generator when the dogfood assembly is available, with the previous
+`HashSet<int>`/LINQ helper kept as the fallback.
 Strict definition/reference/hover binding lookup now builds a compact `BindingMap` cache and calls
 the compiled N# binding lookup kernel when the dogfood assembly is available, with the previous
 dictionary lookup path kept as the fallback.
@@ -713,7 +732,8 @@ completion-prefix, completion receiver-context, doc-comment, strict editor ident
 declaration-name match, scoped visible-variable, scoped identifier-lookup, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
 severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
-deduplication, stable diagnostic deduplication, strict binding lookup, nearest declaration lookup,
+deduplication, stable diagnostic deduplication, binding candidate-column ordering,
+strict binding lookup, nearest declaration lookup,
 scoped visible-variable selection, and CLI batch duplicate-id validation
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
@@ -723,7 +743,7 @@ completion-prefix, completion receiver-context, hover doc-comment, strict refere
 declaration-name guard, analyzer declaration-name column lookup, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
 `GetDiagnostics` stable diagnostic deduplication, and semantic reference result deduplication/order
-slices, plus strict semantic binding lookup and LSP
+slices, plus strict binding candidate-column ordering, strict semantic binding lookup, and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon

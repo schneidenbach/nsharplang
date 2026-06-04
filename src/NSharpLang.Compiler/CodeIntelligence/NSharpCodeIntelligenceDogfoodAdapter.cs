@@ -16,6 +16,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static readonly ConditionalWeakTable<ProjectSnapshot, SnapshotCache> s_snapshotCaches = new();
     private static readonly ConditionalWeakTable<string, SourceLineCache> s_sourceLineCaches = new();
     [ThreadStatic]
+    private static BindingCandidateColumnScratch? t_bindingCandidateColumnScratch;
+    [ThreadStatic]
     private static CompletionReceiverScratch? t_completionReceiverScratch;
     [ThreadStatic]
     private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
@@ -27,6 +29,57 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static ReferenceDeduplicationScratch? t_referenceDeduplicationScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
+
+    internal static bool TryGetBindingCandidateColumns(
+        int column,
+        (int StartColumn, int EndColumn)? span,
+        out int[] candidateColumns)
+    {
+        candidateColumns = Array.Empty<int>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var maxCandidateCount = 3;
+        if (span is { } spanValue && spanValue.StartColumn > 0 && spanValue.EndColumn >= spanValue.StartColumn)
+        {
+            var spanLength = spanValue.EndColumn - spanValue.StartColumn + 1;
+            if (spanLength < 0)
+                return false;
+
+            maxCandidateCount += spanLength;
+        }
+
+        var scratch = t_bindingCandidateColumnScratch ??= new BindingCandidateColumnScratch();
+        scratch.EnsureCapacity(maxCandidateCount);
+        scratch.QueryColumns[0] = column;
+        scratch.SpanStartColumns[0] = span?.StartColumn ?? -1;
+        scratch.SpanEndColumns[0] = span?.EndColumn ?? -1;
+
+        try
+        {
+            var total = bindings.BindingLookupCandidateColumns(
+                scratch.QueryColumns,
+                scratch.SpanStartColumns,
+                scratch.SpanEndColumns,
+                scratch.ResultStarts,
+                scratch.ResultCounts,
+                scratch.ResultColumns);
+            var count = scratch.ResultCounts[0];
+            if (total < 0 || total > scratch.ResultColumns.Length || count < 0 || count > total)
+                return false;
+
+            candidateColumns = new int[count];
+            Array.Copy(scratch.ResultColumns, scratch.ResultStarts[0], candidateColumns, 0, count);
+            return true;
+        }
+        catch
+        {
+            candidateColumns = Array.Empty<int>();
+            return false;
+        }
+    }
 
     internal static bool TryExtractIdentifierSpan(
         ProjectSnapshot snapshot,
@@ -918,6 +971,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateCompactInto"),
                 CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateStableInto"),
                 CreateDelegate<ReferenceDeduplicateCompactInto>(programType, "ReferenceDeduplicateCompactInto"),
+                CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
                 CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"),
@@ -1140,6 +1194,14 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] slotIndices,
         int[] resultIndices);
 
+    private delegate int BindingLookupCandidateColumnsInto(
+        int[] queryColumns,
+        int[] spanStartColumns,
+        int[] spanEndColumns,
+        int[] resultStarts,
+        int[] resultCounts,
+        int[] resultColumns);
+
     private delegate int BindingLookupBuildSlotsInto(
         int[] fileRanks,
         int[] lineNumbers,
@@ -1237,6 +1299,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateCompact,
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateStable,
         ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact,
+        BindingLookupCandidateColumnsInto BindingLookupCandidateColumns,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
         BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices,
@@ -1264,6 +1327,24 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         public int[] Counts { get; }
         public int[] MemberStarts { get; }
         public int[] MemberIndices { get; }
+    }
+
+    private sealed class BindingCandidateColumnScratch
+    {
+        public int[] QueryColumns = new int[1];
+        public int[] ResultColumns = Array.Empty<int>();
+        public int[] ResultCounts = new int[1];
+        public int[] ResultStarts = new int[1];
+        public int[] SpanEndColumns = new int[1];
+        public int[] SpanStartColumns = new int[1];
+
+        public void EnsureCapacity(int resultCapacity)
+        {
+            if (ResultColumns.Length < resultCapacity)
+            {
+                ResultColumns = new int[resultCapacity];
+            }
+        }
     }
 
     private sealed class CompletionReceiverScratch

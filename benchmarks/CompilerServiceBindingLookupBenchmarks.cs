@@ -327,6 +327,202 @@ public class CompilerServiceCodeIntelligenceBindingLookupBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for strict binding candidate-column ordering before declaration/binding lookup.
+///
+/// The C# baseline mirrors the current source-context helper: insert nearby columns into a
+/// <see cref="HashSet{T}" />, include the selected identifier span, then sort by distance from the
+/// requested column. The N# candidate preserves the same stable insertion and distance ordering
+/// over caller-owned integer buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceBindingCandidateColumnBenchmarks
+{
+    private const int LargeQueryCount = 65536;
+    private const int MaxCandidateColumns = 32;
+    private const int RepresentativeQueryCount = 8192;
+
+    private BindingLookupCandidateColumnChecksumInto _nsharpCandidateColumnChecksum =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int[] _csharpResultColumns = Array.Empty<int>();
+    private int[] _csharpResultCounts = Array.Empty<int>();
+    private int[] _csharpResultStarts = Array.Empty<int>();
+    private int[] _nsharpResultColumns = Array.Empty<int>();
+    private int[] _nsharpResultCounts = Array.Empty<int>();
+    private int[] _nsharpResultStarts = Array.Empty<int>();
+    private int[] _queryColumns = Array.Empty<int>();
+    private int[] _spanEndColumns = Array.Empty<int>();
+    private int[] _spanStartColumns = Array.Empty<int>();
+    private int _queryCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _nsharpCandidateColumnChecksum =
+            NSharpCompiledMethod.Bind<BindingLookupCandidateColumnChecksumInto>(
+                DogfoodCompilerSources.CodeIntelligenceBindingLookup,
+                "BindingLookupCandidateColumnChecksumInto");
+
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _queryColumns = new int[_queryCount];
+        _spanStartColumns = new int[_queryCount];
+        _spanEndColumns = new int[_queryCount];
+        _csharpResultStarts = new int[_queryCount];
+        _csharpResultCounts = new int[_queryCount];
+        _nsharpResultStarts = new int[_queryCount];
+        _nsharpResultCounts = new int[_queryCount];
+        _csharpResultColumns = new int[_queryCount * MaxCandidateColumns];
+        _nsharpResultColumns = new int[_queryCount * MaxCandidateColumns];
+
+        BuildQueries();
+
+        var expectedChecksum = CSharpBindingCandidateColumns_QueryBatch();
+        var actualChecksum = NSharpBindingCandidateColumns_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# binding candidate-column checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpResultStarts.SequenceEqual(_nsharpResultStarts) ||
+            !_csharpResultCounts.SequenceEqual(_nsharpResultCounts))
+        {
+            throw new InvalidOperationException($"N# binding candidate-column segment mismatch for {Corpus}.");
+        }
+
+        var expectedTotal = _csharpResultCounts.Sum();
+        for (var i = 0; i < expectedTotal; i++)
+        {
+            if (_csharpResultColumns[i] != _nsharpResultColumns[i])
+            {
+                throw new InvalidOperationException(
+                    $"N# binding candidate-column mismatch for {Corpus} at result {i}: " +
+                    $"expected {_csharpResultColumns[i]}, got {_nsharpResultColumns[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpBindingCandidateColumns_QueryBatch()
+    {
+        var writeIndex = 0;
+        for (var i = 0; i < _queryColumns.Length; i++)
+        {
+            var columns = BuildCandidateColumnsWithCurrentShape(
+                _queryColumns[i],
+                _spanStartColumns[i],
+                _spanEndColumns[i]);
+
+            _csharpResultStarts[i] = writeIndex;
+            _csharpResultCounts[i] = columns.Length;
+            for (var j = 0; j < columns.Length; j++)
+            {
+                _csharpResultColumns[writeIndex + j] = columns[j];
+            }
+
+            writeIndex += columns.Length;
+        }
+
+        return CandidateColumnChecksum(writeIndex, _csharpResultStarts, _csharpResultCounts, _csharpResultColumns);
+    }
+
+    [Benchmark]
+    public int NSharpBindingCandidateColumns_QueryBatch() =>
+        _nsharpCandidateColumnChecksum(
+            _queryColumns,
+            _spanStartColumns,
+            _spanEndColumns,
+            _nsharpResultStarts,
+            _nsharpResultCounts,
+            _nsharpResultColumns);
+
+    private void BuildQueries()
+    {
+        for (var i = 0; i < _queryCount; i++)
+        {
+            var column = i % 97 + 1;
+            if (i % 31 == 0)
+                column = 0;
+            if (i % 43 == 0)
+                column = -3;
+
+            _queryColumns[i] = column;
+
+            if (i % 7 == 0)
+            {
+                _spanStartColumns[i] = -1;
+                _spanEndColumns[i] = -1;
+                continue;
+            }
+
+            var spanLength = i % 13 + 1;
+            var start = Math.Max(1, column - spanLength / 2);
+            _spanStartColumns[i] = start;
+            _spanEndColumns[i] = start + spanLength - 1;
+        }
+    }
+
+    private static int[] BuildCandidateColumnsWithCurrentShape(
+        int column,
+        int spanStartColumn,
+        int spanEndColumn)
+    {
+        var seen = new HashSet<int>();
+
+        if (column > 0)
+            seen.Add(column);
+        if (column > 1)
+            seen.Add(column - 1);
+        seen.Add(column + 1);
+
+        if (spanStartColumn > 0 && spanEndColumn >= spanStartColumn)
+        {
+            for (var candidate = spanStartColumn; candidate <= spanEndColumn; candidate++)
+            {
+                seen.Add(candidate);
+            }
+        }
+
+        return seen.OrderBy(candidate => Math.Abs(candidate - column)).ToArray();
+    }
+
+    private static int CandidateColumnChecksum(
+        int total,
+        int[] starts,
+        int[] counts,
+        int[] columns)
+    {
+        var checksum = total;
+        for (var i = 0; i < counts.Length; i++)
+        {
+            var start = starts[i];
+            var count = counts[i];
+            checksum += count * 97 + start * 7;
+            for (var j = 0; j < count; j++)
+            {
+                checksum += columns[start + j] * 31 + (j + 1) * 17;
+            }
+        }
+
+        return checksum;
+    }
+
+    private delegate int BindingLookupCandidateColumnChecksumInto(
+        int[] queryColumns,
+        int[] spanStartColumns,
+        int[] spanEndColumns,
+        int[] resultStarts,
+        int[] resultCounts,
+        int[] resultColumns);
+}
+
+/// <summary>
 /// Dogfood benchmark for the source-context fallback that chooses the nearest in-file declaration
 /// with a matching name before falling back to AST declaration scans.
 ///

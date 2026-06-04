@@ -1298,6 +1298,15 @@ public class CodeIntelligenceService
 
     private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
+        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
+            return dogfoodCandidateColumns;
+
+        return GetBindingCandidateColumnsFallback(col, span);
+    }
+
+    private static int[] GetBindingCandidateColumnsFallback(int col, (int StartColumn, int EndColumn)? span)
+    {
         var seen = new HashSet<int>();
 
         if (col > 0)
@@ -1306,7 +1315,6 @@ public class CodeIntelligenceService
             seen.Add(col - 1);
         seen.Add(col + 1);
 
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
         if (span != null)
         {
             for (int candidate = span.Value.StartColumn; candidate <= span.Value.EndColumn; candidate++)

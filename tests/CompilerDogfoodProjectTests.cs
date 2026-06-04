@@ -368,6 +368,26 @@ func documented(): int {
         Assert.Equal(3, Assert.IsType<int>(referenceDeduplicationArgs[2]));
         Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(referenceDeduplicationArgs[1]).Take(3));
 
+        var tryGetBindingCandidateColumns = adapterType.GetMethod(
+                "TryGetBindingCandidateColumns",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[]
+                {
+                    typeof(int),
+                    typeof(Nullable<ValueTuple<int, int>>),
+                    typeof(int[]).MakeByRefType()
+                },
+                modifiers: null)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGetBindingCandidateColumns.");
+        var candidateColumnArgs = new object?[] { 5, (ValueTuple<int, int>?)new ValueTuple<int, int>(3, 7), null };
+        Assert.True((bool)(tryGetBindingCandidateColumns.Invoke(null, candidateColumnArgs) ?? false));
+        Assert.Equal(new[] { 5, 4, 6, 3, 7 }, Assert.IsType<int[]>(candidateColumnArgs[2]));
+
+        var noSpanCandidateColumnArgs = new object?[] { 1, null, null };
+        Assert.True((bool)(tryGetBindingCandidateColumns.Invoke(null, noSpanCandidateColumnArgs) ?? false));
+        Assert.Equal(new[] { 1, 2 }, Assert.IsType<int[]>(noSpanCandidateColumnArgs[2]));
+
         var tryResolveBindingDeclaration = adapterType.GetMethod(
                 "TryResolveBindingDeclaration",
                 BindingFlags.Static | BindingFlags.NonPublic,
@@ -750,6 +770,14 @@ func documented(): int {
                     "ReferenceDeduplicateCompactChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ReferenceDeduplicateCompactChecksumInto.");
+            var bindingLookupCandidateColumnsInto = programType.GetMethod(
+                    "BindingLookupCandidateColumnsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupCandidateColumnsInto.");
+            var bindingLookupCandidateColumnChecksumInto = programType.GetMethod(
+                    "BindingLookupCandidateColumnChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupCandidateColumnChecksumInto.");
             var bindingLookupBuildSlotsInto = programType.GetMethod(
                     "BindingLookupBuildSlotsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1067,6 +1095,8 @@ func main() {
                 referenceDeduplicateCompactInto,
                 referenceDeduplicateCompactChecksumInto);
             AssertBindingLookupLikeProduction(
+                bindingLookupCandidateColumnsInto,
+                bindingLookupCandidateColumnChecksumInto,
                 bindingLookupBuildSlotsInto,
                 bindingLookupQueryDeclarationIndicesInto,
                 bindingLookupQueryChecksumInto,
@@ -3528,12 +3558,73 @@ func main() {
     }
 
     private static void AssertBindingLookupLikeProduction(
+        MethodInfo bindingLookupCandidateColumnsInto,
+        MethodInfo bindingLookupCandidateColumnChecksumInto,
         MethodInfo bindingLookupBuildSlotsInto,
         MethodInfo bindingLookupQueryDeclarationIndicesInto,
         MethodInfo bindingLookupQueryChecksumInto,
         MethodInfo bindingLookupFindNearestDeclarationIndicesInto,
         MethodInfo bindingLookupFindNearestDeclarationChecksumInto)
     {
+        var candidateQueryColumns = new[] { 5, 1, 0, -3, 10, 1000 };
+        var candidateSpanStarts = new[] { 3, -1, 1, -1, 8, 3 };
+        var candidateSpanEnds = new[] { 7, -1, 1, -1, 12, 5 };
+        var expectedCandidateColumns = BuildExpectedBindingCandidateColumns(
+            candidateQueryColumns,
+            candidateSpanStarts,
+            candidateSpanEnds);
+        var expectedCandidateStarts = new int[candidateQueryColumns.Length];
+        var expectedCandidateCounts = new int[candidateQueryColumns.Length];
+        var expectedFlatCandidateColumns = FlattenExpectedBindingCandidateColumns(
+            expectedCandidateColumns,
+            expectedCandidateStarts,
+            expectedCandidateCounts);
+
+        var candidateStarts = new int[candidateQueryColumns.Length];
+        var candidateCounts = new int[candidateQueryColumns.Length];
+        var candidateColumns = new int[expectedFlatCandidateColumns.Length];
+        var actualCandidateTotal = (int)(bindingLookupCandidateColumnsInto.Invoke(
+            null,
+            new object[]
+            {
+                candidateQueryColumns,
+                candidateSpanStarts,
+                candidateSpanEnds,
+                candidateStarts,
+                candidateCounts,
+                candidateColumns
+            }) ?? -1);
+
+        Assert.Equal(expectedFlatCandidateColumns.Length, actualCandidateTotal);
+        Assert.Equal(expectedCandidateStarts, candidateStarts);
+        Assert.Equal(expectedCandidateCounts, candidateCounts);
+        Assert.Equal(expectedFlatCandidateColumns, candidateColumns);
+
+        var checksumStarts = new int[candidateQueryColumns.Length];
+        var checksumCounts = new int[candidateQueryColumns.Length];
+        var checksumColumns = new int[expectedFlatCandidateColumns.Length];
+        var actualCandidateChecksum = (int)(bindingLookupCandidateColumnChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                candidateQueryColumns,
+                candidateSpanStarts,
+                candidateSpanEnds,
+                checksumStarts,
+                checksumCounts,
+                checksumColumns
+            }) ?? -1);
+        var expectedCandidateChecksum = CandidateColumnChecksum(
+            expectedFlatCandidateColumns.Length,
+            expectedCandidateStarts,
+            expectedCandidateCounts,
+            expectedFlatCandidateColumns);
+
+        Assert.Equal(expectedCandidateChecksum, actualCandidateChecksum);
+        Assert.Equal(expectedCandidateStarts, checksumStarts);
+        Assert.Equal(expectedCandidateCounts, checksumCounts);
+        Assert.Equal(expectedFlatCandidateColumns, checksumColumns);
+
         var declarationFileRanks = new[] { 2, 1, 3 };
         var declarationLines = new[] { 10, 2, 1 };
         var declarationColumns = new[] { 5, 3, 1 };
@@ -3670,6 +3761,78 @@ func main() {
 
         Assert.Equal(expectedNearestChecksum, nearestChecksum);
         Assert.Equal(expectedNearest, nearestChecksumResultIndices);
+    }
+
+    private static int[][] BuildExpectedBindingCandidateColumns(
+        int[] queryColumns,
+        int[] spanStartColumns,
+        int[] spanEndColumns)
+    {
+        var result = new int[queryColumns.Length][];
+        for (var i = 0; i < queryColumns.Length; i++)
+        {
+            var column = queryColumns[i];
+            var seen = new HashSet<int>();
+            if (column > 0)
+                seen.Add(column);
+            if (column > 1)
+                seen.Add(column - 1);
+            seen.Add(column + 1);
+
+            var spanStart = spanStartColumns[i];
+            var spanEnd = spanEndColumns[i];
+            if (spanStart > 0 && spanEnd >= spanStart)
+            {
+                for (var candidate = spanStart; candidate <= spanEnd; candidate++)
+                {
+                    seen.Add(candidate);
+                }
+            }
+
+            result[i] = seen.OrderBy(candidate => Math.Abs(candidate - column)).ToArray();
+        }
+
+        return result;
+    }
+
+    private static int[] FlattenExpectedBindingCandidateColumns(
+        int[][] expectedColumns,
+        int[] starts,
+        int[] counts)
+    {
+        var total = expectedColumns.Sum(columns => columns.Length);
+        var flat = new int[total];
+        var offset = 0;
+        for (var i = 0; i < expectedColumns.Length; i++)
+        {
+            starts[i] = offset;
+            counts[i] = expectedColumns[i].Length;
+            Array.Copy(expectedColumns[i], 0, flat, offset, expectedColumns[i].Length);
+            offset += expectedColumns[i].Length;
+        }
+
+        return flat;
+    }
+
+    private static int CandidateColumnChecksum(
+        int total,
+        int[] starts,
+        int[] counts,
+        int[] columns)
+    {
+        var checksum = total;
+        for (var i = 0; i < counts.Length; i++)
+        {
+            var start = starts[i];
+            var count = counts[i];
+            checksum += count * 97 + start * 7;
+            for (var j = 0; j < count; j++)
+            {
+                checksum += columns[start + j] * 31 + (j + 1) * 17;
+            }
+        }
+
+        return checksum;
     }
 
     private static void AssertSemanticScopeVisibleVariablesLikeProduction(

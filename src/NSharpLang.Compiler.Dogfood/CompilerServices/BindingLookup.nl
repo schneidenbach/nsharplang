@@ -238,6 +238,105 @@ func BindingLookupQueryChecksumInto(
     return checksum + foundCount
 }
 
+func BindingLookupCandidateColumnsInto(
+    queryColumns: int[],
+    spanStartColumns: int[],
+    spanEndColumns: int[],
+    resultStarts: int[],
+    resultCounts: int[],
+    resultColumns: int[]): int {
+    queryCount := BindingLookupMinInt(queryColumns.Length, spanStartColumns.Length)
+    queryCount = BindingLookupMinInt(queryCount, spanEndColumns.Length)
+    queryCount = BindingLookupMinInt(queryCount, resultStarts.Length)
+    queryCount = BindingLookupMinInt(queryCount, resultCounts.Length)
+
+    writeIndex := 0
+    i := 0
+    while i < queryCount {
+        resultStarts[i] = writeIndex
+        segmentStart := writeIndex
+        column := queryColumns[i]
+        spanStart := spanStartColumns[i]
+        spanEnd := spanEndColumns[i]
+
+        maxDistance := BindingLookupCandidateColumnMaxDistance(column, spanStart, spanEnd)
+        if maxDistance > 64 {
+            writeIndex = BindingLookupCandidateColumnsByCompactSort(
+                column,
+                spanStart,
+                spanEnd,
+                resultColumns,
+                writeIndex)
+        } else {
+            distance := 0
+            while distance <= maxDistance {
+                left := column - distance
+                if BindingLookupCandidateColumnInSet(left, column, spanStart, spanEnd) {
+                    if writeIndex < resultColumns.Length {
+                        resultColumns[writeIndex] = left
+                        writeIndex = writeIndex + 1
+                    }
+                }
+
+                if distance > 0 {
+                    right := column + distance
+                    if BindingLookupCandidateColumnInSet(right, column, spanStart, spanEnd) {
+                        if writeIndex < resultColumns.Length {
+                            resultColumns[writeIndex] = right
+                            writeIndex = writeIndex + 1
+                        }
+                    }
+                }
+
+                distance = distance + 1
+            }
+        }
+
+        resultCounts[i] = writeIndex - segmentStart
+        i = i + 1
+    }
+
+    return writeIndex
+}
+
+func BindingLookupCandidateColumnChecksumInto(
+    queryColumns: int[],
+    spanStartColumns: int[],
+    spanEndColumns: int[],
+    resultStarts: int[],
+    resultCounts: int[],
+    resultColumns: int[]): int {
+    total := BindingLookupCandidateColumnsInto(
+        queryColumns,
+        spanStartColumns,
+        spanEndColumns,
+        resultStarts,
+        resultCounts,
+        resultColumns)
+
+    checksum := total
+    i := 0
+    while i < resultCounts.Length {
+        start := resultStarts[i]
+        count := resultCounts[i]
+        checksum = checksum + count * 97 + start * 7
+
+        j := 0
+        while j < count {
+            index := start + j
+            if index >= 0 && index < resultColumns.Length {
+                checksum = checksum + resultColumns[index] * 31 + (j + 1) * 17
+            }
+
+            j = j + 1
+        }
+
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func BindingLookupFindNearestDeclarationIndicesInto(
     sortedNameIds: int[],
     sortedFileRanks: int[],
@@ -478,4 +577,135 @@ func BindingLookupMinInt(left: int, right: int): int {
     }
 
     return right
+}
+
+func BindingLookupAbsInt(value: int): int {
+    if value < 0 {
+        return 0 - value
+    }
+
+    return value
+}
+
+func BindingLookupCandidateColumnInSet(
+    candidate: int,
+    column: int,
+    spanStart: int,
+    spanEnd: int): bool {
+    if column > 0 && candidate == column {
+        return true
+    }
+
+    if column > 1 && candidate == column - 1 {
+        return true
+    }
+
+    if candidate == column + 1 {
+        return true
+    }
+
+    return spanStart > 0 && spanEnd >= spanStart && candidate >= spanStart && candidate <= spanEnd
+}
+
+func BindingLookupCandidateColumnMaxDistance(column: int, spanStart: int, spanEnd: int): int {
+    maxDistance := 1
+
+    if column > 1 {
+        leftDistance := BindingLookupAbsInt((column - 1) - column)
+        if leftDistance > maxDistance {
+            maxDistance = leftDistance
+        }
+    }
+
+    rightDistance := BindingLookupAbsInt((column + 1) - column)
+    if rightDistance > maxDistance {
+        maxDistance = rightDistance
+    }
+
+    if spanStart > 0 && spanEnd >= spanStart {
+        startDistance := BindingLookupAbsInt(spanStart - column)
+        if startDistance > maxDistance {
+            maxDistance = startDistance
+        }
+
+        endDistance := BindingLookupAbsInt(spanEnd - column)
+        if endDistance > maxDistance {
+            maxDistance = endDistance
+        }
+    }
+
+    return maxDistance
+}
+
+func BindingLookupCandidateColumnsByCompactSort(
+    column: int,
+    spanStart: int,
+    spanEnd: int,
+    resultColumns: int[],
+    writeIndex: int): int {
+    segmentStart := writeIndex
+
+    if column > 0 {
+        writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, column)
+    }
+
+    if column > 1 {
+        writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, column - 1)
+    }
+
+    writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, column + 1)
+
+    if spanStart > 0 && spanEnd >= spanStart {
+        candidate := spanStart
+        while candidate <= spanEnd {
+            writeIndex = BindingLookupAppendCandidateColumn(resultColumns, writeIndex, segmentStart, candidate)
+            candidate = candidate + 1
+        }
+    }
+
+    i := segmentStart + 1
+    while i < writeIndex {
+        value := resultColumns[i]
+        distance := BindingLookupCandidateColumnDistance(value, column)
+        j := i - 1
+        while j >= segmentStart && BindingLookupCandidateColumnDistance(resultColumns[j], column) > distance {
+            resultColumns[j + 1] = resultColumns[j]
+            j = j - 1
+        }
+
+        resultColumns[j + 1] = value
+        i = i + 1
+    }
+
+    return writeIndex
+}
+
+func BindingLookupAppendCandidateColumn(
+    resultColumns: int[],
+    writeIndex: int,
+    segmentStart: int,
+    candidate: int): int {
+    i := segmentStart
+    while i < writeIndex {
+        if resultColumns[i] == candidate {
+            return writeIndex
+        }
+
+        i = i + 1
+    }
+
+    if writeIndex < resultColumns.Length {
+        resultColumns[writeIndex] = candidate
+        return writeIndex + 1
+    }
+
+    return writeIndex
+}
+
+func BindingLookupCandidateColumnDistance(candidate: int, column: int): int {
+    if candidate >= column {
+        return candidate - column
+    }
+
+    return column - candidate
 }
