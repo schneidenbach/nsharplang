@@ -251,6 +251,13 @@ Current code-intelligence dogfood benchmarks:
   whether the selected identifier span exactly covers that occurrence. The N# candidate reuses
   cached line ranges and runs the same ordinal name search into caller-owned match buffers through
   `CodeIntelligenceDeclarationNameMatchesFromLinesInto`.
+- `CompilerServiceCodeIntelligenceDeclarationNameColumnBenchmarks` targets analyzer declaration-name
+  column lookup before binding-map declaration recording. The C# baseline mirrors the previous
+  analyzer helper: each declaration lookup splits the source text, trims a trailing CR from the
+  selected line, searches for a whole identifier at or after the parser fallback column, and retries
+  from the start of the line. The N# candidate reuses cached line ranges and writes resolved
+  declaration columns into caller-owned buffers through
+  `CodeIntelligenceIdentifierNameColumnsFromLinesInto`.
 - `CompilerServiceCodeIntelligenceReferenceDeduplicationBenchmarks` targets semantic reference
   result deduplication and deterministic ordering after declaration/reference lookup. The C#
   baseline mirrors `BuildReferenceResultsFromDeclaration`: LINQ `GroupBy` over `(file,line,column)`,
@@ -405,6 +412,9 @@ declaration, `//`, `///`, and `////` prefixes, trimmed content, and empty commen
 Declaration-name match parity covers invalid lines, exact selected declaration spans, mismatched
 selected spans, Unicode names, missing names, and the current substring-search edge where the guard
 can match a declaration name inside a larger token if the caller supplies that name and column. The
+analyzer declaration-column parity checks invalid lines, CRLF-trimmed source lines, Unicode
+identifiers, whole-identifier boundary skips such as `prefixvalue` vs `value`, retry-from-line-start
+behavior, and missing-name fallback columns. The
 diagnostic cluster trait parity checks known-code classification, unknown-message fallback,
 source-construct inference, and the compatibility message-pattern wrapper. Diagnostic cluster id
 parity checks stable public ids against the production key/hash/hex algorithm without routing
@@ -442,6 +452,14 @@ representative corpus (4.697 us vs 511.834 us, 0 B vs 4,431,872 B) and about 120
 large generated corpus (536.345 ns vs 64.413 ms, 0 B vs 129,614,947 B). This is acceptance-grade
 benchmark evidence for the strict reference/rename declaration-name span guard after line ranges are
 built.
+
+`CodeIntelligenceIdentifierNameColumnsFromLinesInto` passed parity and reported zero managed
+allocation in the normal BenchmarkDotNet evidence tier for analyzer declaration-name column lookup
+before binding-map declaration recording. It ran about 42.05x faster on the representative corpus
+(11.266 us vs 473.775 us, 0 B vs 4,121,760 B) and about 44,000x faster on the large generated
+corpus (1.315 us vs 57.898 ms, 0 B vs 117,475,691 B). This is acceptance-grade benchmark evidence
+for the whole-identifier declaration-column lookup once the host has cached line ranges for the
+source text.
 
 `ReferenceDeduplicateCompactInto` passed parity and reported zero managed allocation in the same
 normal BenchmarkDotNet evidence tier for semantic reference result deduplication and ordering. It
@@ -619,7 +637,10 @@ The adapter caches line ranges, receiver caches, and variable-declaration name c
 `ProjectSnapshot`/file, uses cached line ranges for the strict reference/rename declaration-name
 span guard, reference source-context and raw diagnostic-line materialization, completion-prefix
 extraction, hover doc-comment extraction, and strict editor word/span extraction used by the language
-server. Completion receiver-context classification also routes through the compiled N# classifier
+server. Analyzer declaration-name column lookup for binding-map declaration recording also routes
+through the compiled N# whole-identifier scanner when the dogfood assembly is available, with the
+old split-based helper kept as the fallback. Completion receiver-context classification also routes
+through the compiled N# classifier
 when the dogfood assembly is available, with the old C# helper kept as the fallback.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
@@ -665,7 +686,7 @@ through the compiled N# methods;
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
 completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
-declaration-name guard, variable declaration name extraction, diagnostic severity summary across
+declaration-name guard, analyzer declaration-name column lookup, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
 semantic reference result deduplication/order slices, plus strict semantic binding lookup and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest

@@ -354,6 +354,143 @@ func CodeIntelligenceDeclarationNameMatchesFromLinesInto(
     return matchCount
 }
 
+func CodeIntelligenceIdentifierNameColumnChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    declarationNames: string[],
+    fallbackColumns: int[],
+    resultColumns: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceIdentifierNameColumnChecksumFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        declarationNames,
+        fallbackColumns,
+        resultColumns)
+}
+
+func CodeIntelligenceIdentifierNameColumnChecksumFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    declarationNames: string[],
+    fallbackColumns: int[],
+    resultColumns: int[]): int {
+    foundCount := CodeIntelligenceIdentifierNameColumnsFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        declarationNames,
+        fallbackColumns,
+        resultColumns)
+
+    checksum := foundCount
+    i := 0
+
+    while i < queryLines.Length {
+        checksum = checksum + resultColumns[i] * 31 + fallbackColumns[i] * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceIdentifierNameColumnsInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    declarationNames: string[],
+    fallbackColumns: int[],
+    resultColumns: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceIdentifierNameColumnsFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        declarationNames,
+        fallbackColumns,
+        resultColumns)
+}
+
+func CodeIntelligenceIdentifierNameColumnsFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    declarationNames: string[],
+    fallbackColumns: int[],
+    resultColumns: int[]): int {
+    foundCount := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        column := fallbackColumns[i]
+        line := queryLines[i]
+        declarationName := declarationNames[i]
+
+        if line > 0 && line <= lineCount && declarationName.Length > 0 {
+            lineIndex := line - 1
+            lineStart := lineStarts[lineIndex]
+            lineLength := lineLengths[lineIndex]
+
+            while lineLength > 0 && source[lineStart + lineLength - 1] == '\r' {
+                lineLength = lineLength - 1
+            }
+
+            if lineLength > 0 {
+                searchStart := column - 1
+                if searchStart < 0 {
+                    searchStart = 0
+                }
+
+                if searchStart > lineLength {
+                    searchStart = lineLength
+                }
+
+                nameIndex := FindCodeIntelligenceWholeIdentifierInLine(
+                    source,
+                    lineStart,
+                    lineLength,
+                    declarationName,
+                    searchStart)
+
+                if nameIndex < 0 && searchStart != 0 {
+                    nameIndex = FindCodeIntelligenceWholeIdentifierInLine(
+                        source,
+                        lineStart,
+                        lineLength,
+                        declarationName,
+                        0)
+                }
+
+                if nameIndex >= 0 {
+                    column = nameIndex + 1
+                    foundCount = foundCount + 1
+                }
+            }
+        }
+
+        resultColumns[i] = column
+        i = i + 1
+    }
+
+    return foundCount
+}
+
 func CodeIntelligenceMemberReceiverChecksumInto(
     source: string,
     lineStarts: int[],
@@ -1437,6 +1574,47 @@ func CodeIntelligenceNameMatchesAt(source: string, sourceStart: int, name: strin
         }
 
         i = i + 1
+    }
+
+    return true
+}
+
+func FindCodeIntelligenceWholeIdentifierInLine(
+    source: string,
+    lineStart: int,
+    lineLength: int,
+    name: string,
+    searchStart: int): int {
+    nameLength := name.Length
+    lastStart := lineLength - nameLength
+    position := searchStart
+
+    while position <= lastStart {
+        if CodeIntelligenceNameMatchesAt(source, lineStart + position, name)
+            && IsCodeIntelligenceWholeIdentifierBoundary(source, lineStart, lineLength, position, nameLength) {
+            return position
+        }
+
+        position = position + 1
+    }
+
+    return -1
+}
+
+func IsCodeIntelligenceWholeIdentifierBoundary(
+    source: string,
+    lineStart: int,
+    lineLength: int,
+    nameStart: int,
+    nameLength: int): bool {
+    beforeIndex := nameStart - 1
+    if beforeIndex >= 0 && IsCodeIntelligenceIdentifierChar(source[lineStart + beforeIndex]) {
+        return false
+    }
+
+    afterIndex := nameStart + nameLength
+    if afterIndex < lineLength && IsCodeIntelligenceIdentifierChar(source[lineStart + afterIndex]) {
+        return false
     }
 
     return true

@@ -112,6 +112,33 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryFindIdentifierNameColumn(
+        string? source,
+        string name,
+        int line,
+        int fallbackColumn,
+        out int column)
+    {
+        column = fallbackColumn;
+        if (source == null || string.IsNullOrWhiteSpace(name))
+            return false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = s_sourceLineCaches.GetValue(source, static key => new SourceLineCache(key));
+            return cache.TryFindIdentifierNameColumn(bindings, name, line, fallbackColumn, out column);
+        }
+        catch
+        {
+            column = fallbackColumn;
+            return false;
+        }
+    }
+
     internal static bool TryExtractCompletionPrefix(
         ProjectSnapshot snapshot,
         string filePath,
@@ -812,6 +839,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BuildCodeIntelligenceMemberReceiverCacheInto>(programType, "BuildCodeIntelligenceMemberReceiverCacheInto"),
                 CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
                 CreateDelegate<CodeIntelligenceDeclarationNameMatchesFromLinesInto>(programType, "CodeIntelligenceDeclarationNameMatchesFromLinesInto"),
+                CreateDelegate<CodeIntelligenceIdentifierNameColumnsFromLinesInto>(programType, "CodeIntelligenceIdentifierNameColumnsFromLinesInto"),
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
                 CreateDelegate<CodeIntelligenceEditorIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceEditorIdentifierSpansFromLinesInto"),
                 CreateDelegate<CodeIntelligenceCompletionPrefixesFromLinesInto>(programType, "CodeIntelligenceCompletionPrefixesFromLinesInto"),
@@ -914,6 +942,16 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] selectedStartColumns,
         int[] selectedEndColumns,
         int[] resultMatches);
+
+    private delegate int CodeIntelligenceIdentifierNameColumnsFromLinesInto(
+        string source,
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int[] queryLines,
+        string[] declarationNames,
+        int[] fallbackColumns,
+        int[] resultColumns);
 
     private delegate int CodeIntelligenceCompletionPrefixesFromLinesInto(
         int[] lineStarts,
@@ -1119,6 +1157,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
         BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
         CodeIntelligenceDeclarationNameMatchesFromLinesInto DeclarationNameMatchesFromLines,
+        CodeIntelligenceIdentifierNameColumnsFromLinesInto IdentifierNameColumnsFromLines,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
         CodeIntelligenceEditorIdentifierSpansFromLinesInto EditorIdentifierSpansFromLines,
         CodeIntelligenceCompletionPrefixesFromLinesInto CompletionPrefixesFromLines,
@@ -2101,6 +2140,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private readonly object _gate = new();
         private readonly int[] _lineLengths;
         private readonly int[] _lineStarts;
+        private readonly string[] _queryNames = new string[1];
         private readonly int[] _queryColumns = new int[1];
         private readonly int[] _queryLines = new int[1];
         private readonly int[] _resultLengths = new int[1];
@@ -2115,6 +2155,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             var capacity = source.Length + 1;
             _lineStarts = new int[capacity];
             _lineLengths = new int[capacity];
+            _queryNames[0] = string.Empty;
         }
 
         public bool TryExtractSourceLine(Bindings bindings, int line, out string? text)
@@ -2139,6 +2180,45 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
                 text = _source.Substring(start, _resultLengths[0]);
                 return true;
+            }
+        }
+
+        public bool TryFindIdentifierNameColumn(
+            Bindings bindings,
+            string name,
+            int line,
+            int fallbackColumn,
+            out int column)
+        {
+            column = fallbackColumn;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                _queryLines[0] = line;
+                _queryNames[0] = name;
+                _queryColumns[0] = fallbackColumn;
+                _resultStarts[0] = fallbackColumn;
+
+                try
+                {
+                    bindings.IdentifierNameColumnsFromLines(
+                        _source,
+                        _lineStarts,
+                        _lineLengths,
+                        _lineCount,
+                        _queryLines,
+                        _queryNames,
+                        _queryColumns,
+                        _resultStarts);
+
+                    column = _resultStarts[0];
+                    return true;
+                }
+                finally
+                {
+                    _queryNames[0] = string.Empty;
+                }
             }
         }
 

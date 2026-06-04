@@ -7,6 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Compiler;
 
@@ -134,6 +135,7 @@ public class Analyzer : IDisposable
     private string? _projectRoot;
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
+    private string? _sourceText;
     private string[]? _sourceLines;  // Source code lines for error snippets
     // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
     private NSharpMetadataResolver? _metadataResolver;
@@ -245,6 +247,7 @@ public class Analyzer : IDisposable
         _currentFilePath = currentFilePath;
         _projectRoot = projectRoot;
         _compilationUnit = unit;
+        _sourceText = sourceCode;
         _sourceLines = sourceCode?.Split('\n');
         _externalNamespaceCache.Clear();
         _projectNamespaceCache.Clear();
@@ -11936,7 +11939,7 @@ public class Analyzer : IDisposable
             return fallbackColumn;
 
         var sourceText = _sourceLines != null
-            ? string.Join('\n', _sourceLines)
+            ? _sourceText
             : TryGetProjectSourceText(_currentFilePath);
 
         return FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
@@ -11955,6 +11958,16 @@ public class Analyzer : IDisposable
 
     private static int FindIdentifierNameColumn(string? sourceText, string name, int line, int fallbackColumn)
     {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFindIdentifierNameColumn(
+            sourceText,
+            name,
+            line,
+            fallbackColumn,
+            out var dogfoodColumn))
+        {
+            return dogfoodColumn;
+        }
+
         if (string.IsNullOrWhiteSpace(sourceText) || line <= 0)
             return fallbackColumn;
 

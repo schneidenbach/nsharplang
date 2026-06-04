@@ -816,6 +816,319 @@ func declarationMatchProbe() {
 }
 
 /// <summary>
+/// Dogfood benchmark for analyzer declaration-name column lookup before binding-map declaration
+/// recording.
+///
+/// The current C# helper splits the whole source for each declaration, trims a trailing CR from the
+/// selected line, then searches for the whole identifier at or after the parser fallback column. The
+/// N# candidate reuses cached line ranges and writes resolved columns into caller-owned buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDeclarationNameColumnBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int> _nsharpBuildLineRangesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string, int[], int[], int, int[], string[], int[], int[], int> _nsharpIdentifierNameColumnChecksumFromLinesInto =
+        (_, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpColumns = Array.Empty<int>();
+    private int[] _fallbackColumns = Array.Empty<int>();
+    private string[] _declarationNames = Array.Empty<string>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int _lineCount;
+    private int[] _nsharpColumns = Array.Empty<int>();
+    private int _queryCount;
+    private int[] _queryLines = Array.Empty<int>();
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus) + """
+
+func declarationColumnProbe(value: int): int {
+    prefixvalue := value
+    café := café + value
+    spaced    := 4
+    return value
+}
+""";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpBuildLineRangesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceLineRangesInto");
+        _nsharpIdentifierNameColumnChecksumFromLinesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int, int[], string[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceIdentifierNameColumnChecksumFromLinesInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpColumns = new int[_queryCount];
+        _nsharpColumns = new int[_queryCount];
+
+        BuildQueries();
+        _lineCount = _nsharpBuildLineRangesInto(_source, _lineStarts, _lineLengths);
+
+        var expectedChecksum = CSharpCodeIntelligenceDeclarationNameColumns_QueryBatch();
+        var actualChecksum = NSharpCodeIntelligenceDeclarationNameColumns_CachedLineRanges_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# declaration-name column checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpColumns.SequenceEqual(_nsharpColumns))
+        {
+            var mismatch = FirstMismatch(_csharpColumns, _nsharpColumns);
+            throw new InvalidOperationException(
+                $"N# declaration-name column mismatch for {Corpus} at query {mismatch}: " +
+                $"line {_queryLines[mismatch]}, fallback {_fallbackColumns[mismatch]}, name {_declarationNames[mismatch]}, " +
+                $"expected {_csharpColumns[mismatch]}, got {_nsharpColumns[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceDeclarationNameColumns_QueryBatch()
+    {
+        var foundCount = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            if (TryFindIdentifierNameColumnWithSplit(
+                    _source,
+                    _declarationNames[i],
+                    _queryLines[i],
+                    _fallbackColumns[i],
+                    out var column))
+            {
+                foundCount++;
+            }
+
+            _csharpColumns[i] = column;
+        }
+
+        var checksum = foundCount;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            checksum += _csharpColumns[i] * 31 + _fallbackColumns[i] * 17;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceDeclarationNameColumns_CachedLineRanges_QueryBatch() =>
+        _nsharpIdentifierNameColumnChecksumFromLinesInto(
+            _source,
+            _lineStarts,
+            _lineLengths,
+            _lineCount,
+            _queryLines,
+            _declarationNames,
+            _fallbackColumns,
+            _nsharpColumns);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+        _declarationNames = new string[_queryCount];
+        _fallbackColumns = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        var functionLine = FindLine(lines, "func declarationColumnProbe");
+        var prefixLine = FindLine(lines, "prefixvalue := value");
+        var cafeLine = FindLine(lines, "café := café + value");
+        var spacedLine = FindLine(lines, "spaced    := 4");
+        var returnLine = FindLine(lines, "return value");
+        var functionColumn = FindWholeIdentifierColumn(lines[functionLine - 1], "declarationColumnProbe", 1);
+        var prefixWholeValueColumn = FindWholeIdentifierColumn(lines[prefixLine - 1], "value", 1);
+        var prefixIdentifierColumn = FindWholeIdentifierColumn(lines[prefixLine - 1], "prefixvalue", 1);
+        var cafeColumn = FindWholeIdentifierColumn(lines[cafeLine - 1], "café", 1);
+        var cafeSecondColumn = FindWholeIdentifierColumn(lines[cafeLine - 1], "café", cafeColumn + "café".Length);
+        var spacedColumn = FindWholeIdentifierColumn(lines[spacedLine - 1], "spaced", 1);
+        var returnValueColumn = FindWholeIdentifierColumn(lines[returnLine - 1], "value", 1);
+
+        for (var i = 0; i < _queryCount; i++)
+        {
+            switch (i % 11)
+            {
+                case 0:
+                    _queryLines[i] = 0;
+                    _declarationNames[i] = "value";
+                    _fallbackColumns[i] = 99;
+                    break;
+                case 1:
+                    _queryLines[i] = functionLine;
+                    _declarationNames[i] = "declarationColumnProbe";
+                    _fallbackColumns[i] = functionColumn;
+                    break;
+                case 2:
+                    _queryLines[i] = functionLine;
+                    _declarationNames[i] = "declarationColumnProbe";
+                    _fallbackColumns[i] = functionColumn + 8;
+                    break;
+                case 3:
+                    _queryLines[i] = prefixLine;
+                    _declarationNames[i] = "value";
+                    _fallbackColumns[i] = 1;
+                    break;
+                case 4:
+                    _queryLines[i] = prefixLine;
+                    _declarationNames[i] = "prefixvalue";
+                    _fallbackColumns[i] = prefixIdentifierColumn;
+                    break;
+                case 5:
+                    _queryLines[i] = prefixLine;
+                    _declarationNames[i] = "value";
+                    _fallbackColumns[i] = prefixWholeValueColumn;
+                    break;
+                case 6:
+                    _queryLines[i] = cafeLine;
+                    _declarationNames[i] = "café";
+                    _fallbackColumns[i] = cafeSecondColumn;
+                    break;
+                case 7:
+                    _queryLines[i] = spacedLine;
+                    _declarationNames[i] = "spaced";
+                    _fallbackColumns[i] = spacedColumn + 20;
+                    break;
+                case 8:
+                    _queryLines[i] = returnLine;
+                    _declarationNames[i] = "value";
+                    _fallbackColumns[i] = returnValueColumn;
+                    break;
+                case 9:
+                    _queryLines[i] = i * 17 % lines.Length + 1;
+                    _declarationNames[i] = "missing";
+                    _fallbackColumns[i] = i % 29 + 1;
+                    break;
+                default:
+                    _queryLines[i] = lines.Length + 1;
+                    _declarationNames[i] = "value";
+                    _fallbackColumns[i] = 7;
+                    break;
+            }
+        }
+    }
+
+    private static bool TryFindIdentifierNameColumnWithSplit(
+        string? sourceText,
+        string name,
+        int line,
+        int fallbackColumn,
+        out int column)
+    {
+        column = fallbackColumn;
+        if (string.IsNullOrWhiteSpace(sourceText) || line <= 0)
+        {
+            return false;
+        }
+
+        var lines = sourceText.Split('\n');
+        if (line > lines.Length)
+        {
+            return false;
+        }
+
+        var lineText = lines[line - 1].TrimEnd('\r');
+        if (lineText.Length == 0)
+        {
+            return false;
+        }
+
+        var start = Math.Clamp(fallbackColumn - 1, 0, lineText.Length);
+        var index = FindWholeIdentifier(lineText, name, start);
+        if (index < 0)
+        {
+            index = FindWholeIdentifier(lineText, name, 0);
+        }
+
+        if (index < 0)
+        {
+            return false;
+        }
+
+        column = index + 1;
+        return true;
+    }
+
+    private static int FindWholeIdentifier(string line, string name, int startIndex)
+    {
+        var searchStart = Math.Clamp(startIndex, 0, line.Length);
+        while (searchStart <= line.Length)
+        {
+            var index = line.IndexOf(name, searchStart, StringComparison.Ordinal);
+            if (index < 0)
+            {
+                return -1;
+            }
+
+            var before = index > 0 ? line[index - 1] : '\0';
+            var afterIndex = index + name.Length;
+            var after = afterIndex < line.Length ? line[afterIndex] : '\0';
+            if (!IsIdentifierChar(before) && !IsIdentifierChar(after))
+            {
+                return index;
+            }
+
+            searchStart = index + Math.Max(1, name.Length);
+        }
+
+        return -1;
+    }
+
+    private static int FindWholeIdentifierColumn(string lineText, string name, int searchStartColumn)
+    {
+        var index = FindWholeIdentifier(lineText, name, searchStartColumn - 1);
+        if (index < 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not find benchmark whole identifier {name} in {lineText} at or after column {searchStartColumn}.");
+        }
+
+        return index + 1;
+    }
+
+    private static int FindLine(string[] lines, string text)
+    {
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Contains(text, StringComparison.Ordinal))
+            {
+                return i + 1;
+            }
+        }
+
+        throw new InvalidOperationException($"Could not find benchmark line containing {text}.");
+    }
+
+    private static bool IsIdentifierChar(char ch) => char.IsLetterOrDigit(ch) || ch == '_';
+
+    private static int FirstMismatch(int[] expected, int[] actual)
+    {
+        for (var i = 0; i < expected.Length; i++)
+        {
+            if (expected[i] != actual[i])
+            {
+                return i;
+            }
+        }
+
+        return expected.Length;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for extracting the receiver name before a member access.
 ///
 /// The current C# helper splits the whole file and returns a receiver substring for each query. The
