@@ -15,6 +15,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static readonly ConditionalWeakTable<string, SourceLineCache> s_sourceLineCaches = new();
     [ThreadStatic]
     private static CompletionReceiverScratch? t_completionReceiverScratch;
+    [ThreadStatic]
+    private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -342,6 +344,51 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TrySummarizeDiagnosticSeverities(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        out DiagnosticSummary summary)
+    {
+        summary = new DiagnosticSummary(0, 0, 0);
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var count = diagnostics.Count;
+        var scratch = t_diagnosticSummaryScratch ??= new DiagnosticSummaryScratch();
+        scratch.EnsureCapacity(count);
+
+        try
+        {
+            for (var i = 0; i < count; i++)
+            {
+                scratch.Severities[i] = diagnostics[i].Severity ?? string.Empty;
+            }
+
+            var summarized = bindings.DiagnosticSeveritySummary(scratch.Severities, count, scratch.Counts);
+            if (summarized != count)
+                return false;
+
+            summary = new DiagnosticSummary(
+                scratch.Counts[0],
+                scratch.Counts[1],
+                scratch.Counts[2]);
+            return true;
+        }
+        catch
+        {
+            summary = new DiagnosticSummary(0, 0, 0);
+            return false;
+        }
+        finally
+        {
+            Array.Clear(scratch.Severities, 0, count);
+            scratch.Counts[0] = 0;
+            scratch.Counts[1] = 0;
+            scratch.Counts[2] = 0;
+        }
+    }
+
     internal static bool TryClassifyCompletionReceiver(
         string beforeCursor,
         out bool isMemberAccess,
@@ -423,6 +470,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"),
                 CreateDelegate<CodeIntelligenceCompletionReceiversInto>(programType, "CodeIntelligenceCompletionReceiversInto"),
+                CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"));
         }
         catch
@@ -574,6 +622,11 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultCategories,
         int[] resultSourceConstructs);
 
+    private delegate int DiagnosticSeveritySummaryInto(
+        string[] severities,
+        int count,
+        int[] resultCounts);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
@@ -588,6 +641,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
         CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache,
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
+        DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits);
 
     private sealed class CompletionReceiverScratch
@@ -600,6 +654,20 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         {
             Prefixes[0] = string.Empty;
             Receivers[0] = string.Empty;
+        }
+    }
+
+    private sealed class DiagnosticSummaryScratch
+    {
+        public readonly int[] Counts = new int[3];
+        public string[] Severities = Array.Empty<string>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (Severities.Length < count)
+            {
+                Severities = new string[count];
+            }
         }
     }
 

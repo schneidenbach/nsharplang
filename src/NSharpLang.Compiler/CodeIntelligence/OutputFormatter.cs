@@ -122,6 +122,17 @@ public static class OutputFormatter
             References = Normalize(result.References)
         };
 
+    private static DiagnosticSummary BuildDiagnosticSummary(List<DiagnosticResult> results)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySummarizeDiagnosticSeverities(results, out var summary))
+            return summary;
+
+        return new DiagnosticSummary(
+            Errors: results.Count(d => d.Severity == "error"),
+            Warnings: results.Count(d => d.Severity == "warning"),
+            Info: results.Count(d => d.Severity == "info"));
+    }
+
     // ── JSON Output ────────────────────────────────────────────────────
 
     public static string SymbolsToJson(List<SymbolResult> results, string? projectRoot = null)
@@ -153,11 +164,7 @@ public static class OutputFormatter
 
     public static string DiagnosticsToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = BuildDiagnosticSummary(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -172,11 +179,7 @@ public static class OutputFormatter
 
     public static string DiagnosticClustersToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = BuildDiagnosticSummary(results);
         var clusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
@@ -192,11 +195,7 @@ public static class OutputFormatter
 
     public static string CheckToJson(List<DiagnosticResult> results, string? projectRoot, int checkedFiles)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = BuildDiagnosticSummary(results);
 
         var envelope = new
         {
@@ -213,11 +212,7 @@ public static class OutputFormatter
 
     public static string LintToJson(List<DiagnosticResult> results, string? projectRoot, int lintedFiles)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = BuildDiagnosticSummary(results);
 
         var envelope = new
         {

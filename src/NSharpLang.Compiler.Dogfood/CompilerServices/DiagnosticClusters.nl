@@ -1,6 +1,48 @@
 import System
 import System.Text
 
+func DiagnosticSeveritySummaryInto(severities: string[], count: int, resultCounts: int[]): int {
+    if resultCounts.Length < 3 {
+        return 0
+    }
+
+    if count > severities.Length {
+        count = severities.Length
+    }
+
+    errors := 0
+    warnings := 0
+    info := 0
+    i := 0
+
+    while i < count {
+        severity := severities[i]
+        if severity == "error" {
+            errors = errors + 1
+        } else if severity == "warning" {
+            warnings = warnings + 1
+        } else if severity == "info" {
+            info = info + 1
+        }
+
+        i = i + 1
+    }
+
+    resultCounts[0] = errors
+    resultCounts[1] = warnings
+    resultCounts[2] = info
+    return count
+}
+
+func DiagnosticSeveritySummaryChecksumInto(severities: string[], count: int, resultCounts: int[]): int {
+    count = DiagnosticSeveritySummaryInto(severities, count, resultCounts)
+    if resultCounts.Length < 3 {
+        return count
+    }
+
+    return count + resultCounts[0] * 31 + resultCounts[1] * 17 + resultCounts[2] * 13
+}
+
 func DiagnosticClusterTraitsInto(
     codes: string[],
     messages: string[],

@@ -196,6 +196,17 @@ func documented(): int {
         Assert.True((bool)(tryClassifyDiagnosticClusterTraits.Invoke(null, classificationArgs) ?? false));
         Assert.Equal(new[] { 1, 0, 2, 3, 4, 5, 6, 7 }, Assert.IsType<int[]>(classificationArgs[1]));
         Assert.Equal(new[] { 1, 0, 4, 0, 2, 5, 7, 8 }, Assert.IsType<int[]>(classificationArgs[2]));
+
+        var trySummarizeDiagnosticSeverities = adapterType.GetMethod(
+                "TrySummarizeDiagnosticSeverities",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySummarizeDiagnosticSeverities.");
+        var summaryArgs = new object?[] { BuildDiagnosticSeveritySummaryDiagnostics(), null };
+        Assert.True((bool)(trySummarizeDiagnosticSeverities.Invoke(null, summaryArgs) ?? false));
+        var summary = Assert.IsType<DiagnosticSummary>(summaryArgs[1]);
+        Assert.Equal(2, summary.Errors);
+        Assert.Equal(1, summary.Warnings);
+        Assert.Equal(2, summary.Info);
     }
 
     [Fact]
@@ -379,6 +390,14 @@ func documented(): int {
                     "CodeIntelligenceVariableDeclarationNamesFromCacheInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceVariableDeclarationNamesFromCacheInto.");
+            var diagnosticSeveritySummaryInto = programType.GetMethod(
+                    "DiagnosticSeveritySummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSeveritySummaryInto.");
+            var diagnosticSeveritySummaryChecksumInto = programType.GetMethod(
+                    "DiagnosticSeveritySummaryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSeveritySummaryChecksumInto.");
             var diagnosticClusterTraitsInto = programType.GetMethod(
                     "DiagnosticClusterTraitsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -643,6 +662,9 @@ func main() {
                 diagnosticClusterTraitChecksumInto,
                 diagnosticClusterTraitPatternChecksumInto,
                 diagnosticClusterTraitsAndPatternsInto);
+            AssertDiagnosticSeveritySummaryLikeProduction(
+                diagnosticSeveritySummaryInto,
+                diagnosticSeveritySummaryChecksumInto);
         }
         finally
         {
@@ -1923,6 +1945,46 @@ func main() {
         Assert.Equal(expectedLengths, cachedLengths);
     }
 
+    private static void AssertDiagnosticSeveritySummaryLikeProduction(
+        MethodInfo diagnosticSeveritySummaryInto,
+        MethodInfo diagnosticSeveritySummaryChecksumInto)
+    {
+        var diagnostics = BuildDiagnosticSeveritySummaryDiagnostics();
+        var severities = diagnostics.Select(static diagnostic => diagnostic.Severity).ToArray();
+        var expectedCounts = new[]
+        {
+            diagnostics.Count(static diagnostic => diagnostic.Severity == "error"),
+            diagnostics.Count(static diagnostic => diagnostic.Severity == "warning"),
+            diagnostics.Count(static diagnostic => diagnostic.Severity == "info")
+        };
+
+        var actualCounts = new int[3];
+        var actualCount = (int)(diagnosticSeveritySummaryInto.Invoke(
+            null,
+            new object[] { severities, severities.Length, actualCounts }) ?? -1);
+
+        Assert.Equal(severities.Length, actualCount);
+        Assert.Equal(expectedCounts, actualCounts);
+
+        var checksumCounts = new int[3];
+        var actualChecksum = (int)(diagnosticSeveritySummaryChecksumInto.Invoke(
+            null,
+            new object[] { severities, severities.Length, checksumCounts }) ?? -1);
+        var expectedChecksum = severities.Length + expectedCounts[0] * 31 + expectedCounts[1] * 17 + expectedCounts[2] * 13;
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedCounts, checksumCounts);
+
+        var paddedSeverities = severities.Concat(new[] { "error", "warning", "info" }).ToArray();
+        var paddedCounts = new int[3];
+        var paddedCount = (int)(diagnosticSeveritySummaryInto.Invoke(
+            null,
+            new object[] { paddedSeverities, severities.Length, paddedCounts }) ?? -1);
+
+        Assert.Equal(severities.Length, paddedCount);
+        Assert.Equal(expectedCounts, paddedCounts);
+    }
+
     private static void AssertDiagnosticClusterTraitsLikeProduction(
         MethodInfo diagnosticClusterTraitsInto,
         MethodInfo diagnosticClusterTraitChecksumInto,
@@ -2157,6 +2219,38 @@ func main() {
                 null,
                 null)
         };
+    }
+
+    private static List<DiagnosticResult> BuildDiagnosticSeveritySummaryDiagnostics()
+    {
+        return new List<DiagnosticResult>
+        {
+            BuildDiagnosticWithSeverity("error", 1),
+            BuildDiagnosticWithSeverity("warning", 2),
+            BuildDiagnosticWithSeverity("info", 3),
+            BuildDiagnosticWithSeverity("hint", 4),
+            BuildDiagnosticWithSeverity("info", 5),
+            BuildDiagnosticWithSeverity("error", 6)
+        };
+    }
+
+    private static DiagnosticResult BuildDiagnosticWithSeverity(string severity, int line)
+    {
+        return new DiagnosticResult(
+            "NL900",
+            severity,
+            $"Synthetic {severity} diagnostic",
+            "Program.nl",
+            line,
+            1,
+            1,
+            "value := input",
+            null,
+            null,
+            null,
+            null,
+            null,
+            null);
     }
 
     private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)

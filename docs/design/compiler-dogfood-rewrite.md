@@ -279,6 +279,11 @@ Current code-intelligence dogfood benchmarks:
   the hot path, falls back to message scanning only for unknown codes, and writes compact category
   and source-construct ids into caller-owned buffers. The formatter still materializes the public
   JSON `messagePattern` string after this hot trait pass.
+- `CompilerServiceCodeIntelligenceDiagnosticSummaryBenchmarks` targets the diagnostic severity
+  summary emitted by `diagnostics`, `diagnostics.clusters`, `check`, and `lint` JSON envelopes. The
+  C# baseline models the formatter's previous shape: three LINQ count passes over diagnostic
+  severities. The N# candidate counts error/warning/info severities in one compiled loop and writes
+  the stable summary counts into caller-owned storage.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, and `CompilerServices/DiagnosticClusters.nl`.
@@ -304,8 +309,10 @@ Declaration-name match parity covers invalid lines, exact selected declaration s
 selected spans, Unicode names, missing names, and the current substring-search edge where the guard
 can match a declaration name inside a larger token if the caller supplies that name and column. The
 diagnostic cluster trait parity checks known-code classification, unknown-message fallback,
-source-construct inference, and the compatibility message-pattern wrapper. The
-N# candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
+source-construct inference, and the compatibility message-pattern wrapper. Diagnostic severity
+summary parity covers error, warning, info, and ignored unknown severities, including the
+explicit-count contract used by reusable host buffers. The N# candidate imports `System`, uses ASCII
+fast paths, and falls back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
 
@@ -380,6 +387,12 @@ ran about 5.82x faster on the representative diagnostic corpus (79.627 us vs 463
 diagnostic clustering trait pass; message-pattern materialization intentionally remains in the
 formatter boundary for the public JSON schema.
 
+`DiagnosticSeveritySummaryInto` passed parity and reported no managed allocation in the same normal
+BenchmarkDotNet evidence tier for JSON diagnostic summary counting. It ran about 5.54x faster on the
+representative diagnostic corpus (781.7 ns vs 4.331 us) and about 5.36x faster on the large
+generated diagnostic corpus (6.246 us vs 33.497 us). This is acceptance-grade benchmark evidence for
+the diagnostic/check/lint severity-summary pass.
+
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
@@ -393,20 +406,24 @@ Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cac
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
+Diagnostic, clustered diagnostic, check, and lint JSON envelopes now use the compiled N# severity
+summary pass when the dogfood assembly is available, with the previous C# LINQ counts kept as the
+fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
 declaration-name match, and
-variable-declaration-name queries, plus diagnostic cluster trait classifications,
+variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
+severity summaries,
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
 completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
-declaration-name guard, and variable declaration name extraction slice, plus LSP editor word/span
-lookup for hover, definition, references, and rename entry points. Broader query, hover,
-definition, diagnostic, completion candidate construction, binding, and CLI command logic still
-contains C# implementation code and remains in scope for the dogfood rewrite.
+declaration-name guard, variable declaration name extraction, and diagnostic severity summary
+slices, plus LSP editor word/span lookup for hover, definition, references, and rename entry points.
+Broader query, hover, definition, diagnostic, completion candidate construction, binding, and CLI
+command logic still contains C# implementation code and remains in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -488,8 +505,9 @@ method-call receiver normalization, but semantic member lookup and completion it
 remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
-shaping still needs N# implementations. Diagnostic cluster trait classification is now dogfooded,
-but message-pattern materialization and full cluster grouping are still C# formatter work. The
+shaping still needs N# implementations. Diagnostic cluster trait classification and diagnostic
+severity summary counting are now dogfooded, but message-pattern materialization and full cluster
+grouping are still C# formatter work. The
 strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
 binding tables and lookup policy are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still

@@ -7,6 +7,83 @@ using BenchmarkDotNet.Order;
 namespace NSharpLang.Benchmarks;
 
 /// <summary>
+/// Dogfood benchmark for diagnostic severity summaries emitted by diagnostics/check/lint JSON.
+///
+/// The C# baseline models the current formatter shape: three LINQ count passes over the diagnostic
+/// severities. The N# candidate counts error/warning/info severities in one compiled hot loop and
+/// writes the stable summary counts into caller-owned storage.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDiagnosticSummaryBenchmarks
+{
+    private const int LargeDiagnosticCount = 8192;
+    private const int RepresentativeDiagnosticCount = 1024;
+
+    private Func<string[], int, int[], int> _nsharpDiagnosticSeveritySummaryChecksumInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int _diagnosticCount;
+    private int[] _nsharpCounts = Array.Empty<int>();
+    private string[] _severities = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _diagnosticCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeDiagnosticCount
+            : LargeDiagnosticCount;
+        _nsharpDiagnosticSeveritySummaryChecksumInto =
+            NSharpCompiledMethod.Bind<Func<string[], int, int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceDiagnosticClusters,
+                "DiagnosticSeveritySummaryChecksumInto");
+
+        _severities = new string[_diagnosticCount];
+        _nsharpCounts = new int[3];
+        BuildSeverities();
+
+        var expectedChecksum = CSharpDiagnosticSeveritySummary_QueryBatch();
+        var actualChecksum = NSharpDiagnosticSeveritySummary_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic severity summary checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpDiagnosticSeveritySummary_QueryBatch()
+    {
+        var errors = _severities.Count(static severity => severity == "error");
+        var warnings = _severities.Count(static severity => severity == "warning");
+        var info = _severities.Count(static severity => severity == "info");
+
+        return _diagnosticCount + errors * 31 + warnings * 17 + info * 13;
+    }
+
+    [Benchmark]
+    public int NSharpDiagnosticSeveritySummary_QueryBatch() =>
+        _nsharpDiagnosticSeveritySummaryChecksumInto(_severities, _diagnosticCount, _nsharpCounts);
+
+    private void BuildSeverities()
+    {
+        for (var i = 0; i < _diagnosticCount; i++)
+        {
+            _severities[i] = (i % 11) switch
+            {
+                0 or 1 or 2 or 3 or 4 => "error",
+                5 or 6 or 7 => "warning",
+                8 or 9 => "info",
+                _ => "hint"
+            };
+        }
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for diagnostic cluster trait classification used by CLI/query diagnostic
 /// grouping.
 ///
