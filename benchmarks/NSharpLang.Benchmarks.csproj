@@ -60,6 +60,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliQueryParsing.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliQueryParsing.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliDocOrdering.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliDocOrdering.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ErrorSuggestions.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ErrorSuggestions.nl" />
   </ItemGroup>

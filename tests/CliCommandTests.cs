@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
+using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -572,6 +573,38 @@ func Main() {
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void DocCommand_DogfoodAdapter_OrdersSymbolsForGeneration()
+    {
+        var symbols = new[]
+        {
+            NewSymbol("zeta", SymbolKind.Method),
+            NewSymbol("alpha", SymbolKind.Function),
+            NewSymbol("ignoredVariable", SymbolKind.Variable),
+            NewSymbol("Customer", SymbolKind.Class),
+            NewSymbol("ignoredParameter", SymbolKind.Parameter),
+            NewSymbol("alpha", SymbolKind.Function),
+            NewSymbol("OrderState", SymbolKind.Enum),
+            NewSymbol("Name", SymbolKind.Property),
+            NewSymbol("alpha", SymbolKind.Method),
+            NewSymbol("Amount", SymbolKind.TypeAlias),
+            NewSymbol("Account", SymbolKind.Class)
+        };
+
+        var expected = symbols
+            .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
+            .OrderBy(symbol => symbol.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryOrderDocSymbolsForGeneration(symbols, out var actual));
+        Assert.Equal(expected, actual);
+
+        static SymbolResult NewSymbol(string name, SymbolKind kind) =>
+            new(name, kind, "/tmp/Program.nl", 1, 1, null, null, null, null);
     }
 
     [Fact]

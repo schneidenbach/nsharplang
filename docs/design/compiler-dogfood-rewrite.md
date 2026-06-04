@@ -407,8 +407,8 @@ Current code-intelligence dogfood benchmarks:
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
 `CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
-`CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`, and
-`CompilerServices/ErrorSuggestions.nl`.
+`CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`,
+`CompilerServices/CliDocOrdering.nl`, and `CompilerServices/ErrorSuggestions.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -420,10 +420,13 @@ direct scanner and the cached by-line API, including Unicode identifier characte
 lines, missing-name assignments, and invalid lines. It verifies CLI query position parsing against
 the current split/`int.TryParse` behavior for valid, invalid, signed, whitespace-padded, and overflow
 inputs. It verifies typo-suggestion candidate index ordering against the current
-`SmartSuggester.SuggestSimilarNames` score/filter/order contract. Raw source-line span parity now covers invalid
-lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing `\r`
-characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns, in-range
-columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content.
+`SmartSuggester.SuggestSimilarNames` score/filter/order contract. It verifies CLI doc symbol
+ordering against the current `SymbolKind.ToString()` ordinal kind ordering, ordinal name ordering,
+variable/parameter filtering, and stable equal-key behavior. Raw source-line span parity now covers
+invalid lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing
+`\r` characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns,
+in-range columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line
+content.
 Completion receiver parity covers direct dots, partial member names, normalized method-call
 receivers, string/interpolated/raw/char/numeric/bool literal receivers, Unicode identifiers, comment
 text, and the current C# edge where some generated comment prefixes fall back to expression-suffix
@@ -676,6 +679,12 @@ Current CLI dogfood benchmarks:
   string order. The N# candidate runs after the host has assigned dense sorted ordinal ranks to
   nonblank ids, counts duplicate ranks in caller-owned buffers, and returns the duplicate ranks in
   public error-order through `CliBatchDuplicateIdRanksInto`.
+- `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
+  The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
+  `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
+  the list. The accepted N# candidate runs after the host has assigned dense kind/name ranks and
+  uses two stable counting passes to return ordered source indices through
+  `CliDocSymbolOrderCountingIndicesInto`.
 
 `CliQueryPositionsInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier, but missed the speed gate for CLI position parsing. The best measured
@@ -693,6 +702,14 @@ on the representative batch corpus (1.075 us vs 23.400 us, 0 B vs 59,592 B) and 
 on the large generated batch corpus (5.800 us vs 134.725 us, 0 B vs 278,384 B). This is
 acceptance-grade benchmark evidence for duplicate request-id validation after the host has assigned
 sorted ordinal ranks to public string ids.
+
+`CliDocSymbolOrderCountingIndicesInto` passed parity and reported zero managed allocation in the
+normal BenchmarkDotNet evidence tier for doc symbol ordering. The first comparison-sort candidate
+only reached about 2.7x-2.9x faster, so the accepted kernel uses dense ranks and two stable counting
+passes. It ran about 11.6x faster on the representative symbol corpus (3.880 us vs 45.050 us,
+0 B vs 54,319 B) and about 23.9x faster on the large generated symbol corpus (32.143 us vs
+769.319 us, 0 B vs 430,687 B). This is acceptance-grade benchmark evidence for `nlc doc` symbol
+filtering and kind/name ordering after the host has assigned compact ordinal ranks.
 
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
@@ -746,6 +763,10 @@ fallback and the existing flat lookup still used as the last receiver fallback.
 `nlc query batch` duplicate request-id validation now routes through the compiled N# compact-rank
 duplicate detector when the dogfood assembly is available, preserving the previous sorted ordinal
 duplicate-id error output, with the previous LINQ grouping path kept as the fallback.
+`nlc doc` symbol filtering and kind/name ordering now routes through the compiled N# stable
+counting-sort kernel when the dogfood assembly is available, preserving the previous
+`SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the previous LINQ
+ordering path kept as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
@@ -755,7 +776,8 @@ severity summaries, compact diagnostic cluster grouping, diagnostic deduplicatio
 deduplication, stable diagnostic deduplication, binding candidate-column ordering,
 strict binding lookup, nearest declaration lookup,
 scoped visible-variable selection, and CLI batch duplicate-id validation
-through the compiled N# methods;
+through the compiled N# methods; `CliCommandTests` verifies both packaged CLI dogfood adapter routes
+for duplicate batch request ids and `nlc doc` symbol ordering;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
@@ -768,6 +790,7 @@ editor word/span lookup for hover, definition, references, and rename entry poin
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
 member-access completion, plus batch duplicate-id validation in `nlc query batch`.
+`nlc doc` symbol filtering and ordering is also routed through the compiled N# doc-ordering kernel.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
 for the dogfood rewrite.

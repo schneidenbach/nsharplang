@@ -39,11 +39,7 @@ public static class DocCommand
         {
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectRoot);
-            var symbols = service.GetSymbols(snapshot)
-                .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
-                .OrderBy(symbol => symbol.Kind.ToString(), StringComparer.Ordinal)
-                .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
-                .ToList();
+            var symbols = service.GetSymbols(snapshot);
 
             var manifest = ProjectDocGenerator.Generate(projectRoot, outputDir, symbols);
 
@@ -64,7 +60,7 @@ public static class DocCommand
             }
             else
             {
-                Console.WriteLine($"Generated API docs for {symbols.Count} symbols.");
+                Console.WriteLine($"Generated API docs for {manifest.PageCount} symbols.");
                 Console.WriteLine($"Output: {outputDir}");
                 Console.WriteLine($"Index: {manifest.IndexPath}");
                 if (openAfterGenerate)
@@ -190,6 +186,8 @@ internal static class ProjectDocGenerator
 {
     public static DocManifest Generate(string projectRoot, string outputDir, IReadOnlyList<SymbolResult> symbols)
     {
+        var orderedSymbols = OrderSymbolsForGeneration(symbols);
+
         if (Directory.Exists(outputDir))
             Directory.Delete(outputDir, recursive: true);
 
@@ -199,7 +197,7 @@ internal static class ProjectDocGenerator
 
         var pages = new List<DocPage>();
 
-        foreach (var symbol in symbols)
+        foreach (var symbol in orderedSymbols)
         {
             var slug = ToSlug(symbol);
             var relativePath = NormalizePath(Path.Combine("symbols", $"{slug}.html"));
@@ -209,7 +207,7 @@ internal static class ProjectDocGenerator
         }
 
         var indexPath = Path.Combine(outputDir, "index.html");
-        File.WriteAllText(indexPath, RenderIndexPage(symbols, pages, projectRoot));
+        File.WriteAllText(indexPath, RenderIndexPage(orderedSymbols, pages, projectRoot));
 
         return new DocManifest(
             NormalizePath(indexPath),
@@ -217,30 +215,43 @@ internal static class ProjectDocGenerator
             pages);
     }
 
+    internal static List<SymbolResult> OrderSymbolsForGeneration(IReadOnlyList<SymbolResult> symbols)
+    {
+        if (NSharpCliDogfoodAdapter.TryOrderDocSymbolsForGeneration(symbols, out var orderedSymbols))
+            return orderedSymbols;
+
+        return symbols
+            .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
+            .OrderBy(symbol => symbol.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
+            .ToList();
+    }
+
     private static string RenderIndexPage(IReadOnlyList<SymbolResult> symbols, IReadOnlyList<DocPage> pages, string projectRoot)
     {
-        var grouped = symbols
-            .GroupBy(symbol => symbol.Kind)
-            .OrderBy(group => group.Key.ToString(), StringComparer.Ordinal)
-            .Select(group =>
+        var grouped = new List<string>();
+        var index = 0;
+        while (index < symbols.Count)
+        {
+            var kind = symbols[index].Kind;
+            var items = new List<string>();
+            while (index < symbols.Count && symbols[index].Kind == kind)
             {
-                var items = group
-                    .OrderBy(symbol => symbol.Name, StringComparer.Ordinal)
-                    .Select(symbol =>
-                    {
-                        var page = pages.First(p => p.Name == symbol.Name && p.Kind == symbol.Kind.ToString().ToLowerInvariant());
-                        return $"<li><a href=\"{WebUtility.HtmlEncode(page.Path)}\">{WebUtility.HtmlEncode(symbol.Name)}</a><span>{WebUtility.HtmlEncode(DescribeLocation(projectRoot, symbol))}</span></li>";
-                    });
+                var symbol = symbols[index];
+                var page = pages.First(p => p.Name == symbol.Name && p.Kind == symbol.Kind.ToString().ToLowerInvariant());
+                items.Add($"<li><a href=\"{WebUtility.HtmlEncode(page.Path)}\">{WebUtility.HtmlEncode(symbol.Name)}</a><span>{WebUtility.HtmlEncode(DescribeLocation(projectRoot, symbol))}</span></li>");
+                index++;
+            }
 
-                return $"""
+            grouped.Add($"""
 <section>
-  <h2>{WebUtility.HtmlEncode(group.Key.ToString())}</h2>
+  <h2>{WebUtility.HtmlEncode(kind.ToString())}</h2>
   <ul class="symbol-list">
     {string.Join(Environment.NewLine + "    ", items)}
   </ul>
 </section>
-""";
-            });
+""");
+        }
 
         return WrapHtml(
             title: "N# API Docs",

@@ -654,6 +654,14 @@ func documented(): int {
                     "CliQueryPositionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionChecksumInto.");
+            var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
+                    "CliDocSymbolOrderCountingIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocSymbolOrderCountingIndicesInto.");
+            var cliDocSymbolOrderCountingChecksumInto = programType.GetMethod(
+                    "CliDocSymbolOrderCountingChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocSymbolOrderCountingChecksumInto.");
             var typoSuggestionIndicesInto = programType.GetMethod(
                     "TypoSuggestionIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1032,6 +1040,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
                 cliQueryPositionChecksumInto);
+            AssertCliDocSymbolOrderingLikeProduction(
+                cliDocSymbolOrderCountingIndicesInto,
+                cliDocSymbolOrderCountingChecksumInto);
             AssertTypoSuggestionsLikeProduction(
                 typoSuggestionIndicesInto,
                 typoSuggestionChecksumInto);
@@ -2386,6 +2397,109 @@ func main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static void AssertCliDocSymbolOrderingLikeProduction(
+        MethodInfo cliDocSymbolOrderCountingIndicesInto,
+        MethodInfo cliDocSymbolOrderCountingChecksumInto)
+    {
+        var symbols = new[]
+        {
+            (Kind: SymbolKind.Method, Name: "zeta"),
+            (Kind: SymbolKind.Function, Name: "alpha"),
+            (Kind: SymbolKind.Variable, Name: "ignoredVariable"),
+            (Kind: SymbolKind.Class, Name: "Customer"),
+            (Kind: SymbolKind.Parameter, Name: "ignoredParameter"),
+            (Kind: SymbolKind.Function, Name: "alpha"),
+            (Kind: SymbolKind.Enum, Name: "OrderState"),
+            (Kind: SymbolKind.Property, Name: "Name"),
+            (Kind: SymbolKind.Method, Name: "alpha"),
+            (Kind: SymbolKind.TypeAlias, Name: "Amount"),
+            (Kind: SymbolKind.Class, Name: "Account")
+        };
+        var expected = symbols
+            .Select((symbol, index) => (symbol.Kind, symbol.Name, Index: index))
+            .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
+            .OrderBy(symbol => symbol.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
+            .Select(symbol => symbol.Index)
+            .ToArray();
+
+        var kindRanks = new int[symbols.Length];
+        var nameRanks = new int[symbols.Length];
+        var includeFlags = new int[symbols.Length];
+        var nameRankMap = symbols
+            .Select(symbol => symbol.Name)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .Select((name, index) => (name, rank: index + 1))
+            .ToDictionary(item => item.name, item => item.rank, StringComparer.Ordinal);
+        var kindRankMap = Enum.GetValues<SymbolKind>()
+            .OrderBy(kind => kind.ToString(), StringComparer.Ordinal)
+            .Select((kind, index) => (kind, rank: index + 1))
+            .ToDictionary(item => item.kind, item => item.rank);
+
+        for (var i = 0; i < symbols.Length; i++)
+        {
+            kindRanks[i] = kindRankMap[symbols[i].Kind];
+            nameRanks[i] = nameRankMap[symbols[i].Name];
+            includeFlags[i] = symbols[i].Kind is SymbolKind.Variable or SymbolKind.Parameter ? 0 : 1;
+        }
+
+        var resultIndices = new int[symbols.Length];
+        var tempIndices = new int[symbols.Length];
+        var actualCount = (int)(cliDocSymbolOrderCountingIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                includeFlags,
+                new int[symbols.Length + 1],
+                new int[symbols.Length + 1],
+                new int[32],
+                new int[32],
+                tempIndices,
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[symbols.Length];
+        var actualChecksum = (int)(cliDocSymbolOrderCountingChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                includeFlags,
+                new int[symbols.Length + 1],
+                new int[symbols.Length + 1],
+                new int[32],
+                new int[32],
+                new int[symbols.Length],
+                checksumResultIndices
+            }) ?? -1);
+        var expectedChecksum = CliDocSymbolOrderChecksum(expected, kindRanks, nameRanks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static int CliDocSymbolOrderChecksum(
+        IReadOnlyList<int> orderedIndices,
+        int[] kindRanks,
+        int[] nameRanks)
+    {
+        var checksum = orderedIndices.Count;
+        for (var i = 0; i < orderedIndices.Count; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31 + kindRanks[index] * 17 + nameRanks[index] * 13;
+        }
+
+        return checksum;
     }
 
     private static void AssertTypoSuggestionsLikeProduction(
