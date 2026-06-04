@@ -103,6 +103,27 @@ public class CompletionEngine
             return EmptyResult(CompletionContext.Unknown);
         }
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryClassifyCompletionReceiver(
+                beforeCursor,
+                out var dogfoodMemberAccess,
+                out var dogfoodReceiver))
+        {
+            if (dogfoodMemberAccess)
+            {
+                return GetMemberAccessCompletions(
+                    cu,
+                    semanticModel,
+                    beforeCursor,
+                    line,
+                    col,
+                    snapshot,
+                    dogfoodReceiver,
+                    hasPrecomputedReceiver: true);
+            }
+
+            return GetIdentifierCompletions(cu, semanticModel, beforeCursor, snapshot, includeKeywords, line, col);
+        }
+
         // Detect context
         if (IsMemberAccessContext(beforeCursor))
         {
@@ -156,11 +177,20 @@ public class CompletionEngine
         return true;
     }
 
-    private CompletionResult GetMemberAccessCompletions(CompilationUnit cu, SemanticModel? semanticModel,
-        string beforeCursor, int line, int col, ProjectSnapshot snapshot)
+    private CompletionResult GetMemberAccessCompletions(
+        CompilationUnit cu,
+        SemanticModel? semanticModel,
+        string beforeCursor,
+        int line,
+        int col,
+        ProjectSnapshot snapshot,
+        string? precomputedReceiver = null,
+        bool hasPrecomputedReceiver = false)
     {
         var memberAccess = FindMemberAccessAtPosition(cu, line, col);
-        var receiver = ExtractReceiver(beforeCursor) ?? FormatReceiverExpression(memberAccess?.Object);
+        var receiver = hasPrecomputedReceiver
+            ? precomputedReceiver ?? FormatReceiverExpression(memberAccess?.Object)
+            : ExtractReceiver(beforeCursor) ?? FormatReceiverExpression(memberAccess?.Object);
 
         var completions = new Dictionary<string, List<CompletionItem>>();
 

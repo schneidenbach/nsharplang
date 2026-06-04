@@ -249,6 +249,13 @@ Current code-intelligence dogfood benchmarks:
   selected line prefix with `Substring`, while columns less than one or past the line return the
   whole selected line. The N# candidate reuses cached line ranges and emits absolute prefix
   start/length pairs through `CodeIntelligenceCompletionPrefixesFromLinesInto`.
+- `CompilerServiceCodeIntelligenceCompletionReceiverBenchmarks` targets the receiver-context
+  classifier used by completion after prefix extraction. The C# baseline mirrors the current
+  `CompletionEngine` helper shape: trim the prefix, decide member-access context, tokenize literal
+  receiver candidates with the full lexer, and normalize call arguments with a `StringBuilder`. The
+  N# candidate keeps the same context/receiver contract, including comment-text and partial-member
+  edge behavior, but uses direct prefix scans and caller-owned context/receiver buffers through
+  `CodeIntelligenceCompletionReceiversInto`.
 - `CompilerServiceCodeIntelligenceDocCommentBenchmarks` targets leading doc-comment extraction used
   by hover documentation. The C# baseline mirrors the current helper: each queried declaration line
   splits the source into logical lines, walks backward across leading `//` comments, trims comment
@@ -273,8 +280,9 @@ Current code-intelligence dogfood benchmarks:
   and source-construct ids into caller-owned buffers. The formatter still materializes the public
   JSON `messagePattern` string after this hot trait pass.
 
-The dogfood project now includes `CompilerServices/IdentifierSpans.nl` and
-`CompilerServices/DiagnosticClusters.nl`. `CompilerDogfoodProjectTests`
+The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
+`CompilerServices/CompletionReceivers.nl`, and `CompilerServices/DiagnosticClusters.nl`.
+`CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
 standalone-CR input, Unicode identifier characters, member receivers with whitespace before the dot,
@@ -286,6 +294,10 @@ lines, missing-name assignments, and invalid lines. Raw source-line span parity 
 lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing `\r`
 characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns, in-range
 columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content.
+Completion receiver parity covers direct dots, partial member names, normalized method-call
+receivers, string/interpolated/raw/char/numeric/bool literal receivers, Unicode identifiers, comment
+text, and the current C# edge where some generated comment prefixes fall back to expression-suffix
+scanning rather than literal-token handling.
 Doc-comment span parity covers invalid declaration lines, blank lines immediately above the
 declaration, `//`, `///`, and `////` prefixes, trimmed content, and empty comment content.
 Declaration-name match parity covers invalid lines, exact selected declaration spans, mismatched
@@ -333,6 +345,13 @@ corpus (1.269 us vs 478.162 us, 0 B vs 4,229,816 B) and about 423,000x faster on
 corpus (145.567 ns vs 61.663 ms, 0 B vs 129,589,768 B). This is acceptance-grade benchmark evidence
 for cached completion-prefix lookup after line ranges are built.
 
+`CodeIntelligenceCompletionReceiversInto` passed parity in the same normal BenchmarkDotNet evidence
+tier for the completion member-access context/receiver classifier. It ran about 5.23x faster on the
+representative corpus (47.516 us vs 248.648 us, 107.7 KB vs 1,262.11 KB) and about 5.28x faster on
+the large generated corpus (5.663 us vs 29.890 us, 13.5 KB vs 156.45 KB). This is
+acceptance-grade benchmark evidence for the post-prefix completion receiver-context hot path; the
+remaining allocations are the receiver strings required by the current completion API boundary.
+
 `CodeIntelligenceDocCommentLinesFromLinesInto` passed parity and reported zero managed allocation in
 the same normal BenchmarkDotNet evidence tier. It ran about 62x faster on the representative corpus
 (9.236 us vs 569.155 us, 0 B vs 4,688,008 B) and about 48,500x faster on the large generated corpus
@@ -368,24 +387,26 @@ The adapter caches line ranges, receiver caches, and variable-declaration name c
 `ProjectSnapshot`/file, uses cached line ranges for the strict reference/rename declaration-name
 span guard, reference source-context and raw diagnostic-line materialization, completion-prefix
 extraction, hover doc-comment extraction, and strict editor word/span extraction used by the language
-server, and falls back to the old C# scanners only when the dogfood assembly is unavailable.
+server. Completion receiver-context classification also routes through the compiled N# classifier
+when the dogfood assembly is available, with the old C# helper kept as the fallback.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
-completion-prefix, doc-comment, strict editor identifier, declaration-name match, and
+completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
+declaration-name match, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications,
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
-completion-prefix, hover doc-comment, strict reference/rename declaration-name guard, and variable
-declaration name extraction slice, plus LSP editor word/span lookup for hover, definition,
-references, and rename entry points. Broader query, hover, definition, diagnostic, completion
-candidate construction, binding, and CLI command logic still contains C# implementation code and
-remains in scope for the dogfood rewrite.
+completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
+declaration-name guard, and variable declaration name extraction slice, plus LSP editor word/span
+lookup for hover, definition, references, and rename entry points. Broader query, hover,
+definition, diagnostic, completion candidate construction, binding, and CLI command logic still
+contains C# implementation code and remains in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -461,7 +482,10 @@ the 5x win comes from a source-level receiver cache plus caller-owned buffers, n
 tiny backward scanner once per request. The source-context candidate proves reusable line ranges and
 span outputs avoid split-and-trim allocation for reference output, and the production adapter now
 materializes reference contexts from those spans. Diagnostic snippets, completion prefixes, and hover
-doc comments now use the same cached-line-range shape for their extraction steps. Strict editor
+doc comments now use the same cached-line-range shape for their extraction steps. Completion
+receiver-context classification is also dogfooded, including literal receiver handling and
+method-call receiver normalization, but semantic member lookup and completion item construction
+remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification is now dogfooded,

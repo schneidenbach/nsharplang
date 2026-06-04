@@ -13,6 +13,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     private static readonly ConditionalWeakTable<ProjectSnapshot, SnapshotCache> s_snapshotCaches = new();
     private static readonly ConditionalWeakTable<string, SourceLineCache> s_sourceLineCaches = new();
+    [ThreadStatic]
+    private static CompletionReceiverScratch? t_completionReceiverScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -340,6 +342,58 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryClassifyCompletionReceiver(
+        string beforeCursor,
+        out bool isMemberAccess,
+        out string? receiver)
+    {
+        isMemberAccess = false;
+        receiver = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var scratch = t_completionReceiverScratch ??= new CompletionReceiverScratch();
+            scratch.Prefixes[0] = beforeCursor;
+            scratch.Contexts[0] = 0;
+            scratch.Receivers[0] = string.Empty;
+
+            var classified = bindings.CompletionReceivers(
+                scratch.Prefixes,
+                scratch.Contexts,
+                scratch.Receivers);
+
+            if (classified != 1)
+            {
+                scratch.Prefixes[0] = string.Empty;
+                scratch.Receivers[0] = string.Empty;
+                return false;
+            }
+
+            isMemberAccess = scratch.Contexts[0] != 0;
+            receiver = scratch.Receivers[0].Length > 0 ? scratch.Receivers[0] : null;
+            scratch.Prefixes[0] = string.Empty;
+            scratch.Receivers[0] = string.Empty;
+            return true;
+        }
+        catch
+        {
+            if (t_completionReceiverScratch is { } scratch)
+            {
+                scratch.Prefixes[0] = string.Empty;
+                scratch.Contexts[0] = 0;
+                scratch.Receivers[0] = string.Empty;
+            }
+
+            isMemberAccess = false;
+            receiver = null;
+            return false;
+        }
+    }
+
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
     {
         var snapshotCache = s_snapshotCaches.GetValue(snapshot, static _ => new SnapshotCache());
@@ -368,6 +422,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"),
                 CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"),
+                CreateDelegate<CodeIntelligenceCompletionReceiversInto>(programType, "CodeIntelligenceCompletionReceiversInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"));
         }
         catch
@@ -507,6 +562,11 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int CodeIntelligenceCompletionReceiversInto(
+        string[] prefixes,
+        int[] resultContexts,
+        string[] resultReceivers);
+
     private delegate int DiagnosticClusterTraitsInto(
         string[] codes,
         string[] messages,
@@ -527,7 +587,21 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines,
         CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
         CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache,
+        CodeIntelligenceCompletionReceiversInto CompletionReceivers,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits);
+
+    private sealed class CompletionReceiverScratch
+    {
+        public readonly int[] Contexts = new int[1];
+        public readonly string[] Prefixes = new string[1];
+        public readonly string[] Receivers = new string[1];
+
+        public CompletionReceiverScratch()
+        {
+            Prefixes[0] = string.Empty;
+            Receivers[0] = string.Empty;
+        }
+    }
 
     private sealed class SourceLineCache
     {

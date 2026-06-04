@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Order;
+using NSharpLang.Compiler;
 
 namespace NSharpLang.Benchmarks;
 
@@ -1537,6 +1539,383 @@ public class CompilerServiceCodeIntelligenceCompletionPrefixBenchmarks
         return column > 0 && column <= lineText.Length
             ? lineText.Substring(0, column)
             : lineText;
+    }
+
+    private static string FormatContext(string? context) =>
+        context == null ? "<null>" : $"\"{context}\"";
+}
+
+/// <summary>
+/// Dogfood benchmark for classifying completion receiver context after prefix extraction.
+///
+/// The current C# helper trims the prefix, scans for member-access dots, tokenizes candidate literal
+/// receivers with the full lexer, and normalizes call arguments with a StringBuilder. The N# candidate
+/// keeps the same output contract but uses direct prefix scans and caller-owned result arrays.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceCompletionReceiverBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string[], int[], string[], int> _nsharpCompletionReceiverChecksumInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpContexts = Array.Empty<int>();
+    private string[] _csharpReceivers = Array.Empty<string>();
+    private int[] _nsharpContexts = Array.Empty<int>();
+    private string[] _nsharpReceivers = Array.Empty<string>();
+    private string[] _prefixes = Array.Empty<string>();
+    private int _queryCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpCompletionReceiverChecksumInto =
+            NSharpCompiledMethod.Bind<Func<string[], int[], string[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceCompletionReceivers,
+                "CodeIntelligenceCompletionReceiverChecksumInto");
+
+        _prefixes = BuildPrefixes(_queryCount, Corpus);
+        _csharpContexts = new int[_queryCount];
+        _csharpReceivers = CreateEmptyStrings(_queryCount);
+        _nsharpContexts = new int[_queryCount];
+        _nsharpReceivers = CreateEmptyStrings(_queryCount);
+
+        var expectedChecksum = CSharpCodeIntelligenceCompletionReceivers_QueryBatch();
+        var actualChecksum = NSharpCodeIntelligenceCompletionReceivers_QueryBatch();
+        if (!_csharpContexts.SequenceEqual(_nsharpContexts)
+            || !_csharpReceivers.SequenceEqual(_nsharpReceivers, StringComparer.Ordinal))
+        {
+            var mismatch = FirstMismatch(_csharpContexts, _csharpReceivers, _nsharpContexts, _nsharpReceivers);
+            throw new InvalidOperationException(
+                $"N# completion receiver mismatch for {Corpus} at query {mismatch}: " +
+                $"prefix {FormatContext(_prefixes[mismatch])}, " +
+                $"expected {_csharpContexts[mismatch]}/{FormatContext(_csharpReceivers[mismatch])}, " +
+                $"got {_nsharpContexts[mismatch]}/{FormatContext(_nsharpReceivers[mismatch])}.");
+        }
+
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# completion receiver checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceCompletionReceivers_QueryBatch()
+    {
+        var checksum = _prefixes.Length;
+        for (var i = 0; i < _prefixes.Length; i++)
+        {
+            var prefix = _prefixes[i];
+            var context = IsMemberAccessContext(prefix) ? 1 : 0;
+            var receiver = context != 0 ? ExtractReceiver(prefix) ?? string.Empty : string.Empty;
+
+            _csharpContexts[i] = context;
+            _csharpReceivers[i] = receiver;
+            checksum += context * 31 + receiver.Length * 17;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceCompletionReceivers_QueryBatch() =>
+        _nsharpCompletionReceiverChecksumInto(
+            _prefixes,
+            _nsharpContexts,
+            _nsharpReceivers);
+
+    private static string[] BuildPrefixes(int queryCount, CompilerLexerCorpus corpus)
+    {
+        var prefixes = new string[queryCount];
+        var generated = CompilerLexerCorpusSources.Build(corpus).Split('\n');
+        var seeds = new[]
+        {
+            "people.",
+            "people.Add",
+            "factory.Create(name).",
+            "factory.Create(name, other.Value).Co",
+            "System.Console.",
+            "System.Collections.Generic.List.",
+            "message.ToUpper().",
+            "message.ToUpper().Len",
+            "    \"abc\".",
+            "    $\"hello {name}\".",
+            "    \"a.b\".Len",
+            "    \"unterminated.",
+            "    true.",
+            "    false.ToString().",
+            "    42.",
+            "    1.5.",
+            "    0xCAFE.",
+            "    'x'.",
+            "    return people",
+            "    name",
+            "    call(value.withDot).",
+            "    namespace.Type.Member",
+            "    Console.WriteLine(factory.Create(name, other.Value)).",
+            "    items.Where(item => item.Enabled).",
+            "    résumé.Count"
+        };
+
+        for (var i = 0; i < queryCount; i++)
+        {
+            var seed = seeds[i % seeds.Length];
+            if (i % 7 == 0)
+            {
+                var generatedLine = generated[i * 17 % generated.Length].TrimEnd();
+                prefixes[i] = generatedLine.Length == 0
+                    ? seed
+                    : generatedLine + "." + seed.TrimStart();
+                continue;
+            }
+
+            if (i % 11 == 0)
+            {
+                prefixes[i] = $"    builder{i}.Create(customer{i}, factory.Get({i})).";
+                continue;
+            }
+
+            prefixes[i] = seed;
+        }
+
+        return prefixes;
+    }
+
+    private static string[] CreateEmptyStrings(int count)
+    {
+        var values = new string[count];
+        Array.Fill(values, string.Empty);
+        return values;
+    }
+
+    private static bool IsMemberAccessContext(string beforeCursor)
+    {
+        var trimmed = beforeCursor.TrimEnd();
+        if (trimmed.EndsWith(".", StringComparison.Ordinal)) return true;
+
+        var lastDot = trimmed.LastIndexOf('.');
+        if (lastDot > 0)
+        {
+            var beforeDot = trimmed.Substring(0, lastDot).TrimEnd();
+            if (beforeDot.Length > 0 && (char.IsLetterOrDigit(beforeDot[^1]) || beforeDot[^1] == '_'))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static string? ExtractReceiver(string beforeCursor)
+    {
+        var trimmed = beforeCursor.TrimEnd();
+        var dotIndex = FindLastTopLevelDot(trimmed);
+        if (dotIndex < 0) return null;
+
+        var withoutDot = trimmed.Substring(0, dotIndex).TrimEnd();
+        return ExtractExpressionSuffix(withoutDot);
+    }
+
+    private static string? ExtractExpressionSuffix(string text)
+    {
+        if (TryExtractLiteralExpressionSuffix(text, out var literalReceiver))
+        {
+            return literalReceiver;
+        }
+
+        var end = text.Length;
+        var start = end - 1;
+        var parenDepth = 0;
+        var consumed = false;
+
+        while (start >= 0)
+        {
+            var current = text[start];
+            if (current == ')')
+            {
+                parenDepth++;
+                consumed = true;
+                start--;
+                continue;
+            }
+
+            if (current == '(')
+            {
+                if (parenDepth == 0)
+                {
+                    break;
+                }
+
+                parenDepth--;
+                start--;
+                continue;
+            }
+
+            if (parenDepth > 0)
+            {
+                start--;
+                continue;
+            }
+
+            if (char.IsLetterOrDigit(current) || current == '_' || current == '.')
+            {
+                consumed = true;
+                start--;
+                continue;
+            }
+
+            break;
+        }
+
+        if (!consumed || parenDepth != 0)
+        {
+            return null;
+        }
+
+        start++;
+        return start < end ? NormalizeReceiverCalls(text[start..end]) : null;
+    }
+
+    private static bool TryExtractLiteralExpressionSuffix(string text, out string literalReceiver)
+    {
+        literalReceiver = string.Empty;
+        var tokens = TokenizeCompletionPrefix(text);
+        if (tokens.Count == 0 || !IsLiteralReceiverToken(tokens[^1].Type))
+        {
+            return false;
+        }
+
+        var token = tokens[^1];
+        var tokenStart = Math.Clamp(token.Column - 1, 0, text.Length);
+        literalReceiver = text[tokenStart..].Trim();
+        if (literalReceiver.Length == 0)
+        {
+            literalReceiver = token.Value;
+        }
+
+        return IsCompleteLiteralReceiverToken(token, literalReceiver);
+    }
+
+    private static List<Token> TokenizeCompletionPrefix(string text)
+    {
+        try
+        {
+            return new Lexer(text, "<completion>")
+                .Tokenize()
+                .Where(token => token.Type is not TokenType.Eof
+                    and not TokenType.Newline
+                    and not TokenType.Comment
+                    and not TokenType.MultiLineComment
+                    and not TokenType.XmlDocComment)
+                .ToList();
+        }
+        catch
+        {
+            return new List<Token>();
+        }
+    }
+
+    private static bool IsLiteralReceiverToken(TokenType type)
+        => type is TokenType.StringLiteral
+            or TokenType.TripleQuoteStringLiteral
+            or TokenType.InterpolatedRawStringLiteral
+            or TokenType.CharLiteral
+            or TokenType.IntLiteral
+            or TokenType.FloatLiteral
+            or TokenType.True
+            or TokenType.False;
+
+    private static bool IsCompleteLiteralReceiverToken(Token token, string sourceSuffix)
+        => token.Type switch
+        {
+            TokenType.StringLiteral => token.IsTerminated,
+            TokenType.TripleQuoteStringLiteral => token.IsTerminated && sourceSuffix.EndsWith("\"\"\"", StringComparison.Ordinal),
+            TokenType.InterpolatedRawStringLiteral => token.IsTerminated,
+            TokenType.CharLiteral => token.IsTerminated,
+            _ => true
+        };
+
+    private static string NormalizeReceiverCalls(string expression)
+    {
+        var builder = new StringBuilder(expression.Length);
+        for (var index = 0; index < expression.Length; index++)
+        {
+            var current = expression[index];
+            builder.Append(current);
+            if (current != '(')
+            {
+                continue;
+            }
+
+            var parenDepth = 1;
+            index++;
+            while (index < expression.Length && parenDepth > 0)
+            {
+                if (expression[index] == '(')
+                {
+                    parenDepth++;
+                }
+                else if (expression[index] == ')')
+                {
+                    parenDepth--;
+                }
+
+                index++;
+            }
+
+            builder.Append(')');
+            index--;
+        }
+
+        return builder.ToString();
+    }
+
+    private static int FindLastTopLevelDot(string expression)
+    {
+        var parenDepth = 0;
+        for (var index = expression.Length - 1; index >= 0; index--)
+        {
+            var current = expression[index];
+            if (current == ')')
+            {
+                parenDepth++;
+            }
+            else if (current == '(')
+            {
+                parenDepth = Math.Max(0, parenDepth - 1);
+            }
+            else if (current == '.' && parenDepth == 0)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static int FirstMismatch(
+        int[] expectedContexts,
+        string[] expectedReceivers,
+        int[] actualContexts,
+        string[] actualReceivers)
+    {
+        for (var i = 0; i < expectedContexts.Length; i++)
+        {
+            if (expectedContexts[i] != actualContexts[i]
+                || !string.Equals(expectedReceivers[i], actualReceivers[i], StringComparison.Ordinal))
+            {
+                return i;
+            }
+        }
+
+        return expectedContexts.Length;
     }
 
     private static string FormatContext(string? context) =>

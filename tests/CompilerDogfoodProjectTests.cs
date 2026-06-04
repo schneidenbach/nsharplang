@@ -156,6 +156,24 @@ func documented(): int {
         Assert.True((bool)(tryExtractCompletionPrefix.Invoke(null, pastEndPrefixArgs) ?? false));
         Assert.Equal("    value := input.Count", pastEndPrefixArgs[5]);
 
+        var tryClassifyCompletionReceiver = adapterType.GetMethod(
+                "TryClassifyCompletionReceiver",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(string), typeof(bool).MakeByRefType(), typeof(string).MakeByRefType() },
+                modifiers: null)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryClassifyCompletionReceiver.");
+
+        var completionReceiverArgs = new object?[] { "    factory.Create(name).", null, null };
+        Assert.True((bool)(tryClassifyCompletionReceiver.Invoke(null, completionReceiverArgs) ?? false));
+        Assert.Equal(true, completionReceiverArgs[1]);
+        Assert.Equal("factory.Create()", completionReceiverArgs[2]);
+
+        var identifierCompletionArgs = new object?[] { "    return value", null, null };
+        Assert.True((bool)(tryClassifyCompletionReceiver.Invoke(null, identifierCompletionArgs) ?? false));
+        Assert.Equal(false, identifierCompletionArgs[1]);
+        Assert.Null(identifierCompletionArgs[2]);
+
         var tryExtractVariableDeclarationName = adapterType.GetMethod(
                 "TryExtractVariableDeclarationName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -325,6 +343,14 @@ func documented(): int {
                     "CodeIntelligenceCompletionPrefixesFromLinesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionPrefixesFromLinesInto.");
+            var codeIntelligenceCompletionReceiverChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceCompletionReceiverChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionReceiverChecksumInto.");
+            var codeIntelligenceCompletionReceiversInto = programType.GetMethod(
+                    "CodeIntelligenceCompletionReceiversInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionReceiversInto.");
             var codeIntelligenceDocCommentChecksumInto = programType.GetMethod(
                     "CodeIntelligenceDocCommentChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -566,6 +592,9 @@ func main(customer: Customer, résumé: Profile) {
                 codeIntelligenceCompletionPrefixChecksumInto,
                 codeIntelligenceCompletionPrefixesInto,
                 codeIntelligenceCompletionPrefixesFromLinesInto);
+            AssertCompletionReceiversLikeProduction(
+                codeIntelligenceCompletionReceiverChecksumInto,
+                codeIntelligenceCompletionReceiversInto);
             AssertDocCommentsLikeProduction(
                 """
 // ignored
@@ -1619,6 +1648,86 @@ func main() {
         Assert.Equal(expectedCount, cachedCount);
         Assert.Equal(expectedStarts, cachedStarts);
         Assert.Equal(expectedLengths, cachedLengths);
+    }
+
+    private static void AssertCompletionReceiversLikeProduction(
+        MethodInfo codeIntelligenceCompletionReceiverChecksumInto,
+        MethodInfo codeIntelligenceCompletionReceiversInto)
+    {
+        var isMemberAccessContext = typeof(CompletionEngine).GetMethod(
+                "IsMemberAccessContext",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("CompletionEngine did not emit IsMemberAccessContext.");
+        var extractReceiver = typeof(CompletionEngine).GetMethod(
+                "ExtractReceiver",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("CompletionEngine did not emit ExtractReceiver.");
+
+        var prefixes = new[]
+        {
+            "people.",
+            "people.Add",
+            "factory.Create(name).",
+            "factory.Create(name, other.Value).Co",
+            "System.Console.",
+            "message.ToUpper().",
+            "message.ToUpper().Len",
+            "    \"abc\".",
+            "    $\"hello {name}\".",
+            "    \"a.b\".Len",
+            "    \"\"\"hello\"\"\".",
+            "    \"unterminated.",
+            "    true.",
+            "    false.ToString().",
+            "    42.",
+            "    1.5.",
+            "    0xCAFE.",
+            "    'x'.",
+            "    return people",
+            "    name",
+            "    call(value.withDot).",
+            "    namespace.Type.Member",
+            "    Console.WriteLine(factory.Create(name, other.Value)).",
+            "    items.Where(item => item.Enabled).",
+            "/// <summary>A representative lexer service input.</summary>.0xCAFE.",
+            "    résumé.Count"
+        };
+
+        var expectedContexts = new int[prefixes.Length];
+        var expectedReceivers = Enumerable.Repeat(string.Empty, prefixes.Length).ToArray();
+        var expectedChecksum = prefixes.Length;
+
+        for (var i = 0; i < prefixes.Length; i++)
+        {
+            var isMemberAccess = (bool)(isMemberAccessContext.Invoke(null, new object[] { prefixes[i] }) ?? false);
+            var receiver = isMemberAccess
+                ? (string?)extractReceiver.Invoke(null, new object[] { prefixes[i] }) ?? string.Empty
+                : string.Empty;
+
+            expectedContexts[i] = isMemberAccess ? 1 : 0;
+            expectedReceivers[i] = receiver;
+            expectedChecksum += expectedContexts[i] * 31 + receiver.Length * 17;
+        }
+
+        var checksumContexts = new int[prefixes.Length];
+        var checksumReceivers = Enumerable.Repeat(string.Empty, prefixes.Length).ToArray();
+        var actualChecksum = (int)(codeIntelligenceCompletionReceiverChecksumInto.Invoke(
+            null,
+            new object[] { prefixes, checksumContexts, checksumReceivers }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedContexts, checksumContexts);
+        Assert.Equal(expectedReceivers, checksumReceivers);
+
+        var actualContexts = new int[prefixes.Length];
+        var actualReceivers = Enumerable.Repeat(string.Empty, prefixes.Length).ToArray();
+        var actualCount = (int)(codeIntelligenceCompletionReceiversInto.Invoke(
+            null,
+            new object[] { prefixes, actualContexts, actualReceivers }) ?? -1);
+
+        Assert.Equal(prefixes.Length, actualCount);
+        Assert.Equal(expectedContexts, actualContexts);
+        Assert.Equal(expectedReceivers, actualReceivers);
     }
 
     private static void AssertDocCommentsLikeProduction(
