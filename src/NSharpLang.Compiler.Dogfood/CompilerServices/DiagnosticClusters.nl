@@ -179,6 +179,7 @@ func DiagnosticClusterIdsInto(
     count = MinInt(count, messagePatterns.Length)
     count = MinInt(count, resultIds.Length)
 
+    hexBuffer := new char[](13)
     i := 0
     while i < count {
         resultIds[i] = CreateDiagnosticClusterId(
@@ -187,7 +188,8 @@ func DiagnosticClusterIdsInto(
             categories[i],
             sourceConstructs[i],
             recipes[i],
-            messagePatterns[i])
+            messagePatterns[i],
+            hexBuffer)
         i = i + 1
     }
 
@@ -227,7 +229,8 @@ func CreateDiagnosticClusterId(
     category: string,
     sourceConstruct: string,
     recipe: string,
-    messagePattern: string): string {
+    messagePattern: string,
+    hexBuffer: char[]): string {
     hash := 17
     hash = HashDiagnosticClusterIdPart(hash, code)
     hash = HashDiagnosticClusterIdSeparator(hash)
@@ -241,7 +244,51 @@ func CreateDiagnosticClusterId(
     hash = HashDiagnosticClusterIdSeparator(hash)
     hash = HashDiagnosticClusterIdPart(hash, messagePattern)
 
-    return "diag-" + Math.Abs(hash).ToString("x")
+    return FormatDiagnosticClusterId(hash, hexBuffer)
+}
+
+func FormatDiagnosticClusterId(hash: int, buffer: char[]): string {
+    if buffer.Length < 13 {
+        return "diag-" + Math.Abs(hash).ToString("x")
+    }
+
+    value := Math.Abs(hash)
+    buffer[0] = 'd'
+    buffer[1] = 'i'
+    buffer[2] = 'a'
+    buffer[3] = 'g'
+    buffer[4] = '-'
+
+    if value == 0 {
+        buffer[5] = '0'
+        return new string(buffer, 0, 6)
+    }
+
+    digitCount := 0
+    remaining := value
+    while remaining > 0 {
+        digitCount = digitCount + 1
+        remaining = remaining / 16
+    }
+
+    position := 4 + digitCount
+    remaining = value
+    while position >= 5 {
+        digit := remaining % 16
+        buffer[position] = DiagnosticClusterHexDigit(digit)
+        remaining = remaining / 16
+        position = position - 1
+    }
+
+    return new string(buffer, 0, 5 + digitCount)
+}
+
+func DiagnosticClusterHexDigit(value: int): char {
+    if value < 10 {
+        return (char)(48 + value)
+    }
+
+    return (char)(87 + value)
 }
 
 func HashDiagnosticClusterIdSeparator(hash: int): int {
@@ -267,9 +314,12 @@ func DiagnosticClusterNextCommandsInto(
     count = MinInt(count, columns.Length)
     count = MinInt(count, resultCommands.Length)
 
+    builder := new StringBuilder(128)
     i := 0
     while i < count {
-        resultCommands[i] = CreateDiagnosticClusterNextCommand(files[i], lines[i], columns[i])
+        builder.Clear()
+        AppendDiagnosticClusterNextCommand(builder, files[i], lines[i], columns[i])
+        resultCommands[i] = builder.ToString()
         i = i + 1
     }
 
@@ -555,13 +605,17 @@ func PositiveModulo(value: int, divisor: int): int {
 
 func CreateDiagnosticClusterNextCommand(filePath: string, line: int, column: int): string {
     builder := new StringBuilder(filePath.Length + 48)
+    AppendDiagnosticClusterNextCommand(builder, filePath, line, column)
+    return builder.ToString()
+}
+
+func AppendDiagnosticClusterNextCommand(builder: StringBuilder, filePath: string, line: int, column: int): void {
     builder.Append("nlc query inspect --file ")
     AppendEscapedDiagnosticCommandArgument(builder, filePath)
     builder.Append(" --pos ")
     builder.Append(line)
     builder.Append(':')
     builder.Append(column)
-    return builder.ToString()
 }
 
 func EscapeDiagnosticCommandArgument(value: string): string {

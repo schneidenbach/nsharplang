@@ -329,13 +329,14 @@ Current code-intelligence dogfood benchmarks:
 - `CompilerServiceCodeIntelligenceDiagnosticClusterIdBenchmarks` targets public diagnostic cluster
   id materialization for clustered diagnostics JSON. The C# baseline mirrors the formatter shape:
   build a composite key string, hash the key characters, then materialize the public `diag-{hex}`
-  id. The N# candidate hashes each stable cluster field directly and writes ids into caller-owned
-  storage, avoiding the temporary composite key allocation.
+  id. The N# candidate hashes each stable cluster field directly, formats the public hex suffix
+  through a reusable char buffer, and writes ids into caller-owned storage, avoiding the temporary
+  composite key and per-id hex string allocations.
 - `CompilerServiceCodeIntelligenceDiagnosticClusterNextCommandBenchmarks` targets the
   `nlc query inspect` command emitted for each diagnostic cluster root. The C# baseline mirrors the
   formatter helper: escape the root file path with a LINQ safety scan and replacement-based quoting,
   then materialize the command string. The N# candidate scans directly, appends escaped path content
-  into one command buffer, and writes commands into caller-owned storage.
+  through one batch-local `StringBuilder`, and writes commands into caller-owned storage.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`, and
@@ -469,23 +470,23 @@ and about 10.59x faster on the large generated diagnostic cluster corpus (77.336
 shape after category/source/rewrite/message dimensions have been classified.
 
 `DiagnosticClusterIdsInto` passed parity but missed the normal BenchmarkDotNet speed gate for public
-cluster id string materialization. The N# path avoided the temporary composite key allocation and
-reduced managed allocation to about 18% of the current C# formatter-shaped baseline, but it measured
-only about 1.20x faster on the representative diagnostic cluster corpus after typed string-concat
-lowering (231.2 us vs 277.9 us) and about 1.28x faster on the large generated diagnostic cluster
-corpus (1.870 ms vs 2.385 ms). This is measured language/runtime pressure, not acceptance evidence,
-and the production formatter must keep the C# id path until N# has a faster short-string/hex
-materialization strategy that clears the 5x gate.
+cluster id string materialization. After replacing per-id hex `ToString("x")` and final string
+concatenation with a reusable N# char buffer, the N# path avoided the temporary composite key
+allocation and reduced managed allocation to about 10% of the current C# formatter-shaped baseline,
+but it measured only about 1.19x faster on the representative diagnostic cluster corpus (235.9 us vs
+281.3 us) and about 1.26x faster on the large generated diagnostic cluster corpus (1.913 ms vs
+2.417 ms). This is measured language/runtime pressure, not acceptance evidence, and the production
+formatter must keep the C# id path until N# has a faster short-string/hex materialization strategy
+that clears the 5x gate.
 
 `DiagnosticClusterNextCommandsInto` passed parity but also missed the normal BenchmarkDotNet speed
-gate for public next-command string materialization. After replacing N# string concatenation with a
-single final `StringBuilder` and direct path escaping, the N# path measured about 1.28x faster on the
-representative diagnostic cluster corpus (57.506 us vs 73.614 us) and about 1.11x faster on the
-large generated diagnostic cluster corpus (593.591 us vs 657.952 us), but still allocated about
-1.54x the C# formatter-shaped baseline because every command still requires a builder plus the final
-string. This is measured language/runtime pressure, not acceptance evidence, and the production
-formatter must keep the C# next-command path until N# has a lower-allocation public string
-construction strategy that clears the 5x gate.
+gate for public next-command string materialization. After reusing one `StringBuilder` across the N#
+batch and keeping direct path escaping, the N# path measured about 1.54x faster on the representative
+diagnostic cluster corpus (46.920 us vs 72.298 us) and about 1.78x faster on the large generated
+diagnostic cluster corpus (370.855 us vs 658.986 us), with managed allocation reduced to about 63%
+of the C# formatter-shaped baseline. This is measured language/runtime pressure, not acceptance
+evidence, and the production formatter must keep the C# next-command path until N# has a
+lower-allocation public string construction strategy that clears the 5x gate.
 
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
