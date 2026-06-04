@@ -286,14 +286,10 @@ Build timings:
 
     private static bool ValidateStrictLintDiagnostics(string projectRoot, IReadOnlyList<string> sourceFiles)
     {
-        var diagnostics = CodeIntelligenceService.GetLintDiagnostics(projectRoot, sourceFiles)
-            .Where(diagnostic => diagnostic.Severity == "error")
-            .GroupBy(diagnostic => (diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message))
-            .Select(group => group.First())
-            .OrderBy(diagnostic => diagnostic.File)
-            .ThenBy(diagnostic => diagnostic.Line)
-            .ThenBy(diagnostic => diagnostic.Column)
-            .ToList();
+        var diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(
+            CodeIntelligenceService.GetLintDiagnostics(projectRoot, sourceFiles)
+                .Where(diagnostic => diagnostic.Severity == "error")
+                .ToList());
 
         if (diagnostics.Count == 0)
         {

@@ -39,7 +39,7 @@ public static class CheckCommand
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
-            diagnostics = DeduplicateAndSort(diagnostics);
+            diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
 
             // If analysis found no errors AND this is a proper project (has project.yml),
             // verify the IL backend can emit the assembly successfully. Non-project
@@ -53,7 +53,7 @@ public static class CheckCommand
                 if (verificationDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(verificationDiagnostics);
-                    diagnostics = DeduplicateAndSort(diagnostics);
+                    diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
                 }
             }
 
@@ -65,7 +65,7 @@ public static class CheckCommand
                 if (aotDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(aotDiagnostics);
-                    diagnostics = DeduplicateAndSort(diagnostics);
+                    diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
                 }
             }
 
@@ -153,17 +153,6 @@ public static class CheckCommand
         compiler.CompileForAnalysis();
         return compiler.BuildAotDiagnostics(asError: true)
             .Select(error => CodeIntelligenceService.ToDiagnosticResult(error, projectDir))
-            .ToList();
-    }
-
-    private static List<DiagnosticResult> DeduplicateAndSort(List<DiagnosticResult> diagnostics)
-    {
-        return diagnostics
-            .GroupBy(d => (d.Code, d.File, d.Line, d.Column, d.Message))
-            .Select(group => group.First())
-            .OrderBy(d => d.File)
-            .ThenBy(d => d.Line)
-            .ThenBy(d => d.Column)
             .ToList();
     }
 

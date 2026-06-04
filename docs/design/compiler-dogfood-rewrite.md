@@ -313,6 +313,13 @@ Current code-intelligence dogfood benchmarks:
   C# baseline models the formatter's previous shape: three LINQ count passes over diagnostic
   severities. The N# candidate counts error/warning/info severities in one compiled loop and writes
   the stable summary counts into caller-owned storage.
+- `CompilerServiceCodeIntelligenceDiagnosticDeduplicationBenchmarks` targets diagnostic
+  deduplication used by `nlc check` and strict build lint. The C# baseline mirrors the previous CLI
+  shape: LINQ `GroupBy` over `(code,file,line,column,message)`, first-diagnostic preservation, and
+  file/line/column ordering. The N# candidate consumes compact code/message ids and host-computed
+  file sort ranks, deduplicates with a caller-owned open-addressed table, and writes sorted result
+  indices into caller-owned storage. The host rank boundary preserves the old default string ordering
+  while keeping the N# hot path integer-only.
 - `CompilerServiceCodeIntelligenceDiagnosticClusterGroupBenchmarks` targets diagnostic cluster
   grouping before clustered diagnostic JSON/text materialization. The C# baseline mirrors the
   formatter's current shape: LINQ `GroupBy` over string cluster fields, root selection per group,
@@ -331,7 +338,8 @@ Current code-intelligence dogfood benchmarks:
   into one command buffer, and writes commands into caller-owned storage.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
-`CompilerServices/CompletionReceivers.nl`, and `CompilerServices/DiagnosticClusters.nl`.
+`CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`, and
+`CompilerServices/DiagnosticDeduplication.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -362,8 +370,10 @@ formatter command contract. Diagnostic severity summary parity covers error, war
 ignored unknown severities, including the explicit-count contract used by reusable host buffers. The
 compact diagnostic cluster grouping parity checks preclassified integer dimensions against the
 production string grouping semantics, including root selection by line/column/file and final
-ordering by count/file/line/column. The
-N# candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
+ordering by count/file/line/column. Diagnostic deduplication parity checks compact ids and sorted
+file ranks against the production `(code,file,line,column,message)` grouping semantics, including
+first-diagnostic preservation and file/line/column ordering. The
+text-scanning candidates use ASCII fast paths and fall back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
 
@@ -444,6 +454,13 @@ representative diagnostic corpus (781.7 ns vs 4.331 us) and about 5.36x faster o
 generated diagnostic corpus (6.246 us vs 33.497 us). This is acceptance-grade benchmark evidence for
 the diagnostic/check/lint severity-summary pass.
 
+`DiagnosticDeduplicateCompactInto` passed parity and reported zero managed allocation in the same
+normal BenchmarkDotNet evidence tier for check/build diagnostic deduplication. It ran about 13.38x
+faster on the representative diagnostic corpus (7.877 us vs 105.425 us, 0 B vs 63,656 B) and about
+12.63x faster on the large generated diagnostic corpus (86.654 us vs 1,094.624 us, 0 B vs
+500,952 B). This is acceptance-grade benchmark evidence for the compact integer diagnostic
+deduplication kernel after the host has assigned default-comparer file sort ranks.
+
 `DiagnosticClusterCompactGroupsInto` passed parity and reported zero managed allocation in the same
 normal BenchmarkDotNet evidence tier for the clustered diagnostic grouping kernel. It ran about 6.76x
 faster on the representative diagnostic cluster corpus (16.570 us vs 111.999 us, 0 B vs 141,136 B)
@@ -489,19 +506,23 @@ path kept as the fallback.
 Diagnostic, clustered diagnostic, check, and lint JSON envelopes now use the compiled N# severity
 summary pass when the dogfood assembly is available, with the previous C# LINQ counts kept as the
 fallback.
+`nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
+ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
+deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
+shape as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
 declaration-name match, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
-severity summaries and compact diagnostic cluster grouping,
+severity summaries, compact diagnostic cluster grouping, and diagnostic deduplication,
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
 completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
 declaration-name guard, variable declaration name extraction, diagnostic severity summary, and
-diagnostic cluster grouping
+diagnostic cluster grouping, and check/build diagnostic deduplication
 slices, plus LSP editor word/span lookup for hover, definition, references, and rename entry points.
 Broader query, hover, definition, diagnostic, completion candidate construction, binding, and CLI
 command logic still contains C# implementation code and remains in scope for the dogfood rewrite.

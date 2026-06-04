@@ -598,6 +598,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.IdentifierSpans.nl";
     private const string DiagnosticClustersResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticClusters.nl";
+    private const string DiagnosticDeduplicationResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticDeduplication.nl";
     private const string CompletionReceiversResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionReceivers.nl";
 
@@ -606,6 +608,7 @@ internal static class DogfoodCompilerSources
     public static string CodeIntelligenceIdentifierSpans =>
         ReadResource(IdentifierSpansResourceName) + Environment.NewLine + SourceTextLines;
     public static string CodeIntelligenceDiagnosticClusters => ReadResource(DiagnosticClustersResourceName);
+    public static string CodeIntelligenceDiagnosticDeduplication => ReadResource(DiagnosticDeduplicationResourceName);
     public static string CodeIntelligenceCompletionReceivers => ReadResource(CompletionReceiversResourceName);
 
     private static string ReadResource(string resourceName)

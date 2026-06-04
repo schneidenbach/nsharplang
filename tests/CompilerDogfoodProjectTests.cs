@@ -240,6 +240,55 @@ func documented(): int {
         Assert.Equal(new[] { 1, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("RootIndices")?.GetValue(grouping)).Take(2));
         Assert.Equal(new[] { 2, 1 }, Assert.IsType<int[]>(groupingType.GetProperty("Counts")?.GetValue(grouping)).Take(2));
 
+        var tryDeduplicateDiagnostics = adapterType.GetMethod(
+                "TryDeduplicateDiagnostics",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateDiagnostics.");
+        var deduplicationDiagnostics = new List<DiagnosticResult>
+        {
+            BuildDiagnosticWithSeverity("error", 10) with
+            {
+                Code = "NL102",
+                File = "B.nl",
+                Column = 5,
+                Message = "Expected token '}'",
+                SourceSnippet = "first duplicate wins"
+            },
+            BuildDiagnosticWithSeverity("error", 2) with
+            {
+                Code = "NL301",
+                File = "A.nl",
+                Column = 3,
+                Message = "Undefined variable 'value'"
+            },
+            BuildDiagnosticWithSeverity("error", 10) with
+            {
+                Code = "NL102",
+                File = "B.nl",
+                Column = 5,
+                Message = "Expected token '}'",
+                SourceSnippet = "duplicate should be ignored"
+            },
+            BuildDiagnosticWithSeverity("warning", 2) with
+            {
+                Code = "NL201",
+                File = "A.nl",
+                Column = 1,
+                Message = "Type is inferred"
+            },
+            BuildDiagnosticWithSeverity("error", 2) with
+            {
+                Code = "NL301",
+                File = "A.nl",
+                Column = 3,
+                Message = "Undefined variable 'value'"
+            }
+        };
+        var deduplicationArgs = new object?[] { deduplicationDiagnostics, null, null };
+        Assert.True((bool)(tryDeduplicateDiagnostics.Invoke(null, deduplicationArgs) ?? false));
+        Assert.Equal(3, Assert.IsType<int>(deduplicationArgs[2]));
+        Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(deduplicationArgs[1]).Take(3));
+
         var trySummarizeDiagnosticSeverities = adapterType.GetMethod(
                 "TrySummarizeDiagnosticSeverities",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -481,6 +530,14 @@ func documented(): int {
                     "DiagnosticClusterCompactGroupChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterCompactGroupChecksumInto.");
+            var diagnosticDeduplicateCompactInto = programType.GetMethod(
+                    "DiagnosticDeduplicateCompactInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDeduplicateCompactInto.");
+            var diagnosticDeduplicateCompactChecksumInto = programType.GetMethod(
+                    "DiagnosticDeduplicateCompactChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDeduplicateCompactChecksumInto.");
 
             const string source = """"
 import System
@@ -738,6 +795,9 @@ func main() {
             AssertDiagnosticClusterGroupsLikeProduction(
                 diagnosticClusterCompactGroupsInto,
                 diagnosticClusterCompactGroupChecksumInto);
+            AssertDiagnosticDeduplicationLikeProduction(
+                diagnosticDeduplicateCompactInto,
+                diagnosticDeduplicateCompactChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2643,6 +2703,126 @@ func main() {
         return (
             groups.Select(static group => group.RootIndex).ToArray(),
             groups.Select(static group => group.Count).ToArray());
+    }
+
+    private static void AssertDiagnosticDeduplicationLikeProduction(
+        MethodInfo diagnosticDeduplicateCompactInto,
+        MethodInfo diagnosticDeduplicateCompactChecksumInto)
+    {
+        var codes = new[] { "NL102", "NL301", "NL102", "NL201", "NL301", "NL302" };
+        var files = new[] { "B.nl", "A.nl", "B.nl", "A.nl", "A.nl", "A.nl" };
+        var lines = new[] { 10, 2, 10, 2, 2, 2 };
+        var columns = new[] { 5, 3, 5, 1, 3, 3 };
+        var messages = new[]
+        {
+            "Expected token '}'",
+            "Undefined variable 'value'",
+            "Expected token '}'",
+            "Type is inferred",
+            "Undefined variable 'value'",
+            "Different diagnostic at same location"
+        };
+        var codeIds = CreateOrdinalIds(codes);
+        var fileRanks = CreateSortedFileRanks(files);
+        var messageIds = CreateOrdinalIds(messages);
+        var expected = CreateExpectedDiagnosticDeduplication(codes, files, lines, columns, messages);
+
+        var checksumSlotIndices = new int[codes.Length * 2 + 1];
+        var checksumResultIndices = new int[codes.Length];
+        var actualChecksum = (int)(diagnosticDeduplicateCompactChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                fileRanks,
+                lines,
+                columns,
+                messageIds,
+                checksumSlotIndices,
+                checksumResultIndices
+            }) ?? -1);
+
+        var expectedChecksum = expected.Length;
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var index = expected[i];
+            expectedChecksum += (index + 1) * 31 + lines[index] * 17 + columns[index] * 13;
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length));
+
+        var slotIndices = new int[codes.Length * 2 + 1];
+        var resultIndices = new int[codes.Length];
+        var actualCount = (int)(diagnosticDeduplicateCompactInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                fileRanks,
+                lines,
+                columns,
+                messageIds,
+                slotIndices,
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount));
+    }
+
+    private static int[] CreateExpectedDiagnosticDeduplication(
+        string[] codes,
+        string[] files,
+        int[] lines,
+        int[] columns,
+        string[] messages)
+    {
+        return Enumerable.Range(0, codes.Length)
+            .GroupBy(i => (codes[i], files[i], lines[i], columns[i], messages[i]))
+            .Select(group => group.First())
+            .OrderBy(i => files[i])
+            .ThenBy(i => lines[i])
+            .ThenBy(i => columns[i])
+            .ToArray();
+    }
+
+    private static int[] CreateOrdinalIds(string[] values)
+    {
+        var idsByValue = new Dictionary<string, int>(StringComparer.Ordinal);
+        var ids = new int[values.Length];
+        for (var i = 0; i < values.Length; i++)
+        {
+            if (!idsByValue.TryGetValue(values[i], out var id))
+            {
+                id = idsByValue.Count + 1;
+                idsByValue.Add(values[i], id);
+            }
+
+            ids[i] = id;
+        }
+
+        return ids;
+    }
+
+    private static int[] CreateSortedFileRanks(string[] files)
+    {
+        var uniqueFiles = files.Distinct(StringComparer.Ordinal).ToArray();
+        Array.Sort(uniqueFiles, Comparer<string>.Default);
+
+        var ranksByFile = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < uniqueFiles.Length; i++)
+        {
+            ranksByFile.Add(uniqueFiles[i], i + 1);
+        }
+
+        var ranks = new int[files.Length];
+        for (var i = 0; i < files.Length; i++)
+        {
+            ranks[i] = ranksByFile[files[i]];
+        }
+
+        return ranks;
     }
 
     private static List<DiagnosticResult> BuildDiagnosticSeveritySummaryDiagnostics()

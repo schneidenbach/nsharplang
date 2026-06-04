@@ -78,6 +78,32 @@ public class DiagnosticClusteringTests
         Assert.True(text.IndexOf("Diagnostic clusters", StringComparison.Ordinal) < text.IndexOf("── [NL102] ERROR", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void DeduplicateAndSortDiagnostics_PreservesFirstDuplicateAndOrdersByLocation()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            MissingSemicolon("src/B.nl", 10, "first duplicate wins"),
+            UndefinedBuilder("src/A.nl", 2) with { Column = 3 },
+            MissingSemicolon("src/B.nl", 10, "duplicate should be ignored"),
+            MissingSemicolon("src/A.nl", 2, "same file earlier column") with
+            {
+                Code = "NL201",
+                Column = 1,
+                Message = "Type is inferred"
+            },
+            UndefinedBuilder("src/A.nl", 2) with { Column = 3 }
+        };
+
+        var deduplicated = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
+
+        Assert.Equal(3, deduplicated.Count);
+        Assert.Equal("NL201", deduplicated[0].Code);
+        Assert.Equal("NL301", deduplicated[1].Code);
+        Assert.Equal("NL102", deduplicated[2].Code);
+        Assert.Equal("first duplicate wins", deduplicated[2].SourceSnippet);
+    }
+
     private static DiagnosticResult MissingSemicolon(string file, int line, string snippet) => new(
         Code: "NL102",
         Severity: "error",

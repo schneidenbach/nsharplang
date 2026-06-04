@@ -19,6 +19,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
     [ThreadStatic]
     private static DiagnosticClusterGroupingScratch? t_diagnosticClusterGroupingScratch;
+    [ThreadStatic]
+    private static DiagnosticDeduplicationScratch? t_diagnosticDeduplicationScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -475,6 +477,76 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryDeduplicateDiagnostics(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        out int[] resultIndices,
+        out int count)
+    {
+        resultIndices = Array.Empty<int>();
+        count = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var diagnosticCount = diagnostics.Count;
+        if (diagnosticCount == 0)
+            return true;
+
+        var scratch = t_diagnosticDeduplicationScratch ??= new DiagnosticDeduplicationScratch();
+        scratch.EnsureCapacity(diagnosticCount);
+
+        try
+        {
+            scratch.ResetIds();
+            for (var i = 0; i < diagnosticCount; i++)
+            {
+                var diagnostic = diagnostics[i];
+                scratch.CodeIds[i] = scratch.GetCodeId(diagnostic.Code);
+                scratch.LineNumbers[i] = diagnostic.Line;
+                scratch.Columns[i] = diagnostic.Column;
+                scratch.MessageIds[i] = scratch.GetMessageId(diagnostic.Message);
+                scratch.Files[i] = diagnostic.File;
+                scratch.AddFile(diagnostic.File);
+            }
+
+            scratch.BuildFileRanks();
+            for (var i = 0; i < diagnosticCount; i++)
+            {
+                scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
+            }
+
+            count = bindings.DiagnosticDeduplicateCompact(
+                scratch.CodeIds,
+                scratch.FileRanks,
+                scratch.LineNumbers,
+                scratch.Columns,
+                scratch.MessageIds,
+                scratch.SlotIndices,
+                scratch.ResultIndices);
+
+            if (count < 0 || count > diagnosticCount)
+            {
+                count = 0;
+                return false;
+            }
+
+            resultIndices = scratch.ResultIndices;
+            return true;
+        }
+        catch
+        {
+            resultIndices = Array.Empty<int>();
+            count = 0;
+            return false;
+        }
+        finally
+        {
+            scratch.ClearFiles(diagnosticCount);
+            scratch.ResetIds();
+        }
+    }
+
     internal static bool TryClassifyCompletionReceiver(
         string beforeCursor,
         out bool isMemberAccess,
@@ -558,7 +630,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceCompletionReceiversInto>(programType, "CodeIntelligenceCompletionReceiversInto"),
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
-                CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"));
+                CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
+                CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateCompactInto"));
         }
         catch
         {
@@ -730,6 +803,15 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultRootIndices,
         int[] resultCounts);
 
+    private delegate int DiagnosticDeduplicateCompactInto(
+        int[] codeIds,
+        int[] fileRanks,
+        int[] lineNumbers,
+        int[] columns,
+        int[] messageIds,
+        int[] slotIndices,
+        int[] resultIndices);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
@@ -746,7 +828,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
-        DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups);
+        DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
+        DiagnosticDeduplicateCompactInto DiagnosticDeduplicateCompact);
 
     internal sealed class DiagnosticClusterGrouping
     {
@@ -882,6 +965,94 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             _codeIds.Clear();
             _severityIds.Clear();
             _messagePatternIds.Clear();
+        }
+
+        private static int GetId(Dictionary<string, int> ids, string text)
+        {
+            if (ids.TryGetValue(text, out var id))
+                return id;
+
+            id = ids.Count + 1;
+            ids.Add(text, id);
+            return id;
+        }
+    }
+
+    private sealed class DiagnosticDeduplicationScratch
+    {
+        private readonly Dictionary<string, int> _codeIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _messageIds = new(StringComparer.Ordinal);
+
+        public int[] CodeIds = Array.Empty<int>();
+        public int[] Columns = Array.Empty<int>();
+        public int[] FileRanks = Array.Empty<int>();
+        public string[] Files = Array.Empty<string>();
+        public int[] LineNumbers = Array.Empty<int>();
+        public int[] MessageIds = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SlotIndices = Array.Empty<int>();
+        public string[] UniqueFiles = Array.Empty<string>();
+        public int UniqueFileCount;
+
+        public void EnsureCapacity(int count)
+        {
+            if (CodeIds.Length != count)
+            {
+                CodeIds = new int[count];
+                FileRanks = new int[count];
+                LineNumbers = new int[count];
+                Columns = new int[count];
+                MessageIds = new int[count];
+                Files = new string[count];
+                ResultIndices = new int[count];
+                UniqueFiles = new string[count];
+            }
+
+            var slotCapacity = count * 2 + 1;
+            if (SlotIndices.Length != slotCapacity)
+            {
+                SlotIndices = new int[slotCapacity];
+            }
+        }
+
+        public int GetCodeId(string text) => GetId(_codeIds, text);
+
+        public int GetMessageId(string text) => GetId(_messageIds, text);
+
+        public void AddFile(string text)
+        {
+            if (_fileRanks.ContainsKey(text))
+                return;
+
+            _fileRanks.Add(text, 0);
+            UniqueFiles[UniqueFileCount] = text;
+            UniqueFileCount++;
+        }
+
+        public void BuildFileRanks()
+        {
+            Array.Sort(UniqueFiles, 0, UniqueFileCount, Comparer<string>.Default);
+            for (var i = 0; i < UniqueFileCount; i++)
+            {
+                _fileRanks[UniqueFiles[i]] = i + 1;
+            }
+        }
+
+        public int GetFileRank(string text) => _fileRanks[text];
+
+        public void ClearFiles(int count) => Array.Clear(Files, 0, count);
+
+        public void ResetIds()
+        {
+            _codeIds.Clear();
+            _fileRanks.Clear();
+            _messageIds.Clear();
+            if (UniqueFileCount > 0)
+            {
+                Array.Clear(UniqueFiles, 0, UniqueFileCount);
+                UniqueFileCount = 0;
+            }
         }
 
         private static int GetId(Dictionary<string, int> ids, string text)

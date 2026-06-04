@@ -133,6 +133,41 @@ public static class OutputFormatter
             Info: results.Count(d => d.Severity == "info"));
     }
 
+    public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateDiagnostics(
+            diagnostics,
+            out var resultIndices,
+            out var resultCount))
+        {
+            var results = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                    return DeduplicateAndSortDiagnosticsWithLinq(diagnostics);
+
+                results.Add(diagnostics[diagnosticIndex]);
+            }
+
+            return results;
+        }
+
+        return DeduplicateAndSortDiagnosticsWithLinq(diagnostics);
+    }
+
+    private static List<DiagnosticResult> DeduplicateAndSortDiagnosticsWithLinq(
+        IReadOnlyList<DiagnosticResult> diagnostics)
+    {
+        return diagnostics
+            .GroupBy(diagnostic => (diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message))
+            .Select(group => group.First())
+            .OrderBy(diagnostic => diagnostic.File)
+            .ThenBy(diagnostic => diagnostic.Line)
+            .ThenBy(diagnostic => diagnostic.Column)
+            .ToList();
+    }
+
     // ── JSON Output ────────────────────────────────────────────────────
 
     public static string SymbolsToJson(List<SymbolResult> results, string? projectRoot = null)
