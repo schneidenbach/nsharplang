@@ -775,6 +775,10 @@ func documented(): int {
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPositionalArgIndicesInto.");
+            var cliFirstPositionalArgIndex = programType.GetMethod(
+                    "CliFirstPositionalArgIndex",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFirstPositionalArgIndex.");
             var cliPositionalArgChecksumInto = programType.GetMethod(
                     "CliPositionalArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1232,6 +1236,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliQueryPositionChecksumInto);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
+                cliFirstPositionalArgIndex,
                 cliPositionalArgChecksumInto);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
@@ -2822,6 +2827,7 @@ func main() {
 
     private static void AssertCliPositionalArgsLikeProduction(
         MethodInfo cliPositionalArgIndicesInto,
+        MethodInfo cliFirstPositionalArgIndex,
         MethodInfo cliPositionalArgChecksumInto)
     {
         var args = new[]
@@ -2875,6 +2881,26 @@ func main() {
 
         Assert.Equal(expected.Length, actualCount);
         Assert.Equal(expected, resultIndices.Take(actualCount));
+
+        var firstArgCases = new[]
+        {
+            args,
+            new[] { "--project", "samples/demo", "--check", "src/App.nl" },
+            new[] { "--project" },
+            new[] { "--unknown", "value-after-unknown" },
+            new[] { "--stdin", string.Empty, "Program.nl" },
+            Array.Empty<string>()
+        };
+
+        foreach (var firstArgCase in firstArgCases)
+        {
+            var expectedFirst = CreateExpectedFirstCliPositionalArgIndex(firstArgCase, optionsWithValues);
+            var actualFirst = (int)(cliFirstPositionalArgIndex.Invoke(
+                null,
+                new object[] { firstArgCase, optionsWithValues }) ?? -2);
+
+            Assert.Equal(expectedFirst, actualFirst);
+        }
     }
 
     private static int[] CreateExpectedCliPositionalArgIndices(
@@ -2900,6 +2926,30 @@ func main() {
         }
 
         return positional.ToArray();
+    }
+
+    private static int CreateExpectedFirstCliPositionalArgIndex(
+        string[] args,
+        string[] optionsWithValues)
+    {
+        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (options.Contains(args[i]))
+            {
+                i++;
+                continue;
+            }
+
+            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+                continue;
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return i;
+        }
+
+        return -1;
     }
 
     private static void AssertCliDocSymbolOrderingLikeProduction(

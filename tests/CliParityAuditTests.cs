@@ -595,6 +595,34 @@ func Main() {
     }
 
     [Fact]
+    public void NewCommand_AcceptsProjectNameAfterTemplateOption()
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var projectName = "DemoOptionFirst";
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "--template", "library", projectName));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var projectDir = Path.Combine(parentDir, projectName);
+            AssertCanonicalProjectShape(projectDir, projectName, hasProgram: false, hasTests: false, hasWebController: false);
+            Assert.Contains("library", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
     public void NewCommand_Help_StatesCsprojFreePolicyAndTemplates()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() => ExecuteProgram("new", "--help"));

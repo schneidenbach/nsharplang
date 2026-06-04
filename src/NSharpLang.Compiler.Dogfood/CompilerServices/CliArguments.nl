@@ -30,6 +30,30 @@ func CliPositionalArgIndicesInto(
     return resultCount
 }
 
+func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): int {
+    i := 0
+    while i < args.Length {
+        arg := args[i]
+        if CliArgumentIsOptionWithValue(arg, optionsWithValues) {
+            i = i + 2
+            continue
+        }
+
+        if CliArgumentIsValueLessFlag(arg) {
+            i = i + 1
+            continue
+        }
+
+        if arg.Length == 0 || arg[0] != '-' {
+            return i
+        }
+
+        i = i + 1
+    }
+
+    return -1
+}
+
 func CliPositionalArgChecksumInto(
     args: string[],
     optionsWithValues: string[],

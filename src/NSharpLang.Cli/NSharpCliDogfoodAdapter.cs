@@ -21,6 +21,36 @@ internal static class NSharpCliDogfoodAdapter
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
+    internal static bool TryGetFirstPositionalArg(
+        string[] args,
+        string[] optionsWithValues,
+        out string? positional)
+    {
+        positional = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var index = bindings.CliFirstPositionalArgIndex(args, optionsWithValues);
+            if (index == -1)
+                return true;
+
+            if (index < 0 || index >= args.Length)
+                return false;
+
+            positional = args[index];
+            return true;
+        }
+        catch
+        {
+            positional = null;
+            return false;
+        }
+    }
+
     internal static bool TryFindDuplicateBatchRequestIds(
         IReadOnlyList<BatchQueryRequest> requests,
         out string[] duplicateIds)
@@ -249,6 +279,7 @@ internal static class NSharpCliDogfoodAdapter
                 return null;
 
             return new Bindings(
+                CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"));
@@ -285,6 +316,10 @@ internal static class NSharpCliDogfoodAdapter
         return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
+    private delegate int CliFirstPositionalArgIndex(
+        string[] args,
+        string[] optionsWithValues);
+
     private delegate int CliBatchDuplicateIdRanksInto(
         int[] idRanks,
         int uniqueIdCount,
@@ -314,6 +349,7 @@ internal static class NSharpCliDogfoodAdapter
         int[] resultIndices);
 
     private sealed record Bindings(
+        CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices);

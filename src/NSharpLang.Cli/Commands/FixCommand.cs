@@ -328,6 +328,9 @@ Examples:
 
     private static string? GetFirstPositionalArg(string[] args, params string[] optionsWithValues)
     {
+        if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional))
+            return positional;
+
         for (int i = 0; i < args.Length; i++)
         {
             if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))

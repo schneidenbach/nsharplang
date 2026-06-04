@@ -11,6 +11,8 @@ namespace NSharpLang.Cli;
 
 partial class Program
 {
+    private static readonly string[] NewProjectOptionsWithValues = ["--template", "--type"];
+
     static int Main(string[] args)
         => Execute(args);
 
@@ -633,13 +635,12 @@ Exit codes:
             return 0;
         }
 
-        var positional = GetPositionalArgs(args, "--template", "--type");
-        if (positional.Length == 0)
+        var projectName = GetFirstPositionalArg(args, NewProjectOptionsWithValues);
+        if (projectName == null)
         {
             return Error("Usage: nlc new <project-name> [--template <template>]");
         }
 
-        var projectName = positional[0];
         var template = NormalizeProjectTemplate(GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type") ?? "console");
         if (template == null)
         {
@@ -1291,6 +1292,35 @@ Exit codes:
         }
 
         return positional.ToArray();
+    }
+
+    static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
+    {
+        return NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional)
+            ? positional
+            : GetFirstPositionalArgWithCSharp(args, optionsWithValues);
+    }
+
+    static string? GetFirstPositionalArgWithCSharp(string[] args, string[] optionsWithValues)
+    {
+        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (options.Contains(args[i]))
+            {
+                i++;
+                continue;
+            }
+
+            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+                continue;
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        }
+
+        return null;
     }
 
     static int? ParseDurationToMs(string duration)

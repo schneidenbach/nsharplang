@@ -519,9 +519,10 @@ checks case-insensitive file ranks against the production clustered-diagnostic
 `Distinct`/`OrderBy(StringComparer.OrdinalIgnoreCase)` contract. Path-matching parity checks
 slash-normalized case-insensitive exact matches, suffix matches, segment-boundary false positives,
 empty queries, and Unicode paths against the current helper, but remains pressure-only because it
-misses the speed gate. CLI positional-argument parity checks the current shared helper's
-option-with-value skipping, value-less flag skipping, unknown flag handling, empty-argument
-inclusion, and positional order contract. Binding candidate-column parity checks the current
+misses the speed gate. CLI positional-argument parity checks the current shared all-positionals
+helper's option-with-value skipping, value-less flag skipping, unknown flag handling, empty-argument
+inclusion, and positional order contract, plus the first-index variant's early-return and no-match
+contracts. Binding candidate-column parity checks the current
 `HashSet<int>` plus stable distance-order contract for cursor columns, adjacent columns, invalid
 columns, and identifier span ranges. Binding lookup parity checks compact
 declaration and binding tables against production
@@ -828,6 +829,12 @@ Current CLI dogfood benchmarks:
   candidate runs after the host has assigned compact `StringComparer.OrdinalIgnoreCase` severity
   ranks, scans an unrolled rank array, and writes matching diagnostic indices through
   `DiagnosticSeverityFilterIndicesInto`.
+- `CliFirstPositionalArgumentBenchmarks` targets CLI commands that only need the first positional
+  operand, such as project-name/project-root discovery. The C# baseline mirrors the previous shared
+  helper shape: build every positional string, materialize the result array, then read index zero.
+  The accepted N# candidate returns the first positional source index through
+  `CliFirstPositionalArgIndex`, letting the host read only that string and skip the rest of the
+  positional materialization.
 - `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
   The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
   `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
@@ -864,11 +871,21 @@ the 5x gate.
 
 `CliPositionalArgIndicesInto` passed parity but missed the normal BenchmarkDotNet speed gate for
 shared CLI positional-argument filtering. The production-shaped benchmark, including final string
-array materialization, measured about 1.06x slower on the representative argument corpus (5.790 us
-vs 5.437 us) and about 1.08x slower on the large generated argument corpus (46.129 us vs
-42.595 us), while reducing managed allocation to about 26%-27% of the C# helper shape. This is
+array materialization, measured about 1.06x slower on the representative argument corpus (5.778 us
+vs 5.461 us) and about 1.06x slower on the large generated argument corpus (46.031 us vs
+43.272 us), while reducing managed allocation to about 26%-27% of the C# helper shape. This is
 measured CLI command-parser pressure, not acceptance evidence, and production CLI argument parsing
-must keep the current C# helper until N# string comparison/helper-call overhead clears the 5x gate.
+for commands that need every positional operand must keep the current C# helper until N# string
+comparison/helper-call overhead clears the 5x gate.
+
+`CliFirstPositionalArgIndex` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for first positional-operand discovery. The accepted N# path returns
+as soon as it finds the first operand instead of using the previous shared helper shape that scanned
+and materialized every positional argument. It ran about 184x faster on the representative argument
+corpus (48.34 ns vs 8.872 us, 0 B vs 22,296 B) and about 1,676x faster on the large generated
+argument corpus (48.22 ns vs 80.838 us, 0 B vs 175,280 B). This is acceptance-grade benchmark
+evidence for `nlc new`, `nlc check`, and `nlc fix` first positional project/operand discovery when
+those commands do not need the full positional list.
 
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path
@@ -945,6 +962,9 @@ dogfood assembly is available, with the previous C# LINQ counts kept as the fall
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
 severity filter when the dogfood assembly is available, with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
+`nlc new`, `nlc check`, and `nlc fix` now route first positional project/operand discovery through
+`NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which calls the compiled N# first-index scanner
+when the dogfood assembly is available, with the previous C# positional scan kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -1017,11 +1037,13 @@ cluster file-list ordering, diagnostic deduplication, reference result deduplica
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering, CLI tree dependency deduplication, diagnostic severity filtering, text-edit ordering,
-inspect-summary reference-file summaries, and the pressure-only path-matching and
-CLI positional-argument kernels through the compiled N# methods; `CliCommandTests` verifies both
+ordering, CLI tree dependency deduplication, diagnostic severity filtering, CLI first positional-argument
+discovery, text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
+path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc doc` symbol/member
 ordering, `nlc tree` dependency deduplication, and `nlc query diagnostics --severity` filtering;
+`CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
+option through the first-positional route;
 `CodeFixTests` verifies the production fix-applicator ordering route.
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -1041,13 +1063,13 @@ member-access completion plus reflected method overload grouping and grouped mem
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
 ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
-batch diagnostics, and daemon diagnostics, plus inspect-summary reference-file ordering in
-`nlc query inspect`.
+batch diagnostics, and daemon diagnostics, plus first positional project/operand discovery in
+`nlc new`, `nlc check`, and `nlc fix`, plus inspect-summary reference-file ordering in `nlc query inspect`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
-Path matching and CLI positional-argument filtering have parity and benchmark evidence but are not
-routed through production code-intelligence, query, batch, or daemon paths because they currently
-miss the 5x speed gate.
+Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are
+not routed through production code-intelligence, query, batch, or daemon paths because they
+currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, and CLI command logic still
 contain C# implementation code and remain in scope for the dogfood rewrite.

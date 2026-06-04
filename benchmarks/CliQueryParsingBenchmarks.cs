@@ -353,6 +353,152 @@ public class CliPositionalArgumentFilteringBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for CLI commands that only need the first positional operand. The C#
+/// baseline mirrors the previous shared helper shape: build every positional string, materialize
+/// the array, then read index zero. The N# candidate returns the first positional source index and
+/// lets the host read only that string.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliFirstPositionalArgumentBenchmarks
+{
+    private const int LargeArgumentCount = 8192;
+    private const int RepresentativeArgumentCount = 1024;
+
+    private static readonly string[] OptionsWithValues =
+    [
+        "--project",
+        "--output",
+        "-o",
+        "--backend",
+        "--template",
+        "--type",
+        "--file"
+    ];
+
+    private Func<string[], string[], int> _nsharpCliFirstPositionalArgIndex =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _args = Array.Empty<string>();
+    private string? _csharpFirst;
+    private string? _nsharpFirst;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var argumentCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeArgumentCount
+            : LargeArgumentCount;
+        _nsharpCliFirstPositionalArgIndex =
+            NSharpCompiledMethod.Bind<Func<string[], string[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliFirstPositionalArgIndex");
+
+        _args = BuildFirstPositionalArguments(argumentCount);
+
+        var expectedChecksum = CSharpCliFirstPositionalArg_CurrentSharedHelper();
+        var actualChecksum = NSharpCliFirstPositionalArg_FirstIndex();
+        if (expectedChecksum != actualChecksum || _csharpFirst != _nsharpFirst)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI first positional argument mismatch for {Corpus}: " +
+                $"expected {FormatArg(_csharpFirst)}, got {FormatArg(_nsharpFirst)}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCliFirstPositionalArg_CurrentSharedHelper()
+    {
+        var positional = new List<string>();
+        var options = new HashSet<string>(OptionsWithValues, StringComparer.Ordinal);
+
+        for (var i = 0; i < _args.Length; i++)
+        {
+            if (options.Contains(_args[i]))
+            {
+                i++;
+                continue;
+            }
+
+            if (_args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+                continue;
+
+            if (!_args[i].StartsWith("-", StringComparison.Ordinal))
+                positional.Add(_args[i]);
+        }
+
+        var result = positional.ToArray();
+        _csharpFirst = result.Length == 0 ? null : result[0];
+        return ChecksumFirst(_csharpFirst);
+    }
+
+    [Benchmark]
+    public int NSharpCliFirstPositionalArg_FirstIndex()
+    {
+        var index = _nsharpCliFirstPositionalArgIndex(_args, OptionsWithValues);
+        if (index < -1 || index >= _args.Length)
+            throw new InvalidOperationException($"N# CLI first positional argument index out of range: {index}.");
+
+        _nsharpFirst = index < 0 ? null : _args[index];
+        return ChecksumFirst(_nsharpFirst);
+    }
+
+    private static string[] BuildFirstPositionalArguments(int count)
+    {
+        var args = new string[count];
+        var prefix = new[]
+        {
+            "--project",
+            "samples/demo",
+            "--check",
+            "--unknown",
+            "--output",
+            "dist",
+            "--verbose",
+            "--backend",
+            "il",
+            "--stdin",
+            "target/project"
+        };
+
+        for (var i = 0; i < count; i++)
+        {
+            if (i < prefix.Length)
+            {
+                args[i] = prefix[i];
+                continue;
+            }
+
+            args[i] = i % 3 == 0
+                ? $"generated/File{i}.nl"
+                : i % 3 == 1
+                    ? "--verbose"
+                    : $"operand-{i}";
+        }
+
+        return args;
+    }
+
+    private static int ChecksumFirst(string? first)
+    {
+        var checksum = first == null ? 0 : 1;
+        if (first == null)
+            return checksum;
+
+        checksum += first.Length * 31;
+        if (first.Length > 0)
+            checksum += first[0] * 17 + first[^1] * 13;
+
+        return checksum;
+    }
+
+    private static string FormatArg(string? arg) => arg == null ? "<none>" : $"\"{arg}\"";
+}
+
+/// <summary>
 /// Dogfood benchmark for duplicate request-id validation in <c>nlc query batch</c>.
 /// </summary>
 [MemoryDiagnoser]
