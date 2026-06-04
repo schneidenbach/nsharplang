@@ -414,6 +414,14 @@ func documented(): int {
                     "DiagnosticClusterTraitsAndPatternsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterTraitsAndPatternsInto.");
+            var diagnosticClusterIdsInto = programType.GetMethod(
+                    "DiagnosticClusterIdsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterIdsInto.");
+            var diagnosticClusterIdChecksumInto = programType.GetMethod(
+                    "DiagnosticClusterIdChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterIdChecksumInto.");
 
             const string source = """"
 import System
@@ -662,6 +670,9 @@ func main() {
                 diagnosticClusterTraitChecksumInto,
                 diagnosticClusterTraitPatternChecksumInto,
                 diagnosticClusterTraitsAndPatternsInto);
+            AssertDiagnosticClusterIdsLikeProduction(
+                diagnosticClusterIdsInto,
+                diagnosticClusterIdChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2219,6 +2230,109 @@ func main() {
                 null,
                 null)
         };
+    }
+
+    private static void AssertDiagnosticClusterIdsLikeProduction(
+        MethodInfo diagnosticClusterIdsInto,
+        MethodInfo diagnosticClusterIdChecksumInto)
+    {
+        var codes = new[] { "NL102", "NL703", "NL301", "NL202" };
+        var severities = new[] { "error", "error", "warning", "error" };
+        var categories = new[]
+        {
+            "syntax-missing-delimiter",
+            "import-cycle",
+            "identifier-resolution",
+            "type-mismatch"
+        };
+        var sourceConstructs = new[]
+        {
+            "function-declaration",
+            "import",
+            "variable-declaration",
+            "return-statement"
+        };
+        var recipes = new[]
+        {
+            "syntax:delimiter-balancing",
+            "architecture:extract-shared-module-or-invert-dependency",
+            "symbols:missing-import-or-qualification",
+            "refactor:signature-or-expression-shape"
+        };
+        var messagePatterns = new[]
+        {
+            "Expected token {value} at line #",
+            "Circular import detected",
+            "Undefined variable {value}",
+            "Type mismatch: expected Int##"
+        };
+        var expectedIds = Enumerable.Range(0, codes.Length)
+            .Select(i => CreateExpectedDiagnosticClusterId(
+                codes[i],
+                severities[i],
+                categories[i],
+                sourceConstructs[i],
+                recipes[i],
+                messagePatterns[i]))
+            .ToArray();
+
+        var checksumIds = new string[codes.Length];
+        var actualChecksum = (int)(diagnosticClusterIdChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                codes,
+                severities,
+                categories,
+                sourceConstructs,
+                recipes,
+                messagePatterns,
+                checksumIds
+            }) ?? -1);
+
+        var expectedChecksum = codes.Length;
+        foreach (var id in expectedIds)
+        {
+            expectedChecksum += id.Length * 31;
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedIds, checksumIds);
+
+        var actualIds = new string[codes.Length];
+        var actualCount = (int)(diagnosticClusterIdsInto.Invoke(
+            null,
+            new object[]
+            {
+                codes,
+                severities,
+                categories,
+                sourceConstructs,
+                recipes,
+                messagePatterns,
+                actualIds
+            }) ?? -1);
+
+        Assert.Equal(codes.Length, actualCount);
+        Assert.Equal(expectedIds, actualIds);
+    }
+
+    private static string CreateExpectedDiagnosticClusterId(
+        string code,
+        string severity,
+        string category,
+        string sourceConstruct,
+        string recipe,
+        string messagePattern)
+    {
+        var key = $"{code}|{severity}|{category}|{sourceConstruct}|{recipe}|{messagePattern}";
+        var hash = 17;
+        foreach (var c in key)
+        {
+            hash = (hash * 31) + c;
+        }
+
+        return $"diag-{Math.Abs(hash):x}";
     }
 
     private static List<DiagnosticResult> BuildDiagnosticSeveritySummaryDiagnostics()

@@ -164,6 +164,100 @@ func DiagnosticClusterTraitPatternChecksumInto(
     return checksum
 }
 
+func DiagnosticClusterIdsInto(
+    codes: string[],
+    severities: string[],
+    categories: string[],
+    sourceConstructs: string[],
+    recipes: string[],
+    messagePatterns: string[],
+    resultIds: string[]): int {
+    count := MinInt(codes.Length, severities.Length)
+    count = MinInt(count, categories.Length)
+    count = MinInt(count, sourceConstructs.Length)
+    count = MinInt(count, recipes.Length)
+    count = MinInt(count, messagePatterns.Length)
+    count = MinInt(count, resultIds.Length)
+
+    i := 0
+    while i < count {
+        resultIds[i] = CreateDiagnosticClusterId(
+            codes[i],
+            severities[i],
+            categories[i],
+            sourceConstructs[i],
+            recipes[i],
+            messagePatterns[i])
+        i = i + 1
+    }
+
+    return count
+}
+
+func DiagnosticClusterIdChecksumInto(
+    codes: string[],
+    severities: string[],
+    categories: string[],
+    sourceConstructs: string[],
+    recipes: string[],
+    messagePatterns: string[],
+    resultIds: string[]): int {
+    count := DiagnosticClusterIdsInto(
+        codes,
+        severities,
+        categories,
+        sourceConstructs,
+        recipes,
+        messagePatterns,
+        resultIds)
+
+    checksum := count
+    i := 0
+    while i < count {
+        checksum = checksum + resultIds[i].Length * 31
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CreateDiagnosticClusterId(
+    code: string,
+    severity: string,
+    category: string,
+    sourceConstruct: string,
+    recipe: string,
+    messagePattern: string): string {
+    hash := 17
+    hash = HashDiagnosticClusterIdPart(hash, code)
+    hash = HashDiagnosticClusterIdSeparator(hash)
+    hash = HashDiagnosticClusterIdPart(hash, severity)
+    hash = HashDiagnosticClusterIdSeparator(hash)
+    hash = HashDiagnosticClusterIdPart(hash, category)
+    hash = HashDiagnosticClusterIdSeparator(hash)
+    hash = HashDiagnosticClusterIdPart(hash, sourceConstruct)
+    hash = HashDiagnosticClusterIdSeparator(hash)
+    hash = HashDiagnosticClusterIdPart(hash, recipe)
+    hash = HashDiagnosticClusterIdSeparator(hash)
+    hash = HashDiagnosticClusterIdPart(hash, messagePattern)
+
+    return "diag-" + Math.Abs(hash).ToString("x")
+}
+
+func HashDiagnosticClusterIdSeparator(hash: int): int {
+    return hash * 31 + 124
+}
+
+func HashDiagnosticClusterIdPart(hash: int, text: string): int {
+    i := 0
+    while i < text.Length {
+        hash = hash * 31 + (int)text[i]
+        i = i + 1
+    }
+
+    return hash
+}
+
 func ClassifyDiagnosticCategory(code: string, message: string): int {
     if code == "NL102" {
         if ContainsChar(message, ';') || ContainsIgnoreCase(message, "semicolon") {

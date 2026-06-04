@@ -84,6 +84,195 @@ public class CompilerServiceCodeIntelligenceDiagnosticSummaryBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for diagnostic cluster id creation used by clustered diagnostics JSON.
+///
+/// The C# baseline mirrors the current formatter shape: build one composite key string, hash the
+/// key characters, then materialize the public <c>diag-{hex}</c> id. The N# candidate hashes each
+/// stable cluster field directly and writes ids into caller-owned storage, avoiding the temporary
+/// composite key allocation.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDiagnosticClusterIdBenchmarks
+{
+    private const int LargeClusterCount = 8192;
+    private const int RepresentativeClusterCount = 1024;
+
+    private Func<string[], string[], string[], string[], string[], string[], string[], int> _nsharpDiagnosticClusterIdChecksumInto =
+        (_, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _categories = Array.Empty<string>();
+    private string[] _codes = Array.Empty<string>();
+    private int _clusterCount;
+    private string[] _csharpIds = Array.Empty<string>();
+    private string[] _messagePatterns = Array.Empty<string>();
+    private string[] _nsharpIds = Array.Empty<string>();
+    private string[] _recipes = Array.Empty<string>();
+    private string[] _severities = Array.Empty<string>();
+    private string[] _sourceConstructs = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _clusterCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeClusterCount
+            : LargeClusterCount;
+        _nsharpDiagnosticClusterIdChecksumInto =
+            NSharpCompiledMethod.Bind<Func<string[], string[], string[], string[], string[], string[], string[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceDiagnosticClusters,
+                "DiagnosticClusterIdChecksumInto");
+
+        _codes = new string[_clusterCount];
+        _severities = new string[_clusterCount];
+        _categories = new string[_clusterCount];
+        _sourceConstructs = new string[_clusterCount];
+        _recipes = new string[_clusterCount];
+        _messagePatterns = new string[_clusterCount];
+        _csharpIds = new string[_clusterCount];
+        _nsharpIds = new string[_clusterCount];
+
+        BuildClusterFields();
+
+        var expectedChecksum = CSharpDiagnosticClusterIds_QueryBatch();
+        var actualChecksum = NSharpDiagnosticClusterIds_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster id checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpIds.SequenceEqual(_nsharpIds))
+        {
+            var mismatch = FirstMismatch();
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster id mismatch for {Corpus} at cluster {mismatch}: " +
+                $"expected {_csharpIds[mismatch]}, got {_nsharpIds[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpDiagnosticClusterIds_QueryBatch()
+    {
+        var checksum = _clusterCount;
+        for (var i = 0; i < _clusterCount; i++)
+        {
+            var id = CreateClusterId(
+                _codes[i],
+                _severities[i],
+                _categories[i],
+                _sourceConstructs[i],
+                _recipes[i],
+                _messagePatterns[i]);
+            _csharpIds[i] = id;
+            checksum += id.Length * 31;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpDiagnosticClusterIds_QueryBatch() =>
+        _nsharpDiagnosticClusterIdChecksumInto(
+            _codes,
+            _severities,
+            _categories,
+            _sourceConstructs,
+            _recipes,
+            _messagePatterns,
+            _nsharpIds);
+
+    private void BuildClusterFields()
+    {
+        for (var i = 0; i < _clusterCount; i++)
+        {
+            var shape = i % 8;
+            _codes[i] = shape switch
+            {
+                0 => "NL102",
+                1 => "NL102",
+                2 => "NL703",
+                3 => "NL301",
+                4 => "NL201",
+                5 => "NL202",
+                6 => "NL303",
+                _ => "NL900"
+            };
+            _severities[i] = i % 13 == 0 ? "warning" : "error";
+            _categories[i] = shape switch
+            {
+                0 => "syntax-missing-delimiter",
+                1 => "syntax-missing-terminator",
+                2 => "import-cycle",
+                3 => "identifier-resolution",
+                4 => "type-resolution",
+                5 => "type-mismatch",
+                6 => "member-resolution",
+                _ => "diagnostic-message-shape"
+            };
+            _sourceConstructs[i] = shape switch
+            {
+                0 => "function-declaration",
+                1 => "variable-declaration",
+                2 => "import",
+                3 => "variable-declaration",
+                4 => "class-declaration",
+                5 => "return-statement",
+                6 => "call-or-construction",
+                _ => "unknown-construct"
+            };
+            _recipes[i] = shape switch
+            {
+                0 => "syntax:delimiter-balancing",
+                1 => "syntax:statement-boundary",
+                2 => "architecture:extract-shared-module-or-invert-dependency",
+                3 => "symbols:missing-import-or-qualification",
+                4 => "types:resolve-type-or-import",
+                5 => "refactor:signature-or-expression-shape",
+                6 => "members:api-rename-or-extension-import",
+                _ => "manual-triage:inspect-root-diagnostic"
+            };
+            _messagePatterns[i] =
+                $"Expected diagnostic shape # while processing generated module {i % 97} " +
+                $"and preserving cluster grouping for workspace shard {i % 31}";
+        }
+    }
+
+    private static string CreateClusterId(
+        string code,
+        string severity,
+        string category,
+        string sourceConstruct,
+        string recipe,
+        string messagePattern)
+    {
+        var key = $"{code}|{severity}|{category}|{sourceConstruct}|{recipe}|{messagePattern}";
+        var hash = 17;
+        foreach (var c in key)
+        {
+            hash = (hash * 31) + c;
+        }
+
+        return $"diag-{Math.Abs(hash):x}";
+    }
+
+    private int FirstMismatch()
+    {
+        for (var i = 0; i < _csharpIds.Length; i++)
+        {
+            if (_csharpIds[i] != _nsharpIds[i])
+            {
+                return i;
+            }
+        }
+
+        return _csharpIds.Length;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for diagnostic cluster trait classification used by CLI/query diagnostic
 /// grouping.
 ///
