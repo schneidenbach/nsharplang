@@ -63,6 +63,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CompletionGrouping.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionGrouping.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/PathMatching.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.PathMatching.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliQueryParsing.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliQueryParsing.nl" />
     <EmbeddedResource

@@ -29,6 +29,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static DiagnosticClusterGroupingScratch? t_diagnosticClusterGroupingScratch;
     [ThreadStatic]
+    private static ReferenceFileSummaryScratch? t_diagnosticClusterFileSummaryScratch;
+    [ThreadStatic]
     private static DiagnosticDeduplicationScratch? t_diagnosticDeduplicationScratch;
     [ThreadStatic]
     private static ReferenceFileSummaryScratch? t_referenceFileSummaryScratch;
@@ -921,6 +923,76 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         finally
         {
             scratch.ClearFiles(referenceCount);
+            scratch.ResetFiles();
+        }
+    }
+
+    internal static bool TryBuildDiagnosticClusterFiles(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        out string[] files)
+    {
+        files = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var diagnosticCount = diagnostics.Count;
+        if (diagnosticCount == 0)
+            return true;
+
+        var scratch = t_diagnosticClusterFileSummaryScratch ??=
+            new ReferenceFileSummaryScratch(StringComparer.OrdinalIgnoreCase, StringComparer.OrdinalIgnoreCase);
+        scratch.EnsureCapacity(diagnosticCount);
+
+        try
+        {
+            scratch.ResetFiles();
+            for (var i = 0; i < diagnosticCount; i++)
+            {
+                var file = diagnostics[i].File;
+                scratch.Files[i] = file;
+                scratch.AddFile(file);
+            }
+
+            scratch.BuildFileRanks();
+            for (var i = 0; i < diagnosticCount; i++)
+            {
+                scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
+            }
+
+            var resultCount = bindings.ReferenceFileSummaryRanks(
+                scratch.FileRanks,
+                scratch.UniqueFileCount,
+                scratch.CountsByRank,
+                scratch.ResultRanks);
+
+            if (resultCount < 0 || resultCount > scratch.UniqueFileCount || resultCount > scratch.ResultRanks.Length)
+                return false;
+
+            files = new string[resultCount];
+            for (var i = 0; i < resultCount; i++)
+            {
+                var rank = scratch.ResultRanks[i];
+                if (rank <= 0 || rank > scratch.UniqueFileCount)
+                {
+                    files = Array.Empty<string>();
+                    return false;
+                }
+
+                files[i] = scratch.UniqueFiles[rank - 1];
+            }
+
+            return true;
+        }
+        catch
+        {
+            files = Array.Empty<string>();
+            return false;
+        }
+        finally
+        {
+            scratch.ClearFiles(diagnosticCount);
             scratch.ResetFiles();
         }
     }
@@ -2110,7 +2182,19 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
     private sealed class ReferenceFileSummaryScratch
     {
-        private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _fileRanks;
+        private readonly IComparer<string> _sortComparer;
+
+        public ReferenceFileSummaryScratch()
+            : this(StringComparer.Ordinal, StringComparer.Ordinal)
+        {
+        }
+
+        public ReferenceFileSummaryScratch(IEqualityComparer<string> equalityComparer, IComparer<string> sortComparer)
+        {
+            _fileRanks = new Dictionary<string, int>(equalityComparer);
+            _sortComparer = sortComparer;
+        }
 
         public int[] CountsByRank = Array.Empty<int>();
         public int[] FileRanks = Array.Empty<int>();
@@ -2148,7 +2232,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
         public void BuildFileRanks()
         {
-            Array.Sort(UniqueFiles, 0, UniqueFileCount, StringComparer.Ordinal);
+            Array.Sort(UniqueFiles, 0, UniqueFileCount, _sortComparer);
             for (var i = 0; i < UniqueFileCount; i++)
             {
                 _fileRanks[UniqueFiles[i]] = i + 1;

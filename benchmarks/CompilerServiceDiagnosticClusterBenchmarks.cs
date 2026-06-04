@@ -85,6 +85,175 @@ public class CompilerServiceCodeIntelligenceDiagnosticSummaryBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for the distinct ordered file list inside each diagnostic cluster payload.
+///
+/// The C# baseline mirrors <c>CreateDiagnosticCluster</c>: select diagnostic files, apply
+/// case-insensitive <c>Distinct</c>, case-insensitive <c>OrderBy</c>, and materialize the public
+/// string array. The N# candidate consumes host-assigned case-insensitive file ranks, emits present
+/// ranks in sorted order, and lets the host materialize the final string array.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceDiagnosticClusterFileListBenchmarks
+{
+    private const int LargeDiagnosticCount = 8192;
+    private const int RepresentativeDiagnosticCount = 1024;
+
+    private Func<int[], int, int[], int[], int> _nsharpReferenceFileSummaryRanksInto =
+        (_, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int[] _countsByRank = Array.Empty<int>();
+    private string[] _csharpResult = Array.Empty<string>();
+    private int _diagnosticCount;
+    private int[] _fileRanks = Array.Empty<int>();
+    private string[] _files = Array.Empty<string>();
+    private string[] _nsharpResult = Array.Empty<string>();
+    private int[] _nsharpResultRanks = Array.Empty<int>();
+    private string[] _uniqueFiles = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _diagnosticCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeDiagnosticCount
+            : LargeDiagnosticCount;
+        _nsharpReferenceFileSummaryRanksInto =
+            NSharpCompiledMethod.Bind<Func<int[], int, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceDiagnosticDeduplication,
+                "ReferenceFileSummaryRanksInto");
+
+        _files = new string[_diagnosticCount];
+        _fileRanks = new int[_diagnosticCount];
+        _countsByRank = new int[_diagnosticCount + 1];
+        _nsharpResultRanks = new int[_diagnosticCount];
+
+        BuildFiles();
+
+        var expectedChecksum = CSharpDiagnosticClusterFiles_QueryBatch();
+        var actualChecksum = NSharpDiagnosticClusterFiles_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic-cluster file-list checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpResult.SequenceEqual(_nsharpResult))
+        {
+            var mismatch = FirstMismatch();
+            throw new InvalidOperationException(
+                $"N# diagnostic-cluster file-list mismatch for {Corpus} at result {mismatch}: " +
+                $"expected {FormatFileAt(_csharpResult, mismatch)}, got {FormatFileAt(_nsharpResult, mismatch)}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpDiagnosticClusterFiles_QueryBatch()
+    {
+        _csharpResult = _files
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return ChecksumFiles(_csharpResult);
+    }
+
+    [Benchmark]
+    public int NSharpDiagnosticClusterFiles_QueryBatch()
+    {
+        var count = _nsharpReferenceFileSummaryRanksInto(
+            _fileRanks,
+            _uniqueFiles.Length,
+            _countsByRank,
+            _nsharpResultRanks);
+
+        if (count < 0 || count > _uniqueFiles.Length || count > _nsharpResultRanks.Length)
+            throw new InvalidOperationException($"N# diagnostic-cluster file count out of range: {count}.");
+
+        _nsharpResult = new string[count];
+        for (var i = 0; i < count; i++)
+        {
+            var rank = _nsharpResultRanks[i];
+            if (rank <= 0 || rank > _uniqueFiles.Length)
+                throw new InvalidOperationException($"N# diagnostic-cluster file rank out of range: {rank}.");
+
+            _nsharpResult[i] = _uniqueFiles[rank - 1];
+        }
+
+        return ChecksumFiles(_nsharpResult);
+    }
+
+    private void BuildFiles()
+    {
+        for (var i = 0; i < _diagnosticCount; i++)
+        {
+            var key = i % (_diagnosticCount / 3);
+            _files[i] = (key % 11) switch
+            {
+                0 => $"/repo/src/Program{key % 19}.nl",
+                1 => $"/repo/src/generated/File-{key % 23}.nl",
+                2 => $"/repo/src/Generated/file-{key % 23}.NL",
+                3 => $@"C:\repo\module\File{key % 29}.nl",
+                4 => $@"c:\REPO\module\file{key % 29}.NL",
+                5 => "/repo/src/Main.nl",
+                6 => "/REPO/SRC/main.NL",
+                7 => $"/repo/src/with space/File {key % 17}.nl",
+                8 => $"/repo/src/cafe/Résumé{key % 7}.nl",
+                9 => $"/repo/src/[weird]/File{key % 37}.nl",
+                _ => $"/repo/src/zeta/File{key % 43}.nl"
+            };
+        }
+
+        _uniqueFiles = _files
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var ranksByFile = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < _uniqueFiles.Length; i++)
+        {
+            ranksByFile.Add(_uniqueFiles[i], i + 1);
+        }
+
+        for (var i = 0; i < _files.Length; i++)
+        {
+            _fileRanks[i] = ranksByFile[_files[i]];
+        }
+    }
+
+    private int FirstMismatch()
+    {
+        var count = Math.Min(_csharpResult.Length, _nsharpResult.Length);
+        for (var i = 0; i < count; i++)
+        {
+            if (_csharpResult[i] != _nsharpResult[i])
+                return i;
+        }
+
+        return count;
+    }
+
+    private static int ChecksumFiles(string[] files)
+    {
+        var checksum = files.Length;
+        for (var i = 0; i < files.Length; i++)
+        {
+            var file = files[i];
+            checksum += (i + 1) * 97 + file.Length * 31;
+            if (file.Length > 0)
+                checksum += file[0] * 17 + file[^1] * 13;
+        }
+
+        return checksum;
+    }
+
+    private static string FormatFileAt(string[] files, int index) =>
+        index >= 0 && index < files.Length ? $"\"{files[index]}\"" : "<missing>";
+}
+
+/// <summary>
 /// Dogfood benchmark for the diagnostic cluster grouping kernel used before clustered diagnostic
 /// JSON/text materialization.
 ///

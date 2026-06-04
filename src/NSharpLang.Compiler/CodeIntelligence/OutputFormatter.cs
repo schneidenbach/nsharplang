@@ -899,6 +899,16 @@ public static class OutputFormatter
         DiagnosticClusterTraits traits)
     {
         var root = ordered[0];
+        var files = NSharpCodeIntelligenceDogfoodAdapter.TryBuildDiagnosticClusterFiles(
+            ordered,
+            out var dogfoodFiles)
+                ? dogfoodFiles
+                : ordered
+                    .Select(d => d.File)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
         return new DiagnosticCluster(
             Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
             Category: traits.Category,
@@ -906,7 +916,7 @@ public static class OutputFormatter
             Risk: traits.Risk,
             Count: ordered.Count,
             Severity: root.Severity,
-            Files: ordered.Select(d => d.File).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToArray(),
+            Files: files,
             RelatedDiagnostics: ordered.Select(d => new DiagnosticClusterRelatedDiagnostic(
                 d.Code,
                 d.Severity,

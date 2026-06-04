@@ -1550,6 +1550,224 @@ func sourceContextProbe() {
 }
 
 /// <summary>
+/// Dogfood benchmark for code-intelligence file-path matching used when resolving user-supplied
+/// file paths against project snapshot paths.
+///
+/// The C# baseline mirrors the current helper: allocate normalized copies with
+/// <c>Replace('\\', '/')</c>, compare exact paths case-insensitively, then check case-insensitive
+/// suffix plus path-segment boundary. The N# candidates compare normalized slash and case on the
+/// fly, avoiding normalized string allocation.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligencePathMatchingBenchmarks
+{
+    private const int LargeQueryCount = 8192;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, string, int> _nsharpPathMatches =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string[], string[], int[], int> _nsharpPathMatchFlagsInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _fullPaths = Array.Empty<string>();
+    private string[] _queryPaths = Array.Empty<string>();
+    private int[] _csharpFlags = Array.Empty<int>();
+    private int[] _nsharpFlags = Array.Empty<int>();
+    private int _queryCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpPathMatches =
+            NSharpCompiledMethod.Bind<Func<string, string, int>>(
+                DogfoodCompilerSources.CodeIntelligencePathMatching,
+                "CodeIntelligencePathMatches");
+        _nsharpPathMatchFlagsInto =
+            NSharpCompiledMethod.Bind<Func<string[], string[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligencePathMatching,
+                "CodeIntelligencePathMatchFlagsInto");
+
+        _fullPaths = new string[_queryCount];
+        _queryPaths = new string[_queryCount];
+        _csharpFlags = new int[_queryCount];
+        _nsharpFlags = new int[_queryCount];
+
+        BuildQueries();
+
+        var expectedChecksum = CSharpMatchesFilePath_CurrentHelper();
+        var actualSingleChecksum = NSharpMatchesFilePath_SingleAdapterShape();
+        if (expectedChecksum != actualSingleChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# path matching single-call checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualSingleChecksum}.");
+        }
+
+        if (!_csharpFlags.SequenceEqual(_nsharpFlags))
+        {
+            var mismatch = FirstMismatch();
+            throw new InvalidOperationException(
+                $"N# path matching single-call mismatch for {Corpus} at query {mismatch}: " +
+                $"{FormatPairAt(mismatch)}, expected {_csharpFlags[mismatch]}, got {_nsharpFlags[mismatch]}.");
+        }
+
+        var actualBatchChecksum = NSharpMatchesFilePath_Batch();
+        if (expectedChecksum != actualBatchChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# path matching batch checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualBatchChecksum}.");
+        }
+
+        if (!_csharpFlags.SequenceEqual(_nsharpFlags))
+        {
+            var mismatch = FirstMismatch();
+            throw new InvalidOperationException(
+                $"N# path matching batch mismatch for {Corpus} at query {mismatch}: " +
+                $"{FormatPairAt(mismatch)}, expected {_csharpFlags[mismatch]}, got {_nsharpFlags[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpMatchesFilePath_CurrentHelper()
+    {
+        for (var i = 0; i < _queryCount; i++)
+        {
+            _csharpFlags[i] = CSharpMatchesFilePath(_fullPaths[i], _queryPaths[i]) ? 1 : 0;
+        }
+
+        return ChecksumFlags(_csharpFlags);
+    }
+
+    [Benchmark]
+    public int NSharpMatchesFilePath_SingleAdapterShape()
+    {
+        for (var i = 0; i < _queryCount; i++)
+        {
+            _nsharpFlags[i] = _nsharpPathMatches(_fullPaths[i], _queryPaths[i]);
+        }
+
+        return ChecksumFlags(_nsharpFlags);
+    }
+
+    [Benchmark]
+    public int NSharpMatchesFilePath_Batch()
+    {
+        var count = _nsharpPathMatchFlagsInto(_fullPaths, _queryPaths, _nsharpFlags);
+        if (count != _queryCount)
+            throw new InvalidOperationException($"N# path matching count mismatch for {Corpus}: expected {_queryCount}, got {count}.");
+
+        return ChecksumFlags(_nsharpFlags);
+    }
+
+    private void BuildQueries()
+    {
+        for (var i = 0; i < _queryCount; i++)
+        {
+            var key = i % 257;
+            switch (i % 12)
+            {
+                case 0:
+                    _fullPaths[i] = $"/repo/src/Program{key}.nl";
+                    _queryPaths[i] = $@"\REPO\SRC\program{key}.NL";
+                    break;
+                case 1:
+                    _fullPaths[i] = $"/repo/src/features/Feature{key}/Handler.nl";
+                    _queryPaths[i] = $@"features\feature{key}\handler.nl";
+                    break;
+                case 2:
+                    _fullPaths[i] = $"/repo/src/features/OldProgram{key}.nl";
+                    _queryPaths[i] = $"Program{key}.nl";
+                    break;
+                case 3:
+                    _fullPaths[i] = $@"C:\repo\src\Generated\File{key}.nl";
+                    _queryPaths[i] = $"/src/generated/file{key}.nl";
+                    break;
+                case 4:
+                    _fullPaths[i] = $"/repo/src/with space/File {key}.nl";
+                    _queryPaths[i] = $"with space/File {key}.nl";
+                    break;
+                case 5:
+                    _fullPaths[i] = $"/repo/src/cafe/résumé{key}.nl";
+                    _queryPaths[i] = $"cafe/RÉSUMÉ{key}.nl";
+                    break;
+                case 6:
+                    _fullPaths[i] = $"/repo/src/[weird]/File{key}.nl";
+                    _queryPaths[i] = $"[weird]/File{key}.nl";
+                    break;
+                case 7:
+                    _fullPaths[i] = $"/repo/src/Module{key}.nl";
+                    _queryPaths[i] = $"/repo/src/Module{key}.nl/extra";
+                    break;
+                case 8:
+                    _fullPaths[i] = "/repo/src/";
+                    _queryPaths[i] = string.Empty;
+                    break;
+                case 9:
+                    _fullPaths[i] = $"/repo/src/nested/File{key}.nl";
+                    _queryPaths[i] = $"nested/File{key + 1}.nl";
+                    break;
+                case 10:
+                    _fullPaths[i] = string.Empty;
+                    _queryPaths[i] = string.Empty;
+                    break;
+                default:
+                    _fullPaths[i] = $"/repo/src/Alpha/Beta/Gamma{key}.nl";
+                    _queryPaths[i] = $"beta/gamma{key}.nl";
+                    break;
+            }
+        }
+    }
+
+    private static bool CSharpMatchesFilePath(string fullPath, string queryPath)
+    {
+        var normalizedFull = fullPath.Replace('\\', '/');
+        var normalizedQuery = queryPath.Replace('\\', '/');
+
+        if (normalizedFull.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!normalizedFull.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var charBefore = normalizedFull[normalizedFull.Length - normalizedQuery.Length - 1];
+        return charBefore == '/';
+    }
+
+    private int FirstMismatch()
+    {
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (_csharpFlags[i] != _nsharpFlags[i])
+                return i;
+        }
+
+        return -1;
+    }
+
+    private static int ChecksumFlags(int[] flags)
+    {
+        var checksum = flags.Length;
+        for (var i = 0; i < flags.Length; i++)
+        {
+            checksum += flags[i] * (i + 1) * 31;
+        }
+
+        return checksum;
+    }
+
+    private string FormatPairAt(int index) =>
+        index >= 0 && index < _queryCount
+            ? $"full=\"{_fullPaths[index]}\", query=\"{_queryPaths[index]}\""
+            : "<missing>";
+}
+
+/// <summary>
 /// Dogfood benchmark for raw source-line extraction used by diagnostic and lint snippets.
 ///
 /// The current C# helper splits the whole file and returns the selected untrimmed line for each

@@ -439,6 +439,28 @@ func documented(): int {
                 .ToArray(),
             Assert.IsType<string[]>(referenceFileSummaryArgs[1]));
 
+        var tryBuildDiagnosticClusterFiles = adapterType.GetMethod(
+                "TryBuildDiagnosticClusterFiles",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryBuildDiagnosticClusterFiles.");
+        var clusterDiagnostics = new List<DiagnosticResult>
+        {
+            BuildDiagnosticWithSeverity("error", 1) with { File = "src/B.nl" },
+            BuildDiagnosticWithSeverity("error", 2) with { File = "src/a.nl" },
+            BuildDiagnosticWithSeverity("error", 3) with { File = "SRC/A.NL" },
+            BuildDiagnosticWithSeverity("error", 4) with { File = "src/C.nl" },
+            BuildDiagnosticWithSeverity("error", 5) with { File = "src/b.NL" }
+        };
+        var diagnosticClusterFileArgs = new object?[] { clusterDiagnostics, null };
+        Assert.True((bool)(tryBuildDiagnosticClusterFiles.Invoke(null, diagnosticClusterFileArgs) ?? false));
+        Assert.Equal(
+            clusterDiagnostics
+                .Select(diagnostic => diagnostic.File)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+                .ToArray(),
+            Assert.IsType<string[]>(diagnosticClusterFileArgs[1]));
+
         var tryGetBindingCandidateColumns = adapterType.GetMethod(
                 "TryGetBindingCandidateColumns",
                 BindingFlags.Static | BindingFlags.NonPublic,
@@ -693,6 +715,14 @@ func documented(): int {
                     "CodeIntelligenceSourceLinesFromLinesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceLinesFromLinesInto.");
+            var codeIntelligencePathMatches = programType.GetMethod(
+                    "CodeIntelligencePathMatches",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligencePathMatches.");
+            var codeIntelligencePathMatchChecksumInto = programType.GetMethod(
+                    "CodeIntelligencePathMatchChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligencePathMatchChecksumInto.");
             var codeIntelligenceCompletionPrefixChecksumInto = programType.GetMethod(
                     "CodeIntelligenceCompletionPrefixChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1155,6 +1185,9 @@ func main(customer: Customer, résumé: Profile) {
                 codeIntelligenceSourceLineChecksumInto,
                 codeIntelligenceSourceLinesInto,
                 codeIntelligenceSourceLinesFromLinesInto);
+            AssertPathMatchingLikeProduction(
+                codeIntelligencePathMatches,
+                codeIntelligencePathMatchChecksumInto);
             AssertCompletionPrefixesLikeProduction(
                 "  first line  \n\tsecond line\r\n   \n\n café42  \n",
                 codeIntelligenceCompletionPrefixChecksumInto,
@@ -2267,6 +2300,70 @@ func main() {
         Assert.Equal(expectedCount, cachedCount);
         Assert.Equal(expectedStarts, cachedStarts);
         Assert.Equal(expectedLengths, cachedLengths);
+    }
+
+    private static void AssertPathMatchingLikeProduction(
+        MethodInfo codeIntelligencePathMatches,
+        MethodInfo codeIntelligencePathMatchChecksumInto)
+    {
+        var fullPaths = new[]
+        {
+            "/repo/src/Program.nl",
+            "/repo/src/features/Handler.nl",
+            "/repo/src/OldProgram.nl",
+            @"C:\repo\src\Generated\File.nl",
+            "/repo/src/",
+            "",
+            "/repo/src/cafe/résumé.nl",
+            "/repo/src/nested/File.nl"
+        };
+        var queryPaths = new[]
+        {
+            @"\REPO\SRC\program.NL",
+            @"features\handler.nl",
+            "Program.nl",
+            "/src/generated/file.nl",
+            "",
+            "",
+            "cafe/RÉSUMÉ.nl",
+            "nested/Other.nl"
+        };
+
+        var expectedFlags = new int[fullPaths.Length];
+        var expectedChecksum = expectedFlags.Length;
+        for (var i = 0; i < fullPaths.Length; i++)
+        {
+            expectedFlags[i] = MatchesFilePathLikeProduction(fullPaths[i], queryPaths[i]) ? 1 : 0;
+            expectedChecksum += expectedFlags[i] * (i + 1) * 31;
+
+            var actualFlag = (int)(codeIntelligencePathMatches.Invoke(
+                null,
+                new object[] { fullPaths[i], queryPaths[i] }) ?? -1);
+            Assert.Equal(expectedFlags[i], actualFlag);
+        }
+
+        var resultFlags = new int[fullPaths.Length];
+        var actualChecksum = (int)(codeIntelligencePathMatchChecksumInto.Invoke(
+            null,
+            new object[] { fullPaths, queryPaths, resultFlags }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedFlags, resultFlags);
+    }
+
+    private static bool MatchesFilePathLikeProduction(string fullPath, string queryPath)
+    {
+        var normalizedFull = fullPath.Replace('\\', '/');
+        var normalizedQuery = queryPath.Replace('\\', '/');
+
+        if (normalizedFull.Equals(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        if (!normalizedFull.EndsWith(normalizedQuery, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var charBefore = normalizedFull[normalizedFull.Length - normalizedQuery.Length - 1];
+        return charBefore == '/';
     }
 
     private static void AssertCompletionPrefixesLikeProduction(

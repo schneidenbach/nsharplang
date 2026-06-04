@@ -343,6 +343,30 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void DiagnosticClustersToJson_OrdersClusterFilesCaseInsensitively()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL301", "error", "Undefined variable 'customer'", "src/B.nl", 1, 5, 8,
+                null, null, null, null, null, null, null),
+            new("NL301", "error", "Undefined variable 'customer'", "src/a.nl", 2, 5, 8,
+                null, null, null, null, null, null, null),
+            new("NL301", "error", "Undefined variable 'customer'", "SRC/A.NL", 3, 5, 8,
+                null, null, null, null, null, null, null),
+            new("NL301", "error", "Undefined variable 'customer'", "src/C.nl", 4, 5, 8,
+                null, null, null, null, null, null, null)
+        };
+
+        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/project");
+        using var doc = JsonDocument.Parse(json);
+
+        var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray());
+        Assert.Equal(
+            new[] { "src/a.nl", "src/B.nl", "src/C.nl" },
+            cluster.GetProperty("files").EnumerateArray().Select(file => file.GetString()).ToArray());
+    }
+
+    [Fact]
     public void CheckToJson_HasStableEnvelope()
     {
         var diagnostics = new List<DiagnosticResult>
