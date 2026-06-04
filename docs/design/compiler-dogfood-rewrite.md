@@ -203,6 +203,14 @@ managed allocation on the N# path and measured 7.287 us vs 22.449 us on the repr
 real large-corpus gate pass for the dense caller-owned table shape, but not source-map acceptance:
 the representative build-and-query path still misses the 5x gate.
 
+The next source-map build path pass on 2026-06-04 reused the already batched validating cached-query
+helper after dense line-map construction, instead of keeping a separate scalar query loop in
+`LineMapCachedChecksumInto`. The normal BenchmarkDotNet build-and-query run still reported zero
+managed allocation on the N# path and measured 6.068 us vs 22.005 us on the representative corpus
+(about 3.6x) and 126.992 us vs 725.020 us on the large mixed-newline corpus (about 5.7x). This moves
+the external build-and-query API closer and keeps the large-corpus row comfortably past 5x, but the
+representative row remains below the required 5x acceptance gate.
+
 The next cached-query dry smoke pass on 2026-06-03 kept the same validating contract but processed
 offset and line/column queries in four-wide batches, relying on the cached line-map invariant that
 `starts[index] + lengths[index]` is within the source. The validating cached-query path improved to
@@ -509,9 +517,9 @@ line splitting or representative source line-map construction. Calling optimized
 `string.IndexOf` improved the range-buffer candidate, and dense offset-to-line caches now make the
 large normal build-and-query row plus large steady-state query batches clear the 5x threshold, but
 representative source-map build/query still misses the acceptance gate. To reach the 5x goal, N#
-needs a faster native/string scanning primitive plus more bounds-check-friendly indexed-array/span
-lowering for batches, without relying on hand-unrolled compiler-service loops as the normal
-programming model.
+needs lower-overhead source-map query batches after construction, a faster native/string scanning
+primitive, and more bounds-check-friendly indexed-array/span lowering for batches, without relying on
+hand-unrolled compiler-service loops as the normal programming model.
 
 Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
 queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct

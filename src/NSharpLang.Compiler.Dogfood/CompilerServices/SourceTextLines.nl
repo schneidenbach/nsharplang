@@ -268,63 +268,51 @@ func LineMapCachedChecksumInto(
     lineCount := 0
     if sourceLength <= denseOffsetLineIndexLimit {
         lineCount = BuildDenseLineRangesAndOffsetLineIndicesInto(source, starts, lengths, offsetLineIndices)
-    } else {
-        lineCount = SplitLogicalLineRangesInto(source, starts, lengths)
+        return LineMapCachedQueryChecksumInto(
+            starts,
+            lengths,
+            lineCount,
+            sourceLength,
+            offsetLineIndices,
+            offsets,
+            queryLines,
+            queryColumns)
     }
 
+    lineCount = SplitLogicalLineRangesInto(source, starts, lengths)
     checksum := lineCount
 
-    if sourceLength <= denseOffsetLineIndexLimit {
-        i := 0
-        while i < offsets.Length {
-            offset := offsets[i]
-            if offset < 0 {
-                offset = 0
-            }
-
-            if offset > sourceLength {
-                offset = sourceLength
-            }
-
-            lineIndex := offsetLineIndices[offset]
-            column := offset - starts[lineIndex]
-            checksum = checksum + lineIndex * 31 + column
-            i = i + 1
+    i := 0
+    while i < offsets.Length {
+        offset := offsets[i]
+        if offset < 0 {
+            offset = 0
         }
-    } else {
-        i := 0
 
-        while i < offsets.Length {
-            offset := offsets[i]
-            if offset < 0 {
-                offset = 0
-            }
-
-            if offset > sourceLength {
-                offset = sourceLength
-            }
-
-            low := 0
-            high := lineCount - 1
-            lineIndex := 0
-
-            while low <= high {
-                mid := (low + high) >> 1
-                if starts[mid] <= offset {
-                    lineIndex = mid
-                    low = mid + 1
-                } else {
-                    high = mid - 1
-                }
-            }
-
-            column := offset - starts[lineIndex]
-            checksum = checksum + lineIndex * 31 + column
-            i = i + 1
+        if offset > sourceLength {
+            offset = sourceLength
         }
+
+        low := 0
+        high := lineCount - 1
+        lineIndex := 0
+
+        while low <= high {
+            mid := (low + high) >> 1
+            if starts[mid] <= offset {
+                lineIndex = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+
+        column := offset - starts[lineIndex]
+        checksum = checksum + lineIndex * 31 + column
+        i = i + 1
     }
 
-    i := 0
+    i = 0
     while i < queryLines.Length {
         line := queryLines[i]
         column := queryColumns[i]
