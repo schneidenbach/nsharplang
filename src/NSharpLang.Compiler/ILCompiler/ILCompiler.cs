@@ -13095,10 +13095,10 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        // Remove quotes from string value
-        var value = strLit.Value.Trim('"');
-        _currentIL.Emit(OpCodes.Ldstr, value);
+        _currentIL.Emit(OpCodes.Ldstr, GetStringLiteralRuntimeValue(strLit));
     }
+
+    private static string GetStringLiteralRuntimeValue(StringLiteralExpression strLit) => strLit.Value.Trim('"');
 
     private void EmitCharLiteral(CharLiteralExpression charLit)
     {
@@ -14351,29 +14351,121 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        var leftType = GetExpressionType(binary.Left);
-        var rightType = GetExpressionType(binary.Right);
-        var concatMethod = typeof(string).GetMethod(
-            nameof(string.Concat),
-            new[] { typeof(object), typeof(object) });
+        var operands = new List<Expression>();
+        CollectStringConcatenationOperands(binary, operands);
+
+        if (TryEmitConstantStringConcatenation(operands))
+        {
+            return;
+        }
+
+        if (CanEmitDirectStringConcatenation(operands))
+        {
+            EmitDirectStringConcatenation(operands);
+            return;
+        }
+
+        EmitStringConcatenationViaHandler(operands);
+    }
+
+    private void CollectStringConcatenationOperands(Expression expression, List<Expression> operands)
+    {
+        var candidate = expression is ParenthesizedExpression parenthesized
+            ? parenthesized.Inner
+            : expression;
+
+        if (candidate is BinaryExpression nested && IsStringConcatenationExpression(nested))
+        {
+            CollectStringConcatenationOperands(nested.Left, operands);
+            CollectStringConcatenationOperands(nested.Right, operands);
+            return;
+        }
+
+        operands.Add(candidate);
+    }
+
+    private bool IsStringConcatenationExpression(BinaryExpression binary)
+    {
+        if (binary.Operator != BinaryOperator.Add)
+        {
+            return false;
+        }
+
+        return GetExpressionType(binary.Left) == typeof(string)
+            || GetExpressionType(binary.Right) == typeof(string);
+    }
+
+    private bool TryEmitConstantStringConcatenation(IReadOnlyList<Expression> operands)
+    {
+        if (!operands.All(IsConstantStringConcatenationOperand))
+        {
+            return false;
+        }
+
+        _currentIL!.Emit(
+            OpCodes.Ldstr,
+            string.Concat(operands.Select(operand => operand is StringLiteralExpression literal
+                ? GetStringLiteralRuntimeValue(literal)
+                : string.Empty)));
+        return true;
+    }
+
+    private static bool IsConstantStringConcatenationOperand(Expression operand) =>
+        operand is StringLiteralExpression or NullLiteralExpression;
+
+    private bool CanEmitDirectStringConcatenation(IReadOnlyList<Expression> operands) =>
+        operands.Count is >= 2 and <= 4 && operands.All(IsStringLikeConcatenationOperand);
+
+    private bool IsStringLikeConcatenationOperand(Expression operand) =>
+        operand is NullLiteralExpression || GetExpressionType(operand) == typeof(string);
+
+    private void EmitDirectStringConcatenation(IReadOnlyList<Expression> operands)
+    {
+        var parameterTypes = Enumerable.Repeat(typeof(string), operands.Count).ToArray();
+        var concatMethod = typeof(string).GetMethod(nameof(string.Concat), parameterTypes);
         if (concatMethod == null)
         {
-            throw new InvalidOperationException("Could not resolve string.Concat(object, object)");
+            var signature = string.Join(", ", parameterTypes.Select(t => t.Name));
+            throw new InvalidOperationException($"Could not resolve string.Concat({signature})");
         }
 
-        EmitExpression(binary.Left);
-        if (IsValueTypeLike(leftType))
+        foreach (var operand in operands)
         {
-            _currentIL.Emit(OpCodes.Box, leftType);
+            if (operand is NullLiteralExpression)
+            {
+                _currentIL!.Emit(OpCodes.Ldnull);
+                continue;
+            }
+
+            EmitExpression(operand);
         }
 
-        EmitExpression(binary.Right);
-        if (IsValueTypeLike(rightType))
+        _currentIL!.Emit(OpCodes.Call, concatMethod);
+    }
+
+    private void EmitStringConcatenationViaHandler(IReadOnlyList<Expression> operands)
+    {
+        var parts = new List<InterpolatedStringPart>(operands.Count);
+        foreach (var operand in operands)
         {
-            _currentIL.Emit(OpCodes.Box, rightType);
+            switch (operand)
+            {
+                case StringLiteralExpression literal:
+                    parts.Add(new InterpolatedStringText(
+                        GetStringLiteralRuntimeValue(literal),
+                        literal.Line,
+                        literal.Column));
+                    break;
+                case NullLiteralExpression nullLiteral:
+                    parts.Add(new InterpolatedStringText(string.Empty, nullLiteral.Line, nullLiteral.Column));
+                    break;
+                default:
+                    parts.Add(new InterpolatedStringHole(operand, null, operand.Line, operand.Column));
+                    break;
+            }
         }
 
-        _currentIL.Emit(OpCodes.Call, concatMethod);
+        EmitInterpolatedStringViaHandler(parts);
     }
 
     /// <summary>
@@ -17657,6 +17749,13 @@ public partial class ILCompiler
     /// </summary>
     private Type GetBinaryExpressionType(BinaryExpression binary)
     {
+        if (binary.Operator == BinaryOperator.Add
+            && (GetExpressionType(binary.Left) == typeof(string)
+                || GetExpressionType(binary.Right) == typeof(string)))
+        {
+            return typeof(string);
+        }
+
         var operatorMethod = ResolveBinaryOperatorMethod(
             binary.Operator,
             GetExpressionType(binary.Left),

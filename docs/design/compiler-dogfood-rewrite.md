@@ -438,11 +438,11 @@ the diagnostic/check/lint severity-summary pass.
 `DiagnosticClusterIdsInto` passed parity but missed the normal BenchmarkDotNet speed gate for public
 cluster id string materialization. The N# path avoided the temporary composite key allocation and
 reduced managed allocation to about 18% of the current C# formatter-shaped baseline, but it measured
-only about 1.20x faster on the representative diagnostic cluster corpus (229.747 us vs 275.410 us)
-and about 1.28x faster on the large generated diagnostic cluster corpus (1.867 ms vs 2.388 ms). This
-is measured language/runtime pressure, not acceptance evidence, and the production formatter must
-keep the C# id path until N# has a faster short-string/hex materialization strategy that clears the
-5x gate.
+only about 1.20x faster on the representative diagnostic cluster corpus after typed string-concat
+lowering (231.2 us vs 277.9 us) and about 1.28x faster on the large generated diagnostic cluster
+corpus (1.870 ms vs 2.385 ms). This is measured language/runtime pressure, not acceptance evidence,
+and the production formatter must keep the C# id path until N# has a faster short-string/hex
+materialization strategy that clears the 5x gate.
 
 `DiagnosticClusterNextCommandsInto` passed parity but also missed the normal BenchmarkDotNet speed
 gate for public next-command string materialization. After replacing N# string concatenation with a

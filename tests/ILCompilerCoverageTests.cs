@@ -310,6 +310,18 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteStringConcatenationWhenStringIsRightOperand()
+    {
+        var source = @"
+func main(): string {
+    return 42 + "" items""
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal("42 items", Assert.IsType<string>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteStringIndexFromEndAndRange()
     {
         var source = @"

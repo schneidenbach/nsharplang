@@ -239,4 +239,68 @@ func main(): string {
             return 0;
         });
     }
+
+    [Fact]
+    public void StringConcatenation_StringOnlyChain_UsesSingleTypedConcat()
+    {
+        const string source = @"
+func build(code: string, suffix: string): string {
+    return ""diag-"" + code + ""-"" + suffix
+}
+
+func main(): string {
+    return build(""NL102"", ""syntax"")
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var build = ILShapeInspector.GetProgramMethod(assembly, "build");
+
+            ILShapeInspector.AssertNoBoxing(build);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(build, OpCodes.Newarr));
+            Assert.Equal(
+                0,
+                ILShapeInspector.CountCallsTo(build, typeof(DefaultInterpolatedStringHandler), ".ctor"));
+            Assert.Equal(1, ILShapeInspector.CountCallsTo(build, typeof(string), "Concat"));
+
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.Equal("diag-NL102-syntax", main.Invoke(null, null));
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void StringConcatenation_MixedChain_UsesHandlerWithoutBoxingOrArrays()
+    {
+        const string source = @"
+func build(filePath: string, line: int, column: int): string {
+    return ""nlc query inspect --file "" + filePath + "" --pos "" + line + "":"" + column
+}
+
+func main(): string {
+    return build(""src/main.nl"", 12, 34)
+}";
+
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var build = ILShapeInspector.GetProgramMethod(assembly, "build");
+
+            ILShapeInspector.AssertNoBoxing(build);
+            Assert.Equal(0, ILShapeInspector.CountOpcode(build, OpCodes.Newarr));
+            Assert.Equal(0, ILShapeInspector.CountCallsTo(build, typeof(string), "Concat"));
+            Assert.Equal(
+                1,
+                ILShapeInspector.CountCallsTo(build, typeof(DefaultInterpolatedStringHandler), ".ctor"));
+            Assert.Equal(
+                1,
+                ILShapeInspector.CountCallsTo(build, typeof(DefaultInterpolatedStringHandler), "ToStringAndClear"));
+            Assert.Equal(
+                3,
+                ILShapeInspector.CountCallsTo(build, typeof(DefaultInterpolatedStringHandler), "AppendFormatted"));
+
+            var main = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.Equal("nlc query inspect --file src/main.nl --pos 12:34", main.Invoke(null, null));
+            return 0;
+        });
+    }
 }

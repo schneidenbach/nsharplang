@@ -166,6 +166,18 @@ The handler is a ref struct kept strictly stack-local: it is declared as a local
 
 Net effect per interpolation with value holes: `box` drops to `0`, the `string[]` allocation (`newarr`) and `string.Concat` call are eliminated. IL-shape regression tests in `ILShapeBaselineTests` pin `box == 0`, `newarr == 0`, no `string.Concat`, exactly one handler ctor + `ToStringAndClear`, and one `AppendFormatted` per hole. Behavioral tests assert exact string parity (including culture-correct `:X` / `:F2` format clauses) against the equivalent C# interpolation.
 
+## String Concatenation
+
+Binary `+` string concatenation is flattened before IL emission. The old lowering emitted every
+string addition as a pairwise `string.Concat(object, object)` call, which boxed value-type operands
+and materialized intermediate strings for longer chains.
+
+Current lowering keeps pure two-to-four operand string chains on the typed `string.Concat(string, …)`
+overloads, folds all-literal chains to one `ldstr`, and routes mixed string/value chains through the
+same `DefaultInterpolatedStringHandler` machinery used for interpolation. That preserves left-to-right
+evaluation while avoiding `box`, `newarr`, and nested `string.Concat` calls for hot CLI-style command
+construction such as `"--pos " + line + ":" + column`.
+
 ## Generics And Specialization
 
 The CLR already specializes generic code for value types but shares many reference-type instantiations. N# can still do better for internal code.
