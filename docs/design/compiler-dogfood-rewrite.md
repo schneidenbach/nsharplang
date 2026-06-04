@@ -716,6 +716,12 @@ Current CLI dogfood benchmarks:
   the list. The accepted N# candidate runs after the host has assigned dense kind/name ranks and
   uses two stable counting passes to return ordered source indices through
   `CliDocSymbolOrderCountingIndicesInto`.
+- `CliDocMemberOrderingBenchmarks` targets member ordering inside generated `nlc doc` symbol pages.
+  The C# baseline mirrors the previous symbol-page LINQ shape: order every member by
+  `SymbolKind.ToString()` with ordinal string comparison, then order by member name and materialize
+  the list. The accepted N# candidate reuses the compact kind/name rank counting-order kernel with
+  all include flags set, preserving full member inclusion while avoiding comparison-sort and list
+  allocation on the hot ordering path.
 
 `CliQueryPositionsInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier, but missed the speed gate for CLI position parsing. The best measured
@@ -741,6 +747,12 @@ passes. It ran about 11.6x faster on the representative symbol corpus (3.880 us 
 0 B vs 54,319 B) and about 23.9x faster on the large generated symbol corpus (32.143 us vs
 769.319 us, 0 B vs 430,687 B). This is acceptance-grade benchmark evidence for `nlc doc` symbol
 filtering and kind/name ordering after the host has assigned compact ordinal ranks.
+
+The same counting-order kernel also passed parity for generated symbol-page member ordering with
+all include flags set. It ran about 10.3x faster on the representative member corpus (4.929 us vs
+50.641 us, 0 B vs 61,952 B) and about 29.0x faster on the large generated member corpus
+(36.541 us vs 1,058.544 us, 0 B vs 492,088 B). This is acceptance-grade benchmark evidence for
+`nlc doc` member-list ordering after the host has assigned compact ordinal ranks.
 
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
@@ -813,6 +825,10 @@ duplicate-id error output, with the previous LINQ grouping path kept as the fall
 counting-sort kernel when the dogfood assembly is available, preserving the previous
 `SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the previous LINQ
 ordering path kept as the fallback.
+Generated `nlc doc` symbol-page member ordering also routes through the same compiled N# stable
+counting-sort kernel when the dogfood assembly is available, preserving the previous full member
+inclusion and `SymbolKind.ToString()`/ordinal name order, with the previous LINQ ordering path kept
+as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, completion item grouping, reflected method overload
@@ -821,9 +837,10 @@ scoped identifier-lookup, and variable-declaration-name queries, plus diagnostic
 classifications and diagnostic severity summaries, compact diagnostic cluster grouping, diagnostic
 deduplication, reference result deduplication, stable diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration lookup,
-scoped visible-variable selection, and CLI batch duplicate-id validation
+scoped visible-variable selection, CLI batch duplicate-id validation, and CLI doc symbol/member
+ordering
 through the compiled N# methods; `CliCommandTests` verifies both packaged CLI dogfood adapter routes
-for duplicate batch request ids and `nlc doc` symbol ordering;
+for duplicate batch request ids and `nlc doc` symbol/member ordering;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
@@ -837,8 +854,10 @@ editor word/span lookup for hover, definition, references, and rename entry poin
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
 member-access completion plus reflected method overload grouping and grouped member-completion
-output, plus batch duplicate-id validation in `nlc query batch`.
-`nlc doc` symbol filtering and ordering is also routed through the compiled N# doc-ordering kernel.
+output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
+ordering in `nlc doc`.
+`nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
+compiled N# doc-ordering kernel.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
 for the dogfood rewrite.

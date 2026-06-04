@@ -608,6 +608,34 @@ func Main() {
     }
 
     [Fact]
+    public void DocCommand_DogfoodAdapter_OrdersMembersForGeneration()
+    {
+        var members = new[]
+        {
+            NewSymbol("zeta", SymbolKind.Method),
+            NewSymbol("alpha", SymbolKind.Function),
+            NewSymbol("value", SymbolKind.Variable),
+            NewSymbol("customer", SymbolKind.Parameter),
+            NewSymbol("Customer", SymbolKind.Class),
+            NewSymbol("Name", SymbolKind.Property),
+            NewSymbol("alpha", SymbolKind.Method),
+            NewSymbol("Amount", SymbolKind.Field)
+        };
+
+        var expected = members
+            .OrderBy(member => member.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryOrderDocMembersForGeneration(members, out var actual));
+        Assert.Equal(expected, actual);
+
+        static SymbolResult NewSymbol(string name, SymbolKind kind) =>
+            new(name, kind, "/tmp/Program.nl", 1, 1, null, null, null, null);
+    }
+
+    [Fact]
     public void BatchCommand_TextMode_IsRejected()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");

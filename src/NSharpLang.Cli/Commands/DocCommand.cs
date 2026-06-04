@@ -267,11 +267,9 @@ internal static class ProjectDocGenerator
 
     private static string RenderSymbolPage(SymbolResult symbol, string projectRoot)
     {
-        var members = symbol.Members?
-            .OrderBy(member => member.Kind.ToString(), StringComparer.Ordinal)
-            .ThenBy(member => member.Name, StringComparer.Ordinal)
+        var members = OrderMembersForGeneration(symbol.Members)
             .Select(member => $"<li><code>{WebUtility.HtmlEncode(FormatSignature(member))}</code></li>")
-            .ToArray() ?? Array.Empty<string>();
+            .ToArray();
 
         var parameters = symbol.Parameters?.Length > 0
             ? $"<p><strong>Parameters:</strong> {WebUtility.HtmlEncode(string.Join(", ", symbol.Parameters.Select(FormatParameter)))}</p>"
@@ -301,6 +299,20 @@ internal static class ProjectDocGenerator
 </header>
 {membersSection}
 """);
+    }
+
+    private static List<SymbolResult> OrderMembersForGeneration(SymbolResult[]? members)
+    {
+        if (members == null || members.Length == 0)
+            return new List<SymbolResult>();
+
+        if (NSharpCliDogfoodAdapter.TryOrderDocMembersForGeneration(members, out var orderedMembers))
+            return orderedMembers;
+
+        return members
+            .OrderBy(member => member.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .ToList();
     }
 
     private static string WrapHtml(string title, string body) => $$$"""

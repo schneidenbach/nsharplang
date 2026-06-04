@@ -251,3 +251,214 @@ public class CliDocOrderingBenchmarks
         int[] tempIndices,
         int[] resultIndices);
 }
+
+/// <summary>
+/// Dogfood benchmark for ordering members inside generated <c>nlc doc</c> symbol pages.
+///
+/// The C# baseline mirrors the current symbol-page member rendering shape: order every member by
+/// <see cref="SymbolKind.ToString" /> using ordinal string comparison, then by member name, and
+/// materialize the ordered list. The N# candidate reuses the compact kind/name rank counting-order
+/// kernel with all include flags set.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliDocMemberOrderingBenchmarks
+{
+    private const int LargeMemberCount = 8192;
+    private const int RepresentativeMemberCount = 1024;
+
+    private CliDocSymbolOrderCountingChecksumInto _nsharpDocMemberOrderChecksumInto =
+        (_, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int[] _includeFlags = Array.Empty<int>();
+    private int[] _kindCounts = Array.Empty<int>();
+    private int[] _kindOffsets = Array.Empty<int>();
+    private int[] _kindRanks = Array.Empty<int>();
+    private DocMemberEntry[] _members = Array.Empty<DocMemberEntry>();
+    private int _memberCount;
+    private int[] _nameCounts = Array.Empty<int>();
+    private int[] _nameOffsets = Array.Empty<int>();
+    private int[] _nameRanks = Array.Empty<int>();
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+    private int[] _tempIndices = Array.Empty<int>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _memberCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeMemberCount
+            : LargeMemberCount;
+        _nsharpDocMemberOrderChecksumInto =
+            NSharpCompiledMethod.Bind<CliDocSymbolOrderCountingChecksumInto>(
+                DogfoodCompilerSources.CliDocOrdering,
+                "CliDocSymbolOrderCountingChecksumInto");
+
+        _members = BuildMembers(_memberCount);
+        _kindRanks = new int[_memberCount];
+        _nameRanks = new int[_memberCount];
+        _includeFlags = new int[_memberCount];
+        _nsharpResultIndices = new int[_memberCount];
+        _tempIndices = new int[_memberCount];
+        _nameCounts = new int[_memberCount + 1];
+        _nameOffsets = new int[_memberCount + 1];
+        _kindCounts = new int[32];
+        _kindOffsets = new int[32];
+
+        BuildCompactRanks();
+
+        var expectedChecksum = CSharpCliDocMembers_OrderForSymbolPage();
+        var actualChecksum = NSharpCliDocMembers_OrderForSymbolPage();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI doc member-order checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        var expected = OrderMembersWithCSharp();
+        for (var i = 0; i < expected.Count; i++)
+        {
+            if (_nsharpResultIndices[i] != expected[i].Index)
+            {
+                throw new InvalidOperationException(
+                    $"N# CLI doc member-order mismatch for {Corpus} at ordered item {i}: " +
+                    $"expected source index {expected[i].Index}, got {_nsharpResultIndices[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCliDocMembers_OrderForSymbolPage()
+    {
+        var ordered = OrderMembersWithCSharp();
+        return ChecksumOrderedMembers(ordered);
+    }
+
+    [Benchmark]
+    public int NSharpCliDocMembers_OrderForSymbolPage() =>
+        _nsharpDocMemberOrderChecksumInto(
+            _kindRanks,
+            _nameRanks,
+            _includeFlags,
+            _nameCounts,
+            _nameOffsets,
+            _kindCounts,
+            _kindOffsets,
+            _tempIndices,
+            _nsharpResultIndices);
+
+    private void BuildCompactRanks()
+    {
+        var names = new string[_members.Length];
+        for (var i = 0; i < _members.Length; i++)
+        {
+            var member = _members[i];
+            _kindRanks[i] = CliDocOrderingBenchmarks.GetDocSymbolKindRank(member.Kind);
+            _includeFlags[i] = 1;
+            names[i] = member.Name;
+        }
+
+        Array.Sort(names, StringComparer.Ordinal);
+        var nameRanks = new Dictionary<string, int>(StringComparer.Ordinal);
+        var rank = 1;
+        foreach (var name in names)
+        {
+            if (nameRanks.ContainsKey(name))
+                continue;
+
+            nameRanks.Add(name, rank);
+            rank++;
+        }
+
+        for (var i = 0; i < _members.Length; i++)
+        {
+            _nameRanks[i] = nameRanks[_members[i].Name];
+        }
+    }
+
+    private List<DocMemberEntry> OrderMembersWithCSharp() =>
+        _members
+            .OrderBy(member => member.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .ToList();
+
+    private int ChecksumOrderedMembers(IReadOnlyList<DocMemberEntry> ordered)
+    {
+        var checksum = ordered.Count;
+        for (var i = 0; i < ordered.Count; i++)
+        {
+            var index = ordered[i].Index;
+            checksum += (i + 1) * 97 + (index + 1) * 31 + _kindRanks[index] * 17 + _nameRanks[index] * 13;
+        }
+
+        return checksum;
+    }
+
+    private static DocMemberEntry[] BuildMembers(int count)
+    {
+        var names = new[]
+        {
+            "Id",
+            "Name",
+            "Amount",
+            "CreatedAt",
+            "UpdatedAt",
+            "Validate",
+            "TryParse",
+            "Serialize",
+            "Deserialize",
+            "Handle",
+            "Execute",
+            "Cancel",
+            "Result",
+            "Error",
+            "Value",
+            "Count",
+            "Index",
+            "Current",
+            "MoveNext",
+            "Dispose"
+        };
+        var kinds = new[]
+        {
+            SymbolKind.Property,
+            SymbolKind.Field,
+            SymbolKind.Method,
+            SymbolKind.Constructor,
+            SymbolKind.Function,
+            SymbolKind.EnumMember,
+            SymbolKind.Parameter,
+            SymbolKind.Variable,
+            SymbolKind.TypeAlias,
+            SymbolKind.Class
+        };
+
+        var members = new DocMemberEntry[count];
+        for (var i = 0; i < count; i++)
+        {
+            var kind = kinds[(i * 5 + i / 13) % kinds.Length];
+            var baseName = names[(i * 11 + i / 7) % names.Length];
+            var name = i % 19 == 0
+                ? baseName
+                : $"{baseName}{i % 257}";
+            members[i] = new DocMemberEntry(i, name, kind);
+        }
+
+        return members;
+    }
+
+    private sealed record DocMemberEntry(int Index, string Name, SymbolKind Kind);
+
+    private delegate int CliDocSymbolOrderCountingChecksumInto(
+        int[] kindRanks,
+        int[] nameRanks,
+        int[] includeFlags,
+        int[] nameCounts,
+        int[] nameOffsets,
+        int[] kindCounts,
+        int[] kindOffsets,
+        int[] tempIndices,
+        int[] resultIndices);
+}

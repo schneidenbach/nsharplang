@@ -1114,6 +1114,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
+            AssertCliDocMemberOrderingLikeProduction(
+                cliDocSymbolOrderCountingIndicesInto,
+                cliDocSymbolOrderCountingChecksumInto);
             AssertTypoSuggestionsLikeProduction(
                 typoSuggestionIndicesInto,
                 typoSuggestionChecksumInto);
@@ -2714,6 +2717,88 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliDocMemberOrderingLikeProduction(
+        MethodInfo cliDocSymbolOrderCountingIndicesInto,
+        MethodInfo cliDocSymbolOrderCountingChecksumInto)
+    {
+        var members = new[]
+        {
+            (Kind: SymbolKind.Method, Name: "zeta"),
+            (Kind: SymbolKind.Function, Name: "alpha"),
+            (Kind: SymbolKind.Variable, Name: "value"),
+            (Kind: SymbolKind.Parameter, Name: "customer"),
+            (Kind: SymbolKind.Class, Name: "Customer"),
+            (Kind: SymbolKind.Property, Name: "Name"),
+            (Kind: SymbolKind.Method, Name: "alpha"),
+            (Kind: SymbolKind.Field, Name: "Amount")
+        };
+        var expected = members
+            .Select((member, index) => (member.Kind, member.Name, Index: index))
+            .OrderBy(member => member.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(member => member.Name, StringComparer.Ordinal)
+            .Select(member => member.Index)
+            .ToArray();
+
+        var kindRanks = new int[members.Length];
+        var nameRanks = new int[members.Length];
+        var includeFlags = Enumerable.Repeat(1, members.Length).ToArray();
+        var nameRankMap = members
+            .Select(member => member.Name)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .Select((name, index) => (name, rank: index + 1))
+            .ToDictionary(item => item.name, item => item.rank, StringComparer.Ordinal);
+        var kindRankMap = Enum.GetValues<SymbolKind>()
+            .OrderBy(kind => kind.ToString(), StringComparer.Ordinal)
+            .Select((kind, index) => (kind, rank: index + 1))
+            .ToDictionary(item => item.kind, item => item.rank);
+
+        for (var i = 0; i < members.Length; i++)
+        {
+            kindRanks[i] = kindRankMap[members[i].Kind];
+            nameRanks[i] = nameRankMap[members[i].Name];
+        }
+
+        var resultIndices = new int[members.Length];
+        var actualCount = (int)(cliDocSymbolOrderCountingIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                includeFlags,
+                new int[members.Length + 1],
+                new int[members.Length + 1],
+                new int[32],
+                new int[32],
+                new int[members.Length],
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[members.Length];
+        var actualChecksum = (int)(cliDocSymbolOrderCountingChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                includeFlags,
+                new int[members.Length + 1],
+                new int[members.Length + 1],
+                new int[32],
+                new int[32],
+                new int[members.Length],
+                checksumResultIndices
+            }) ?? -1);
+        var expectedChecksum = CliDocSymbolOrderChecksum(expected, kindRanks, nameRanks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
     }
 
     private static void AssertTypoSuggestionsLikeProduction(

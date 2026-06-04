@@ -105,6 +105,17 @@ internal static class NSharpCliDogfoodAdapter
     internal static bool TryOrderDocSymbolsForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         out List<SymbolResult> orderedSymbols)
+        => TryOrderDocEntriesForGeneration(symbols, includeAllKinds: false, out orderedSymbols);
+
+    internal static bool TryOrderDocMembersForGeneration(
+        IReadOnlyList<SymbolResult> members,
+        out List<SymbolResult> orderedMembers)
+        => TryOrderDocEntriesForGeneration(members, includeAllKinds: true, out orderedMembers);
+
+    private static bool TryOrderDocEntriesForGeneration(
+        IReadOnlyList<SymbolResult> symbols,
+        bool includeAllKinds,
+        out List<SymbolResult> orderedSymbols)
     {
         orderedSymbols = new List<SymbolResult>();
 
@@ -133,7 +144,7 @@ internal static class NSharpCliDogfoodAdapter
                 var symbol = symbols[i];
                 scratch.KindRanks[i] = GetDocSymbolKindRank(symbol.Kind);
                 scratch.NameRanks[i] = scratch.GetNameRank(symbol.Name);
-                scratch.IncludeFlags[i] = IsDocumentedSymbolKind(symbol.Kind) ? 1 : 0;
+                scratch.IncludeFlags[i] = (includeAllKinds || IsDocumentedSymbolKind(symbol.Kind)) ? 1 : 0;
             }
 
             var orderedCount = bindings.CliDocSymbolOrderCountingIndices(
