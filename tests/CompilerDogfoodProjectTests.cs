@@ -282,6 +282,8 @@ func documented(): int {
         Assert.Equal(2, (int)(groupingType.GetProperty("GroupCount")?.GetValue(grouping) ?? -1));
         Assert.Equal(new[] { 1, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("RootIndices")?.GetValue(grouping)).Take(2));
         Assert.Equal(new[] { 2, 1 }, Assert.IsType<int[]>(groupingType.GetProperty("Counts")?.GetValue(grouping)).Take(2));
+        Assert.Equal(new[] { 0, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("MemberStarts")?.GetValue(grouping)).Take(2));
+        Assert.Equal(new[] { 1, 0, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("MemberIndices")?.GetValue(grouping)).Take(3));
 
         var tryDeduplicateDiagnostics = adapterType.GetMethod(
                 "TryDeduplicateDiagnostics",
@@ -675,6 +677,14 @@ func documented(): int {
                     "DiagnosticClusterCompactGroupChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterCompactGroupChecksumInto.");
+            var diagnosticClusterCompactGroupMembersInto = programType.GetMethod(
+                    "DiagnosticClusterCompactGroupMembersInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterCompactGroupMembersInto.");
+            var diagnosticClusterCompactGroupMemberChecksumInto = programType.GetMethod(
+                    "DiagnosticClusterCompactGroupMemberChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterCompactGroupMemberChecksumInto.");
             var diagnosticDeduplicateCompactInto = programType.GetMethod(
                     "DiagnosticDeduplicateCompactInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -987,7 +997,9 @@ func main() {
                 diagnosticClusterNextCommandChecksumInto);
             AssertDiagnosticClusterGroupsLikeProduction(
                 diagnosticClusterCompactGroupsInto,
-                diagnosticClusterCompactGroupChecksumInto);
+                diagnosticClusterCompactGroupChecksumInto,
+                diagnosticClusterCompactGroupMembersInto,
+                diagnosticClusterCompactGroupMemberChecksumInto);
             AssertDiagnosticDeduplicationLikeProduction(
                 diagnosticDeduplicateCompactInto,
                 diagnosticDeduplicateCompactChecksumInto);
@@ -2803,7 +2815,9 @@ func main() {
 
     private static void AssertDiagnosticClusterGroupsLikeProduction(
         MethodInfo diagnosticClusterGroupsInto,
-        MethodInfo diagnosticClusterGroupChecksumInto)
+        MethodInfo diagnosticClusterGroupChecksumInto,
+        MethodInfo diagnosticClusterGroupMembersInto,
+        MethodInfo diagnosticClusterGroupMemberChecksumInto)
     {
         var codes = new[] { "NL102", "NL301", "NL102", "NL703", "NL301", "NL102", "NL102" };
         var codeIds = new[] { 102, 301, 102, 703, 301, 102, 102 };
@@ -2940,9 +2954,86 @@ func main() {
         Assert.Equal(expected.RootIndices.Length, actualCount);
         Assert.Equal(expected.RootIndices, actualRootIndices.Take(actualCount));
         Assert.Equal(expected.Counts, actualCounts.Take(actualCount));
+
+        var checksumMemberStarts = new int[codes.Length];
+        var checksumMemberIndices = new int[codes.Length];
+        var checksumMemberSlotGroups = new int[codes.Length * 2 + 1];
+        var checksumGroupFirstMemberIndices = new int[codes.Length];
+        var checksumMemberNextIndices = new int[codes.Length];
+        var actualMemberChecksum = (int)(diagnosticClusterGroupMemberChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                severityIds,
+                categoryIds,
+                sourceConstructIds,
+                recipeIds,
+                riskIds,
+                messagePatternIds,
+                files,
+                lines,
+                columns,
+                expected.RootIndices,
+                expected.Counts,
+                expected.RootIndices.Length,
+                checksumMemberSlotGroups,
+                checksumGroupFirstMemberIndices,
+                checksumMemberNextIndices,
+                checksumMemberStarts,
+                checksumMemberIndices
+            }) ?? -1);
+
+        var expectedMemberChecksum = expected.MemberIndices.Length;
+        for (var i = 0; i < expected.RootIndices.Length; i++)
+        {
+            expectedMemberChecksum += (expected.MemberStarts[i] + 1) * 31 + expected.Counts[i] * 17;
+        }
+
+        foreach (var index in expected.MemberIndices)
+        {
+            expectedMemberChecksum += (index + 1) * 13 + lines[index] * 7 + columns[index] * 5;
+        }
+
+        Assert.Equal(expectedMemberChecksum, actualMemberChecksum);
+        Assert.Equal(expected.MemberStarts, checksumMemberStarts.Take(expected.MemberStarts.Length));
+        Assert.Equal(expected.MemberIndices, checksumMemberIndices.Take(expected.MemberIndices.Length));
+
+        var actualMemberStarts = new int[codes.Length];
+        var actualMemberIndices = new int[codes.Length];
+        var actualMemberSlotGroups = new int[codes.Length * 2 + 1];
+        var actualGroupFirstMemberIndices = new int[codes.Length];
+        var actualMemberNextIndices = new int[codes.Length];
+        var actualMemberCount = (int)(diagnosticClusterGroupMembersInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                severityIds,
+                categoryIds,
+                sourceConstructIds,
+                recipeIds,
+                riskIds,
+                messagePatternIds,
+                files,
+                lines,
+                columns,
+                actualRootIndices,
+                actualCounts,
+                actualCount,
+                actualMemberSlotGroups,
+                actualGroupFirstMemberIndices,
+                actualMemberNextIndices,
+                actualMemberStarts,
+                actualMemberIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.MemberIndices.Length, actualMemberCount);
+        Assert.Equal(expected.MemberStarts, actualMemberStarts.Take(expected.MemberStarts.Length));
+        Assert.Equal(expected.MemberIndices, actualMemberIndices.Take(expected.MemberIndices.Length));
     }
 
-    private static (int[] RootIndices, int[] Counts) CreateExpectedDiagnosticClusterGroups(
+    private static (int[] RootIndices, int[] Counts, int[] MemberStarts, int[] MemberIndices) CreateExpectedDiagnosticClusterGroups(
         string[] codes,
         string[] severities,
         string[] categories,
@@ -2967,15 +3058,16 @@ func main() {
             })
             .Select(group =>
             {
-                var rootIndex = group
+                var members = group
                     .OrderBy(i => lines[i])
                     .ThenBy(i => columns[i])
                     .ThenBy(i => files[i], StringComparer.OrdinalIgnoreCase)
-                    .First();
+                    .ToArray();
                 return new
                 {
-                    RootIndex = rootIndex,
-                    Count = group.Count()
+                    RootIndex = members[0],
+                    Count = members.Length,
+                    Members = members
                 };
             })
             .OrderByDescending(group => group.Count)
@@ -2984,9 +3076,19 @@ func main() {
             .ThenBy(group => columns[group.RootIndex])
             .ToArray();
 
+        var memberStarts = new int[groups.Length];
+        var memberIndices = new List<int>(codes.Length);
+        for (var i = 0; i < groups.Length; i++)
+        {
+            memberStarts[i] = memberIndices.Count;
+            memberIndices.AddRange(groups[i].Members);
+        }
+
         return (
             groups.Select(static group => group.RootIndex).ToArray(),
-            groups.Select(static group => group.Count).ToArray());
+            groups.Select(static group => group.Count).ToArray(),
+            memberStarts,
+            memberIndices.ToArray());
     }
 
     private static void AssertDiagnosticDeduplicationLikeProduction(

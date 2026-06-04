@@ -490,6 +490,278 @@ func DiagnosticClusterCompactGroupChecksumInto(
     return checksum
 }
 
+func DiagnosticClusterCompactGroupMembersInto(
+    codeIds: int[],
+    severityIds: int[],
+    categoryIds: int[],
+    sourceConstructIds: int[],
+    recipeIds: int[],
+    riskIds: int[],
+    messagePatternIds: int[],
+    files: string[],
+    lines: int[],
+    columns: int[],
+    groupRootIndices: int[],
+    groupCounts: int[],
+    groupCount: int,
+    slotGroups: int[],
+    groupFirstMemberIndices: int[],
+    memberNextIndices: int[],
+    resultStarts: int[],
+    resultMemberIndices: int[]): int {
+    count := MinInt(codeIds.Length, severityIds.Length)
+    count = MinInt(count, categoryIds.Length)
+    count = MinInt(count, sourceConstructIds.Length)
+    count = MinInt(count, recipeIds.Length)
+    count = MinInt(count, riskIds.Length)
+    count = MinInt(count, messagePatternIds.Length)
+    count = MinInt(count, files.Length)
+    count = MinInt(count, lines.Length)
+    count = MinInt(count, columns.Length)
+    groupLimit := MinInt(groupCount, groupRootIndices.Length)
+    groupLimit = MinInt(groupLimit, groupCounts.Length)
+    groupLimit = MinInt(groupLimit, resultStarts.Length)
+    groupLimit = MinInt(groupLimit, groupFirstMemberIndices.Length)
+
+    if groupCount < 0 || groupLimit != groupCount {
+        return -1
+    }
+
+    if groupCount == 0 {
+        return 0
+    }
+
+    if slotGroups.Length == 0 || memberNextIndices.Length < count {
+        return -1
+    }
+
+    i := 0
+    while i < slotGroups.Length {
+        slotGroups[i] = -1
+        i = i + 1
+    }
+
+    groupIndex := 0
+    totalExpected := 0
+    while groupIndex < groupCount {
+        rootIndex := groupRootIndices[groupIndex]
+        expectedCount := groupCounts[groupIndex]
+        if rootIndex < 0 || rootIndex >= count || expectedCount < 0 {
+            return -1
+        }
+
+        totalExpected = totalExpected + expectedCount
+        if totalExpected > resultMemberIndices.Length {
+            return -1
+        }
+
+        groupFirstMemberIndices[groupIndex] = -1
+        resultStarts[groupIndex] = 0
+
+        hash := HashDiagnosticClusterCompactGroupingKey(
+            severityIds[rootIndex],
+            codeIds[rootIndex],
+            categoryIds[rootIndex],
+            sourceConstructIds[rootIndex],
+            recipeIds[rootIndex],
+            riskIds[rootIndex],
+            messagePatternIds[rootIndex])
+        slot := PositiveModulo(hash, slotGroups.Length)
+        probes := 0
+        placed := false
+        while probes < slotGroups.Length {
+            candidateGroup := slotGroups[slot]
+            if candidateGroup < 0 {
+                slotGroups[slot] = groupIndex
+                placed = true
+                break
+            }
+
+            candidateRoot := groupRootIndices[candidateGroup]
+            if DiagnosticClusterCompactGroupingKeysEqual(
+                rootIndex,
+                candidateRoot,
+                codeIds,
+                severityIds,
+                categoryIds,
+                sourceConstructIds,
+                recipeIds,
+                riskIds,
+                messagePatternIds) {
+                return -1
+            }
+
+            slot = slot + 1
+            if slot == slotGroups.Length {
+                slot = 0
+            }
+
+            probes = probes + 1
+        }
+
+        if !placed {
+            return -1
+        }
+
+        groupIndex = groupIndex + 1
+    }
+
+    diagnosticIndex := 0
+    while diagnosticIndex < count {
+        hash := HashDiagnosticClusterCompactGroupingKey(
+            severityIds[diagnosticIndex],
+            codeIds[diagnosticIndex],
+            categoryIds[diagnosticIndex],
+            sourceConstructIds[diagnosticIndex],
+            recipeIds[diagnosticIndex],
+            riskIds[diagnosticIndex],
+            messagePatternIds[diagnosticIndex])
+        slot := PositiveModulo(hash, slotGroups.Length)
+        probes := 0
+        groupIndex = -1
+        while probes < slotGroups.Length {
+            candidateGroup := slotGroups[slot]
+            if candidateGroup < 0 {
+                break
+            }
+
+            rootIndex := groupRootIndices[candidateGroup]
+            if DiagnosticClusterCompactGroupingKeysEqual(
+                diagnosticIndex,
+                rootIndex,
+                codeIds,
+                severityIds,
+                categoryIds,
+                sourceConstructIds,
+                recipeIds,
+                riskIds,
+                messagePatternIds) {
+                groupIndex = candidateGroup
+                break
+            }
+
+            slot = slot + 1
+            if slot == slotGroups.Length {
+                slot = 0
+            }
+
+            probes = probes + 1
+        }
+
+        if groupIndex < 0 {
+            return -1
+        }
+
+        resultStarts[groupIndex] = resultStarts[groupIndex] + 1
+        memberNextIndices[diagnosticIndex] = -1
+        firstMember := groupFirstMemberIndices[groupIndex]
+        if firstMember < 0 || IsDiagnosticClusterRootBefore(diagnosticIndex, firstMember, files, lines, columns) {
+            memberNextIndices[diagnosticIndex] = firstMember
+            groupFirstMemberIndices[groupIndex] = diagnosticIndex
+        } else {
+            previousMember := firstMember
+            currentMember := memberNextIndices[previousMember]
+            while currentMember >= 0
+                && !IsDiagnosticClusterRootBefore(diagnosticIndex, currentMember, files, lines, columns) {
+                previousMember = currentMember
+                currentMember = memberNextIndices[currentMember]
+            }
+
+            memberNextIndices[diagnosticIndex] = currentMember
+            memberNextIndices[previousMember] = diagnosticIndex
+        }
+
+        diagnosticIndex = diagnosticIndex + 1
+    }
+
+    offset := 0
+    groupIndex = 0
+    while groupIndex < groupCount {
+        expectedCount := groupCounts[groupIndex]
+        if resultStarts[groupIndex] != expectedCount {
+            return -1
+        }
+
+        resultStarts[groupIndex] = offset
+        written := 0
+        memberIndex := groupFirstMemberIndices[groupIndex]
+        while memberIndex >= 0 {
+            resultMemberIndices[offset + written] = memberIndex
+            written = written + 1
+            memberIndex = memberNextIndices[memberIndex]
+        }
+
+        if written != expectedCount {
+            return -1
+        }
+
+        offset = offset + written
+        groupIndex = groupIndex + 1
+    }
+
+    return offset
+}
+
+func DiagnosticClusterCompactGroupMemberChecksumInto(
+    codeIds: int[],
+    severityIds: int[],
+    categoryIds: int[],
+    sourceConstructIds: int[],
+    recipeIds: int[],
+    riskIds: int[],
+    messagePatternIds: int[],
+    files: string[],
+    lines: int[],
+    columns: int[],
+    groupRootIndices: int[],
+    groupCounts: int[],
+    groupCount: int,
+    slotGroups: int[],
+    groupFirstMemberIndices: int[],
+    memberNextIndices: int[],
+    resultStarts: int[],
+    resultMemberIndices: int[]): int {
+    total := DiagnosticClusterCompactGroupMembersInto(
+        codeIds,
+        severityIds,
+        categoryIds,
+        sourceConstructIds,
+        recipeIds,
+        riskIds,
+        messagePatternIds,
+        files,
+        lines,
+        columns,
+        groupRootIndices,
+        groupCounts,
+        groupCount,
+        slotGroups,
+        groupFirstMemberIndices,
+        memberNextIndices,
+        resultStarts,
+        resultMemberIndices)
+
+    if total < 0 {
+        return total
+    }
+
+    checksum := total
+    groupIndex := 0
+    while groupIndex < groupCount {
+        checksum = checksum + (resultStarts[groupIndex] + 1) * 31 + groupCounts[groupIndex] * 17
+        groupIndex = groupIndex + 1
+    }
+
+    i := 0
+    while i < total {
+        index := resultMemberIndices[i]
+        checksum = checksum + (index + 1) * 13 + lines[index] * 7 + columns[index] * 5
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func SortDiagnosticClusterGroups(
     resultRootIndices: int[],
     resultCounts: int[],

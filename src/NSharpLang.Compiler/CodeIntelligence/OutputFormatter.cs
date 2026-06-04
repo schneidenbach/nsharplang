@@ -858,19 +858,31 @@ public static class OutputFormatter
             if (rootIndex < 0 || rootIndex >= classified.Items.Count)
                 return false;
 
-            ordered.Clear();
-            for (var diagnosticIndex = 0; diagnosticIndex < classified.Items.Count; diagnosticIndex++)
+            var memberStart = grouping.MemberStarts[groupIndex];
+            var memberCount = grouping.Counts[groupIndex];
+            if (memberStart < 0
+                || memberCount < 0
+                || memberStart > grouping.MemberIndices.Length - memberCount)
             {
-                if (grouping.KeyMatches(rootIndex, diagnosticIndex))
-                {
-                    ordered.Add(classified.Items[diagnosticIndex].Diagnostic);
-                }
+                return false;
             }
 
-            if (ordered.Count != grouping.Counts[groupIndex])
+            ordered.Clear();
+            for (var memberOffset = 0; memberOffset < memberCount; memberOffset++)
+            {
+                var diagnosticIndex = grouping.MemberIndices[memberStart + memberOffset];
+                if (diagnosticIndex < 0 || diagnosticIndex >= classified.Items.Count)
+                    return false;
+
+                ordered.Add(classified.Items[diagnosticIndex].Diagnostic);
+            }
+
+            if (ordered.Count != memberCount)
                 return false;
 
-            ordered.Sort(CompareDiagnosticClusterRoots);
+            if (memberCount > 0 && grouping.MemberIndices[memberStart] != rootIndex)
+                return false;
+
             var traits = classified.Items[rootIndex].Traits;
             clusters.Add(CreateDiagnosticCluster(ordered, traits));
         }

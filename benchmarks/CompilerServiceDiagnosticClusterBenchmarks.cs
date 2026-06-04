@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using BenchmarkDotNet.Attributes;
@@ -384,6 +385,384 @@ public class CompilerServiceCodeIntelligenceDiagnosticClusterGroupBenchmarks
         }
 
         return count;
+    }
+}
+
+/// <summary>
+/// Dogfood benchmark for diagnostic cluster member index collection after compact grouping.
+///
+/// The current production bridge already gets ordered group roots/counts from N#, but then scans all
+/// diagnostics once per group in C# and sorts each group's members before materializing public
+/// cluster objects. This benchmark isolates that post-group member collection step. The N# candidate
+/// writes flattened, per-group, root-ordered diagnostic indices into caller-owned buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDiagnosticClusterGroupMemberBenchmarks
+{
+    private const int LargeDiagnosticCount = 8192;
+    private const int RepresentativeDiagnosticCount = 1024;
+
+    private DiagnosticClusterGroupMemberChecksumInto _nsharpDiagnosticClusterGroupMemberChecksumInto =
+        (_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int[] _categoryIds = Array.Empty<int>();
+    private string[] _categories = Array.Empty<string>();
+    private int[] _codeIds = Array.Empty<int>();
+    private string[] _codes = Array.Empty<string>();
+    private int[] _columns = Array.Empty<int>();
+    private int[] _csharpMemberIndices = Array.Empty<int>();
+    private int[] _csharpStarts = Array.Empty<int>();
+    private int _diagnosticCount;
+    private string[] _files = Array.Empty<string>();
+    private int _groupCount;
+    private int[] _groupCounts = Array.Empty<int>();
+    private int[] _groupRootIndices = Array.Empty<int>();
+    private int[] _lines = Array.Empty<int>();
+    private int[] _messagePatternIds = Array.Empty<int>();
+    private string[] _messagePatterns = Array.Empty<string>();
+    private int[] _nsharpGroupFirstMemberIndices = Array.Empty<int>();
+    private int[] _nsharpMemberIndices = Array.Empty<int>();
+    private int[] _nsharpMemberNextIndices = Array.Empty<int>();
+    private int[] _nsharpSlotGroups = Array.Empty<int>();
+    private int[] _nsharpStarts = Array.Empty<int>();
+    private int[] _recipeIds = Array.Empty<int>();
+    private string[] _recipes = Array.Empty<string>();
+    private int[] _riskIds = Array.Empty<int>();
+    private string[] _risks = Array.Empty<string>();
+    private int[] _severityIds = Array.Empty<int>();
+    private string[] _severities = Array.Empty<string>();
+    private int[] _sourceConstructIds = Array.Empty<int>();
+    private string[] _sourceConstructs = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _diagnosticCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeDiagnosticCount
+            : LargeDiagnosticCount;
+        _nsharpDiagnosticClusterGroupMemberChecksumInto =
+            NSharpCompiledMethod.Bind<DiagnosticClusterGroupMemberChecksumInto>(
+                DogfoodCompilerSources.CodeIntelligenceDiagnosticClusters,
+                "DiagnosticClusterCompactGroupMemberChecksumInto");
+
+        _codes = new string[_diagnosticCount];
+        _codeIds = new int[_diagnosticCount];
+        _severities = new string[_diagnosticCount];
+        _severityIds = new int[_diagnosticCount];
+        _categories = new string[_diagnosticCount];
+        _categoryIds = new int[_diagnosticCount];
+        _sourceConstructs = new string[_diagnosticCount];
+        _sourceConstructIds = new int[_diagnosticCount];
+        _recipes = new string[_diagnosticCount];
+        _recipeIds = new int[_diagnosticCount];
+        _risks = new string[_diagnosticCount];
+        _riskIds = new int[_diagnosticCount];
+        _messagePatterns = new string[_diagnosticCount];
+        _messagePatternIds = new int[_diagnosticCount];
+        _files = new string[_diagnosticCount];
+        _lines = new int[_diagnosticCount];
+        _columns = new int[_diagnosticCount];
+        _groupRootIndices = new int[_diagnosticCount];
+        _groupCounts = new int[_diagnosticCount];
+        _csharpStarts = new int[_diagnosticCount];
+        _nsharpStarts = new int[_diagnosticCount];
+        _csharpMemberIndices = new int[_diagnosticCount];
+        _nsharpMemberIndices = new int[_diagnosticCount];
+        _nsharpSlotGroups = new int[_diagnosticCount * 2 + 1];
+        _nsharpGroupFirstMemberIndices = new int[_diagnosticCount];
+        _nsharpMemberNextIndices = new int[_diagnosticCount];
+
+        BuildDiagnosticClusterFields();
+        BuildExpectedGroups();
+
+        var expectedChecksum = CSharpDiagnosticClusterGroupMembers_QueryBatch();
+        var actualChecksum = NSharpDiagnosticClusterGroupMembers_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster group-member checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpStarts.Take(_groupCount).SequenceEqual(_nsharpStarts.Take(_groupCount))
+            || !_csharpMemberIndices.SequenceEqual(_nsharpMemberIndices))
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster group-member indices mismatch for {Corpus}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpDiagnosticClusterGroupMembers_QueryBatch()
+    {
+        Array.Clear(_csharpStarts);
+        Array.Clear(_csharpMemberIndices);
+
+        var members = new List<int>();
+        var offset = 0;
+        for (var groupIndex = 0; groupIndex < _groupCount; groupIndex++)
+        {
+            var rootIndex = _groupRootIndices[groupIndex];
+            members.Clear();
+            for (var diagnosticIndex = 0; diagnosticIndex < _diagnosticCount; diagnosticIndex++)
+            {
+                if (KeysEqual(rootIndex, diagnosticIndex))
+                {
+                    members.Add(diagnosticIndex);
+                }
+            }
+
+            members.Sort(CompareDiagnosticRoots);
+            _csharpStarts[groupIndex] = offset;
+            for (var i = 0; i < members.Count; i++)
+            {
+                _csharpMemberIndices[offset + i] = members[i];
+            }
+
+            offset += members.Count;
+        }
+
+        return BuildChecksum(_csharpStarts, _csharpMemberIndices, offset);
+    }
+
+    [Benchmark]
+    public int NSharpDiagnosticClusterGroupMembers_QueryBatch() =>
+        _nsharpDiagnosticClusterGroupMemberChecksumInto(
+            _codeIds,
+            _severityIds,
+            _categoryIds,
+            _sourceConstructIds,
+            _recipeIds,
+            _riskIds,
+            _messagePatternIds,
+            _files,
+            _lines,
+            _columns,
+            _groupRootIndices,
+            _groupCounts,
+            _groupCount,
+            _nsharpSlotGroups,
+            _nsharpGroupFirstMemberIndices,
+            _nsharpMemberNextIndices,
+            _nsharpStarts,
+            _nsharpMemberIndices);
+
+    private delegate int DiagnosticClusterGroupMemberChecksumInto(
+        int[] codeIds,
+        int[] severityIds,
+        int[] categoryIds,
+        int[] sourceConstructIds,
+        int[] recipeIds,
+        int[] riskIds,
+        int[] messagePatternIds,
+        string[] files,
+        int[] lines,
+        int[] columns,
+        int[] groupRootIndices,
+        int[] groupCounts,
+        int groupCount,
+        int[] slotGroups,
+        int[] groupFirstMemberIndices,
+        int[] memberNextIndices,
+        int[] resultStarts,
+        int[] resultMemberIndices);
+
+    private void BuildExpectedGroups()
+    {
+        var groups = Enumerable.Range(0, _diagnosticCount)
+            .GroupBy(i => new
+            {
+                Severity = _severities[i],
+                Code = _codes[i],
+                Category = _categories[i],
+                SourceConstruct = _sourceConstructs[i],
+                Recipe = _recipes[i],
+                Risk = _risks[i],
+                MessagePattern = _messagePatterns[i]
+            })
+            .Select(group =>
+            {
+                var rootIndex = group
+                    .OrderBy(i => _lines[i])
+                    .ThenBy(i => _columns[i])
+                    .ThenBy(i => _files[i], StringComparer.OrdinalIgnoreCase)
+                    .First();
+                return new
+                {
+                    RootIndex = rootIndex,
+                    Count = group.Count()
+                };
+            })
+            .OrderByDescending(group => group.Count)
+            .ThenBy(group => _files[group.RootIndex], StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => _lines[group.RootIndex])
+            .ThenBy(group => _columns[group.RootIndex])
+            .ToArray();
+
+        _groupCount = groups.Length;
+        for (var i = 0; i < groups.Length; i++)
+        {
+            _groupRootIndices[i] = groups[i].RootIndex;
+            _groupCounts[i] = groups[i].Count;
+        }
+    }
+
+    private int BuildChecksum(int[] starts, int[] memberIndices, int total)
+    {
+        var checksum = total;
+        for (var groupIndex = 0; groupIndex < _groupCount; groupIndex++)
+        {
+            checksum += (starts[groupIndex] + 1) * 31 + _groupCounts[groupIndex] * 17;
+        }
+
+        for (var i = 0; i < total; i++)
+        {
+            var index = memberIndices[i];
+            checksum += (index + 1) * 13 + _lines[index] * 7 + _columns[index] * 5;
+        }
+
+        return checksum;
+    }
+
+    private bool KeysEqual(int left, int right) =>
+        _severityIds[left] == _severityIds[right]
+        && _codeIds[left] == _codeIds[right]
+        && _categoryIds[left] == _categoryIds[right]
+        && _sourceConstructIds[left] == _sourceConstructIds[right]
+        && _recipeIds[left] == _recipeIds[right]
+        && _riskIds[left] == _riskIds[right]
+        && _messagePatternIds[left] == _messagePatternIds[right];
+
+    private int CompareDiagnosticRoots(int left, int right)
+    {
+        var diff = _lines[left].CompareTo(_lines[right]);
+        if (diff != 0)
+            return diff;
+
+        diff = _columns[left].CompareTo(_columns[right]);
+        if (diff != 0)
+            return diff;
+
+        return StringComparer.OrdinalIgnoreCase.Compare(_files[left], _files[right]);
+    }
+
+    private void BuildDiagnosticClusterFields()
+    {
+        var messageBucketCount = Corpus == CompilerLexerCorpus.Representative ? 64 : 128;
+        for (var i = 0; i < _diagnosticCount; i++)
+        {
+            var shape = i % 8;
+            _codes[i] = shape switch
+            {
+                0 or 1 => "NL102",
+                2 => "NL703",
+                3 => "NL301",
+                4 => "NL201",
+                5 => "NL202",
+                6 => "NL303",
+                _ => "NL999"
+            };
+            _codeIds[i] = shape switch
+            {
+                0 or 1 => 102,
+                2 => 703,
+                3 => 301,
+                4 => 201,
+                5 => 202,
+                6 => 303,
+                _ => 999
+            };
+            _severities[i] = shape switch
+            {
+                0 or 1 or 2 or 5 => "error",
+                3 or 6 => "warning",
+                4 => "info",
+                _ => "hint"
+            };
+            _severityIds[i] = shape switch
+            {
+                0 or 1 or 2 or 5 => 1,
+                3 or 6 => 2,
+                4 => 3,
+                _ => 4
+            };
+            _categories[i] = shape switch
+            {
+                0 => "syntax-missing-delimiter",
+                1 => "syntax-missing-terminator",
+                2 => "import-cycle",
+                3 => "identifier-resolution",
+                4 => "type-resolution",
+                5 => "type-mismatch",
+                6 => "member-resolution",
+                _ => "diagnostic-message-shape"
+            };
+            _categoryIds[i] = shape + 1;
+            _sourceConstructs[i] = shape switch
+            {
+                0 => "function-declaration",
+                1 => "variable-declaration",
+                2 => "import",
+                3 => "variable-declaration",
+                4 => "class-declaration",
+                5 => "return-statement",
+                6 => "call-or-construction",
+                _ => "unknown-construct"
+            };
+            _sourceConstructIds[i] = shape switch
+            {
+                0 => 1,
+                1 or 3 => 2,
+                2 => 3,
+                4 => 4,
+                5 => 5,
+                6 => 6,
+                _ => 7
+            };
+            _recipes[i] = shape switch
+            {
+                0 => "syntax:delimiter-balancing",
+                1 => "syntax:statement-boundary",
+                2 => "architecture:extract-shared-module-or-invert-dependency",
+                3 => "symbols:missing-import-or-qualification",
+                4 => "types:resolve-type-or-import",
+                5 => "refactor:signature-or-expression-shape",
+                6 => "members:api-rename-or-extension-import",
+                _ => "manual-triage:inspect-root-diagnostic"
+            };
+            _recipeIds[i] = shape + 1;
+            _risks[i] = shape switch
+            {
+                0 or 1 or 2 => "high",
+                3 or 4 or 5 or 6 => "medium",
+                _ => "low"
+            };
+            _riskIds[i] = shape switch
+            {
+                0 or 1 or 2 => 1,
+                3 or 4 or 5 or 6 => 2,
+                _ => 3
+            };
+            var messageBucket = (i / 8) % messageBucketCount;
+            _messagePatterns[i] = $"Expected diagnostic shape {messageBucket}:{shape} while preserving cluster grouping";
+            _messagePatternIds[i] = messageBucket * 8 + shape;
+            _files[i] = (i % 11) switch
+            {
+                0 => $"/repo/src/Program{i % 17}.nl",
+                1 => $"/repo/src/generated/File-{i % 19}.nl",
+                2 => $"/repo/src/with space/File {i % 13}.nl",
+                3 => $@"C:\repo\module\File{i % 23}.nl",
+                4 => $"/repo/src/quoted\"File{i % 29}.nl",
+                5 => "/repo/src/Main.nl",
+                6 => $"/repo/src/café/Module{i % 7}.nl",
+                _ => $"/repo/src/[weird]/File{i % 31}.nl"
+            };
+            _lines[i] = (i * 37 % 400) + 1;
+            _columns[i] = (i * 17 % 80) + 1;
+        }
     }
 }
 

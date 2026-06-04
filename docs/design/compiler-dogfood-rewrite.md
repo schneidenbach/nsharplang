@@ -567,6 +567,16 @@ and about 10.59x faster on the large generated diagnostic cluster corpus (77.336
 0 B vs 719,184 B). This is acceptance-grade benchmark evidence for the compact integer grouping
 shape after category/source/rewrite/message dimensions have been classified.
 
+`DiagnosticClusterCompactGroupMembersInto` passed parity and reported zero managed allocation in the
+same normal BenchmarkDotNet evidence tier for post-group diagnostic member indexing. The first
+candidate only removed allocation because it still rescanned all diagnostics once per group; the
+accepted kernel hashes the sorted group roots, scans diagnostics once, keeps per-group linked lists
+ordered by root location, and flattens member indices into caller-owned buffers. It ran about 43.6x
+faster on the representative diagnostic cluster corpus (11.179 us vs 487.282 us, 0 B vs 32,840 B)
+and about 66.8x faster on the large generated diagnostic cluster corpus (115.806 us vs 7.741 ms,
+0 B vs 65,664 B). The production clustered-diagnostic formatter now consumes those N# member spans
+instead of running the former C# per-group scan and sort.
+
 `DiagnosticClusterIdsInto` passed parity but missed the normal BenchmarkDotNet speed gate for public
 cluster id string materialization. After replacing per-id hex `ToString("x")` and final string
 concatenation with a reusable N# char buffer, the N# path avoided the temporary composite key

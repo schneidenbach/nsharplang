@@ -456,17 +456,35 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             if (groupCount < 0 || groupCount > count)
                 return false;
 
-            grouping = new DiagnosticClusterGrouping(
-                groupCount,
-                scratch.RootIndices,
-                scratch.Counts,
+            var memberTotal = bindings.DiagnosticClusterCompactGroupMembers(
                 scratch.CodeIds,
                 scratch.SeverityIds,
                 scratch.CategoryIds,
                 scratch.SourceConstructIds,
                 scratch.RecipeIds,
                 scratch.RiskIds,
-                scratch.MessagePatternIds);
+                scratch.MessagePatternIds,
+                scratch.Files,
+                scratch.Lines,
+                scratch.Columns,
+                scratch.RootIndices,
+                scratch.Counts,
+                groupCount,
+                scratch.SlotGroups,
+                scratch.GroupFirstMemberIndices,
+                scratch.MemberNextIndices,
+                scratch.MemberStarts,
+                scratch.MemberIndices);
+
+            if (memberTotal != count)
+                return false;
+
+            grouping = new DiagnosticClusterGrouping(
+                groupCount,
+                scratch.RootIndices,
+                scratch.Counts,
+                scratch.MemberStarts,
+                scratch.MemberIndices);
             return true;
         }
         catch
@@ -806,6 +824,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
+                CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(programType, "DiagnosticClusterCompactGroupMembersInto"),
                 CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateCompactInto"),
                 CreateDelegate<ReferenceDeduplicateCompactInto>(programType, "ReferenceDeduplicateCompactInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
@@ -984,6 +1003,26 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultRootIndices,
         int[] resultCounts);
 
+    private delegate int DiagnosticClusterCompactGroupMembersInto(
+        int[] codeIds,
+        int[] severityIds,
+        int[] categoryIds,
+        int[] sourceConstructIds,
+        int[] recipeIds,
+        int[] riskIds,
+        int[] messagePatternIds,
+        string[] files,
+        int[] lines,
+        int[] columns,
+        int[] groupRootIndices,
+        int[] groupCounts,
+        int groupCount,
+        int[] slotGroups,
+        int[] groupFirstMemberIndices,
+        int[] memberNextIndices,
+        int[] resultStarts,
+        int[] resultMemberIndices);
+
     private delegate int DiagnosticDeduplicateCompactInto(
         int[] codeIds,
         int[] fileRanks,
@@ -1092,6 +1131,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
+        DiagnosticClusterCompactGroupMembersInto DiagnosticClusterCompactGroupMembers,
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateCompact,
         ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
@@ -1106,45 +1146,21 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             int groupCount,
             int[] rootIndices,
             int[] counts,
-            int[] codeIds,
-            int[] severityIds,
-            int[] categoryIds,
-            int[] sourceConstructIds,
-            int[] recipeIds,
-            int[] riskIds,
-            int[] messagePatternIds)
+            int[] memberStarts,
+            int[] memberIndices)
         {
             GroupCount = groupCount;
             RootIndices = rootIndices;
             Counts = counts;
-            CodeIds = codeIds;
-            SeverityIds = severityIds;
-            CategoryIds = categoryIds;
-            SourceConstructIds = sourceConstructIds;
-            RecipeIds = recipeIds;
-            RiskIds = riskIds;
-            MessagePatternIds = messagePatternIds;
+            MemberStarts = memberStarts;
+            MemberIndices = memberIndices;
         }
 
         public int GroupCount { get; }
         public int[] RootIndices { get; }
         public int[] Counts { get; }
-        public int[] CodeIds { get; }
-        public int[] SeverityIds { get; }
-        public int[] CategoryIds { get; }
-        public int[] SourceConstructIds { get; }
-        public int[] RecipeIds { get; }
-        public int[] RiskIds { get; }
-        public int[] MessagePatternIds { get; }
-
-        public bool KeyMatches(int left, int right) =>
-            SeverityIds[left] == SeverityIds[right]
-            && CodeIds[left] == CodeIds[right]
-            && CategoryIds[left] == CategoryIds[right]
-            && SourceConstructIds[left] == SourceConstructIds[right]
-            && RecipeIds[left] == RecipeIds[right]
-            && RiskIds[left] == RiskIds[right]
-            && MessagePatternIds[left] == MessagePatternIds[right];
+        public int[] MemberStarts { get; }
+        public int[] MemberIndices { get; }
     }
 
     private sealed class CompletionReceiverScratch
@@ -1185,8 +1201,12 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         public int[] Columns = Array.Empty<int>();
         public string[] Files = Array.Empty<string>();
         public int[] Counts = Array.Empty<int>();
+        public int[] GroupFirstMemberIndices = Array.Empty<int>();
         public int[] GroupKeyIndices = Array.Empty<int>();
         public int[] Lines = Array.Empty<int>();
+        public int[] MemberIndices = Array.Empty<int>();
+        public int[] MemberNextIndices = Array.Empty<int>();
+        public int[] MemberStarts = Array.Empty<int>();
         public int[] MessagePatternIds = Array.Empty<int>();
         public int[] RecipeIds = Array.Empty<int>();
         public int[] RiskIds = Array.Empty<int>();
@@ -1210,6 +1230,10 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 Lines = new int[count];
                 Columns = new int[count];
                 GroupKeyIndices = new int[count];
+                GroupFirstMemberIndices = new int[count];
+                MemberIndices = new int[count];
+                MemberNextIndices = new int[count];
+                MemberStarts = new int[count];
                 RootIndices = new int[count];
                 Counts = new int[count];
             }
