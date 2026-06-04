@@ -49,6 +49,7 @@ This is non-negotiable. Unit tests are necessary but NOT sufficient for IDE tool
 
 ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU're DONE!
 ALWAYS: Clean up unnecessary code as you go, and run your tests after cleaning up the code.
+ALWAYS: While the compiler rewrite/dogfood work is in progress, default to the non-VS-Code product gate for backend-only work. Do not spend VS Code test time unless the change affects Language Server, LSP, VS Code extension, or IDE developer-experience behavior.
 ALWAYS: For compiler, SDK, CLI, runtime, benchmark, and documentation work that does NOT affect the IDE developer experience, run the full non-VS-Code product gate using `VSCODE_TESTS=skip ./scripts/test-all.sh`. This is MANDATORY. A cached pass is acceptable for local development feedback only.
 ALWAYS: For those same non-IDE changes, RUN `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` BEFORE COMMITTING ANY CODE. This forces a fresh isolated product-gate run without VS Code integration tests; cached results are not accepted for commits. If it fails, fix the failures first!
 ALWAYS: If the change touches the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE, do NOT set `VSCODE_TESTS=skip`. Run the appropriate VS Code-enabled gate with `./scripts/test-all.sh` (or `./scripts/test-all.sh --commit` before committing) in addition to the mandatory visual IDE verification below.
