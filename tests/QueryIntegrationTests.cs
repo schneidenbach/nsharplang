@@ -1319,6 +1319,7 @@ func Main() {
         // Signature should mention "Hi" and its return type
         Assert.Contains("Hi", result.Signature, StringComparison.Ordinal);
         Assert.Contains("int", result.Signature, StringComparison.Ordinal);
+        Assert.Contains("A simple hello-world program", result.Documentation);
     }
 
     [Fact]

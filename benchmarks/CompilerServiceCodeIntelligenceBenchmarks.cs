@@ -1025,6 +1025,220 @@ public class CompilerServiceCodeIntelligenceCompletionPrefixBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for leading doc-comment extraction used by hover documentation.
+///
+/// The current C# helper reads logical lines, walks backward from the declaration line, trims each
+/// candidate line, strips leading slashes, and materializes the joined documentation string. The N#
+/// candidate reuses cached line ranges and computes the same doc-line count and joined text length
+/// without allocating intermediate line strings; the production adapter materializes only the final
+/// hover documentation string.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDocCommentBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int> _nsharpBuildLineRangesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string, int[], int[], int, int[], int[], int[], int> _nsharpDocCommentChecksumFromLinesInto =
+        (_, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpLineCounts = Array.Empty<int>();
+    private int[] _csharpTextLengths = Array.Empty<int>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _nsharpLineCounts = Array.Empty<int>();
+    private int[] _nsharpTextLengths = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int _lineCount;
+    private int _queryCount;
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus)
+            + "\n// Adds two values\n"
+            + "///   Returns the sum  \n"
+            + "\n"
+            + "func documentedAdd(left: int, right: int): int {\n"
+            + "    return left + right\n"
+            + "}\n"
+            + "\n"
+            + "///\n"
+            + "func documentedEmpty(): int {\n"
+            + "    return 0\n"
+            + "}\n";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpBuildLineRangesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceLineRangesInto");
+        _nsharpDocCommentChecksumFromLinesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int, int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceDocCommentChecksumFromLinesInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpLineCounts = new int[_queryCount];
+        _csharpTextLengths = new int[_queryCount];
+        _nsharpLineCounts = new int[_queryCount];
+        _nsharpTextLengths = new int[_queryCount];
+
+        BuildQueries();
+        _lineCount = _nsharpBuildLineRangesInto(_source, _lineStarts, _lineLengths);
+
+        var expectedChecksum = CSharpCodeIntelligenceDocComments_QueryBatch();
+        var actualChecksum = NSharpCodeIntelligenceDocComments_CachedLineRanges_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# doc-comment checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpLineCounts.SequenceEqual(_nsharpLineCounts)
+            || !_csharpTextLengths.SequenceEqual(_nsharpTextLengths))
+        {
+            var mismatch = FirstMismatch(_csharpLineCounts, _csharpTextLengths, _nsharpLineCounts, _nsharpTextLengths);
+            throw new InvalidOperationException(
+                $"N# doc-comment mismatch for {Corpus} at query {mismatch}: line {_queryLines[mismatch]}, " +
+                $"expected {_csharpLineCounts[mismatch]}/{_csharpTextLengths[mismatch]}, " +
+                $"got {_nsharpLineCounts[mismatch]}/{_nsharpTextLengths[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceDocComments_QueryBatch()
+    {
+        var checksum = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var documentation = ExtractDocComment(_source, _queryLines[i]);
+            var lineCount = CountDocLines(documentation);
+            var textLength = documentation?.Length ?? -1;
+            _csharpLineCounts[i] = lineCount;
+            _csharpTextLengths[i] = textLength;
+            checksum += lineCount * 13 + textLength * 7;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceDocComments_CachedLineRanges_QueryBatch() =>
+        _nsharpDocCommentChecksumFromLinesInto(
+            _source,
+            _lineStarts,
+            _lineLengths,
+            _lineCount,
+            _queryLines,
+            _nsharpLineCounts,
+            _nsharpTextLengths);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (i % 37 == 0)
+            {
+                _queryLines[i] = i % 2 == 0 ? 0 : lines.Length + 1;
+                continue;
+            }
+
+            _queryLines[i] = i * 17 % lines.Length + 1;
+        }
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Contains("func documentedAdd", StringComparison.Ordinal)
+                || lines[i].Contains("func documentedEmpty", StringComparison.Ordinal))
+            {
+                _queryLines[i % _queryLines.Length] = i + 1;
+            }
+        }
+    }
+
+    private static string? ExtractDocComment(string source, int definitionLine)
+    {
+        try
+        {
+            if (definitionLine <= 1)
+            {
+                return null;
+            }
+
+            var lines = source.Split('\n');
+            var commentLines = new List<string>();
+
+            for (var i = definitionLine - 2; i >= 0; i--)
+            {
+                var trimmed = lines[i].Trim();
+                if (trimmed.StartsWith("//", StringComparison.Ordinal))
+                {
+                    commentLines.Insert(0, trimmed.TrimStart('/').Trim());
+                }
+                else if (string.IsNullOrWhiteSpace(trimmed) && commentLines.Count == 0)
+                {
+                    continue;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            return commentLines.Count > 0 ? string.Join("\n", commentLines) : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static int CountDocLines(string? documentation)
+    {
+        if (documentation == null)
+        {
+            return 0;
+        }
+
+        var count = 1;
+        foreach (var current in documentation)
+        {
+            if (current == '\n')
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static int FirstMismatch(int[] expectedStarts, int[] expectedLengths, int[] actualStarts, int[] actualLengths)
+    {
+        for (var i = 0; i < expectedStarts.Length; i++)
+        {
+            if (expectedStarts[i] != actualStarts[i] || expectedLengths[i] != actualLengths[i])
+            {
+                return i;
+            }
+        }
+
+        return -1;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for variable declaration name extraction used by type/definition query
 /// candidate resolution on declaration lines.
 ///

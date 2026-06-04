@@ -646,6 +646,145 @@ func CodeIntelligenceCompletionPrefixesFromLinesInto(
     return foundCount
 }
 
+func CodeIntelligenceDocCommentChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    resultLineCounts: int[],
+    resultTextLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceDocCommentChecksumFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        resultLineCounts,
+        resultTextLengths)
+}
+
+func CodeIntelligenceDocCommentChecksumFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    resultLineCounts: int[],
+    resultTextLengths: int[]): int {
+    checksum := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        definitionLine := queryLines[i]
+        startLine := FindCodeIntelligenceDocCommentStartLine(
+            source,
+            lineStarts,
+            lineLengths,
+            lineCount,
+            definitionLine)
+
+        commentLineCount := 0
+        textLength := -1
+
+        if startLine >= 0 {
+            lineIndex := startLine
+            lastLineIndex := definitionLine - 2
+            joinedLength := 0
+
+            while lineIndex <= lastLineIndex {
+                lineStart := lineStarts[lineIndex]
+                lineLength := lineLengths[lineIndex]
+
+                if IsCodeIntelligenceDocCommentLine(source, lineStart, lineLength) {
+                    contentStart := GetCodeIntelligenceDocCommentContentStart(source, lineStart, lineLength)
+                    contentLength := GetCodeIntelligenceDocCommentContentLength(source, lineStart, lineLength, contentStart)
+
+                    if commentLineCount > 0 {
+                        joinedLength = joinedLength + 1
+                    }
+
+                    joinedLength = joinedLength + contentLength
+                    commentLineCount = commentLineCount + 1
+                }
+
+                lineIndex = lineIndex + 1
+            }
+
+            if commentLineCount > 0 {
+                textLength = joinedLength
+            }
+        }
+
+        resultLineCounts[i] = commentLineCount
+        resultTextLengths[i] = textLength
+        checksum = checksum + commentLineCount * 13 + textLength * 7
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceDocCommentLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    definitionLine: int,
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceDocCommentLinesFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        definitionLine,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceDocCommentLinesFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    definitionLine: int,
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    startLine := FindCodeIntelligenceDocCommentStartLine(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        definitionLine)
+
+    if startLine < 0 {
+        return 0
+    }
+
+    resultCount := 0
+    lineIndex := startLine
+    lastLineIndex := definitionLine - 2
+
+    while lineIndex <= lastLineIndex {
+        lineStart := lineStarts[lineIndex]
+        lineLength := lineLengths[lineIndex]
+
+        if IsCodeIntelligenceDocCommentLine(source, lineStart, lineLength) {
+            contentStart := GetCodeIntelligenceDocCommentContentStart(source, lineStart, lineLength)
+            contentLength := GetCodeIntelligenceDocCommentContentLength(source, lineStart, lineLength, contentStart)
+            resultStarts[resultCount] = contentStart
+            resultLengths[resultCount] = contentLength
+            resultCount = resultCount + 1
+        }
+
+        lineIndex = lineIndex + 1
+    }
+
+    return resultCount
+}
+
 func CodeIntelligenceVariableDeclarationNameChecksumInto(
     source: string,
     lineStarts: int[],
@@ -1020,6 +1159,114 @@ func FindCodeIntelligenceAssignmentOperator(source: string, lineStart: int, line
     }
 
     return -1
+}
+
+func FindCodeIntelligenceDocCommentStartLine(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    definitionLine: int): int {
+    if definitionLine <= 1 || definitionLine > lineCount + 1 {
+        return -1
+    }
+
+    commentCount := 0
+    startLine := -1
+    lineIndex := definitionLine - 2
+
+    while lineIndex >= 0 {
+        lineStart := lineStarts[lineIndex]
+        lineLength := lineLengths[lineIndex]
+
+        if IsCodeIntelligenceDocCommentLine(source, lineStart, lineLength) {
+            startLine = lineIndex
+            commentCount = commentCount + 1
+            lineIndex = lineIndex - 1
+            continue
+        }
+
+        if commentCount == 0 && IsCodeIntelligenceBlankLine(source, lineStart, lineLength) {
+            lineIndex = lineIndex - 1
+            continue
+        }
+
+        break
+    }
+
+    return startLine
+}
+
+func IsCodeIntelligenceDocCommentLine(source: string, lineStart: int, lineLength: int): bool {
+    trimStart := lineStart
+    trimEnd := lineStart + lineLength - 1
+
+    while trimStart <= trimEnd && IsCodeIntelligenceWhitespace(source[trimStart]) {
+        trimStart = trimStart + 1
+    }
+
+    while trimEnd >= trimStart && IsCodeIntelligenceWhitespace(source[trimEnd]) {
+        trimEnd = trimEnd - 1
+    }
+
+    return trimStart + 1 <= trimEnd
+        && source[trimStart] == '/'
+        && source[trimStart + 1] == '/'
+}
+
+func IsCodeIntelligenceBlankLine(source: string, lineStart: int, lineLength: int): bool {
+    i := 0
+
+    while i < lineLength {
+        if !IsCodeIntelligenceWhitespace(source[lineStart + i]) {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
+func GetCodeIntelligenceDocCommentContentStart(source: string, lineStart: int, lineLength: int): int {
+    trimStart := lineStart
+    trimEnd := lineStart + lineLength - 1
+
+    while trimStart <= trimEnd && IsCodeIntelligenceWhitespace(source[trimStart]) {
+        trimStart = trimStart + 1
+    }
+
+    while trimEnd >= trimStart && IsCodeIntelligenceWhitespace(source[trimEnd]) {
+        trimEnd = trimEnd - 1
+    }
+
+    while trimStart <= trimEnd && source[trimStart] == '/' {
+        trimStart = trimStart + 1
+    }
+
+    while trimStart <= trimEnd && IsCodeIntelligenceWhitespace(source[trimStart]) {
+        trimStart = trimStart + 1
+    }
+
+    return trimStart
+}
+
+func GetCodeIntelligenceDocCommentContentLength(
+    source: string,
+    lineStart: int,
+    lineLength: int,
+    contentStart: int): int {
+    contentEnd := lineStart + lineLength - 1
+
+    while contentEnd >= contentStart && IsCodeIntelligenceWhitespace(source[contentEnd]) {
+        contentEnd = contentEnd - 1
+    }
+
+    if contentEnd < contentStart {
+        return 0
+    }
+
+    return contentEnd - contentStart + 1
 }
 
 func FindNearestCodeIntelligenceIdentifierIndex(

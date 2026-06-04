@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
 
@@ -36,6 +37,30 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         catch
         {
             span = null;
+            return false;
+        }
+    }
+
+    internal static bool TryExtractDocComment(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string source,
+        int definitionLine,
+        out string? documentation)
+    {
+        documentation = null;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = GetFileCache(snapshot, filePath, source);
+            return cache.TryExtractDocComment(bindings, definitionLine, out documentation);
+        }
+        catch
+        {
+            documentation = null;
             return false;
         }
     }
@@ -227,6 +252,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
                 CreateDelegate<CodeIntelligenceCompletionPrefixesFromLinesInto>(programType, "CodeIntelligenceCompletionPrefixesFromLinesInto"),
+                CreateDelegate<CodeIntelligenceDocCommentLinesFromLinesInto>(programType, "CodeIntelligenceDocCommentLinesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
                 CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"),
                 CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
@@ -301,6 +327,15 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int CodeIntelligenceDocCommentLinesFromLinesInto(
+        string source,
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int definitionLine,
+        int[] resultStarts,
+        int[] resultLengths);
+
     private delegate int CodeIntelligenceMemberReceiversFromCacheInto(
         string source,
         int[] lineStarts,
@@ -344,6 +379,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
         CodeIntelligenceCompletionPrefixesFromLinesInto CompletionPrefixesFromLines,
+        CodeIntelligenceDocCommentLinesFromLinesInto DocCommentLinesFromLines,
         CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
         CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines,
         CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
@@ -426,6 +462,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private sealed class FileCache
     {
         private readonly object _gate = new();
+        private readonly int[] _docCommentLengths;
+        private readonly int[] _docCommentStarts;
         private readonly int[] _lineLengths;
         private readonly int[] _lineStarts;
         private readonly int[] _memberStartColumns = new int[1];
@@ -447,6 +485,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         {
             _source = source;
             var capacity = source.Length + 1;
+            _docCommentStarts = new int[capacity];
+            _docCommentLengths = new int[capacity];
             _lineStarts = new int[capacity];
             _lineLengths = new int[capacity];
             _receiverStartsBySeparator = new int[capacity];
@@ -472,6 +512,41 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                     return true;
 
                 span = (start, start + length - 1);
+                return true;
+            }
+        }
+
+        public bool TryExtractDocComment(Bindings bindings, int definitionLine, out string? documentation)
+        {
+            documentation = null;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                var lineCount = bindings.DocCommentLinesFromLines(
+                    _source,
+                    _lineStarts,
+                    _lineLengths,
+                    _lineCount,
+                    definitionLine,
+                    _docCommentStarts,
+                    _docCommentLengths);
+
+                if (lineCount <= 0)
+                    return true;
+
+                var builder = new StringBuilder();
+                for (var i = 0; i < lineCount; i++)
+                {
+                    if (i > 0)
+                    {
+                        builder.Append('\n');
+                    }
+
+                    builder.Append(_source, _docCommentStarts[i], _docCommentLengths[i]);
+                }
+
+                documentation = builder.ToString();
                 return true;
             }
         }

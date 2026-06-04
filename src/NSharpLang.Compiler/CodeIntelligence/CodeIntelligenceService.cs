@@ -738,6 +738,23 @@ public class CodeIntelligenceService
 
         if (absolutePath == null) return null;
 
+        var source = GetSourceText(snapshot, absolutePath);
+        if (source != null
+            && NSharpCodeIntelligenceDogfoodAdapter.TryExtractDocComment(
+                snapshot,
+                absolutePath,
+                source,
+                definitionLine,
+                out var dogfoodDocumentation))
+        {
+            return dogfoodDocumentation;
+        }
+
+        return ExtractDocCommentFallback(absolutePath, definitionLine);
+    }
+
+    private static string? ExtractDocCommentFallback(string absolutePath, int definitionLine)
+    {
         try
         {
             var lines = File.ReadAllLines(absolutePath);

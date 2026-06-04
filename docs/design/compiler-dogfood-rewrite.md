@@ -1,7 +1,7 @@
 # Compiler Dogfood Rewrite Plan
 
 Status: active goal
-Updated: 2026-06-03
+Updated: 2026-06-04
 
 This document tracks the rewrite of the N# compiler, compiler services, and CLI tooling in N#.
 It is not a straight port. The goal is to use the systems-oriented parts of N# to make the
@@ -242,6 +242,13 @@ Current code-intelligence dogfood benchmarks:
   selected line prefix with `Substring`, while columns less than one or past the line return the
   whole selected line. The N# candidate reuses cached line ranges and emits absolute prefix
   start/length pairs through `CodeIntelligenceCompletionPrefixesFromLinesInto`.
+- `CompilerServiceCodeIntelligenceDocCommentBenchmarks` targets leading doc-comment extraction used
+  by hover documentation. The C# baseline mirrors the current helper: each queried declaration line
+  splits the source into logical lines, walks backward across leading `//` comments, trims comment
+  content, and materializes the joined documentation string. The N# candidate reuses cached line
+  ranges and emits doc-comment content spans/counts through
+  `CodeIntelligenceDocCommentLinesFromLinesInto`; the production adapter materializes only the final
+  hover documentation string.
 - `CompilerServiceCodeIntelligenceVariableDeclarationBenchmarks` targets variable declaration name
   extraction used by type and definition query candidate resolution on declaration lines. The C#
   baseline mirrors `ExtractVariableDeclarationNameAtPosition`: each queried line calls
@@ -262,7 +269,9 @@ direct scanner and the cached by-line API, including Unicode identifier characte
 lines, missing-name assignments, and invalid lines. Raw source-line span parity now covers invalid
 lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing `\r`
 characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns, in-range
-columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content. The
+columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content.
+Doc-comment span parity covers invalid declaration lines, blank lines immediately above the
+declaration, `//`, `///`, and `////` prefixes, trimmed content, and empty comment content. The
 N# candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
@@ -296,6 +305,12 @@ corpus (1.269 us vs 478.162 us, 0 B vs 4,229,816 B) and about 423,000x faster on
 corpus (145.567 ns vs 61.663 ms, 0 B vs 129,589,768 B). This is acceptance-grade benchmark evidence
 for cached completion-prefix lookup after line ranges are built.
 
+`CodeIntelligenceDocCommentLinesFromLinesInto` passed parity and reported zero managed allocation in
+the same normal BenchmarkDotNet evidence tier. It ran about 62x faster on the representative corpus
+(9.236 us vs 569.155 us, 0 B vs 4,688,008 B) and about 48,500x faster on the large generated corpus
+(1.296 us vs 62.896 ms, 0 B vs 127,635,392 B). This is acceptance-grade benchmark evidence for
+cached hover doc-comment extraction after line ranges are built.
+
 `CodeIntelligenceVariableDeclarationNamesFromCacheInto` passed parity and reported zero managed
 allocation in the same normal BenchmarkDotNet evidence tier. It ran about 829x faster on the
 representative corpus (667.271 ns vs 553.418 us, 0 B vs 4,650,632 B) and about 646,000x faster on
@@ -308,19 +323,19 @@ language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, wh
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
 The adapter caches line ranges, receiver caches, and variable-declaration name caches per
 `ProjectSnapshot`/file, uses cached line ranges for reference source-context and raw diagnostic-line
-materialization plus completion-prefix extraction, and falls back to the old C# scanners only when
-the dogfood assembly is unavailable.
+materialization plus completion-prefix and hover doc-comment extraction, and falls back to the old C#
+scanners only when the dogfood assembly is unavailable.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` that do not carry a `ProjectSnapshot`.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
-completion-prefix, and variable-declaration-name queries through the compiled N# methods;
+completion-prefix, doc-comment, and variable-declaration-name queries through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
-including trimmed reference contexts. This is swap evidence for the identifier-span, member-receiver,
-reference source-context, diagnostic/lint raw source-line, completion-prefix, and variable
-declaration name extraction slice only. Broader query, hover, definition, diagnostic, completion
-candidate construction, binding, and CLI command logic still contains C# implementation code and
-remains in scope for the dogfood rewrite.
+including trimmed reference contexts and hover documentation. This is swap evidence for the
+identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
+completion-prefix, hover doc-comment, and variable declaration name extraction slice only. Broader
+query, hover, definition, diagnostic, completion candidate construction, binding, and CLI command
+logic still contains C# implementation code and remains in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -395,7 +410,9 @@ normal BenchmarkDotNet speed gate above 5x. The member-receiver candidate shows 
 the 5x win comes from a source-level receiver cache plus caller-owned buffers, not from calling a
 tiny backward scanner once per request. The source-context candidate proves reusable line ranges and
 span outputs avoid split-and-trim allocation for reference output, and the production adapter now
-materializes reference contexts from those spans. Diagnostic and hover output shaping still need the
-same treatment where they build source snippets. The production adapter keeps cache lifetime
-explicit, but the remaining code-intelligence work still needs N# implementations for semantic
-lookup, completion construction, output shaping, and CLI command orchestration.
+materializes reference contexts from those spans. Diagnostic snippets, completion prefixes, and hover
+doc comments now use the same cached-line-range shape for their extraction steps, while broader
+hover/diagnostic/completion output shaping still needs N# implementations. The production adapter
+keeps cache lifetime explicit, but the remaining code-intelligence work still needs N#
+implementations for semantic lookup, completion construction, output shaping, and CLI command
+orchestration.

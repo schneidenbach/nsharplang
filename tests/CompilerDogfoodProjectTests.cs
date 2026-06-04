@@ -88,6 +88,24 @@ func main() {
         Assert.True((bool)(tryExtractSourceLine.Invoke(null, blankLineArgs) ?? false));
         Assert.Equal(string.Empty, blankLineArgs[4]);
 
+        var tryExtractDocComment = adapterType.GetMethod(
+                "TryExtractDocComment",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractDocComment.");
+
+        var docSource = """
+// First line
+//   Second line~~
+
+func documented(): int {
+    return 1
+}
+""".Replace('~', ' ');
+        var docFilePath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), $"dogfood-adapter-doc-{Guid.NewGuid():N}.nl"));
+        var docCommentArgs = new object?[] { snapshot, docFilePath, docSource, 4, null };
+        Assert.True((bool)(tryExtractDocComment.Invoke(null, docCommentArgs) ?? false));
+        Assert.Equal("First line\nSecond line", docCommentArgs[4]);
+
         var tryExtractCompletionPrefix = adapterType.GetMethod(
                 "TryExtractCompletionPrefix",
                 BindingFlags.Static | BindingFlags.NonPublic,
@@ -247,6 +265,18 @@ func main() {
                     "CodeIntelligenceCompletionPrefixesFromLinesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionPrefixesFromLinesInto.");
+            var codeIntelligenceDocCommentChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceDocCommentChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceDocCommentChecksumInto.");
+            var codeIntelligenceDocCommentLinesInto = programType.GetMethod(
+                    "CodeIntelligenceDocCommentLinesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceDocCommentLinesInto.");
+            var codeIntelligenceDocCommentLinesFromLinesInto = programType.GetMethod(
+                    "CodeIntelligenceDocCommentLinesFromLinesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceDocCommentLinesFromLinesInto.");
             var codeIntelligenceVariableDeclarationNameChecksumInto = programType.GetMethod(
                     "CodeIntelligenceVariableDeclarationNameChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -437,6 +467,34 @@ func main(customer: Customer, résumé: Profile) {
                 codeIntelligenceCompletionPrefixChecksumInto,
                 codeIntelligenceCompletionPrefixesInto,
                 codeIntelligenceCompletionPrefixesFromLinesInto);
+            AssertDocCommentsLikeProduction(
+                """
+// ignored
+
+// First line
+///   Second line~~
+//// Third line
+~~~~
+func documented(): int {
+    return 1
+}
+
+// Nearest line only
+
+// Skipped because blank follows comment
+func another(): int {
+    return 2
+}
+
+// Empty follows
+///
+func emptyDoc(): int {
+    return 3
+}
+""".Replace('~', ' '),
+                codeIntelligenceDocCommentChecksumInto,
+                codeIntelligenceDocCommentLinesInto,
+                codeIntelligenceDocCommentLinesFromLinesInto);
             AssertVariableDeclarationNamesLikeProduction(
                 """
 func main() {
@@ -1284,6 +1342,85 @@ func main() {
         Assert.Equal(expectedLengths, cachedLengths);
     }
 
+    private static void AssertDocCommentsLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceDocCommentChecksumInto,
+        MethodInfo codeIntelligenceDocCommentLinesInto,
+        MethodInfo codeIntelligenceDocCommentLinesFromLinesInto)
+    {
+        var lines = source.Split('\n');
+        var queryLines = new List<int> { 0, lines.Length + 1 };
+        for (var line = 1; line <= lines.Length; line++)
+        {
+            queryLines.Add(line);
+        }
+
+        var queries = queryLines.ToArray();
+        var expectedLineCounts = new int[queries.Length];
+        var expectedTextLengths = new int[queries.Length];
+        var expectedChecksum = 0;
+
+        for (var i = 0; i < queries.Length; i++)
+        {
+            var spans = ExtractDocCommentSpans(source, queries[i]);
+            var textLength = spans.Count == 0 ? -1 : spans.Sum(span => span.Length) + spans.Count - 1;
+            expectedLineCounts[i] = spans.Count;
+            expectedTextLengths[i] = textLength;
+            expectedChecksum += spans.Count * 13 + textLength * 7;
+        }
+
+        var lineStarts = new int[source.Length + 1];
+        var lineLengths = new int[source.Length + 1];
+        var actualLineCounts = new int[queries.Length];
+        var actualTextLengths = new int[queries.Length];
+        var actualChecksum = (int)(codeIntelligenceDocCommentChecksumInto.Invoke(
+            null,
+            new object[] { source, lineStarts, lineLengths, queries, actualLineCounts, actualTextLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedLineCounts, actualLineCounts);
+        Assert.Equal(expectedTextLengths, actualTextLengths);
+
+        var cachedLineStarts = new int[source.Length + 1];
+        var cachedLineLengths = new int[source.Length + 1];
+        var lineCount = BuildLineRanges(source, cachedLineStarts, cachedLineLengths);
+
+        foreach (var query in queries)
+        {
+            var expected = ExtractDocComment(source, query);
+            var expectedSpans = ExtractDocCommentSpans(source, query);
+
+            var directStarts = new int[source.Length + 1];
+            var directLengths = new int[source.Length + 1];
+            var directLineStarts = new int[source.Length + 1];
+            var directLineLengths = new int[source.Length + 1];
+            var directCount = (int)(codeIntelligenceDocCommentLinesInto.Invoke(
+                null,
+                new object[] { source, directLineStarts, directLineLengths, query, directStarts, directLengths }) ?? -1);
+
+            Assert.Equal(expectedSpans.Count, directCount);
+            Assert.Equal(expected, MaterializeDocComment(source, directStarts, directLengths, directCount));
+
+            var cachedStarts = new int[source.Length + 1];
+            var cachedLengths = new int[source.Length + 1];
+            var cachedCount = (int)(codeIntelligenceDocCommentLinesFromLinesInto.Invoke(
+                null,
+                new object[]
+                {
+                    source,
+                    cachedLineStarts,
+                    cachedLineLengths,
+                    lineCount,
+                    query,
+                    cachedStarts,
+                    cachedLengths
+                }) ?? -1);
+
+            Assert.Equal(expectedSpans.Count, cachedCount);
+            Assert.Equal(expected, MaterializeDocComment(source, cachedStarts, cachedLengths, cachedCount));
+        }
+    }
+
     private static void AssertVariableDeclarationNamesLikeProduction(
         string source,
         MethodInfo codeIntelligenceVariableDeclarationNameChecksumInto,
@@ -1563,6 +1700,93 @@ func main() {
         return column > 0 && column <= lineText.Length
             ? lineText.Substring(0, column)
             : lineText;
+    }
+
+    private static string? ExtractDocComment(string source, int definitionLine)
+    {
+        var spans = ExtractDocCommentSpans(source, definitionLine);
+        return spans.Count > 0
+            ? string.Join("\n", spans.Select(span => source.Substring(span.Start, span.Length)))
+            : null;
+    }
+
+    private static List<(int Start, int Length)> ExtractDocCommentSpans(string source, int definitionLine)
+    {
+        var spans = new List<(int Start, int Length)>();
+        var lines = source.Split('\n');
+        if (definitionLine <= 1 || definitionLine > lines.Length)
+            return spans;
+
+        var startLine = -1;
+        var commentCount = 0;
+        for (var i = definitionLine - 2; i >= 0; i--)
+        {
+            var trimmed = lines[i].Trim();
+            if (trimmed.StartsWith("//", StringComparison.Ordinal))
+            {
+                startLine = i;
+                commentCount++;
+            }
+            else if (string.IsNullOrWhiteSpace(trimmed) && commentCount == 0)
+            {
+                continue;
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        if (startLine < 0)
+            return spans;
+
+        var lineStarts = BuildLfLineStarts(source);
+        for (var i = startLine; i <= definitionLine - 2; i++)
+        {
+            var span = ExtractDocCommentContentSpan(lines[i], lineStarts[i]);
+            if (span != null)
+            {
+                spans.Add(span.Value);
+            }
+        }
+
+        return spans;
+    }
+
+    private static (int Start, int Length)? ExtractDocCommentContentSpan(string lineText, int lineStart)
+    {
+        var trimStart = 0;
+        var trimEnd = lineText.Length - 1;
+
+        while (trimStart <= trimEnd && char.IsWhiteSpace(lineText[trimStart]))
+            trimStart++;
+
+        while (trimEnd >= trimStart && char.IsWhiteSpace(lineText[trimEnd]))
+            trimEnd--;
+
+        if (trimStart + 1 > trimEnd || lineText[trimStart] != '/' || lineText[trimStart + 1] != '/')
+            return null;
+
+        while (trimStart <= trimEnd && lineText[trimStart] == '/')
+            trimStart++;
+
+        while (trimStart <= trimEnd && char.IsWhiteSpace(lineText[trimStart]))
+            trimStart++;
+
+        while (trimEnd >= trimStart && char.IsWhiteSpace(lineText[trimEnd]))
+            trimEnd--;
+
+        return trimEnd < trimStart
+            ? (lineStart + trimStart, 0)
+            : (lineStart + trimStart, trimEnd - trimStart + 1);
+    }
+
+    private static string? MaterializeDocComment(string source, int[] starts, int[] lengths, int count)
+    {
+        if (count <= 0)
+            return null;
+
+        return string.Join("\n", Enumerable.Range(0, count).Select(i => source.Substring(starts[i], lengths[i])));
     }
 
     private static string? ExtractVariableDeclarationName(string source, int line)
