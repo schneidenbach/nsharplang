@@ -859,6 +859,172 @@ public class CompilerServiceCodeIntelligenceSourceLineBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for completion prefix extraction used before deciding identifier vs member
+/// access completion.
+///
+/// The current C# completion engine splits the whole file and materializes the text before the
+/// cursor for each request. The N# candidate reuses cached line ranges and writes absolute prefix
+/// spans into caller-owned result buffers, preserving completion's current column behavior: columns
+/// less than one or past the line return the whole selected line.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceCompletionPrefixBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int> _nsharpBuildLineRangesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<int[], int[], int, int[], int[], int[], int[], int> _nsharpCompletionPrefixesFromLinesInto =
+        (_, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpPrefixLengths = Array.Empty<int>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int[] _nsharpPrefixLengths = Array.Empty<int>();
+    private int[] _nsharpPrefixStarts = Array.Empty<int>();
+    private int[] _queryColumns = Array.Empty<int>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int _lineCount;
+    private int _queryCount;
+    private string _source = string.Empty;
+    private string?[] _expectedPrefixes = Array.Empty<string?>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus)
+            + "    Console.\r\n"
+            + "\tname.ToUpper().\n"
+            + "\n";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpBuildLineRangesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceLineRangesInto");
+        _nsharpCompletionPrefixesFromLinesInto =
+            NSharpCompiledMethod.Bind<Func<int[], int[], int, int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceCompletionPrefixesFromLinesInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpPrefixLengths = new int[_queryCount];
+        _nsharpPrefixStarts = new int[_queryCount];
+        _nsharpPrefixLengths = new int[_queryCount];
+
+        BuildQueries();
+        _lineCount = _nsharpBuildLineRangesInto(_source, _lineStarts, _lineLengths);
+
+        _expectedPrefixes = new string?[_queryLines.Length];
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            _expectedPrefixes[i] = ExtractCompletionPrefix(_source, _queryLines[i], _queryColumns[i]);
+        }
+
+        var expectedCount = CSharpCodeIntelligenceCompletionPrefixes_QueryBatch();
+        var actualCount = NSharpCodeIntelligenceCompletionPrefixes_CachedLineRanges_QueryBatch();
+        if (expectedCount != actualCount)
+        {
+            throw new InvalidOperationException(
+                $"N# completion prefix count mismatch for {Corpus}: expected {expectedCount}, got {actualCount}.");
+        }
+
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var actual = _nsharpPrefixStarts[i] >= 0
+                ? _source.Substring(_nsharpPrefixStarts[i], _nsharpPrefixLengths[i])
+                : null;
+            if (!string.Equals(_expectedPrefixes[i], actual, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"N# completion prefix mismatch for {Corpus} at query {i}: line {_queryLines[i]}, column {_queryColumns[i]}, " +
+                    $"expected {FormatContext(_expectedPrefixes[i])}, got {FormatContext(actual)}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceCompletionPrefixes_QueryBatch()
+    {
+        var foundCount = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var prefix = ExtractCompletionPrefix(_source, _queryLines[i], _queryColumns[i]);
+            _csharpPrefixLengths[i] = prefix?.Length ?? -1;
+            if (prefix != null)
+            {
+                foundCount++;
+            }
+        }
+
+        return foundCount;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceCompletionPrefixes_CachedLineRanges_QueryBatch() =>
+        _nsharpCompletionPrefixesFromLinesInto(
+            _lineStarts,
+            _lineLengths,
+            _lineCount,
+            _queryLines,
+            _queryColumns,
+            _nsharpPrefixStarts,
+            _nsharpPrefixLengths);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+        _queryColumns = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        for (var i = 0; i < _queryCount; i++)
+        {
+            if (i % 37 == 0)
+            {
+                _queryLines[i] = i % 2 == 0 ? 0 : lines.Length + 1;
+                _queryColumns[i] = 1;
+                continue;
+            }
+
+            var line = i * 17 % lines.Length + 1;
+            var lineLength = lines[line - 1].Length;
+            _queryLines[i] = line;
+            _queryColumns[i] = i % 5 switch
+            {
+                0 => 0,
+                1 => 1,
+                2 => Math.Max(1, lineLength >> 1),
+                3 => lineLength,
+                _ => lineLength + 10
+            };
+        }
+    }
+
+    private static string? ExtractCompletionPrefix(string source, int line, int column)
+    {
+        var lines = source.Split('\n');
+        if (line <= 0 || line > lines.Length)
+        {
+            return null;
+        }
+
+        var lineText = lines[line - 1];
+        return column > 0 && column <= lineText.Length
+            ? lineText.Substring(0, column)
+            : lineText;
+    }
+
+    private static string FormatContext(string? context) =>
+        context == null ? "<null>" : $"\"{context}\"";
+}
+
+/// <summary>
 /// Dogfood benchmark for variable declaration name extraction used by type/definition query
 /// candidate resolution on declaration lines.
 ///

@@ -559,6 +559,93 @@ func CodeIntelligenceSourceLinesFromLinesInto(
     return foundCount
 }
 
+func CodeIntelligenceCompletionPrefixChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    CodeIntelligenceCompletionPrefixesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        queryLines,
+        queryColumns,
+        resultStarts,
+        resultLengths)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        prefixStart := resultStarts[i]
+        prefixLength := resultLengths[i]
+        checksum = checksum + prefixStart * 31 + prefixLength * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceCompletionPrefixesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceCompletionPrefixesFromLinesInto(
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        queryColumns,
+        resultStarts,
+        resultLengths)
+}
+
+func CodeIntelligenceCompletionPrefixesFromLinesInto(
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    queryColumns: int[],
+    resultStarts: int[],
+    resultLengths: int[]): int {
+    foundCount := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        prefixStart := -1
+        prefixLength := 0
+        line := queryLines[i]
+        column := queryColumns[i]
+
+        if line > 0 && line <= lineCount {
+            lineIndex := line - 1
+            prefixStart = lineStarts[lineIndex]
+            prefixLength = lineLengths[lineIndex]
+
+            if column > 0 && column <= prefixLength {
+                prefixLength = column
+            }
+
+            foundCount = foundCount + 1
+        }
+
+        resultStarts[i] = prefixStart
+        resultLengths[i] = prefixLength
+        i = i + 1
+    }
+
+    return foundCount
+}
+
 func CodeIntelligenceVariableDeclarationNameChecksumInto(
     source: string,
     lineStarts: int[],

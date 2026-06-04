@@ -98,14 +98,10 @@ public class CompletionEngine
             return EmptyResult(CompletionContext.Unknown);
         }
 
-        var lines = sourceText.Split('\n');
-        if (line <= 0 || line > lines.Length)
+        if (!TryExtractCompletionPrefix(snapshot, filePath, sourceText, line, col, out var beforeCursor))
         {
             return EmptyResult(CompletionContext.Unknown);
         }
-
-        var lineText = lines[line - 1];
-        var beforeCursor = col > 0 && col <= lineText.Length ? lineText.Substring(0, col) : lineText;
 
         // Detect context
         if (IsMemberAccessContext(beforeCursor))
@@ -118,6 +114,47 @@ public class CompletionEngine
     }
 
     // ── Member Access Completions ───────────────────────────────────────
+
+    private static bool TryExtractCompletionPrefix(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string sourceText,
+        int line,
+        int col,
+        [NotNullWhen(true)] out string? beforeCursor)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractCompletionPrefix(
+                snapshot,
+                filePath,
+                sourceText,
+                line,
+                col,
+                out var dogfoodPrefix))
+        {
+            beforeCursor = dogfoodPrefix;
+            return beforeCursor != null;
+        }
+
+        return TryExtractCompletionPrefixFallback(sourceText, line, col, out beforeCursor);
+    }
+
+    private static bool TryExtractCompletionPrefixFallback(
+        string sourceText,
+        int line,
+        int col,
+        [NotNullWhen(true)] out string? beforeCursor)
+    {
+        beforeCursor = null;
+        var lines = sourceText.Split('\n');
+        if (line <= 0 || line > lines.Length)
+        {
+            return false;
+        }
+
+        var lineText = lines[line - 1];
+        beforeCursor = col > 0 && col <= lineText.Length ? lineText.Substring(0, col) : lineText;
+        return true;
+    }
 
     private CompletionResult GetMemberAccessCompletions(CompilationUnit cu, SemanticModel? semanticModel,
         string beforeCursor, int line, int col, ProjectSnapshot snapshot)

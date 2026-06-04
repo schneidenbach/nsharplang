@@ -40,6 +40,31 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryExtractCompletionPrefix(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string source,
+        int line,
+        int column,
+        out string? prefix)
+    {
+        prefix = null;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = GetFileCache(snapshot, filePath, source);
+            return cache.TryExtractCompletionPrefix(bindings, line, column, out prefix);
+        }
+        catch
+        {
+            prefix = null;
+            return false;
+        }
+    }
+
     internal static bool TryExtractIdentifierName(
         ProjectSnapshot snapshot,
         string filePath,
@@ -201,6 +226,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BuildCodeIntelligenceMemberReceiverCacheInto>(programType, "BuildCodeIntelligenceMemberReceiverCacheInto"),
                 CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
+                CreateDelegate<CodeIntelligenceCompletionPrefixesFromLinesInto>(programType, "CodeIntelligenceCompletionPrefixesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
                 CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"),
                 CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
@@ -266,6 +292,15 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int CodeIntelligenceCompletionPrefixesFromLinesInto(
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int[] queryLines,
+        int[] queryColumns,
+        int[] resultStarts,
+        int[] resultLengths);
+
     private delegate int CodeIntelligenceMemberReceiversFromCacheInto(
         string source,
         int[] lineStarts,
@@ -308,6 +343,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
         BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
+        CodeIntelligenceCompletionPrefixesFromLinesInto CompletionPrefixesFromLines,
         CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
         CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines,
         CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
@@ -436,6 +472,33 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                     return true;
 
                 span = (start, start + length - 1);
+                return true;
+            }
+        }
+
+        public bool TryExtractCompletionPrefix(Bindings bindings, int line, int column, out string? prefix)
+        {
+            prefix = null;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                _queryLines[0] = line;
+                _queryColumns[0] = column;
+                bindings.CompletionPrefixesFromLines(
+                    _lineStarts,
+                    _lineLengths,
+                    _lineCount,
+                    _queryLines,
+                    _queryColumns,
+                    _resultStarts,
+                    _resultLengths);
+
+                var start = _resultStarts[0];
+                if (start < 0)
+                    return true;
+
+                prefix = _source.Substring(start, _resultLengths[0]);
                 return true;
             }
         }

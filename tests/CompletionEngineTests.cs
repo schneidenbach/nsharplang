@@ -184,6 +184,22 @@ public class CompletionEngineTests
     }
 
     [Fact]
+    public void GetCompletions_MemberAccess_ColumnPastLineUsesWholeLine()
+    {
+        var source = "func main() {\n    Console.\n}";
+        var (engine, snapshot, filePath) = SetupWithSource(source);
+
+        try
+        {
+            var result = engine.GetCompletions(snapshot, filePath, 2, 999);
+
+            Assert.Equal(CompletionContext.MemberAccess, result.Context);
+            Assert.Equal("Console", result.Receiver);
+        }
+        finally { Cleanup(filePath); }
+    }
+
+    [Fact]
     public void GetCompletions_MemberAccess_MathStaticMembers()
     {
         var source = "func main() {\n    Math.\n}";

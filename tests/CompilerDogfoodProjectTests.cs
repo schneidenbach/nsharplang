@@ -88,6 +88,22 @@ func main() {
         Assert.True((bool)(tryExtractSourceLine.Invoke(null, blankLineArgs) ?? false));
         Assert.Equal(string.Empty, blankLineArgs[4]);
 
+        var tryExtractCompletionPrefix = adapterType.GetMethod(
+                "TryExtractCompletionPrefix",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(ProjectSnapshot), typeof(string), typeof(string), typeof(int), typeof(int), typeof(string).MakeByRefType() },
+                modifiers: null)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryExtractCompletionPrefix.");
+
+        var prefixArgs = new object?[] { snapshot, filePath, source, 2, 9, null };
+        Assert.True((bool)(tryExtractCompletionPrefix.Invoke(null, prefixArgs) ?? false));
+        Assert.Equal("    value", prefixArgs[5]);
+
+        var pastEndPrefixArgs = new object?[] { snapshot, filePath, source, 2, 999, null };
+        Assert.True((bool)(tryExtractCompletionPrefix.Invoke(null, pastEndPrefixArgs) ?? false));
+        Assert.Equal("    value := input.Count", pastEndPrefixArgs[5]);
+
         var tryExtractVariableDeclarationName = adapterType.GetMethod(
                 "TryExtractVariableDeclarationName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -219,6 +235,18 @@ func main() {
                     "CodeIntelligenceSourceLinesFromLinesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceSourceLinesFromLinesInto.");
+            var codeIntelligenceCompletionPrefixChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceCompletionPrefixChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionPrefixChecksumInto.");
+            var codeIntelligenceCompletionPrefixesInto = programType.GetMethod(
+                    "CodeIntelligenceCompletionPrefixesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionPrefixesInto.");
+            var codeIntelligenceCompletionPrefixesFromLinesInto = programType.GetMethod(
+                    "CodeIntelligenceCompletionPrefixesFromLinesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionPrefixesFromLinesInto.");
             var codeIntelligenceVariableDeclarationNameChecksumInto = programType.GetMethod(
                     "CodeIntelligenceVariableDeclarationNameChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -404,6 +432,11 @@ func main(customer: Customer, résumé: Profile) {
                 codeIntelligenceSourceLineChecksumInto,
                 codeIntelligenceSourceLinesInto,
                 codeIntelligenceSourceLinesFromLinesInto);
+            AssertCompletionPrefixesLikeProduction(
+                "  first line  \n\tsecond line\r\n   \n\n café42  \n",
+                codeIntelligenceCompletionPrefixChecksumInto,
+                codeIntelligenceCompletionPrefixesInto,
+                codeIntelligenceCompletionPrefixesFromLinesInto);
             AssertVariableDeclarationNamesLikeProduction(
                 """
 func main() {
@@ -1127,6 +1160,130 @@ func main() {
         Assert.Equal(expectedLengths, cachedLengths);
     }
 
+    private static void AssertCompletionPrefixesLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceCompletionPrefixChecksumInto,
+        MethodInfo codeIntelligenceCompletionPrefixesInto,
+        MethodInfo codeIntelligenceCompletionPrefixesFromLinesInto)
+    {
+        var lines = source.Split('\n');
+        var queryLinesList = new List<int> { 0, lines.Length + 1 };
+        var queryColumnsList = new List<int> { 1, 1 };
+
+        for (var line = 1; line <= lines.Length; line++)
+        {
+            var lineLength = lines[line - 1].Length;
+            queryLinesList.Add(line);
+            queryColumnsList.Add(0);
+            queryLinesList.Add(line);
+            queryColumnsList.Add(1);
+            queryLinesList.Add(line);
+            queryColumnsList.Add(lineLength);
+            queryLinesList.Add(line);
+            queryColumnsList.Add(lineLength + 1);
+        }
+
+        var queryLines = queryLinesList.ToArray();
+        var queryColumns = queryColumnsList.ToArray();
+        var expectedStarts = new int[queryLines.Length];
+        var expectedLengths = new int[queryLines.Length];
+        var expectedChecksum = 0;
+        var expectedCount = 0;
+        var lineStarts = BuildLfLineStarts(source);
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var line = queryLines[i];
+            var column = queryColumns[i];
+            var start = -1;
+            var length = 0;
+
+            if (line >= 1 && line <= lines.Length)
+            {
+                start = lineStarts[line - 1];
+                length = lines[line - 1].Length;
+                if (column > 0 && column <= length)
+                {
+                    length = column;
+                }
+
+                expectedCount++;
+            }
+
+            expectedStarts[i] = start;
+            expectedLengths[i] = length;
+            expectedChecksum += start * 31 + length * 17;
+        }
+
+        var rangeStarts = new int[source.Length + 1];
+        var rangeLengths = new int[source.Length + 1];
+        var actualStarts = new int[queryLines.Length];
+        var actualLengths = new int[queryLines.Length];
+        var actualChecksum = (int)(codeIntelligenceCompletionPrefixChecksumInto.Invoke(
+            null,
+            new object[] { source, rangeStarts, rangeLengths, queryLines, queryColumns, actualStarts, actualLengths }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedLengths, actualLengths);
+
+        for (var i = 0; i < queryLines.Length; i++)
+        {
+            var line = queryLines[i];
+            var column = queryColumns[i];
+            var expectedPrefix = line >= 1 && line <= lines.Length
+                ? ExtractCompletionPrefix(source, line, column)
+                : null;
+            var actualPrefix = actualStarts[i] >= 0
+                ? source.Substring(actualStarts[i], actualLengths[i])
+                : null;
+            Assert.Equal(expectedPrefix, actualPrefix);
+        }
+
+        var productionLineStarts = new int[source.Length + 1];
+        var productionLineLengths = new int[source.Length + 1];
+        var productionStarts = new int[queryLines.Length];
+        var productionLengths = new int[queryLines.Length];
+        var actualCount = (int)(codeIntelligenceCompletionPrefixesInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                productionLineStarts,
+                productionLineLengths,
+                queryLines,
+                queryColumns,
+                productionStarts,
+                productionLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, actualCount);
+        Assert.Equal(expectedStarts, productionStarts);
+        Assert.Equal(expectedLengths, productionLengths);
+
+        var cachedLineStarts = new int[source.Length + 1];
+        var cachedLineLengths = new int[source.Length + 1];
+        var cachedStarts = new int[queryLines.Length];
+        var cachedLengths = new int[queryLines.Length];
+        var lineCount = BuildLineRanges(source, cachedLineStarts, cachedLineLengths);
+        var cachedCount = (int)(codeIntelligenceCompletionPrefixesFromLinesInto.Invoke(
+            null,
+            new object[]
+            {
+                cachedLineStarts,
+                cachedLineLengths,
+                lineCount,
+                queryLines,
+                queryColumns,
+                cachedStarts,
+                cachedLengths
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, cachedCount);
+        Assert.Equal(expectedStarts, cachedStarts);
+        Assert.Equal(expectedLengths, cachedLengths);
+    }
+
     private static void AssertVariableDeclarationNamesLikeProduction(
         string source,
         MethodInfo codeIntelligenceVariableDeclarationNameChecksumInto,
@@ -1394,6 +1551,18 @@ func main() {
         {
             return null;
         }
+    }
+
+    private static string? ExtractCompletionPrefix(string source, int line, int column)
+    {
+        var lines = source.Split('\n');
+        if (line <= 0 || line > lines.Length)
+            return null;
+
+        var lineText = lines[line - 1];
+        return column > 0 && column <= lineText.Length
+            ? lineText.Substring(0, column)
+            : lineText;
     }
 
     private static string? ExtractVariableDeclarationName(string source, int line)

@@ -236,6 +236,12 @@ Current code-intelligence dogfood benchmarks:
   line ranges and emits absolute source-line start/length pairs through
   `CodeIntelligenceSourceLinesFromLinesInto`, preserving the current LF split behavior including
   trailing CR characters on CRLF input.
+- `CompilerServiceCodeIntelligenceCompletionPrefixBenchmarks` targets the source-prefix extraction
+  used by completion before deciding identifier vs member-access context. The C# baseline mirrors
+  `CompletionEngine.GetCompletions`: each request calls `source.Split('\n')` and materializes the
+  selected line prefix with `Substring`, while columns less than one or past the line return the
+  whole selected line. The N# candidate reuses cached line ranges and emits absolute prefix
+  start/length pairs through `CodeIntelligenceCompletionPrefixesFromLinesInto`.
 - `CompilerServiceCodeIntelligenceVariableDeclarationBenchmarks` targets variable declaration name
   extraction used by type and definition query candidate resolution on declaration lines. The C#
   baseline mirrors `ExtractVariableDeclarationNameAtPosition`: each queried line calls
@@ -255,9 +261,11 @@ source-context span extraction. It also verifies variable declaration name spans
 direct scanner and the cached by-line API, including Unicode identifier characters, member-assignment
 lines, missing-name assignments, and invalid lines. Raw source-line span parity now covers invalid
 lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing `\r`
-characters. The N# candidate imports `System`, uses ASCII fast paths, and falls back to
-`Char.IsLetterOrDigit` / `Char.IsWhiteSpace`, matching the current C# identifier and whitespace
-rules without putting the runtime predicates on the common ASCII path.
+characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns, in-range
+columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content. The
+N# candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
+`Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
+runtime predicates on the common ASCII path.
 
 The normal BenchmarkDotNet run on 2026-06-03 passed match-count and buffer parity and reported zero
 managed allocation on the N# code-intelligence paths. `CodeIntelligenceIdentifierSpansInto` ran
@@ -282,6 +290,12 @@ same normal BenchmarkDotNet evidence tier. It ran about 772x faster on the repre
 corpus (74.227 ns vs 61.481 ms, 0 B vs 129,592,652 B). This is acceptance-grade benchmark evidence
 for cached raw source-line lookup after line ranges are built.
 
+`CodeIntelligenceCompletionPrefixesFromLinesInto` passed parity and reported zero managed allocation
+in the same normal BenchmarkDotNet evidence tier. It ran about 377x faster on the representative
+corpus (1.269 us vs 478.162 us, 0 B vs 4,229,816 B) and about 423,000x faster on the large generated
+corpus (145.567 ns vs 61.663 ms, 0 B vs 129,589,768 B). This is acceptance-grade benchmark evidence
+for cached completion-prefix lookup after line ranges are built.
+
 `CodeIntelligenceVariableDeclarationNamesFromCacheInto` passed parity and reported zero managed
 allocation in the same normal BenchmarkDotNet evidence tier. It ran about 829x faster on the
 representative corpus (667.271 ns vs 553.418 us, 0 B vs 4,650,632 B) and about 646,000x faster on
@@ -294,17 +308,19 @@ language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, wh
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
 The adapter caches line ranges, receiver caches, and variable-declaration name caches per
 `ProjectSnapshot`/file, uses cached line ranges for reference source-context and raw diagnostic-line
-materialization, and falls back to the old C# scanners only when the dogfood assembly is unavailable.
+materialization plus completion-prefix extraction, and falls back to the old C# scanners only when
+the dogfood assembly is unavailable.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` that do not carry a `ProjectSnapshot`.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
-and variable-declaration-name queries through the compiled N# methods; `QueryIntegrationTests`
-exercises the public query surface with the adapter-enabled output, including trimmed reference
-contexts. This is swap evidence for the identifier-span, member-receiver, reference source-context,
-diagnostic/lint raw source-line, and variable declaration name extraction slice only. Broader query,
-hover, definition, diagnostic, completion, binding, and CLI command logic still contains C#
-implementation code and remains in scope for the dogfood rewrite.
+completion-prefix, and variable-declaration-name queries through the compiled N# methods;
+`QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
+including trimmed reference contexts. This is swap evidence for the identifier-span, member-receiver,
+reference source-context, diagnostic/lint raw source-line, completion-prefix, and variable
+declaration name extraction slice only. Broader query, hover, definition, diagnostic, completion
+candidate construction, binding, and CLI command logic still contains C# implementation code and
+remains in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
