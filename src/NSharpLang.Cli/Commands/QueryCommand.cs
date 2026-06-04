@@ -404,6 +404,7 @@ public static class QueryCommand
             results = results.Where(d => d.Severity.Equals(severityFilter, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
+        var summary = OutputFormatter.SummarizeDiagnostics(results);
         if (wantsClusters)
         {
             Console.Write(OutputFormatter.DiagnosticClustersToJson(results, snapshot.ProjectRoot));
@@ -417,7 +418,7 @@ public static class QueryCommand
             Console.Write(OutputFormatter.DiagnosticsToJson(results, snapshot.ProjectRoot));
         }
 
-        return results.Any(d => d.Severity == "error") ? 1 : 0;
+        return summary.Errors > 0 ? 1 : 0;
     }
 
     private static int TypeCommand(string[] args, QueryOptions options)

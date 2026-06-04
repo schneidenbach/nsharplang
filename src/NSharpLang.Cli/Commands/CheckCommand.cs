@@ -40,12 +40,13 @@ public static class CheckCommand
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
             diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
+            var summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
 
             // If analysis found no errors AND this is a proper project (has project.yml),
             // verify the IL backend can emit the assembly successfully. Non-project
             // directories (standalone .nl files) skip this because they aren't meant
             // to be compiled as a single project.
-            if (!diagnostics.Any(d => d.Severity == "error")
+            if (summary.Errors == 0
                 && snapshot.SourceFiles.Count > 0
                 && File.Exists(projectYmlPath))
             {
@@ -54,6 +55,7 @@ public static class CheckCommand
                 {
                     diagnostics.AddRange(verificationDiagnostics);
                     diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
+                    summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
                 }
             }
 
@@ -66,14 +68,13 @@ public static class CheckCommand
                 {
                     diagnostics.AddRange(aotDiagnostics);
                     diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
+                    summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
                 }
             }
 
             if (useText)
             {
-                var errors = diagnostics.Count(d => d.Severity == "error");
-                var warnings = diagnostics.Count(d => d.Severity == "warning");
-                if (errors == 0 && warnings == 0)
+                if (summary.Errors == 0 && summary.Warnings == 0)
                 {
                     var fileCount = snapshot.SourceFiles.Count;
                     Console.Error.WriteLine($"  Checked {fileCount} file{(fileCount == 1 ? "" : "s")} — no errors. [{FormatElapsed(sw.Elapsed)}]");
@@ -89,7 +90,7 @@ public static class CheckCommand
                 Console.Write(OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count));
             }
 
-            return diagnostics.Any(d => d.Severity == "error") ? 1 : 0;
+            return summary.Errors > 0 ? 1 : 0;
         }
         catch (Exception ex)
         {

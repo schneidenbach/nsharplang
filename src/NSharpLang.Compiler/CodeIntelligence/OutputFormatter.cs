@@ -122,7 +122,7 @@ public static class OutputFormatter
             References = Normalize(result.References)
         };
 
-    private static DiagnosticSummary BuildDiagnosticSummary(List<DiagnosticResult> results)
+    public static DiagnosticSummary SummarizeDiagnostics(IReadOnlyList<DiagnosticResult> results)
     {
         if (NSharpCodeIntelligenceDogfoodAdapter.TrySummarizeDiagnosticSeverities(results, out var summary))
             return summary;
@@ -199,7 +199,7 @@ public static class OutputFormatter
 
     public static string DiagnosticsToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = BuildDiagnosticSummary(results);
+        var summary = SummarizeDiagnostics(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -214,7 +214,7 @@ public static class OutputFormatter
 
     public static string DiagnosticClustersToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = BuildDiagnosticSummary(results);
+        var summary = SummarizeDiagnostics(results);
         var clusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
@@ -230,7 +230,7 @@ public static class OutputFormatter
 
     public static string CheckToJson(List<DiagnosticResult> results, string? projectRoot, int checkedFiles)
     {
-        var summary = BuildDiagnosticSummary(results);
+        var summary = SummarizeDiagnostics(results);
 
         var envelope = new
         {
@@ -247,7 +247,7 @@ public static class OutputFormatter
 
     public static string LintToJson(List<DiagnosticResult> results, string? projectRoot, int lintedFiles)
     {
-        var summary = BuildDiagnosticSummary(results);
+        var summary = SummarizeDiagnostics(results);
 
         var envelope = new
         {
@@ -1356,9 +1356,7 @@ public static class OutputFormatter
             return "No diagnostics found.";
 
         var sb = new StringBuilder();
-        var errors = results.Count(d => d.Severity == "error");
-        var warnings = results.Count(d => d.Severity == "warning");
-        var info = results.Count(d => d.Severity == "info");
+        var summary = SummarizeDiagnostics(results);
 
         AppendDiagnosticClusterSummary(sb, BuildDiagnosticClusters(results));
 
@@ -1370,9 +1368,9 @@ public static class OutputFormatter
         // Summary line
         sb.AppendLine();
         var parts = new List<string>();
-        if (errors > 0) parts.Add($"{errors} error{(errors == 1 ? "" : "s")}");
-        if (warnings > 0) parts.Add($"{warnings} warning{(warnings == 1 ? "" : "s")}");
-        if (info > 0) parts.Add($"{info} info");
+        if (summary.Errors > 0) parts.Add($"{summary.Errors} error{(summary.Errors == 1 ? "" : "s")}");
+        if (summary.Warnings > 0) parts.Add($"{summary.Warnings} warning{(summary.Warnings == 1 ? "" : "s")}");
+        if (summary.Info > 0) parts.Add($"{summary.Info} info");
         sb.AppendLine($"Found {string.Join(", ", parts)}.");
 
         return sb.ToString();

@@ -164,6 +164,7 @@ public static class LintCommand
                 }
             }
 
+            var summary = OutputFormatter.SummarizeDiagnostics(allDiagnostics);
             if (useJson)
             {
                 Console.Write(OutputFormatter.LintToJson(allDiagnostics, projectRoot, lintedFileCount));
@@ -181,7 +182,7 @@ public static class LintCommand
                 }
             }
 
-            return (hadErrors || allDiagnostics.Any(d => d.Severity == "error")) ? 1 : 0;
+            return (hadErrors || summary.Errors > 0) ? 1 : 0;
         }
         catch (Exception ex)
         {

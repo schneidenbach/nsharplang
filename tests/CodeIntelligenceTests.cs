@@ -353,6 +353,28 @@ public class CodeIntelligenceOutputTests
     }
 
     [Fact]
+    public void SummarizeDiagnostics_CountsStableSeveritiesAndIgnoresUnknown()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL101", "error", "Syntax error", "Program.nl", 1, 1, 1,
+                null, null, null, null, null, null, null),
+            new("NL201", "warning", "Warning", "Program.nl", 2, 1, 1,
+                null, null, null, null, null, null, null),
+            new("NL301", "info", "Info", "Program.nl", 3, 1, 1,
+                null, null, null, null, null, null, null),
+            new("NL999", "hint", "Hint", "Program.nl", 4, 1, 1,
+                null, null, null, null, null, null, null)
+        };
+
+        var summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
+
+        Assert.Equal(1, summary.Errors);
+        Assert.Equal(1, summary.Warnings);
+        Assert.Equal(1, summary.Info);
+    }
+
+    [Fact]
     public void JsonContracts_MatchGoldenRootKeys()
     {
         var expected = LoadJsonContractRootKeys();

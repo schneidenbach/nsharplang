@@ -449,9 +449,9 @@ diagnostic clustering trait pass; message-pattern materialization intentionally 
 formatter boundary for the public JSON schema.
 
 `DiagnosticSeveritySummaryInto` passed parity and reported no managed allocation in the same normal
-BenchmarkDotNet evidence tier for JSON diagnostic summary counting. It ran about 5.54x faster on the
-representative diagnostic corpus (781.7 ns vs 4.331 us) and about 5.36x faster on the large
-generated diagnostic corpus (6.246 us vs 33.497 us). This is acceptance-grade benchmark evidence for
+BenchmarkDotNet evidence tier for diagnostic summary counting. It ran about 5.64x faster on the
+representative diagnostic corpus (783.4 ns vs 4.420 us) and about 5.46x faster on the large
+generated diagnostic corpus (6.222 us vs 33.998 us). This is acceptance-grade benchmark evidence for
 the diagnostic/check/lint severity-summary pass.
 
 `DiagnosticDeduplicateCompactInto` passed parity and reported zero managed allocation in the same
@@ -503,9 +503,9 @@ ids when the dogfood assembly is available, then materializes schema strings in 
 Clustered diagnostic output also routes group root/count/order selection through the compiled N#
 compact grouping kernel when the dogfood assembly is available, with the previous LINQ `GroupBy`
 path kept as the fallback.
-Diagnostic, clustered diagnostic, check, and lint JSON envelopes now use the compiled N# severity
-summary pass when the dogfood assembly is available, with the previous C# LINQ counts kept as the
-fallback.
+Diagnostic, clustered diagnostic, check, and lint JSON envelopes, Elm-style diagnostic text
+summaries, and CLI diagnostic exit decisions now use the compiled N# severity summary pass when the
+dogfood assembly is available, with the previous C# LINQ counts kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -521,8 +521,8 @@ through the compiled N# methods;
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
 completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
-declaration-name guard, variable declaration name extraction, diagnostic severity summary, and
-diagnostic cluster grouping, and check/build diagnostic deduplication
+declaration-name guard, variable declaration name extraction, diagnostic severity summary across
+JSON/text/CLI exit surfaces, diagnostic cluster grouping, and check/build diagnostic deduplication
 slices, plus LSP editor word/span lookup for hover, definition, references, and rename entry points.
 Broader query, hover, definition, diagnostic, completion candidate construction, binding, and CLI
 command logic still contains C# implementation code and remains in scope for the dogfood rewrite.
