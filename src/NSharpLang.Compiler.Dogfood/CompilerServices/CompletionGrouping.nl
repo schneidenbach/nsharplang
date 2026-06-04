@@ -107,6 +107,91 @@ func CompletionItemKindGroupChecksumInto(
     return checksum
 }
 
+func CompletionMethodOverloadGroupsInto(
+    nameIds: int[],
+    includeFlags: int[],
+    nameCounts: int[],
+    resultNameIds: int[],
+    resultFirstIndices: int[],
+    resultCounts: int[]): int {
+    count := CompletionGroupingMinInt(nameIds.Length, includeFlags.Length)
+    bucketCount := nameCounts.Length
+
+    i := 0
+    while i < bucketCount {
+        nameCounts[i] = 0
+        i = i + 1
+    }
+
+    groupCount := 0
+    i = 0
+    while i < count {
+        if includeFlags[i] != 0 {
+            nameId := nameIds[i]
+            if nameId <= 0 || nameId >= bucketCount {
+                return -1
+            }
+
+            if nameCounts[nameId] == 0 {
+                if groupCount >= resultNameIds.Length
+                    || groupCount >= resultFirstIndices.Length
+                    || groupCount >= resultCounts.Length {
+                    return -1
+                }
+
+                resultNameIds[groupCount] = nameId
+                resultFirstIndices[groupCount] = i
+                groupCount = groupCount + 1
+            }
+
+            nameCounts[nameId] = nameCounts[nameId] + 1
+        }
+
+        i = i + 1
+    }
+
+    groupIndex := 0
+    while groupIndex < groupCount {
+        nameId := resultNameIds[groupIndex]
+        resultCounts[groupIndex] = nameCounts[nameId]
+        groupIndex = groupIndex + 1
+    }
+
+    return groupCount
+}
+
+func CompletionMethodOverloadGroupChecksumInto(
+    nameIds: int[],
+    includeFlags: int[],
+    nameCounts: int[],
+    resultNameIds: int[],
+    resultFirstIndices: int[],
+    resultCounts: int[]): int {
+    groupCount := CompletionMethodOverloadGroupsInto(
+        nameIds,
+        includeFlags,
+        nameCounts,
+        resultNameIds,
+        resultFirstIndices,
+        resultCounts)
+    if groupCount < 0 {
+        return groupCount
+    }
+
+    checksum := groupCount
+    groupIndex := 0
+    while groupIndex < groupCount {
+        checksum = checksum
+            + resultNameIds[groupIndex] * 97
+            + resultFirstIndices[groupIndex] * 31
+            + resultCounts[groupIndex] * 17
+            + (groupIndex + 1) * 13
+        groupIndex = groupIndex + 1
+    }
+
+    return checksum
+}
+
 func CompletionGroupingMinInt(left: int, right: int): int {
     if left < right {
         return left

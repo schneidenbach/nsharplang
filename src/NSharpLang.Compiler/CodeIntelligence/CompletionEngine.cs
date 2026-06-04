@@ -580,26 +580,7 @@ public class CompletionEngine
              filter == MemberFilter.InstanceOnly ? BindingFlags.Instance :
              BindingFlags.Static | BindingFlags.Instance);
 
-        // Methods
-        var methods = type.GetMethods(bindingFlags)
-            .Where(m => !m.IsSpecialName && m.DeclaringType?.FullName != "System.Object")
-            .GroupBy(m => m.Name)
-            .ToList();
-
-        foreach (var group in methods)
-        {
-            var method = group.First();
-            var overloads = group.Count();
-            var paramStr = FormatMethodParameters(method);
-            var detail = overloads > 1 ? $"(+{overloads - 1} overloads)" : null;
-            items.Add(new CompletionItem(
-                method.Name,
-                "method",
-                FormatClrType(method.ReturnType),
-                paramStr,
-                detail,
-                method.IsStatic));
-        }
+        AddMethodCompletionItems(type.GetMethods(bindingFlags), items);
 
         // Properties
         foreach (var prop in type.GetProperties(bindingFlags))
@@ -628,6 +609,49 @@ public class CompletionEngine
         }
 
         return items;
+    }
+
+    private static void AddMethodCompletionItems(MethodInfo[] methods, List<CompletionItem> items)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryGroupReflectionMethodsByName(methods, out var grouping)
+            && grouping != null)
+        {
+            for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
+            {
+                AddMethodCompletionItem(
+                    methods[grouping.FirstIndices[groupIndex]],
+                    grouping.Counts[groupIndex],
+                    items);
+            }
+
+            return;
+        }
+
+        var methodGroups = methods
+            .Where(IsIncludedCompletionMethod)
+            .GroupBy(static method => method.Name)
+            .ToList();
+
+        foreach (var group in methodGroups)
+        {
+            AddMethodCompletionItem(group.First(), group.Count(), items);
+        }
+    }
+
+    private static bool IsIncludedCompletionMethod(MethodInfo method) =>
+        !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
+
+    private static void AddMethodCompletionItem(MethodInfo method, int overloads, List<CompletionItem> items)
+    {
+        var paramStr = FormatMethodParameters(method);
+        var detail = overloads > 1 ? $"(+{overloads - 1} overloads)" : null;
+        items.Add(new CompletionItem(
+            method.Name,
+            "method",
+            FormatClrType(method.ReturnType),
+            paramStr,
+            detail,
+            method.IsStatic));
     }
 
     private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot)

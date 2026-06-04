@@ -245,6 +245,35 @@ func documented(): int {
         Assert.Equal(new[] { "Length", "Count" }, groupedCompletions["properties"].Select(static item => item.Name));
         Assert.Equal("MaxValue", Assert.Single(groupedCompletions["fields"]).Name);
 
+        var tryGroupReflectionMethodsByName = adapterType.GetMethod(
+                "TryGroupReflectionMethodsByName",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGroupReflectionMethodsByName.");
+        var completionMethods = typeof(CompletionMethodGroupingFixture).GetMethods(
+            BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
+        var methodGroupingArgs = new object?[] { completionMethods, null };
+        Assert.True((bool)(tryGroupReflectionMethodsByName.Invoke(null, methodGroupingArgs) ?? false));
+        var methodGrouping = methodGroupingArgs[1]
+            ?? throw new InvalidOperationException("Dogfood adapter did not return method grouping.");
+        var methodGroupingType = methodGrouping.GetType();
+        var expectedMethodGroups = completionMethods
+            .Where(static method => !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object")
+            .GroupBy(static method => method.Name)
+            .ToList();
+        var methodGroupCount = (int)(methodGroupingType.GetProperty("GroupCount")?.GetValue(methodGrouping) ?? -1);
+        var methodNameIds = Assert.IsType<int[]>(methodGroupingType.GetProperty("NameIds")?.GetValue(methodGrouping));
+        var methodFirstIndices = Assert.IsType<int[]>(methodGroupingType.GetProperty("FirstIndices")?.GetValue(methodGrouping));
+        var methodCounts = Assert.IsType<int[]>(methodGroupingType.GetProperty("Counts")?.GetValue(methodGrouping));
+        Assert.Equal(expectedMethodGroups.Count, methodGroupCount);
+        for (var groupIndex = 0; groupIndex < expectedMethodGroups.Count; groupIndex++)
+        {
+            var expectedGroup = expectedMethodGroups[groupIndex];
+            Assert.True(methodNameIds[groupIndex] > 0);
+            Assert.Equal(expectedGroup.Key, completionMethods[methodFirstIndices[groupIndex]].Name);
+            Assert.Equal(Array.IndexOf(completionMethods, expectedGroup.First()), methodFirstIndices[groupIndex]);
+            Assert.Equal(expectedGroup.Count(), methodCounts[groupIndex]);
+        }
+
         var tryExtractVariableDeclarationName = adapterType.GetMethod(
                 "TryExtractVariableDeclarationName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -670,6 +699,14 @@ func documented(): int {
                     "CompletionItemKindGroupChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CompletionItemKindGroupChecksumInto.");
+            var completionMethodOverloadGroupsInto = programType.GetMethod(
+                    "CompletionMethodOverloadGroupsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CompletionMethodOverloadGroupsInto.");
+            var completionMethodOverloadGroupChecksumInto = programType.GetMethod(
+                    "CompletionMethodOverloadGroupChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CompletionMethodOverloadGroupChecksumInto.");
             var cliTryParsePositionInto = programType.GetMethod(
                     "CliTryParsePositionInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1067,6 +1104,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCompletionItemGroupingLikeProduction(
                 completionItemKindGroupsInto,
                 completionItemKindGroupChecksumInto);
+            AssertCompletionMethodGroupingLikeProduction(
+                completionMethodOverloadGroupsInto,
+                completionMethodOverloadGroupChecksumInto);
             AssertCliQueryPositionsLikeProduction(
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
@@ -2426,6 +2466,71 @@ func main() {
                 var sourceIndex = resultIndices[start + itemIndex];
                 checksum += (sourceIndex + 1) * 13 + (itemIndex + 1) * 7;
             }
+        }
+
+        return checksum;
+    }
+
+    private static void AssertCompletionMethodGroupingLikeProduction(
+        MethodInfo completionMethodOverloadGroupsInto,
+        MethodInfo completionMethodOverloadGroupChecksumInto)
+    {
+        var nameIds = new[] { 2, 1, 2, 3, 1, 0, 2 };
+        var includeFlags = new[] { 1, 1, 1, 1, 1, 0, 1 };
+        var nameCounts = new int[4];
+        var resultNameIds = new int[nameIds.Length];
+        var resultFirstIndices = new int[nameIds.Length];
+        var resultCounts = new int[nameIds.Length];
+
+        var groupCount = (int)(completionMethodOverloadGroupsInto.Invoke(
+            null,
+            new object[] { nameIds, includeFlags, nameCounts, resultNameIds, resultFirstIndices, resultCounts }) ?? -1);
+
+        Assert.Equal(3, groupCount);
+        Assert.Equal(new[] { 2, 1, 3 }, resultNameIds.Take(groupCount));
+        Assert.Equal(new[] { 0, 1, 3 }, resultFirstIndices.Take(groupCount));
+        Assert.Equal(new[] { 3, 2, 1 }, resultCounts.Take(groupCount));
+
+        var checksumNameCounts = new int[4];
+        var checksumResultNameIds = new int[nameIds.Length];
+        var checksumResultFirstIndices = new int[nameIds.Length];
+        var checksumResultCounts = new int[nameIds.Length];
+        var expectedChecksum = CompletionMethodOverloadGroupingChecksum(
+            resultNameIds,
+            resultFirstIndices,
+            resultCounts,
+            groupCount);
+        var actualChecksum = (int)(completionMethodOverloadGroupChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                nameIds,
+                includeFlags,
+                checksumNameCounts,
+                checksumResultNameIds,
+                checksumResultFirstIndices,
+                checksumResultCounts
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(resultNameIds, checksumResultNameIds);
+        Assert.Equal(resultFirstIndices, checksumResultFirstIndices);
+        Assert.Equal(resultCounts, checksumResultCounts);
+    }
+
+    private static int CompletionMethodOverloadGroupingChecksum(
+        int[] resultNameIds,
+        int[] resultFirstIndices,
+        int[] resultCounts,
+        int groupCount)
+    {
+        var checksum = groupCount;
+        for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+        {
+            checksum += resultNameIds[groupIndex] * 97
+                + resultFirstIndices[groupIndex] * 31
+                + resultCounts[groupIndex] * 17
+                + (groupIndex + 1) * 13;
         }
 
         return checksum;
@@ -5081,5 +5186,24 @@ func main() {
         throw new InvalidOperationException(
             "Could not find repository root (NSharpLang.sln). "
                 + $"Searched upward from {AppContext.BaseDirectory}");
+    }
+
+    private sealed class CompletionMethodGroupingFixture
+    {
+        public int Size { get; set; }
+
+        public void Alpha()
+        {
+        }
+
+        public void Alpha(int value)
+        {
+        }
+
+        public string Beta(string value) => value;
+
+        public static void Gamma()
+        {
+        }
     }
 }

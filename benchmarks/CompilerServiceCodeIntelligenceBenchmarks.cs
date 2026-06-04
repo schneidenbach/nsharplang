@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Order;
@@ -2450,6 +2451,186 @@ public class CompilerServiceCodeIntelligenceCompletionItemGroupingBenchmarks
         "class" => "classes",
         _ => kind + "s"
     };
+}
+
+/// <summary>
+/// Dogfood benchmark for grouping reflected CLR methods by overload name before member completion.
+///
+/// The C# baseline mirrors the current member-completion method path: reflection methods are
+/// filtered, grouped by <c>MethodInfo.Name</c> with LINQ <c>GroupBy</c>, and materialized as a
+/// first-seen group list. The N# candidate runs after the host has assigned compact first-seen
+/// method-name ids and writes group name ids, first source indices, and overload counts into
+/// caller-owned buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceCompletionMethodGroupingBenchmarks
+{
+    private const int LargeMethodCount = 8192;
+    private const int RepresentativeMethodCount = 1024;
+
+    private Func<int[], int[], int[], int[], int[], int[], int> _nsharpCompletionMethodOverloadGroupChecksum =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Dictionary<string, int> _firstIndicesByName = new(StringComparer.Ordinal);
+    private int[] _includeFlags = Array.Empty<int>();
+    private MethodInfo[] _methods = Array.Empty<MethodInfo>();
+    private int _methodCount;
+    private Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
+    private int[] _nameCounts = Array.Empty<int>();
+    private int[] _nameIdsByMethod = Array.Empty<int>();
+    private int[] _nsharpResultCounts = Array.Empty<int>();
+    private int[] _nsharpResultFirstIndices = Array.Empty<int>();
+    private int[] _nsharpResultNameIds = Array.Empty<int>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _methodCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeMethodCount
+            : LargeMethodCount;
+        _nsharpCompletionMethodOverloadGroupChecksum =
+            NSharpCompiledMethod.Bind<Func<int[], int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceCompletionGrouping,
+                "CompletionMethodOverloadGroupChecksumInto");
+
+        _methods = BuildMethods(_methodCount);
+        _nameIdsByMethod = new int[_methodCount];
+        _includeFlags = new int[_methodCount];
+        _nameCounts = new int[_methodCount + 1];
+        _nsharpResultNameIds = new int[_methodCount];
+        _nsharpResultFirstIndices = new int[_methodCount];
+        _nsharpResultCounts = new int[_methodCount];
+
+        BuildCompactNameIds();
+
+        var expectedChecksum = CSharpCompletionMethods_GroupOverloadsByName();
+        var actualChecksum = NSharpCompletionMethods_GroupOverloadsByName();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# completion method grouping checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        VerifyNSharpGroupsAgainstCSharp();
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCompletionMethods_GroupOverloadsByName()
+    {
+        var groups = _methods
+            .Where(IsIncludedCompletionMethod)
+            .GroupBy(static method => method.Name)
+            .ToList();
+        var checksum = groups.Count;
+
+        for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+        {
+            var group = groups[groupIndex];
+            checksum += _nameIds[group.Key] * 97
+                + _firstIndicesByName[group.Key] * 31
+                + group.Count() * 17
+                + (groupIndex + 1) * 13;
+        }
+
+        GC.KeepAlive(groups);
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpCompletionMethods_GroupOverloadsByName() =>
+        _nsharpCompletionMethodOverloadGroupChecksum(
+            _nameIdsByMethod,
+            _includeFlags,
+            _nameCounts,
+            _nsharpResultNameIds,
+            _nsharpResultFirstIndices,
+            _nsharpResultCounts);
+
+    private void BuildCompactNameIds()
+    {
+        _nameIds = new Dictionary<string, int>(StringComparer.Ordinal);
+        _firstIndicesByName = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        for (var i = 0; i < _methods.Length; i++)
+        {
+            var method = _methods[i];
+            if (!IsIncludedCompletionMethod(method))
+            {
+                _includeFlags[i] = 0;
+                _nameIdsByMethod[i] = 0;
+                continue;
+            }
+
+            _includeFlags[i] = 1;
+            if (!_nameIds.TryGetValue(method.Name, out var nameId))
+            {
+                nameId = _nameIds.Count + 1;
+                _nameIds.Add(method.Name, nameId);
+                _firstIndicesByName.Add(method.Name, i);
+            }
+
+            _nameIdsByMethod[i] = nameId;
+        }
+    }
+
+    private void VerifyNSharpGroupsAgainstCSharp()
+    {
+        var groups = _methods
+            .Where(IsIncludedCompletionMethod)
+            .GroupBy(static method => method.Name)
+            .ToList();
+
+        if (_nsharpResultNameIds.Take(groups.Count).Any(id => id <= 0))
+        {
+            throw new InvalidOperationException($"N# completion method grouping returned invalid name ids for {Corpus}.");
+        }
+
+        for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+        {
+            var group = groups[groupIndex];
+            var expectedCount = group.Count();
+            if (_nsharpResultNameIds[groupIndex] != _nameIds[group.Key]
+                || _nsharpResultFirstIndices[groupIndex] != _firstIndicesByName[group.Key]
+                || _nsharpResultCounts[groupIndex] != expectedCount)
+            {
+                throw new InvalidOperationException(
+                    $"N# completion method grouping segment mismatch for {Corpus} at group {groupIndex}: " +
+                    $"expected {_nameIds[group.Key]}/{_firstIndicesByName[group.Key]}/{expectedCount}, " +
+                    $"got {_nsharpResultNameIds[groupIndex]}/{_nsharpResultFirstIndices[groupIndex]}/{_nsharpResultCounts[groupIndex]}.");
+            }
+        }
+    }
+
+    private static MethodInfo[] BuildMethods(int count)
+    {
+        var sourceMethods = new[]
+            {
+                typeof(string),
+                typeof(List<string>),
+                typeof(Dictionary<string, int>),
+                typeof(Console),
+                typeof(Math),
+                typeof(StringBuilder),
+                typeof(Enumerable),
+                typeof(CompletionEngine)
+            }
+            .SelectMany(static type => type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static))
+            .ToArray();
+        var methods = new MethodInfo[count];
+
+        for (var i = 0; i < count; i++)
+        {
+            methods[i] = sourceMethods[(i * 17 + i / 7) % sourceMethods.Length];
+        }
+
+        return methods;
+    }
+
+    private static bool IsIncludedCompletionMethod(MethodInfo method) =>
+        !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
 }
 
 /// <summary>

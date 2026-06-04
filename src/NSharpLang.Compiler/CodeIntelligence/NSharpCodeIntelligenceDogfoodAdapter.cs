@@ -20,6 +20,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static CompletionItemGroupingScratch? t_completionItemGroupingScratch;
     [ThreadStatic]
+    private static CompletionMethodGroupingScratch? t_completionMethodGroupingScratch;
+    [ThreadStatic]
     private static CompletionReceiverScratch? t_completionReceiverScratch;
     [ThreadStatic]
     private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
@@ -1021,6 +1023,100 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryGroupReflectionMethodsByName(
+        MethodInfo[] methods,
+        out CompletionMethodGrouping? grouping)
+    {
+        grouping = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var count = methods.Length;
+        if (count == 0)
+        {
+            grouping = new CompletionMethodGrouping(0, Array.Empty<int>(), Array.Empty<int>(), Array.Empty<int>());
+            return true;
+        }
+
+        var scratch = t_completionMethodGroupingScratch ??= new CompletionMethodGroupingScratch();
+        scratch.EnsureCapacity(count);
+
+        try
+        {
+            scratch.ResetNameIds();
+            var includedCount = 0;
+            for (var i = 0; i < count; i++)
+            {
+                var method = methods[i];
+                if (IsIncludedCompletionMethod(method))
+                {
+                    scratch.IncludeFlags[i] = 1;
+                    scratch.NameIds[i] = scratch.GetNameId(method.Name);
+                    includedCount++;
+                }
+                else
+                {
+                    scratch.IncludeFlags[i] = 0;
+                    scratch.NameIds[i] = 0;
+                }
+            }
+
+            var groupCount = bindings.CompletionMethodOverloadGroups(
+                scratch.NameIds,
+                scratch.IncludeFlags,
+                scratch.NameCounts,
+                scratch.ResultNameIds,
+                scratch.ResultFirstIndices,
+                scratch.ResultCounts);
+
+            if (groupCount < 0 || groupCount > count)
+                return false;
+
+            var total = 0;
+            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+            {
+                var firstIndex = scratch.ResultFirstIndices[groupIndex];
+                var methodCount = scratch.ResultCounts[groupIndex];
+                var nameId = scratch.ResultNameIds[groupIndex];
+
+                if (firstIndex < 0 || firstIndex >= count
+                    || methodCount <= 0
+                    || nameId <= 0
+                    || nameId >= scratch.NameCounts.Length
+                    || scratch.IncludeFlags[firstIndex] == 0)
+                {
+                    return false;
+                }
+
+                total += methodCount;
+            }
+
+            if (total != includedCount)
+                return false;
+
+            grouping = new CompletionMethodGrouping(
+                groupCount,
+                scratch.ResultNameIds,
+                scratch.ResultFirstIndices,
+                scratch.ResultCounts);
+            return true;
+        }
+        catch
+        {
+            grouping = null;
+            return false;
+        }
+        finally
+        {
+            scratch.ResetNameIds();
+        }
+    }
+
+    private static bool IsIncludedCompletionMethod(MethodInfo method) =>
+        !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
+
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
     {
         var snapshotCache = s_snapshotCaches.GetValue(snapshot, static _ => new SnapshotCache());
@@ -1052,6 +1148,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"),
                 CreateDelegate<CodeIntelligenceCompletionReceiversInto>(programType, "CodeIntelligenceCompletionReceiversInto"),
                 CreateDelegate<CompletionItemKindGroupsInto>(programType, "CompletionItemKindGroupsInto"),
+                CreateDelegate<CompletionMethodOverloadGroupsInto>(programType, "CompletionMethodOverloadGroupsInto"),
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
@@ -1227,6 +1324,14 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultCounts,
         int[] resultIndices);
 
+    private delegate int CompletionMethodOverloadGroupsInto(
+        int[] nameIds,
+        int[] includeFlags,
+        int[] nameCounts,
+        int[] resultNameIds,
+        int[] resultFirstIndices,
+        int[] resultCounts);
+
     private delegate int DiagnosticClusterTraitsInto(
         string[] codes,
         string[] messages,
@@ -1390,6 +1495,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache,
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
         CompletionItemKindGroupsInto CompletionItemKindGroups,
+        CompletionMethodOverloadGroupsInto CompletionMethodOverloadGroups,
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
@@ -1403,6 +1509,26 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices,
         SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices,
         SemanticScopeLookupSymbolIndicesInto SemanticScopeLookupSymbolIndices);
+
+    internal sealed class CompletionMethodGrouping
+    {
+        public CompletionMethodGrouping(
+            int groupCount,
+            int[] nameIds,
+            int[] firstIndices,
+            int[] counts)
+        {
+            GroupCount = groupCount;
+            NameIds = nameIds;
+            FirstIndices = firstIndices;
+            Counts = counts;
+        }
+
+        public int GroupCount { get; }
+        public int[] NameIds { get; }
+        public int[] FirstIndices { get; }
+        public int[] Counts { get; }
+    }
 
     internal sealed class DiagnosticClusterGrouping
     {
@@ -1473,7 +1599,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
         public void EnsureCapacity(int count)
         {
-            if (KindIds.Length < count)
+            if (KindIds.Length != count)
             {
                 KindIds = new int[count];
                 ResultKindIds = new int[count];
@@ -1513,6 +1639,54 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             {
                 Array.Clear(KindNames, 1, _kindIds.Count);
                 _kindIds.Clear();
+            }
+        }
+    }
+
+    private sealed class CompletionMethodGroupingScratch
+    {
+        private readonly Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
+
+        public int[] IncludeFlags = Array.Empty<int>();
+        public int[] NameCounts = Array.Empty<int>();
+        public int[] NameIds = Array.Empty<int>();
+        public int[] ResultCounts = Array.Empty<int>();
+        public int[] ResultFirstIndices = Array.Empty<int>();
+        public int[] ResultNameIds = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (NameIds.Length != count)
+            {
+                NameIds = new int[count];
+                IncludeFlags = new int[count];
+                ResultNameIds = new int[count];
+                ResultFirstIndices = new int[count];
+                ResultCounts = new int[count];
+            }
+
+            var bucketCapacity = count + 1;
+            if (NameCounts.Length < bucketCapacity)
+            {
+                NameCounts = new int[bucketCapacity];
+            }
+        }
+
+        public int GetNameId(string name)
+        {
+            if (_nameIds.TryGetValue(name, out var id))
+                return id;
+
+            id = _nameIds.Count + 1;
+            _nameIds.Add(name, id);
+            return id;
+        }
+
+        public void ResetNameIds()
+        {
+            if (_nameIds.Count > 0)
+            {
+                _nameIds.Clear();
             }
         }
     }

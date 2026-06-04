@@ -337,6 +337,13 @@ Current code-intelligence dogfood benchmarks:
   and `ToList` materialization for each public group. The N# candidate runs after the host has
   assigned compact first-seen kind ids and writes group kind ids, starts/counts, and stable source
   indices into caller-owned buffers through `CompletionItemKindGroupsInto`.
+- `CompilerServiceCodeIntelligenceCompletionMethodGroupingBenchmarks` targets reflected CLR method
+  overload grouping before member-completion item construction. The C# baseline mirrors
+  `CompletionEngine.GetTypeMembers`: filter `MethodInfo` values, group by `MethodInfo.Name` with
+  LINQ `GroupBy`, materialize the first-seen group list, and count overloads. The N# candidate runs
+  after the host has assigned compact first-seen method-name ids and writes group name ids, first
+  source indices, and overload counts through `CompletionMethodOverloadGroupsInto`. Reflection and
+  final `CompletionItem` string materialization remain explicit C# host boundaries.
 - `CompilerServiceCodeIntelligenceDocCommentBenchmarks` targets leading doc-comment extraction used
   by hover documentation. The C# baseline mirrors the current helper: each queried declaration line
   splits the source into logical lines, walks backward across leading `//` comments, trims comment
@@ -580,6 +587,14 @@ completion output. It ran about 5.26x faster on the representative completion-it
 completion-item corpus (22.531 us vs 123.802 us, 0 B vs 231,208 B). This is acceptance-grade
 benchmark evidence for stable first-seen kind grouping after the host has assigned compact kind ids.
 
+`CompletionMethodOverloadGroupsInto` passed parity and reported zero managed allocation in the
+normal BenchmarkDotNet evidence tier for reflected CLR method overload grouping before
+member-completion item construction. It ran about 14.9x faster on the representative reflected
+method corpus (1.579 us vs 23.447 us, 0 B vs 47,569 B) and about 15.9x faster on the large
+generated reflected method corpus (9.364 us vs 148.468 us, 0 B vs 215,382 B). This is
+acceptance-grade benchmark evidence for stable first-seen method-name grouping after the host has
+assigned compact method-name ids.
+
 `CodeIntelligenceDocCommentLinesFromLinesInto` passed parity and reported zero managed allocation in
 the same normal BenchmarkDotNet evidence tier. It ran about 62x faster on the representative corpus
 (9.236 us vs 569.155 us, 0 B vs 4,688,008 B) and about 48,500x faster on the large generated corpus
@@ -743,6 +758,11 @@ when the dogfood assembly is available, with the old C# helper kept as the fallb
 grouping kernel when the dogfood assembly is available, preserving the previous pluralized group
 keys and first-seen item-kind ordering, with the previous LINQ `GroupBy`/`ToList` path kept as the
 fallback.
+`CompletionEngine` reflected CLR method overload grouping inside member completion now routes
+through the compiled N# method-overload grouping kernel when the dogfood assembly is available,
+preserving the previous method filtering, first-seen method-name ordering, first overload selected
+for display, and overload count details, with the previous LINQ `Where`/`GroupBy`/`ToList` path kept
+as the fallback.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
@@ -783,6 +803,9 @@ fallback and the existing flat lookup still used as the last receiver fallback.
 CLI/daemon member-access completion also routes public completion-item kind grouping through the
 compiled N# grouping kernel when the dogfood assembly is available, with the previous LINQ
 `GroupBy`/`ToList` shape kept as the fallback.
+CLI/daemon member-access completion also routes reflected CLR method overload grouping through the
+compiled N# grouping kernel when the dogfood assembly is available, with reflection enumeration and
+final completion item construction still handled by the C# host boundary.
 `nlc query batch` duplicate request-id validation now routes through the compiled N# compact-rank
 duplicate detector when the dogfood assembly is available, preserving the previous sorted ordinal
 duplicate-id error output, with the previous LINQ grouping path kept as the fallback.
@@ -792,19 +815,20 @@ counting-sort kernel when the dogfood assembly is available, preserving the prev
 ordering path kept as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
-completion-prefix, completion receiver-context, completion item grouping, doc-comment, strict editor identifier,
-declaration-name match, scoped visible-variable, scoped identifier-lookup, and
-variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
-severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
-deduplication, stable diagnostic deduplication, binding candidate-column ordering,
-strict binding lookup, nearest declaration lookup,
+completion-prefix, completion receiver-context, completion item grouping, reflected method overload
+grouping, doc-comment, strict editor identifier, declaration-name match, scoped visible-variable,
+scoped identifier-lookup, and variable-declaration-name queries, plus diagnostic cluster trait
+classifications and diagnostic severity summaries, compact diagnostic cluster grouping, diagnostic
+deduplication, reference result deduplication, stable diagnostic deduplication, binding
+candidate-column ordering, strict binding lookup, nearest declaration lookup,
 scoped visible-variable selection, and CLI batch duplicate-id validation
 through the compiled N# methods; `CliCommandTests` verifies both packaged CLI dogfood adapter routes
 for duplicate batch request ids and `nlc doc` symbol ordering;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
-completion-prefix, completion receiver-context, completion item grouping, hover doc-comment, strict reference/rename
+completion-prefix, completion receiver-context, completion item grouping, reflected method overload
+grouping, hover doc-comment, strict reference/rename
 declaration-name guard, analyzer declaration-name column lookup, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
 `GetDiagnostics` stable diagnostic deduplication, and semantic reference result deduplication/order
@@ -812,8 +836,8 @@ slices, plus strict binding candidate-column ordering, strict semantic binding l
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
-member-access completion plus grouped member-completion output, plus batch duplicate-id validation
-in `nlc query batch`.
+member-access completion plus reflected method overload grouping and grouped member-completion
+output, plus batch duplicate-id validation in `nlc query batch`.
 `nlc doc` symbol filtering and ordering is also routed through the compiled N# doc-ordering kernel.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
@@ -903,9 +927,9 @@ span outputs avoid split-and-trim allocation for reference output, and the produ
 materializes reference contexts from those spans. Diagnostic snippets, completion prefixes, and hover
 doc comments now use the same cached-line-range shape for their extraction steps. Completion
 receiver-context classification is also dogfooded, including literal receiver handling and
-method-call receiver normalization. Completion item grouping is dogfooded for member-access
-completion output, but semantic member lookup and completion item construction
-remain in C#. Strict editor
+method-call receiver normalization. Completion item grouping and reflected method overload grouping
+are dogfooded for member-access completion output, but reflection enumeration, semantic member
+lookup, and completion item construction remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
