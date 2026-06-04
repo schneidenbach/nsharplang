@@ -107,6 +107,103 @@ func DiagnosticDeduplicateCompactChecksumInto(
     return checksum
 }
 
+func ReferenceDeduplicateCompactInto(
+    fileRanks: int[],
+    lineNumbers: int[],
+    columns: int[],
+    slotIndices: int[],
+    resultIndices: int[]): int {
+    count := MinInt(fileRanks.Length, lineNumbers.Length)
+    count = MinInt(count, columns.Length)
+
+    maxResults := resultIndices.Length
+    capacity := slotIndices.Length
+    if count == 0 || maxResults == 0 || capacity == 0 {
+        return 0
+    }
+
+    i := 0
+    while i < capacity {
+        slotIndices[i] = -1
+        i = i + 1
+    }
+
+    uniqueCount := 0
+    index := 0
+    while index < count {
+        hash := HashReferenceDeduplicationKey(
+            fileRanks[index],
+            lineNumbers[index],
+            columns[index])
+        slot := PositiveModulo(hash, capacity)
+        probes := 0
+        duplicate := false
+
+        while probes < capacity {
+            candidateIndex := slotIndices[slot]
+            if candidateIndex < 0 {
+                break
+            }
+
+            if ReferenceDeduplicationKeysEqual(
+                index,
+                candidateIndex,
+                fileRanks,
+                lineNumbers,
+                columns) {
+                duplicate = true
+                break
+            }
+
+            slot = slot + 1
+            if slot == capacity {
+                slot = 0
+            }
+            probes = probes + 1
+        }
+
+        if !duplicate {
+            if uniqueCount >= maxResults || probes >= capacity {
+                SortDiagnosticDeduplicationIndices(resultIndices, uniqueCount, fileRanks, lineNumbers, columns)
+                return uniqueCount
+            }
+
+            slotIndices[slot] = index
+            resultIndices[uniqueCount] = index
+            uniqueCount = uniqueCount + 1
+        }
+
+        index = index + 1
+    }
+
+    SortDiagnosticDeduplicationIndices(resultIndices, uniqueCount, fileRanks, lineNumbers, columns)
+    return uniqueCount
+}
+
+func ReferenceDeduplicateCompactChecksumInto(
+    fileRanks: int[],
+    lineNumbers: int[],
+    columns: int[],
+    slotIndices: int[],
+    resultIndices: int[]): int {
+    uniqueCount := ReferenceDeduplicateCompactInto(
+        fileRanks,
+        lineNumbers,
+        columns,
+        slotIndices,
+        resultIndices)
+
+    checksum := uniqueCount
+    i := 0
+    while i < uniqueCount {
+        index := resultIndices[i]
+        checksum = checksum + (index + 1) * 31 + lineNumbers[index] * 17 + columns[index] * 13
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func HashDiagnosticDeduplicationKey(
     codeId: int,
     fileId: int,
@@ -119,6 +216,17 @@ func HashDiagnosticDeduplicationKey(
     hash = hash * 31 + line
     hash = hash * 31 + column
     hash = hash * 31 + messageId
+    return hash
+}
+
+func HashReferenceDeduplicationKey(
+    fileId: int,
+    line: int,
+    column: int): int {
+    hash := 17
+    hash = hash * 31 + fileId
+    hash = hash * 31 + line
+    hash = hash * 31 + column
     return hash
 }
 
@@ -135,6 +243,17 @@ func DiagnosticDeduplicationKeysEqual(
         && lineNumbers[left] == lineNumbers[right]
         && columns[left] == columns[right]
         && messageIds[left] == messageIds[right]
+}
+
+func ReferenceDeduplicationKeysEqual(
+    left: int,
+    right: int,
+    fileRanks: int[],
+    lineNumbers: int[],
+    columns: int[]): bool {
+    return fileRanks[left] == fileRanks[right]
+        && lineNumbers[left] == lineNumbers[right]
+        && columns[left] == columns[right]
 }
 
 func SortDiagnosticDeduplicationIndices(

@@ -599,6 +599,35 @@ public class CodeIntelligenceService
             }
         }
 
+        return DeduplicateAndSortReferenceResults(results);
+    }
+
+    private static List<ReferenceResult> DeduplicateAndSortReferenceResults(IReadOnlyList<ReferenceResult> results)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateReferences(
+                results,
+                out var resultIndices,
+                out var resultCount))
+        {
+            var deduplicated = new List<ReferenceResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var referenceIndex = resultIndices[i];
+                if (referenceIndex < 0 || referenceIndex >= results.Count)
+                    return DeduplicateAndSortReferenceResultsWithLinq(results);
+
+                deduplicated.Add(results[referenceIndex]);
+            }
+
+            return deduplicated;
+        }
+
+        return DeduplicateAndSortReferenceResultsWithLinq(results);
+    }
+
+    private static List<ReferenceResult> DeduplicateAndSortReferenceResultsWithLinq(
+        IReadOnlyList<ReferenceResult> results)
+    {
         return results
             .GroupBy(r => (r.File, r.Line, r.Column))
             .Select(g => g.First())

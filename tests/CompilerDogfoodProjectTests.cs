@@ -289,6 +289,23 @@ func documented(): int {
         Assert.Equal(3, Assert.IsType<int>(deduplicationArgs[2]));
         Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(deduplicationArgs[1]).Take(3));
 
+        var tryDeduplicateReferences = adapterType.GetMethod(
+                "TryDeduplicateReferences",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateReferences.");
+        var references = new List<ReferenceResult>
+        {
+            new("B.nl", 10, 5, 5, "first duplicate wins", IsDefinition: true),
+            new("A.nl", 2, 3, 5, "first A reference", IsDefinition: false),
+            new("B.nl", 10, 5, 5, "duplicate should be ignored", IsDefinition: false),
+            new("A.nl", 2, 1, 5, "earlier column sorts first", IsDefinition: false),
+            new("A.nl", 2, 3, 5, "duplicate A reference", IsDefinition: false)
+        };
+        var referenceDeduplicationArgs = new object?[] { references, null, null };
+        Assert.True((bool)(tryDeduplicateReferences.Invoke(null, referenceDeduplicationArgs) ?? false));
+        Assert.Equal(3, Assert.IsType<int>(referenceDeduplicationArgs[2]));
+        Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(referenceDeduplicationArgs[1]).Take(3));
+
         var trySummarizeDiagnosticSeverities = adapterType.GetMethod(
                 "TrySummarizeDiagnosticSeverities",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -550,6 +567,14 @@ func documented(): int {
                     "DiagnosticDeduplicateCompactChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDeduplicateCompactChecksumInto.");
+            var referenceDeduplicateCompactInto = programType.GetMethod(
+                    "ReferenceDeduplicateCompactInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ReferenceDeduplicateCompactInto.");
+            var referenceDeduplicateCompactChecksumInto = programType.GetMethod(
+                    "ReferenceDeduplicateCompactChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ReferenceDeduplicateCompactChecksumInto.");
 
             const string source = """"
 import System
@@ -814,6 +839,9 @@ func main() {
             AssertDiagnosticDeduplicationLikeProduction(
                 diagnosticDeduplicateCompactInto,
                 diagnosticDeduplicateCompactChecksumInto);
+            AssertReferenceDeduplicationLikeProduction(
+                referenceDeduplicateCompactInto,
+                referenceDeduplicateCompactChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2873,6 +2901,70 @@ func main() {
     {
         return Enumerable.Range(0, codes.Length)
             .GroupBy(i => (codes[i], files[i], lines[i], columns[i], messages[i]))
+            .Select(group => group.First())
+            .OrderBy(i => files[i])
+            .ThenBy(i => lines[i])
+            .ThenBy(i => columns[i])
+            .ToArray();
+    }
+
+    private static void AssertReferenceDeduplicationLikeProduction(
+        MethodInfo referenceDeduplicateCompactInto,
+        MethodInfo referenceDeduplicateCompactChecksumInto)
+    {
+        var files = new[] { "B.nl", "A.nl", "B.nl", "A.nl", "A.nl", "C.nl" };
+        var lines = new[] { 10, 2, 10, 2, 2, 1 };
+        var columns = new[] { 5, 3, 5, 1, 3, 1 };
+        var fileRanks = CreateSortedFileRanks(files);
+        var expected = CreateExpectedReferenceDeduplication(files, lines, columns);
+
+        var checksumSlotIndices = new int[files.Length * 2 + 1];
+        var checksumResultIndices = new int[files.Length];
+        var actualChecksum = (int)(referenceDeduplicateCompactChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                fileRanks,
+                lines,
+                columns,
+                checksumSlotIndices,
+                checksumResultIndices
+            }) ?? -1);
+
+        var expectedChecksum = expected.Length;
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var index = expected[i];
+            expectedChecksum += (index + 1) * 31 + lines[index] * 17 + columns[index] * 13;
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length));
+
+        var slotIndices = new int[files.Length * 2 + 1];
+        var resultIndices = new int[files.Length];
+        var actualCount = (int)(referenceDeduplicateCompactInto.Invoke(
+            null,
+            new object[]
+            {
+                fileRanks,
+                lines,
+                columns,
+                slotIndices,
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount));
+    }
+
+    private static int[] CreateExpectedReferenceDeduplication(
+        string[] files,
+        int[] lines,
+        int[] columns)
+    {
+        return Enumerable.Range(0, files.Length)
+            .GroupBy(i => (files[i], lines[i], columns[i]))
             .Select(group => group.First())
             .OrderBy(i => files[i])
             .ThenBy(i => lines[i])
