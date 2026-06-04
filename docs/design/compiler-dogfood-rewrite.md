@@ -155,8 +155,8 @@ Current source-text dogfood benchmarks:
 - `CompilerServiceSourceTextLineMapBenchmarks` exercises the next source-position service shape:
   compact line starts and lengths plus offset-to-line, offset-to-column, and line/column-to-offset
   queries. The C# baseline starts from the current production split helper; the N# candidate builds
-  ranges into caller-owned buffers, builds a small-file offset-to-line cache, and runs the same query
-  workload without managed allocation.
+  ranges into caller-owned buffers, builds a dense offset-to-line cache for source text up to 1 MiB,
+  and runs the same query workload without managed allocation.
 - `CompilerServiceSourceTextLineMapCachedQueryBenchmarks` separates the steady-state query path after
   a document line map has already been built. The validating N# query API keeps the external
   line/column checks; the trusted N# query API is a separate internal-batch contract for positions
@@ -194,6 +194,14 @@ representative corpus and 352 us vs 728 us on the large mixed-newline corpus; ca
 queries measured 100 us vs 323 us representative and 119 us vs 920 us large. This keeps the same
 conclusion: large cached query paths are promising, but representative source-map work still needs
 more than local loop cleanup before any production rewrite claim.
+
+On 2026-06-04, the source-map build path changed dense offset-to-line table construction from a
+per-offset N# assignment loop to `Array.Fill` over each contiguous line span, then raised the dense
+table cutoff to 1 MiB of source text. The normal BenchmarkDotNet build-and-query run reported zero
+managed allocation on the N# path and measured 7.287 us vs 22.449 us on the representative corpus
+(about 3.1x) and 128.786 us vs 660.875 us on the large mixed-newline corpus (about 5.1x). This is a
+real large-corpus gate pass for the dense caller-owned table shape, but not source-map acceptance:
+the representative build-and-query path still misses the 5x gate.
 
 The next cached-query dry smoke pass on 2026-06-03 kept the same validating contract but processed
 offset and line/column queries in four-wide batches, relying on the cached line-map invariant that
@@ -497,12 +505,13 @@ buffer type for production APIs that return a filled prefix without exposing unu
 copying.
 
 Current source-text pressure point: direct N# character loops are not yet competitive enough for
-line splitting or source line-map construction. Calling optimized BCL `string.IndexOf` improved the
-range-buffer candidate, and offset-to-line caches make large steady-state query batches clear the dry
-5x threshold, but representative query loops and large map construction still miss the acceptance
-gate. To reach the 5x goal, N# needs a faster native/string scanning primitive plus more
-bounds-check-friendly indexed-array/span lowering for batches, without relying on hand-unrolled
-compiler-service loops as the normal programming model.
+line splitting or representative source line-map construction. Calling optimized BCL
+`string.IndexOf` improved the range-buffer candidate, and dense offset-to-line caches now make the
+large normal build-and-query row plus large steady-state query batches clear the 5x threshold, but
+representative source-map build/query still misses the acceptance gate. To reach the 5x goal, N#
+needs a faster native/string scanning primitive plus more bounds-check-friendly indexed-array/span
+lowering for batches, without relying on hand-unrolled compiler-service loops as the normal
+programming model.
 
 Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
 queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct

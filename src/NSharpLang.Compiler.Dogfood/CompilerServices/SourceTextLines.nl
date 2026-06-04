@@ -1,3 +1,5 @@
+import System
+
 func SplitLogicalLines(source: string): string[] {
     lineCount := CountLogicalLines(source)
     lines := new string[](lineCount)
@@ -262,16 +264,17 @@ func LineMapCachedChecksumInto(
     queryLines: int[],
     queryColumns: int[]): int {
     sourceLength := source.Length
+    denseOffsetLineIndexLimit := 1048576
     lineCount := 0
-    if sourceLength <= 8192 {
-        lineCount = BuildSmallLineRangesAndOffsetLineIndicesInto(source, starts, lengths, offsetLineIndices)
+    if sourceLength <= denseOffsetLineIndexLimit {
+        lineCount = BuildDenseLineRangesAndOffsetLineIndicesInto(source, starts, lengths, offsetLineIndices)
     } else {
         lineCount = SplitLogicalLineRangesInto(source, starts, lengths)
     }
 
     checksum := lineCount
 
-    if sourceLength <= 8192 {
+    if sourceLength <= denseOffsetLineIndexLimit {
         i := 0
         while i < offsets.Length {
             offset := offsets[i]
@@ -344,7 +347,7 @@ func LineMapCachedChecksumInto(
     return checksum
 }
 
-func BuildSmallLineRangesAndOffsetLineIndicesInto(source: string, starts: int[], lengths: int[], offsetLineIndices: int[]): int {
+func BuildDenseLineRangesAndOffsetLineIndicesInto(source: string, starts: int[], lengths: int[], offsetLineIndices: int[]): int {
     sourceLength := source.Length
     position := 0
     lineStart := 0
@@ -372,11 +375,7 @@ func BuildSmallLineRangesAndOffsetLineIndicesInto(source: string, starts: int[],
         starts[count] = lineStart
         lengths[count] = separator - lineStart
 
-        offset := lineStart
-        while offset < nextLineStart && offset <= sourceLength {
-            offsetLineIndices[offset] = count
-            offset = offset + 1
-        }
+        Array.Fill(offsetLineIndices, count, lineStart, nextLineStart - lineStart)
 
         count = count + 1
         position = nextLineStart
@@ -386,11 +385,7 @@ func BuildSmallLineRangesAndOffsetLineIndicesInto(source: string, starts: int[],
     starts[count] = lineStart
     lengths[count] = sourceLength - lineStart
 
-    offset := lineStart
-    while offset <= sourceLength {
-        offsetLineIndices[offset] = count
-        offset = offset + 1
-    }
+    Array.Fill(offsetLineIndices, count, lineStart, sourceLength - lineStart + 1)
 
     return count + 1
 }
