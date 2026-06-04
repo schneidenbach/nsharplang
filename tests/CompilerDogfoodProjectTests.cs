@@ -197,6 +197,49 @@ func documented(): int {
         Assert.Equal(new[] { 1, 0, 2, 3, 4, 5, 6, 7 }, Assert.IsType<int[]>(classificationArgs[1]));
         Assert.Equal(new[] { 1, 0, 4, 0, 2, 5, 7, 8 }, Assert.IsType<int[]>(classificationArgs[2]));
 
+        var tryGroupDiagnosticClusters = adapterType.GetMethod(
+                "TryGroupDiagnosticClusters",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGroupDiagnosticClusters.");
+        var groupingDiagnostics = new List<DiagnosticResult>
+        {
+            BuildDiagnosticWithSeverity("error", 10) with
+            {
+                Code = "NL102",
+                File = "B.nl",
+                Column = 5,
+                Message = "Expected token '}'"
+            },
+            BuildDiagnosticWithSeverity("error", 8) with
+            {
+                Code = "NL102",
+                File = "A.nl",
+                Column = 3,
+                Message = "Expected token '}'"
+            },
+            BuildDiagnosticWithSeverity("warning", 1) with
+            {
+                Code = "NL301",
+                File = "C.nl",
+                Column = 1,
+                Message = "Undefined variable 'value'"
+            }
+        };
+        var groupingArgs = new object?[]
+        {
+            groupingDiagnostics,
+            new[] { 1, 1, 3 },
+            new[] { 0, 0, 0 },
+            new[] { "Expected token {value}", "Expected token {value}", "Undefined variable {value}" },
+            null
+        };
+        Assert.True((bool)(tryGroupDiagnosticClusters.Invoke(null, groupingArgs) ?? false));
+        var grouping = groupingArgs[4] ?? throw new InvalidOperationException("Dogfood adapter did not return a grouping result.");
+        var groupingType = grouping.GetType();
+        Assert.Equal(2, (int)(groupingType.GetProperty("GroupCount")?.GetValue(grouping) ?? -1));
+        Assert.Equal(new[] { 1, 2 }, Assert.IsType<int[]>(groupingType.GetProperty("RootIndices")?.GetValue(grouping)).Take(2));
+        Assert.Equal(new[] { 2, 1 }, Assert.IsType<int[]>(groupingType.GetProperty("Counts")?.GetValue(grouping)).Take(2));
+
         var trySummarizeDiagnosticSeverities = adapterType.GetMethod(
                 "TrySummarizeDiagnosticSeverities",
                 BindingFlags.Static | BindingFlags.NonPublic)

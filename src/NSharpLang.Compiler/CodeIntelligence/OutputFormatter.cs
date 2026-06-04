@@ -744,6 +744,13 @@ public static class OutputFormatter
 
     private sealed record ClassifiedDiagnostic(DiagnosticResult Diagnostic, DiagnosticClusterTraits Traits);
 
+    private sealed record ClassifiedDiagnosticSet(
+        List<ClassifiedDiagnostic> Items,
+        DiagnosticResult[] Diagnostics,
+        int[]? CategoryIds,
+        int[]? SourceConstructIds,
+        string[]? MessagePatterns);
+
     private sealed record DiagnosticClusterTraits(
         string Category,
         string SourceConstruct,
@@ -754,7 +761,11 @@ public static class OutputFormatter
 
     private static List<DiagnosticCluster> BuildDiagnosticClusters(List<DiagnosticResult> results)
     {
-        return BuildClassifiedDiagnostics(results)
+        var classified = BuildClassifiedDiagnostics(results);
+        if (TryBuildDiagnosticClustersFromDogfoodGroups(classified, out var clusters))
+            return clusters;
+
+        return classified.Items
             .GroupBy(item => new
             {
                 item.Diagnostic.Severity,
@@ -773,36 +784,9 @@ public static class OutputFormatter
                     .ThenBy(d => d.Column)
                     .ThenBy(d => d.File, StringComparer.OrdinalIgnoreCase)
                     .ToList();
-                var root = ordered.First();
                 var traits = group.First().Traits;
 
-                return new DiagnosticCluster(
-                    Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
-                    Category: traits.Category,
-                    Recipe: traits.Recipe,
-                    Risk: traits.Risk,
-                    Count: ordered.Count,
-                    Severity: root.Severity,
-                    Files: ordered.Select(d => d.File).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToArray(),
-                    RelatedDiagnostics: ordered.Select(d => new DiagnosticClusterRelatedDiagnostic(
-                        d.Code,
-                        d.Severity,
-                        d.File,
-                        d.Line,
-                        d.Column,
-                        d.Message)).ToArray(),
-                    NextCommand: BuildDiagnosticClusterNextCommand(root),
-                    RootLocation: new DiagnosticClusterLocation(root.File, root.Line, root.Column),
-                    MessagePattern: traits.MessagePattern,
-                    SourceConstruct: traits.SourceConstruct,
-                    SuggestedNextActions: traits.SuggestedNextActions,
-                    Examples: ordered.Take(DiagnosticClusterExampleLimit).Select(d => new DiagnosticClusterExample(
-                        d.File,
-                        d.Line,
-                        d.Column,
-                        d.Message,
-                        string.IsNullOrWhiteSpace(d.SourceSnippet) ? null : d.SourceSnippet.Trim(),
-                        string.IsNullOrWhiteSpace(d.Suggestion) ? null : d.Suggestion.Trim())).ToArray());
+                return CreateDiagnosticCluster(ordered, traits);
             })
             .OrderByDescending(cluster => cluster.Count)
             .ThenBy(cluster => cluster.RootLocation.File, StringComparer.OrdinalIgnoreCase)
@@ -811,34 +795,138 @@ public static class OutputFormatter
             .ToList();
     }
 
-    private static List<ClassifiedDiagnostic> BuildClassifiedDiagnostics(List<DiagnosticResult> results)
+    private static bool TryBuildDiagnosticClustersFromDogfoodGroups(
+        ClassifiedDiagnosticSet classified,
+        out List<DiagnosticCluster> clusters)
+    {
+        clusters = new List<DiagnosticCluster>();
+
+        if (classified.CategoryIds == null
+            || classified.SourceConstructIds == null
+            || classified.MessagePatterns == null
+            || !NSharpCodeIntelligenceDogfoodAdapter.TryGroupDiagnosticClusters(
+                classified.Diagnostics,
+                classified.CategoryIds,
+                classified.SourceConstructIds,
+                classified.MessagePatterns,
+                out var grouping)
+            || grouping == null)
+        {
+            return false;
+        }
+
+        clusters.Capacity = grouping.GroupCount;
+        var ordered = new List<DiagnosticResult>();
+        for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
+        {
+            var rootIndex = grouping.RootIndices[groupIndex];
+            if (rootIndex < 0 || rootIndex >= classified.Items.Count)
+                return false;
+
+            ordered.Clear();
+            for (var diagnosticIndex = 0; diagnosticIndex < classified.Items.Count; diagnosticIndex++)
+            {
+                if (grouping.KeyMatches(rootIndex, diagnosticIndex))
+                {
+                    ordered.Add(classified.Items[diagnosticIndex].Diagnostic);
+                }
+            }
+
+            if (ordered.Count != grouping.Counts[groupIndex])
+                return false;
+
+            ordered.Sort(CompareDiagnosticClusterRoots);
+            var traits = classified.Items[rootIndex].Traits;
+            clusters.Add(CreateDiagnosticCluster(ordered, traits));
+        }
+
+        return true;
+    }
+
+    private static DiagnosticCluster CreateDiagnosticCluster(
+        List<DiagnosticResult> ordered,
+        DiagnosticClusterTraits traits)
+    {
+        var root = ordered[0];
+        return new DiagnosticCluster(
+            Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
+            Category: traits.Category,
+            Recipe: traits.Recipe,
+            Risk: traits.Risk,
+            Count: ordered.Count,
+            Severity: root.Severity,
+            Files: ordered.Select(d => d.File).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToArray(),
+            RelatedDiagnostics: ordered.Select(d => new DiagnosticClusterRelatedDiagnostic(
+                d.Code,
+                d.Severity,
+                d.File,
+                d.Line,
+                d.Column,
+                d.Message)).ToArray(),
+            NextCommand: BuildDiagnosticClusterNextCommand(root),
+            RootLocation: new DiagnosticClusterLocation(root.File, root.Line, root.Column),
+            MessagePattern: traits.MessagePattern,
+            SourceConstruct: traits.SourceConstruct,
+            SuggestedNextActions: traits.SuggestedNextActions,
+            Examples: ordered.Take(DiagnosticClusterExampleLimit).Select(d => new DiagnosticClusterExample(
+                d.File,
+                d.Line,
+                d.Column,
+                d.Message,
+                string.IsNullOrWhiteSpace(d.SourceSnippet) ? null : d.SourceSnippet.Trim(),
+                string.IsNullOrWhiteSpace(d.Suggestion) ? null : d.Suggestion.Trim())).ToArray());
+    }
+
+    private static int CompareDiagnosticClusterRoots(DiagnosticResult left, DiagnosticResult right)
+    {
+        var line = left.Line.CompareTo(right.Line);
+        if (line != 0)
+            return line;
+
+        var column = left.Column.CompareTo(right.Column);
+        if (column != 0)
+            return column;
+
+        return StringComparer.OrdinalIgnoreCase.Compare(left.File, right.File);
+    }
+
+    private static ClassifiedDiagnosticSet BuildClassifiedDiagnostics(List<DiagnosticResult> results)
     {
         var classified = new List<ClassifiedDiagnostic>(results.Count);
+        var diagnostics = new DiagnosticResult[results.Count];
         if (NSharpCodeIntelligenceDogfoodAdapter.TryClassifyDiagnosticClusterTraits(
                 results,
                 out var categories,
                 out var sourceConstructs))
         {
+            var messagePatterns = new string[results.Count];
             for (var i = 0; i < results.Count; i++)
             {
                 var diagnostic = results[i];
+                var messagePattern = NormalizeMessagePattern(diagnostic.Message ?? string.Empty);
+                var normalized = Normalize(diagnostic);
+                messagePatterns[i] = messagePattern;
+                diagnostics[i] = normalized;
                 classified.Add(new ClassifiedDiagnostic(
-                    Normalize(diagnostic),
+                    normalized,
                     CreateDiagnosticClusterTraits(
                         categories[i],
                         sourceConstructs[i],
-                        NormalizeMessagePattern(diagnostic.Message ?? string.Empty))));
+                        messagePattern)));
             }
 
-            return classified;
+            return new ClassifiedDiagnosticSet(classified, diagnostics, categories, sourceConstructs, messagePatterns);
         }
 
-        foreach (var diagnostic in results)
+        for (var i = 0; i < results.Count; i++)
         {
-            classified.Add(new ClassifiedDiagnostic(Normalize(diagnostic), ClassifyDiagnostic(diagnostic)));
+            var diagnostic = results[i];
+            var normalized = Normalize(diagnostic);
+            diagnostics[i] = normalized;
+            classified.Add(new ClassifiedDiagnostic(normalized, ClassifyDiagnostic(diagnostic)));
         }
 
-        return classified;
+        return new ClassifiedDiagnosticSet(classified, diagnostics, null, null, null);
     }
 
     private static DiagnosticClusterTraits CreateDiagnosticClusterTraits(

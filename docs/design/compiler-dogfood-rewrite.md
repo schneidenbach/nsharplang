@@ -445,12 +445,11 @@ generated diagnostic corpus (6.246 us vs 33.497 us). This is acceptance-grade be
 the diagnostic/check/lint severity-summary pass.
 
 `DiagnosticClusterCompactGroupsInto` passed parity and reported zero managed allocation in the same
-normal BenchmarkDotNet evidence tier for the clustered diagnostic grouping kernel. It ran about 6.85x
-faster on the representative diagnostic cluster corpus (16.585 us vs 113.602 us, 0 B vs 141,136 B)
-and about 10.67x faster on the large generated diagnostic cluster corpus (77.188 us vs 823.667 us,
+normal BenchmarkDotNet evidence tier for the clustered diagnostic grouping kernel. It ran about 6.76x
+faster on the representative diagnostic cluster corpus (16.570 us vs 111.999 us, 0 B vs 141,136 B)
+and about 10.59x faster on the large generated diagnostic cluster corpus (77.336 us vs 819.389 us,
 0 B vs 719,184 B). This is acceptance-grade benchmark evidence for the compact integer grouping
-shape after category/source/rewrite/message dimensions have been classified; production clustered
-output still needs a formatter adapter swap before this can count as production route evidence.
+shape after category/source/rewrite/message dimensions have been classified.
 
 `DiagnosticClusterIdsInto` passed parity but missed the normal BenchmarkDotNet speed gate for public
 cluster id string materialization. The N# path avoided the temporary composite key allocation and
@@ -484,6 +483,9 @@ Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cac
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
+Clustered diagnostic output also routes group root/count/order selection through the compiled N#
+compact grouping kernel when the dogfood assembly is available, with the previous LINQ `GroupBy`
+path kept as the fallback.
 Diagnostic, clustered diagnostic, check, and lint JSON envelopes now use the compiled N# severity
 summary pass when the dogfood assembly is available, with the previous C# LINQ counts kept as the
 fallback.
@@ -492,13 +494,14 @@ fallback.
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
 declaration-name match, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
-severity summaries,
+severity summaries and compact diagnostic cluster grouping,
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
 completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
-declaration-name guard, variable declaration name extraction, and diagnostic severity summary
+declaration-name guard, variable declaration name extraction, diagnostic severity summary, and
+diagnostic cluster grouping
 slices, plus LSP editor word/span lookup for hover, definition, references, and rename entry points.
 Broader query, hover, definition, diagnostic, completion candidate construction, binding, and CLI
 command logic still contains C# implementation code and remains in scope for the dogfood rewrite.
@@ -584,9 +587,8 @@ method-call receiver normalization, but semantic member lookup and completion it
 remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
-shaping still needs N# implementations. Diagnostic cluster trait classification and diagnostic
-severity summary counting are now dogfooded. Compact diagnostic cluster grouping has
-acceptance-grade parity and speed evidence but still needs a production formatter adapter swap.
+shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
+severity summary counting, and compact diagnostic cluster grouping are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain
 C# formatter work.
 The cluster id and next-command misses are specifically about short public string construction:

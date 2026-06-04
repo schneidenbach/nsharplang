@@ -17,6 +17,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static CompletionReceiverScratch? t_completionReceiverScratch;
     [ThreadStatic]
     private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
+    [ThreadStatic]
+    private static DiagnosticClusterGroupingScratch? t_diagnosticClusterGroupingScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -389,6 +391,90 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryGroupDiagnosticClusters(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        int[] categoryIds,
+        int[] sourceConstructIds,
+        string[] messagePatterns,
+        out DiagnosticClusterGrouping? grouping)
+    {
+        grouping = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var count = diagnostics.Count;
+        if (categoryIds.Length < count || sourceConstructIds.Length < count || messagePatterns.Length < count)
+            return false;
+
+        var scratch = t_diagnosticClusterGroupingScratch ??= new DiagnosticClusterGroupingScratch();
+        scratch.EnsureCapacity(count);
+
+        try
+        {
+            scratch.ResetIds();
+            for (var i = 0; i < count; i++)
+            {
+                var diagnostic = diagnostics[i];
+                var category = categoryIds[i];
+
+                scratch.CodeIds[i] = scratch.GetCodeId(diagnostic.Code ?? string.Empty);
+                scratch.SeverityIds[i] = scratch.GetSeverityId(diagnostic.Severity ?? string.Empty);
+                scratch.CategoryIds[i] = category;
+                scratch.SourceConstructIds[i] = sourceConstructIds[i];
+                scratch.RecipeIds[i] = category;
+                scratch.RiskIds[i] = DiagnosticClusterRiskId(category);
+                scratch.MessagePatternIds[i] = scratch.GetMessagePatternId(messagePatterns[i] ?? string.Empty);
+                scratch.Files[i] = diagnostic.File ?? string.Empty;
+                scratch.Lines[i] = diagnostic.Line;
+                scratch.Columns[i] = diagnostic.Column;
+            }
+
+            var groupCount = bindings.DiagnosticClusterCompactGroups(
+                scratch.CodeIds,
+                scratch.SeverityIds,
+                scratch.CategoryIds,
+                scratch.SourceConstructIds,
+                scratch.RecipeIds,
+                scratch.RiskIds,
+                scratch.MessagePatternIds,
+                scratch.Files,
+                scratch.Lines,
+                scratch.Columns,
+                scratch.SlotGroups,
+                scratch.GroupKeyIndices,
+                scratch.RootIndices,
+                scratch.Counts);
+
+            if (groupCount < 0 || groupCount > count)
+                return false;
+
+            grouping = new DiagnosticClusterGrouping(
+                groupCount,
+                scratch.RootIndices,
+                scratch.Counts,
+                scratch.CodeIds,
+                scratch.SeverityIds,
+                scratch.CategoryIds,
+                scratch.SourceConstructIds,
+                scratch.RecipeIds,
+                scratch.RiskIds,
+                scratch.MessagePatternIds);
+            return true;
+        }
+        catch
+        {
+            grouping = null;
+            return false;
+        }
+        finally
+        {
+            scratch.ClearFiles(count);
+            scratch.ResetIds();
+        }
+    }
+
     internal static bool TryClassifyCompletionReceiver(
         string beforeCursor,
         out bool isMemberAccess,
@@ -471,7 +557,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"),
                 CreateDelegate<CodeIntelligenceCompletionReceiversInto>(programType, "CodeIntelligenceCompletionReceiversInto"),
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
-                CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"));
+                CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
+                CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"));
         }
         catch
         {
@@ -627,6 +714,22 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int count,
         int[] resultCounts);
 
+    private delegate int DiagnosticClusterCompactGroupsInto(
+        int[] codeIds,
+        int[] severityIds,
+        int[] categoryIds,
+        int[] sourceConstructIds,
+        int[] recipeIds,
+        int[] riskIds,
+        int[] messagePatternIds,
+        string[] files,
+        int[] lines,
+        int[] columns,
+        int[] slotGroups,
+        int[] groupKeyIndices,
+        int[] resultRootIndices,
+        int[] resultCounts);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
@@ -642,7 +745,55 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache,
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
-        DiagnosticClusterTraitsInto DiagnosticClusterTraits);
+        DiagnosticClusterTraitsInto DiagnosticClusterTraits,
+        DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups);
+
+    internal sealed class DiagnosticClusterGrouping
+    {
+        public DiagnosticClusterGrouping(
+            int groupCount,
+            int[] rootIndices,
+            int[] counts,
+            int[] codeIds,
+            int[] severityIds,
+            int[] categoryIds,
+            int[] sourceConstructIds,
+            int[] recipeIds,
+            int[] riskIds,
+            int[] messagePatternIds)
+        {
+            GroupCount = groupCount;
+            RootIndices = rootIndices;
+            Counts = counts;
+            CodeIds = codeIds;
+            SeverityIds = severityIds;
+            CategoryIds = categoryIds;
+            SourceConstructIds = sourceConstructIds;
+            RecipeIds = recipeIds;
+            RiskIds = riskIds;
+            MessagePatternIds = messagePatternIds;
+        }
+
+        public int GroupCount { get; }
+        public int[] RootIndices { get; }
+        public int[] Counts { get; }
+        public int[] CodeIds { get; }
+        public int[] SeverityIds { get; }
+        public int[] CategoryIds { get; }
+        public int[] SourceConstructIds { get; }
+        public int[] RecipeIds { get; }
+        public int[] RiskIds { get; }
+        public int[] MessagePatternIds { get; }
+
+        public bool KeyMatches(int left, int right) =>
+            SeverityIds[left] == SeverityIds[right]
+            && CodeIds[left] == CodeIds[right]
+            && CategoryIds[left] == CategoryIds[right]
+            && SourceConstructIds[left] == SourceConstructIds[right]
+            && RecipeIds[left] == RecipeIds[right]
+            && RiskIds[left] == RiskIds[right]
+            && MessagePatternIds[left] == MessagePatternIds[right];
+    }
 
     private sealed class CompletionReceiverScratch
     {
@@ -670,6 +821,86 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             }
         }
     }
+
+    private sealed class DiagnosticClusterGroupingScratch
+    {
+        private readonly Dictionary<string, int> _codeIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _messagePatternIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _severityIds = new(StringComparer.Ordinal);
+
+        public int[] CategoryIds = Array.Empty<int>();
+        public int[] CodeIds = Array.Empty<int>();
+        public int[] Columns = Array.Empty<int>();
+        public string[] Files = Array.Empty<string>();
+        public int[] Counts = Array.Empty<int>();
+        public int[] GroupKeyIndices = Array.Empty<int>();
+        public int[] Lines = Array.Empty<int>();
+        public int[] MessagePatternIds = Array.Empty<int>();
+        public int[] RecipeIds = Array.Empty<int>();
+        public int[] RiskIds = Array.Empty<int>();
+        public int[] RootIndices = Array.Empty<int>();
+        public int[] SeverityIds = Array.Empty<int>();
+        public int[] SlotGroups = Array.Empty<int>();
+        public int[] SourceConstructIds = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (CodeIds.Length != count)
+            {
+                CodeIds = new int[count];
+                SeverityIds = new int[count];
+                CategoryIds = new int[count];
+                SourceConstructIds = new int[count];
+                RecipeIds = new int[count];
+                RiskIds = new int[count];
+                MessagePatternIds = new int[count];
+                Files = new string[count];
+                Lines = new int[count];
+                Columns = new int[count];
+                GroupKeyIndices = new int[count];
+                RootIndices = new int[count];
+                Counts = new int[count];
+            }
+
+            var slotCapacity = count * 2 + 1;
+            if (SlotGroups.Length != slotCapacity)
+            {
+                SlotGroups = new int[slotCapacity];
+            }
+        }
+
+        public int GetCodeId(string text) => GetId(_codeIds, text);
+
+        public int GetSeverityId(string text) => GetId(_severityIds, text);
+
+        public int GetMessagePatternId(string text) => GetId(_messagePatternIds, text);
+
+        public void ClearFiles(int count) => Array.Clear(Files, 0, count);
+
+        public void ResetIds()
+        {
+            _codeIds.Clear();
+            _severityIds.Clear();
+            _messagePatternIds.Clear();
+        }
+
+        private static int GetId(Dictionary<string, int> ids, string text)
+        {
+            if (ids.TryGetValue(text, out var id))
+                return id;
+
+            id = ids.Count + 1;
+            ids.Add(text, id);
+            return id;
+        }
+    }
+
+    private static int DiagnosticClusterRiskId(int category) => category switch
+    {
+        0 or 1 or 2 => 1,
+        3 or 4 or 5 or 6 => 2,
+        _ => 3
+    };
 
     private sealed class SourceLineCache
     {
