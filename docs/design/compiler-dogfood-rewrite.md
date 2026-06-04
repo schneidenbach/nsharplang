@@ -803,6 +803,11 @@ Current CLI dogfood benchmarks:
   group, then order by kind and name. The accepted N# candidate runs after the host has assigned
   compact kind/name ranks, uses stable counting passes to preserve first-source dependency
   selection, and returns ordered source indices through `CliTreeDependencyDeduplicateIndicesInto`.
+  Both MSBuild-derived tree output and pure `project.yml` tree output now route through the accepted
+  `TreeCommand.Deduplicate` helper before rendering.
+  A focused 2026-06-04 validation run measured 4.598 us vs 155.891 us on the representative corpus
+  (about 33.9x faster) and 36.362 us vs 2.318 ms on the large generated corpus (about 63.8x faster),
+  with zero managed allocation reported on the N# benchmark path.
 
 `CliQueryPositionsInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier, but missed the speed gate for CLI position parsing. The best measured

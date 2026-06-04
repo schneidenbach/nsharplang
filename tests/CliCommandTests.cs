@@ -101,6 +101,8 @@ dependencies:
   - framework: Microsoft.AspNetCore.App
   - nuget: Serilog
     version: 3.1.1
+  - nuget: serilog
+    version: 9.9.9
 """);
             File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
 func Main() {
@@ -124,6 +126,12 @@ func Main() {
             Assert.Equal("project.yml", root.GetProperty("project").GetProperty("source").GetString());
             Assert.False(root.GetProperty("capabilities").GetProperty("transitiveNuGetDependencies").GetBoolean());
             Assert.Equal(2, root.GetProperty("dependencies").GetArrayLength());
+            var dependencies = root.GetProperty("dependencies").EnumerateArray().ToArray();
+            Assert.Equal("framework", dependencies[0].GetProperty("kind").GetString());
+            Assert.Equal("Microsoft.AspNetCore.App", dependencies[0].GetProperty("name").GetString());
+            Assert.Equal("nuget", dependencies[1].GetProperty("kind").GetString());
+            Assert.Equal("Serilog", dependencies[1].GetProperty("name").GetString());
+            Assert.Equal("3.1.1", dependencies[1].GetProperty("version").GetString());
             Assert.Equal(0, root.GetProperty("transitiveDependencies").GetArrayLength());
             Assert.Equal(2, root.GetProperty("summary").GetProperty("direct").GetInt32());
             Assert.Contains("direct runtime dependencies",

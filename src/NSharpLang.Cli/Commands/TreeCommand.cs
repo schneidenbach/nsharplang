@@ -78,11 +78,7 @@ public static class TreeCommand
     {
         var config = ProjectFileParser.Parse(projectYml);
         var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
-        var allDirect = config.Dependencies
-            .Select(ToProjectYmlDependency)
-            .OrderBy(dependency => dependency.Kind, StringComparer.Ordinal)
-            .ThenBy(dependency => dependency.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var allDirect = Deduplicate(config.Dependencies.Select(ToProjectYmlDependency));
 
         var direct = maxDepth >= 1 ? allDirect : Array.Empty<TreeDependency>();
         var limitations = new List<string>
