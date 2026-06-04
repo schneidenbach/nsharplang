@@ -342,6 +342,15 @@ func documented(): int {
         Assert.Equal(3, Assert.IsType<int>(deduplicationArgs[2]));
         Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(deduplicationArgs[1]).Take(3));
 
+        var tryDeduplicateDiagnosticsPreservingOrder = adapterType.GetMethod(
+                "TryDeduplicateDiagnosticsPreservingOrder",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateDiagnosticsPreservingOrder.");
+        var stableDeduplicationArgs = new object?[] { deduplicationDiagnostics, null, null };
+        Assert.True((bool)(tryDeduplicateDiagnosticsPreservingOrder.Invoke(null, stableDeduplicationArgs) ?? false));
+        Assert.Equal(3, Assert.IsType<int>(stableDeduplicationArgs[2]));
+        Assert.Equal(new[] { 0, 1, 3 }, Assert.IsType<int[]>(stableDeduplicationArgs[1]).Take(3));
+
         var tryDeduplicateReferences = adapterType.GetMethod(
                 "TryDeduplicateReferences",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -717,6 +726,14 @@ func documented(): int {
                     "DiagnosticDeduplicateCompactChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDeduplicateCompactChecksumInto.");
+            var diagnosticDeduplicateStableInto = programType.GetMethod(
+                    "DiagnosticDeduplicateStableInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDeduplicateStableInto.");
+            var diagnosticDeduplicateStableChecksumInto = programType.GetMethod(
+                    "DiagnosticDeduplicateStableChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDeduplicateStableChecksumInto.");
             var referenceDeduplicateCompactInto = programType.GetMethod(
                     "ReferenceDeduplicateCompactInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1032,7 +1049,9 @@ func main() {
                 diagnosticClusterCompactGroupMemberChecksumInto);
             AssertDiagnosticDeduplicationLikeProduction(
                 diagnosticDeduplicateCompactInto,
-                diagnosticDeduplicateCompactChecksumInto);
+                diagnosticDeduplicateCompactChecksumInto,
+                diagnosticDeduplicateStableInto,
+                diagnosticDeduplicateStableChecksumInto);
             AssertReferenceDeduplicationLikeProduction(
                 referenceDeduplicateCompactInto,
                 referenceDeduplicateCompactChecksumInto);
@@ -3226,7 +3245,9 @@ func main() {
 
     private static void AssertDiagnosticDeduplicationLikeProduction(
         MethodInfo diagnosticDeduplicateCompactInto,
-        MethodInfo diagnosticDeduplicateCompactChecksumInto)
+        MethodInfo diagnosticDeduplicateCompactChecksumInto,
+        MethodInfo diagnosticDeduplicateStableInto,
+        MethodInfo diagnosticDeduplicateStableChecksumInto)
     {
         var codes = new[] { "NL102", "NL301", "NL102", "NL201", "NL301", "NL302" };
         var files = new[] { "B.nl", "A.nl", "B.nl", "A.nl", "A.nl", "A.nl" };
@@ -3243,8 +3264,10 @@ func main() {
         };
         var codeIds = CreateOrdinalIds(codes);
         var fileRanks = CreateSortedFileRanks(files);
+        var fileIds = CreateOrdinalIds(files);
         var messageIds = CreateOrdinalIds(messages);
         var expected = CreateExpectedDiagnosticDeduplication(codes, files, lines, columns, messages);
+        var expectedStable = CreateExpectedStableDiagnosticDeduplication(codes, files, lines, columns, messages);
 
         var checksumSlotIndices = new int[codes.Length * 2 + 1];
         var checksumResultIndices = new int[codes.Length];
@@ -3288,6 +3311,49 @@ func main() {
 
         Assert.Equal(expected.Length, actualCount);
         Assert.Equal(expected, resultIndices.Take(actualCount));
+
+        var stableChecksumSlotIndices = new int[codes.Length * 2 + 1];
+        var stableChecksumResultIndices = new int[codes.Length];
+        var actualStableChecksum = (int)(diagnosticDeduplicateStableChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                fileIds,
+                lines,
+                columns,
+                messageIds,
+                stableChecksumSlotIndices,
+                stableChecksumResultIndices
+            }) ?? -1);
+
+        var expectedStableChecksum = expectedStable.Length;
+        for (var i = 0; i < expectedStable.Length; i++)
+        {
+            var index = expectedStable[i];
+            expectedStableChecksum += (index + 1) * 31 + lines[index] * 17 + columns[index] * 13;
+        }
+
+        Assert.Equal(expectedStableChecksum, actualStableChecksum);
+        Assert.Equal(expectedStable, stableChecksumResultIndices.Take(expectedStable.Length));
+
+        var stableSlotIndices = new int[codes.Length * 2 + 1];
+        var stableResultIndices = new int[codes.Length];
+        var actualStableCount = (int)(diagnosticDeduplicateStableInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                fileIds,
+                lines,
+                columns,
+                messageIds,
+                stableSlotIndices,
+                stableResultIndices
+            }) ?? -1);
+
+        Assert.Equal(expectedStable.Length, actualStableCount);
+        Assert.Equal(expectedStable, stableResultIndices.Take(actualStableCount));
     }
 
     private static int[] CreateExpectedDiagnosticDeduplication(
@@ -3303,6 +3369,19 @@ func main() {
             .OrderBy(i => files[i])
             .ThenBy(i => lines[i])
             .ThenBy(i => columns[i])
+            .ToArray();
+    }
+
+    private static int[] CreateExpectedStableDiagnosticDeduplication(
+        string[] codes,
+        string[] files,
+        int[] lines,
+        int[] columns,
+        string[] messages)
+    {
+        return Enumerable.Range(0, codes.Length)
+            .GroupBy(i => (codes[i], files[i], lines[i], columns[i], messages[i]))
+            .Select(group => group.First())
             .ToArray();
     }
 

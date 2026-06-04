@@ -596,6 +596,68 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryDeduplicateDiagnosticsPreservingOrder(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        out int[] resultIndices,
+        out int count)
+    {
+        resultIndices = Array.Empty<int>();
+        count = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var diagnosticCount = diagnostics.Count;
+        if (diagnosticCount == 0)
+            return true;
+
+        var scratch = t_diagnosticDeduplicationScratch ??= new DiagnosticDeduplicationScratch();
+        scratch.EnsureCapacity(diagnosticCount);
+
+        try
+        {
+            scratch.ResetIds();
+            for (var i = 0; i < diagnosticCount; i++)
+            {
+                var diagnostic = diagnostics[i];
+                scratch.CodeIds[i] = scratch.GetCodeId(diagnostic.Code);
+                scratch.FileRanks[i] = scratch.GetFileId(diagnostic.File);
+                scratch.LineNumbers[i] = diagnostic.Line;
+                scratch.Columns[i] = diagnostic.Column;
+                scratch.MessageIds[i] = scratch.GetMessageId(diagnostic.Message);
+            }
+
+            count = bindings.DiagnosticDeduplicateStable(
+                scratch.CodeIds,
+                scratch.FileRanks,
+                scratch.LineNumbers,
+                scratch.Columns,
+                scratch.MessageIds,
+                scratch.SlotIndices,
+                scratch.ResultIndices);
+
+            if (count < 0 || count > diagnosticCount)
+            {
+                count = 0;
+                return false;
+            }
+
+            resultIndices = scratch.ResultIndices;
+            return true;
+        }
+        catch
+        {
+            resultIndices = Array.Empty<int>();
+            count = 0;
+            return false;
+        }
+        finally
+        {
+            scratch.ResetIds();
+        }
+    }
+
     internal static bool TryDeduplicateReferences(
         IReadOnlyList<ReferenceResult> references,
         out int[] resultIndices,
@@ -854,6 +916,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(programType, "DiagnosticClusterCompactGroupMembersInto"),
                 CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateCompactInto"),
+                CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateStableInto"),
                 CreateDelegate<ReferenceDeduplicateCompactInto>(programType, "ReferenceDeduplicateCompactInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
@@ -1172,6 +1235,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
         DiagnosticClusterCompactGroupMembersInto DiagnosticClusterCompactGroupMembers,
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateCompact,
+        DiagnosticDeduplicateCompactInto DiagnosticDeduplicateStable,
         ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
@@ -1349,6 +1413,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
 
         public int GetCodeId(string text) => GetId(_codeIds, text);
+
+        public int GetFileId(string text) => GetId(_fileRanks, text);
 
         public int GetMessageId(string text) => GetId(_messageIds, text);
 

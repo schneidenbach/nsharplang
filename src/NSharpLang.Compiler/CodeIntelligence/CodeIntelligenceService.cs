@@ -389,6 +389,29 @@ public class CodeIntelligenceService
 
     private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
     {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateDiagnosticsPreservingOrder(
+                diagnostics,
+                out var resultIndices,
+                out var resultCount))
+        {
+            var deduplicated = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                    return DeduplicateDiagnosticsWithLinq(diagnostics);
+
+                deduplicated.Add(diagnostics[diagnosticIndex]);
+            }
+
+            return deduplicated;
+        }
+
+        return DeduplicateDiagnosticsWithLinq(diagnostics);
+    }
+
+    private static List<DiagnosticResult> DeduplicateDiagnosticsWithLinq(List<DiagnosticResult> diagnostics)
+    {
         return diagnostics
             .GroupBy(diagnostic => new
             {

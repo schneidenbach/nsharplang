@@ -367,6 +367,12 @@ Current code-intelligence dogfood benchmarks:
   file sort ranks, deduplicates with a caller-owned open-addressed table, and writes sorted result
   indices into caller-owned storage. The host rank boundary preserves the old default string ordering
   while keeping the N# hot path integer-only.
+- `CompilerServiceCodeIntelligenceDiagnosticStableDeduplicationBenchmarks` targets the
+  preserve-first-order duplicate removal used by `CodeIntelligenceService.GetDiagnostics` after
+  compiler and lint diagnostics are combined. The C# baseline mirrors the private helper's LINQ
+  `GroupBy(...).Select(First)` shape without final sorting. The N# candidate consumes compact
+  code/file/message ids, deduplicates with a caller-owned open-addressed table, and writes first-seen
+  unique diagnostic indices in original input order.
 - `CompilerServiceCodeIntelligenceDiagnosticClusterGroupBenchmarks` targets diagnostic cluster
   grouping before clustered diagnostic JSON/text materialization. The C# baseline mirrors the
   formatter's current shape: LINQ `GroupBy` over string cluster fields, root selection per group,
@@ -426,9 +432,11 @@ compact diagnostic cluster grouping parity checks preclassified integer dimensio
 production string grouping semantics, including root selection by line/column/file and final
 ordering by count/file/line/column. Diagnostic deduplication parity checks compact ids and sorted
 file ranks against the production `(code,file,line,column,message)` grouping semantics, including
-first-diagnostic preservation and file/line/column ordering. Reference-result deduplication parity
-checks sorted file ranks against the production `(file,line,column)` grouping semantics, including
-first-reference preservation and file/line/column ordering. Binding lookup parity checks compact
+first-diagnostic preservation and file/line/column ordering. Stable diagnostic deduplication parity
+checks compact ids against the `GetDiagnostics` preserve-first-order duplicate-removal contract.
+Reference-result deduplication parity checks sorted file ranks against the production
+`(file,line,column)` grouping semantics, including first-reference preservation and
+file/line/column ordering. Binding lookup parity checks compact
 declaration and binding tables against production `BindingMap.GetBindingAt` semantics, including
 declaration-position hits, usage-position hits, misses, and declaration-first precedence when a
 binding shares a declaration key. Nearest-declaration lookup parity checks sorted compact
@@ -578,6 +586,13 @@ faster on the representative diagnostic corpus (7.877 us vs 105.425 us, 0 B vs 6
 500,952 B). This is acceptance-grade benchmark evidence for the compact integer diagnostic
 deduplication kernel after the host has assigned default-comparer file sort ranks.
 
+`DiagnosticDeduplicateStableInto` passed parity and reported zero managed allocation in the same
+normal BenchmarkDotNet evidence tier for `GetDiagnostics` duplicate removal while preserving the
+old first-seen result order. It ran about 14.4x faster on the representative diagnostic corpus
+(3.693 us vs 53.242 us, 0 B vs 56,672 B) and about 13.6x faster on the large generated diagnostic
+corpus (36.395 us vs 494.160 us, 0 B vs 450,960 B). This is acceptance-grade benchmark evidence
+for stable duplicate removal after the host has assigned compact code/file/message ids.
+
 `DiagnosticClusterCompactGroupsInto` passed parity and reported zero managed allocation in the same
 normal BenchmarkDotNet evidence tier for the clustered diagnostic grouping kernel. It ran about 6.76x
 faster on the representative diagnostic cluster corpus (16.570 us vs 111.999 us, 0 B vs 141,136 B)
@@ -656,6 +671,9 @@ dogfood assembly is available, with the previous C# LINQ counts kept as the fall
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
 shape as the fallback.
+`CodeIntelligenceService.GetDiagnostics` now routes its preserve-first-order duplicate removal
+through the compiled N# stable deduplication kernel when the dogfood assembly is available, with the
+previous LINQ `GroupBy(...).Select(First)` shape kept as the fallback.
 `FindReferences` result deduplication and ordering now calls the compiled N# reference-deduplication
 kernel when the dogfood assembly is available, with the previous LINQ `GroupBy`/`OrderBy` path kept
 as the fallback.
@@ -679,8 +697,8 @@ completion-prefix, completion receiver-context, doc-comment, strict editor ident
 declaration-name match, scoped visible-variable, scoped identifier-lookup, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
 severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
-deduplication, strict binding lookup, nearest declaration lookup, and scoped visible-variable
-selection
+deduplication, stable diagnostic deduplication, strict binding lookup, nearest declaration lookup,
+and scoped visible-variable selection
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -688,7 +706,8 @@ identifier-span, member-receiver, reference source-context, diagnostic/lint raw 
 completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
 declaration-name guard, analyzer declaration-name column lookup, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
-semantic reference result deduplication/order slices, plus strict semantic binding lookup and LSP
+`GetDiagnostics` stable diagnostic deduplication, and semantic reference result deduplication/order
+slices, plus strict semantic binding lookup and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
