@@ -573,6 +573,72 @@ func LineMapTrustedCachedQueryChecksumInto(
 
     i := 0
     offsetCount := offsets.Length
+    queryCount := queryLines.Length
+    if offsetCount == queryCount && queryCount == queryColumns.Length {
+        combinedUnrollLimit := offsetCount - 7
+        while i < combinedUnrollLimit {
+            offset := offsets[i]
+            lineIndex := offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index := queryLines[i] - 1
+            checksum = checksum + (starts[index] + queryColumns[i]) * 17
+
+            offset = offsets[i + 1]
+            lineIndex = offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index = queryLines[i + 1] - 1
+            checksum = checksum + (starts[index] + queryColumns[i + 1]) * 17
+
+            offset = offsets[i + 2]
+            lineIndex = offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index = queryLines[i + 2] - 1
+            checksum = checksum + (starts[index] + queryColumns[i + 2]) * 17
+
+            offset = offsets[i + 3]
+            lineIndex = offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index = queryLines[i + 3] - 1
+            checksum = checksum + (starts[index] + queryColumns[i + 3]) * 17
+
+            offset = offsets[i + 4]
+            lineIndex = offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index = queryLines[i + 4] - 1
+            checksum = checksum + (starts[index] + queryColumns[i + 4]) * 17
+
+            offset = offsets[i + 5]
+            lineIndex = offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index = queryLines[i + 5] - 1
+            checksum = checksum + (starts[index] + queryColumns[i + 5]) * 17
+
+            offset = offsets[i + 6]
+            lineIndex = offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index = queryLines[i + 6] - 1
+            checksum = checksum + (starts[index] + queryColumns[i + 6]) * 17
+
+            offset = offsets[i + 7]
+            lineIndex = offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index = queryLines[i + 7] - 1
+            checksum = checksum + (starts[index] + queryColumns[i + 7]) * 17
+            i = i + 8
+        }
+
+        while i < offsetCount {
+            offset := offsets[i]
+            lineIndex := offsetLineIndices[offset]
+            checksum = checksum + lineIndex * 31 + offset - starts[lineIndex]
+            index := queryLines[i] - 1
+            checksum = checksum + (starts[index] + queryColumns[i]) * 17
+            i = i + 1
+        }
+
+        return checksum
+    }
+
     offsetUnrollLimit := offsetCount - 3
     while i < offsetUnrollLimit {
         offset := offsets[i]
@@ -598,7 +664,6 @@ func LineMapTrustedCachedQueryChecksumInto(
     }
 
     i = 0
-    queryCount := queryLines.Length
     queryUnrollLimit := queryCount - 3
     while i < queryUnrollLimit {
         index := queryLines[i] - 1

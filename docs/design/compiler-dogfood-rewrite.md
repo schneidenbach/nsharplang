@@ -160,7 +160,8 @@ Current source-text dogfood benchmarks:
 - `CompilerServiceSourceTextLineMapCachedQueryBenchmarks` separates the steady-state query path after
   a document line map has already been built. The validating N# query API keeps the external
   line/column checks; the trusted N# query API is a separate internal-batch contract for positions
-  already proven valid by the caller.
+  already proven valid by the caller. Equal-length trusted offset and line/column batches use one
+  fused eight-wide N# hot loop over both query streams.
 
 The dogfood project also includes `CompilerServices/SourceTextLines.nl`; `CompilerDogfoodProjectTests`
 compiles it through the SDK project and verifies both returned strings and range buffers against the
@@ -201,6 +202,18 @@ offset and line/column queries in four-wide batches, relying on the cached line-
 large mixed-newline corpus (about 9.2x). The trusted valid-query batch measured 71.62 us
 representative and 89.29 us large in the same dry run. Large cached-query throughput is now well past
 the dry smoke threshold, but representative cached queries still miss the 5x acceptance gate.
+
+On 2026-06-04, the trusted valid-query batch gained an equal-length fast path that processes offset
+queries and line/column queries in one eight-wide loop. The normal BenchmarkDotNet run measured the
+trusted N# internal batch at 4.301 us on the representative corpus and 5.699 us on the large
+mixed-newline corpus, with no managed allocation reported. Compared with the current validating C#
+cached-query baseline from the same benchmark pass, that is about 5.2x faster on representative
+inputs (22.393 us vs 4.301 us) and about 38.0x faster on large mixed-newline inputs (216.690 us vs
+5.699 us). The matched trusted C# baseline is still a real constraint: it measured 11.594 us
+representative and 61.390 us large, so the same N# helper is about 2.7x faster on representative
+trusted inputs and about 10.8x faster on large trusted inputs. This is acceptance evidence for callers
+that can semantically prove valid query batches before entering the source-map hot path; it is not yet
+acceptance evidence for the full external validating query API.
 
 Current code-intelligence dogfood benchmarks:
 
