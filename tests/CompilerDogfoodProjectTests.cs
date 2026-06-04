@@ -654,6 +654,14 @@ func documented(): int {
                     "CliQueryPositionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionChecksumInto.");
+            var typoSuggestionIndicesInto = programType.GetMethod(
+                    "TypoSuggestionIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TypoSuggestionIndicesInto.");
+            var typoSuggestionChecksumInto = programType.GetMethod(
+                    "TypoSuggestionChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TypoSuggestionChecksumInto.");
             var cliBatchDuplicateIdRanksInto = programType.GetMethod(
                     "CliBatchDuplicateIdRanksInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1024,6 +1032,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
                 cliQueryPositionChecksumInto);
+            AssertTypoSuggestionsLikeProduction(
+                typoSuggestionIndicesInto,
+                typoSuggestionChecksumInto);
             AssertCliBatchDuplicateIdsLikeProduction(
                 cliBatchDuplicateIdRanksInto,
                 cliBatchDuplicateIdRankChecksumInto);
@@ -2375,6 +2386,124 @@ func main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static void AssertTypoSuggestionsLikeProduction(
+        MethodInfo typoSuggestionIndicesInto,
+        MethodInfo typoSuggestionChecksumInto)
+    {
+        var candidates = new[]
+        {
+            "customer",
+            "customerName",
+            "orderTotal",
+            "invoiceNumber",
+            "StringBuilder",
+            "DateTime",
+            "ResolveSymbol",
+            "LookupIdentifier",
+            "WriteLine"
+        };
+        var typos = new[]
+        {
+            "custmer",
+            "customerNmae",
+            "ordrTotal",
+            "StringBuiler",
+            "DateTiem",
+            "ResolveSymbl",
+            "LookupIdentifer",
+            "unknown"
+        };
+        var expectedStarts = new int[typos.Length];
+        var expectedCounts = new int[typos.Length];
+        var expectedIndices = new int[typos.Length * 3];
+        var candidateIndices = candidates
+            .Select((candidate, index) => (candidate, index))
+            .ToDictionary(item => item.candidate, item => item.index, StringComparer.Ordinal);
+        var suggester = new SmartSuggester(candidates.ToList());
+
+        var writeIndex = 0;
+        for (var i = 0; i < typos.Length; i++)
+        {
+            var suggestions = suggester.SuggestSimilarNames(typos[i], 3);
+            expectedStarts[i] = writeIndex;
+            expectedCounts[i] = suggestions.Count;
+            foreach (var suggestion in suggestions)
+            {
+                expectedIndices[writeIndex] = candidateIndices[suggestion];
+                writeIndex++;
+            }
+        }
+
+        var maxCandidateLength = candidates.Max(candidate => candidate.Length);
+        var previousDistances = new int[maxCandidateLength + 1];
+        var currentDistances = new int[maxCandidateLength + 1];
+        var actualStarts = new int[typos.Length];
+        var actualCounts = new int[typos.Length];
+        var actualIndices = new int[typos.Length * 3];
+        var actualTotal = (int)(typoSuggestionIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                typos,
+                candidates,
+                3,
+                previousDistances,
+                currentDistances,
+                actualStarts,
+                actualCounts,
+                actualIndices
+            }) ?? -1);
+
+        Assert.Equal(writeIndex, actualTotal);
+        Assert.Equal(expectedStarts, actualStarts);
+        Assert.Equal(expectedCounts, actualCounts);
+        Assert.Equal(expectedIndices, actualIndices);
+
+        var checksumStarts = new int[typos.Length];
+        var checksumCounts = new int[typos.Length];
+        var checksumIndices = new int[typos.Length * 3];
+        var actualChecksum = (int)(typoSuggestionChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                typos,
+                candidates,
+                3,
+                previousDistances,
+                currentDistances,
+                checksumStarts,
+                checksumCounts,
+                checksumIndices
+            }) ?? -1);
+        var expectedChecksum = TypoSuggestionChecksum(writeIndex, expectedStarts, expectedCounts, expectedIndices);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedStarts, checksumStarts);
+        Assert.Equal(expectedCounts, checksumCounts);
+        Assert.Equal(expectedIndices, checksumIndices);
+    }
+
+    private static int TypoSuggestionChecksum(
+        int total,
+        int[] starts,
+        int[] counts,
+        int[] indices)
+    {
+        var checksum = total;
+        for (var i = 0; i < counts.Length; i++)
+        {
+            var start = starts[i];
+            var count = counts[i];
+            checksum += start * 7 + count * 97;
+            for (var j = 0; j < count; j++)
+            {
+                checksum += indices[start + j] * 31 + (j + 1) * 17;
+            }
+        }
+
+        return checksum;
     }
 
     private static void AssertCliBatchDuplicateIdsLikeProduction(

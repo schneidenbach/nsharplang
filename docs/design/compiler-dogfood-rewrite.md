@@ -396,11 +396,19 @@ Current code-intelligence dogfood benchmarks:
   formatter helper: escape the root file path with a LINQ safety scan and replacement-based quoting,
   then materialize the command string. The N# candidate scans directly, appends escaped path content
   through one batch-local `StringBuilder`, and writes commands into caller-owned storage.
+- `CompilerServiceErrorSuggestionBenchmarks` targets compiler typo-suggestion scoring used by
+  Elm-style diagnostics. The C# baseline mirrors `SmartSuggester.SuggestSimilarNames`: LINQ
+  projection/filter/order, lowercase string allocation, edit-distance matrix allocation, and final
+  name list materialization. The N# candidate returns sorted candidate indices into caller-owned
+  buffers, reuses edit-distance row buffers, and compares characters case-insensitively without
+  lowercase string allocation. This benchmark is currently pressure evidence only because the N#
+  dynamic-programming loop is slower than the C# baseline.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
 `CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
-`CompilerServices/SemanticScopes.nl`, and `CompilerServices/CliQueryParsing.nl`.
+`CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`, and
+`CompilerServices/ErrorSuggestions.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -411,7 +419,8 @@ source-context span extraction. It also verifies variable declaration name spans
 direct scanner and the cached by-line API, including Unicode identifier characters, member-assignment
 lines, missing-name assignments, and invalid lines. It verifies CLI query position parsing against
 the current split/`int.TryParse` behavior for valid, invalid, signed, whitespace-padded, and overflow
-inputs. Raw source-line span parity now covers invalid
+inputs. It verifies typo-suggestion candidate index ordering against the current
+`SmartSuggester.SuggestSimilarNames` score/filter/order contract. Raw source-line span parity now covers invalid
 lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing `\r`
 characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns, in-range
 columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content.
@@ -645,6 +654,15 @@ of the C# formatter-shaped baseline. This is measured language/runtime pressure,
 evidence, and the production formatter must keep the C# next-command path until N# has a
 lower-allocation public string construction strategy that clears the 5x gate.
 
+`TypoSuggestionIndicesInto` passed parity against `SmartSuggester.SuggestSimilarNames` and reported
+zero managed allocation, but missed the normal BenchmarkDotNet speed gate for typo-suggestion
+scoring. The N# path measured about 1.83x slower on the representative typo corpus (5.409 ms vs
+2.956 ms, 0 B vs 7,812,704 B) and about 2.01x slower on the large generated typo corpus
+(1.080 s vs 536.405 ms, 0 B vs 1,242,163,808 B). This is measured language/runtime pressure, not
+acceptance evidence. The production compiler must keep the current C# `SmartSuggester` path until
+N# has faster bounds-check elimination, row-buffer access, or a better systems-memory primitive for
+small dynamic-programming tables.
+
 Current CLI dogfood benchmarks:
 
 - `CliQueryPositionParsingBenchmarks` targets `nlc query --pos line:col` parsing and daemon query
@@ -661,11 +679,13 @@ Current CLI dogfood benchmarks:
 
 `CliQueryPositionsInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier, but missed the speed gate for CLI position parsing. The best measured
-N# path ran about 2.37x faster on the representative position corpus (11.56 us vs 27.44 us, 0 B vs
-107,056 B) and about 2.31x faster on the large generated position corpus (95.66 us vs 220.57 us,
-0 B vs 857,760 B). This is measured CLI command-orchestration pressure, not acceptance evidence, and
-the production CLI/daemon position parser must keep the current C# path until N# helper-call and
-small string parsing overhead clears the 5x gate.
+N# path now uses a simple positive `line:column` fast path, ASCII-first whitespace checks, and
+branch overflow checks instead of per-digit division. It ran about 2.46x faster on the
+representative position corpus (11.17 us vs 27.49 us, 0 B vs 107,056 B) and about 2.43x faster on
+the large generated position corpus (90.57 us vs 220.43 us, 0 B vs 857,760 B). This is measured CLI
+command-orchestration pressure, not acceptance evidence, and the production CLI/daemon position
+parser must keep the current C# path until N# helper-call and small string parsing overhead clears
+the 5x gate.
 
 `CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster
@@ -818,6 +838,13 @@ representative source-map build/query still misses the acceptance gate. To reach
 needs lower-overhead source-map query batches after construction, a faster native/string scanning
 primitive, and more bounds-check-friendly indexed-array/span lowering for batches, without relying on
 hand-unrolled compiler-service loops as the normal programming model.
+
+Current typo-suggestion pressure point: even after removing lowercase string allocation and
+edit-distance matrix allocation, the N# row-buffer Levenshtein candidate is slower than the current
+C# `SmartSuggester` path. This points at bounds-check-heavy array indexing and helper-call overhead
+inside nested dynamic-programming loops. A production rewrite needs either stronger emitted-IL
+optimization for checked row-buffer loops or a systems-memory primitive that lets the compiler prove
+fixed row lengths and eliminate repeated bounds checks.
 
 Current code-intelligence pressure point: the identifier-span candidate gets its speed from batching
 queries and reusing caller-owned line/result buffers. The N# compiler can emit a direct

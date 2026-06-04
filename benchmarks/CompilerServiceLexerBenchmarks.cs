@@ -608,6 +608,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionReceivers.nl";
     private const string CliQueryParsingResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CliQueryParsing.nl";
+    private const string ErrorSuggestionsResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.ErrorSuggestions.nl";
 
     public static string LexerTokenKindScanner => ReadResource(LexerTokenKindScannerResourceName);
     public static string SourceTextLines => ReadResource(SourceTextLinesResourceName);
@@ -619,6 +621,7 @@ internal static class DogfoodCompilerSources
     public static string CodeIntelligenceSemanticScopes => ReadResource(SemanticScopesResourceName);
     public static string CodeIntelligenceCompletionReceivers => ReadResource(CompletionReceiversResourceName);
     public static string CliQueryParsing => ReadResource(CliQueryParsingResourceName);
+    public static string ErrorSuggestions => ReadResource(ErrorSuggestionsResourceName);
 
     private static string ReadResource(string resourceName)
     {

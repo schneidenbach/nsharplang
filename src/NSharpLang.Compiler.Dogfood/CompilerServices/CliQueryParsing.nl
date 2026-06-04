@@ -121,6 +121,17 @@ func CliTryParsePositionPartsInto(
     columnIndex: int): int {
     resultLines[lineIndex] = 0
     resultColumns[columnIndex] = 0
+
+    fastParsed := CliTryParseSimplePositivePositionInto(
+        position,
+        resultLines,
+        lineIndex,
+        resultColumns,
+        columnIndex)
+    if fastParsed >= 0 {
+        return fastParsed
+    }
+
     colon := -1
     i := 0
     while i < position.Length {
@@ -153,12 +164,78 @@ func CliTryParsePositionPartsInto(
     return 1
 }
 
+func CliTryParseSimplePositivePositionInto(
+    position: string,
+    resultLines: int[],
+    lineIndex: int,
+    resultColumns: int[],
+    columnIndex: int): int {
+    if position.Length < 3 {
+        return -1
+    }
+
+    line := 0
+    column := 0
+    sawColon := false
+    lineDigits := 0
+    columnDigits := 0
+
+    i := 0
+    while i < position.Length {
+        ch := position[i]
+        if ch == ':' {
+            if sawColon || lineDigits == 0 {
+                return -1
+            }
+
+            sawColon = true
+        } else if ch >= '0' && ch <= '9' {
+            digit := ch - '0'
+            if sawColon {
+                if column > 214748364 {
+                    return -1
+                }
+
+                if column == 214748364 && digit > 7 {
+                    return -1
+                }
+
+                column = column * 10 + digit
+                columnDigits = columnDigits + 1
+            } else {
+                if line > 214748364 {
+                    return -1
+                }
+
+                if line == 214748364 && digit > 7 {
+                    return -1
+                }
+
+                line = line * 10 + digit
+                lineDigits = lineDigits + 1
+            }
+        } else {
+            return -1
+        }
+
+        i = i + 1
+    }
+
+    if !sawColon || columnDigits == 0 {
+        return -1
+    }
+
+    resultLines[lineIndex] = line
+    resultColumns[columnIndex] = column
+    return 1
+}
+
 func CliTryParseIntSegmentInto(text: string, start: int, end: int, result: int[], resultIndex: int): bool {
-    while start < end && Char.IsWhiteSpace(text[start]) {
+    while start < end && CliQueryIsWhiteSpace(text[start]) {
         start = start + 1
     }
 
-    while end > start && Char.IsWhiteSpace(text[end - 1]) {
+    while end > start && CliQueryIsWhiteSpace(text[end - 1]) {
         end = end - 1
     }
 
@@ -184,13 +261,23 @@ func CliTryParseIntSegmentInto(text: string, start: int, end: int, result: int[]
         }
 
         digit := ch - '0'
-        if negative && value == 214748364 && digit == 8 && index == end - 1 {
-            result[resultIndex] = 0 - 2147483647 - 1
-            return true
+        if value > 214748364 {
+            return false
         }
 
-        if value > (2147483647 - digit) / 10 {
-            return false
+        if value == 214748364 {
+            if negative {
+                if digit == 8 && index == end - 1 {
+                    result[resultIndex] = 0 - 2147483647 - 1
+                    return true
+                }
+
+                return false
+            }
+
+            if digit > 7 {
+                return false
+            }
         }
 
         value = value * 10 + digit
@@ -204,6 +291,14 @@ func CliTryParseIntSegmentInto(text: string, start: int, end: int, result: int[]
     }
 
     return true
+}
+
+func CliQueryIsWhiteSpace(ch: char): bool {
+    if ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n' {
+        return true
+    }
+
+    return Char.IsWhiteSpace(ch)
 }
 
 func CliQueryMinInt(left: int, right: int): int {
