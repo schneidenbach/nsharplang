@@ -430,6 +430,14 @@ func documented(): int {
                     "DiagnosticClusterNextCommandChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterNextCommandChecksumInto.");
+            var diagnosticClusterCompactGroupsInto = programType.GetMethod(
+                    "DiagnosticClusterCompactGroupsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterCompactGroupsInto.");
+            var diagnosticClusterCompactGroupChecksumInto = programType.GetMethod(
+                    "DiagnosticClusterCompactGroupChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterCompactGroupChecksumInto.");
 
             const string source = """"
 import System
@@ -684,6 +692,9 @@ func main() {
             AssertDiagnosticClusterNextCommandsLikeProduction(
                 diagnosticClusterNextCommandsInto,
                 diagnosticClusterNextCommandChecksumInto);
+            AssertDiagnosticClusterGroupsLikeProduction(
+                diagnosticClusterCompactGroupsInto,
+                diagnosticClusterCompactGroupChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2401,6 +2412,194 @@ func main() {
             return value;
 
         return $"\"{value.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
+    }
+
+    private static void AssertDiagnosticClusterGroupsLikeProduction(
+        MethodInfo diagnosticClusterGroupsInto,
+        MethodInfo diagnosticClusterGroupChecksumInto)
+    {
+        var codes = new[] { "NL102", "NL301", "NL102", "NL703", "NL301", "NL102", "NL102" };
+        var codeIds = new[] { 102, 301, 102, 703, 301, 102, 102 };
+        var severities = new[] { "error", "warning", "error", "error", "warning", "error", "error" };
+        var severityIds = new[] { 1, 2, 1, 1, 2, 1, 1 };
+        var categories = new[]
+        {
+            "syntax-missing-delimiter",
+            "identifier-resolution",
+            "syntax-missing-delimiter",
+            "import-cycle",
+            "identifier-resolution",
+            "syntax-missing-delimiter",
+            "syntax-missing-delimiter"
+        };
+        var categoryIds = new[] { 1, 2, 1, 3, 2, 1, 1 };
+        var sourceConstructs = new[]
+        {
+            "function-declaration",
+            "variable-declaration",
+            "function-declaration",
+            "import",
+            "variable-declaration",
+            "function-declaration",
+            "function-declaration"
+        };
+        var sourceConstructIds = new[] { 1, 2, 1, 3, 2, 1, 1 };
+        var recipes = new[]
+        {
+            "syntax:delimiter-balancing",
+            "symbols:missing-import-or-qualification",
+            "syntax:delimiter-balancing",
+            "architecture:extract-shared-module-or-invert-dependency",
+            "symbols:missing-import-or-qualification",
+            "syntax:delimiter-balancing",
+            "syntax:delimiter-balancing"
+        };
+        var recipeIds = new[] { 1, 2, 1, 3, 2, 1, 1 };
+        var risks = new[] { "high", "medium", "high", "high", "medium", "high", "high" };
+        var riskIds = new[] { 1, 2, 1, 1, 2, 1, 1 };
+        var messagePatterns = new[]
+        {
+            "Expected token {value}",
+            "Undefined variable {value}",
+            "Expected token {value}",
+            "Circular import detected",
+            "Undefined variable {value}",
+            "Expected token {value}",
+            "Expected token {value}"
+        };
+        var messagePatternIds = new[] { 1, 2, 1, 3, 2, 1, 1 };
+        var files = new[]
+        {
+            "/repo/B.nl",
+            "/repo/C.nl",
+            "/repo/A.nl",
+            "/repo/Imports.nl",
+            "/repo/C.nl",
+            "/repo/D.nl",
+            "/repo/a.nl"
+        };
+        var lines = new[] { 10, 3, 10, 1, 2, 8, 10 };
+        var columns = new[] { 5, 7, 3, 1, 9, 1, 2 };
+        var expected = CreateExpectedDiagnosticClusterGroups(
+            codes,
+            severities,
+            categories,
+            sourceConstructs,
+            recipes,
+            risks,
+            messagePatterns,
+            files,
+            lines,
+            columns);
+
+        var checksumRootIndices = new int[codes.Length];
+        var checksumCounts = new int[codes.Length];
+        var checksumSlotGroups = new int[codes.Length * 2 + 1];
+        var checksumGroupKeyIndices = new int[codes.Length];
+        var actualChecksum = (int)(diagnosticClusterGroupChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                severityIds,
+                categoryIds,
+                sourceConstructIds,
+                recipeIds,
+                riskIds,
+                messagePatternIds,
+                files,
+                lines,
+                columns,
+                checksumSlotGroups,
+                checksumGroupKeyIndices,
+                checksumRootIndices,
+                checksumCounts
+            }) ?? -1);
+
+        var expectedChecksum = expected.RootIndices.Length;
+        for (var i = 0; i < expected.RootIndices.Length; i++)
+        {
+            expectedChecksum += (expected.RootIndices[i] + 1) * 31 + expected.Counts[i] * 17;
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected.RootIndices, checksumRootIndices.Take(expected.RootIndices.Length));
+        Assert.Equal(expected.Counts, checksumCounts.Take(expected.Counts.Length));
+
+        var actualRootIndices = new int[codes.Length];
+        var actualCounts = new int[codes.Length];
+        var actualSlotGroups = new int[codes.Length * 2 + 1];
+        var actualGroupKeyIndices = new int[codes.Length];
+        var actualCount = (int)(diagnosticClusterGroupsInto.Invoke(
+            null,
+            new object[]
+            {
+                codeIds,
+                severityIds,
+                categoryIds,
+                sourceConstructIds,
+                recipeIds,
+                riskIds,
+                messagePatternIds,
+                files,
+                lines,
+                columns,
+                actualSlotGroups,
+                actualGroupKeyIndices,
+                actualRootIndices,
+                actualCounts
+            }) ?? -1);
+
+        Assert.Equal(expected.RootIndices.Length, actualCount);
+        Assert.Equal(expected.RootIndices, actualRootIndices.Take(actualCount));
+        Assert.Equal(expected.Counts, actualCounts.Take(actualCount));
+    }
+
+    private static (int[] RootIndices, int[] Counts) CreateExpectedDiagnosticClusterGroups(
+        string[] codes,
+        string[] severities,
+        string[] categories,
+        string[] sourceConstructs,
+        string[] recipes,
+        string[] risks,
+        string[] messagePatterns,
+        string[] files,
+        int[] lines,
+        int[] columns)
+    {
+        var groups = Enumerable.Range(0, codes.Length)
+            .GroupBy(i => new
+            {
+                Severity = severities[i],
+                Code = codes[i],
+                Category = categories[i],
+                SourceConstruct = sourceConstructs[i],
+                Recipe = recipes[i],
+                Risk = risks[i],
+                MessagePattern = messagePatterns[i]
+            })
+            .Select(group =>
+            {
+                var rootIndex = group
+                    .OrderBy(i => lines[i])
+                    .ThenBy(i => columns[i])
+                    .ThenBy(i => files[i], StringComparer.OrdinalIgnoreCase)
+                    .First();
+                return new
+                {
+                    RootIndex = rootIndex,
+                    Count = group.Count()
+                };
+            })
+            .OrderByDescending(group => group.Count)
+            .ThenBy(group => files[group.RootIndex], StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => lines[group.RootIndex])
+            .ThenBy(group => columns[group.RootIndex])
+            .ToArray();
+
+        return (
+            groups.Select(static group => group.RootIndex).ToArray(),
+            groups.Select(static group => group.Count).ToArray());
     }
 
     private static List<DiagnosticResult> BuildDiagnosticSeveritySummaryDiagnostics()

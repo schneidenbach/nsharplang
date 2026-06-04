@@ -293,6 +293,266 @@ func DiagnosticClusterNextCommandChecksumInto(
     return checksum
 }
 
+func DiagnosticClusterCompactGroupsInto(
+    codeIds: int[],
+    severityIds: int[],
+    categoryIds: int[],
+    sourceConstructIds: int[],
+    recipeIds: int[],
+    riskIds: int[],
+    messagePatternIds: int[],
+    files: string[],
+    lines: int[],
+    columns: int[],
+    slotGroups: int[],
+    groupKeyIndices: int[],
+    resultRootIndices: int[],
+    resultCounts: int[]): int {
+    count := MinInt(codeIds.Length, severityIds.Length)
+    count = MinInt(count, categoryIds.Length)
+    count = MinInt(count, sourceConstructIds.Length)
+    count = MinInt(count, recipeIds.Length)
+    count = MinInt(count, riskIds.Length)
+    count = MinInt(count, messagePatternIds.Length)
+    count = MinInt(count, files.Length)
+    count = MinInt(count, lines.Length)
+    count = MinInt(count, columns.Length)
+
+    maxGroups := MinInt(resultRootIndices.Length, resultCounts.Length)
+    maxGroups = MinInt(maxGroups, groupKeyIndices.Length)
+    capacity := slotGroups.Length
+    if count == 0 || maxGroups == 0 || capacity == 0 {
+        return 0
+    }
+
+    i := 0
+    while i < capacity {
+        slotGroups[i] = -1
+        i = i + 1
+    }
+
+    groupCount := 0
+    index := 0
+    while index < count {
+        hash := HashDiagnosticClusterCompactGroupingKey(
+            severityIds[index],
+            codeIds[index],
+            categoryIds[index],
+            sourceConstructIds[index],
+            recipeIds[index],
+            riskIds[index],
+            messagePatternIds[index])
+        slot := PositiveModulo(hash, capacity)
+        groupIndex := -1
+        probes := 0
+
+        while probes < capacity {
+            candidateGroup := slotGroups[slot]
+            if candidateGroup < 0 {
+                break
+            }
+
+            keyIndex := groupKeyIndices[candidateGroup]
+            if DiagnosticClusterCompactGroupingKeysEqual(
+                index,
+                keyIndex,
+                codeIds,
+                severityIds,
+                categoryIds,
+                sourceConstructIds,
+                recipeIds,
+                riskIds,
+                messagePatternIds) {
+                groupIndex = candidateGroup
+                break
+            }
+
+            slot = slot + 1
+            if slot == capacity {
+                slot = 0
+            }
+            probes = probes + 1
+        }
+
+        if groupIndex < 0 {
+            if groupCount >= maxGroups || groupCount >= capacity || probes >= capacity {
+                SortDiagnosticClusterGroups(resultRootIndices, resultCounts, groupCount, files, lines, columns)
+                return groupCount
+            }
+
+            groupKeyIndices[groupCount] = index
+            resultRootIndices[groupCount] = index
+            resultCounts[groupCount] = 1
+            slotGroups[slot] = groupCount
+            groupCount = groupCount + 1
+        } else {
+            resultCounts[groupIndex] = resultCounts[groupIndex] + 1
+            if IsDiagnosticClusterRootBefore(index, resultRootIndices[groupIndex], files, lines, columns) {
+                resultRootIndices[groupIndex] = index
+            }
+        }
+
+        index = index + 1
+    }
+
+    SortDiagnosticClusterGroups(resultRootIndices, resultCounts, groupCount, files, lines, columns)
+    return groupCount
+}
+
+func DiagnosticClusterCompactGroupChecksumInto(
+    codeIds: int[],
+    severityIds: int[],
+    categoryIds: int[],
+    sourceConstructIds: int[],
+    recipeIds: int[],
+    riskIds: int[],
+    messagePatternIds: int[],
+    files: string[],
+    lines: int[],
+    columns: int[],
+    slotGroups: int[],
+    groupKeyIndices: int[],
+    resultRootIndices: int[],
+    resultCounts: int[]): int {
+    groupCount := DiagnosticClusterCompactGroupsInto(
+        codeIds,
+        severityIds,
+        categoryIds,
+        sourceConstructIds,
+        recipeIds,
+        riskIds,
+        messagePatternIds,
+        files,
+        lines,
+        columns,
+        slotGroups,
+        groupKeyIndices,
+        resultRootIndices,
+        resultCounts)
+
+    checksum := groupCount
+    i := 0
+    while i < groupCount {
+        checksum = checksum + (resultRootIndices[i] + 1) * 31 + resultCounts[i] * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func SortDiagnosticClusterGroups(
+    resultRootIndices: int[],
+    resultCounts: int[],
+    groupCount: int,
+    files: string[],
+    lines: int[],
+    columns: int[]): void {
+    i := 1
+    while i < groupCount {
+        root := resultRootIndices[i]
+        count := resultCounts[i]
+        j := i - 1
+
+        while j >= 0 && IsDiagnosticClusterGroupBefore(root, count, resultRootIndices[j], resultCounts[j], files, lines, columns) {
+            resultRootIndices[j + 1] = resultRootIndices[j]
+            resultCounts[j + 1] = resultCounts[j]
+            j = j - 1
+        }
+
+        resultRootIndices[j + 1] = root
+        resultCounts[j + 1] = count
+        i = i + 1
+    }
+}
+
+func IsDiagnosticClusterGroupBefore(
+    leftRoot: int,
+    leftCount: int,
+    rightRoot: int,
+    rightCount: int,
+    files: string[],
+    lines: int[],
+    columns: int[]): bool {
+    if leftCount != rightCount {
+        return leftCount > rightCount
+    }
+
+    fileCompare := String.Compare(files[leftRoot], files[rightRoot], StringComparison.OrdinalIgnoreCase)
+    if fileCompare != 0 {
+        return fileCompare < 0
+    }
+
+    if lines[leftRoot] != lines[rightRoot] {
+        return lines[leftRoot] < lines[rightRoot]
+    }
+
+    return columns[leftRoot] < columns[rightRoot]
+}
+
+func IsDiagnosticClusterRootBefore(
+    left: int,
+    right: int,
+    files: string[],
+    lines: int[],
+    columns: int[]): bool {
+    if lines[left] != lines[right] {
+        return lines[left] < lines[right]
+    }
+
+    if columns[left] != columns[right] {
+        return columns[left] < columns[right]
+    }
+
+    return String.Compare(files[left], files[right], StringComparison.OrdinalIgnoreCase) < 0
+}
+
+func DiagnosticClusterCompactGroupingKeysEqual(
+    left: int,
+    right: int,
+    codeIds: int[],
+    severityIds: int[],
+    categoryIds: int[],
+    sourceConstructIds: int[],
+    recipeIds: int[],
+    riskIds: int[],
+    messagePatternIds: int[]): bool {
+    return severityIds[left] == severityIds[right]
+        && codeIds[left] == codeIds[right]
+        && categoryIds[left] == categoryIds[right]
+        && sourceConstructIds[left] == sourceConstructIds[right]
+        && recipeIds[left] == recipeIds[right]
+        && riskIds[left] == riskIds[right]
+        && messagePatternIds[left] == messagePatternIds[right]
+}
+
+func HashDiagnosticClusterCompactGroupingKey(
+    severityId: int,
+    codeId: int,
+    categoryId: int,
+    sourceConstructId: int,
+    recipeId: int,
+    riskId: int,
+    messagePatternId: int): int {
+    hash := 17
+    hash = hash * 31 + severityId
+    hash = hash * 31 + codeId
+    hash = hash * 31 + categoryId
+    hash = hash * 31 + sourceConstructId
+    hash = hash * 31 + recipeId
+    hash = hash * 31 + riskId
+    hash = hash * 31 + messagePatternId
+    return hash
+}
+
+func PositiveModulo(value: int, divisor: int): int {
+    result := value % divisor
+    if result < 0 {
+        return result + divisor
+    }
+
+    return result
+}
+
 func CreateDiagnosticClusterNextCommand(filePath: string, line: int, column: int): string {
     builder := new StringBuilder(filePath.Length + 48)
     builder.Append("nlc query inspect --file ")

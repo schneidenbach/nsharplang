@@ -84,6 +84,310 @@ public class CompilerServiceCodeIntelligenceDiagnosticSummaryBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for the diagnostic cluster grouping kernel used before clustered diagnostic
+/// JSON/text materialization.
+///
+/// The C# baseline mirrors the current formatter shape: LINQ <c>GroupBy</c> over string cluster
+/// fields, per-group root selection, and final cluster ordering. The N# candidate consumes
+/// preclassified integer dimensions, uses a caller-owned open-addressed grouping table, and writes
+/// ordered root indices/counts into caller-owned storage. Public id, next-command, examples, and
+/// related-diagnostic strings remain separate materialization boundaries.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDiagnosticClusterGroupBenchmarks
+{
+    private const int LargeDiagnosticCount = 8192;
+    private const int RepresentativeDiagnosticCount = 1024;
+
+    private Func<int[], int[], int[], int[], int[], int[], int[], string[], int[], int[], int[], int[], int[], int[], int> _nsharpDiagnosticClusterGroupChecksumInto =
+        (_, _, _, _, _, _, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _categories = Array.Empty<string>();
+    private int[] _categoryIds = Array.Empty<int>();
+    private int _diagnosticCount;
+    private string[] _codes = Array.Empty<string>();
+    private int[] _codeIds = Array.Empty<int>();
+    private int[] _columns = Array.Empty<int>();
+    private int[] _csharpCounts = Array.Empty<int>();
+    private int[] _csharpRootIndices = Array.Empty<int>();
+    private string[] _files = Array.Empty<string>();
+    private int[] _lines = Array.Empty<int>();
+    private int[] _messagePatternIds = Array.Empty<int>();
+    private string[] _messagePatterns = Array.Empty<string>();
+    private int[] _nsharpCounts = Array.Empty<int>();
+    private int[] _nsharpGroupKeyIndices = Array.Empty<int>();
+    private int[] _nsharpRootIndices = Array.Empty<int>();
+    private int[] _nsharpSlotGroups = Array.Empty<int>();
+    private int[] _recipeIds = Array.Empty<int>();
+    private string[] _recipes = Array.Empty<string>();
+    private int[] _riskIds = Array.Empty<int>();
+    private string[] _risks = Array.Empty<string>();
+    private int[] _severityIds = Array.Empty<int>();
+    private string[] _severities = Array.Empty<string>();
+    private int[] _sourceConstructIds = Array.Empty<int>();
+    private string[] _sourceConstructs = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _diagnosticCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeDiagnosticCount
+            : LargeDiagnosticCount;
+        _nsharpDiagnosticClusterGroupChecksumInto =
+            NSharpCompiledMethod.Bind<Func<int[], int[], int[], int[], int[], int[], int[], string[], int[], int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceDiagnosticClusters,
+                "DiagnosticClusterCompactGroupChecksumInto");
+
+        _codes = new string[_diagnosticCount];
+        _codeIds = new int[_diagnosticCount];
+        _severities = new string[_diagnosticCount];
+        _severityIds = new int[_diagnosticCount];
+        _categories = new string[_diagnosticCount];
+        _categoryIds = new int[_diagnosticCount];
+        _sourceConstructs = new string[_diagnosticCount];
+        _sourceConstructIds = new int[_diagnosticCount];
+        _recipes = new string[_diagnosticCount];
+        _recipeIds = new int[_diagnosticCount];
+        _risks = new string[_diagnosticCount];
+        _riskIds = new int[_diagnosticCount];
+        _messagePatterns = new string[_diagnosticCount];
+        _messagePatternIds = new int[_diagnosticCount];
+        _files = new string[_diagnosticCount];
+        _lines = new int[_diagnosticCount];
+        _columns = new int[_diagnosticCount];
+        _csharpRootIndices = new int[_diagnosticCount];
+        _csharpCounts = new int[_diagnosticCount];
+        _nsharpSlotGroups = new int[_diagnosticCount * 2 + 1];
+        _nsharpGroupKeyIndices = new int[_diagnosticCount];
+        _nsharpRootIndices = new int[_diagnosticCount];
+        _nsharpCounts = new int[_diagnosticCount];
+
+        BuildDiagnosticClusterFields();
+
+        var expectedChecksum = CSharpDiagnosticClusterGroups_QueryBatch();
+        var actualChecksum = NSharpDiagnosticClusterGroups_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster grouping checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        var expectedGroupCount = CountGroups(_csharpCounts);
+        var actualGroupCount = CountGroups(_nsharpCounts);
+        if (expectedGroupCount != actualGroupCount)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster grouping count mismatch for {Corpus}: expected {expectedGroupCount}, got {actualGroupCount}.");
+        }
+
+        for (var i = 0; i < expectedGroupCount; i++)
+        {
+            if (_csharpRootIndices[i] != _nsharpRootIndices[i] || _csharpCounts[i] != _nsharpCounts[i])
+            {
+                throw new InvalidOperationException(
+                    $"N# diagnostic cluster grouping mismatch for {Corpus} at group {i}: " +
+                    $"expected root/count {_csharpRootIndices[i]}/{_csharpCounts[i]}, " +
+                    $"got {_nsharpRootIndices[i]}/{_nsharpCounts[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpDiagnosticClusterGroups_QueryBatch()
+    {
+        Array.Clear(_csharpRootIndices);
+        Array.Clear(_csharpCounts);
+
+        var groups = Enumerable.Range(0, _diagnosticCount)
+            .GroupBy(i => new
+            {
+                Severity = _severities[i],
+                Code = _codes[i],
+                Category = _categories[i],
+                SourceConstruct = _sourceConstructs[i],
+                Recipe = _recipes[i],
+                Risk = _risks[i],
+                MessagePattern = _messagePatterns[i]
+            })
+            .Select(group =>
+            {
+                var rootIndex = group
+                    .OrderBy(i => _lines[i])
+                    .ThenBy(i => _columns[i])
+                    .ThenBy(i => _files[i], StringComparer.OrdinalIgnoreCase)
+                    .First();
+                return new
+                {
+                    RootIndex = rootIndex,
+                    Count = group.Count()
+                };
+            })
+            .OrderByDescending(group => group.Count)
+            .ThenBy(group => _files[group.RootIndex], StringComparer.OrdinalIgnoreCase)
+            .ThenBy(group => _lines[group.RootIndex])
+            .ThenBy(group => _columns[group.RootIndex])
+            .ToArray();
+
+        var checksum = groups.Length;
+        for (var i = 0; i < groups.Length; i++)
+        {
+            _csharpRootIndices[i] = groups[i].RootIndex;
+            _csharpCounts[i] = groups[i].Count;
+            checksum += (groups[i].RootIndex + 1) * 31 + groups[i].Count * 17;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpDiagnosticClusterGroups_QueryBatch() =>
+        _nsharpDiagnosticClusterGroupChecksumInto(
+            _codeIds,
+            _severityIds,
+            _categoryIds,
+            _sourceConstructIds,
+            _recipeIds,
+            _riskIds,
+            _messagePatternIds,
+            _files,
+            _lines,
+            _columns,
+            _nsharpSlotGroups,
+            _nsharpGroupKeyIndices,
+            _nsharpRootIndices,
+            _nsharpCounts);
+
+    private void BuildDiagnosticClusterFields()
+    {
+        for (var i = 0; i < _diagnosticCount; i++)
+        {
+            var shape = i % 8;
+            _codes[i] = shape switch
+            {
+                0 or 1 => "NL102",
+                2 => "NL703",
+                3 => "NL301",
+                4 => "NL201",
+                5 => "NL202",
+                6 => "NL303",
+                _ => "NL999"
+            };
+            _codeIds[i] = shape switch
+            {
+                0 or 1 => 102,
+                2 => 703,
+                3 => 301,
+                4 => 201,
+                5 => 202,
+                6 => 303,
+                _ => 999
+            };
+            _severities[i] = shape switch
+            {
+                0 or 1 or 2 or 5 => "error",
+                3 or 6 => "warning",
+                4 => "info",
+                _ => "hint"
+            };
+            _severityIds[i] = shape switch
+            {
+                0 or 1 or 2 or 5 => 1,
+                3 or 6 => 2,
+                4 => 3,
+                _ => 4
+            };
+            _categories[i] = shape switch
+            {
+                0 => "syntax-missing-delimiter",
+                1 => "syntax-missing-terminator",
+                2 => "import-cycle",
+                3 => "identifier-resolution",
+                4 => "type-resolution",
+                5 => "type-mismatch",
+                6 => "member-resolution",
+                _ => "diagnostic-message-shape"
+            };
+            _categoryIds[i] = shape + 1;
+            _sourceConstructs[i] = shape switch
+            {
+                0 => "function-declaration",
+                1 => "variable-declaration",
+                2 => "import",
+                3 => "variable-declaration",
+                4 => "class-declaration",
+                5 => "return-statement",
+                6 => "call-or-construction",
+                _ => "unknown-construct"
+            };
+            _sourceConstructIds[i] = shape switch
+            {
+                0 => 1,
+                1 or 3 => 2,
+                2 => 3,
+                4 => 4,
+                5 => 5,
+                6 => 6,
+                _ => 7
+            };
+            _recipes[i] = shape switch
+            {
+                0 => "syntax:delimiter-balancing",
+                1 => "syntax:statement-boundary",
+                2 => "architecture:extract-shared-module-or-invert-dependency",
+                3 => "symbols:missing-import-or-qualification",
+                4 => "types:resolve-type-or-import",
+                5 => "refactor:signature-or-expression-shape",
+                6 => "members:api-rename-or-extension-import",
+                _ => "manual-triage:inspect-root-diagnostic"
+            };
+            _recipeIds[i] = shape + 1;
+            _risks[i] = shape switch
+            {
+                0 or 1 or 2 => "high",
+                3 or 4 or 5 or 6 => "medium",
+                _ => "low"
+            };
+            _riskIds[i] = shape switch
+            {
+                0 or 1 or 2 => 1,
+                3 or 4 or 5 or 6 => 2,
+                _ => 3
+            };
+            _messagePatterns[i] = $"Expected diagnostic shape {i % 64} while preserving cluster grouping";
+            _messagePatternIds[i] = i % 64;
+            _files[i] = (i % 11) switch
+            {
+                0 => $"/repo/src/Program{i % 17}.nl",
+                1 => $"/repo/src/generated/File-{i % 19}.nl",
+                2 => $"/repo/src/with space/File {i % 13}.nl",
+                3 => $@"C:\repo\module\File{i % 23}.nl",
+                4 => $"/repo/src/quoted\"File{i % 29}.nl",
+                5 => "/repo/src/Main.nl",
+                6 => $"/repo/src/café/Module{i % 7}.nl",
+                _ => $"/repo/src/[weird]/File{i % 31}.nl"
+            };
+            _lines[i] = (i * 37 % 400) + 1;
+            _columns[i] = (i * 17 % 80) + 1;
+        }
+    }
+
+    private static int CountGroups(int[] counts)
+    {
+        var count = 0;
+        while (count < counts.Length && counts[count] > 0)
+        {
+            count++;
+        }
+
+        return count;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for diagnostic cluster id creation used by clustered diagnostics JSON.
 ///
 /// The C# baseline mirrors the current formatter shape: build one composite key string, hash the

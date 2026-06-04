@@ -313,6 +313,12 @@ Current code-intelligence dogfood benchmarks:
   C# baseline models the formatter's previous shape: three LINQ count passes over diagnostic
   severities. The N# candidate counts error/warning/info severities in one compiled loop and writes
   the stable summary counts into caller-owned storage.
+- `CompilerServiceCodeIntelligenceDiagnosticClusterGroupBenchmarks` targets diagnostic cluster
+  grouping before clustered diagnostic JSON/text materialization. The C# baseline mirrors the
+  formatter's current shape: LINQ `GroupBy` over string cluster fields, root selection per group,
+  and final cluster ordering. The N# candidate consumes preclassified integer dimensions, groups
+  with a caller-owned open-addressed table, and writes ordered root indices/counts into
+  caller-owned storage.
 - `CompilerServiceCodeIntelligenceDiagnosticClusterIdBenchmarks` targets public diagnostic cluster
   id materialization for clustered diagnostics JSON. The C# baseline mirrors the formatter shape:
   build a composite key string, hash the key characters, then materialize the public `diag-{hex}`
@@ -354,6 +360,9 @@ through the formatter. Diagnostic cluster next-command parity checks safe paths,
 quoted paths, backslash escaping, embedded quotes, and Unicode file names against the current
 formatter command contract. Diagnostic severity summary parity covers error, warning, info, and
 ignored unknown severities, including the explicit-count contract used by reusable host buffers. The
+compact diagnostic cluster grouping parity checks preclassified integer dimensions against the
+production string grouping semantics, including root selection by line/column/file and final
+ordering by count/file/line/column. The
 N# candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
@@ -434,6 +443,14 @@ BenchmarkDotNet evidence tier for JSON diagnostic summary counting. It ran about
 representative diagnostic corpus (781.7 ns vs 4.331 us) and about 5.36x faster on the large
 generated diagnostic corpus (6.246 us vs 33.497 us). This is acceptance-grade benchmark evidence for
 the diagnostic/check/lint severity-summary pass.
+
+`DiagnosticClusterCompactGroupsInto` passed parity and reported zero managed allocation in the same
+normal BenchmarkDotNet evidence tier for the clustered diagnostic grouping kernel. It ran about 6.85x
+faster on the representative diagnostic cluster corpus (16.585 us vs 113.602 us, 0 B vs 141,136 B)
+and about 10.67x faster on the large generated diagnostic cluster corpus (77.188 us vs 823.667 us,
+0 B vs 719,184 B). This is acceptance-grade benchmark evidence for the compact integer grouping
+shape after category/source/rewrite/message dimensions have been classified; production clustered
+output still needs a formatter adapter swap before this can count as production route evidence.
 
 `DiagnosticClusterIdsInto` passed parity but missed the normal BenchmarkDotNet speed gate for public
 cluster id string materialization. The N# path avoided the temporary composite key allocation and
@@ -568,8 +585,10 @@ remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification and diagnostic
-severity summary counting are now dogfooded, but message-pattern materialization, cluster id
-materialization, next-command materialization, and full cluster grouping are still C# formatter work.
+severity summary counting are now dogfooded. Compact diagnostic cluster grouping has
+acceptance-grade parity and speed evidence but still needs a production formatter adapter swap.
+Message-pattern materialization, cluster id materialization, and next-command materialization remain
+C# formatter work.
 The cluster id and next-command misses are specifically about short public string construction:
 direct N# field hashing removes most temporary allocation, and direct N# command-buffer construction
 beats the current C# helper modestly, but both remain far below the 5x gate. The
