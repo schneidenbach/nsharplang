@@ -289,6 +289,12 @@ Current code-intelligence dogfood benchmarks:
   with prefix max-end lines, then writes visible symbol indices through
   `SemanticScopeVisibleSymbolIndicesInto`. The host still owns final `TypeInfo` objects and
   completion item materialization.
+- `CompilerServiceSemanticScopeIndexBuildBenchmarks` targets sorted scope-start index construction
+  inside the compact `SemanticModel` cache. The C# baseline mirrors the current cache-builder shape:
+  allocate an order array, sort scope ids with a start line/column/source-id comparer, then materialize
+  sorted scope arrays and prefix max-end lines. The N# candidate writes caller-owned output arrays,
+  detects the common source-order scope table in one pass, and falls back to comparer-free primitive
+  quicksort for out-of-order scope tables.
 - `CompilerServiceSemanticScopeLookupBenchmarks` targets position-aware scoped identifier lookup
   used by member-access completion when resolving a plain receiver name. The C# baseline uses the
   current `SemanticModel.LookupIdentifierAtPosition` containing-scope scan. The N# candidate reuses
@@ -578,6 +584,14 @@ item materialization. It ran about 7.35x faster on the representative semantic-s
 semantic-scope corpus (2.473 ms vs 47.073 ms, 0 B vs 36,790,272 B). This is acceptance-grade
 benchmark evidence for visible symbol selection after the host has built compact scope/symbol tables
 and the sorted scope-start index.
+
+`SemanticScopeBuildSortedIndexInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for compact semantic-scope cache index construction. The production
+builder-shaped benchmark measured 1.355 us vs 8.176 us on the representative source-order scope corpus
+(about 6.0x, 0 B vs 4,184 B) and 10.742 us vs 84.782 us on the large generated scope corpus (about
+7.9x, 0 B vs 32,856 B). This is acceptance-grade benchmark evidence for replacing the C#
+`Array.Sort(order, CompareScopeStartOrder)` semantic-scope index builder when the dogfood assembly is
+available, with fallback retained for unavailable or invalid N# output.
 
 `SemanticScopeLookupSymbolIndicesInto` passed parity in the normal BenchmarkDotNet evidence tier for
 position-aware scoped identifier lookup before member-completion type materialization. It ran about
@@ -925,6 +939,9 @@ CLI/daemon identifier completion now routes scoped visible-variable selection th
 `SemanticModel` cache and the compiled N# semantic-scope kernel when the dogfood assembly is
 available, with the previous `SemanticModel.GetVisibleVariablesAtPosition` path kept as the
 fallback.
+The same compact `SemanticModel` cache now routes sorted scope-start index construction through the
+compiled N# source-order/primitive-sort builder when the dogfood assembly is available, with the
+previous C# `Array.Sort` index builder kept as the fallback.
 CLI/daemon member-access completion now routes position-aware receiver identifier lookup through the
 same compact `SemanticModel` cache and the compiled N# semantic-scope lookup kernel when the dogfood
 assembly is available, with the previous `SemanticModel.LookupIdentifierAtPosition` path kept as the
@@ -963,7 +980,7 @@ classifications and diagnostic severity summaries, compact diagnostic cluster gr
 cluster file-list ordering, diagnostic deduplication, reference result deduplication, stable
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration lookup,
-scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
+semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, text-edit ordering, inspect-summary reference-file
 summaries, and the pressure-only path-matching, CLI positional-argument, and diagnostic severity
 filter kernels through the compiled N# methods; `CliCommandTests` verifies both
@@ -981,7 +998,8 @@ clustered diagnostic file-list ordering, `GetDiagnostics` stable diagnostic dedu
 semantic reference result deduplication/order slices, plus strict binding candidate-column ordering,
 strict semantic binding lookup, and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
-same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
+same-file declaration lookup in the source-context definition fallback, semantic scope index
+construction, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
 member-access completion plus reflected method overload grouping and grouped member-completion
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
@@ -993,8 +1011,8 @@ Path matching, CLI positional-argument filtering, and diagnostic severity filter
 benchmark evidence but are not routed through production code-intelligence, query, batch, or daemon
 paths because they currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
-table construction, and CLI command logic still contains C# implementation code and remains in scope
-for the dogfood rewrite.
+table construction, remaining semantic-scope cache materialization, and CLI command logic still
+contain C# implementation code and remain in scope for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -1087,8 +1105,8 @@ identifier lookup uses a separate N# helper because editor hover/rename semantic
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
 severity summary counting, compact diagnostic cluster grouping, strict semantic binding lookup, and
-nearest same-file declaration lookup, scoped visible-variable selection, and reference result
-deduplication/order are now dogfooded.
+nearest same-file declaration lookup, semantic scope index construction, scoped visible-variable
+selection, and reference result deduplication/order are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain
 C# formatter work.
 These public string materialization misses are specifically about short string construction: direct
@@ -1096,9 +1114,9 @@ N# message-pattern construction, direct N# field hashing, and direct N# command-
 all beat their C# formatter-shaped helpers modestly, but they remain far below the 5x gate. The
 CLI query position parser also shows helper-call overhead on tiny strings: direct parsing removes
 all split allocation but still only reaches about 2.4x on the measured batch. The
-strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
-binding/scope table construction plus compact cache construction/sorting around the N# lookup
-kernels are still C# host logic.
+strict reference/rename declaration-name guard now uses the same line-range cache, and semantic scope
+index sorting has moved into N#, but broader semantic binding/scope table construction and compact
+cache materialization around the N# lookup kernels are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
 needs N# implementations for broader semantic lookup, completion construction, output shaping, and
 CLI command orchestration.

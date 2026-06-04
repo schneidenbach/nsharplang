@@ -1380,6 +1380,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
                 CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"),
+                CreateDelegate<SemanticScopeBuildSortedIndexInto>(programType, "SemanticScopeBuildSortedIndexInto"),
                 CreateDelegate<SemanticScopeVisibleSymbolIndicesInto>(programType, "SemanticScopeVisibleSymbolIndicesInto"),
                 CreateDelegate<SemanticScopeLookupSymbolIndicesInto>(programType, "SemanticScopeLookupSymbolIndicesInto"));
         }
@@ -1695,6 +1696,18 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] slotNameIds,
         int[] touchedSlots);
 
+    private delegate int SemanticScopeBuildSortedIndexInto(
+        int[] scopeStartLines,
+        int[] scopeStartColumns,
+        int[] scopeEndLines,
+        int[] tempScopeIds,
+        int[] stackLefts,
+        int[] stackRights,
+        int[] sortedScopeIds,
+        int[] sortedScopeStartLines,
+        int[] sortedScopeStartColumns,
+        int[] sortedScopeMaxEndLines);
+
     private delegate int SemanticScopeLookupSymbolIndicesInto(
         int[] scopeParentIds,
         int[] scopeStartLines,
@@ -1745,6 +1758,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
         BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices,
+        SemanticScopeBuildSortedIndexInto SemanticScopeBuildSortedIndex,
         SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices,
         SemanticScopeLookupSymbolIndicesInto SemanticScopeLookupSymbolIndices);
 
@@ -2663,6 +2677,9 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private int[] _scopeSymbolStarts = Array.Empty<int>();
         private int[] _resultSymbolIndices = Array.Empty<int>();
         private int[] _slotNameIds = Array.Empty<int>();
+        private int[] _sortStackLefts = Array.Empty<int>();
+        private int[] _sortStackRights = Array.Empty<int>();
+        private int[] _sortTempScopeIds = Array.Empty<int>();
         private int[] _sortedScopeIds = Array.Empty<int>();
         private int[] _sortedScopeMaxEndLines = Array.Empty<int>();
         private int[] _sortedScopeStartColumns = Array.Empty<int>();
@@ -2688,7 +2705,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
             lock (_gate)
             {
-                EnsureBuilt();
+                EnsureBuilt(bindings);
                 if (_scopeParentIds.Length == 0)
                 {
                     visibleVariables = new Dictionary<string, TypeInfo>(_model.Variables);
@@ -2766,7 +2783,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
             lock (_gate)
             {
-                EnsureBuilt();
+                EnsureBuilt(bindings);
                 if (_scopeParentIds.Length == 0)
                 {
                     typeInfo = _model.LookupIdentifier(name);
@@ -2821,7 +2838,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             }
         }
 
-        private void EnsureBuilt()
+        private void EnsureBuilt(Bindings bindings)
         {
             if (_version == _model.ScopeVersion)
                 return;
@@ -2879,18 +2896,36 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 _scopeDepths[i] = ComputeScopeDepth(i);
             }
 
-            BuildSortedScopeIndex(scopeCount);
+            BuildSortedScopeIndex(bindings, scopeCount);
             _version = _model.ScopeVersion;
         }
 
-        private void BuildSortedScopeIndex(int scopeCount)
+        private void BuildSortedScopeIndex(Bindings bindings, int scopeCount)
         {
             _sortedScopeIds = new int[scopeCount];
             _sortedScopeStartLines = new int[scopeCount];
             _sortedScopeStartColumns = new int[scopeCount];
             _sortedScopeMaxEndLines = new int[scopeCount];
+            _sortTempScopeIds = new int[scopeCount];
+            _sortStackLefts = new int[scopeCount];
+            _sortStackRights = new int[scopeCount];
 
             if (scopeCount == 0)
+                return;
+
+            var dogfoodCount = bindings.SemanticScopeBuildSortedIndex(
+                _scopeStartLines,
+                _scopeStartColumns,
+                _scopeEndLines,
+                _sortTempScopeIds,
+                _sortStackLefts,
+                _sortStackRights,
+                _sortedScopeIds,
+                _sortedScopeStartLines,
+                _sortedScopeStartColumns,
+                _sortedScopeMaxEndLines);
+
+            if (dogfoodCount == scopeCount)
                 return;
 
             var order = new int[scopeCount];

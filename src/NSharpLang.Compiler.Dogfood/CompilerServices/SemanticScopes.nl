@@ -373,6 +373,233 @@ func SemanticScopeLookupSymbolChecksumInto(
     return checksum
 }
 
+func SemanticScopeBuildSortedIndexInto(
+    scopeStartLines: int[],
+    scopeStartColumns: int[],
+    scopeEndLines: int[],
+    tempScopeIds: int[],
+    stackLefts: int[],
+    stackRights: int[],
+    sortedScopeIds: int[],
+    sortedScopeStartLines: int[],
+    sortedScopeStartColumns: int[],
+    sortedScopeMaxEndLines: int[]): int {
+    scopeCount := SemanticScopeMinInt(scopeStartLines.Length, scopeStartColumns.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, scopeEndLines.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, tempScopeIds.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, sortedScopeIds.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, sortedScopeStartLines.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, sortedScopeStartColumns.Length)
+    scopeCount = SemanticScopeMinInt(scopeCount, sortedScopeMaxEndLines.Length)
+
+    if scopeCount == 0 {
+        return 0
+    }
+
+    if stackLefts.Length < scopeCount || stackRights.Length < scopeCount {
+        return -1
+    }
+
+    sorted := true
+    maxEndLine := 0
+    previousLine := -1
+    previousColumn := -1
+    i := 0
+    while i < scopeCount {
+        line := scopeStartLines[i]
+        column := scopeStartColumns[i]
+        if i > 0 && (line < previousLine || (line == previousLine && column < previousColumn)) {
+            sorted = false
+        }
+
+        sortedScopeIds[i] = i
+        sortedScopeStartLines[i] = line
+        sortedScopeStartColumns[i] = column
+        endLine := scopeEndLines[i]
+        if endLine > maxEndLine {
+            maxEndLine = endLine
+        }
+
+        sortedScopeMaxEndLines[i] = maxEndLine
+        previousLine = line
+        previousColumn = column
+        i = i + 1
+    }
+
+    if sorted {
+        return scopeCount
+    }
+
+    i = 0
+    while i < scopeCount {
+        tempScopeIds[i] = i
+        i = i + 1
+    }
+
+    SemanticScopeSortIdsByStart(
+        tempScopeIds,
+        scopeCount,
+        scopeStartLines,
+        scopeStartColumns,
+        stackLefts,
+        stackRights)
+
+    maxEnd := 0
+    i = 0
+    while i < scopeCount {
+        scopeId := tempScopeIds[i]
+        if scopeId < 0 || scopeId >= scopeCount {
+            return -1
+        }
+
+        sortedScopeIds[i] = scopeId
+        sortedScopeStartLines[i] = scopeStartLines[scopeId]
+        sortedScopeStartColumns[i] = scopeStartColumns[scopeId]
+        endLine := scopeEndLines[scopeId]
+        if endLine > maxEnd {
+            maxEnd = endLine
+        }
+
+        sortedScopeMaxEndLines[i] = maxEnd
+        i = i + 1
+    }
+
+    return scopeCount
+}
+
+func SemanticScopeBuildSortedIndexChecksumInto(
+    scopeStartLines: int[],
+    scopeStartColumns: int[],
+    scopeEndLines: int[],
+    tempScopeIds: int[],
+    stackLefts: int[],
+    stackRights: int[],
+    sortedScopeIds: int[],
+    sortedScopeStartLines: int[],
+    sortedScopeStartColumns: int[],
+    sortedScopeMaxEndLines: int[]): int {
+    count := SemanticScopeBuildSortedIndexInto(
+        scopeStartLines,
+        scopeStartColumns,
+        scopeEndLines,
+        tempScopeIds,
+        stackLefts,
+        stackRights,
+        sortedScopeIds,
+        sortedScopeStartLines,
+        sortedScopeStartColumns,
+        sortedScopeMaxEndLines)
+
+    if count < 0 {
+        return count
+    }
+
+    checksum := count * 17
+    i := 0
+    while i < count {
+        checksum = checksum
+            + (i + 1) * 97
+            + (sortedScopeIds[i] + 1) * 31
+            + sortedScopeStartLines[i] * 13
+            + sortedScopeStartColumns[i] * 7
+            + sortedScopeMaxEndLines[i] * 3
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func SemanticScopeSortIdsByStart(
+    ids: int[],
+    count: int,
+    scopeStartLines: int[],
+    scopeStartColumns: int[],
+    stackLefts: int[],
+    stackRights: int[]) {
+    stackCount := 0
+    stackLefts[stackCount] = 0
+    stackRights[stackCount] = count - 1
+    stackCount = stackCount + 1
+
+    while stackCount > 0 {
+        stackCount = stackCount - 1
+        left := stackLefts[stackCount]
+        right := stackRights[stackCount]
+
+        while left < right {
+            i := left
+            j := right
+            pivot := ids[(left + right) >> 1]
+
+            while i <= j {
+                while SemanticScopeIdStartsBefore(ids[i], pivot, scopeStartLines, scopeStartColumns) {
+                    i = i + 1
+                }
+
+                while SemanticScopeIdStartsBefore(pivot, ids[j], scopeStartLines, scopeStartColumns) {
+                    j = j - 1
+                }
+
+                if i <= j {
+                    temp := ids[i]
+                    ids[i] = ids[j]
+                    ids[j] = temp
+                    i = i + 1
+                    j = j - 1
+                }
+            }
+
+            leftPartitionSize := j - left
+            rightPartitionSize := right - i
+            if leftPartitionSize < rightPartitionSize {
+                if i < right {
+                    stackLefts[stackCount] = i
+                    stackRights[stackCount] = right
+                    stackCount = stackCount + 1
+                }
+
+                right = j
+            } else {
+                if left < j {
+                    stackLefts[stackCount] = left
+                    stackRights[stackCount] = j
+                    stackCount = stackCount + 1
+                }
+
+                left = i
+            }
+        }
+    }
+}
+
+func SemanticScopeIdStartsBefore(
+    left: int,
+    right: int,
+    scopeStartLines: int[],
+    scopeStartColumns: int[]): bool {
+    leftLine := scopeStartLines[left]
+    rightLine := scopeStartLines[right]
+    if leftLine < rightLine {
+        return true
+    }
+
+    if leftLine > rightLine {
+        return false
+    }
+
+    leftColumn := scopeStartColumns[left]
+    rightColumn := scopeStartColumns[right]
+    if leftColumn < rightColumn {
+        return true
+    }
+
+    if leftColumn > rightColumn {
+        return false
+    }
+
+    return left < right
+}
+
 func SemanticScopeFindBestContainingScope(
     scopeStartLines: int[],
     scopeStartColumns: int[],

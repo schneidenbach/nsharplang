@@ -309,6 +309,248 @@ public class CompilerServiceSemanticScopeVisibleVariablesBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for sorted semantic-scope index construction used before scoped completion
+/// and receiver lookup queries.
+///
+/// The C# baseline mirrors the current cache builder: allocate an order array, sort scope ids with a
+/// comparer over start line/column/source id, then materialize sorted arrays and prefix max end lines.
+/// The N# candidate fills caller-owned buffers, detects the common source-order case, and falls back
+/// to comparer-free primitive quicksort for out-of-order scope tables.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceSemanticScopeIndexBuildBenchmarks
+{
+    private SemanticScopeBuildSortedIndexInto _nsharpBuildSortedIndex = null!;
+    private SemanticScopeBuildSortedIndexChecksumInto _nsharpChecksum = null!;
+
+    private int[] _csharpSortedScopeIds = Array.Empty<int>();
+    private int[] _csharpSortedScopeMaxEndLines = Array.Empty<int>();
+    private int[] _csharpSortedScopeStartColumns = Array.Empty<int>();
+    private int[] _csharpSortedScopeStartLines = Array.Empty<int>();
+    private int[] _nsharpSortedScopeIds = Array.Empty<int>();
+    private int[] _nsharpSortedScopeMaxEndLines = Array.Empty<int>();
+    private int[] _nsharpSortedScopeStartColumns = Array.Empty<int>();
+    private int[] _nsharpSortedScopeStartLines = Array.Empty<int>();
+    private int[] _scopeEndLines = Array.Empty<int>();
+    private int[] _scopeStartColumns = Array.Empty<int>();
+    private int[] _scopeStartLines = Array.Empty<int>();
+    private int[] _stackLefts = Array.Empty<int>();
+    private int[] _stackRights = Array.Empty<int>();
+    private int[] _tempScopeIds = Array.Empty<int>();
+    private int _scopeCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _scopeCount = Corpus == CompilerLexerCorpus.Representative ? 1024 : 8192;
+        _nsharpBuildSortedIndex =
+            NSharpCompiledMethod.Bind<SemanticScopeBuildSortedIndexInto>(
+                DogfoodCompilerSources.CodeIntelligenceSemanticScopes,
+                "SemanticScopeBuildSortedIndexInto");
+        _nsharpChecksum =
+            NSharpCompiledMethod.Bind<SemanticScopeBuildSortedIndexChecksumInto>(
+                DogfoodCompilerSources.CodeIntelligenceSemanticScopes,
+                "SemanticScopeBuildSortedIndexChecksumInto");
+
+        _scopeStartLines = new int[_scopeCount];
+        _scopeStartColumns = new int[_scopeCount];
+        _scopeEndLines = new int[_scopeCount];
+        _tempScopeIds = new int[_scopeCount];
+        _stackLefts = new int[_scopeCount];
+        _stackRights = new int[_scopeCount];
+        _csharpSortedScopeIds = new int[_scopeCount];
+        _csharpSortedScopeStartLines = new int[_scopeCount];
+        _csharpSortedScopeStartColumns = new int[_scopeCount];
+        _csharpSortedScopeMaxEndLines = new int[_scopeCount];
+        _nsharpSortedScopeIds = new int[_scopeCount];
+        _nsharpSortedScopeStartLines = new int[_scopeCount];
+        _nsharpSortedScopeStartColumns = new int[_scopeCount];
+        _nsharpSortedScopeMaxEndLines = new int[_scopeCount];
+
+        BuildSourceOrderedScopeStarts();
+
+        var expectedChecksum = CSharpSemanticScopeIndex_BuildChecksum();
+        var actualChecksum = NSharpSemanticScopeIndex_BuildChecksum();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# semantic scope index checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpSemanticScopeIndex_Build()
+    {
+        BuildSortedScopeIndexWithCSharp(
+            _csharpSortedScopeIds,
+            _csharpSortedScopeStartLines,
+            _csharpSortedScopeStartColumns,
+            _csharpSortedScopeMaxEndLines);
+
+        return _scopeCount
+            + _csharpSortedScopeIds[0] * 31
+            + _csharpSortedScopeMaxEndLines[_scopeCount - 1] * 17;
+    }
+
+    [Benchmark]
+    public int NSharpSemanticScopeIndex_Build()
+    {
+        var count = _nsharpBuildSortedIndex(
+            _scopeStartLines,
+            _scopeStartColumns,
+            _scopeEndLines,
+            _tempScopeIds,
+            _stackLefts,
+            _stackRights,
+            _nsharpSortedScopeIds,
+            _nsharpSortedScopeStartLines,
+            _nsharpSortedScopeStartColumns,
+            _nsharpSortedScopeMaxEndLines);
+
+        return count
+            + _nsharpSortedScopeIds[0] * 31
+            + _nsharpSortedScopeMaxEndLines[count - 1] * 17;
+    }
+
+    private int CSharpSemanticScopeIndex_BuildChecksum()
+    {
+        var order = new int[_scopeCount];
+        for (var i = 0; i < _scopeCount; i++)
+        {
+            order[i] = i;
+        }
+
+        Array.Sort(order, CompareScopeStartOrder);
+
+        var maxEndLine = 0;
+        var checksum = _scopeCount * 17;
+        for (var sortedIndex = 0; sortedIndex < _scopeCount; sortedIndex++)
+        {
+            var scopeIndex = order[sortedIndex];
+            if (_scopeEndLines[scopeIndex] > maxEndLine)
+                maxEndLine = _scopeEndLines[scopeIndex];
+
+            checksum = checksum
+                + (sortedIndex + 1) * 97
+                + (scopeIndex + 1) * 31
+                + _scopeStartLines[scopeIndex] * 13
+                + _scopeStartColumns[scopeIndex] * 7
+                + maxEndLine * 3;
+        }
+
+        return checksum;
+    }
+
+    private int NSharpSemanticScopeIndex_BuildChecksum() =>
+        _nsharpChecksum(
+            _scopeStartLines,
+            _scopeStartColumns,
+            _scopeEndLines,
+            _tempScopeIds,
+            _stackLefts,
+            _stackRights,
+            _nsharpSortedScopeIds,
+            _nsharpSortedScopeStartLines,
+            _nsharpSortedScopeStartColumns,
+            _nsharpSortedScopeMaxEndLines);
+
+    private void BuildSortedScopeIndexWithCSharp(
+        int[] sortedScopeIds,
+        int[] sortedScopeStartLines,
+        int[] sortedScopeStartColumns,
+        int[] sortedScopeMaxEndLines)
+    {
+        var order = new int[_scopeCount];
+        for (var i = 0; i < _scopeCount; i++)
+        {
+            order[i] = i;
+        }
+
+        Array.Sort(order, CompareScopeStartOrder);
+
+        var maxEndLine = 0;
+        for (var sortedIndex = 0; sortedIndex < _scopeCount; sortedIndex++)
+        {
+            var scopeIndex = order[sortedIndex];
+            sortedScopeIds[sortedIndex] = scopeIndex;
+            sortedScopeStartLines[sortedIndex] = _scopeStartLines[scopeIndex];
+            sortedScopeStartColumns[sortedIndex] = _scopeStartColumns[scopeIndex];
+
+            if (_scopeEndLines[scopeIndex] > maxEndLine)
+                maxEndLine = _scopeEndLines[scopeIndex];
+
+            sortedScopeMaxEndLines[sortedIndex] = maxEndLine;
+        }
+    }
+
+    private void BuildSourceOrderedScopeStarts()
+    {
+        var line = 1;
+        for (var i = 0; i < _scopeCount; i++)
+        {
+            var depth = i & 15;
+            _scopeStartLines[i] = line;
+            _scopeStartColumns[i] = 1 + (depth & 3);
+            _scopeEndLines[i] = line + 40 - depth;
+
+            line += i % 7 == 0 ? 0 : 1;
+        }
+
+        for (var i = 1; i < _scopeCount; i++)
+        {
+            if (_scopeStartLines[i] < _scopeStartLines[i - 1])
+                _scopeStartLines[i] = _scopeStartLines[i - 1];
+            if (_scopeStartLines[i] == _scopeStartLines[i - 1] &&
+                _scopeStartColumns[i] < _scopeStartColumns[i - 1])
+            {
+                _scopeStartColumns[i] = _scopeStartColumns[i - 1] + 1;
+            }
+        }
+    }
+
+    private int CompareScopeStartOrder(int left, int right)
+    {
+        var diff = _scopeStartLines[left].CompareTo(_scopeStartLines[right]);
+        if (diff != 0)
+            return diff;
+
+        diff = _scopeStartColumns[left].CompareTo(_scopeStartColumns[right]);
+        if (diff != 0)
+            return diff;
+
+        return left.CompareTo(right);
+    }
+
+    private delegate int SemanticScopeBuildSortedIndexInto(
+        int[] scopeStartLines,
+        int[] scopeStartColumns,
+        int[] scopeEndLines,
+        int[] tempScopeIds,
+        int[] stackLefts,
+        int[] stackRights,
+        int[] sortedScopeIds,
+        int[] sortedScopeStartLines,
+        int[] sortedScopeStartColumns,
+        int[] sortedScopeMaxEndLines);
+
+    private delegate int SemanticScopeBuildSortedIndexChecksumInto(
+        int[] scopeStartLines,
+        int[] scopeStartColumns,
+        int[] scopeEndLines,
+        int[] tempScopeIds,
+        int[] stackLefts,
+        int[] stackRights,
+        int[] sortedScopeIds,
+        int[] sortedScopeStartLines,
+        int[] sortedScopeStartColumns,
+        int[] sortedScopeMaxEndLines);
+}
+
+/// <summary>
 /// Dogfood benchmark for position-aware scoped identifier lookup used by member completion.
 ///
 /// The C# baseline uses the production <see cref="SemanticModel.LookupIdentifierAtPosition"/>

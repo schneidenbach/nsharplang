@@ -979,6 +979,14 @@ func documented(): int {
                     "SemanticScopeVisibleSymbolChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeVisibleSymbolChecksumInto.");
+            var semanticScopeBuildSortedIndexInto = programType.GetMethod(
+                    "SemanticScopeBuildSortedIndexInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeBuildSortedIndexInto.");
+            var semanticScopeBuildSortedIndexChecksumInto = programType.GetMethod(
+                    "SemanticScopeBuildSortedIndexChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeBuildSortedIndexChecksumInto.");
             var semanticScopeLookupSymbolIndicesInto = programType.GetMethod(
                     "SemanticScopeLookupSymbolIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1308,6 +1316,8 @@ func main() {
             AssertSemanticScopeVisibleVariablesLikeProduction(
                 semanticScopeVisibleSymbolIndicesInto,
                 semanticScopeVisibleSymbolChecksumInto,
+                semanticScopeBuildSortedIndexInto,
+                semanticScopeBuildSortedIndexChecksumInto,
                 semanticScopeLookupSymbolIndicesInto,
                 semanticScopeLookupSymbolChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
@@ -4979,6 +4989,8 @@ func main() {
     private static void AssertSemanticScopeVisibleVariablesLikeProduction(
         MethodInfo semanticScopeVisibleSymbolIndicesInto,
         MethodInfo semanticScopeVisibleSymbolChecksumInto,
+        MethodInfo semanticScopeBuildSortedIndexInto,
+        MethodInfo semanticScopeBuildSortedIndexChecksumInto,
         MethodInfo semanticScopeLookupSymbolIndicesInto,
         MethodInfo semanticScopeLookupSymbolChecksumInto)
     {
@@ -5018,6 +5030,62 @@ func main() {
         var sortedScopeStartLines = sortedScopeIds.Select(id => scopeStartLines[id]).ToArray();
         var sortedScopeStartColumns = sortedScopeIds.Select(id => scopeStartColumns[id]).ToArray();
         var sortedScopeMaxEndLines = BuildPrefixMaxEndLines(sortedScopeIds, scopeEndLines);
+
+        var shuffledScopeStartLines = new[] { 12, 1, 18, 5 };
+        var shuffledScopeStartColumns = new[] { 1, 1, 1, 1 };
+        var shuffledScopeEndLines = new[] { 15, 20, 0, 10 };
+        var shuffledResultIds = new int[4];
+        var shuffledResultStartLines = new int[4];
+        var shuffledResultStartColumns = new int[4];
+        var shuffledResultMaxEndLines = new int[4];
+        var shuffledCount = (int)(semanticScopeBuildSortedIndexInto.Invoke(
+            null,
+            new object[]
+            {
+                shuffledScopeStartLines,
+                shuffledScopeStartColumns,
+                shuffledScopeEndLines,
+                new int[4],
+                new int[4],
+                new int[4],
+                shuffledResultIds,
+                shuffledResultStartLines,
+                shuffledResultStartColumns,
+                shuffledResultMaxEndLines
+            }) ?? -1);
+
+        Assert.Equal(4, shuffledCount);
+        Assert.Equal(new[] { 1, 3, 0, 2 }, shuffledResultIds);
+        Assert.Equal(new[] { 1, 5, 12, 18 }, shuffledResultStartLines);
+        Assert.Equal(new[] { 1, 1, 1, 1 }, shuffledResultStartColumns);
+        Assert.Equal(new[] { 20, 20, 20, 20 }, shuffledResultMaxEndLines);
+
+        var actualIndexChecksum = (int)(semanticScopeBuildSortedIndexChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                scopeStartLines,
+                scopeStartColumns,
+                scopeEndLines,
+                new int[scopeStartLines.Length],
+                new int[scopeStartLines.Length],
+                new int[scopeStartLines.Length],
+                new int[scopeStartLines.Length],
+                new int[scopeStartLines.Length],
+                new int[scopeStartLines.Length],
+                new int[scopeStartLines.Length]
+            }) ?? -1);
+        var expectedIndexChecksum = scopeStartLines.Length * 17;
+        for (var i = 0; i < sortedScopeIds.Length; i++)
+        {
+            expectedIndexChecksum += (i + 1) * 97
+                + (sortedScopeIds[i] + 1) * 31
+                + sortedScopeStartLines[i] * 13
+                + sortedScopeStartColumns[i] * 7
+                + sortedScopeMaxEndLines[i] * 3;
+        }
+
+        Assert.Equal(expectedIndexChecksum, actualIndexChecksum);
 
         var queryLines = new[] { 2, 6, 13, 19, 30 };
         var queryColumns = new[] { 10, 10, 10, 10, 10 };
