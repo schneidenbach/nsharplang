@@ -831,7 +831,7 @@ public class CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks
         }
     }
 
-    private static BenchmarkDiagnostic BuildDiagnostic(int index)
+    internal static BenchmarkDiagnostic BuildDiagnostic(int index)
     {
         var suffix =
             $" while compiling generated module {index % 97} after incremental query invalidation and semantic recovery pass {index}. " +
@@ -881,7 +881,7 @@ public class CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks
         };
     }
 
-    private static DiagnosticClusterTraits ClassifyDiagnostic(BenchmarkDiagnostic diagnostic)
+    internal static DiagnosticClusterTraits ClassifyDiagnostic(BenchmarkDiagnostic diagnostic)
     {
         var message = diagnostic.Message ?? string.Empty;
         var snippet = diagnostic.SourceSnippet ?? string.Empty;
@@ -1128,7 +1128,7 @@ public class CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks
         return builder.ToString().Trim();
     }
 
-    private static int DiagnosticCategoryIndex(string category) => category switch
+    internal static int DiagnosticCategoryIndex(string category) => category switch
     {
         "syntax-missing-terminator" => 0,
         "syntax-missing-delimiter" => 1,
@@ -1140,7 +1140,7 @@ public class CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks
         _ => 7
     };
 
-    private static int DiagnosticSourceConstructIndex(string sourceConstruct) => sourceConstruct switch
+    internal static int DiagnosticSourceConstructIndex(string sourceConstruct) => sourceConstruct switch
     {
         "variable-declaration" => 0,
         "function-declaration" => 1,
@@ -1167,13 +1167,149 @@ public class CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks
         return _csharpCategories.Length;
     }
 
-    private sealed record BenchmarkDiagnostic(string Code, string Message, string SourceSnippet);
+    internal sealed record BenchmarkDiagnostic(string Code, string Message, string SourceSnippet);
 
-    private sealed record DiagnosticClusterTraits(
+    internal sealed record DiagnosticClusterTraits(
         string Category,
         string SourceConstruct,
         string Recipe,
         string Risk,
         string MessagePattern,
         string[] SuggestedNextActions);
+}
+
+/// <summary>
+/// Dogfood benchmark for the combined diagnostic cluster trait and message-pattern materialization
+/// pass used by clustered diagnostic grouping.
+///
+/// The C# baseline mirrors the formatter's current full trait construction: lowercase message and
+/// source snippets, construct public trait strings and suggested action arrays, and normalize the
+/// diagnostic message pattern. The N# candidate keeps category/source-construct ids compact and
+/// materializes only the stable message-pattern string needed for grouping and JSON output.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDiagnosticClusterTraitPatternBenchmarks
+{
+    private const int LargeDiagnosticCount = 8192;
+    private const int RepresentativeDiagnosticCount = 1024;
+
+    private Func<string[], string[], string[], int[], int[], string[], int> _nsharpDiagnosticClusterTraitPatternChecksumInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _codes = Array.Empty<string>();
+    private int[] _csharpCategories = Array.Empty<int>();
+    private string[] _csharpMessagePatterns = Array.Empty<string>();
+    private int[] _csharpSourceConstructs = Array.Empty<int>();
+    private int _diagnosticCount;
+    private CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks.BenchmarkDiagnostic[] _diagnostics = Array.Empty<CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks.BenchmarkDiagnostic>();
+    private string[] _messages = Array.Empty<string>();
+    private int[] _nsharpCategories = Array.Empty<int>();
+    private string[] _nsharpMessagePatterns = Array.Empty<string>();
+    private int[] _nsharpSourceConstructs = Array.Empty<int>();
+    private string[] _snippets = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _diagnosticCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeDiagnosticCount
+            : LargeDiagnosticCount;
+        _nsharpDiagnosticClusterTraitPatternChecksumInto =
+            NSharpCompiledMethod.Bind<Func<string[], string[], string[], int[], int[], string[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceDiagnosticClusters,
+                "DiagnosticClusterTraitPatternChecksumInto");
+
+        _diagnostics = new CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks.BenchmarkDiagnostic[_diagnosticCount];
+        _codes = new string[_diagnosticCount];
+        _messages = new string[_diagnosticCount];
+        _snippets = new string[_diagnosticCount];
+        _csharpCategories = new int[_diagnosticCount];
+        _csharpSourceConstructs = new int[_diagnosticCount];
+        _csharpMessagePatterns = new string[_diagnosticCount];
+        _nsharpCategories = new int[_diagnosticCount];
+        _nsharpSourceConstructs = new int[_diagnosticCount];
+        _nsharpMessagePatterns = new string[_diagnosticCount];
+
+        BuildDiagnostics();
+
+        var expectedChecksum = CSharpDiagnosticClusterTraitsAndPatterns_QueryBatch();
+        var actualChecksum = NSharpDiagnosticClusterTraitsAndPatterns_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster trait-pattern checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpCategories.SequenceEqual(_nsharpCategories)
+            || !_csharpSourceConstructs.SequenceEqual(_nsharpSourceConstructs)
+            || !_csharpMessagePatterns.SequenceEqual(_nsharpMessagePatterns))
+        {
+            var mismatch = FirstMismatch();
+            throw new InvalidOperationException(
+                $"N# diagnostic cluster trait-pattern mismatch for {Corpus} at diagnostic {mismatch}: " +
+                $"expected {_csharpCategories[mismatch]}/{_csharpSourceConstructs[mismatch]}/{_csharpMessagePatterns[mismatch]}, " +
+                $"got {_nsharpCategories[mismatch]}/{_nsharpSourceConstructs[mismatch]}/{_nsharpMessagePatterns[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpDiagnosticClusterTraitsAndPatterns_QueryBatch()
+    {
+        var checksum = _diagnosticCount;
+        for (var i = 0; i < _diagnostics.Length; i++)
+        {
+            var traits = CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks.ClassifyDiagnostic(_diagnostics[i]);
+            var category = CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks.DiagnosticCategoryIndex(traits.Category);
+            var sourceConstruct = CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks.DiagnosticSourceConstructIndex(traits.SourceConstruct);
+
+            _csharpCategories[i] = category;
+            _csharpSourceConstructs[i] = sourceConstruct;
+            _csharpMessagePatterns[i] = traits.MessagePattern;
+
+            checksum += category * 31 + sourceConstruct * 17 + traits.MessagePattern.Length;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpDiagnosticClusterTraitsAndPatterns_QueryBatch() =>
+        _nsharpDiagnosticClusterTraitPatternChecksumInto(
+            _codes,
+            _messages,
+            _snippets,
+            _nsharpCategories,
+            _nsharpSourceConstructs,
+            _nsharpMessagePatterns);
+
+    private void BuildDiagnostics()
+    {
+        for (var i = 0; i < _diagnosticCount; i++)
+        {
+            var diagnostic = CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks.BuildDiagnostic(i);
+            _diagnostics[i] = diagnostic;
+            _codes[i] = diagnostic.Code;
+            _messages[i] = diagnostic.Message;
+            _snippets[i] = diagnostic.SourceSnippet;
+        }
+    }
+
+    private int FirstMismatch()
+    {
+        for (var i = 0; i < _csharpCategories.Length; i++)
+        {
+            if (_csharpCategories[i] != _nsharpCategories[i]
+                || _csharpSourceConstructs[i] != _nsharpSourceConstructs[i]
+                || _csharpMessagePatterns[i] != _nsharpMessagePatterns[i])
+            {
+                return i;
+            }
+        }
+
+        return _csharpCategories.Length;
+    }
 }

@@ -308,6 +308,13 @@ Current code-intelligence dogfood benchmarks:
   the hot path, falls back to message scanning only for unknown codes, and writes compact category
   and source-construct ids into caller-owned buffers. The formatter still materializes the public
   JSON `messagePattern` string after this hot trait pass.
+- `CompilerServiceCodeIntelligenceDiagnosticClusterTraitPatternBenchmarks` targets the attempted
+  combined diagnostic cluster trait and public message-pattern materialization path. The C# baseline
+  mirrors the formatter's full trait construction shape, while the N# candidate writes compact
+  category/source-construct ids and stable message-pattern strings into caller-owned buffers through
+  `DiagnosticClusterTraitsAndPatternsInto`. This is kept as pressure evidence for public string
+  materialization, not as a production-routing benchmark, because the current result misses the 5x
+  acceptance gate.
 - `CompilerServiceCodeIntelligenceDiagnosticSummaryBenchmarks` targets the diagnostic severity
   summary emitted by `diagnostics`, `diagnostics.clusters`, `check`, and `lint` JSON envelopes. The
   C# baseline models the formatter's previous shape: three LINQ count passes over diagnostic
@@ -448,6 +455,15 @@ ran about 5.82x faster on the representative diagnostic corpus (79.627 us vs 463
 3.746 ms, 0 B vs 17,838,904 B). This is acceptance-grade benchmark evidence for the CLI/query
 diagnostic clustering trait pass; message-pattern materialization intentionally remains in the
 formatter boundary for the public JSON schema.
+
+`DiagnosticClusterTraitsAndPatternsInto` passed parity through the checksum wrapper, but missed the
+normal BenchmarkDotNet speed gate for combined trait and public message-pattern materialization. The
+N# path measured about 1.42x faster on the representative diagnostic corpus (339.4 us vs 482.5 us)
+and about 1.30x faster on the large generated diagnostic corpus (4.081 ms vs 5.291 ms), with managed
+allocation reduced to about 63% of the C# formatter-shaped baseline (1.33 MB vs 2.11 MB and 10.67 MB
+vs 17.01 MB). This is measured language/runtime pressure, not acceptance evidence, and the production
+formatter must keep the C# message-pattern path until N# has a lower-allocation public string
+construction strategy that clears the 5x gate.
 
 `DiagnosticSeveritySummaryInto` passed parity and reported no managed allocation in the same normal
 BenchmarkDotNet evidence tier for diagnostic summary counting. It ran about 5.64x faster on the
@@ -613,9 +629,9 @@ shaping still needs N# implementations. Diagnostic cluster trait classification,
 severity summary counting, and compact diagnostic cluster grouping are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain
 C# formatter work.
-The cluster id and next-command misses are specifically about short public string construction:
-direct N# field hashing removes most temporary allocation, and direct N# command-buffer construction
-beats the current C# helper modestly, but both remain far below the 5x gate. The
+These public string materialization misses are specifically about short string construction: direct
+N# message-pattern construction, direct N# field hashing, and direct N# command-buffer construction
+all beat their C# formatter-shaped helpers modestly, but they remain far below the 5x gate. The
 strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
 binding tables and lookup policy are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
