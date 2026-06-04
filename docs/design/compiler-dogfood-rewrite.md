@@ -262,6 +262,13 @@ Current code-intelligence dogfood benchmarks:
   candidate consumes host-built declaration/binding arrays, prebuilt open-addressed slot tables, and
   candidate query columns, then writes declaration indices through
   `BindingLookupQueryDeclarationIndicesInto`.
+- `CompilerServiceSemanticScopeVisibleVariablesBenchmarks` targets scoped visible-variable lookup
+  used by CLI/daemon identifier completion. The C# baseline uses the current
+  `SemanticModel.GetVisibleVariablesAtPosition` scan/sort/dictionary path. The N# candidate consumes
+  compact scope ranges, parent/depth arrays, scope-to-symbol spans, and a sorted scope-start index
+  with prefix max-end lines, then writes visible symbol indices through
+  `SemanticScopeVisibleSymbolIndicesInto`. The host still owns final `TypeInfo` objects and
+  completion item materialization.
 - `CompilerServiceCodeIntelligenceNearestDeclarationLookupBenchmarks` targets the source-context
   fallback that chooses the nearest same-file declaration by name before AST declaration scans. The
   C# baseline mirrors the production LINQ shape: `FindDeclarationsByName`, file/line filtering,
@@ -365,8 +372,8 @@ Current code-intelligence dogfood benchmarks:
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
-`CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`, and
-`CompilerServices/CliQueryParsing.nl`.
+`CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
+`CompilerServices/SemanticScopes.nl`, and `CompilerServices/CliQueryParsing.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -408,7 +415,9 @@ declaration and binding tables against production `BindingMap.GetBindingAt` sema
 declaration-position hits, usage-position hits, misses, and declaration-first precedence when a
 binding shares a declaration key. Nearest-declaration lookup parity checks sorted compact
 declaration facts against the production same-file/name, preceding-line, line/column-descending
-selection contract. The
+selection contract. Semantic scope lookup parity checks compact scope ranges and sorted start-index
+facts against production `SemanticModel.GetVisibleVariablesAtPosition` shadowing/order semantics,
+including root, nested, sibling, open-scope, and no-containing-scope queries. The
 text-scanning candidates use ASCII fast paths and fall back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
@@ -439,6 +448,14 @@ same normal BenchmarkDotNet evidence tier for strict semantic binding position l
 on the large generated binding corpus (646.484 us vs 3.378 ms). This is acceptance-grade benchmark
 evidence for batched declaration-first binding lookup after the host has built compact binding
 tables and slot arrays.
+
+`SemanticScopeVisibleSymbolIndicesInto` passed parity and reported zero managed allocation in the
+normal BenchmarkDotNet evidence tier for scoped visible-variable selection before CLI completion
+item materialization. It ran about 7.35x faster on the representative semantic-scope corpus
+(438.998 us vs 3.225 ms, 0 B vs 6,823,936 B) and about 19.04x faster on the large generated
+semantic-scope corpus (2.473 ms vs 47.073 ms, 0 B vs 36,790,272 B). This is acceptance-grade
+benchmark evidence for visible symbol selection after the host has built compact scope/symbol tables
+and the sorted scope-start index.
 
 `BindingLookupFindNearestDeclarationIndicesInto` passed parity and reported zero managed allocation
 in the same normal BenchmarkDotNet evidence tier for nearest same-file declaration selection by
@@ -601,13 +618,18 @@ dictionary lookup path kept as the fallback.
 The source-context definition fallback now uses the same compact `BindingMap` cache to route nearest
 same-file declaration-by-name selection through the compiled N# binary-search kernel, with the
 previous LINQ filter/order path kept as the fallback.
+CLI/daemon identifier completion now routes scoped visible-variable selection through a compact
+`SemanticModel` cache and the compiled N# semantic-scope kernel when the dogfood assembly is
+available, with the previous `SemanticModel.GetVisibleVariablesAtPosition` path kept as the
+fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
 declaration-name match, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
 severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
-deduplication, strict binding lookup, and nearest declaration lookup,
+deduplication, strict binding lookup, nearest declaration lookup, and scoped visible-variable
+selection,
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -616,8 +638,9 @@ completion-prefix, completion receiver-context, hover doc-comment, strict refere
 declaration-name guard, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
 semantic reference result deduplication/order slices, plus strict semantic binding lookup and LSP
-editor word/span lookup for hover, definition, references, and rename entry points, and nearest
-same-file declaration lookup in the source-context definition fallback.
+editor word/span lookup for hover, definition, references, and rename entry points, nearest
+same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
+selection in CLI/daemon identifier completion.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
 for the dogfood rewrite.
@@ -705,7 +728,8 @@ identifier lookup uses a separate N# helper because editor hover/rename semantic
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
 severity summary counting, compact diagnostic cluster grouping, strict semantic binding lookup, and
-nearest same-file declaration lookup, and reference result deduplication/order are now dogfooded.
+nearest same-file declaration lookup, scoped visible-variable selection, and reference result
+deduplication/order are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain
 C# formatter work.
 These public string materialization misses are specifically about short string construction: direct
@@ -714,8 +738,8 @@ all beat their C# formatter-shaped helpers modestly, but they remain far below t
 CLI query position parser also shows helper-call overhead on tiny strings: direct parsing removes
 all split allocation but still only reaches about 2.4x on the measured batch. The
 strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
-binding table construction plus compact cache construction/sorting around the N# lookup kernels are
-still C# host logic.
+binding/scope table construction plus compact cache construction/sorting around the N# lookup
+kernels are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
-needs N# implementations for semantic lookup, completion construction, output shaping, and CLI
-command orchestration.
+needs N# implementations for broader semantic lookup, completion construction, output shaping, and
+CLI command orchestration.

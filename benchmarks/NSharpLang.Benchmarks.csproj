@@ -51,6 +51,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/BindingLookup.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.BindingLookup.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/SemanticScopes.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.SemanticScopes.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CompletionReceivers.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionReceivers.nl" />
     <EmbeddedResource

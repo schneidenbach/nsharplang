@@ -43,6 +43,27 @@ func main() {
             ?.GetValue(null) ?? false);
         Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
 
+        var semanticModel = new SemanticModel();
+        var rootScope = semanticModel.OpenScope(-1, 1, 1);
+        semanticModel.RecordScopedVariable(rootScope, "x", BuiltInTypes.Int);
+        semanticModel.RecordScopedVariable(rootScope, "y", BuiltInTypes.String);
+        var innerScope = semanticModel.OpenScope(rootScope, 4, 1);
+        semanticModel.RecordScopedVariable(innerScope, "x", BuiltInTypes.Bool);
+        semanticModel.RecordScopedVariable(innerScope, "z", BuiltInTypes.Double);
+        semanticModel.CloseScope(innerScope, 8, 120);
+        semanticModel.CloseScope(rootScope, 12, 120);
+
+        var tryGetVisibleVariablesAtPosition = adapterType.GetMethod(
+                "TryGetVisibleVariablesAtPosition",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryGetVisibleVariablesAtPosition.");
+        var visibleArgs = new object?[] { semanticModel, 5, 10, null };
+        Assert.True((bool)(tryGetVisibleVariablesAtPosition.Invoke(null, visibleArgs) ?? false));
+        var visibleVariables = Assert.IsType<Dictionary<string, NSharpLang.Compiler.TypeInfo>>(visibleArgs[3]);
+        Assert.Equal("bool", visibleVariables["x"].ToString());
+        Assert.Equal("string", visibleVariables["y"].ToString());
+        Assert.Equal("double", visibleVariables["z"].ToString());
+
         var tryExtractIdentifierName = adapterType.GetMethod(
                 "TryExtractIdentifierName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -668,6 +689,14 @@ func documented(): int {
                     "BindingLookupFindNearestDeclarationChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupFindNearestDeclarationChecksumInto.");
+            var semanticScopeVisibleSymbolIndicesInto = programType.GetMethod(
+                    "SemanticScopeVisibleSymbolIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeVisibleSymbolIndicesInto.");
+            var semanticScopeVisibleSymbolChecksumInto = programType.GetMethod(
+                    "SemanticScopeVisibleSymbolChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeVisibleSymbolChecksumInto.");
 
             const string source = """"
 import System
@@ -941,6 +970,9 @@ func main() {
                 bindingLookupQueryChecksumInto,
                 bindingLookupFindNearestDeclarationIndicesInto,
                 bindingLookupFindNearestDeclarationChecksumInto);
+            AssertSemanticScopeVisibleVariablesLikeProduction(
+                semanticScopeVisibleSymbolIndicesInto,
+                semanticScopeVisibleSymbolChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -3214,6 +3246,171 @@ func main() {
 
         Assert.Equal(expectedNearestChecksum, nearestChecksum);
         Assert.Equal(expectedNearest, nearestChecksumResultIndices);
+    }
+
+    private static void AssertSemanticScopeVisibleVariablesLikeProduction(
+        MethodInfo semanticScopeVisibleSymbolIndicesInto,
+        MethodInfo semanticScopeVisibleSymbolChecksumInto)
+    {
+        var model = new SemanticModel();
+        var root = model.OpenScope(-1, 1, 1);
+        model.RecordScopedVariable(root, "x", BuiltInTypes.Int);
+        model.RecordScopedVariable(root, "y", BuiltInTypes.String);
+
+        var inner = model.OpenScope(root, 5, 1);
+        model.RecordScopedVariable(inner, "x", BuiltInTypes.Bool);
+        model.RecordScopedVariable(inner, "z", BuiltInTypes.Double);
+        model.RecordScopedFunction(inner, "localFunc", new SimpleTypeInfo("fn"));
+        model.CloseScope(inner, 10, 120);
+
+        var sibling = model.OpenScope(root, 12, 1);
+        model.RecordScopedVariable(sibling, "sibling", BuiltInTypes.Char);
+        model.CloseScope(sibling, 15, 120);
+
+        var open = model.OpenScope(root, 18, 1);
+        model.RecordScopedVariable(open, "openOnly", BuiltInTypes.Object);
+        model.CloseScope(root, 20, 120);
+
+        var scopeParentIds = new[] { -1, 0, 0, 0 };
+        var scopeStartLines = new[] { 1, 5, 12, 18 };
+        var scopeStartColumns = new[] { 1, 1, 1, 1 };
+        var scopeEndLines = new[] { 20, 10, 15, 0 };
+        var scopeEndColumns = new[] { 120, 120, 120, 0 };
+        var scopeDepths = new[] { 0, 1, 1, 1 };
+        var scopeSymbolStarts = new[] { 0, 2, 5, 6 };
+        var scopeSymbolCounts = new[] { 2, 3, 1, 1 };
+        var symbolNames = new[] { "x", "y", "x", "z", "localFunc", "sibling", "openOnly" };
+        var symbolTypeNames = new[] { "int", "string", "bool", "double", "fn", "char", "object" };
+        var symbolNameIds = CreateOrdinalIds(symbolNames);
+        var symbolNameLengths = symbolNames.Select(static name => name.Length).ToArray();
+        var symbolTypeNameLengths = symbolTypeNames.Select(static name => name.Length).ToArray();
+        var sortedScopeIds = new[] { 0, 1, 2, 3 };
+        var sortedScopeStartLines = sortedScopeIds.Select(id => scopeStartLines[id]).ToArray();
+        var sortedScopeStartColumns = sortedScopeIds.Select(id => scopeStartColumns[id]).ToArray();
+        var sortedScopeMaxEndLines = BuildPrefixMaxEndLines(sortedScopeIds, scopeEndLines);
+
+        var queryLines = new[] { 2, 6, 13, 19, 30 };
+        var queryColumns = new[] { 10, 10, 10, 10, 10 };
+        var expectedScopeIds = new[] { 0, 1, 2, 0, -1 };
+        var expectedVisibleNames = new[]
+        {
+            model.GetVisibleVariablesAtPosition(2, 10).Keys.ToArray(),
+            model.GetVisibleVariablesAtPosition(6, 10).Keys.ToArray(),
+            model.GetVisibleVariablesAtPosition(13, 10).Keys.ToArray(),
+            model.GetVisibleVariablesAtPosition(19, 10).Keys.ToArray(),
+            Array.Empty<string>()
+        };
+
+        var resultScopeIds = new int[queryLines.Length];
+        var resultStarts = new int[queryLines.Length];
+        var resultCounts = new int[queryLines.Length];
+        var resultSymbolIndices = new int[64];
+        var slotNameIds = new int[symbolNames.Length * 2 + 1];
+        var touchedSlots = new int[symbolNames.Length];
+        var total = (int)(semanticScopeVisibleSymbolIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                scopeParentIds,
+                scopeStartLines,
+                scopeStartColumns,
+                scopeEndLines,
+                scopeEndColumns,
+                scopeDepths,
+                scopeSymbolStarts,
+                scopeSymbolCounts,
+                symbolNameIds,
+                sortedScopeIds,
+                sortedScopeStartLines,
+                sortedScopeStartColumns,
+                sortedScopeMaxEndLines,
+                queryLines,
+                queryColumns,
+                resultScopeIds,
+                resultStarts,
+                resultCounts,
+                resultSymbolIndices,
+                slotNameIds,
+                touchedSlots
+            }) ?? -1);
+
+        Assert.Equal(expectedScopeIds, resultScopeIds);
+        Assert.Equal(expectedVisibleNames.Sum(static names => names.Length), total);
+        for (var queryIndex = 0; queryIndex < queryLines.Length; queryIndex++)
+        {
+            var actualNames = resultSymbolIndices
+                .Skip(resultStarts[queryIndex])
+                .Take(resultCounts[queryIndex])
+                .Select(index => symbolNames[index])
+                .ToArray();
+            Assert.Equal(expectedVisibleNames[queryIndex], actualNames);
+        }
+
+        Array.Clear(resultScopeIds);
+        Array.Clear(resultStarts);
+        Array.Clear(resultCounts);
+        Array.Clear(resultSymbolIndices);
+        Array.Clear(slotNameIds);
+        Array.Clear(touchedSlots);
+
+        var actualChecksum = (int)(semanticScopeVisibleSymbolChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                scopeParentIds,
+                scopeStartLines,
+                scopeStartColumns,
+                scopeEndLines,
+                scopeEndColumns,
+                scopeDepths,
+                scopeSymbolStarts,
+                scopeSymbolCounts,
+                symbolNameIds,
+                symbolNameLengths,
+                symbolTypeNameLengths,
+                sortedScopeIds,
+                sortedScopeStartLines,
+                sortedScopeStartColumns,
+                sortedScopeMaxEndLines,
+                queryLines,
+                queryColumns,
+                resultScopeIds,
+                resultStarts,
+                resultCounts,
+                resultSymbolIndices,
+                slotNameIds,
+                touchedSlots
+            }) ?? -1);
+        var expectedChecksum = total * 17;
+        for (var queryIndex = 0; queryIndex < queryLines.Length; queryIndex++)
+        {
+            expectedChecksum += (expectedScopeIds[queryIndex] + 1) * 31;
+            for (var i = 0; i < resultCounts[queryIndex]; i++)
+            {
+                var symbolIndex = resultSymbolIndices[resultStarts[queryIndex] + i];
+                expectedChecksum += symbolNameLengths[symbolIndex] * 13
+                    + symbolTypeNameLengths[symbolIndex] * 7
+                    + (i + 1);
+            }
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+    }
+
+    private static int[] BuildPrefixMaxEndLines(int[] sortedScopeIds, int[] scopeEndLines)
+    {
+        var result = new int[sortedScopeIds.Length];
+        var max = 0;
+        for (var i = 0; i < sortedScopeIds.Length; i++)
+        {
+            var endLine = scopeEndLines[sortedScopeIds[i]];
+            if (endLine > max)
+                max = endLine;
+
+            result[i] = max;
+        }
+
+        return result;
     }
 
     private static int[] CreateOrdinalIds(string[] values)

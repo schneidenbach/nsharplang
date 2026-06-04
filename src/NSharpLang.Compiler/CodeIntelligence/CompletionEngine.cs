@@ -298,9 +298,21 @@ public class CompletionEngine
         // Variables and parameters from semantic model (position-aware when possible)
         if (semanticModel != null)
         {
-            var visibleVars = (line > 0 && semanticModel.Scopes.Count > 0)
-                ? semanticModel.GetVisibleVariablesAtPosition(line, col)
-                : new Dictionary<string, TypeInfo>(semanticModel.Variables);
+            Dictionary<string, TypeInfo> visibleVars;
+            if (line > 0 && semanticModel.Scopes.Count > 0)
+            {
+                visibleVars = NSharpCodeIntelligenceDogfoodAdapter.TryGetVisibleVariablesAtPosition(
+                    semanticModel,
+                    line,
+                    col,
+                    out var dogfoodVisibleVars)
+                    ? dogfoodVisibleVars
+                    : semanticModel.GetVisibleVariablesAtPosition(line, col);
+            }
+            else
+            {
+                visibleVars = new Dictionary<string, TypeInfo>(semanticModel.Variables);
+            }
 
             var variables = new List<CompletionItem>();
             foreach (var (name, typeInfo) in visibleVars)

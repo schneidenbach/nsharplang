@@ -602,6 +602,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticDeduplication.nl";
     private const string BindingLookupResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.BindingLookup.nl";
+    private const string SemanticScopesResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.SemanticScopes.nl";
     private const string CompletionReceiversResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionReceivers.nl";
     private const string CliQueryParsingResourceName =
@@ -614,6 +616,7 @@ internal static class DogfoodCompilerSources
     public static string CodeIntelligenceDiagnosticClusters => ReadResource(DiagnosticClustersResourceName);
     public static string CodeIntelligenceDiagnosticDeduplication => ReadResource(DiagnosticDeduplicationResourceName);
     public static string CodeIntelligenceBindingLookup => ReadResource(BindingLookupResourceName);
+    public static string CodeIntelligenceSemanticScopes => ReadResource(SemanticScopesResourceName);
     public static string CodeIntelligenceCompletionReceivers => ReadResource(CompletionReceiversResourceName);
     public static string CliQueryParsing => ReadResource(CliQueryParsingResourceName);
 

@@ -12,6 +12,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private const string DogfoodAssemblyName = "NSharpLang.Compiler.Dogfood";
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     private static readonly ConditionalWeakTable<BindingMap, BindingLookupCache> s_bindingLookupCaches = new();
+    private static readonly ConditionalWeakTable<SemanticModel, SemanticScopeCache> s_semanticScopeCaches = new();
     private static readonly ConditionalWeakTable<ProjectSnapshot, SnapshotCache> s_snapshotCaches = new();
     private static readonly ConditionalWeakTable<string, SourceLineCache> s_sourceLineCaches = new();
     [ThreadStatic]
@@ -672,6 +673,30 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryGetVisibleVariablesAtPosition(
+        SemanticModel semanticModel,
+        int line,
+        int column,
+        out Dictionary<string, TypeInfo> visibleVariables)
+    {
+        visibleVariables = new Dictionary<string, TypeInfo>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = s_semanticScopeCaches.GetValue(semanticModel, static model => new SemanticScopeCache(model));
+            return cache.TryGetVisibleVariablesAtPosition(bindings, line, column, out visibleVariables);
+        }
+        catch
+        {
+            visibleVariables = new Dictionary<string, TypeInfo>();
+            return false;
+        }
+    }
+
     internal static bool TryClassifyCompletionReceiver(
         string beforeCursor,
         out bool isMemberAccess,
@@ -760,7 +785,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<ReferenceDeduplicateCompactInto>(programType, "ReferenceDeduplicateCompactInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
-                CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"));
+                CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"),
+                CreateDelegate<SemanticScopeVisibleSymbolIndicesInto>(programType, "SemanticScopeVisibleSymbolIndicesInto"));
         }
         catch
         {
@@ -980,6 +1006,29 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] queryLineNumbers,
         int[] resultDeclarationIndices);
 
+    private delegate int SemanticScopeVisibleSymbolIndicesInto(
+        int[] scopeParentIds,
+        int[] scopeStartLines,
+        int[] scopeStartColumns,
+        int[] scopeEndLines,
+        int[] scopeEndColumns,
+        int[] scopeDepths,
+        int[] scopeSymbolStarts,
+        int[] scopeSymbolCounts,
+        int[] symbolNameIds,
+        int[] sortedScopeIds,
+        int[] sortedScopeStartLines,
+        int[] sortedScopeStartColumns,
+        int[] sortedScopeMaxEndLines,
+        int[] queryLines,
+        int[] queryColumns,
+        int[] resultScopeIds,
+        int[] resultStarts,
+        int[] resultCounts,
+        int[] resultSymbolIndices,
+        int[] slotNameIds,
+        int[] touchedSlots);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
@@ -1001,7 +1050,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
-        BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices);
+        BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices,
+        SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices);
 
     internal sealed class DiagnosticClusterGrouping
     {
@@ -1606,6 +1656,283 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             _queryLineNumbers = new int[count];
             _queryColumns = new int[count];
             _resultDeclarationIndices = new int[count];
+        }
+    }
+
+    private sealed class SemanticScopeCache
+    {
+        private readonly object _gate = new();
+        private readonly SemanticModel _model;
+        private readonly Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
+        private readonly int[] _queryColumns = new int[1];
+        private readonly int[] _queryLines = new int[1];
+        private readonly int[] _resultCounts = new int[1];
+        private readonly int[] _resultScopeIds = new int[1];
+        private readonly int[] _resultStarts = new int[1];
+
+        private int[] _scopeDepths = Array.Empty<int>();
+        private int[] _scopeEndColumns = Array.Empty<int>();
+        private int[] _scopeEndLines = Array.Empty<int>();
+        private int[] _scopeParentIds = Array.Empty<int>();
+        private int[] _scopeStartColumns = Array.Empty<int>();
+        private int[] _scopeStartLines = Array.Empty<int>();
+        private int[] _scopeSymbolCounts = Array.Empty<int>();
+        private int[] _scopeSymbolStarts = Array.Empty<int>();
+        private int[] _resultSymbolIndices = Array.Empty<int>();
+        private int[] _slotNameIds = Array.Empty<int>();
+        private int[] _sortedScopeIds = Array.Empty<int>();
+        private int[] _sortedScopeMaxEndLines = Array.Empty<int>();
+        private int[] _sortedScopeStartColumns = Array.Empty<int>();
+        private int[] _sortedScopeStartLines = Array.Empty<int>();
+        private int[] _symbolNameIds = Array.Empty<int>();
+        private string[] _symbolNames = Array.Empty<string>();
+        private TypeInfo[] _symbolTypes = Array.Empty<TypeInfo>();
+        private int[] _touchedSlots = Array.Empty<int>();
+        private int _version = -1;
+
+        public SemanticScopeCache(SemanticModel model)
+        {
+            _model = model;
+        }
+
+        public bool TryGetVisibleVariablesAtPosition(
+            Bindings bindings,
+            int line,
+            int column,
+            out Dictionary<string, TypeInfo> visibleVariables)
+        {
+            visibleVariables = new Dictionary<string, TypeInfo>();
+
+            lock (_gate)
+            {
+                EnsureBuilt();
+                if (_scopeParentIds.Length == 0)
+                {
+                    visibleVariables = new Dictionary<string, TypeInfo>(_model.Variables);
+                    return true;
+                }
+
+                EnsureQueryCapacity();
+                _queryLines[0] = line;
+                _queryColumns[0] = column;
+                _resultScopeIds[0] = -1;
+                _resultStarts[0] = 0;
+                _resultCounts[0] = 0;
+
+                var total = bindings.SemanticScopeVisibleSymbolIndices(
+                    _scopeParentIds,
+                    _scopeStartLines,
+                    _scopeStartColumns,
+                    _scopeEndLines,
+                    _scopeEndColumns,
+                    _scopeDepths,
+                    _scopeSymbolStarts,
+                    _scopeSymbolCounts,
+                    _symbolNameIds,
+                    _sortedScopeIds,
+                    _sortedScopeStartLines,
+                    _sortedScopeStartColumns,
+                    _sortedScopeMaxEndLines,
+                    _queryLines,
+                    _queryColumns,
+                    _resultScopeIds,
+                    _resultStarts,
+                    _resultCounts,
+                    _resultSymbolIndices,
+                    _slotNameIds,
+                    _touchedSlots);
+
+                if (total < 0)
+                    return false;
+
+                if (_resultScopeIds[0] < 0)
+                {
+                    visibleVariables = new Dictionary<string, TypeInfo>(_model.Variables);
+                    return true;
+                }
+
+                var start = _resultStarts[0];
+                var count = _resultCounts[0];
+                var result = new Dictionary<string, TypeInfo>(count);
+                for (var i = 0; i < count; i++)
+                {
+                    var resultIndex = start + i;
+                    if (resultIndex < 0 || resultIndex >= total || resultIndex >= _resultSymbolIndices.Length)
+                        return false;
+
+                    var symbolIndex = _resultSymbolIndices[resultIndex];
+                    if (symbolIndex < 0 || symbolIndex >= _symbolNames.Length || symbolIndex >= _symbolTypes.Length)
+                        return false;
+
+                    result.TryAdd(_symbolNames[symbolIndex], _symbolTypes[symbolIndex]);
+                }
+
+                visibleVariables = result;
+                return true;
+            }
+        }
+
+        private void EnsureBuilt()
+        {
+            if (_version == _model.ScopeVersion)
+                return;
+
+            _nameIds.Clear();
+
+            var scopes = _model.Scopes;
+            var scopeCount = scopes.Count;
+            _scopeParentIds = new int[scopeCount];
+            _scopeStartLines = new int[scopeCount];
+            _scopeStartColumns = new int[scopeCount];
+            _scopeEndLines = new int[scopeCount];
+            _scopeEndColumns = new int[scopeCount];
+            _scopeDepths = new int[scopeCount];
+            _scopeSymbolStarts = new int[scopeCount];
+            _scopeSymbolCounts = new int[scopeCount];
+
+            var symbolCount = 0;
+            for (var i = 0; i < scopeCount; i++)
+            {
+                symbolCount += scopes[i].Variables.Count;
+                symbolCount += scopes[i].Functions.Count;
+            }
+
+            _symbolNames = new string[symbolCount];
+            _symbolTypes = new TypeInfo[symbolCount];
+            _symbolNameIds = new int[symbolCount];
+
+            var symbolIndex = 0;
+            for (var i = 0; i < scopeCount; i++)
+            {
+                var scope = scopes[i];
+                _scopeParentIds[i] = scope.ParentId;
+                _scopeStartLines[i] = scope.StartLine;
+                _scopeStartColumns[i] = scope.StartColumn;
+                _scopeEndLines[i] = scope.EndLine;
+                _scopeEndColumns[i] = scope.EndColumn;
+                _scopeSymbolStarts[i] = symbolIndex;
+
+                foreach (var (name, type) in scope.Variables)
+                {
+                    AddSymbol(name, type, ref symbolIndex);
+                }
+
+                foreach (var (name, type) in scope.Functions)
+                {
+                    AddSymbol(name, type, ref symbolIndex);
+                }
+
+                _scopeSymbolCounts[i] = symbolIndex - _scopeSymbolStarts[i];
+            }
+
+            for (var i = 0; i < scopeCount; i++)
+            {
+                _scopeDepths[i] = ComputeScopeDepth(i);
+            }
+
+            BuildSortedScopeIndex(scopeCount);
+            _version = _model.ScopeVersion;
+        }
+
+        private void BuildSortedScopeIndex(int scopeCount)
+        {
+            _sortedScopeIds = new int[scopeCount];
+            _sortedScopeStartLines = new int[scopeCount];
+            _sortedScopeStartColumns = new int[scopeCount];
+            _sortedScopeMaxEndLines = new int[scopeCount];
+
+            if (scopeCount == 0)
+                return;
+
+            var order = new int[scopeCount];
+            for (var i = 0; i < scopeCount; i++)
+            {
+                order[i] = i;
+            }
+
+            Array.Sort(order, CompareScopeStartOrder);
+
+            var maxEndLine = 0;
+            for (var sortedIndex = 0; sortedIndex < scopeCount; sortedIndex++)
+            {
+                var scopeIndex = order[sortedIndex];
+                _sortedScopeIds[sortedIndex] = scopeIndex;
+                _sortedScopeStartLines[sortedIndex] = _scopeStartLines[scopeIndex];
+                _sortedScopeStartColumns[sortedIndex] = _scopeStartColumns[scopeIndex];
+
+                if (_scopeEndLines[scopeIndex] > maxEndLine)
+                    maxEndLine = _scopeEndLines[scopeIndex];
+
+                _sortedScopeMaxEndLines[sortedIndex] = maxEndLine;
+            }
+        }
+
+        private int CompareScopeStartOrder(int left, int right)
+        {
+            var diff = _scopeStartLines[left].CompareTo(_scopeStartLines[right]);
+            if (diff != 0)
+                return diff;
+
+            diff = _scopeStartColumns[left].CompareTo(_scopeStartColumns[right]);
+            if (diff != 0)
+                return diff;
+
+            return left.CompareTo(right);
+        }
+
+        private void AddSymbol(string name, TypeInfo type, ref int symbolIndex)
+        {
+            _symbolNames[symbolIndex] = name;
+            _symbolTypes[symbolIndex] = type;
+            _symbolNameIds[symbolIndex] = GetOrAddNameId(name);
+            symbolIndex++;
+        }
+
+        private int ComputeScopeDepth(int scopeIndex)
+        {
+            var depth = 0;
+            var current = scopeIndex;
+            while (current >= 0 && current < _scopeParentIds.Length)
+            {
+                var parent = _scopeParentIds[current];
+                if (parent < 0 || parent == current)
+                    break;
+
+                depth++;
+                current = parent;
+            }
+
+            return depth;
+        }
+
+        private int GetOrAddNameId(string name)
+        {
+            if (_nameIds.TryGetValue(name, out var id))
+                return id;
+
+            id = _nameIds.Count + 1;
+            _nameIds.Add(name, id);
+            return id;
+        }
+
+        private void EnsureQueryCapacity()
+        {
+            var symbolCapacity = Math.Max(1, _symbolNameIds.Length);
+            if (_resultSymbolIndices.Length < symbolCapacity)
+            {
+                _resultSymbolIndices = new int[symbolCapacity];
+            }
+
+            var slotCapacity = Math.Max(1, _symbolNameIds.Length * 2 + 1);
+            if (_slotNameIds.Length < slotCapacity)
+            {
+                _slotNameIds = new int[slotCapacity];
+            }
+
+            if (_touchedSlots.Length < symbolCapacity)
+            {
+                _touchedSlots = new int[symbolCapacity];
+            }
         }
     }
 

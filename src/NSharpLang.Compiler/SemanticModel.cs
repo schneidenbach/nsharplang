@@ -116,6 +116,8 @@ public class SemanticModel
     /// </summary>
     public IReadOnlyList<ScopeInfo> Scopes => _scopes;
 
+    internal int ScopeVersion { get; private set; }
+
     /// <summary>
     /// Open a new scope at the given source position. Returns the scope ID.
     /// </summary>
@@ -123,6 +125,7 @@ public class SemanticModel
     {
         var id = _scopes.Count;
         _scopes.Add(new ScopeInfo(id, parentId, startLine, startColumn));
+        ScopeVersion++;
         return id;
     }
 
@@ -135,6 +138,7 @@ public class SemanticModel
         {
             _scopes[scopeId].EndLine = endLine;
             _scopes[scopeId].EndColumn = endColumn;
+            ScopeVersion++;
         }
     }
 
@@ -147,6 +151,7 @@ public class SemanticModel
         if (scopeId >= 0 && scopeId < _scopes.Count)
         {
             _scopes[scopeId].Variables[name] = type;
+            ScopeVersion++;
         }
         Variables[name] = type;
     }
@@ -160,6 +165,7 @@ public class SemanticModel
         if (scopeId >= 0 && scopeId < _scopes.Count)
         {
             _scopes[scopeId].Functions[name] = type;
+            ScopeVersion++;
         }
         Functions[name] = type;
     }
