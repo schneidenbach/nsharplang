@@ -743,6 +743,14 @@ func documented(): int {
                     "CliBatchDuplicateIdRankChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchDuplicateIdRankChecksumInto.");
+            var cliTreeDependencyDeduplicateIndicesInto = programType.GetMethod(
+                    "CliTreeDependencyDeduplicateIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeDependencyDeduplicateIndicesInto.");
+            var cliTreeDependencyDeduplicateChecksumInto = programType.GetMethod(
+                    "CliTreeDependencyDeduplicateChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeDependencyDeduplicateChecksumInto.");
             var codeIntelligenceDocCommentChecksumInto = programType.GetMethod(
                     "CodeIntelligenceDocCommentChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1131,6 +1139,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliBatchDuplicateIdsLikeProduction(
                 cliBatchDuplicateIdRanksInto,
                 cliBatchDuplicateIdRankChecksumInto);
+            AssertCliTreeDependencyDeduplicationLikeProduction(
+                cliTreeDependencyDeduplicateIndicesInto,
+                cliTreeDependencyDeduplicateChecksumInto);
             AssertDocCommentsLikeProduction(
                 """
 // ignored
@@ -2804,6 +2815,105 @@ func main() {
                 new int[32],
                 new int[32],
                 new int[members.Length],
+                checksumResultIndices
+            }) ?? -1);
+        var expectedChecksum = CliDocSymbolOrderChecksum(expected, kindRanks, nameRanks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static void AssertCliTreeDependencyDeduplicationLikeProduction(
+        MethodInfo cliTreeDependencyDeduplicateIndicesInto,
+        MethodInfo cliTreeDependencyDeduplicateChecksumInto)
+    {
+        var dependencies = new[]
+        {
+            (Kind: "nuget", Name: "Serilog"),
+            (Kind: "framework", Name: "Microsoft.AspNetCore.App"),
+            (Kind: "nuget", Name: "serilog"),
+            (Kind: "project", Name: "../Shared/Shared.csproj"),
+            (Kind: "nuget", Name: "Newtonsoft.Json"),
+            (Kind: "framework", Name: "microsoft.aspnetcore.app"),
+            (Kind: "dll", Name: "Lib/Analyzers.dll"),
+            (Kind: "nuget", Name: "System.Text.Json")
+        };
+        var firstIndices = new List<int>();
+        for (var i = 0; i < dependencies.Length; i++)
+        {
+            var duplicate = false;
+            for (var j = 0; j < i; j++)
+            {
+                if (string.Equals(dependencies[i].Kind, dependencies[j].Kind, StringComparison.Ordinal) &&
+                    string.Equals(dependencies[i].Name, dependencies[j].Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    duplicate = true;
+                    break;
+                }
+            }
+
+            if (!duplicate)
+                firstIndices.Add(i);
+        }
+
+        var expected = firstIndices
+            .OrderBy(index => dependencies[index].Kind, StringComparer.Ordinal)
+            .ThenBy(index => dependencies[index].Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var kindRanks = new int[dependencies.Length];
+        var nameRanks = new int[dependencies.Length];
+        var kindRankMap = dependencies
+            .Select(dependency => dependency.Kind)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(kind => kind, StringComparer.Ordinal)
+            .Select((kind, index) => (kind, rank: index + 1))
+            .ToDictionary(item => item.kind, item => item.rank, StringComparer.Ordinal);
+        var nameRankMap = dependencies
+            .Select(dependency => dependency.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .Select((name, index) => (name, rank: index + 1))
+            .ToDictionary(item => item.name, item => item.rank, StringComparer.OrdinalIgnoreCase);
+
+        for (var i = 0; i < dependencies.Length; i++)
+        {
+            kindRanks[i] = kindRankMap[dependencies[i].Kind];
+            nameRanks[i] = nameRankMap[dependencies[i].Name];
+        }
+
+        var resultIndices = new int[dependencies.Length];
+        var actualCount = (int)(cliTreeDependencyDeduplicateIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                new int[nameRankMap.Count + 1],
+                new int[nameRankMap.Count + 1],
+                new int[kindRankMap.Count + 1],
+                new int[kindRankMap.Count + 1],
+                new int[dependencies.Length],
+                new int[dependencies.Length],
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[dependencies.Length];
+        var actualChecksum = (int)(cliTreeDependencyDeduplicateChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                new int[nameRankMap.Count + 1],
+                new int[nameRankMap.Count + 1],
+                new int[kindRankMap.Count + 1],
+                new int[kindRankMap.Count + 1],
+                new int[dependencies.Length],
+                new int[dependencies.Length],
                 checksumResultIndices
             }) ?? -1);
         var expectedChecksum = CliDocSymbolOrderChecksum(expected, kindRanks, nameRanks);

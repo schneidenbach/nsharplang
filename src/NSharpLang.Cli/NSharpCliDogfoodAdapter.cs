@@ -14,6 +14,8 @@ internal static class NSharpCliDogfoodAdapter
     private static BatchDuplicateIdScratch? t_batchDuplicateIdScratch;
     [ThreadStatic]
     private static DocSymbolOrderScratch? t_docSymbolOrderScratch;
+    [ThreadStatic]
+    private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -112,6 +114,56 @@ internal static class NSharpCliDogfoodAdapter
         out List<SymbolResult> orderedMembers)
         => TryOrderDocEntriesForGeneration(members, includeAllKinds: true, out orderedMembers);
 
+    internal static bool TryDeduplicateTreeDependencyIndices(
+        int[] kindRanks,
+        int[] nameRanks,
+        int uniqueKindCount,
+        int uniqueNameCount,
+        out int[] orderedSourceIndices)
+    {
+        orderedSourceIndices = Array.Empty<int>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (kindRanks.Length != nameRanks.Length)
+            return false;
+
+        var dependencyCount = kindRanks.Length;
+        if (dependencyCount == 0)
+            return true;
+
+        var scratch = t_treeDependencyDeduplicateScratch ??= new TreeDependencyDeduplicateScratch();
+        scratch.EnsureCapacity(dependencyCount, uniqueKindCount, uniqueNameCount);
+
+        try
+        {
+            var orderedCount = bindings.CliTreeDependencyDeduplicateIndices(
+                kindRanks,
+                nameRanks,
+                scratch.NameCounts,
+                scratch.NameOffsets,
+                scratch.KindCounts,
+                scratch.KindOffsets,
+                scratch.TempIndices,
+                scratch.SortedIndices,
+                scratch.ResultIndices);
+
+            if (orderedCount < 0 || orderedCount > dependencyCount || orderedCount > scratch.ResultIndices.Length)
+                return false;
+
+            orderedSourceIndices = new int[orderedCount];
+            Array.Copy(scratch.ResultIndices, orderedSourceIndices, orderedCount);
+            return true;
+        }
+        catch
+        {
+            orderedSourceIndices = Array.Empty<int>();
+            return false;
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -198,7 +250,8 @@ internal static class NSharpCliDogfoodAdapter
 
             return new Bindings(
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
-                CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"));
+                CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
+                CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"));
         }
         catch
         {
@@ -249,9 +302,21 @@ internal static class NSharpCliDogfoodAdapter
         int[] tempIndices,
         int[] resultIndices);
 
+    private delegate int CliTreeDependencyDeduplicateIndicesInto(
+        int[] kindRanks,
+        int[] nameRanks,
+        int[] nameCounts,
+        int[] nameOffsets,
+        int[] kindCounts,
+        int[] kindOffsets,
+        int[] tempIndices,
+        int[] sortedIndices,
+        int[] resultIndices);
+
     private sealed record Bindings(
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
-        CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices);
+        CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
+        CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -406,6 +471,41 @@ internal static class NSharpCliDogfoodAdapter
             {
                 Array.Clear(UniqueNames, 0, UniqueNameCount);
                 UniqueNameCount = 0;
+            }
+        }
+    }
+
+    private sealed class TreeDependencyDeduplicateScratch
+    {
+        public int[] KindCounts = Array.Empty<int>();
+        public int[] KindOffsets = Array.Empty<int>();
+        public int[] NameCounts = Array.Empty<int>();
+        public int[] NameOffsets = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SortedIndices = Array.Empty<int>();
+        public int[] TempIndices = Array.Empty<int>();
+
+        public void EnsureCapacity(int dependencyCount, int uniqueKindCount, int uniqueNameCount)
+        {
+            if (TempIndices.Length != dependencyCount)
+            {
+                TempIndices = new int[dependencyCount];
+                SortedIndices = new int[dependencyCount];
+                ResultIndices = new int[dependencyCount];
+            }
+
+            var kindBucketCapacity = uniqueKindCount + 1;
+            if (KindCounts.Length != kindBucketCapacity)
+            {
+                KindCounts = new int[kindBucketCapacity];
+                KindOffsets = new int[kindBucketCapacity];
+            }
+
+            var nameBucketCapacity = uniqueNameCount + 1;
+            if (NameCounts.Length != nameBucketCapacity)
+            {
+                NameCounts = new int[nameBucketCapacity];
+                NameOffsets = new int[nameBucketCapacity];
             }
         }
     }

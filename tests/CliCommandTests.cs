@@ -156,6 +156,37 @@ func Main() {
             root.GetProperty("error").GetProperty("message").GetString());
     }
 
+    [Fact]
+    public void TreeCommand_Deduplicate_UsesDogfoodOrdering()
+    {
+        var emptyDependencies = Array.Empty<TreeCommand.TreeDependency>();
+        var dependencies = new[]
+        {
+            NewDependency("Serilog", "nuget", "3.1.1"),
+            NewDependency("Microsoft.AspNetCore.App", "framework", null),
+            NewDependency("serilog", "nuget", "9.9.9"),
+            NewDependency("../Shared/Shared.csproj", "project", null),
+            NewDependency("Newtonsoft.Json", "nuget", "13.0.3"),
+            NewDependency("microsoft.aspnetcore.app", "framework", null)
+        };
+
+        var actual = TreeCommand.Deduplicate(dependencies);
+
+        Assert.Equal(new[]
+        {
+            "framework:Microsoft.AspNetCore.App:",
+            "nuget:Newtonsoft.Json:13.0.3",
+            "nuget:Serilog:3.1.1",
+            "project:../Shared/Shared.csproj:"
+        }, actual.Select(FormatDependency));
+
+        TreeCommand.TreeDependency NewDependency(string name, string kind, string? version) =>
+            new(name, kind, version, "runtime", false, emptyDependencies);
+
+        static string FormatDependency(TreeCommand.TreeDependency dependency) =>
+            $"{dependency.Kind}:{dependency.Name}:{dependency.Version}";
+    }
+
     [Theory]
     [MemberData(nameof(QueryJsonContractCases))]
     public void QueryCommand_EmitsStableJsonEnvelope(string contractName, string[] args)
