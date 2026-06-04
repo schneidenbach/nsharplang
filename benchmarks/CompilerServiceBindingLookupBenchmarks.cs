@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Order;
 using NSharpLang.Compiler;
@@ -322,5 +323,316 @@ public class CompilerServiceCodeIntelligenceBindingLookupBenchmarks
         int[] queryFileRanks,
         int[] queryLineNumbers,
         int[] queryColumns,
+        int[] resultDeclarationIndices);
+}
+
+/// <summary>
+/// Dogfood benchmark for the source-context fallback that chooses the nearest in-file declaration
+/// with a matching name before falling back to AST declaration scans.
+///
+/// The C# baseline mirrors <c>FindNearestBindingDeclarationByName</c>: scan declarations by name,
+/// filter to the current file and preceding lines, sort by line/column descending, then pick the
+/// first declaration. The N# candidate consumes sorted compact declaration facts and answers each
+/// query with a binary-search upper bound over caller-owned integer buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceNearestDeclarationLookupBenchmarks
+{
+    private const int LargeDeclarationCount = 4096;
+    private const int LargeQueryCount = 4096;
+    private const int RepresentativeDeclarationCount = 512;
+    private const int RepresentativeQueryCount = 4096;
+
+    private NearestDeclarationChecksumInto _nsharpNearestDeclarationChecksum =
+        (_, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private readonly Dictionary<(string? File, int Line, int Column), int> _declarationIndices = new();
+    private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
+
+    private BindingMap _bindingMap = new();
+    private int _declarationCount;
+    private SymbolDeclaration[] _declarations = Array.Empty<SymbolDeclaration>();
+    private int[] _queryFileRanks = Array.Empty<int>();
+    private string[] _queryFiles = Array.Empty<string>();
+    private int[] _queryLines = Array.Empty<int>();
+    private int[] _queryNameIds = Array.Empty<int>();
+    private string[] _queryNames = Array.Empty<string>();
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+    private int[] _sortedColumns = Array.Empty<int>();
+    private int[] _sortedDeclarationIndices = Array.Empty<int>();
+    private int[] _sortedFileRanks = Array.Empty<int>();
+    private int[] _sortedLines = Array.Empty<int>();
+    private int[] _sortedNameIds = Array.Empty<int>();
+    private string[] _filesByRank = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _nsharpNearestDeclarationChecksum =
+            NSharpCompiledMethod.Bind<NearestDeclarationChecksumInto>(
+                DogfoodCompilerSources.CodeIntelligenceBindingLookup,
+                "BindingLookupFindNearestDeclarationChecksumInto");
+
+        _declarationCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeDeclarationCount
+            : LargeDeclarationCount;
+        var queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+
+        _bindingMap = new BindingMap();
+        _declarationIndices.Clear();
+        _fileRanks.Clear();
+        _nameIds.Clear();
+
+        _declarations = new SymbolDeclaration[_declarationCount];
+        _queryFileRanks = new int[queryCount];
+        _queryFiles = new string[queryCount];
+        _queryLines = new int[queryCount];
+        _queryNameIds = new int[queryCount];
+        _queryNames = new string[queryCount];
+        _nsharpResultIndices = new int[queryCount];
+
+        BuildFiles();
+        BuildDeclarations();
+        BuildSortedDeclarations();
+        BuildQueries(queryCount);
+
+        var expectedChecksum = CSharpNearestDeclarationByName_QueryBatch();
+        var actualChecksum = NSharpNearestDeclarationByName_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# nearest declaration checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        for (var i = 0; i < queryCount; i++)
+        {
+            var expectedIndex = ResolveExpectedDeclarationIndex(i);
+            if (_nsharpResultIndices[i] != expectedIndex)
+            {
+                throw new InvalidOperationException(
+                    $"N# nearest declaration mismatch for {Corpus} at query {i}: " +
+                    $"expected declaration index {expectedIndex}, got {_nsharpResultIndices[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpNearestDeclarationByName_QueryBatch()
+    {
+        var checksum = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var declaration = _bindingMap.FindDeclarationsByName(_queryNames[i])
+                .Where(candidate => string.Equals(candidate.File, _queryFiles[i], StringComparison.Ordinal)
+                                    && candidate.Line <= _queryLines[i])
+                .OrderByDescending(candidate => candidate.Line)
+                .ThenByDescending(candidate => candidate.Column)
+                .FirstOrDefault();
+            if (declaration == null)
+                continue;
+
+            var declarationIndex = _declarationIndices[(declaration.File, declaration.Line, declaration.Column)];
+            checksum++;
+            checksum = checksum
+                + GetNameId(declaration.Name) * 13
+                + declaration.Line * 31
+                + declaration.Column * 17
+                + declarationIndex;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpNearestDeclarationByName_QueryBatch() =>
+        _nsharpNearestDeclarationChecksum(
+            _sortedNameIds,
+            _sortedFileRanks,
+            _sortedLines,
+            _sortedColumns,
+            _sortedDeclarationIndices,
+            _queryNameIds,
+            _queryFileRanks,
+            _queryLines,
+            _nsharpResultIndices);
+
+    private void BuildFiles()
+    {
+        var fileCount = Corpus == CompilerLexerCorpus.Representative ? 16 : 128;
+        _filesByRank = new string[fileCount + 1];
+        for (var i = 1; i <= fileCount; i++)
+        {
+            _filesByRank[i] = (i % 5) switch
+            {
+                0 => $"/repo/src/Program{i}.nl",
+                1 => $"/repo/src/Features/Feature{i}.nl",
+                2 => $"/repo/src/with space/File {i}.nl",
+                3 => $@"C:\repo\module\File{i}.nl",
+                _ => $"/repo/src/generated/File-{i}.nl"
+            };
+            _fileRanks[_filesByRank[i]] = i;
+        }
+    }
+
+    private void BuildDeclarations()
+    {
+        var nameCount = Corpus == CompilerLexerCorpus.Representative ? 32 : 256;
+        for (var i = 0; i < _declarationCount; i++)
+        {
+            var fileRank = i * 7 % (_filesByRank.Length - 1) + 1;
+            var name = $"symbol{i % nameCount}";
+            var line = i * 5 / nameCount + i % 11 + 1;
+            var column = i * 17 % 120 + 1;
+            var kind = i % 3 == 0 ? "variable" : i % 3 == 1 ? "function" : "class";
+            var declaration = new SymbolDeclaration(name, _filesByRank[fileRank], line, column, kind);
+
+            _bindingMap.RecordDeclaration(declaration);
+            _declarations[i] = declaration;
+            _declarationIndices[(declaration.File, declaration.Line, declaration.Column)] = i;
+            GetNameId(name);
+        }
+    }
+
+    private void BuildSortedDeclarations()
+    {
+        var order = new int[_declarationCount];
+        for (var i = 0; i < order.Length; i++)
+        {
+            order[i] = i;
+        }
+
+        Array.Sort(order, CompareDeclarationOrder);
+
+        _sortedNameIds = new int[_declarationCount];
+        _sortedFileRanks = new int[_declarationCount];
+        _sortedLines = new int[_declarationCount];
+        _sortedColumns = new int[_declarationCount];
+        _sortedDeclarationIndices = new int[_declarationCount];
+
+        for (var sortedIndex = 0; sortedIndex < order.Length; sortedIndex++)
+        {
+            var declarationIndex = order[sortedIndex];
+            var declaration = _declarations[declarationIndex];
+            _sortedNameIds[sortedIndex] = GetNameId(declaration.Name);
+            _sortedFileRanks[sortedIndex] = _fileRanks[declaration.File!];
+            _sortedLines[sortedIndex] = declaration.Line;
+            _sortedColumns[sortedIndex] = declaration.Column;
+            _sortedDeclarationIndices[sortedIndex] = declarationIndex;
+        }
+    }
+
+    private void BuildQueries(int queryCount)
+    {
+        var nameCount = Corpus == CompilerLexerCorpus.Representative ? 32 : 256;
+        for (var i = 0; i < queryCount; i++)
+        {
+            switch (i % 10)
+            {
+                case <= 5:
+                {
+                    var declarationIndex = i * 37 % _declarationCount;
+                    var declaration = _declarations[declarationIndex];
+                    SetQuery(
+                        i,
+                        declaration.Name,
+                        declaration.File!,
+                        declaration.Line + i % 17);
+                    break;
+                }
+                case <= 7:
+                {
+                    var declarationIndex = i * 19 % _declarationCount;
+                    var declaration = _declarations[declarationIndex];
+                    SetQuery(
+                        i,
+                        declaration.Name,
+                        declaration.File!,
+                        Math.Max(0, declaration.Line - 1));
+                    break;
+                }
+                case 8:
+                {
+                    var fileRank = i * 13 % (_filesByRank.Length - 1) + 1;
+                    SetQuery(i, $"symbol{i % nameCount}", _filesByRank[fileRank], 1_000_000 + i);
+                    break;
+                }
+                default:
+                {
+                    var fileRank = i * 11 % (_filesByRank.Length - 1) + 1;
+                    SetQuery(i, $"missing{i}", _filesByRank[fileRank], 1_000_000 + i);
+                    break;
+                }
+            }
+        }
+    }
+
+    private void SetQuery(int index, string name, string file, int line)
+    {
+        _queryNames[index] = name;
+        _queryNameIds[index] = _nameIds.TryGetValue(name, out var nameId) ? nameId : -1;
+        _queryFiles[index] = file;
+        _queryFileRanks[index] = _fileRanks[file];
+        _queryLines[index] = line;
+    }
+
+    private int ResolveExpectedDeclarationIndex(int queryIndex)
+    {
+        var declaration = _bindingMap.FindDeclarationsByName(_queryNames[queryIndex])
+            .Where(candidate => string.Equals(candidate.File, _queryFiles[queryIndex], StringComparison.Ordinal)
+                                && candidate.Line <= _queryLines[queryIndex])
+            .OrderByDescending(candidate => candidate.Line)
+            .ThenByDescending(candidate => candidate.Column)
+            .FirstOrDefault();
+
+        return declaration == null
+            ? -1
+            : _declarationIndices[(declaration.File, declaration.Line, declaration.Column)];
+    }
+
+    private int CompareDeclarationOrder(int left, int right)
+    {
+        var leftDeclaration = _declarations[left];
+        var rightDeclaration = _declarations[right];
+        var diff = GetNameId(leftDeclaration.Name).CompareTo(GetNameId(rightDeclaration.Name));
+        if (diff != 0)
+            return diff;
+
+        diff = _fileRanks[leftDeclaration.File!].CompareTo(_fileRanks[rightDeclaration.File!]);
+        if (diff != 0)
+            return diff;
+
+        diff = leftDeclaration.Line.CompareTo(rightDeclaration.Line);
+        if (diff != 0)
+            return diff;
+
+        return leftDeclaration.Column.CompareTo(rightDeclaration.Column);
+    }
+
+    private int GetNameId(string name)
+    {
+        if (_nameIds.TryGetValue(name, out var id))
+            return id;
+
+        id = _nameIds.Count + 1;
+        _nameIds.Add(name, id);
+        return id;
+    }
+
+    private delegate int NearestDeclarationChecksumInto(
+        int[] sortedNameIds,
+        int[] sortedFileRanks,
+        int[] sortedLineNumbers,
+        int[] sortedColumns,
+        int[] sortedDeclarationIndices,
+        int[] queryNameIds,
+        int[] queryFileRanks,
+        int[] queryLineNumbers,
         int[] resultDeclarationIndices);
 }

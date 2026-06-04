@@ -340,6 +340,45 @@ func documented(): int {
         Assert.True((bool)(tryResolveBindingDeclaration.Invoke(null, bindingMissArgs) ?? false));
         Assert.Null(bindingMissArgs[4]);
 
+        var tryFindNearestBindingDeclarationByName = adapterType.GetMethod(
+                "TryFindNearestBindingDeclarationByName",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[]
+                {
+                    typeof(BindingMap),
+                    typeof(string),
+                    typeof(string),
+                    typeof(int),
+                    typeof(SymbolDeclaration).MakeByRefType()
+                },
+                modifiers: null)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryFindNearestBindingDeclarationByName.");
+        var firstLocal = new SymbolDeclaration("local", "A.nl", 2, 3, "variable");
+        var earlierSameLineLocal = new SymbolDeclaration("local", "A.nl", 8, 1, "variable");
+        var nearestLocal = new SymbolDeclaration("local", "A.nl", 8, 4, "variable");
+        var otherFileLocal = new SymbolDeclaration("local", "B.nl", 20, 1, "variable");
+        bindingMap.RecordDeclaration(firstLocal);
+        bindingMap.RecordDeclaration(earlierSameLineLocal);
+        bindingMap.RecordDeclaration(nearestLocal);
+        bindingMap.RecordDeclaration(otherFileLocal);
+
+        var nearestAtLineArgs = new object?[] { bindingMap, "A.nl", "local", 8, null };
+        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, nearestAtLineArgs) ?? false));
+        Assert.Equal(nearestLocal, Assert.IsType<SymbolDeclaration>(nearestAtLineArgs[4]));
+
+        var nearestBeforeLineArgs = new object?[] { bindingMap, "A.nl", "local", 7, null };
+        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, nearestBeforeLineArgs) ?? false));
+        Assert.Equal(firstLocal, Assert.IsType<SymbolDeclaration>(nearestBeforeLineArgs[4]));
+
+        var nearestMissArgs = new object?[] { bindingMap, "A.nl", "local", 1, null };
+        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, nearestMissArgs) ?? false));
+        Assert.Null(nearestMissArgs[4]);
+
+        var unknownNameArgs = new object?[] { bindingMap, "A.nl", "missing", 99, null };
+        Assert.True((bool)(tryFindNearestBindingDeclarationByName.Invoke(null, unknownNameArgs) ?? false));
+        Assert.Null(unknownNameArgs[4]);
+
         var trySummarizeDiagnosticSeverities = adapterType.GetMethod(
                 "TrySummarizeDiagnosticSeverities",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -621,6 +660,14 @@ func documented(): int {
                     "BindingLookupQueryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupQueryChecksumInto.");
+            var bindingLookupFindNearestDeclarationIndicesInto = programType.GetMethod(
+                    "BindingLookupFindNearestDeclarationIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupFindNearestDeclarationIndicesInto.");
+            var bindingLookupFindNearestDeclarationChecksumInto = programType.GetMethod(
+                    "BindingLookupFindNearestDeclarationChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupFindNearestDeclarationChecksumInto.");
 
             const string source = """"
 import System
@@ -891,7 +938,9 @@ func main() {
             AssertBindingLookupLikeProduction(
                 bindingLookupBuildSlotsInto,
                 bindingLookupQueryDeclarationIndicesInto,
-                bindingLookupQueryChecksumInto);
+                bindingLookupQueryChecksumInto,
+                bindingLookupFindNearestDeclarationIndicesInto,
+                bindingLookupFindNearestDeclarationChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -3025,7 +3074,9 @@ func main() {
     private static void AssertBindingLookupLikeProduction(
         MethodInfo bindingLookupBuildSlotsInto,
         MethodInfo bindingLookupQueryDeclarationIndicesInto,
-        MethodInfo bindingLookupQueryChecksumInto)
+        MethodInfo bindingLookupQueryChecksumInto,
+        MethodInfo bindingLookupFindNearestDeclarationIndicesInto,
+        MethodInfo bindingLookupFindNearestDeclarationChecksumInto)
     {
         var declarationFileRanks = new[] { 2, 1, 3 };
         var declarationLines = new[] { 10, 2, 1 };
@@ -3105,6 +3156,64 @@ func main() {
 
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expected, checksumResultIndices);
+
+        var sortedNameIds = new[] { 1, 1, 1, 1, 2 };
+        var sortedFileRanks = new[] { 1, 1, 1, 2, 1 };
+        var sortedLines = new[] { 2, 8, 8, 10, 3 };
+        var sortedColumns = new[] { 3, 1, 4, 1, 1 };
+        var sortedDeclarationIndices = new[] { 0, 1, 2, 4, 3 };
+        var nearestQueryNameIds = new[] { 1, 1, 1, 2, 3, 1 };
+        var nearestQueryFileRanks = new[] { 1, 1, 1, 1, 1, 2 };
+        var nearestQueryLines = new[] { 1, 7, 8, 99, 99, 10 };
+        var expectedNearest = new[] { -1, 0, 2, 3, -1, 4 };
+
+        var nearestResultIndices = new int[nearestQueryNameIds.Length];
+        var nearestCount = (int)(bindingLookupFindNearestDeclarationIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                sortedNameIds,
+                sortedFileRanks,
+                sortedLines,
+                sortedColumns,
+                sortedDeclarationIndices,
+                nearestQueryNameIds,
+                nearestQueryFileRanks,
+                nearestQueryLines,
+                nearestResultIndices
+            }) ?? -1);
+
+        Assert.Equal(4, nearestCount);
+        Assert.Equal(expectedNearest, nearestResultIndices);
+
+        var nearestChecksumResultIndices = new int[nearestQueryNameIds.Length];
+        var nearestChecksum = (int)(bindingLookupFindNearestDeclarationChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                sortedNameIds,
+                sortedFileRanks,
+                sortedLines,
+                sortedColumns,
+                sortedDeclarationIndices,
+                nearestQueryNameIds,
+                nearestQueryFileRanks,
+                nearestQueryLines,
+                nearestChecksumResultIndices
+            }) ?? -1);
+
+        var expectedNearestChecksum = 4;
+        foreach (var declarationIndex in expectedNearest.Where(index => index >= 0))
+        {
+            var sortedIndex = Array.IndexOf(sortedDeclarationIndices, declarationIndex);
+            expectedNearestChecksum += sortedNameIds[sortedIndex] * 13
+                + sortedLines[sortedIndex] * 31
+                + sortedColumns[sortedIndex] * 17
+                + declarationIndex;
+        }
+
+        Assert.Equal(expectedNearestChecksum, nearestChecksum);
+        Assert.Equal(expectedNearest, nearestChecksumResultIndices);
     }
 
     private static int[] CreateOrdinalIds(string[] values)

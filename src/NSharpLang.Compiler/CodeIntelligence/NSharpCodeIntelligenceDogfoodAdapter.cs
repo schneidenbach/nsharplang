@@ -644,6 +644,34 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryFindNearestBindingDeclarationByName(
+        BindingMap bindingMap,
+        string filePath,
+        string name,
+        int line,
+        out SymbolDeclaration? declaration)
+    {
+        declaration = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (string.IsNullOrEmpty(name))
+            return true;
+
+        try
+        {
+            var cache = s_bindingLookupCaches.GetValue(bindingMap, static map => new BindingLookupCache(map));
+            return cache.TryFindNearestDeclaration(bindings, filePath, name, line, out declaration);
+        }
+        catch
+        {
+            declaration = null;
+            return false;
+        }
+    }
+
     internal static bool TryClassifyCompletionReceiver(
         string beforeCursor,
         out bool isMemberAccess,
@@ -731,7 +759,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateCompactInto"),
                 CreateDelegate<ReferenceDeduplicateCompactInto>(programType, "ReferenceDeduplicateCompactInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
-                CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"));
+                CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
+                CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"));
         }
         catch
         {
@@ -940,6 +969,17 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] queryColumns,
         int[] resultDeclarationIndices);
 
+    private delegate int BindingLookupFindNearestDeclarationIndicesInto(
+        int[] sortedNameIds,
+        int[] sortedFileRanks,
+        int[] sortedLineNumbers,
+        int[] sortedColumns,
+        int[] sortedDeclarationIndices,
+        int[] queryNameIds,
+        int[] queryFileRanks,
+        int[] queryLineNumbers,
+        int[] resultDeclarationIndices);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
@@ -960,7 +1000,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateCompact,
         ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
-        BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices);
+        BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
+        BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices);
 
     internal sealed class DiagnosticClusterGrouping
     {
@@ -1269,6 +1310,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private readonly Dictionary<(string? File, int Line, int Column), int> _declarationIndices = new();
         private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
         private readonly BindingMap _map;
+        private readonly Dictionary<string, int> _nameIds = new(StringComparer.Ordinal);
 
         private int[] _bindingColumns = Array.Empty<int>();
         private int[] _bindingDeclarationIndices = Array.Empty<int>();
@@ -1278,12 +1320,19 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private int[] _declarationColumns = Array.Empty<int>();
         private int[] _declarationFileRanks = Array.Empty<int>();
         private int[] _declarationLineNumbers = Array.Empty<int>();
+        private int[] _declarationNameIds = Array.Empty<int>();
         private int[] _declarationSlotIndices = Array.Empty<int>();
         private SymbolDeclaration[] _declarations = Array.Empty<SymbolDeclaration>();
         private int[] _queryColumns = Array.Empty<int>();
         private int[] _queryFileRanks = Array.Empty<int>();
         private int[] _queryLineNumbers = Array.Empty<int>();
+        private int[] _queryNameIds = Array.Empty<int>();
         private int[] _resultDeclarationIndices = Array.Empty<int>();
+        private int[] _sortedDeclarationColumns = Array.Empty<int>();
+        private int[] _sortedDeclarationFileRanks = Array.Empty<int>();
+        private int[] _sortedDeclarationIndices = Array.Empty<int>();
+        private int[] _sortedDeclarationLineNumbers = Array.Empty<int>();
+        private int[] _sortedDeclarationNameIds = Array.Empty<int>();
         private int _version = -1;
 
         public BindingLookupCache(BindingMap map)
@@ -1347,6 +1396,55 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             }
         }
 
+        public bool TryFindNearestDeclaration(
+            Bindings bindings,
+            string filePath,
+            string name,
+            int line,
+            out SymbolDeclaration? declaration)
+        {
+            declaration = null;
+            lock (_gate)
+            {
+                EnsureBuilt(bindings);
+                if (_declarations.Length == 0)
+                    return true;
+
+                var fileRank = GetExistingFileRank(filePath);
+                if (fileRank < 0)
+                    return true;
+
+                var nameId = GetExistingNameId(name);
+                if (nameId < 0)
+                    return true;
+
+                EnsureQueryCapacity(1);
+                _queryNameIds[0] = nameId;
+                _queryFileRanks[0] = fileRank;
+                _queryLineNumbers[0] = line;
+                _resultDeclarationIndices[0] = -1;
+
+                bindings.BindingLookupFindNearestDeclarationIndices(
+                    _sortedDeclarationNameIds,
+                    _sortedDeclarationFileRanks,
+                    _sortedDeclarationLineNumbers,
+                    _sortedDeclarationColumns,
+                    _sortedDeclarationIndices,
+                    _queryNameIds,
+                    _queryFileRanks,
+                    _queryLineNumbers,
+                    _resultDeclarationIndices);
+
+                var declarationIndex = _resultDeclarationIndices[0];
+                if (declarationIndex >= 0 && declarationIndex < _declarations.Length)
+                {
+                    declaration = _declarations[declarationIndex];
+                }
+
+                return true;
+            }
+        }
+
         private void EnsureBuilt(Bindings bindings)
         {
             if (_version == _map.Version)
@@ -1354,12 +1452,14 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
 
             _declarationIndices.Clear();
             _fileRanks.Clear();
+            _nameIds.Clear();
 
             var declarationCount = _map.DeclarationEntries.Count;
             _declarations = new SymbolDeclaration[declarationCount];
             _declarationFileRanks = new int[declarationCount];
             _declarationLineNumbers = new int[declarationCount];
             _declarationColumns = new int[declarationCount];
+            _declarationNameIds = new int[declarationCount];
             _declarationSlotIndices = declarationCount > 0
                 ? new int[declarationCount * 2 + 1]
                 : Array.Empty<int>();
@@ -1371,9 +1471,12 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 _declarationFileRanks[declarationIndex] = GetOrAddFileRank(declaration.File);
                 _declarationLineNumbers[declarationIndex] = declaration.Line;
                 _declarationColumns[declarationIndex] = declaration.Column;
+                _declarationNameIds[declarationIndex] = GetOrAddNameId(declaration.Name);
                 _declarationIndices[(declaration.File, declaration.Line, declaration.Column)] = declarationIndex;
                 declarationIndex++;
             }
+
+            BuildNearestDeclarationIndex();
 
             var bindingCount = _map.BindingEntries.Count;
             _bindingFileRanks = new int[bindingCount];
@@ -1412,6 +1515,54 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             _version = _map.Version;
         }
 
+        private void BuildNearestDeclarationIndex()
+        {
+            var declarationCount = _declarations.Length;
+            _sortedDeclarationNameIds = new int[declarationCount];
+            _sortedDeclarationFileRanks = new int[declarationCount];
+            _sortedDeclarationLineNumbers = new int[declarationCount];
+            _sortedDeclarationColumns = new int[declarationCount];
+            _sortedDeclarationIndices = new int[declarationCount];
+
+            if (declarationCount == 0)
+                return;
+
+            var order = new int[declarationCount];
+            for (var i = 0; i < declarationCount; i++)
+            {
+                order[i] = i;
+            }
+
+            Array.Sort(order, CompareDeclarationOrder);
+
+            for (var sortedIndex = 0; sortedIndex < declarationCount; sortedIndex++)
+            {
+                var declarationIndex = order[sortedIndex];
+                _sortedDeclarationNameIds[sortedIndex] = _declarationNameIds[declarationIndex];
+                _sortedDeclarationFileRanks[sortedIndex] = _declarationFileRanks[declarationIndex];
+                _sortedDeclarationLineNumbers[sortedIndex] = _declarationLineNumbers[declarationIndex];
+                _sortedDeclarationColumns[sortedIndex] = _declarationColumns[declarationIndex];
+                _sortedDeclarationIndices[sortedIndex] = declarationIndex;
+            }
+        }
+
+        private int CompareDeclarationOrder(int left, int right)
+        {
+            var diff = _declarationNameIds[left].CompareTo(_declarationNameIds[right]);
+            if (diff != 0)
+                return diff;
+
+            diff = _declarationFileRanks[left].CompareTo(_declarationFileRanks[right]);
+            if (diff != 0)
+                return diff;
+
+            diff = _declarationLineNumbers[left].CompareTo(_declarationLineNumbers[right]);
+            if (diff != 0)
+                return diff;
+
+            return _declarationColumns[left].CompareTo(_declarationColumns[right]);
+        }
+
         private int GetOrAddFileRank(string? file)
         {
             if (file == null)
@@ -1425,6 +1576,16 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             return rank;
         }
 
+        private int GetOrAddNameId(string name)
+        {
+            if (_nameIds.TryGetValue(name, out var id))
+                return id;
+
+            id = _nameIds.Count + 1;
+            _nameIds.Add(name, id);
+            return id;
+        }
+
         private int GetExistingFileRank(string? file)
         {
             if (file == null)
@@ -1433,11 +1594,14 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             return _fileRanks.TryGetValue(file, out var rank) ? rank : -1;
         }
 
+        private int GetExistingNameId(string name) => _nameIds.TryGetValue(name, out var id) ? id : -1;
+
         private void EnsureQueryCapacity(int count)
         {
             if (_queryFileRanks.Length >= count)
                 return;
 
+            _queryNameIds = new int[count];
             _queryFileRanks = new int[count];
             _queryLineNumbers = new int[count];
             _queryColumns = new int[count];

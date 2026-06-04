@@ -1327,6 +1327,16 @@ public class CodeIntelligenceService
         if (snapshot.Bindings == null)
             return null;
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFindNearestBindingDeclarationByName(
+                snapshot.Bindings,
+                filePath,
+                name,
+                line,
+                out var dogfoodDeclaration))
+        {
+            return dogfoodDeclaration;
+        }
+
         return snapshot.Bindings.FindDeclarationsByName(name)
             .Where(declaration => string.Equals(declaration.File, filePath, StringComparison.Ordinal) && declaration.Line <= line)
             .OrderByDescending(declaration => declaration.Line)

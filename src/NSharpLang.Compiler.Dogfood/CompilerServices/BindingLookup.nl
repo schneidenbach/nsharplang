@@ -238,6 +238,144 @@ func BindingLookupQueryChecksumInto(
     return checksum + foundCount
 }
 
+func BindingLookupFindNearestDeclarationIndicesInto(
+    sortedNameIds: int[],
+    sortedFileRanks: int[],
+    sortedLineNumbers: int[],
+    sortedColumns: int[],
+    sortedDeclarationIndices: int[],
+    queryNameIds: int[],
+    queryFileRanks: int[],
+    queryLineNumbers: int[],
+    resultDeclarationIndices: int[]): int {
+    queryCount := BindingLookupMinInt(queryNameIds.Length, queryFileRanks.Length)
+    queryCount = BindingLookupMinInt(queryCount, queryLineNumbers.Length)
+    queryCount = BindingLookupMinInt(queryCount, resultDeclarationIndices.Length)
+    declarationCount := BindingLookupMinInt(sortedNameIds.Length, sortedFileRanks.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedLineNumbers.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedColumns.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedDeclarationIndices.Length)
+
+    foundCount := 0
+    i := 0
+    while i < queryCount {
+        queryNameId := queryNameIds[i]
+        queryFileRank := queryFileRanks[i]
+        queryLine := queryLineNumbers[i]
+        declarationIndex := -1
+
+        if queryNameId >= 0 && queryFileRank >= 0 && declarationCount > 0 {
+            lower := 0
+            upper := declarationCount
+
+            while lower < upper {
+                middle := (lower + upper) >> 1
+                if BindingLookupNearestKeyIsBeforeOrAtQuery(
+                    sortedNameIds[middle],
+                    sortedFileRanks[middle],
+                    sortedLineNumbers[middle],
+                    queryNameId,
+                    queryFileRank,
+                    queryLine) {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+
+            candidate := lower - 1
+            if candidate >= 0
+                && sortedNameIds[candidate] == queryNameId
+                && sortedFileRanks[candidate] == queryFileRank
+                && sortedLineNumbers[candidate] <= queryLine {
+                declarationIndex = sortedDeclarationIndices[candidate]
+            }
+        }
+
+        resultDeclarationIndices[i] = declarationIndex
+        if declarationIndex >= 0 {
+            foundCount = foundCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return foundCount
+}
+
+func BindingLookupFindNearestDeclarationChecksumInto(
+    sortedNameIds: int[],
+    sortedFileRanks: int[],
+    sortedLineNumbers: int[],
+    sortedColumns: int[],
+    sortedDeclarationIndices: int[],
+    queryNameIds: int[],
+    queryFileRanks: int[],
+    queryLineNumbers: int[],
+    resultDeclarationIndices: int[]): int {
+    queryCount := BindingLookupMinInt(queryNameIds.Length, queryFileRanks.Length)
+    queryCount = BindingLookupMinInt(queryCount, queryLineNumbers.Length)
+    queryCount = BindingLookupMinInt(queryCount, resultDeclarationIndices.Length)
+    declarationCount := BindingLookupMinInt(sortedNameIds.Length, sortedFileRanks.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedLineNumbers.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedColumns.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedDeclarationIndices.Length)
+
+    foundCount := 0
+    checksum := 0
+    i := 0
+    while i < queryCount {
+        queryNameId := queryNameIds[i]
+        queryFileRank := queryFileRanks[i]
+        queryLine := queryLineNumbers[i]
+        declarationIndex := -1
+        selectedSlot := -1
+
+        if queryNameId >= 0 && queryFileRank >= 0 && declarationCount > 0 {
+            lower := 0
+            upper := declarationCount
+
+            while lower < upper {
+                middle := (lower + upper) >> 1
+                if BindingLookupNearestKeyIsBeforeOrAtQuery(
+                    sortedNameIds[middle],
+                    sortedFileRanks[middle],
+                    sortedLineNumbers[middle],
+                    queryNameId,
+                    queryFileRank,
+                    queryLine) {
+                    lower = middle + 1
+                } else {
+                    upper = middle
+                }
+            }
+
+            candidate := lower - 1
+            if candidate >= 0
+                && sortedNameIds[candidate] == queryNameId
+                && sortedFileRanks[candidate] == queryFileRank
+                && sortedLineNumbers[candidate] <= queryLine {
+                selectedSlot = candidate
+                declarationIndex = sortedDeclarationIndices[candidate]
+            }
+        }
+
+        resultDeclarationIndices[i] = declarationIndex
+        if declarationIndex >= 0 {
+            foundCount = foundCount + 1
+            checksum = checksum
+                + sortedNameIds[selectedSlot] * 13
+                + sortedLineNumbers[selectedSlot] * 31
+                + sortedColumns[selectedSlot] * 17
+                + declarationIndex
+        }
+
+        i = i + 1
+    }
+
+    return checksum + foundCount
+}
+
 func BindingLookupFindIndex(
     fileRanks: int[],
     lineNumbers: int[],
@@ -297,6 +435,32 @@ func HashBindingLookupKey(fileRank: int, line: int, column: int): int {
     hash = hash * 31 + line
     hash = hash * 31 + column
     return hash
+}
+
+func BindingLookupNearestKeyIsBeforeOrAtQuery(
+    nameId: int,
+    fileRank: int,
+    line: int,
+    queryNameId: int,
+    queryFileRank: int,
+    queryLine: int): bool {
+    if nameId < queryNameId {
+        return true
+    }
+
+    if nameId > queryNameId {
+        return false
+    }
+
+    if fileRank < queryFileRank {
+        return true
+    }
+
+    if fileRank > queryFileRank {
+        return false
+    }
+
+    return line <= queryLine
 }
 
 func BindingLookupPositiveModulo(value: int, divisor: int): int {
