@@ -118,6 +118,122 @@ func CodeIntelligenceIdentifierSpansFromLinesInto(
     return foundCount
 }
 
+func CodeIntelligenceDeclarationNameMatchChecksumInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    queryLines: int[],
+    declarationColumns: int[],
+    declarationNames: string[],
+    selectedStartColumns: int[],
+    selectedEndColumns: int[],
+    resultMatches: int[]): int {
+    lineCount := BuildCodeIntelligenceLineRangesInto(source, lineStarts, lineLengths)
+    return CodeIntelligenceDeclarationNameMatchChecksumFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        declarationColumns,
+        declarationNames,
+        selectedStartColumns,
+        selectedEndColumns,
+        resultMatches)
+}
+
+func CodeIntelligenceDeclarationNameMatchChecksumFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    declarationColumns: int[],
+    declarationNames: string[],
+    selectedStartColumns: int[],
+    selectedEndColumns: int[],
+    resultMatches: int[]): int {
+    CodeIntelligenceDeclarationNameMatchesFromLinesInto(
+        source,
+        lineStarts,
+        lineLengths,
+        lineCount,
+        queryLines,
+        declarationColumns,
+        declarationNames,
+        selectedStartColumns,
+        selectedEndColumns,
+        resultMatches)
+
+    checksum := 0
+    i := 0
+
+    while i < queryLines.Length {
+        checksum = checksum + resultMatches[i] * (i + 1)
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CodeIntelligenceDeclarationNameMatchesFromLinesInto(
+    source: string,
+    lineStarts: int[],
+    lineLengths: int[],
+    lineCount: int,
+    queryLines: int[],
+    declarationColumns: int[],
+    declarationNames: string[],
+    selectedStartColumns: int[],
+    selectedEndColumns: int[],
+    resultMatches: int[]): int {
+    matchCount := 0
+    i := 0
+    queryCount := queryLines.Length
+
+    while i < queryCount {
+        matched := 0
+        line := queryLines[i]
+
+        if line > 0 && line <= lineCount {
+            lineIndex := line - 1
+            lineStart := lineStarts[lineIndex]
+            lineLength := lineLengths[lineIndex]
+            declarationName := declarationNames[i]
+            searchStart := declarationColumns[i] - 1
+
+            if searchStart < 0 {
+                searchStart = 0
+            }
+
+            if searchStart > lineLength {
+                searchStart = lineLength
+            }
+
+            nameIndex := FindCodeIntelligenceNameInLine(
+                source,
+                lineStart,
+                lineLength,
+                declarationName,
+                searchStart)
+
+            if nameIndex >= 0 {
+                nameStartColumn := nameIndex + 1
+                nameEndColumn := nameStartColumn + declarationName.Length - 1
+                if selectedStartColumns[i] == nameStartColumn && selectedEndColumns[i] == nameEndColumn {
+                    matched = 1
+                    matchCount = matchCount + 1
+                }
+            }
+        }
+
+        resultMatches[i] = matched
+        i = i + 1
+    }
+
+    return matchCount
+}
+
 func CodeIntelligenceMemberReceiverChecksumInto(
     source: string,
     lineStarts: int[],
@@ -1159,6 +1275,51 @@ func FindCodeIntelligenceAssignmentOperator(source: string, lineStart: int, line
     }
 
     return -1
+}
+
+func FindCodeIntelligenceNameInLine(
+    source: string,
+    lineStart: int,
+    lineLength: int,
+    name: string,
+    searchStart: int): int {
+    nameLength := name.Length
+
+    if nameLength == 0 {
+        if searchStart <= lineLength {
+            return searchStart
+        }
+
+        return -1
+    }
+
+    lastStart := lineLength - nameLength
+    position := searchStart
+
+    while position <= lastStart {
+        if CodeIntelligenceNameMatchesAt(source, lineStart + position, name) {
+            return position
+        }
+
+        position = position + 1
+    }
+
+    return -1
+}
+
+func CodeIntelligenceNameMatchesAt(source: string, sourceStart: int, name: string): bool {
+    i := 0
+    nameLength := name.Length
+
+    while i < nameLength {
+        if source[sourceStart + i] != name[i] {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
 }
 
 func FindCodeIntelligenceDocCommentStartLine(

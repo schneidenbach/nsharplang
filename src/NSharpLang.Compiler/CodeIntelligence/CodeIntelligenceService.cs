@@ -524,6 +524,26 @@ public class CodeIntelligenceService
         if (source == null)
             return false;
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySelectedSpanMatchesDeclarationName(
+                snapshot,
+                filePath,
+                source,
+                line,
+                declaration.Column,
+                declaration.Name,
+                selectedSpan.StartColumn,
+                selectedSpan.EndColumn,
+                out var dogfoodMatches))
+        {
+            return dogfoodMatches;
+        }
+
+        return SelectedSpanMatchesDeclarationNameFallback(source, line, selectedSpan, declaration);
+    }
+
+    private static bool SelectedSpanMatchesDeclarationNameFallback(string source, int line,
+        (int StartColumn, int EndColumn) selectedSpan, SymbolDeclaration declaration)
+    {
         var lines = source.Split('\n');
         if (line <= 0 || line > lines.Length)
             return false;

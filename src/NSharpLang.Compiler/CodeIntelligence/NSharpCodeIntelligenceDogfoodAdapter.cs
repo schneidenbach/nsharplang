@@ -65,6 +65,41 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TrySelectedSpanMatchesDeclarationName(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string source,
+        int line,
+        int declarationColumn,
+        string declarationName,
+        int selectedStartColumn,
+        int selectedEndColumn,
+        out bool matches)
+    {
+        matches = false;
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var cache = GetFileCache(snapshot, filePath, source);
+            return cache.TrySelectedSpanMatchesDeclarationName(
+                bindings,
+                line,
+                declarationColumn,
+                declarationName,
+                selectedStartColumn,
+                selectedEndColumn,
+                out matches);
+        }
+        catch
+        {
+            matches = false;
+            return false;
+        }
+    }
+
     internal static bool TryExtractCompletionPrefix(
         ProjectSnapshot snapshot,
         string filePath,
@@ -250,6 +285,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BuildCodeIntelligenceLineRangesInto>(programType, "BuildCodeIntelligenceLineRangesInto"),
                 CreateDelegate<BuildCodeIntelligenceMemberReceiverCacheInto>(programType, "BuildCodeIntelligenceMemberReceiverCacheInto"),
                 CreateDelegate<BuildCodeIntelligenceVariableDeclarationNameCacheInto>(programType, "BuildCodeIntelligenceVariableDeclarationNameCacheInto"),
+                CreateDelegate<CodeIntelligenceDeclarationNameMatchesFromLinesInto>(programType, "CodeIntelligenceDeclarationNameMatchesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceIdentifierSpansFromLinesInto>(programType, "CodeIntelligenceIdentifierSpansFromLinesInto"),
                 CreateDelegate<CodeIntelligenceCompletionPrefixesFromLinesInto>(programType, "CodeIntelligenceCompletionPrefixesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceDocCommentLinesFromLinesInto>(programType, "CodeIntelligenceDocCommentLinesFromLinesInto"),
@@ -318,6 +354,18 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int CodeIntelligenceDeclarationNameMatchesFromLinesInto(
+        string source,
+        int[] lineStarts,
+        int[] lineLengths,
+        int lineCount,
+        int[] queryLines,
+        int[] declarationColumns,
+        string[] declarationNames,
+        int[] selectedStartColumns,
+        int[] selectedEndColumns,
+        int[] resultMatches);
+
     private delegate int CodeIntelligenceCompletionPrefixesFromLinesInto(
         int[] lineStarts,
         int[] lineLengths,
@@ -377,6 +425,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
         BuildCodeIntelligenceVariableDeclarationNameCacheInto BuildVariableDeclarationNameCache,
+        CodeIntelligenceDeclarationNameMatchesFromLinesInto DeclarationNameMatchesFromLines,
         CodeIntelligenceIdentifierSpansFromLinesInto IdentifierSpansFromLines,
         CodeIntelligenceCompletionPrefixesFromLinesInto CompletionPrefixesFromLines,
         CodeIntelligenceDocCommentLinesFromLinesInto DocCommentLinesFromLines,
@@ -466,13 +515,18 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private readonly int[] _docCommentStarts;
         private readonly int[] _lineLengths;
         private readonly int[] _lineStarts;
+        private readonly int[] _declarationColumns = new int[1];
         private readonly int[] _memberStartColumns = new int[1];
         private readonly int[] _queryColumns = new int[1];
         private readonly int[] _queryLines = new int[1];
+        private readonly string[] _queryNames = new string[1];
         private readonly int[] _receiverLengthsBySeparator;
         private readonly int[] _receiverStartsBySeparator;
         private readonly int[] _resultLengths = new int[1];
+        private readonly int[] _resultMatches = new int[1];
         private readonly int[] _resultStarts = new int[1];
+        private readonly int[] _selectedEndColumns = new int[1];
+        private readonly int[] _selectedStartColumns = new int[1];
         private readonly string _source;
         private readonly int[] _variableDeclarationNameLengthsByLine;
         private readonly int[] _variableDeclarationNameStartsByLine;
@@ -547,6 +601,44 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 }
 
                 documentation = builder.ToString();
+                return true;
+            }
+        }
+
+        public bool TrySelectedSpanMatchesDeclarationName(
+            Bindings bindings,
+            int line,
+            int declarationColumn,
+            string declarationName,
+            int selectedStartColumn,
+            int selectedEndColumn,
+            out bool matches)
+        {
+            matches = false;
+            lock (_gate)
+            {
+                EnsureLineRanges(bindings);
+
+                _queryLines[0] = line;
+                _declarationColumns[0] = declarationColumn;
+                _queryNames[0] = declarationName;
+                _selectedStartColumns[0] = selectedStartColumn;
+                _selectedEndColumns[0] = selectedEndColumn;
+
+                bindings.DeclarationNameMatchesFromLines(
+                    _source,
+                    _lineStarts,
+                    _lineLengths,
+                    _lineCount,
+                    _queryLines,
+                    _declarationColumns,
+                    _queryNames,
+                    _selectedStartColumns,
+                    _selectedEndColumns,
+                    _resultMatches);
+
+                matches = _resultMatches[0] != 0;
+                _queryNames[0] = string.Empty;
                 return true;
             }
         }

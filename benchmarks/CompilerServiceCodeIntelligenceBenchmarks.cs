@@ -295,6 +295,280 @@ public class CompilerServiceCodeIntelligenceIdentifierSpanBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for the declaration-name span guard used by strict reference and rename flows.
+///
+/// The current C# guard splits the whole file for each candidate declaration, searches the selected
+/// line for the declaration name at or after the declaration column, and checks whether the selected
+/// identifier span exactly covers that occurrence. The N# candidate reuses cached line ranges and
+/// runs the same ordinal name search into caller-owned match buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceDeclarationNameMatchBenchmarks
+{
+    private const int LargeQueryCount = 128;
+    private const int RepresentativeQueryCount = 1024;
+
+    private Func<string, int[], int[], int> _nsharpBuildLineRangesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string, int[], int[], int, int[], int[], string[], int[], int[], int[], int> _nsharpDeclarationNameMatchChecksumFromLinesInto =
+        (_, _, _, _, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpMatches = Array.Empty<int>();
+    private int[] _declarationColumns = Array.Empty<int>();
+    private string[] _declarationNames = Array.Empty<string>();
+    private int[] _lineLengths = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private int _lineCount;
+    private int[] _nsharpMatches = Array.Empty<int>();
+    private int _queryCount;
+    private int[] _queryLines = Array.Empty<int>();
+    private int[] _selectedEndColumns = Array.Empty<int>();
+    private int[] _selectedStartColumns = Array.Empty<int>();
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus) + """
+
+func declarationMatchProbe() {
+    value := value + 1
+    prefixvalue := value
+    café := café
+}
+""";
+        _queryCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeQueryCount
+            : LargeQueryCount;
+        _nsharpBuildLineRangesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "BuildCodeIntelligenceLineRangesInto");
+        _nsharpDeclarationNameMatchChecksumFromLinesInto =
+            NSharpCompiledMethod.Bind<Func<string, int[], int[], int, int[], int[], string[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceIdentifierSpans,
+                "CodeIntelligenceDeclarationNameMatchChecksumFromLinesInto");
+
+        _lineStarts = new int[_source.Length + 1];
+        _lineLengths = new int[_source.Length + 1];
+        _csharpMatches = new int[_queryCount];
+        _nsharpMatches = new int[_queryCount];
+
+        BuildQueries();
+        _lineCount = _nsharpBuildLineRangesInto(_source, _lineStarts, _lineLengths);
+
+        var expectedChecksum = CSharpCodeIntelligenceDeclarationNameMatches_QueryBatch();
+        var actualChecksum = NSharpCodeIntelligenceDeclarationNameMatches_CachedLineRanges_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# declaration-name match checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpMatches.SequenceEqual(_nsharpMatches))
+        {
+            var mismatch = FirstMismatch(_csharpMatches, _nsharpMatches);
+            throw new InvalidOperationException(
+                $"N# declaration-name match mismatch for {Corpus} at query {mismatch}: " +
+                $"line {_queryLines[mismatch]}, declaration column {_declarationColumns[mismatch]}, " +
+                $"name {_declarationNames[mismatch]}, selected {_selectedStartColumns[mismatch]}-{_selectedEndColumns[mismatch]}, " +
+                $"expected {_csharpMatches[mismatch]}, got {_nsharpMatches[mismatch]}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCodeIntelligenceDeclarationNameMatches_QueryBatch()
+    {
+        var checksum = 0;
+        for (var i = 0; i < _queryLines.Length; i++)
+        {
+            var matches = SelectedSpanMatchesDeclarationName(
+                _source,
+                _queryLines[i],
+                _declarationColumns[i],
+                _declarationNames[i],
+                _selectedStartColumns[i],
+                _selectedEndColumns[i]);
+            _csharpMatches[i] = matches ? 1 : 0;
+            checksum += _csharpMatches[i] * (i + 1);
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpCodeIntelligenceDeclarationNameMatches_CachedLineRanges_QueryBatch() =>
+        _nsharpDeclarationNameMatchChecksumFromLinesInto(
+            _source,
+            _lineStarts,
+            _lineLengths,
+            _lineCount,
+            _queryLines,
+            _declarationColumns,
+            _declarationNames,
+            _selectedStartColumns,
+            _selectedEndColumns,
+            _nsharpMatches);
+
+    private void BuildQueries()
+    {
+        _queryLines = new int[_queryCount];
+        _declarationColumns = new int[_queryCount];
+        _declarationNames = new string[_queryCount];
+        _selectedStartColumns = new int[_queryCount];
+        _selectedEndColumns = new int[_queryCount];
+
+        var lines = _source.Split('\n');
+        var valueLine = FindLine(lines, "value := value + 1");
+        var prefixLine = FindLine(lines, "prefixvalue := value");
+        var cafeLine = FindLine(lines, "café := café");
+        var firstValueColumn = FindNameStartColumn(lines[valueLine - 1], "value", 1);
+        var secondValueColumn = FindNameStartColumn(lines[valueLine - 1], "value", firstValueColumn + "value".Length);
+        var prefixValueColumn = FindNameStartColumn(lines[prefixLine - 1], "value", 1);
+        var cafeColumn = FindNameStartColumn(lines[cafeLine - 1], "café", 1);
+
+        for (var i = 0; i < _queryCount; i++)
+        {
+            switch (i % 9)
+            {
+                case 0:
+                    _queryLines[i] = 0;
+                    _declarationColumns[i] = 1;
+                    _declarationNames[i] = "value";
+                    _selectedStartColumns[i] = 1;
+                    _selectedEndColumns[i] = 5;
+                    break;
+                case 1:
+                    _queryLines[i] = valueLine;
+                    _declarationColumns[i] = firstValueColumn;
+                    _declarationNames[i] = "value";
+                    _selectedStartColumns[i] = firstValueColumn;
+                    _selectedEndColumns[i] = firstValueColumn + "value".Length - 1;
+                    break;
+                case 2:
+                    _queryLines[i] = valueLine;
+                    _declarationColumns[i] = firstValueColumn;
+                    _declarationNames[i] = "value";
+                    _selectedStartColumns[i] = secondValueColumn;
+                    _selectedEndColumns[i] = secondValueColumn + "value".Length - 1;
+                    break;
+                case 3:
+                    _queryLines[i] = valueLine;
+                    _declarationColumns[i] = secondValueColumn;
+                    _declarationNames[i] = "value";
+                    _selectedStartColumns[i] = secondValueColumn;
+                    _selectedEndColumns[i] = secondValueColumn + "value".Length - 1;
+                    break;
+                case 4:
+                    _queryLines[i] = prefixLine;
+                    _declarationColumns[i] = 1;
+                    _declarationNames[i] = "value";
+                    _selectedStartColumns[i] = prefixValueColumn;
+                    _selectedEndColumns[i] = prefixValueColumn + "value".Length - 1;
+                    break;
+                case 5:
+                    _queryLines[i] = prefixLine;
+                    _declarationColumns[i] = prefixValueColumn + "value".Length;
+                    _declarationNames[i] = "value";
+                    _selectedStartColumns[i] = prefixValueColumn;
+                    _selectedEndColumns[i] = prefixValueColumn + "value".Length - 1;
+                    break;
+                case 6:
+                    _queryLines[i] = cafeLine;
+                    _declarationColumns[i] = cafeColumn;
+                    _declarationNames[i] = "café";
+                    _selectedStartColumns[i] = cafeColumn;
+                    _selectedEndColumns[i] = cafeColumn + "café".Length - 1;
+                    break;
+                case 7:
+                    _queryLines[i] = i * 17 % lines.Length + 1;
+                    _declarationColumns[i] = i % 23 + 1;
+                    _declarationNames[i] = "missing";
+                    _selectedStartColumns[i] = 1;
+                    _selectedEndColumns[i] = 7;
+                    break;
+                default:
+                    _queryLines[i] = lines.Length + 1;
+                    _declarationColumns[i] = 1;
+                    _declarationNames[i] = "value";
+                    _selectedStartColumns[i] = 1;
+                    _selectedEndColumns[i] = 5;
+                    break;
+            }
+        }
+    }
+
+    private static bool SelectedSpanMatchesDeclarationName(
+        string source,
+        int line,
+        int declarationColumn,
+        string declarationName,
+        int selectedStartColumn,
+        int selectedEndColumn)
+    {
+        var lines = source.Split('\n');
+        if (line <= 0 || line > lines.Length)
+        {
+            return false;
+        }
+
+        var lineText = lines[line - 1];
+        var searchStart = Math.Max(0, Math.Min(declarationColumn - 1, lineText.Length));
+        var nameIndex = lineText.IndexOf(declarationName, searchStart, StringComparison.Ordinal);
+        if (nameIndex < 0)
+        {
+            return false;
+        }
+
+        var nameStartColumn = nameIndex + 1;
+        var nameEndColumn = nameStartColumn + declarationName.Length - 1;
+        return selectedStartColumn == nameStartColumn && selectedEndColumn == nameEndColumn;
+    }
+
+    private static int FindLine(string[] lines, string text)
+    {
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (lines[i].Contains(text, StringComparison.Ordinal))
+            {
+                return i + 1;
+            }
+        }
+
+        throw new InvalidOperationException($"Could not find benchmark line containing {text}.");
+    }
+
+    private static int FindNameStartColumn(string lineText, string name, int searchStartColumn)
+    {
+        var searchStart = Math.Max(0, searchStartColumn - 1);
+        var index = lineText.IndexOf(name, searchStart, StringComparison.Ordinal);
+        if (index < 0)
+        {
+            throw new InvalidOperationException(
+                $"Could not find benchmark name {name} in {lineText} at or after column {searchStartColumn}.");
+        }
+
+        return index + 1;
+    }
+
+    private static int FirstMismatch(int[] expected, int[] actual)
+    {
+        for (var i = 0; i < expected.Length; i++)
+        {
+            if (expected[i] != actual[i])
+            {
+                return i;
+            }
+        }
+
+        return expected.Length;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for extracting the receiver name before a member access.
 ///
 /// The current C# helper splits the whole file and returns a receiver substring for each query. The

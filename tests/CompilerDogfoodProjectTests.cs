@@ -51,6 +51,18 @@ func main() {
         Assert.True((bool)(tryExtractIdentifierName.Invoke(null, identifierArgs) ?? false));
         Assert.Equal("input", identifierArgs[5]);
 
+        var trySelectedSpanMatchesDeclarationName = adapterType.GetMethod(
+                "TrySelectedSpanMatchesDeclarationName",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectedSpanMatchesDeclarationName.");
+        var declarationMatchArgs = new object?[] { snapshot, filePath, source, 2, 5, "value", 5, 9, null };
+        Assert.True((bool)(trySelectedSpanMatchesDeclarationName.Invoke(null, declarationMatchArgs) ?? false));
+        Assert.Equal(true, declarationMatchArgs[8]);
+
+        var declarationMismatchArgs = new object?[] { snapshot, filePath, source, 2, 5, "value", 14, 18, null };
+        Assert.True((bool)(trySelectedSpanMatchesDeclarationName.Invoke(null, declarationMismatchArgs) ?? false));
+        Assert.Equal(false, declarationMismatchArgs[8]);
+
         var tryExtractMemberReceiverName = adapterType.GetMethod(
                 "TryExtractMemberReceiverName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -217,6 +229,14 @@ func documented(): int {
                     "CodeIntelligenceIdentifierSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceIdentifierSpansInto.");
+            var codeIntelligenceDeclarationNameMatchChecksumInto = programType.GetMethod(
+                    "CodeIntelligenceDeclarationNameMatchChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceDeclarationNameMatchChecksumInto.");
+            var codeIntelligenceDeclarationNameMatchesFromLinesInto = programType.GetMethod(
+                    "CodeIntelligenceDeclarationNameMatchesFromLinesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceDeclarationNameMatchesFromLinesInto.");
             var codeIntelligenceMemberReceiverChecksumInto = programType.GetMethod(
                     "CodeIntelligenceMemberReceiverChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -439,6 +459,16 @@ func main() {
                 "func main() {\n    café42 := résumé.Count\n    print café42\n}\n",
                 codeIntelligenceIdentifierSpanChecksumInto,
                 codeIntelligenceIdentifierSpansInto);
+            AssertDeclarationNameMatchesLikeProduction(
+                """
+func main() {
+    value := value + 1
+    prefixvalue := 0
+    café := café
+}
+""",
+                codeIntelligenceDeclarationNameMatchChecksumInto,
+                codeIntelligenceDeclarationNameMatchesFromLinesInto);
 
             AssertMemberReceiversLikeProduction(
                 """
@@ -880,6 +910,102 @@ func main() {
         Assert.Equal(expectedCount, actualCount);
         Assert.Equal(expectedStarts, productionStarts);
         Assert.Equal(expectedLengths, productionLengths);
+    }
+
+    private static void AssertDeclarationNameMatchesLikeProduction(
+        string source,
+        MethodInfo codeIntelligenceDeclarationNameMatchChecksumInto,
+        MethodInfo codeIntelligenceDeclarationNameMatchesFromLinesInto)
+    {
+        var lines = source.Split('\n');
+        var firstValueColumn = FindNameStartColumn(lines[1], "value", 1);
+        var secondValueColumn = FindNameStartColumn(lines[1], "value", firstValueColumn + "value".Length);
+        var prefixValueColumn = FindNameStartColumn(lines[2], "value", 1);
+        var cafeColumn = FindNameStartColumn(lines[3], "café", 1);
+
+        var queries = new List<(int Line, int DeclarationColumn, string Name, int SelectedStart, int SelectedEnd)>
+        {
+            (0, 1, "value", 1, 5),
+            (lines.Length + 1, 1, "value", 1, 5),
+            (2, firstValueColumn, "value", firstValueColumn, firstValueColumn + "value".Length - 1),
+            (2, firstValueColumn, "value", secondValueColumn, secondValueColumn + "value".Length - 1),
+            (2, secondValueColumn, "value", secondValueColumn, secondValueColumn + "value".Length - 1),
+            (3, 1, "value", prefixValueColumn, prefixValueColumn + "value".Length - 1),
+            (3, prefixValueColumn + "value".Length, "value", prefixValueColumn, prefixValueColumn + "value".Length - 1),
+            (4, cafeColumn, "café", cafeColumn, cafeColumn + "café".Length - 1),
+            (4, cafeColumn, "missing", cafeColumn, cafeColumn + "café".Length - 1)
+        };
+
+        var queryLines = queries.Select(static query => query.Line).ToArray();
+        var declarationColumns = queries.Select(static query => query.DeclarationColumn).ToArray();
+        var declarationNames = queries.Select(static query => query.Name).ToArray();
+        var selectedStartColumns = queries.Select(static query => query.SelectedStart).ToArray();
+        var selectedEndColumns = queries.Select(static query => query.SelectedEnd).ToArray();
+        var expectedMatches = new int[queries.Count];
+        var expectedChecksum = 0;
+        var expectedCount = 0;
+
+        for (var i = 0; i < queries.Count; i++)
+        {
+            var query = queries[i];
+            var matches = SelectedSpanMatchesDeclarationName(
+                source,
+                query.Line,
+                query.DeclarationColumn,
+                query.Name,
+                query.SelectedStart,
+                query.SelectedEnd);
+            expectedMatches[i] = matches ? 1 : 0;
+            expectedChecksum += expectedMatches[i] * (i + 1);
+            if (matches)
+            {
+                expectedCount++;
+            }
+        }
+
+        var lineStarts = new int[source.Length + 1];
+        var lineLengths = new int[source.Length + 1];
+        var actualMatches = new int[queries.Count];
+        var actualChecksum = (int)(codeIntelligenceDeclarationNameMatchChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                lineStarts,
+                lineLengths,
+                queryLines,
+                declarationColumns,
+                declarationNames,
+                selectedStartColumns,
+                selectedEndColumns,
+                actualMatches
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedMatches, actualMatches);
+
+        var cachedLineStarts = new int[source.Length + 1];
+        var cachedLineLengths = new int[source.Length + 1];
+        var lineCount = BuildLineRanges(source, cachedLineStarts, cachedLineLengths);
+        var cachedMatches = new int[queries.Count];
+        var cachedCount = (int)(codeIntelligenceDeclarationNameMatchesFromLinesInto.Invoke(
+            null,
+            new object[]
+            {
+                source,
+                cachedLineStarts,
+                cachedLineLengths,
+                lineCount,
+                queryLines,
+                declarationColumns,
+                declarationNames,
+                selectedStartColumns,
+                selectedEndColumns,
+                cachedMatches
+            }) ?? -1);
+
+        Assert.Equal(expectedCount, cachedCount);
+        Assert.Equal(expectedMatches, cachedMatches);
     }
 
     private static void AssertMemberReceiversLikeProduction(
@@ -1630,6 +1756,37 @@ func main() {
         }
 
         return true;
+    }
+
+    private static int FindNameStartColumn(string lineText, string name, int searchStartColumn)
+    {
+        var searchStart = Math.Max(0, searchStartColumn - 1);
+        var index = lineText.IndexOf(name, searchStart, StringComparison.Ordinal);
+        Assert.True(index >= 0, $"Expected to find {name} in {lineText} at or after column {searchStartColumn}.");
+        return index + 1;
+    }
+
+    private static bool SelectedSpanMatchesDeclarationName(
+        string source,
+        int line,
+        int declarationColumn,
+        string declarationName,
+        int selectedStartColumn,
+        int selectedEndColumn)
+    {
+        var lines = source.Split('\n');
+        if (line <= 0 || line > lines.Length)
+            return false;
+
+        var lineText = lines[line - 1];
+        var searchStart = Math.Max(0, Math.Min(declarationColumn - 1, lineText.Length));
+        var nameIndex = lineText.IndexOf(declarationName, searchStart, StringComparison.Ordinal);
+        if (nameIndex < 0)
+            return false;
+
+        var nameStartColumn = nameIndex + 1;
+        var nameEndColumn = nameStartColumn + declarationName.Length - 1;
+        return selectedStartColumn == nameStartColumn && selectedEndColumn == nameEndColumn;
     }
 
     private static (int StartColumn, int Length)? ExtractMemberReceiverSpan(string source, int line, int memberStartColumn)
