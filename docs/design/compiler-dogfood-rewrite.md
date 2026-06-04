@@ -409,6 +409,12 @@ Current code-intelligence dogfood benchmarks:
   formatter helper: escape the root file path with a LINQ safety scan and replacement-based quoting,
   then materialize the command string. The N# candidate scans directly, appends escaped path content
   through one batch-local `StringBuilder`, and writes commands into caller-owned storage.
+- `CompilerServiceTextEditOrderingBenchmarks` targets the text-edit application ordering used by
+  `FixApplicator.ValidateAndSortEdits` before `nlc fix` applies edits. The C# baseline mirrors the
+  previous production LINQ shape: attach the source index, order by descending start line/column,
+  ascending end line/column, descending source index for same-position inserts, then materialize the
+  list. The accepted N# candidate runs after the host has compacted `(startLine,startColumn)` and
+  `(endLine,endColumn)` ranks and returns ordered source indices through caller-owned buffers.
 - `CompilerServiceErrorSuggestionBenchmarks` targets compiler typo-suggestion scoring used by
   Elm-style diagnostics. The C# baseline mirrors `SmartSuggester.SuggestSimilarNames`: LINQ
   projection/filter/order, lowercase string allocation, edit-distance matrix allocation, and final
@@ -421,8 +427,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
 `CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
 `CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`,
-`CompilerServices/CliDocOrdering.nl`, `CompilerServices/CompletionGrouping.nl`, and
-`CompilerServices/ErrorSuggestions.nl`.
+`CompilerServices/CliDocOrdering.nl`, `CompilerServices/CompletionGrouping.nl`,
+`CompilerServices/TextEditOrdering.nl`, and `CompilerServices/ErrorSuggestions.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -480,6 +486,8 @@ declaration facts against the production same-file/name, preceding-line, line/co
 selection contract. Semantic scope lookup parity checks compact scope ranges and sorted start-index
 facts against production `SemanticModel.GetVisibleVariablesAtPosition` shadowing/order semantics,
 including root, nested, sibling, open-scope, and no-containing-scope queries. The
+text-edit ordering parity checks compact start/end position ranks against the production
+bottom-to-top, right-to-left, end-position, and same-position reverse-input ordering contract. The
 text-scanning candidates use ASCII fast paths and fall back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
@@ -688,6 +696,13 @@ of the C# formatter-shaped baseline. This is measured language/runtime pressure,
 evidence, and the production formatter must keep the C# next-command path until N# has a
 lower-allocation public string construction strategy that clears the 5x gate.
 
+`TextEditOrderIndicesInto` passed parity and reported zero managed allocation in the same normal
+BenchmarkDotNet evidence tier for edit application ordering. It ran about 6.7x faster on the
+representative edit corpus (5.177 us vs 34.476 us, 0 B vs 70,808 B) and about 11.6x faster on the
+large generated edit corpus (40.948 us vs 476.531 us, 0 B vs 558,232 B). This is
+acceptance-grade benchmark evidence for `FixApplicator` text-edit ordering after the host has
+assigned compact start/end position ranks.
+
 `TypoSuggestionIndicesInto` passed parity against `SmartSuggester.SuggestSimilarNames` and reported
 zero managed allocation, but missed the normal BenchmarkDotNet speed gate for typo-suggestion
 scoring. The N# path measured about 1.83x slower on the representative typo corpus (5.409 ms vs
@@ -862,6 +877,10 @@ as the fallback.
 stable counting-sort kernel when the dogfood assembly is available, preserving the previous
 first-source dependency selection for each ordinal-kind/case-insensitive-name key, with the previous
 LINQ grouping/order path kept as the fallback.
+`FixApplicator.ValidateAndSortEdits` now routes edit application ordering through the compiled N#
+two-pass stable counting kernel when the dogfood assembly is available, preserving the previous
+bottom-to-top, right-to-left, end-position, and same-position reverse-input ordering, with the
+previous LINQ ordering path kept as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, completion item grouping, reflected method overload
@@ -871,10 +890,11 @@ classifications and diagnostic severity summaries, compact diagnostic cluster gr
 deduplication, reference result deduplication, stable diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration lookup,
 scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering, CLI tree dependency deduplication, and the pressure-only CLI diagnostic severity filter kernel
-through the compiled N# methods; `CliCommandTests` verifies both packaged CLI dogfood adapter routes
-for duplicate batch request ids, `nlc doc` symbol/member ordering, and `nlc tree` dependency
-deduplication;
+ordering, CLI tree dependency deduplication, text-edit ordering, and the pressure-only CLI
+diagnostic severity filter kernel through the compiled N# methods; `CliCommandTests` verifies both
+packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc doc` symbol/member
+ordering, and `nlc tree` dependency deduplication;
+`CodeFixTests` verifies the production fix-applicator ordering route.
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
@@ -889,7 +909,8 @@ same-file declaration lookup in the source-context definition fallback, and scop
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
 member-access completion plus reflected method overload grouping and grouped member-completion
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
-ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`.
+ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
+application ordering in `nlc fix`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
 CLI diagnostic severity filtering has parity and benchmark evidence but is not routed through the

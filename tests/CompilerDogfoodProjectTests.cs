@@ -751,6 +751,14 @@ func documented(): int {
                     "CliTreeDependencyDeduplicateChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTreeDependencyDeduplicateChecksumInto.");
+            var textEditOrderIndicesInto = programType.GetMethod(
+                    "TextEditOrderIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TextEditOrderIndicesInto.");
+            var textEditOrderChecksumInto = programType.GetMethod(
+                    "TextEditOrderChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TextEditOrderChecksumInto.");
             var codeIntelligenceDocCommentChecksumInto = programType.GetMethod(
                     "CodeIntelligenceDocCommentChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1142,6 +1150,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliTreeDependencyDeduplicationLikeProduction(
                 cliTreeDependencyDeduplicateIndicesInto,
                 cliTreeDependencyDeduplicateChecksumInto);
+            AssertTextEditOrderingLikeProduction(
+                textEditOrderIndicesInto,
+                textEditOrderChecksumInto);
             AssertDocCommentsLikeProduction(
                 """
 // ignored
@@ -2920,6 +2931,117 @@ func main() {
 
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static void AssertTextEditOrderingLikeProduction(
+        MethodInfo textEditOrderIndicesInto,
+        MethodInfo textEditOrderChecksumInto)
+    {
+        var edits = new[]
+        {
+            new TextEdit(1, 0, 1, 0, "line1"),
+            new TextEdit(3, 5, 3, 5, "line3-col5-first"),
+            new TextEdit(3, 5, 3, 5, "line3-col5-second"),
+            new TextEdit(2, 10, 2, 12, "line2"),
+            new TextEdit(3, 3, 3, 4, "line3-col3"),
+            new TextEdit(4, 1, 5, 0, "multiline")
+        };
+        var expected = edits
+            .Select((edit, index) => (edit, index))
+            .OrderByDescending(item => item.edit.StartLine)
+            .ThenByDescending(item => item.edit.StartColumn)
+            .ThenBy(item => item.edit.EndLine)
+            .ThenBy(item => item.edit.EndColumn)
+            .ThenByDescending(item => item.index)
+            .Select(item => item.index)
+            .ToArray();
+
+        var startPositionRanks = BuildTextEditPositionRanks(
+            edits,
+            edit => (edit.StartLine, edit.StartColumn),
+            out var startPositionRankCount);
+        var endPositionRanks = BuildTextEditPositionRanks(
+            edits,
+            edit => (edit.EndLine, edit.EndColumn),
+            out var endPositionRankCount);
+        var bucketCapacity = Math.Max(startPositionRankCount, endPositionRankCount) + 1;
+
+        var resultIndices = new int[edits.Length];
+        var actualCount = (int)(textEditOrderIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                startPositionRanks,
+                endPositionRanks,
+                startPositionRankCount,
+                endPositionRankCount,
+                new int[bucketCapacity],
+                new int[bucketCapacity],
+                new int[edits.Length],
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[edits.Length];
+        var actualChecksum = (int)(textEditOrderChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                startPositionRanks,
+                endPositionRanks,
+                startPositionRankCount,
+                endPositionRankCount,
+                new int[bucketCapacity],
+                new int[bucketCapacity],
+                new int[edits.Length],
+                checksumResultIndices
+            }) ?? -1);
+        var expectedChecksum = TextEditOrderChecksum(
+            expected,
+            startPositionRanks,
+            endPositionRanks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static int[] BuildTextEditPositionRanks(
+        TextEdit[] edits,
+        Func<TextEdit, (int Line, int Column)> selector,
+        out int rankCount)
+    {
+        var rankMap = edits
+            .Select(selector)
+            .Distinct()
+            .OrderBy(value => value)
+            .Select((value, index) => (value, rank: index + 1))
+            .ToDictionary(item => item.value, item => item.rank);
+        var ranks = new int[edits.Length];
+        for (var i = 0; i < edits.Length; i++)
+        {
+            ranks[i] = rankMap[selector(edits[i])];
+        }
+
+        rankCount = rankMap.Count;
+        return ranks;
+    }
+
+    private static int TextEditOrderChecksum(
+        int[] orderedIndices,
+        int[] startPositionRanks,
+        int[] endPositionRanks)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31;
+            checksum += startPositionRanks[index] * 17 + endPositionRanks[index] * 13;
+        }
+
+        return checksum;
     }
 
     private static void AssertTypoSuggestionsLikeProduction(
