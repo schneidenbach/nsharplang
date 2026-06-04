@@ -48,6 +48,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/DiagnosticDeduplication.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticDeduplication.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/BindingLookup.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.BindingLookup.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CompletionReceivers.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionReceivers.nl" />
     <EmbeddedResource

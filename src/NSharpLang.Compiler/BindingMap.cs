@@ -41,6 +41,7 @@ public class BindingMap
 
     // All declarations recorded
     private readonly Dictionary<(string? File, int Line, int Col), SymbolDeclaration> _declarations = new();
+    private int _version;
 
     /// <summary>
     /// Record that the identifier at (usageFile, usageLine, usageCol) resolves to the given declaration.
@@ -76,6 +77,7 @@ public class BindingMap
         }
 
         usages.Add(new SymbolUsage(usageFile, usageLine, usageCol, usageLength));
+        _version++;
     }
 
     /// <summary>
@@ -104,6 +106,8 @@ public class BindingMap
         {
             _references[key] = new List<SymbolUsage>();
         }
+
+        _version++;
     }
 
     /// <summary>
@@ -164,6 +168,12 @@ public class BindingMap
     /// </summary>
     public IReadOnlyCollection<SymbolDeclaration> AllDeclarations => _declarations.Values;
 
+    internal IReadOnlyDictionary<(string? File, int Line, int Col), SymbolDeclaration> BindingEntries => _bindings;
+
+    internal IReadOnlyDictionary<(string? File, int Line, int Col), SymbolDeclaration> DeclarationEntries => _declarations;
+
+    internal int Version => _version;
+
     /// <summary>
     /// Get the total number of bindings recorded.
     /// </summary>
@@ -192,6 +202,11 @@ public class BindingMap
                 _references[key] = existing;
             }
             existing.AddRange(usages);
+        }
+
+        if (other._declarations.Count > 0 || other._bindings.Count > 0 || other._references.Count > 0)
+        {
+            _version++;
         }
     }
 }

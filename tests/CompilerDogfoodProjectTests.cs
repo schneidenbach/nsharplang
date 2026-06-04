@@ -306,6 +306,40 @@ func documented(): int {
         Assert.Equal(3, Assert.IsType<int>(referenceDeduplicationArgs[2]));
         Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(referenceDeduplicationArgs[1]).Take(3));
 
+        var tryResolveBindingDeclaration = adapterType.GetMethod(
+                "TryResolveBindingDeclaration",
+                BindingFlags.Static | BindingFlags.NonPublic,
+                binder: null,
+                types: new[]
+                {
+                    typeof(BindingMap),
+                    typeof(string),
+                    typeof(int),
+                    typeof(int[]),
+                    typeof(SymbolDeclaration).MakeByRefType()
+                },
+                modifiers: null)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryResolveBindingDeclaration.");
+        var bindingMap = new BindingMap();
+        var bDeclaration = new SymbolDeclaration("bValue", "B.nl", 10, 5, "variable");
+        var aDeclaration = new SymbolDeclaration("aValue", "A.nl", 2, 3, "variable");
+        bindingMap.RecordDeclaration(bDeclaration);
+        bindingMap.RecordDeclaration(aDeclaration);
+        bindingMap.RecordBinding("A.nl", 7, 9, 6, bDeclaration);
+        bindingMap.RecordBinding("A.nl", 2, 3, 6, bDeclaration);
+
+        var bindingUsageArgs = new object?[] { bindingMap, "A.nl", 7, new[] { 9 }, null };
+        Assert.True((bool)(tryResolveBindingDeclaration.Invoke(null, bindingUsageArgs) ?? false));
+        Assert.Equal(bDeclaration, Assert.IsType<SymbolDeclaration>(bindingUsageArgs[4]));
+
+        var bindingDeclarationFirstArgs = new object?[] { bindingMap, "A.nl", 2, new[] { 3 }, null };
+        Assert.True((bool)(tryResolveBindingDeclaration.Invoke(null, bindingDeclarationFirstArgs) ?? false));
+        Assert.Equal(aDeclaration, Assert.IsType<SymbolDeclaration>(bindingDeclarationFirstArgs[4]));
+
+        var bindingMissArgs = new object?[] { bindingMap, "A.nl", 99, new[] { 1, 2, 3 }, null };
+        Assert.True((bool)(tryResolveBindingDeclaration.Invoke(null, bindingMissArgs) ?? false));
+        Assert.Null(bindingMissArgs[4]);
+
         var trySummarizeDiagnosticSeverities = adapterType.GetMethod(
                 "TrySummarizeDiagnosticSeverities",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -575,6 +609,18 @@ func documented(): int {
                     "ReferenceDeduplicateCompactChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ReferenceDeduplicateCompactChecksumInto.");
+            var bindingLookupBuildSlotsInto = programType.GetMethod(
+                    "BindingLookupBuildSlotsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupBuildSlotsInto.");
+            var bindingLookupQueryDeclarationIndicesInto = programType.GetMethod(
+                    "BindingLookupQueryDeclarationIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupQueryDeclarationIndicesInto.");
+            var bindingLookupQueryChecksumInto = programType.GetMethod(
+                    "BindingLookupQueryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupQueryChecksumInto.");
 
             const string source = """"
 import System
@@ -842,6 +888,10 @@ func main() {
             AssertReferenceDeduplicationLikeProduction(
                 referenceDeduplicateCompactInto,
                 referenceDeduplicateCompactChecksumInto);
+            AssertBindingLookupLikeProduction(
+                bindingLookupBuildSlotsInto,
+                bindingLookupQueryDeclarationIndicesInto,
+                bindingLookupQueryChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2970,6 +3020,91 @@ func main() {
             .ThenBy(i => lines[i])
             .ThenBy(i => columns[i])
             .ToArray();
+    }
+
+    private static void AssertBindingLookupLikeProduction(
+        MethodInfo bindingLookupBuildSlotsInto,
+        MethodInfo bindingLookupQueryDeclarationIndicesInto,
+        MethodInfo bindingLookupQueryChecksumInto)
+    {
+        var declarationFileRanks = new[] { 2, 1, 3 };
+        var declarationLines = new[] { 10, 2, 1 };
+        var declarationColumns = new[] { 5, 3, 1 };
+        var declarationNameLengths = new[] { 6, 6, 6 };
+        var declarationSlots = new int[declarationFileRanks.Length * 2 + 1];
+
+        var bindingFileRanks = new[] { 1, 2, 1 };
+        var bindingLines = new[] { 7, 12, 2 };
+        var bindingColumns = new[] { 9, 4, 3 };
+        var bindingDeclarationIndices = new[] { 0, 2, 0 };
+        var bindingSlots = new int[bindingFileRanks.Length * 2 + 1];
+
+        Assert.Equal(declarationFileRanks.Length, (int)(bindingLookupBuildSlotsInto.Invoke(
+            null,
+            new object[] { declarationFileRanks, declarationLines, declarationColumns, declarationSlots }) ?? -1));
+        Assert.Equal(bindingFileRanks.Length, (int)(bindingLookupBuildSlotsInto.Invoke(
+            null,
+            new object[] { bindingFileRanks, bindingLines, bindingColumns, bindingSlots }) ?? -1));
+
+        var queryFileRanks = new[] { 1, 1, 2, 3 };
+        var queryLines = new[] { 2, 7, 12, 99 };
+        var queryColumns = new[] { 3, 9, 4, 1 };
+        var expected = new[] { 1, 0, 2, -1 };
+
+        var resultIndices = new int[queryFileRanks.Length];
+        var actualCount = (int)(bindingLookupQueryDeclarationIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                declarationFileRanks,
+                declarationLines,
+                declarationColumns,
+                declarationSlots,
+                bindingFileRanks,
+                bindingLines,
+                bindingColumns,
+                bindingDeclarationIndices,
+                bindingSlots,
+                queryFileRanks,
+                queryLines,
+                queryColumns,
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(3, actualCount);
+        Assert.Equal(expected, resultIndices);
+
+        var checksumResultIndices = new int[queryFileRanks.Length];
+        var actualChecksum = (int)(bindingLookupQueryChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                declarationFileRanks,
+                declarationLines,
+                declarationColumns,
+                declarationNameLengths,
+                declarationSlots,
+                bindingFileRanks,
+                bindingLines,
+                bindingColumns,
+                bindingDeclarationIndices,
+                bindingSlots,
+                queryFileRanks,
+                queryLines,
+                queryColumns,
+                checksumResultIndices
+            }) ?? -1);
+
+        var expectedChecksum = 3;
+        foreach (var declarationIndex in expected.Where(index => index >= 0))
+        {
+            expectedChecksum += declarationLines[declarationIndex] * 31
+                + declarationColumns[declarationIndex] * 17
+                + declarationNameLengths[declarationIndex] * 13;
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices);
     }
 
     private static int[] CreateOrdinalIds(string[] values)

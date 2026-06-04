@@ -256,6 +256,12 @@ Current code-intelligence dogfood benchmarks:
   first-reference preservation, and file/line/column ordering. The N# candidate consumes
   host-computed file sort ranks, deduplicates with a caller-owned open-addressed table, and writes
   sorted result indices through `ReferenceDeduplicateCompactInto`.
+- `CompilerServiceCodeIntelligenceBindingLookupBenchmarks` targets strict semantic binding
+  position lookup before definition/reference/hover result materialization. The C# baseline uses the
+  production `BindingMap.GetBindingAt` dictionaries with declaration-first lookup semantics. The N#
+  candidate consumes host-built declaration/binding arrays, prebuilt open-addressed slot tables, and
+  candidate query columns, then writes declaration indices through
+  `BindingLookupQueryDeclarationIndicesInto`.
 - `CompilerServiceCodeIntelligenceMemberReceiverBenchmarks` targets receiver extraction before a
   member access, currently used when source-context fallback tries to resolve `receiver.Member`.
   The C# baseline mirrors `ExtractMemberReceiverName`: it calls `source.Split('\n')`, scans backward
@@ -353,7 +359,8 @@ Current code-intelligence dogfood benchmarks:
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
-`CompilerServices/DiagnosticDeduplication.nl`, and `CompilerServices/CliQueryParsing.nl`.
+`CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`, and
+`CompilerServices/CliQueryParsing.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -390,7 +397,10 @@ ordering by count/file/line/column. Diagnostic deduplication parity checks compa
 file ranks against the production `(code,file,line,column,message)` grouping semantics, including
 first-diagnostic preservation and file/line/column ordering. Reference-result deduplication parity
 checks sorted file ranks against the production `(file,line,column)` grouping semantics, including
-first-reference preservation and file/line/column ordering. The
+first-reference preservation and file/line/column ordering. Binding lookup parity checks compact
+declaration and binding tables against production `BindingMap.GetBindingAt` semantics, including
+declaration-position hits, usage-position hits, misses, and declaration-first precedence when a
+binding shares a declaration key. The
 text-scanning candidates use ASCII fast paths and fall back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
@@ -414,6 +424,13 @@ ran about 13.02x faster on the representative reference corpus (6.557 us vs 85.3
 59,560 B) and about 13.19x faster on the large generated reference corpus (71.671 us vs
 945.375 us, 0 B vs 468,184 B). This is acceptance-grade benchmark evidence for reference result
 deduplication after the host has assigned default-comparer file sort ranks.
+
+`BindingLookupQueryDeclarationIndicesInto` passed parity and reported zero managed allocation in the
+same normal BenchmarkDotNet evidence tier for strict semantic binding position lookup. It ran about
+5.93x faster on the representative binding corpus (41.781 us vs 247.807 us) and about 5.22x faster
+on the large generated binding corpus (646.484 us vs 3.378 ms). This is acceptance-grade benchmark
+evidence for batched declaration-first binding lookup after the host has built compact binding
+tables and slot arrays.
 
 `CodeIntelligenceMemberReceiversCachedInto` also cleared the normal BenchmarkDotNet speed gate. It
 ran about 174x faster on the representative corpus (2.88 us vs 500.69 us, 0 B vs 4.6 MB) and about
@@ -563,13 +580,16 @@ shape as the fallback.
 `FindReferences` result deduplication and ordering now calls the compiled N# reference-deduplication
 kernel when the dogfood assembly is available, with the previous LINQ `GroupBy`/`OrderBy` path kept
 as the fallback.
+Strict definition/reference/hover binding lookup now builds a compact `BindingMap` cache and calls
+the compiled N# binding lookup kernel when the dogfood assembly is available, with the previous
+dictionary lookup path kept as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
 declaration-name match, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
-severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, and reference
-result deduplication,
+severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
+deduplication, and strict binding lookup,
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -577,10 +597,11 @@ identifier-span, member-receiver, reference source-context, diagnostic/lint raw 
 completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
 declaration-name guard, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
-semantic reference result deduplication/order slices, plus LSP editor word/span lookup for hover,
-definition, references, and rename entry points.
-Broader query, hover, definition, diagnostic, completion candidate construction, binding, and CLI
-command logic still contains C# implementation code and remains in scope for the dogfood rewrite.
+semantic reference result deduplication/order slices, plus strict semantic binding lookup and LSP
+editor word/span lookup for hover, definition, references, and rename entry points.
+Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
+table construction, and CLI command logic still contains C# implementation code and remains in scope
+for the dogfood rewrite.
 
 ## Rewrite Order
 
@@ -664,8 +685,8 @@ remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
-severity summary counting, compact diagnostic cluster grouping, and reference result
-deduplication/order are now dogfooded.
+severity summary counting, compact diagnostic cluster grouping, strict semantic binding lookup, and
+reference result deduplication/order are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain
 C# formatter work.
 These public string materialization misses are specifically about short string construction: direct
@@ -674,7 +695,8 @@ all beat their C# formatter-shaped helpers modestly, but they remain far below t
 CLI query position parser also shows helper-call overhead on tiny strings: direct parsing removes
 all split allocation but still only reaches about 2.4x on the measured batch. The
 strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
-binding tables and lookup policy before reference-result deduplication are still C# host logic.
+binding table construction and lookup fallback policy around the N# compact lookup cache are still
+C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
 needs N# implementations for semantic lookup, completion construction, output shaping, and CLI
 command orchestration.

@@ -1226,7 +1226,18 @@ public class CodeIntelligenceService
         if (snapshot.Bindings == null)
             return null;
 
-        foreach (var candidateColumn in GetBindingCandidateColumns(snapshot, filePath, line, col))
+        var candidateColumns = GetBindingCandidateColumns(snapshot, filePath, line, col);
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryResolveBindingDeclaration(
+                snapshot.Bindings,
+                filePath,
+                line,
+                candidateColumns,
+                out var dogfoodDeclaration))
+        {
+            return dogfoodDeclaration;
+        }
+
+        foreach (var candidateColumn in candidateColumns)
         {
             var declaration = snapshot.Bindings.GetBindingAt(filePath, line, candidateColumn);
             if (declaration != null)
@@ -1262,7 +1273,7 @@ public class CodeIntelligenceService
         return FindBestDeclarationSymbolByName(snapshot, filePath, name, line);
     }
 
-    private static IEnumerable<int> GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
+    private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
         var seen = new HashSet<int>();
 
@@ -1281,7 +1292,7 @@ public class CodeIntelligenceService
             }
         }
 
-        return seen.OrderBy(candidate => Math.Abs(candidate - col));
+        return seen.OrderBy(candidate => Math.Abs(candidate - col)).ToArray();
     }
 
     private SymbolDeclaration? FindDeclarationSymbol(ProjectSnapshot snapshot, string? name)
