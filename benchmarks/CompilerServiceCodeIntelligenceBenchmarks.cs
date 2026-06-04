@@ -5,6 +5,7 @@ using System.Text;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Order;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Benchmarks;
 
@@ -2233,6 +2234,222 @@ public class CompilerServiceCodeIntelligenceCompletionReceiverBenchmarks
 
     private static string FormatContext(string? context) =>
         context == null ? "<null>" : $"\"{context}\"";
+}
+
+/// <summary>
+/// Dogfood benchmark for grouping completion items by kind before CLI/daemon completion output.
+///
+/// The C# baseline mirrors the current member-completion shape: LINQ <c>GroupBy</c> over item kind
+/// followed by <c>ToList</c> materialization for each public completion group. The N# candidate
+/// runs after the host has assigned compact first-seen kind ids and writes group starts/counts and
+/// stable source indices into caller-owned buffers.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceCodeIntelligenceCompletionItemGroupingBenchmarks
+{
+    private const int LargeItemCount = 8192;
+    private const int RepresentativeItemCount = 1024;
+
+    private Func<int[], int[], int[], int[], int[], int[], int[], int> _nsharpCompletionItemKindGroupChecksum =
+        (_, _, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Dictionary<string, int> _itemIndices = new(StringComparer.Ordinal);
+    private CompletionItem[] _items = Array.Empty<CompletionItem>();
+    private Dictionary<string, int> _kindIds = new(StringComparer.Ordinal);
+    private int[] _kindCounts = Array.Empty<int>();
+    private int[] _kindIdsByItem = Array.Empty<int>();
+    private int[] _kindOffsets = Array.Empty<int>();
+    private int[] _nsharpResultCounts = Array.Empty<int>();
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+    private int[] _nsharpResultKindIds = Array.Empty<int>();
+    private int[] _nsharpResultStarts = Array.Empty<int>();
+    private int _itemCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _itemCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeItemCount
+            : LargeItemCount;
+        _nsharpCompletionItemKindGroupChecksum =
+            NSharpCompiledMethod.Bind<Func<int[], int[], int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CodeIntelligenceCompletionGrouping,
+                "CompletionItemKindGroupChecksumInto");
+
+        _items = BuildItems(_itemCount);
+        _kindIdsByItem = new int[_itemCount];
+        _kindCounts = new int[_itemCount + 1];
+        _kindOffsets = new int[_itemCount + 1];
+        _nsharpResultKindIds = new int[_itemCount];
+        _nsharpResultStarts = new int[_itemCount];
+        _nsharpResultCounts = new int[_itemCount];
+        _nsharpResultIndices = new int[_itemCount];
+
+        BuildCompactKindIds();
+
+        var expectedChecksum = CSharpCompletionItems_GroupByKind();
+        var actualChecksum = NSharpCompletionItems_GroupByKind();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# completion item grouping checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        VerifyNSharpGroupsAgainstCSharp();
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCompletionItems_GroupByKind()
+    {
+        var completions = new Dictionary<string, List<CompletionItem>>();
+        var groups = _items.GroupBy(static item => item.Kind).ToList();
+        var checksum = groups.Count;
+        var offset = 0;
+
+        foreach (var group in groups)
+        {
+            var list = group.ToList();
+            completions[Pluralize(group.Key)] = list;
+            checksum += _kindIds[group.Key] * 97 + offset * 31 + list.Count * 17;
+
+            for (var i = 0; i < list.Count; i++)
+            {
+                var sourceIndex = _itemIndices[list[i].Name];
+                checksum += (sourceIndex + 1) * 13 + (i + 1) * 7;
+            }
+
+            offset += list.Count;
+        }
+
+        GC.KeepAlive(completions);
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpCompletionItems_GroupByKind() =>
+        _nsharpCompletionItemKindGroupChecksum(
+            _kindIdsByItem,
+            _kindCounts,
+            _kindOffsets,
+            _nsharpResultKindIds,
+            _nsharpResultStarts,
+            _nsharpResultCounts,
+            _nsharpResultIndices);
+
+    private void BuildCompactKindIds()
+    {
+        _kindIds = new Dictionary<string, int>(StringComparer.Ordinal);
+        _itemIndices = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        for (var i = 0; i < _items.Length; i++)
+        {
+            var item = _items[i];
+            if (!_kindIds.TryGetValue(item.Kind, out var kindId))
+            {
+                kindId = _kindIds.Count + 1;
+                _kindIds.Add(item.Kind, kindId);
+            }
+
+            _kindIdsByItem[i] = kindId;
+            _itemIndices.Add(item.Name, i);
+        }
+    }
+
+    private void VerifyNSharpGroupsAgainstCSharp()
+    {
+        var groups = _items.GroupBy(static item => item.Kind).ToList();
+        if (_nsharpResultKindIds.Take(groups.Count).Any(id => id <= 0))
+        {
+            throw new InvalidOperationException($"N# completion item grouping returned invalid kind ids for {Corpus}.");
+        }
+
+        var offset = 0;
+        for (var groupIndex = 0; groupIndex < groups.Count; groupIndex++)
+        {
+            var group = groups[groupIndex];
+            var expected = group.ToList();
+            if (_nsharpResultKindIds[groupIndex] != _kindIds[group.Key]
+                || _nsharpResultStarts[groupIndex] != offset
+                || _nsharpResultCounts[groupIndex] != expected.Count)
+            {
+                throw new InvalidOperationException(
+                    $"N# completion item grouping segment mismatch for {Corpus} at group {groupIndex}.");
+            }
+
+            for (var i = 0; i < expected.Count; i++)
+            {
+                var expectedIndex = _itemIndices[expected[i].Name];
+                var actualIndex = _nsharpResultIndices[offset + i];
+                if (expectedIndex != actualIndex)
+                {
+                    throw new InvalidOperationException(
+                        $"N# completion item grouping member mismatch for {Corpus} at group {groupIndex}, item {i}: " +
+                        $"expected {expectedIndex}, got {actualIndex}.");
+                }
+            }
+
+            offset += expected.Count;
+        }
+    }
+
+    private static CompletionItem[] BuildItems(int count)
+    {
+        var names = new[]
+        {
+            "WriteLine",
+            "Write",
+            "ReadLine",
+            "ToString",
+            "ToUpper",
+            "ToLower",
+            "Length",
+            "Count",
+            "Capacity",
+            "Chars",
+            "Empty",
+            "MaxValue",
+            "MinValue",
+            "Add",
+            "Remove",
+            "Contains",
+            "IndexOf",
+            "Substring"
+        };
+        var kinds = new[] { "method", "property", "method", "field", "property" };
+        var items = new CompletionItem[count];
+
+        for (var i = 0; i < count; i++)
+        {
+            var kind = kinds[(i * 7 + i / 13) % kinds.Length];
+            var baseName = names[(i * 11 + i / 5) % names.Length];
+            var type = kind switch
+            {
+                "method" => i % 3 == 0 ? "void" : "string",
+                "property" => i % 2 == 0 ? "int" : "string",
+                _ => i % 2 == 0 ? "bool" : "long"
+            };
+            var parameters = kind == "method" ? "(value string)" : null;
+            items[i] = new CompletionItem(
+                $"{baseName}{i}",
+                kind,
+                type,
+                parameters,
+                null,
+                i % 17 == 0);
+        }
+
+        return items;
+    }
+
+    private static string Pluralize(string kind) => kind switch
+    {
+        "property" => "properties",
+        "class" => "classes",
+        _ => kind + "s"
+    };
 }
 
 /// <summary>

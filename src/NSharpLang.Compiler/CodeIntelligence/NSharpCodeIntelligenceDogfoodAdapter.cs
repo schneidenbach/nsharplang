@@ -18,6 +18,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static BindingCandidateColumnScratch? t_bindingCandidateColumnScratch;
     [ThreadStatic]
+    private static CompletionItemGroupingScratch? t_completionItemGroupingScratch;
+    [ThreadStatic]
     private static CompletionReceiverScratch? t_completionReceiverScratch;
     [ThreadStatic]
     private static DiagnosticSummaryScratch? t_diagnosticSummaryScratch;
@@ -934,6 +936,91 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryAddGroupedCompletionItemsByKind(
+        IReadOnlyList<CompletionItem> items,
+        Dictionary<string, List<CompletionItem>> completions)
+    {
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var count = items.Count;
+        if (count == 0)
+            return true;
+
+        var scratch = t_completionItemGroupingScratch ??= new CompletionItemGroupingScratch();
+        scratch.EnsureCapacity(count);
+
+        try
+        {
+            scratch.ResetKindIds();
+            for (var i = 0; i < count; i++)
+            {
+                scratch.KindIds[i] = scratch.GetKindId(items[i].Kind);
+            }
+
+            var groupCount = bindings.CompletionItemKindGroups(
+                scratch.KindIds,
+                scratch.KindCounts,
+                scratch.KindOffsets,
+                scratch.ResultKindIds,
+                scratch.ResultStarts,
+                scratch.ResultCounts,
+                scratch.ResultIndices);
+
+            if (groupCount < 0 || groupCount > count)
+                return false;
+
+            var total = 0;
+            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+            {
+                var start = scratch.ResultStarts[groupIndex];
+                var itemCount = scratch.ResultCounts[groupIndex];
+                if (start < 0 || itemCount < 0 || start + itemCount > count)
+                    return false;
+
+                total += itemCount;
+            }
+
+            if (total != count)
+                return false;
+
+            for (var resultIndex = 0; resultIndex < count; resultIndex++)
+            {
+                var sourceIndex = scratch.ResultIndices[resultIndex];
+                if (sourceIndex < 0 || sourceIndex >= count)
+                    return false;
+            }
+
+            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+            {
+                var kindId = scratch.ResultKindIds[groupIndex];
+                var kind = scratch.GetKindName(kindId);
+                var start = scratch.ResultStarts[groupIndex];
+                var itemCount = scratch.ResultCounts[groupIndex];
+                var groupItems = new List<CompletionItem>(itemCount);
+
+                for (var itemIndex = 0; itemIndex < itemCount; itemIndex++)
+                {
+                    var sourceIndex = scratch.ResultIndices[start + itemIndex];
+                    groupItems.Add(items[sourceIndex]);
+                }
+
+                completions[CompletionEngine.PluralizeCompletionKind(kind)] = groupItems;
+            }
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            scratch.ResetKindIds();
+        }
+    }
+
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
     {
         var snapshotCache = s_snapshotCaches.GetValue(snapshot, static _ => new SnapshotCache());
@@ -964,6 +1051,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
                 CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"),
                 CreateDelegate<CodeIntelligenceCompletionReceiversInto>(programType, "CodeIntelligenceCompletionReceiversInto"),
+                CreateDelegate<CompletionItemKindGroupsInto>(programType, "CompletionItemKindGroupsInto"),
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
@@ -1130,6 +1218,15 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultContexts,
         string[] resultReceivers);
 
+    private delegate int CompletionItemKindGroupsInto(
+        int[] kindIds,
+        int[] kindCounts,
+        int[] kindOffsets,
+        int[] resultKindIds,
+        int[] resultStarts,
+        int[] resultCounts,
+        int[] resultIndices);
+
     private delegate int DiagnosticClusterTraitsInto(
         string[] codes,
         string[] messages,
@@ -1292,6 +1389,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
         CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache,
         CodeIntelligenceCompletionReceiversInto CompletionReceivers,
+        CompletionItemKindGroupsInto CompletionItemKindGroups,
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
@@ -1357,6 +1455,65 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         {
             Prefixes[0] = string.Empty;
             Receivers[0] = string.Empty;
+        }
+    }
+
+    private sealed class CompletionItemGroupingScratch
+    {
+        private readonly Dictionary<string, int> _kindIds = new(StringComparer.Ordinal);
+
+        public int[] KindCounts = Array.Empty<int>();
+        public int[] KindIds = Array.Empty<int>();
+        public string[] KindNames = Array.Empty<string>();
+        public int[] KindOffsets = Array.Empty<int>();
+        public int[] ResultCounts = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] ResultKindIds = Array.Empty<int>();
+        public int[] ResultStarts = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (KindIds.Length < count)
+            {
+                KindIds = new int[count];
+                ResultKindIds = new int[count];
+                ResultStarts = new int[count];
+                ResultCounts = new int[count];
+                ResultIndices = new int[count];
+            }
+
+            var bucketCapacity = count + 1;
+            if (KindCounts.Length < bucketCapacity)
+            {
+                KindCounts = new int[bucketCapacity];
+                KindOffsets = new int[bucketCapacity];
+                KindNames = new string[bucketCapacity];
+            }
+        }
+
+        public int GetKindId(string kind)
+        {
+            if (_kindIds.TryGetValue(kind, out var id))
+                return id;
+
+            id = _kindIds.Count + 1;
+            _kindIds.Add(kind, id);
+            KindNames[id] = kind;
+            return id;
+        }
+
+        public string GetKindName(int id) =>
+            id > 0 && id < KindNames.Length
+                ? KindNames[id] ?? string.Empty
+                : string.Empty;
+
+        public void ResetKindIds()
+        {
+            if (_kindIds.Count > 0)
+            {
+                Array.Clear(KindNames, 1, _kindIds.Count);
+                _kindIds.Clear();
+            }
         }
     }
 

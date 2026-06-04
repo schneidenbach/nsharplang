@@ -211,11 +211,7 @@ public class CompletionEngine
             var isStatic = IsStaticAccess(receiver, semanticModel);
             var members = GetTypeMembers(resolvedType, isStatic ? MemberFilter.StaticOnly : MemberFilter.InstanceOnly);
 
-            foreach (var group in members.GroupBy(m => m.Kind))
-            {
-                var key = Pluralize(group.Key);
-                completions[key] = group.ToList();
-            }
+            AddGroupedCompletionsByKind(members, completions);
 
             return new CompletionResult(
                 CompletionContext.MemberAccess,
@@ -392,10 +388,7 @@ public class CompletionEngine
         var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
         if (nsharpMembers.Count > 0)
         {
-            foreach (var group in nsharpMembers.GroupBy(m => m.Kind))
-            {
-                completions[Pluralize(group.Key)] = group.ToList();
-            }
+            AddGroupedCompletionsByKind(nsharpMembers, completions);
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
         }
 
@@ -410,10 +403,7 @@ public class CompletionEngine
         if (clrType != null)
         {
             var members = GetTypeMembers(clrType, MemberFilter.InstanceOnly);
-            foreach (var group in members.GroupBy(m => m.Kind))
-            {
-                completions[Pluralize(group.Key)] = group.ToList();
-            }
+            AddGroupedCompletionsByKind(members, completions);
             return new CompletionResult(CompletionContext.MemberAccess, receiver, clrType.FullName, completions);
         }
 
@@ -1390,7 +1380,20 @@ public class CompletionEngine
         return charBefore == '/';
     }
 
-    private static string Pluralize(string kind) => kind switch
+    private static void AddGroupedCompletionsByKind(
+        List<CompletionItem> items,
+        Dictionary<string, List<CompletionItem>> completions)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryAddGroupedCompletionItemsByKind(items, completions))
+            return;
+
+        foreach (var group in items.GroupBy(m => m.Kind))
+        {
+            completions[PluralizeCompletionKind(group.Key)] = group.ToList();
+        }
+    }
+
+    internal static string PluralizeCompletionKind(string kind) => kind switch
     {
         "property" => "properties",
         "class" => "classes",

@@ -331,6 +331,12 @@ Current code-intelligence dogfood benchmarks:
   N# candidate keeps the same context/receiver contract, including comment-text and partial-member
   edge behavior, but uses direct prefix scans and caller-owned context/receiver buffers through
   `CodeIntelligenceCompletionReceiversInto`.
+- `CompilerServiceCodeIntelligenceCompletionItemGroupingBenchmarks` targets member-completion item
+  grouping before CLI/daemon completion output. The C# baseline mirrors the current
+  `CompletionEngine` shape: LINQ `GroupBy` over `CompletionItem.Kind`, pluralized dictionary keys,
+  and `ToList` materialization for each public group. The N# candidate runs after the host has
+  assigned compact first-seen kind ids and writes group kind ids, starts/counts, and stable source
+  indices into caller-owned buffers through `CompletionItemKindGroupsInto`.
 - `CompilerServiceCodeIntelligenceDocCommentBenchmarks` targets leading doc-comment extraction used
   by hover documentation. The C# baseline mirrors the current helper: each queried declaration line
   splits the source into logical lines, walks backward across leading `//` comments, trims comment
@@ -408,7 +414,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
 `CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
 `CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`,
-`CompilerServices/CliDocOrdering.nl`, and `CompilerServices/ErrorSuggestions.nl`.
+`CompilerServices/CliDocOrdering.nl`, `CompilerServices/CompletionGrouping.nl`, and
+`CompilerServices/ErrorSuggestions.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -431,6 +438,8 @@ Completion receiver parity covers direct dots, partial member names, normalized 
 receivers, string/interpolated/raw/char/numeric/bool literal receivers, Unicode identifiers, comment
 text, and the current C# edge where some generated comment prefixes fall back to expression-suffix
 scanning rather than literal-token handling.
+Completion item grouping parity covers first-seen kind group ordering, pluralized public group keys,
+stable per-kind member order, and the raw compact group start/count/member-index buffer contract.
 Doc-comment span parity covers invalid declaration lines, blank lines immediately above the
 declaration, `//`, `///`, and `////` prefixes, trimmed content, and empty comment content.
 Declaration-name match parity covers invalid lines, exact selected declaration spans, mismatched
@@ -563,6 +572,13 @@ representative corpus (47.516 us vs 248.648 us, 107.7 KB vs 1,262.11 KB) and abo
 the large generated corpus (5.663 us vs 29.890 us, 13.5 KB vs 156.45 KB). This is
 acceptance-grade benchmark evidence for the post-prefix completion receiver-context hot path; the
 remaining allocations are the receiver strings required by the current completion API boundary.
+
+`CompletionItemKindGroupsInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for member-completion item grouping before public CLI/daemon
+completion output. It ran about 5.26x faster on the representative completion-item corpus
+(2.827 us vs 14.865 us, 0 B vs 30,288 B) and about 5.49x faster on the large generated
+completion-item corpus (22.531 us vs 123.802 us, 0 B vs 231,208 B). This is acceptance-grade
+benchmark evidence for stable first-seen kind grouping after the host has assigned compact kind ids.
 
 `CodeIntelligenceDocCommentLinesFromLinesInto` passed parity and reported zero managed allocation in
 the same normal BenchmarkDotNet evidence tier. It ran about 62x faster on the representative corpus
@@ -723,6 +739,10 @@ through the compiled N# whole-identifier scanner when the dogfood assembly is av
 old split-based helper kept as the fallback. Completion receiver-context classification also routes
 through the compiled N# classifier
 when the dogfood assembly is available, with the old C# helper kept as the fallback.
+`CompletionEngine` member-access result grouping now routes through the compiled N# completion-item
+grouping kernel when the dogfood assembly is available, preserving the previous pluralized group
+keys and first-seen item-kind ordering, with the previous LINQ `GroupBy`/`ToList` path kept as the
+fallback.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
@@ -760,6 +780,9 @@ CLI/daemon member-access completion now routes position-aware receiver identifie
 same compact `SemanticModel` cache and the compiled N# semantic-scope lookup kernel when the dogfood
 assembly is available, with the previous `SemanticModel.LookupIdentifierAtPosition` path kept as the
 fallback and the existing flat lookup still used as the last receiver fallback.
+CLI/daemon member-access completion also routes public completion-item kind grouping through the
+compiled N# grouping kernel when the dogfood assembly is available, with the previous LINQ
+`GroupBy`/`ToList` shape kept as the fallback.
 `nlc query batch` duplicate request-id validation now routes through the compiled N# compact-rank
 duplicate detector when the dogfood assembly is available, preserving the previous sorted ordinal
 duplicate-id error output, with the previous LINQ grouping path kept as the fallback.
@@ -769,7 +792,7 @@ counting-sort kernel when the dogfood assembly is available, preserving the prev
 ordering path kept as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
-completion-prefix, completion receiver-context, doc-comment, strict editor identifier,
+completion-prefix, completion receiver-context, completion item grouping, doc-comment, strict editor identifier,
 declaration-name match, scoped visible-variable, scoped identifier-lookup, and
 variable-declaration-name queries, plus diagnostic cluster trait classifications and diagnostic
 severity summaries, compact diagnostic cluster grouping, diagnostic deduplication, reference result
@@ -781,7 +804,7 @@ for duplicate batch request ids and `nlc doc` symbol ordering;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
-completion-prefix, completion receiver-context, hover doc-comment, strict reference/rename
+completion-prefix, completion receiver-context, completion item grouping, hover doc-comment, strict reference/rename
 declaration-name guard, analyzer declaration-name column lookup, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
 `GetDiagnostics` stable diagnostic deduplication, and semantic reference result deduplication/order
@@ -789,7 +812,8 @@ slices, plus strict binding candidate-column ordering, strict semantic binding l
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
 same-file declaration lookup in the source-context definition fallback, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
-member-access completion, plus batch duplicate-id validation in `nlc query batch`.
+member-access completion plus grouped member-completion output, plus batch duplicate-id validation
+in `nlc query batch`.
 `nlc doc` symbol filtering and ordering is also routed through the compiled N# doc-ordering kernel.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
@@ -879,7 +903,8 @@ span outputs avoid split-and-trim allocation for reference output, and the produ
 materializes reference contexts from those spans. Diagnostic snippets, completion prefixes, and hover
 doc comments now use the same cached-line-range shape for their extraction steps. Completion
 receiver-context classification is also dogfooded, including literal receiver handling and
-method-call receiver normalization, but semantic member lookup and completion item construction
+method-call receiver normalization. Completion item grouping is dogfooded for member-access
+completion output, but semantic member lookup and completion item construction
 remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output

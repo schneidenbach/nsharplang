@@ -225,6 +225,26 @@ func documented(): int {
         Assert.Equal(false, identifierCompletionArgs[1]);
         Assert.Null(identifierCompletionArgs[2]);
 
+        var tryAddGroupedCompletionItemsByKind = adapterType.GetMethod(
+                "TryAddGroupedCompletionItemsByKind",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryAddGroupedCompletionItemsByKind.");
+        var completionItems = new List<CompletionItem>
+        {
+            new("WriteLine", "method", "void", "()", null, true),
+            new("Length", "property", "int", null, null, false),
+            new("ToString", "method", "string", "()", null, false),
+            new("MaxValue", "field", "int", null, null, true),
+            new("Count", "property", "int", null, null, false)
+        };
+        var groupedCompletions = new Dictionary<string, List<CompletionItem>>();
+        var groupingAdapterArgs = new object?[] { completionItems, groupedCompletions };
+        Assert.True((bool)(tryAddGroupedCompletionItemsByKind.Invoke(null, groupingAdapterArgs) ?? false));
+        Assert.Equal(new[] { "methods", "properties", "fields" }, groupedCompletions.Keys.ToArray());
+        Assert.Equal(new[] { "WriteLine", "ToString" }, groupedCompletions["methods"].Select(static item => item.Name));
+        Assert.Equal(new[] { "Length", "Count" }, groupedCompletions["properties"].Select(static item => item.Name));
+        Assert.Equal("MaxValue", Assert.Single(groupedCompletions["fields"]).Name);
+
         var tryExtractVariableDeclarationName = adapterType.GetMethod(
                 "TryExtractVariableDeclarationName",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -642,6 +662,14 @@ func documented(): int {
                     "CodeIntelligenceCompletionReceiversInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionReceiversInto.");
+            var completionItemKindGroupsInto = programType.GetMethod(
+                    "CompletionItemKindGroupsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CompletionItemKindGroupsInto.");
+            var completionItemKindGroupChecksumInto = programType.GetMethod(
+                    "CompletionItemKindGroupChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CompletionItemKindGroupChecksumInto.");
             var cliTryParsePositionInto = programType.GetMethod(
                     "CliTryParsePositionInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1036,6 +1064,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCompletionReceiversLikeProduction(
                 codeIntelligenceCompletionReceiverChecksumInto,
                 codeIntelligenceCompletionReceiversInto);
+            AssertCompletionItemGroupingLikeProduction(
+                completionItemKindGroupsInto,
+                completionItemKindGroupChecksumInto);
             AssertCliQueryPositionsLikeProduction(
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
@@ -2320,6 +2351,84 @@ func main() {
         Assert.Equal(prefixes.Length, actualCount);
         Assert.Equal(expectedContexts, actualContexts);
         Assert.Equal(expectedReceivers, actualReceivers);
+    }
+
+    private static void AssertCompletionItemGroupingLikeProduction(
+        MethodInfo completionItemKindGroupsInto,
+        MethodInfo completionItemKindGroupChecksumInto)
+    {
+        var kindIds = new[] { 2, 1, 2, 3, 1 };
+        var kindCounts = new int[4];
+        var kindOffsets = new int[4];
+        var resultKindIds = new int[kindIds.Length];
+        var resultStarts = new int[kindIds.Length];
+        var resultCounts = new int[kindIds.Length];
+        var resultIndices = new int[kindIds.Length];
+
+        var groupCount = (int)(completionItemKindGroupsInto.Invoke(
+            null,
+            new object[] { kindIds, kindCounts, kindOffsets, resultKindIds, resultStarts, resultCounts, resultIndices }) ?? -1);
+
+        Assert.Equal(3, groupCount);
+        Assert.Equal(new[] { 2, 1, 3 }, resultKindIds.Take(groupCount));
+        Assert.Equal(new[] { 0, 2, 4 }, resultStarts.Take(groupCount));
+        Assert.Equal(new[] { 2, 2, 1 }, resultCounts.Take(groupCount));
+        Assert.Equal(new[] { 0, 2, 1, 4, 3 }, resultIndices);
+
+        var checksumKindCounts = new int[4];
+        var checksumKindOffsets = new int[4];
+        var checksumResultKindIds = new int[kindIds.Length];
+        var checksumResultStarts = new int[kindIds.Length];
+        var checksumResultCounts = new int[kindIds.Length];
+        var checksumResultIndices = new int[kindIds.Length];
+        var expectedChecksum = CompletionItemKindGroupingChecksum(
+            resultKindIds,
+            resultStarts,
+            resultCounts,
+            resultIndices,
+            groupCount);
+        var actualChecksum = (int)(completionItemKindGroupChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                kindIds,
+                checksumKindCounts,
+                checksumKindOffsets,
+                checksumResultKindIds,
+                checksumResultStarts,
+                checksumResultCounts,
+                checksumResultIndices
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(resultKindIds, checksumResultKindIds);
+        Assert.Equal(resultStarts, checksumResultStarts);
+        Assert.Equal(resultCounts, checksumResultCounts);
+        Assert.Equal(resultIndices, checksumResultIndices);
+    }
+
+    private static int CompletionItemKindGroupingChecksum(
+        int[] resultKindIds,
+        int[] resultStarts,
+        int[] resultCounts,
+        int[] resultIndices,
+        int groupCount)
+    {
+        var checksum = groupCount;
+        for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+        {
+            var start = resultStarts[groupIndex];
+            var count = resultCounts[groupIndex];
+            checksum += resultKindIds[groupIndex] * 97 + start * 31 + count * 17;
+
+            for (var itemIndex = 0; itemIndex < count; itemIndex++)
+            {
+                var sourceIndex = resultIndices[start + itemIndex];
+                checksum += (sourceIndex + 1) * 13 + (itemIndex + 1) * 7;
+            }
+        }
+
+        return checksum;
     }
 
     private static void AssertCliQueryPositionsLikeProduction(
