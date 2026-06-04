@@ -117,17 +117,12 @@ Exit codes:
         var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
         var backendOption = GetOptionValue(args, "--backend");
         var projectOption = GetOptionValue(args, "--project");
-        args = args.Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot").ToArray();
-        // Strip --output/-o and its value from positional args
-        args = StripOptionWithValue(args, "--output");
-        args = StripOptionWithValue(args, "-o");
-        args = StripOptionWithValue(args, "--backend");
-        args = StripOptionWithValue(args, "--project");
+        var buildOperands = GetBuildOperandSummary(args);
 
         try
         {
             // Support both single-file and multi-file builds
-            if (args.Length == 0)
+            if (buildOperands.Count == 0)
             {
                 var projectRoot = projectOption != null
                     ? Path.GetFullPath(projectOption)
@@ -147,7 +142,7 @@ Exit codes:
                 return buildResult;
             }
 
-            var sourceFile = args[0];
+            var sourceFile = buildOperands.FirstOperand!;
             if (!File.Exists(sourceFile))
             {
                 return Error($"File not found: {sourceFile}");
@@ -1321,6 +1316,35 @@ Exit codes:
         }
 
         return null;
+    }
+
+    private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
+
+    static BuildOperandSummary GetBuildOperandSummary(string[] args)
+    {
+        if (NSharpCliDogfoodAdapter.TryGetBuildOperandSummary(args, out var count, out var firstOperandIndex))
+        {
+            return new BuildOperandSummary(
+                count,
+                count > 0 ? args[firstOperandIndex] : null);
+        }
+
+        var operands = GetBuildOperandArgsWithCSharp(args);
+        return new BuildOperandSummary(
+            operands.Length,
+            operands.Length > 0 ? operands[0] : null);
+    }
+
+    static string[] GetBuildOperandArgsWithCSharp(string[] args)
+    {
+        args = args
+            .Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot")
+            .ToArray();
+        args = StripOptionWithValue(args, "--output");
+        args = StripOptionWithValue(args, "-o");
+        args = StripOptionWithValue(args, "--backend");
+        args = StripOptionWithValue(args, "--project");
+        return args;
     }
 
     static int? ParseDurationToMs(string duration)

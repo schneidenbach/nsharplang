@@ -775,6 +775,18 @@ func documented(): int {
                     "CliPositionalArgIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPositionalArgIndicesInto.");
+            var cliBuildOperandIndicesInto = programType.GetMethod(
+                    "CliBuildOperandIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOperandIndicesInto.");
+            var cliBuildOperandSummaryInto = programType.GetMethod(
+                    "CliBuildOperandSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOperandSummaryInto.");
+            var cliBuildFirstOperandIndexInto = programType.GetMethod(
+                    "CliBuildFirstOperandIndexInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildFirstOperandIndexInto.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1234,6 +1246,10 @@ func main(customer: Customer, résumé: Profile) {
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
                 cliQueryPositionChecksumInto);
+            AssertCliBuildOperandsLikeProduction(
+                cliBuildOperandIndicesInto,
+                cliBuildOperandSummaryInto,
+                cliBuildFirstOperandIndexInto);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -2823,6 +2839,118 @@ func main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static void AssertCliBuildOperandsLikeProduction(
+        MethodInfo cliBuildOperandIndicesInto,
+        MethodInfo cliBuildOperandSummaryInto,
+        MethodInfo cliBuildFirstOperandIndexInto)
+    {
+        var cases = new[]
+        {
+            new[]
+            {
+                "--release",
+                "--verbose",
+                "--timings",
+                "--perf-report",
+                "--aot",
+                "--output",
+                "dist",
+                "-o",
+                "bin/out",
+                "--backend",
+                "il",
+                "--project",
+                "samples/demo",
+                "Program.nl"
+            },
+            new[] { "--output", "--release", "Program.nl" },
+            new[] { "--output", "--backend", "il", "Program.nl" },
+            new[] { "--project" },
+            new[] { "--backend", "il", "--project", "samples/demo" },
+            new[] { "Program.nl", "--release", "--backend", "il", "Extra.nl" },
+            Array.Empty<string>()
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliBuildOperandIndices(args);
+            var kindIds = new int[args.Length];
+            var nextIndices = new int[args.Length];
+            var previousIndices = new int[args.Length];
+            var nextOptionIndices = new int[args.Length];
+            var resultIndices = new int[args.Length];
+            var actualCount = (int)(cliBuildOperandIndicesInto.Invoke(
+                null,
+                new object[] { args, kindIds, nextIndices, previousIndices, nextOptionIndices, resultIndices }) ?? -1);
+
+            Assert.Equal(expected.Length, actualCount);
+            Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+            Array.Clear(kindIds);
+            Array.Clear(nextIndices);
+            Array.Clear(previousIndices);
+            Array.Clear(nextOptionIndices);
+            Array.Clear(resultIndices);
+            var summaryCount = (int)(cliBuildOperandSummaryInto.Invoke(
+                null,
+                new object[] { args, kindIds, nextIndices, previousIndices, nextOptionIndices, resultIndices }) ?? -1);
+
+            Assert.Equal(expected.Length, summaryCount);
+            if (expected.Length == 0)
+            {
+                Assert.True(resultIndices.Length == 0 || resultIndices[0] == -1);
+            }
+            else
+            {
+                Assert.Equal(expected[0], resultIndices[0]);
+            }
+
+            Array.Clear(kindIds);
+            Array.Clear(nextIndices);
+            Array.Clear(previousIndices);
+            Array.Clear(nextOptionIndices);
+            Array.Clear(resultIndices);
+            var firstOperandIndex = (int)(cliBuildFirstOperandIndexInto.Invoke(
+                null,
+                new object[] { args, kindIds, nextIndices, previousIndices, nextOptionIndices, resultIndices }) ?? -2);
+
+            Assert.Equal(expected.Length == 0 ? -1 : expected[0], firstOperandIndex);
+        }
+    }
+
+    private static int[] CreateExpectedCliBuildOperandIndices(string[] args)
+    {
+        var remaining = args
+            .Select((arg, index) => (arg, index))
+            .Where(entry => entry.arg is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot")
+            .ToArray();
+
+        remaining = StripExpectedBuildOptionWithValue(remaining, "--output");
+        remaining = StripExpectedBuildOptionWithValue(remaining, "-o");
+        remaining = StripExpectedBuildOptionWithValue(remaining, "--backend");
+        remaining = StripExpectedBuildOptionWithValue(remaining, "--project");
+        return remaining.Select(entry => entry.index).ToArray();
+    }
+
+    private static (string arg, int index)[] StripExpectedBuildOptionWithValue(
+        (string arg, int index)[] args,
+        string flag)
+    {
+        var result = new List<(string arg, int index)>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i].arg == flag && i + 1 < args.Length)
+            {
+                i++;
+                continue;
+            }
+
+            result.Add(args[i]);
+        }
+
+        return result.ToArray();
     }
 
     private static void AssertCliPositionalArgsLikeProduction(

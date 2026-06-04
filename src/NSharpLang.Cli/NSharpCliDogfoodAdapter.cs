@@ -13,6 +13,8 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static BatchDuplicateIdScratch? t_batchDuplicateIdScratch;
     [ThreadStatic]
+    private static BuildOperandScratch? t_buildOperandScratch;
+    [ThreadStatic]
     private static DocSymbolOrderScratch? t_docSymbolOrderScratch;
     [ThreadStatic]
     private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
@@ -20,6 +22,48 @@ internal static class NSharpCliDogfoodAdapter
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
     internal static bool IsAvailable => s_bindings.Value != null;
+
+    internal static bool TryGetBuildOperandSummary(string[] args, out int count, out int firstOperandIndex)
+    {
+        count = 0;
+        firstOperandIndex = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (args.Length == 0)
+            return true;
+
+        var scratch = t_buildOperandScratch ??= new BuildOperandScratch();
+        scratch.EnsureCapacity(args.Length);
+
+        try
+        {
+            firstOperandIndex = bindings.CliBuildFirstOperandIndex(
+                args,
+                scratch.KindIds,
+                scratch.NextIndices,
+                scratch.PreviousIndices,
+                scratch.NextOptionIndices,
+                scratch.ResultIndices);
+            if (firstOperandIndex < -1 || firstOperandIndex >= args.Length)
+            {
+                count = 0;
+                firstOperandIndex = -1;
+                return false;
+            }
+
+            count = firstOperandIndex >= 0 ? 1 : 0;
+            return true;
+        }
+        catch
+        {
+            count = 0;
+            firstOperandIndex = -1;
+            return false;
+        }
+    }
 
     internal static bool TryGetFirstPositionalArg(
         string[] args,
@@ -279,6 +323,7 @@ internal static class NSharpCliDogfoodAdapter
                 return null;
 
             return new Bindings(
+                CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
@@ -316,6 +361,14 @@ internal static class NSharpCliDogfoodAdapter
         return (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), method);
     }
 
+    private delegate int CliBuildFirstOperandIndexInto(
+        string[] args,
+        int[] kindIds,
+        int[] nextIndices,
+        int[] previousIndices,
+        int[] nextOptionIndices,
+        int[] resultIndices);
+
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
         string[] optionsWithValues);
@@ -349,6 +402,7 @@ internal static class NSharpCliDogfoodAdapter
         int[] resultIndices);
 
     private sealed record Bindings(
+        CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
@@ -378,6 +432,27 @@ internal static class NSharpCliDogfoodAdapter
             SymbolKind.Variable => 16,
             _ => 100
         };
+
+    private sealed class BuildOperandScratch
+    {
+        public int[] KindIds = Array.Empty<int>();
+        public int[] NextIndices = Array.Empty<int>();
+        public int[] NextOptionIndices = Array.Empty<int>();
+        public int[] PreviousIndices = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (KindIds.Length != count)
+            {
+                KindIds = new int[count];
+                NextIndices = new int[count];
+                NextOptionIndices = new int[count];
+                PreviousIndices = new int[count];
+                ResultIndices = new int[count];
+            }
+        }
+    }
 
     private sealed class BatchDuplicateIdScratch
     {

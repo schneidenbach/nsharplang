@@ -835,6 +835,13 @@ Current CLI dogfood benchmarks:
   The accepted N# candidate returns the first positional source index through
   `CliFirstPositionalArgIndex`, letting the host read only that string and skip the rest of the
   positional materialization.
+- `CliBuildArgumentNormalizationBenchmarks` targets `nlc build` source-file operand discovery. The
+  C# baseline mirrors the current build command shape: remove value-less build flags with LINQ, run
+  four option-with-value stripping passes, materialize the normalized operand array, then read the
+  first operand. The accepted N# candidate returns the first source operand index through
+  `CliBuildFirstOperandIndexInto`; it exits immediately for the common source-first path and falls
+  back to an exact linked-list scratch routine when leading options require the existing stripping
+  order.
 - `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
   The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
   `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
@@ -886,6 +893,17 @@ corpus (48.34 ns vs 8.872 us, 0 B vs 22,296 B) and about 1,676x faster on the la
 argument corpus (48.22 ns vs 80.838 us, 0 B vs 175,280 B). This is acceptance-grade benchmark
 evidence for `nlc new`, `nlc check`, and `nlc fix` first positional project/operand discovery when
 those commands do not need the full positional list.
+
+`CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
+returns the first source operand index directly instead of materializing the build command's
+normalized operand array; leading-option cases still use the exact linked-list fallback to preserve
+the current `--output`, `-o`, `--backend`, `--project` stripping order. It ran about 1,262x faster
+on the representative source-first argument corpus (7.395 ns vs 9.332 us, 0 B vs 62,072 B) and
+about 9,618x faster on the large generated source-first argument corpus (7.491 ns vs 72.047 us,
+0 B vs 489,152 B). This is acceptance-grade benchmark evidence for `nlc build Program.nl ...`
+single-file route selection; commands that need every normalized build operand remain covered by
+the all-positionals pressure note above.
 
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path
@@ -965,6 +983,10 @@ severity filter when the dogfood assembly is available, with the previous C# LIN
 `nlc new`, `nlc check`, and `nlc fix` now route first positional project/operand discovery through
 `NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which calls the compiled N# first-index scanner
 when the dogfood assembly is available, with the previous C# positional scan kept as the fallback.
+`nlc build` now routes source-file operand discovery through
+`NSharpCliDogfoodAdapter.TryGetBuildOperandSummary`, which calls the compiled N# first-operand
+scanner when the dogfood assembly is available, with the previous C# build-argument normalization
+kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -1038,7 +1060,7 @@ diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, CLI first positional-argument
-discovery, text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
+discovery, CLI build first source-operand discovery, text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc doc` symbol/member
 ordering, `nlc tree` dependency deduplication, and `nlc query diagnostics --severity` filtering;
@@ -1064,7 +1086,8 @@ output, plus batch duplicate-id validation in `nlc query batch` and generated do
 ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
 batch diagnostics, and daemon diagnostics, plus first positional project/operand discovery in
-`nlc new`, `nlc check`, and `nlc fix`, plus inspect-summary reference-file ordering in `nlc query inspect`.
+`nlc new`, `nlc check`, and `nlc fix`, plus first source-file route selection in `nlc build`,
+plus inspect-summary reference-file ordering in `nlc query inspect`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
 Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are

@@ -499,6 +499,194 @@ public class CliFirstPositionalArgumentBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for <c>nlc build</c> operand normalization. The C# baseline mirrors the
+/// current command parser: remove value-less build flags with LINQ, then run four
+/// option-with-value stripping passes that allocate intermediate arrays. The N# candidate returns
+/// only the first operand needed by <c>BuildCommand</c>, with a source-first fast path and an exact
+/// linked-list fallback for leading options.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliBuildArgumentNormalizationBenchmarks
+{
+    private const int LargeArgumentCount = 8192;
+    private const int RepresentativeArgumentCount = 1024;
+
+    private Func<string[], int[], int[], int[], int[], int[], int> _nsharpCliBuildFirstOperandIndexInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _args = Array.Empty<string>();
+    private int _csharpCount;
+    private string? _csharpFirstOperand;
+    private string[] _csharpResult = Array.Empty<string>();
+    private int[] _nsharpKindIds = Array.Empty<int>();
+    private int[] _nsharpNextIndices = Array.Empty<int>();
+    private int[] _nsharpNextOptionIndices = Array.Empty<int>();
+    private int[] _nsharpPreviousIndices = Array.Empty<int>();
+    private int _nsharpCount;
+    private string? _nsharpFirstOperand;
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var argumentCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeArgumentCount
+            : LargeArgumentCount;
+        _nsharpCliBuildFirstOperandIndexInto =
+            NSharpCompiledMethod.Bind<Func<string[], int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliBuildFirstOperandIndexInto");
+
+        _args = BuildBuildArguments(argumentCount);
+        _nsharpKindIds = new int[argumentCount];
+        _nsharpNextIndices = new int[argumentCount];
+        _nsharpNextOptionIndices = new int[argumentCount];
+        _nsharpPreviousIndices = new int[argumentCount];
+        _nsharpResultIndices = new int[argumentCount];
+
+        var expectedChecksum = CSharpBuildArgs_NormalizeOperands();
+        var actualChecksum = NSharpBuildArgs_FindFirstOperand();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI build argument checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (_csharpCount != _nsharpCount || _csharpFirstOperand != _nsharpFirstOperand)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI build argument first-operand mismatch for {Corpus}: " +
+                $"expected ({_csharpCount}, {FormatArg(_csharpFirstOperand)}), " +
+                $"got ({_nsharpCount}, {FormatArg(_nsharpFirstOperand)}).");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpBuildArgs_NormalizeOperands()
+    {
+        var args = _args
+            .Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot")
+            .ToArray();
+        args = StripOptionWithValue(args, "--output");
+        args = StripOptionWithValue(args, "-o");
+        args = StripOptionWithValue(args, "--backend");
+        args = StripOptionWithValue(args, "--project");
+        _csharpResult = args;
+        _csharpCount = args.Length > 0 ? 1 : 0;
+        _csharpFirstOperand = args.Length > 0 ? args[0] : null;
+        return ChecksumBuildOperandSummary(_csharpCount, _csharpFirstOperand);
+    }
+
+    [Benchmark]
+    public int NSharpBuildArgs_FindFirstOperand()
+    {
+        var sourceIndex = _nsharpCliBuildFirstOperandIndexInto(
+            _args,
+            _nsharpKindIds,
+            _nsharpNextIndices,
+            _nsharpPreviousIndices,
+            _nsharpNextOptionIndices,
+            _nsharpResultIndices);
+        if (sourceIndex < -1 || sourceIndex >= _args.Length)
+            throw new InvalidOperationException($"N# CLI build argument source index out of range: {sourceIndex}.");
+
+        _nsharpCount = sourceIndex >= 0 ? 1 : 0;
+        _nsharpFirstOperand = null;
+        if (sourceIndex >= 0)
+        {
+            _nsharpFirstOperand = _args[sourceIndex];
+        }
+
+        return ChecksumBuildOperandSummary(_nsharpCount, _nsharpFirstOperand);
+    }
+
+    private static string[] StripOptionWithValue(string[] args, string flag)
+    {
+        var result = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == flag && i + 1 < args.Length)
+            {
+                i++;
+                continue;
+            }
+
+            result.Add(args[i]);
+        }
+
+        return result.ToArray();
+    }
+
+    private static string[] BuildBuildArguments(int count)
+    {
+        var args = new string[count];
+        var seeds = new[]
+        {
+            "--release",
+            "--verbose",
+            "--timings",
+            "--perf-report",
+            "--aot",
+            "--output",
+            "dist",
+            "-o",
+            "bin/out",
+            "--backend",
+            "il",
+            "--project",
+            "samples/demo",
+            "Program.nl",
+            "Extra.nl",
+            "--unknown",
+            "value-after-unknown",
+            "--output",
+            "--backend",
+            "nested-edge.nl"
+        };
+
+        for (var i = 0; i < count; i++)
+        {
+            if (i % 41 == 0)
+            {
+                args[i] = $"generated/File{i}.nl";
+                continue;
+            }
+
+            if (i % 67 == 0)
+            {
+                args[i] = $"operand-{i}";
+                continue;
+            }
+
+            args[i] = seeds[i % seeds.Length];
+        }
+
+        return args;
+    }
+
+    private static int ChecksumBuildOperandSummary(int count, string? firstOperand)
+    {
+        var checksum = count * 397;
+        if (firstOperand == null)
+            return checksum;
+
+        checksum += firstOperand.Length * 31;
+        for (var i = 0; i < firstOperand.Length; i++)
+        {
+            checksum += firstOperand[i] * (i + 1);
+        }
+
+        return checksum;
+    }
+
+    private static string FormatArg(string? arg) => arg == null ? "<missing>" : $"\"{arg}\"";
+}
+
+/// <summary>
 /// Dogfood benchmark for duplicate request-id validation in <c>nlc query batch</c>.
 /// </summary>
 [MemoryDiagnoser]
