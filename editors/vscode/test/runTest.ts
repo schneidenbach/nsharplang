@@ -8,6 +8,8 @@ async function main() {
         const extensionDevelopmentPath = path.resolve(__dirname, '../../');
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
         const vscodeVersion = getVSCodeTestVersion();
+        const vscodeCachePath = process.env.NSHARP_VSCODE_TEST_CACHE?.trim();
+        const profileParent = process.env.NSHARP_VSCODE_PROFILE_ROOT?.trim() || os.tmpdir();
 
         // Default to the simple fixture workspace
         const testWorkspace = process.env.TEST_WORKSPACE
@@ -17,7 +19,8 @@ async function main() {
         // (macOS limits Unix domain sockets to 104 chars) and isolate installed user extensions.
         // Do not pass --disable-extensions: VS Code 1.120 can leave the extension-test host
         // waiting forever before the test entrypoint runs when that global switch is present.
-        const profileRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ns-test-'));
+        fs.mkdirSync(profileParent, { recursive: true });
+        const profileRoot = fs.mkdtempSync(path.join(profileParent, 'ns-test-'));
         const userDataDir = path.join(profileRoot, 'user-data');
         const extensionsDir = path.join(profileRoot, 'extensions');
         fs.mkdirSync(userDataDir, { recursive: true });
@@ -30,6 +33,10 @@ async function main() {
         console.log(`UserData:  ${userDataDir}`);
         if (vscodeVersion) {
             console.log(`VS Code:   ${vscodeVersion}`);
+        }
+        if (vscodeCachePath) {
+            console.log(`Cache:     ${vscodeCachePath}`);
+            fs.mkdirSync(vscodeCachePath, { recursive: true });
         }
 
         // Pass test filtering env vars through to the VS Code instance
@@ -48,6 +55,7 @@ async function main() {
             extensionTestsPath,
             extensionTestsEnv,
             version: vscodeVersion,
+            cachePath: vscodeCachePath,
             launchArgs: [
                 testWorkspace,
                 '--disable-workspace-trust',
@@ -66,6 +74,7 @@ async function main() {
                 'github.copilot',
                 '--disable-extension',
                 'github.copilot-chat',
+                '--disable-gpu',
                 `--user-data-dir=${userDataDir}`,
                 `--extensions-dir=${extensionsDir}`,
             ],

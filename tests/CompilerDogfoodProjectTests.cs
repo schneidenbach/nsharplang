@@ -168,6 +168,16 @@ func documented(): int {
         var noVariableNameArgs = new object?[] { snapshot, filePath, source, 3, null };
         Assert.True((bool)(tryExtractVariableDeclarationName.Invoke(null, noVariableNameArgs) ?? false));
         Assert.Null(noVariableNameArgs[4]);
+
+        var tryClassifyDiagnosticClusterTraits = adapterType.GetMethod(
+                "TryClassifyDiagnosticClusterTraits",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryClassifyDiagnosticClusterTraits.");
+        var diagnostics = BuildDiagnosticClusterTraitDiagnostics();
+        var classificationArgs = new object?[] { diagnostics, null, null };
+        Assert.True((bool)(tryClassifyDiagnosticClusterTraits.Invoke(null, classificationArgs) ?? false));
+        Assert.Equal(new[] { 1, 0, 2, 3, 4, 5, 6, 7 }, Assert.IsType<int[]>(classificationArgs[1]));
+        Assert.Equal(new[] { 1, 0, 4, 0, 2, 5, 7, 8 }, Assert.IsType<int[]>(classificationArgs[2]));
     }
 
     [Fact]
@@ -343,6 +353,22 @@ func documented(): int {
                     "CodeIntelligenceVariableDeclarationNamesFromCacheInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceVariableDeclarationNamesFromCacheInto.");
+            var diagnosticClusterTraitsInto = programType.GetMethod(
+                    "DiagnosticClusterTraitsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterTraitsInto.");
+            var diagnosticClusterTraitChecksumInto = programType.GetMethod(
+                    "DiagnosticClusterTraitChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterTraitChecksumInto.");
+            var diagnosticClusterTraitPatternChecksumInto = programType.GetMethod(
+                    "DiagnosticClusterTraitPatternChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterTraitPatternChecksumInto.");
+            var diagnosticClusterTraitsAndPatternsInto = programType.GetMethod(
+                    "DiagnosticClusterTraitsAndPatternsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticClusterTraitsAndPatternsInto.");
 
             const string source = """"
 import System
@@ -583,6 +609,11 @@ func main() {
                 codeIntelligenceVariableDeclarationNamesInto,
                 buildCodeIntelligenceVariableDeclarationNameCacheInto,
                 codeIntelligenceVariableDeclarationNamesFromCacheInto);
+            AssertDiagnosticClusterTraitsLikeProduction(
+                diagnosticClusterTraitsInto,
+                diagnosticClusterTraitChecksumInto,
+                diagnosticClusterTraitPatternChecksumInto,
+                diagnosticClusterTraitsAndPatternsInto);
         }
         finally
         {
@@ -1781,6 +1812,242 @@ func main() {
         Assert.Equal(expectedCount, cachedMatchCount);
         Assert.Equal(expectedStarts, cachedStarts);
         Assert.Equal(expectedLengths, cachedLengths);
+    }
+
+    private static void AssertDiagnosticClusterTraitsLikeProduction(
+        MethodInfo diagnosticClusterTraitsInto,
+        MethodInfo diagnosticClusterTraitChecksumInto,
+        MethodInfo diagnosticClusterTraitPatternChecksumInto,
+        MethodInfo diagnosticClusterTraitsAndPatternsInto)
+    {
+        var diagnostics = BuildDiagnosticClusterTraitDiagnostics();
+        var codes = diagnostics.Select(static diagnostic => diagnostic.Code).ToArray();
+        var messages = diagnostics.Select(static diagnostic => diagnostic.Message).ToArray();
+        var snippets = diagnostics.Select(static diagnostic => diagnostic.SourceSnippet ?? string.Empty).ToArray();
+        var expectedCategories = new[] { 1, 0, 2, 3, 4, 5, 6, 7 };
+        var expectedSourceConstructs = new[] { 1, 0, 4, 0, 2, 5, 7, 8 };
+        var expectedPatterns = new[]
+        {
+            "Expected token {value} at line #",
+            "Missing semicolon after {value}",
+            "Circular import detected",
+            "Undefined variable {value}",
+            "Type not found {value}",
+            "Type mismatch: expected Int##",
+            "Member {value} does not exist",
+            "unknown-message"
+        };
+
+        var checksumCategories = new int[diagnostics.Count];
+        var checksumSourceConstructs = new int[diagnostics.Count];
+        var actualChecksum = (int)(diagnosticClusterTraitChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                codes,
+                messages,
+                snippets,
+                checksumCategories,
+                checksumSourceConstructs
+            }) ?? -1);
+
+        var expectedChecksum = diagnostics.Count;
+        for (var i = 0; i < diagnostics.Count; i++)
+        {
+            expectedChecksum += expectedCategories[i] * 31 + expectedSourceConstructs[i] * 17;
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedCategories, checksumCategories);
+        Assert.Equal(expectedSourceConstructs, checksumSourceConstructs);
+
+        var actualCategories = new int[diagnostics.Count];
+        var actualSourceConstructs = new int[diagnostics.Count];
+        var actualTraitCount = (int)(diagnosticClusterTraitsInto.Invoke(
+            null,
+            new object[]
+            {
+                codes,
+                messages,
+                snippets,
+                actualCategories,
+                actualSourceConstructs
+            }) ?? -1);
+
+        Assert.Equal(diagnostics.Count, actualTraitCount);
+        Assert.Equal(expectedCategories, actualCategories);
+        Assert.Equal(expectedSourceConstructs, actualSourceConstructs);
+
+        var patternChecksumCategories = new int[diagnostics.Count];
+        var patternChecksumSourceConstructs = new int[diagnostics.Count];
+        var patternChecksumPatterns = new string[diagnostics.Count];
+        var actualPatternChecksum = (int)(diagnosticClusterTraitPatternChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                codes,
+                messages,
+                snippets,
+                patternChecksumCategories,
+                patternChecksumSourceConstructs,
+                patternChecksumPatterns
+            }) ?? -1);
+
+        var expectedPatternChecksum = diagnostics.Count;
+        for (var i = 0; i < diagnostics.Count; i++)
+        {
+            expectedPatternChecksum += expectedCategories[i] * 31 + expectedSourceConstructs[i] * 17 + expectedPatterns[i].Length;
+        }
+
+        Assert.Equal(expectedPatternChecksum, actualPatternChecksum);
+        Assert.Equal(expectedCategories, patternChecksumCategories);
+        Assert.Equal(expectedSourceConstructs, patternChecksumSourceConstructs);
+        Assert.Equal(expectedPatterns, patternChecksumPatterns);
+
+        var actualPatterns = new string[diagnostics.Count];
+        var actualCount = (int)(diagnosticClusterTraitsAndPatternsInto.Invoke(
+            null,
+            new object[]
+            {
+                codes,
+                messages,
+                snippets,
+                actualCategories,
+                actualSourceConstructs,
+                actualPatterns
+            }) ?? -1);
+
+        Assert.Equal(diagnostics.Count, actualCount);
+        Assert.Equal(expectedCategories, actualCategories);
+        Assert.Equal(expectedSourceConstructs, actualSourceConstructs);
+        Assert.Equal(expectedPatterns, actualPatterns);
+    }
+
+    private static List<DiagnosticResult> BuildDiagnosticClusterTraitDiagnostics()
+    {
+        return new List<DiagnosticResult>
+        {
+            new(
+                "NL102",
+                "error",
+                "Expected token '}' at line 7",
+                "Program.nl",
+                1,
+                1,
+                1,
+                "static func Run() {",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+            new(
+                "NL102",
+                "error",
+                "Missing semicolon after \"value\"",
+                "Program.nl",
+                2,
+                5,
+                1,
+                "let value = 1",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+            new(
+                "NL703",
+                "error",
+                "Circular import detected",
+                "Imports.nl",
+                1,
+                1,
+                1,
+                "import Foo",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+            new(
+                "NL301",
+                "error",
+                "Undefined variable 'foo'",
+                "Program.nl",
+                3,
+                14,
+                7,
+                "    value := foo",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+            new(
+                "NL201",
+                "error",
+                "Type not found 'Widget'",
+                "Models.nl",
+                1,
+                7,
+                6,
+                "class Person {",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+            new(
+                "NL202",
+                "error",
+                "Type mismatch: expected Int32",
+                "Program.nl",
+                4,
+                12,
+                5,
+                "return value",
+                null,
+                null,
+                null,
+                "Int32",
+                "string",
+                null),
+            new(
+                "NL303",
+                "error",
+                "Member 'Absent' does not exist",
+                "Program.nl",
+                5,
+                14,
+                7,
+                "customer.Name()",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null),
+            new(
+                "NL999",
+                "warning",
+                "   ",
+                "Program.nl",
+                6,
+                1,
+                1,
+                "   ",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null)
+        };
     }
 
     private static (int StartColumn, int Length) FindFirstIdentifierSpan(string lineText)

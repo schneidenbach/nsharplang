@@ -1,6 +1,7 @@
 import * as path from 'path';
 import Mocha from 'mocha';
 import { glob } from 'glob';
+import * as vscode from 'vscode';
 
 export async function run(): Promise<void> {
     const mocha = new Mocha({
@@ -70,6 +71,7 @@ export async function run(): Promise<void> {
                 if (failures > 0) {
                     reject(new Error(`${failures} test(s) failed.`));
                 } else {
+                    void vscode.commands.executeCommand('workbench.action.closeWindow');
                     resolve();
                 }
             });

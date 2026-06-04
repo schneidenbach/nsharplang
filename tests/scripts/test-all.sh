@@ -404,6 +404,8 @@ set +e
     export DOTNET_NOLOGO=1
     export NUGET_PACKAGES="$RUN_DEPS/nuget/packages"
     export NPM_CONFIG_CACHE="$RUN_DEPS/npm-cache"
+    export NSHARP_VSCODE_TEST_CACHE="$RUN_DEPS/vscode-test"
+    export NSHARP_VSCODE_PROFILE_ROOT="$RUN_TMP/vscode-profiles"
     export TMPDIR="$RUN_TMP"
     export TMP="$RUN_TMP"
     export TEMP="$RUN_TMP"

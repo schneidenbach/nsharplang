@@ -41,6 +41,9 @@
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/IdentifierSpans.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.IdentifierSpans.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/DiagnosticClusters.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticClusters.nl" />
   </ItemGroup>
 
 </Project>

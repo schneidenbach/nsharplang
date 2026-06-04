@@ -596,11 +596,14 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl";
     private const string IdentifierSpansResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.IdentifierSpans.nl";
+    private const string DiagnosticClustersResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticClusters.nl";
 
     public static string LexerTokenKindScanner => ReadResource(LexerTokenKindScannerResourceName);
     public static string SourceTextLines => ReadResource(SourceTextLinesResourceName);
     public static string CodeIntelligenceIdentifierSpans =>
         ReadResource(IdentifierSpansResourceName) + Environment.NewLine + SourceTextLines;
+    public static string CodeIntelligenceDiagnosticClusters => ReadResource(DiagnosticClustersResourceName);
 
     private static string ReadResource(string resourceName)
     {

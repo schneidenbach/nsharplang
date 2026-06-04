@@ -264,8 +264,17 @@ Current code-intelligence dogfood benchmarks:
   batches by copying cached start/length pairs through
   `CodeIntelligenceVariableDeclarationNamesFromCacheInto`; the production adapter materializes only
   the single requested name.
+- `CompilerServiceCodeIntelligenceDiagnosticClusterTraitBenchmarks` targets diagnostic cluster trait
+  classification used by `nlc query diagnostics --clusters` and clustered check/lint output. The C#
+  baseline mirrors the previous `OutputFormatter` classifier shape: each diagnostic lowercases the
+  message and source snippet, builds a full trait record, normalizes the message pattern string, and
+  allocates the suggested-action array. The N# candidate trusts stable compiler diagnostic codes on
+  the hot path, falls back to message scanning only for unknown codes, and writes compact category
+  and source-construct ids into caller-owned buffers. The formatter still materializes the public
+  JSON `messagePattern` string after this hot trait pass.
 
-The dogfood project now includes `CompilerServices/IdentifierSpans.nl`. `CompilerDogfoodProjectTests`
+The dogfood project now includes `CompilerServices/IdentifierSpans.nl` and
+`CompilerServices/DiagnosticClusters.nl`. `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
 standalone-CR input, Unicode identifier characters, member receivers with whitespace before the dot,
@@ -282,6 +291,8 @@ declaration, `//`, `///`, and `////` prefixes, trimmed content, and empty commen
 Declaration-name match parity covers invalid lines, exact selected declaration spans, mismatched
 selected spans, Unicode names, missing names, and the current substring-search edge where the guard
 can match a declaration name inside a larger token if the caller supplies that name and column. The
+diagnostic cluster trait parity checks known-code classification, unknown-message fallback,
+source-construct inference, and the compatibility message-pattern wrapper. The
 N# candidate imports `System`, uses ASCII fast paths, and falls back to `Char.IsLetterOrDigit` /
 `Char.IsWhiteSpace`, matching the current C# identifier and whitespace rules without putting the
 runtime predicates on the common ASCII path.
@@ -342,6 +353,14 @@ behavior. It ran about 186x faster on the representative corpus (2.686 us vs 499
 vs 129,590,546 B). This is acceptance-grade benchmark evidence for cached editor identifier lookup
 after line ranges are built.
 
+`DiagnosticClusterTraitsInto` passed parity and reported zero managed allocation in the same normal
+BenchmarkDotNet evidence tier for clustered diagnostic category/source-construct classification. It
+ran about 5.82x faster on the representative diagnostic corpus (79.627 us vs 463.578 us, 0 B vs
+2,216,992 B) and about 5.89x faster on the large generated diagnostic corpus (635.812 us vs
+3.746 ms, 0 B vs 17,838,904 B). This is acceptance-grade benchmark evidence for the CLI/query
+diagnostic clustering trait pass; message-pattern materialization intentionally remains in the
+formatter boundary for the public JSON schema.
+
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
@@ -352,10 +371,12 @@ extraction, hover doc-comment extraction, and strict editor word/span extraction
 server, and falls back to the old C# scanners only when the dogfood assembly is unavailable.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
+Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
+ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, doc-comment, strict editor identifier, declaration-name match, and
-variable-declaration-name queries
+variable-declaration-name queries, plus diagnostic cluster trait classifications,
 through the compiled N# methods;
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
@@ -443,8 +464,10 @@ materializes reference contexts from those spans. Diagnostic snippets, completio
 doc comments now use the same cached-line-range shape for their extraction steps. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
-shaping still needs N# implementations. The strict reference/rename declaration-name guard now uses
-the same line-range cache, but the semantic binding tables and lookup policy are still C# host logic.
+shaping still needs N# implementations. Diagnostic cluster trait classification is now dogfooded,
+but message-pattern materialization and full cluster grouping are still C# formatter work. The
+strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
+binding tables and lookup policy are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
 needs N# implementations for semantic lookup, completion construction, output shaping, and CLI
 command orchestration.

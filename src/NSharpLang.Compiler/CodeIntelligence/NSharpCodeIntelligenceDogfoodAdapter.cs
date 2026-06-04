@@ -289,6 +289,57 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryClassifyDiagnosticClusterTraits(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        out int[] categories,
+        out int[] sourceConstructs)
+    {
+        categories = Array.Empty<int>();
+        sourceConstructs = Array.Empty<int>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var count = diagnostics.Count;
+            var codes = new string[count];
+            var messages = new string[count];
+            var snippets = new string[count];
+            categories = new int[count];
+            sourceConstructs = new int[count];
+
+            for (var i = 0; i < count; i++)
+            {
+                var diagnostic = diagnostics[i];
+                codes[i] = diagnostic.Code ?? string.Empty;
+                messages[i] = diagnostic.Message ?? string.Empty;
+                snippets[i] = diagnostic.SourceSnippet ?? string.Empty;
+            }
+
+            var classified = bindings.DiagnosticClusterTraits(
+                codes,
+                messages,
+                snippets,
+                categories,
+                sourceConstructs);
+
+            if (classified == count)
+                return true;
+
+            categories = Array.Empty<int>();
+            sourceConstructs = Array.Empty<int>();
+            return false;
+        }
+        catch
+        {
+            categories = Array.Empty<int>();
+            sourceConstructs = Array.Empty<int>();
+            return false;
+        }
+    }
+
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
     {
         var snapshotCache = s_snapshotCaches.GetValue(snapshot, static _ => new SnapshotCache());
@@ -316,7 +367,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CodeIntelligenceMemberReceiversFromCacheInto>(programType, "CodeIntelligenceMemberReceiversFromCacheInto"),
                 CreateDelegate<CodeIntelligenceSourceContextsFromLinesInto>(programType, "CodeIntelligenceSourceContextsFromLinesInto"),
                 CreateDelegate<CodeIntelligenceSourceLinesFromLinesInto>(programType, "CodeIntelligenceSourceLinesFromLinesInto"),
-                CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"));
+                CreateDelegate<CodeIntelligenceVariableDeclarationNamesFromCacheInto>(programType, "CodeIntelligenceVariableDeclarationNamesFromCacheInto"),
+                CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"));
         }
         catch
         {
@@ -455,6 +507,13 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] resultStarts,
         int[] resultLengths);
 
+    private delegate int DiagnosticClusterTraitsInto(
+        string[] codes,
+        string[] messages,
+        string[] snippets,
+        int[] resultCategories,
+        int[] resultSourceConstructs);
+
     private sealed record Bindings(
         BuildCodeIntelligenceLineRangesInto BuildLineRanges,
         BuildCodeIntelligenceMemberReceiverCacheInto BuildMemberReceiverCache,
@@ -467,7 +526,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CodeIntelligenceMemberReceiversFromCacheInto MemberReceiversFromCache,
         CodeIntelligenceSourceContextsFromLinesInto SourceContextsFromLines,
         CodeIntelligenceSourceLinesFromLinesInto SourceLinesFromLines,
-        CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache);
+        CodeIntelligenceVariableDeclarationNamesFromCacheInto VariableDeclarationNamesFromCache,
+        DiagnosticClusterTraitsInto DiagnosticClusterTraits);
 
     private sealed class SourceLineCache
     {

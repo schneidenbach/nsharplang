@@ -747,6 +747,8 @@ public static class OutputFormatter
         string? SourceSnippet,
         string? Suggestion);
 
+    private sealed record ClassifiedDiagnostic(DiagnosticResult Diagnostic, DiagnosticClusterTraits Traits);
+
     private sealed record DiagnosticClusterTraits(
         string Category,
         string SourceConstruct,
@@ -757,8 +759,7 @@ public static class OutputFormatter
 
     private static List<DiagnosticCluster> BuildDiagnosticClusters(List<DiagnosticResult> results)
     {
-        return results
-            .Select(diagnostic => new { Diagnostic = Normalize(diagnostic), Traits = ClassifyDiagnostic(diagnostic) })
+        return BuildClassifiedDiagnostics(results)
             .GroupBy(item => new
             {
                 item.Diagnostic.Severity,
@@ -814,6 +815,148 @@ public static class OutputFormatter
             .ThenBy(cluster => cluster.RootLocation.Column)
             .ToList();
     }
+
+    private static List<ClassifiedDiagnostic> BuildClassifiedDiagnostics(List<DiagnosticResult> results)
+    {
+        var classified = new List<ClassifiedDiagnostic>(results.Count);
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryClassifyDiagnosticClusterTraits(
+                results,
+                out var categories,
+                out var sourceConstructs))
+        {
+            for (var i = 0; i < results.Count; i++)
+            {
+                var diagnostic = results[i];
+                classified.Add(new ClassifiedDiagnostic(
+                    Normalize(diagnostic),
+                    CreateDiagnosticClusterTraits(
+                        categories[i],
+                        sourceConstructs[i],
+                        NormalizeMessagePattern(diagnostic.Message ?? string.Empty))));
+            }
+
+            return classified;
+        }
+
+        foreach (var diagnostic in results)
+        {
+            classified.Add(new ClassifiedDiagnostic(Normalize(diagnostic), ClassifyDiagnostic(diagnostic)));
+        }
+
+        return classified;
+    }
+
+    private static DiagnosticClusterTraits CreateDiagnosticClusterTraits(
+        int category,
+        int sourceConstruct,
+        string messagePattern)
+    {
+        var sourceConstructText = DiagnosticSourceConstructName(sourceConstruct);
+        return category switch
+        {
+            0 => new DiagnosticClusterTraits(
+                "syntax-missing-terminator",
+                sourceConstructText,
+                "syntax:statement-boundary",
+                "high",
+                messagePattern,
+                new[]
+                {
+                    "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
+                    "Inspect the refactor or code-generation path that emitted this construct and add a delimiter/terminator regression test."
+                }),
+            1 => new DiagnosticClusterTraits(
+                "syntax-missing-delimiter",
+                sourceConstructText,
+                "syntax:delimiter-balancing",
+                "high",
+                messagePattern,
+                new[]
+                {
+                    "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
+                    "Inspect the refactor or code-generation path that emitted this construct and add a delimiter/terminator regression test."
+                }),
+            2 => new DiagnosticClusterTraits(
+                "import-cycle",
+                "import",
+                "architecture:extract-shared-module-or-invert-dependency",
+                "high",
+                messagePattern,
+                new[]
+                {
+                    "Break the cycle at the reported import path by moving shared declarations into a third file/package or inverting one dependency.",
+                    "Rerun `nlc check` after removing the cycle; unused-import warnings in the same files may be cascades."
+                }),
+            3 => new DiagnosticClusterTraits(
+                "identifier-resolution",
+                sourceConstructText,
+                "symbols:missing-import-or-qualification",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Resolve the first missing identifier by adding the import/qualification or correcting the declaration name.",
+                    "Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear."
+                }),
+            4 => new DiagnosticClusterTraits(
+                "type-resolution",
+                sourceConstructText,
+                "types:resolve-type-or-import",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Resolve the type/import at the earliest root location before chasing downstream uses.",
+                    "Check whether the source construct needs full qualification or a project reference."
+                }),
+            5 => new DiagnosticClusterTraits(
+                "type-mismatch",
+                sourceConstructText,
+                "refactor:signature-or-expression-shape",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Compare the expected and actual types at the root example and update the refactor recipe that changed the expression/signature shape.",
+                    "Prefer fixing the producer expression over adding casts to each cascaded consumer."
+                }),
+            6 => new DiagnosticClusterTraits(
+                "member-resolution",
+                sourceConstructText,
+                "members:api-rename-or-extension-import",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Verify the API/member name for the root receiver before fixing repeated call sites.",
+                    "Check whether an extension-method import or receiver type conversion was dropped."
+                }),
+            _ => new DiagnosticClusterTraits(
+                "diagnostic-message-shape",
+                sourceConstructText,
+                "manual-triage:inspect-root-diagnostic",
+                "low",
+                messagePattern,
+                new[]
+                {
+                    "Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.",
+                    "After fixing the root cause, rerun diagnostics and compare the remaining cluster counts."
+                })
+        };
+    }
+
+    private static string DiagnosticSourceConstructName(int sourceConstruct) => sourceConstruct switch
+    {
+        0 => "variable-declaration",
+        1 => "function-declaration",
+        2 => "class-declaration",
+        3 => "interface-declaration",
+        4 => "import",
+        5 => "return-statement",
+        6 => "control-flow",
+        7 => "call-or-construction",
+        _ => "unknown-construct"
+    };
 
     private static void AppendDiagnosticClusterSummary(StringBuilder sb, List<DiagnosticCluster> clusters)
     {
