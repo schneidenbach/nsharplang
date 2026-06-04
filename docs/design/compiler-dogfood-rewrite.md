@@ -276,6 +276,12 @@ Current code-intelligence dogfood benchmarks:
   candidate consumes host-built declaration/binding arrays, prebuilt open-addressed slot tables, and
   candidate query columns, then writes declaration indices through
   `BindingLookupQueryDeclarationIndicesInto`.
+- `CompilerServiceBindingLookupNearestDeclarationIndexBuildBenchmarks` targets sorted nearest
+  declaration index construction inside the compact `BindingMap` cache. The C# baseline mirrors the
+  production cache builder: allocate an order array, sort declaration ids with
+  `Array.Sort(order, CompareDeclarationOrder)`, then materialize sorted primitive arrays. The N#
+  candidate uses dense name-id counting with caller-owned buffers, writes the sorted arrays directly,
+  and returns a fallback signal when same-name declarations are not already in source order.
 - `CompilerServiceCodeIntelligenceBindingCandidateColumnBenchmarks` targets strict binding
   candidate-column ordering before declaration/binding lookup. The C# baseline mirrors the current
   helper shape: `HashSet<int>` insertion for nearby columns plus the selected identifier span,
@@ -623,6 +629,14 @@ name. It ran about 231x faster on the representative declaration corpus (40.721 
 53.100 ms, 0 B vs 5,911,960 B). This is acceptance-grade benchmark evidence for the source-context
 definition fallback after the host has assigned stable name/file ids and sorted declaration facts.
 
+`BindingLookupBuildNearestDeclarationIndexInto` passed parity and reported zero managed allocation in
+the scoped BenchmarkDotNet run for compact `BindingMap` nearest-declaration index construction. It
+ran about 6.8x faster on the representative source-ordered declaration corpus (3.460 us vs
+23.383 us, 0 B vs 4,184 B) and about 6.1x faster on the large generated declaration corpus
+(42.249 us vs 258.197 us, 0 B vs 32,856 B). This is acceptance-grade benchmark evidence for
+replacing the C# `Array.Sort(order, CompareDeclarationOrder)` index builder when the dogfood assembly
+is available, with fallback retained for unavailable, invalid, or out-of-order same-name N# output.
+
 `CodeIntelligenceMemberReceiversCachedInto` also cleared the normal BenchmarkDotNet speed gate. It
 ran about 174x faster on the representative corpus (2.88 us vs 500.69 us, 0 B vs 4.6 MB) and about
 233x faster on the large generated corpus (225.03 us vs 52.51 ms, 0 B vs 129.6 MB). This is
@@ -950,6 +964,10 @@ dictionary lookup path kept as the fallback.
 The source-context definition fallback now uses the same compact `BindingMap` cache to route nearest
 same-file declaration-by-name selection through the compiled N# binary-search kernel, with the
 previous LINQ filter/order path kept as the fallback.
+The same compact `BindingMap` cache now routes sorted nearest-declaration index construction through
+the compiled N# dense name-id counting builder when the dogfood assembly is available, with the
+previous C# `Array.Sort(order, CompareDeclarationOrder)` builder kept as the fallback for unavailable,
+invalid, or out-of-order same-name N# output.
 CLI/daemon identifier completion now routes scoped visible-variable selection through a compact
 `SemanticModel` cache and the compiled N# semantic-scope kernel when the dogfood assembly is
 available, with the previous `SemanticModel.GetVisibleVariablesAtPosition` path kept as the
@@ -994,7 +1012,7 @@ scoped identifier-lookup, and variable-declaration-name queries, plus diagnostic
 classifications and diagnostic severity summaries, compact diagnostic cluster grouping, diagnostic
 cluster file-list ordering, diagnostic deduplication, reference result deduplication, stable
 diagnostic deduplication, binding
-candidate-column ordering, strict binding lookup, nearest declaration lookup,
+candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, text-edit ordering, inspect-summary reference-file
 summaries, and the pressure-only path-matching, CLI positional-argument, and diagnostic severity
@@ -1013,7 +1031,7 @@ clustered diagnostic file-list ordering, `GetDiagnostics` stable diagnostic dedu
 semantic reference result deduplication/order slices, plus strict binding candidate-column ordering,
 strict semantic binding lookup, and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
-same-file declaration lookup in the source-context definition fallback, semantic scope index
+same-file declaration index construction and lookup in the source-context definition fallback, semantic scope index
 and depth construction, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
 member-access completion plus reflected method overload grouping and grouped member-completion
@@ -1120,7 +1138,7 @@ identifier lookup uses a separate N# helper because editor hover/rename semantic
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
 severity summary counting, compact diagnostic cluster grouping, strict semantic binding lookup, and
-nearest same-file declaration lookup, semantic scope index construction, scoped visible-variable
+nearest same-file declaration index construction and lookup, semantic scope index construction, scoped visible-variable
 selection, and reference result deduplication/order are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain
 C# formatter work.

@@ -523,6 +523,262 @@ public class CompilerServiceCodeIntelligenceBindingCandidateColumnBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for nearest-declaration sorted-index construction used by the source-context
+/// definition fallback.
+///
+/// The C# baseline mirrors the production cache builder: allocate an order array, sort declaration
+/// ids with a comparer over name/file/line/column, then materialize sorted compact arrays. The N#
+/// candidate uses dense name-id counting with caller-owned buffers, writes the sorted arrays
+/// directly, and returns a fallback signal when same-name declarations are not already in source
+/// order.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceBindingLookupNearestDeclarationIndexBuildBenchmarks
+{
+    private BindingLookupBuildNearestDeclarationIndexInto _nsharpBuildNearestIndex = null!;
+    private BindingLookupBuildNearestDeclarationIndexChecksumInto _nsharpChecksum = null!;
+
+    private int[] _csharpSortedColumns = Array.Empty<int>();
+    private int[] _csharpSortedDeclarationIndices = Array.Empty<int>();
+    private int[] _csharpSortedFileRanks = Array.Empty<int>();
+    private int[] _csharpSortedLineNumbers = Array.Empty<int>();
+    private int[] _csharpSortedNameIds = Array.Empty<int>();
+    private int[] _declarationColumns = Array.Empty<int>();
+    private int[] _declarationFileRanks = Array.Empty<int>();
+    private int[] _declarationLineNumbers = Array.Empty<int>();
+    private int[] _declarationNameIds = Array.Empty<int>();
+    private int[] _nsharpSortedColumns = Array.Empty<int>();
+    private int[] _nsharpSortedDeclarationIndices = Array.Empty<int>();
+    private int[] _nsharpSortedFileRanks = Array.Empty<int>();
+    private int[] _nsharpSortedLineNumbers = Array.Empty<int>();
+    private int[] _nsharpSortedNameIds = Array.Empty<int>();
+    private int[] _stackLefts = Array.Empty<int>();
+    private int[] _tempDeclarationIndices = Array.Empty<int>();
+    private int _declarationCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _declarationCount = Corpus == CompilerLexerCorpus.Representative ? 1024 : 8192;
+        _nsharpBuildNearestIndex =
+            NSharpCompiledMethod.Bind<BindingLookupBuildNearestDeclarationIndexInto>(
+                DogfoodCompilerSources.CodeIntelligenceBindingLookup,
+                "BindingLookupBuildNearestDeclarationIndexInto");
+        _nsharpChecksum =
+            NSharpCompiledMethod.Bind<BindingLookupBuildNearestDeclarationIndexChecksumInto>(
+                DogfoodCompilerSources.CodeIntelligenceBindingLookup,
+                "BindingLookupBuildNearestDeclarationIndexChecksumInto");
+
+        _declarationNameIds = new int[_declarationCount];
+        _declarationFileRanks = new int[_declarationCount];
+        _declarationLineNumbers = new int[_declarationCount];
+        _declarationColumns = new int[_declarationCount];
+        _tempDeclarationIndices = new int[_declarationCount + 1];
+        _stackLefts = new int[_declarationCount + 1];
+        _csharpSortedNameIds = new int[_declarationCount];
+        _csharpSortedFileRanks = new int[_declarationCount];
+        _csharpSortedLineNumbers = new int[_declarationCount];
+        _csharpSortedColumns = new int[_declarationCount];
+        _csharpSortedDeclarationIndices = new int[_declarationCount];
+        _nsharpSortedNameIds = new int[_declarationCount];
+        _nsharpSortedFileRanks = new int[_declarationCount];
+        _nsharpSortedLineNumbers = new int[_declarationCount];
+        _nsharpSortedColumns = new int[_declarationCount];
+        _nsharpSortedDeclarationIndices = new int[_declarationCount];
+
+        BuildDeclarationCorpus();
+
+        var expectedChecksum = CSharpNearestDeclarationIndex_BuildChecksum();
+        var actualChecksum = NSharpNearestDeclarationIndex_BuildChecksum();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# nearest declaration index checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpNearestDeclarationIndex_Build()
+    {
+        BuildNearestDeclarationIndexWithCSharp(
+            _csharpSortedNameIds,
+            _csharpSortedFileRanks,
+            _csharpSortedLineNumbers,
+            _csharpSortedColumns,
+            _csharpSortedDeclarationIndices);
+
+        return _declarationCount
+            + _csharpSortedNameIds[0] * 31
+            + _csharpSortedDeclarationIndices[_declarationCount - 1] * 17;
+    }
+
+    [Benchmark]
+    public int NSharpNearestDeclarationIndex_Build()
+    {
+        var count = _nsharpBuildNearestIndex(
+            _declarationNameIds,
+            _declarationFileRanks,
+            _declarationLineNumbers,
+            _declarationColumns,
+            _tempDeclarationIndices,
+            _stackLefts,
+            _nsharpSortedNameIds,
+            _nsharpSortedFileRanks,
+            _nsharpSortedLineNumbers,
+            _nsharpSortedColumns,
+            _nsharpSortedDeclarationIndices);
+
+        return count
+            + _nsharpSortedNameIds[0] * 31
+            + _nsharpSortedDeclarationIndices[count - 1] * 17;
+    }
+
+    private int CSharpNearestDeclarationIndex_BuildChecksum()
+    {
+        BuildNearestDeclarationIndexWithCSharp(
+            _csharpSortedNameIds,
+            _csharpSortedFileRanks,
+            _csharpSortedLineNumbers,
+            _csharpSortedColumns,
+            _csharpSortedDeclarationIndices);
+
+        return CalculateChecksum(
+            _csharpSortedNameIds,
+            _csharpSortedFileRanks,
+            _csharpSortedLineNumbers,
+            _csharpSortedColumns,
+            _csharpSortedDeclarationIndices);
+    }
+
+    private int NSharpNearestDeclarationIndex_BuildChecksum() =>
+        _nsharpChecksum(
+            _declarationNameIds,
+            _declarationFileRanks,
+            _declarationLineNumbers,
+            _declarationColumns,
+            _tempDeclarationIndices,
+            _stackLefts,
+            _nsharpSortedNameIds,
+            _nsharpSortedFileRanks,
+            _nsharpSortedLineNumbers,
+            _nsharpSortedColumns,
+            _nsharpSortedDeclarationIndices);
+
+    private void BuildDeclarationCorpus()
+    {
+        var nameCount = Corpus == CompilerLexerCorpus.Representative ? 64 : 512;
+        var fileCount = Corpus == CompilerLexerCorpus.Representative ? 16 : 128;
+
+        for (var i = 0; i < _declarationCount; i++)
+        {
+            _declarationNameIds[i] = i * 37 % nameCount + 1;
+            _declarationFileRanks[i] = i * 17 % fileCount + 1;
+            _declarationLineNumbers[i] = i / nameCount * 5 + (_declarationNameIds[i] % 3) + 1;
+            _declarationColumns[i] = i * 29 % 160 + 1;
+        }
+    }
+
+    private void BuildNearestDeclarationIndexWithCSharp(
+        int[] sortedNameIds,
+        int[] sortedFileRanks,
+        int[] sortedLineNumbers,
+        int[] sortedColumns,
+        int[] sortedDeclarationIndices)
+    {
+        var order = new int[_declarationCount];
+        for (var i = 0; i < _declarationCount; i++)
+        {
+            order[i] = i;
+        }
+
+        Array.Sort(order, CompareDeclarationOrder);
+
+        for (var sortedIndex = 0; sortedIndex < _declarationCount; sortedIndex++)
+        {
+            var declarationIndex = order[sortedIndex];
+            sortedNameIds[sortedIndex] = _declarationNameIds[declarationIndex];
+            sortedFileRanks[sortedIndex] = _declarationFileRanks[declarationIndex];
+            sortedLineNumbers[sortedIndex] = _declarationLineNumbers[declarationIndex];
+            sortedColumns[sortedIndex] = _declarationColumns[declarationIndex];
+            sortedDeclarationIndices[sortedIndex] = declarationIndex;
+        }
+    }
+
+    private int CompareDeclarationOrder(int left, int right)
+    {
+        var diff = _declarationNameIds[left].CompareTo(_declarationNameIds[right]);
+        if (diff != 0)
+            return diff;
+
+        diff = _declarationFileRanks[left].CompareTo(_declarationFileRanks[right]);
+        if (diff != 0)
+            return diff;
+
+        diff = _declarationLineNumbers[left].CompareTo(_declarationLineNumbers[right]);
+        if (diff != 0)
+            return diff;
+
+        diff = _declarationColumns[left].CompareTo(_declarationColumns[right]);
+        if (diff != 0)
+            return diff;
+
+        return left.CompareTo(right);
+    }
+
+    private int CalculateChecksum(
+        int[] sortedNameIds,
+        int[] sortedFileRanks,
+        int[] sortedLineNumbers,
+        int[] sortedColumns,
+        int[] sortedDeclarationIndices)
+    {
+        var checksum = _declarationCount * 17;
+        for (var i = 0; i < _declarationCount; i++)
+        {
+            checksum = checksum
+                + (i + 1) * 97
+                + sortedNameIds[i] * 31
+                + sortedFileRanks[i] * 23
+                + sortedLineNumbers[i] * 13
+                + sortedColumns[i] * 7
+                + sortedDeclarationIndices[i] * 3;
+        }
+
+        return checksum;
+    }
+
+    private delegate int BindingLookupBuildNearestDeclarationIndexInto(
+        int[] declarationNameIds,
+        int[] declarationFileRanks,
+        int[] declarationLineNumbers,
+        int[] declarationColumns,
+        int[] tempDeclarationIndices,
+        int[] stackLefts,
+        int[] sortedNameIds,
+        int[] sortedFileRanks,
+        int[] sortedLineNumbers,
+        int[] sortedColumns,
+        int[] sortedDeclarationIndices);
+
+    private delegate int BindingLookupBuildNearestDeclarationIndexChecksumInto(
+        int[] declarationNameIds,
+        int[] declarationFileRanks,
+        int[] declarationLineNumbers,
+        int[] declarationColumns,
+        int[] tempDeclarationIndices,
+        int[] stackLefts,
+        int[] sortedNameIds,
+        int[] sortedFileRanks,
+        int[] sortedLineNumbers,
+        int[] sortedColumns,
+        int[] sortedDeclarationIndices);
+}
+
+/// <summary>
 /// Dogfood benchmark for the source-context fallback that chooses the nearest in-file declaration
 /// with a matching name before falling back to AST declaration scans.
 ///

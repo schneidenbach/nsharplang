@@ -963,6 +963,14 @@ func documented(): int {
                     "BindingLookupQueryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupQueryChecksumInto.");
+            var bindingLookupBuildNearestDeclarationIndexInto = programType.GetMethod(
+                    "BindingLookupBuildNearestDeclarationIndexInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupBuildNearestDeclarationIndexInto.");
+            var bindingLookupBuildNearestDeclarationIndexChecksumInto = programType.GetMethod(
+                    "BindingLookupBuildNearestDeclarationIndexChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit BindingLookupBuildNearestDeclarationIndexChecksumInto.");
             var bindingLookupFindNearestDeclarationIndicesInto = programType.GetMethod(
                     "BindingLookupFindNearestDeclarationIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1319,6 +1327,8 @@ func main() {
                 bindingLookupBuildSlotsInto,
                 bindingLookupQueryDeclarationIndicesInto,
                 bindingLookupQueryChecksumInto,
+                bindingLookupBuildNearestDeclarationIndexInto,
+                bindingLookupBuildNearestDeclarationIndexChecksumInto,
                 bindingLookupFindNearestDeclarationIndicesInto,
                 bindingLookupFindNearestDeclarationChecksumInto);
             AssertSemanticScopeVisibleVariablesLikeProduction(
@@ -4724,6 +4734,8 @@ func main() {
         MethodInfo bindingLookupBuildSlotsInto,
         MethodInfo bindingLookupQueryDeclarationIndicesInto,
         MethodInfo bindingLookupQueryChecksumInto,
+        MethodInfo bindingLookupBuildNearestDeclarationIndexInto,
+        MethodInfo bindingLookupBuildNearestDeclarationIndexChecksumInto,
         MethodInfo bindingLookupFindNearestDeclarationIndicesInto,
         MethodInfo bindingLookupFindNearestDeclarationChecksumInto)
     {
@@ -4864,6 +4876,114 @@ func main() {
 
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expected, checksumResultIndices);
+
+        var unsortedNameIds = new[] { 2, 1, 1, 1, 1 };
+        var unsortedFileRanks = new[] { 1, 1, 1, 1, 2 };
+        var unsortedLines = new[] { 3, 2, 8, 8, 10 };
+        var unsortedColumns = new[] { 1, 3, 1, 4, 1 };
+        var expectedSortOrder = new[] { 1, 2, 3, 4, 0 };
+        var builtNameIds = new int[unsortedNameIds.Length];
+        var builtFileRanks = new int[unsortedNameIds.Length];
+        var builtLines = new int[unsortedNameIds.Length];
+        var builtColumns = new int[unsortedNameIds.Length];
+        var builtDeclarationIndices = new int[unsortedNameIds.Length];
+        var buildCount = (int)(bindingLookupBuildNearestDeclarationIndexInto.Invoke(
+            null,
+            new object[]
+            {
+                unsortedNameIds,
+                unsortedFileRanks,
+                unsortedLines,
+                unsortedColumns,
+                new int[unsortedNameIds.Length],
+                new int[unsortedNameIds.Length],
+                builtNameIds,
+                builtFileRanks,
+                builtLines,
+                builtColumns,
+                builtDeclarationIndices
+            }) ?? -1);
+
+        Assert.Equal(unsortedNameIds.Length, buildCount);
+        Assert.Equal(expectedSortOrder, builtDeclarationIndices);
+        Assert.Equal(expectedSortOrder.Select(index => unsortedNameIds[index]).ToArray(), builtNameIds);
+        Assert.Equal(expectedSortOrder.Select(index => unsortedFileRanks[index]).ToArray(), builtFileRanks);
+        Assert.Equal(expectedSortOrder.Select(index => unsortedLines[index]).ToArray(), builtLines);
+        Assert.Equal(expectedSortOrder.Select(index => unsortedColumns[index]).ToArray(), builtColumns);
+
+        var buildChecksum = (int)(bindingLookupBuildNearestDeclarationIndexChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                unsortedNameIds,
+                unsortedFileRanks,
+                unsortedLines,
+                unsortedColumns,
+                new int[unsortedNameIds.Length],
+                new int[unsortedNameIds.Length],
+                new int[unsortedNameIds.Length],
+                new int[unsortedNameIds.Length],
+                new int[unsortedNameIds.Length],
+                new int[unsortedNameIds.Length],
+                new int[unsortedNameIds.Length]
+            }) ?? -1);
+        var expectedBuildChecksum = unsortedNameIds.Length * 17;
+        for (var i = 0; i < expectedSortOrder.Length; i++)
+        {
+            var declarationIndex = expectedSortOrder[i];
+            expectedBuildChecksum += (i + 1) * 97
+                + unsortedNameIds[declarationIndex] * 31
+                + unsortedFileRanks[declarationIndex] * 23
+                + unsortedLines[declarationIndex] * 13
+                + unsortedColumns[declarationIndex] * 7
+                + declarationIndex * 3;
+        }
+
+        Assert.Equal(expectedBuildChecksum, buildChecksum);
+
+        var uniqueNameIds = new[] { 1, 2, 3 };
+        var uniqueFileRanks = new[] { 1, 1, 1 };
+        var uniqueLines = new[] { 1, 2, 3 };
+        var uniqueColumns = new[] { 1, 1, 1 };
+        var uniqueBuiltIndices = new int[uniqueNameIds.Length];
+        var uniqueBuildCount = (int)(bindingLookupBuildNearestDeclarationIndexInto.Invoke(
+            null,
+            new object[]
+            {
+                uniqueNameIds,
+                uniqueFileRanks,
+                uniqueLines,
+                uniqueColumns,
+                new int[uniqueNameIds.Length + 1],
+                new int[uniqueNameIds.Length + 1],
+                new int[uniqueNameIds.Length],
+                new int[uniqueNameIds.Length],
+                new int[uniqueNameIds.Length],
+                new int[uniqueNameIds.Length],
+                uniqueBuiltIndices
+            }) ?? -1);
+
+        Assert.Equal(uniqueNameIds.Length, uniqueBuildCount);
+        Assert.Equal(new[] { 0, 1, 2 }, uniqueBuiltIndices);
+
+        var outOfOrderBuildCount = (int)(bindingLookupBuildNearestDeclarationIndexInto.Invoke(
+            null,
+            new object[]
+            {
+                new[] { 1, 1 },
+                new[] { 1, 1 },
+                new[] { 8, 2 },
+                new[] { 1, 1 },
+                new int[2],
+                new int[2],
+                new int[2],
+                new int[2],
+                new int[2],
+                new int[2],
+                new int[2]
+            }) ?? -2);
+
+        Assert.Equal(-1, outOfOrderBuildCount);
 
         var sortedNameIds = new[] { 1, 1, 1, 1, 2 };
         var sortedFileRanks = new[] { 1, 1, 1, 2, 1 };

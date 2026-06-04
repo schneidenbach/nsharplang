@@ -402,6 +402,165 @@ func BindingLookupFindNearestDeclarationIndicesInto(
     return foundCount
 }
 
+func BindingLookupBuildNearestDeclarationIndexInto(
+    declarationNameIds: int[],
+    declarationFileRanks: int[],
+    declarationLineNumbers: int[],
+    declarationColumns: int[],
+    tempDeclarationIndices: int[],
+    stackLefts: int[],
+    sortedNameIds: int[],
+    sortedFileRanks: int[],
+    sortedLineNumbers: int[],
+    sortedColumns: int[],
+    sortedDeclarationIndices: int[]): int {
+    declarationCount := BindingLookupMinInt(declarationNameIds.Length, declarationFileRanks.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, declarationLineNumbers.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, declarationColumns.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedNameIds.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedFileRanks.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedLineNumbers.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedColumns.Length)
+    declarationCount = BindingLookupMinInt(declarationCount, sortedDeclarationIndices.Length)
+
+    if declarationCount == 0 {
+        return 0
+    }
+
+    maxNameId := 0
+    i := 0
+    while i < declarationCount {
+        nameId := declarationNameIds[i]
+        if nameId < 0 {
+            return -1
+        }
+
+        if nameId > maxNameId {
+            maxNameId = nameId
+        }
+
+        i = i + 1
+    }
+
+    if maxNameId >= stackLefts.Length || maxNameId >= tempDeclarationIndices.Length {
+        return -1
+    }
+
+    i = 0
+    while i <= maxNameId {
+        stackLefts[i] = 0
+        i = i + 1
+    }
+
+    i = 0
+    while i < declarationCount {
+        nameId := declarationNameIds[i]
+        stackLefts[nameId] = stackLefts[nameId] + 1
+        i = i + 1
+    }
+
+    offset := 0
+    i = 0
+    while i <= maxNameId {
+        countForName := stackLefts[i]
+        stackLefts[i] = offset
+        offset = offset + countForName
+        i = i + 1
+    }
+
+    i = 0
+    while i <= maxNameId {
+        tempDeclarationIndices[i] = -1
+        i = i + 1
+    }
+
+    i = 0
+    while i < declarationCount {
+        nameId := declarationNameIds[i]
+        previousDeclarationIndex := tempDeclarationIndices[nameId]
+        if previousDeclarationIndex >= 0 {
+            fileRank := declarationFileRanks[i]
+            previousFileRank := declarationFileRanks[previousDeclarationIndex]
+            if fileRank < previousFileRank {
+                return -1
+            }
+
+            if fileRank == previousFileRank {
+                lineNumber := declarationLineNumbers[i]
+                previousLineNumber := declarationLineNumbers[previousDeclarationIndex]
+                if lineNumber < previousLineNumber {
+                    return -1
+                }
+
+                if lineNumber == previousLineNumber {
+                    column := declarationColumns[i]
+                    previousColumn := declarationColumns[previousDeclarationIndex]
+                    if column < previousColumn {
+                        return -1
+                    }
+                }
+            }
+        }
+
+        target := stackLefts[nameId]
+        sortedNameIds[target] = nameId
+        sortedFileRanks[target] = declarationFileRanks[i]
+        sortedLineNumbers[target] = declarationLineNumbers[i]
+        sortedColumns[target] = declarationColumns[i]
+        sortedDeclarationIndices[target] = i
+        stackLefts[nameId] = target + 1
+        tempDeclarationIndices[nameId] = i
+        i = i + 1
+    }
+
+    return declarationCount
+}
+
+func BindingLookupBuildNearestDeclarationIndexChecksumInto(
+    declarationNameIds: int[],
+    declarationFileRanks: int[],
+    declarationLineNumbers: int[],
+    declarationColumns: int[],
+    tempDeclarationIndices: int[],
+    stackLefts: int[],
+    sortedNameIds: int[],
+    sortedFileRanks: int[],
+    sortedLineNumbers: int[],
+    sortedColumns: int[],
+    sortedDeclarationIndices: int[]): int {
+    count := BindingLookupBuildNearestDeclarationIndexInto(
+        declarationNameIds,
+        declarationFileRanks,
+        declarationLineNumbers,
+        declarationColumns,
+        tempDeclarationIndices,
+        stackLefts,
+        sortedNameIds,
+        sortedFileRanks,
+        sortedLineNumbers,
+        sortedColumns,
+        sortedDeclarationIndices)
+
+    if count < 0 {
+        return count
+    }
+
+    checksum := count * 17
+    i := 0
+    while i < count {
+        checksum = checksum
+            + (i + 1) * 97
+            + sortedNameIds[i] * 31
+            + sortedFileRanks[i] * 23
+            + sortedLineNumbers[i] * 13
+            + sortedColumns[i] * 7
+            + sortedDeclarationIndices[i] * 3
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func BindingLookupFindNearestDeclarationChecksumInto(
     sortedNameIds: int[],
     sortedFileRanks: int[],

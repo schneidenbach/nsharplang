@@ -1379,6 +1379,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
+                CreateDelegate<BindingLookupBuildNearestDeclarationIndexInto>(programType, "BindingLookupBuildNearestDeclarationIndexInto"),
                 CreateDelegate<BindingLookupFindNearestDeclarationIndicesInto>(programType, "BindingLookupFindNearestDeclarationIndicesInto"),
                 CreateDelegate<SemanticScopeBuildSortedIndexInto>(programType, "SemanticScopeBuildSortedIndexInto"),
                 CreateDelegate<SemanticScopeBuildDepthsInto>(programType, "SemanticScopeBuildDepthsInto"),
@@ -1663,6 +1664,19 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] queryColumns,
         int[] resultDeclarationIndices);
 
+    private delegate int BindingLookupBuildNearestDeclarationIndexInto(
+        int[] declarationNameIds,
+        int[] declarationFileRanks,
+        int[] declarationLineNumbers,
+        int[] declarationColumns,
+        int[] tempDeclarationIndices,
+        int[] stackLefts,
+        int[] sortedNameIds,
+        int[] sortedFileRanks,
+        int[] sortedLineNumbers,
+        int[] sortedColumns,
+        int[] sortedDeclarationIndices);
+
     private delegate int BindingLookupFindNearestDeclarationIndicesInto(
         int[] sortedNameIds,
         int[] sortedFileRanks,
@@ -1762,6 +1776,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         BindingLookupCandidateColumnsInto BindingLookupCandidateColumns,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
+        BindingLookupBuildNearestDeclarationIndexInto BindingLookupBuildNearestDeclarationIndex,
         BindingLookupFindNearestDeclarationIndicesInto BindingLookupFindNearestDeclarationIndices,
         SemanticScopeBuildSortedIndexInto SemanticScopeBuildSortedIndex,
         SemanticScopeBuildDepthsInto SemanticScopeBuildDepths,
@@ -2379,6 +2394,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         private int[] _queryLineNumbers = Array.Empty<int>();
         private int[] _queryNameIds = Array.Empty<int>();
         private int[] _resultDeclarationIndices = Array.Empty<int>();
+        private int[] _sortStackLefts = Array.Empty<int>();
+        private int[] _sortTempDeclarationIndices = Array.Empty<int>();
         private int[] _sortedDeclarationColumns = Array.Empty<int>();
         private int[] _sortedDeclarationFileRanks = Array.Empty<int>();
         private int[] _sortedDeclarationIndices = Array.Empty<int>();
@@ -2527,7 +2544,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 declarationIndex++;
             }
 
-            BuildNearestDeclarationIndex();
+            BuildNearestDeclarationIndex(bindings);
 
             var bindingCount = _map.BindingEntries.Count;
             _bindingFileRanks = new int[bindingCount];
@@ -2566,7 +2583,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             _version = _map.Version;
         }
 
-        private void BuildNearestDeclarationIndex()
+        private void BuildNearestDeclarationIndex(Bindings bindings)
         {
             var declarationCount = _declarations.Length;
             _sortedDeclarationNameIds = new int[declarationCount];
@@ -2574,8 +2591,26 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             _sortedDeclarationLineNumbers = new int[declarationCount];
             _sortedDeclarationColumns = new int[declarationCount];
             _sortedDeclarationIndices = new int[declarationCount];
+            _sortTempDeclarationIndices = new int[declarationCount + 1];
+            _sortStackLefts = new int[declarationCount + 1];
 
             if (declarationCount == 0)
+                return;
+
+            var dogfoodCount = bindings.BindingLookupBuildNearestDeclarationIndex(
+                _declarationNameIds,
+                _declarationFileRanks,
+                _declarationLineNumbers,
+                _declarationColumns,
+                _sortTempDeclarationIndices,
+                _sortStackLefts,
+                _sortedDeclarationNameIds,
+                _sortedDeclarationFileRanks,
+                _sortedDeclarationLineNumbers,
+                _sortedDeclarationColumns,
+                _sortedDeclarationIndices);
+
+            if (dogfoodCount == declarationCount)
                 return;
 
             var order = new int[declarationCount];
