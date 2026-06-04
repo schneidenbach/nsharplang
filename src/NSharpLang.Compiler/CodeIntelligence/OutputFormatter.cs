@@ -702,11 +702,15 @@ public static class OutputFormatter
             ? new LocationResult(result.Definition.File, result.Definition.Line, result.Definition.Column)
             : result.Symbol?.Definition;
 
-        var referenceFiles = result.References.Results
-            .Select(reference => NormalizePath(reference.File) ?? reference.File)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(file => file, StringComparer.Ordinal)
-            .ToArray();
+        var referenceFiles = NSharpCodeIntelligenceDogfoodAdapter.TryBuildInspectSummaryReferenceFiles(
+            result.References.Results,
+            out var dogfoodReferenceFiles)
+                ? dogfoodReferenceFiles
+                : result.References.Results
+                    .Select(reference => NormalizePath(reference.File) ?? reference.File)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(file => file, StringComparer.Ordinal)
+                    .ToArray();
 
         var referenceSample = result.References.Results
             .Take(InspectSummaryReferenceSampleSize)

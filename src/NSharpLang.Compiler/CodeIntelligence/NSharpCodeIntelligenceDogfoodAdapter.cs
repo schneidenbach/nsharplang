@@ -31,6 +31,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static DiagnosticDeduplicationScratch? t_diagnosticDeduplicationScratch;
     [ThreadStatic]
+    private static ReferenceFileSummaryScratch? t_referenceFileSummaryScratch;
+    [ThreadStatic]
     private static ReferenceDeduplicationScratch? t_referenceDeduplicationScratch;
     [ThreadStatic]
     private static TextEditOrderingScratch? t_textEditOrderingScratch;
@@ -854,6 +856,75 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
     }
 
+    internal static bool TryBuildInspectSummaryReferenceFiles(
+        IReadOnlyList<ReferenceResult> references,
+        out string[] referenceFiles)
+    {
+        referenceFiles = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var referenceCount = references.Count;
+        if (referenceCount == 0)
+            return true;
+
+        var scratch = t_referenceFileSummaryScratch ??= new ReferenceFileSummaryScratch();
+        scratch.EnsureCapacity(referenceCount);
+
+        try
+        {
+            scratch.ResetFiles();
+            for (var i = 0; i < referenceCount; i++)
+            {
+                var file = NormalizeDogfoodPath(references[i].File);
+                scratch.Files[i] = file;
+                scratch.AddFile(file);
+            }
+
+            scratch.BuildFileRanks();
+            for (var i = 0; i < referenceCount; i++)
+            {
+                scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
+            }
+
+            var resultCount = bindings.ReferenceFileSummaryRanks(
+                scratch.FileRanks,
+                scratch.UniqueFileCount,
+                scratch.CountsByRank,
+                scratch.ResultRanks);
+
+            if (resultCount < 0 || resultCount > scratch.UniqueFileCount || resultCount > scratch.ResultRanks.Length)
+                return false;
+
+            referenceFiles = new string[resultCount];
+            for (var i = 0; i < resultCount; i++)
+            {
+                var rank = scratch.ResultRanks[i];
+                if (rank <= 0 || rank > scratch.UniqueFileCount)
+                {
+                    referenceFiles = Array.Empty<string>();
+                    return false;
+                }
+
+                referenceFiles[i] = scratch.UniqueFiles[rank - 1];
+            }
+
+            return true;
+        }
+        catch
+        {
+            referenceFiles = Array.Empty<string>();
+            return false;
+        }
+        finally
+        {
+            scratch.ClearFiles(referenceCount);
+            scratch.ResetFiles();
+        }
+    }
+
     internal static bool TryResolveBindingDeclaration(
         BindingMap bindingMap,
         string filePath,
@@ -1196,6 +1267,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         return snapshotCache.GetFileCache(Path.GetFullPath(filePath), source);
     }
 
+    private static string NormalizeDogfoodPath(string path) => path.Replace('\\', '/');
+
     private static Bindings? LoadBindings()
     {
         try
@@ -1230,6 +1303,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticDeduplicateCompactInto>(programType, "DiagnosticDeduplicateStableInto"),
                 CreateDelegate<TextEditOrderIndicesInto>(programType, "TextEditOrderIndicesInto"),
                 CreateDelegate<ReferenceDeduplicateCompactInto>(programType, "ReferenceDeduplicateCompactInto"),
+                CreateDelegate<ReferenceFileSummaryRanksInto>(programType, "ReferenceFileSummaryRanksInto"),
                 CreateDelegate<BindingLookupCandidateColumnsInto>(programType, "BindingLookupCandidateColumnsInto"),
                 CreateDelegate<BindingLookupBuildSlotsInto>(programType, "BindingLookupBuildSlotsInto"),
                 CreateDelegate<BindingLookupQueryDeclarationIndicesInto>(programType, "BindingLookupQueryDeclarationIndicesInto"),
@@ -1470,6 +1544,12 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] slotIndices,
         int[] resultIndices);
 
+    private delegate int ReferenceFileSummaryRanksInto(
+        int[] fileRanks,
+        int uniqueFileCount,
+        int[] countsByRank,
+        int[] resultRanks);
+
     private delegate int TextEditOrderIndicesInto(
         int[] startPositionRanks,
         int[] endPositionRanks,
@@ -1588,6 +1668,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticDeduplicateCompactInto DiagnosticDeduplicateStable,
         TextEditOrderIndicesInto TextEditOrderIndices,
         ReferenceDeduplicateCompactInto ReferenceDeduplicateCompact,
+        ReferenceFileSummaryRanksInto ReferenceFileSummaryRanks,
         BindingLookupCandidateColumnsInto BindingLookupCandidateColumns,
         BindingLookupBuildSlotsInto BindingLookupBuildSlots,
         BindingLookupQueryDeclarationIndicesInto BindingLookupQueryDeclarationIndices,
@@ -2006,6 +2087,68 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         public void BuildFileRanks()
         {
             Array.Sort(UniqueFiles, 0, UniqueFileCount, Comparer<string>.Default);
+            for (var i = 0; i < UniqueFileCount; i++)
+            {
+                _fileRanks[UniqueFiles[i]] = i + 1;
+            }
+        }
+
+        public int GetFileRank(string text) => _fileRanks[text];
+
+        public void ClearFiles(int count) => Array.Clear(Files, 0, count);
+
+        public void ResetFiles()
+        {
+            _fileRanks.Clear();
+            if (UniqueFileCount > 0)
+            {
+                Array.Clear(UniqueFiles, 0, UniqueFileCount);
+                UniqueFileCount = 0;
+            }
+        }
+    }
+
+    private sealed class ReferenceFileSummaryScratch
+    {
+        private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
+
+        public int[] CountsByRank = Array.Empty<int>();
+        public int[] FileRanks = Array.Empty<int>();
+        public string[] Files = Array.Empty<string>();
+        public int[] ResultRanks = Array.Empty<int>();
+        public string[] UniqueFiles = Array.Empty<string>();
+        public int UniqueFileCount;
+
+        public void EnsureCapacity(int count)
+        {
+            if (FileRanks.Length != count)
+            {
+                FileRanks = new int[count];
+                Files = new string[count];
+                ResultRanks = new int[count];
+                UniqueFiles = new string[count];
+            }
+
+            var rankCapacity = count + 1;
+            if (CountsByRank.Length != rankCapacity)
+            {
+                CountsByRank = new int[rankCapacity];
+            }
+        }
+
+        public void AddFile(string text)
+        {
+            if (_fileRanks.ContainsKey(text))
+                return;
+
+            _fileRanks.Add(text, 0);
+            UniqueFiles[UniqueFileCount] = text;
+            UniqueFileCount++;
+        }
+
+        public void BuildFileRanks()
+        {
+            Array.Sort(UniqueFiles, 0, UniqueFileCount, StringComparer.Ordinal);
             for (var i = 0; i < UniqueFileCount; i++)
             {
                 _fileRanks[UniqueFiles[i]] = i + 1;

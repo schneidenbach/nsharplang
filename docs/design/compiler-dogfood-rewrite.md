@@ -264,6 +264,12 @@ Current code-intelligence dogfood benchmarks:
   first-reference preservation, and file/line/column ordering. The N# candidate consumes
   host-computed file sort ranks, deduplicates with a caller-owned open-addressed table, and writes
   sorted result indices through `ReferenceDeduplicateCompactInto`.
+- `CompilerServiceInspectSummaryReferenceFileBenchmarks` targets the distinct ordered reference-file
+  list in `nlc query inspect` summaries. The C# baseline mirrors the formatter shape: normalize
+  each reference path, run ordinal `Distinct`, ordinal `OrderBy`, and materialize the public string
+  array. The accepted N# candidate runs after the host has assigned compact ordinal file ranks,
+  emits present ranks in sorted order through `ReferenceFileSummaryRanksInto`, and lets the host
+  materialize the final string array.
 - `CompilerServiceCodeIntelligenceBindingLookupBenchmarks` targets strict semantic binding
   position lookup before definition/reference/hover result materialization. The C# baseline uses the
   production `BindingMap.GetBindingAt` dictionaries with declaration-first lookup semantics. The N#
@@ -427,7 +433,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
 `CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
 `CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`,
-`CompilerServices/CliDocOrdering.nl`, `CompilerServices/CompletionGrouping.nl`,
+`CompilerServices/CliArguments.nl`, `CompilerServices/CliDocOrdering.nl`,
+`CompilerServices/CompletionGrouping.nl`,
 `CompilerServices/TextEditOrdering.nl`, and `CompilerServices/ErrorSuggestions.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
@@ -476,9 +483,13 @@ first-diagnostic preservation and file/line/column ordering. Stable diagnostic d
 checks compact ids against the `GetDiagnostics` preserve-first-order duplicate-removal contract.
 Reference-result deduplication parity checks sorted file ranks against the production
 `(file,line,column)` grouping semantics, including first-reference preservation and
-file/line/column ordering. Binding candidate-column parity checks the current `HashSet<int>` plus
-stable distance-order contract for cursor columns, adjacent columns, invalid columns, and identifier
-span ranges. Binding lookup parity checks compact declaration and binding tables against production
+file/line/column ordering. Reference-file summary parity checks normalized path ranks against the
+production inspect-summary ordinal distinct/order contract. CLI positional-argument parity checks
+the current shared helper's option-with-value skipping, value-less flag skipping, unknown flag
+handling, empty-argument inclusion, and positional order contract. Binding candidate-column parity
+checks the current `HashSet<int>` plus stable distance-order contract for cursor columns, adjacent
+columns, invalid columns, and identifier span ranges. Binding lookup parity checks compact
+declaration and binding tables against production
 `BindingMap.GetBindingAt` semantics, including declaration-position hits, usage-position hits,
 misses, and declaration-first precedence when a binding shares a declaration key.
 Nearest-declaration lookup parity checks sorted compact
@@ -519,6 +530,13 @@ ran about 13.02x faster on the representative reference corpus (6.557 us vs 85.3
 59,560 B) and about 13.19x faster on the large generated reference corpus (71.671 us vs
 945.375 us, 0 B vs 468,184 B). This is acceptance-grade benchmark evidence for reference result
 deduplication after the host has assigned default-comparer file sort ranks.
+
+`ReferenceFileSummaryRanksInto` passed parity and reported much lower managed allocation in the
+same normal BenchmarkDotNet evidence tier for inspect-summary reference file lists. It ran about
+18.9x faster on the representative reference corpus (1.257 us vs 23.735 us, 1.65 KB vs 32.73 KB)
+and about 29.9x faster on the large generated reference corpus (4.989 us vs 149.325 us, 1.96 KB vs
+111.45 KB). This is acceptance-grade benchmark evidence for `nlc query inspect` reference-file
+summaries after the host has assigned compact ordinal file ranks.
 
 `BindingLookupQueryDeclarationIndicesInto` passed parity and reported zero managed allocation in the
 same normal BenchmarkDotNet evidence tier for strict semantic binding position lookup. It ran about
@@ -760,6 +778,14 @@ command-orchestration pressure, not acceptance evidence, and the production CLI/
 parser must keep the current C# path until N# helper-call and small string parsing overhead clears
 the 5x gate.
 
+`CliPositionalArgIndicesInto` passed parity but missed the normal BenchmarkDotNet speed gate for
+shared CLI positional-argument filtering. The production-shaped benchmark, including final string
+array materialization, measured about 1.06x slower on the representative argument corpus (5.790 us
+vs 5.437 us) and about 1.08x slower on the large generated argument corpus (46.129 us vs
+42.595 us), while reducing managed allocation to about 26%-27% of the C# helper shape. This is
+measured CLI command-parser pressure, not acceptance evidence, and production CLI argument parsing
+must keep the current C# helper until N# string comparison/helper-call overhead clears the 5x gate.
+
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier, but missed the 5x speed gate for CLI diagnostic severity
 filtering. The best measured N# path uses compact case-insensitive severity ranks and a four-wide
@@ -839,6 +865,9 @@ previous LINQ `GroupBy(...).Select(First)` shape kept as the fallback.
 `FindReferences` result deduplication and ordering now calls the compiled N# reference-deduplication
 kernel when the dogfood assembly is available, with the previous LINQ `GroupBy`/`OrderBy` path kept
 as the fallback.
+`nlc query inspect` summary reference-file lists now route through the compiled N# rank-summary
+kernel when the dogfood assembly is available, preserving normalized path ordinal distinct/order
+semantics, with the previous LINQ `Distinct`/`OrderBy` path kept as the fallback.
 Strict definition/reference/hover binding candidate-column ordering now routes through the compiled
 N# direct distance-order generator when the dogfood assembly is available, with the previous
 `HashSet<int>`/LINQ helper kept as the fallback.
@@ -890,8 +919,9 @@ classifications and diagnostic severity summaries, compact diagnostic cluster gr
 deduplication, reference result deduplication, stable diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration lookup,
 scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering, CLI tree dependency deduplication, text-edit ordering, and the pressure-only CLI
-diagnostic severity filter kernel through the compiled N# methods; `CliCommandTests` verifies both
+ordering, CLI tree dependency deduplication, text-edit ordering, inspect-summary reference-file
+summaries, and the pressure-only CLI positional-argument and diagnostic severity filter kernels
+through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc doc` symbol/member
 ordering, and `nlc tree` dependency deduplication;
 `CodeFixTests` verifies the production fix-applicator ordering route.
@@ -910,11 +940,12 @@ selection in CLI/daemon identifier completion plus scoped receiver identifier lo
 member-access completion plus reflected method overload grouping and grouped member-completion
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
 ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
-application ordering in `nlc fix`.
+application ordering in `nlc fix`, plus inspect-summary reference-file ordering in `nlc query inspect`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
-CLI diagnostic severity filtering has parity and benchmark evidence but is not routed through the
-production query, batch, or daemon paths because it currently misses the 5x speed gate.
+CLI positional-argument filtering and diagnostic severity filtering have parity and benchmark
+evidence but are not routed through the production query, batch, or daemon paths because they
+currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, and CLI command logic still contains C# implementation code and remains in scope
 for the dogfood rewrite.

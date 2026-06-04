@@ -311,6 +311,77 @@ func ReferenceDeduplicateCompactChecksumInto(
     return checksum
 }
 
+func ReferenceFileSummaryRanksInto(
+    fileRanks: int[],
+    uniqueFileCount: int,
+    countsByRank: int[],
+    resultRanks: int[]): int {
+    clearCount := uniqueFileCount + 1
+    if clearCount > countsByRank.Length {
+        clearCount = countsByRank.Length
+    }
+
+    i := 0
+    while i < clearCount {
+        countsByRank[i] = 0
+        i = i + 1
+    }
+
+    i = 0
+    while i < fileRanks.Length {
+        rank := fileRanks[i]
+        if rank > 0 && rank <= uniqueFileCount && rank < countsByRank.Length {
+            countsByRank[rank] = countsByRank[rank] + 1
+        }
+
+        i = i + 1
+    }
+
+    resultCount := 0
+    rank := 1
+    while rank <= uniqueFileCount && rank < countsByRank.Length {
+        if countsByRank[rank] > 0 {
+            if resultCount < resultRanks.Length {
+                resultRanks[resultCount] = rank
+            }
+
+            resultCount = resultCount + 1
+        }
+
+        rank = rank + 1
+    }
+
+    return resultCount
+}
+
+func ReferenceFileSummaryChecksumInto(
+    fileRanks: int[],
+    uniqueFileCount: int,
+    countsByRank: int[],
+    resultRanks: int[],
+    fileLengthsByRank: int[]): int {
+    resultCount := ReferenceFileSummaryRanksInto(
+        fileRanks,
+        uniqueFileCount,
+        countsByRank,
+        resultRanks)
+
+    checksum := resultCount
+    i := 0
+    while i < resultCount && i < resultRanks.Length {
+        rank := resultRanks[i]
+        length := 0
+        if rank >= 0 && rank < fileLengthsByRank.Length {
+            length = fileLengthsByRank[rank]
+        }
+
+        checksum = checksum + rank * 31 + length * 17 + (i + 1) * 13
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func HashDiagnosticDeduplicationKey(
     codeId: int,
     fileId: int,

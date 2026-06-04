@@ -417,6 +417,28 @@ func documented(): int {
         Assert.Equal(3, Assert.IsType<int>(referenceDeduplicationArgs[2]));
         Assert.Equal(new[] { 3, 1, 0 }, Assert.IsType<int[]>(referenceDeduplicationArgs[1]).Take(3));
 
+        var tryBuildInspectSummaryReferenceFiles = adapterType.GetMethod(
+                "TryBuildInspectSummaryReferenceFiles",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryBuildInspectSummaryReferenceFiles.");
+        var summaryReferences = new List<ReferenceResult>
+        {
+            new(@"src\B.nl", 10, 5, 5, "B reference", IsDefinition: true),
+            new("src/A.nl", 2, 3, 5, "A reference", IsDefinition: false),
+            new("src/B.nl", 12, 5, 5, "normalized duplicate", IsDefinition: false),
+            new(@"src\C.nl", 4, 1, 5, "C reference", IsDefinition: false),
+            new("src/A.nl", 2, 8, 5, "duplicate A", IsDefinition: false)
+        };
+        var referenceFileSummaryArgs = new object?[] { summaryReferences, null };
+        Assert.True((bool)(tryBuildInspectSummaryReferenceFiles.Invoke(null, referenceFileSummaryArgs) ?? false));
+        Assert.Equal(
+            summaryReferences
+                .Select(reference => reference.File.Replace('\\', '/'))
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(file => file, StringComparer.Ordinal)
+                .ToArray(),
+            Assert.IsType<string[]>(referenceFileSummaryArgs[1]));
+
         var tryGetBindingCandidateColumns = adapterType.GetMethod(
                 "TryGetBindingCandidateColumns",
                 BindingFlags.Static | BindingFlags.NonPublic,
@@ -719,6 +741,14 @@ func documented(): int {
                     "CliQueryPositionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionChecksumInto.");
+            var cliPositionalArgIndicesInto = programType.GetMethod(
+                    "CliPositionalArgIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPositionalArgIndicesInto.");
+            var cliPositionalArgChecksumInto = programType.GetMethod(
+                    "CliPositionalArgChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPositionalArgChecksumInto.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -875,6 +905,14 @@ func documented(): int {
                     "ReferenceDeduplicateCompactChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit ReferenceDeduplicateCompactChecksumInto.");
+            var referenceFileSummaryRanksInto = programType.GetMethod(
+                    "ReferenceFileSummaryRanksInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ReferenceFileSummaryRanksInto.");
+            var referenceFileSummaryChecksumInto = programType.GetMethod(
+                    "ReferenceFileSummaryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ReferenceFileSummaryChecksumInto.");
             var bindingLookupCandidateColumnsInto = programType.GetMethod(
                     "BindingLookupCandidateColumnsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1135,6 +1173,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliTryParsePositionInto,
                 cliQueryPositionsInto,
                 cliQueryPositionChecksumInto);
+            AssertCliPositionalArgsLikeProduction(
+                cliPositionalArgIndicesInto,
+                cliPositionalArgChecksumInto);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
@@ -1220,6 +1261,9 @@ func main() {
             AssertReferenceDeduplicationLikeProduction(
                 referenceDeduplicateCompactInto,
                 referenceDeduplicateCompactChecksumInto);
+            AssertReferenceFileSummaryLikeProduction(
+                referenceFileSummaryRanksInto,
+                referenceFileSummaryChecksumInto);
             AssertBindingLookupLikeProduction(
                 bindingLookupCandidateColumnsInto,
                 bindingLookupCandidateColumnChecksumInto,
@@ -2647,6 +2691,88 @@ func main() {
             return false;
 
         return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
+    }
+
+    private static void AssertCliPositionalArgsLikeProduction(
+        MethodInfo cliPositionalArgIndicesInto,
+        MethodInfo cliPositionalArgChecksumInto)
+    {
+        var args = new[]
+        {
+            "src/App.nl",
+            "--project",
+            "samples/demo",
+            "--check",
+            "--unknown",
+            "README.md",
+            "--output",
+            "dist",
+            "-o",
+            "bin/out",
+            "--stdin",
+            string.Empty,
+            "examples/hello.nl",
+            "--backend",
+            "il",
+            "--verify-no-changes",
+            "tests/fixture.nl",
+            "--diff",
+            "--verbose",
+            "relative/path.nl",
+            "-x",
+            "value-after-unknown",
+            "help",
+            "--"
+        };
+        var optionsWithValues = new[] { "--project", "--output", "-o", "--backend" };
+        var expected = CreateExpectedCliPositionalArgIndices(args, optionsWithValues);
+        var expectedChecksum = expected.Length;
+        for (var i = 0; i < expected.Length; i++)
+        {
+            var sourceIndex = expected[i];
+            expectedChecksum += (i + 1) * 97 + (sourceIndex + 1) * 31 + args[sourceIndex].Length * 17;
+        }
+
+        var checksumResultIndices = new int[args.Length];
+        var actualChecksum = (int)(cliPositionalArgChecksumInto.Invoke(
+            null,
+            new object[] { args, optionsWithValues, checksumResultIndices }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length));
+
+        var resultIndices = new int[args.Length];
+        var actualCount = (int)(cliPositionalArgIndicesInto.Invoke(
+            null,
+            new object[] { args, optionsWithValues, resultIndices }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount));
+    }
+
+    private static int[] CreateExpectedCliPositionalArgIndices(
+        string[] args,
+        string[] optionsWithValues)
+    {
+        var positional = new List<int>();
+        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (options.Contains(args[i]))
+            {
+                i++;
+                continue;
+            }
+
+            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+                continue;
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                positional.Add(i);
+        }
+
+        return positional.ToArray();
     }
 
     private static void AssertCliDocSymbolOrderingLikeProduction(
@@ -4416,6 +4542,63 @@ func main() {
             .ThenBy(i => lines[i])
             .ThenBy(i => columns[i])
             .ToArray();
+    }
+
+    private static void AssertReferenceFileSummaryLikeProduction(
+        MethodInfo referenceFileSummaryRanksInto,
+        MethodInfo referenceFileSummaryChecksumInto)
+    {
+        var files = new[]
+        {
+            @"src\B.nl",
+            "src/A.nl",
+            "src/B.nl",
+            @"src\C.nl",
+            "src/A.nl",
+            "src/[weird]/File.nl",
+            @"src\zeta\File.nl",
+            "src/zeta/File.nl"
+        };
+        var normalizedFiles = files.Select(file => file.Replace('\\', '/')).ToArray();
+        var uniqueFiles = normalizedFiles
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(file => file, StringComparer.Ordinal)
+            .ToArray();
+        var ranksByFile = uniqueFiles
+            .Select((file, index) => (file, rank: index + 1))
+            .ToDictionary(item => item.file, item => item.rank, StringComparer.Ordinal);
+        var fileRanks = normalizedFiles.Select(file => ranksByFile[file]).ToArray();
+        var fileLengthsByRank = new int[uniqueFiles.Length + 1];
+        for (var i = 0; i < uniqueFiles.Length; i++)
+        {
+            fileLengthsByRank[i + 1] = uniqueFiles[i].Length;
+        }
+
+        var expectedRanks = Enumerable.Range(1, uniqueFiles.Length).ToArray();
+        var expectedChecksum = expectedRanks.Length;
+        for (var i = 0; i < expectedRanks.Length; i++)
+        {
+            var rank = expectedRanks[i];
+            expectedChecksum += rank * 31 + fileLengthsByRank[rank] * 17 + (i + 1) * 13;
+        }
+
+        var checksumCountsByRank = new int[uniqueFiles.Length + 1];
+        var checksumResultRanks = new int[files.Length];
+        var actualChecksum = (int)(referenceFileSummaryChecksumInto.Invoke(
+            null,
+            new object[] { fileRanks, uniqueFiles.Length, checksumCountsByRank, checksumResultRanks, fileLengthsByRank }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedRanks, checksumResultRanks.Take(expectedRanks.Length));
+
+        var countsByRank = new int[uniqueFiles.Length + 1];
+        var resultRanks = new int[files.Length];
+        var actualCount = (int)(referenceFileSummaryRanksInto.Invoke(
+            null,
+            new object[] { fileRanks, uniqueFiles.Length, countsByRank, resultRanks }) ?? -1);
+
+        Assert.Equal(expectedRanks.Length, actualCount);
+        Assert.Equal(expectedRanks, resultRanks.Take(actualCount));
     }
 
     private static void AssertBindingLookupLikeProduction(

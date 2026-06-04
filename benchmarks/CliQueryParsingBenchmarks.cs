@@ -161,6 +161,198 @@ public class CliQueryPositionParsingBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for shared CLI positional argument filtering used by commands that accept
+/// file/project operands alongside value-taking options.
+///
+/// The C# baseline mirrors <c>Program.GetPositionalArgs</c>: allocate a HashSet for value-taking
+/// options, append positional strings to a List, then materialize a string array. The N# candidate
+/// scans the argument array once, writes positional source indices into caller-owned storage, and
+/// lets the host materialize the final string array.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliPositionalArgumentFilteringBenchmarks
+{
+    private const int LargeArgumentCount = 8192;
+    private const int RepresentativeArgumentCount = 1024;
+
+    private static readonly string[] OptionsWithValues =
+    [
+        "--project",
+        "--output",
+        "-o",
+        "--backend"
+    ];
+
+    private Func<string[], string[], int[], int> _nsharpCliPositionalArgIndicesInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _args = Array.Empty<string>();
+    private string[] _csharpResult = Array.Empty<string>();
+    private int[] _nsharpIndices = Array.Empty<int>();
+    private string[] _nsharpResult = Array.Empty<string>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var argumentCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeArgumentCount
+            : LargeArgumentCount;
+        _nsharpCliPositionalArgIndicesInto =
+            NSharpCompiledMethod.Bind<Func<string[], string[], int[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliPositionalArgIndicesInto");
+
+        _args = BuildArguments(argumentCount);
+        _nsharpIndices = new int[argumentCount];
+
+        var expectedChecksum = CSharpCliPositionalArgs_SharedHelper();
+        var actualChecksum = NSharpCliPositionalArgs_SharedHelper();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI positional argument checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (!_csharpResult.SequenceEqual(_nsharpResult))
+        {
+            var mismatch = FirstMismatch();
+            throw new InvalidOperationException(
+                $"N# CLI positional argument mismatch for {Corpus} at result {mismatch}: " +
+                $"expected {FormatArgAt(_csharpResult, mismatch)}, got {FormatArgAt(_nsharpResult, mismatch)}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpCliPositionalArgs_SharedHelper()
+    {
+        var positional = new List<string>();
+        var options = new HashSet<string>(OptionsWithValues, StringComparer.Ordinal);
+
+        for (var i = 0; i < _args.Length; i++)
+        {
+            if (options.Contains(_args[i]))
+            {
+                i++;
+                continue;
+            }
+
+            if (_args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+                continue;
+
+            if (!_args[i].StartsWith("-", StringComparison.Ordinal))
+                positional.Add(_args[i]);
+        }
+
+        _csharpResult = positional.ToArray();
+        return ChecksumArgs(_csharpResult);
+    }
+
+    [Benchmark]
+    public int NSharpCliPositionalArgs_SharedHelper()
+    {
+        var count = _nsharpCliPositionalArgIndicesInto(_args, OptionsWithValues, _nsharpIndices);
+        if (count < 0 || count > _args.Length || count > _nsharpIndices.Length)
+            throw new InvalidOperationException($"N# CLI positional argument count out of range: {count}.");
+
+        _nsharpResult = new string[count];
+        for (var i = 0; i < count; i++)
+        {
+            var sourceIndex = _nsharpIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= _args.Length)
+                throw new InvalidOperationException($"N# CLI positional argument index out of range: {sourceIndex}.");
+
+            _nsharpResult[i] = _args[sourceIndex];
+        }
+
+        return ChecksumArgs(_nsharpResult);
+    }
+
+    private static string[] BuildArguments(int count)
+    {
+        var args = new string[count];
+        var seeds = new[]
+        {
+            "src/App.nl",
+            "--project",
+            "samples/demo",
+            "--check",
+            "--unknown",
+            "README.md",
+            "--output",
+            "dist",
+            "-o",
+            "bin/out",
+            "--stdin",
+            "",
+            "examples/hello.nl",
+            "--backend",
+            "il",
+            "--verify-no-changes",
+            "tests/fixture.nl",
+            "--diff",
+            "--verbose",
+            "relative/path.nl",
+            "-x",
+            "value-after-unknown",
+            "help",
+            "--"
+        };
+
+        for (var i = 0; i < count; i++)
+        {
+            if (i % 37 == 0)
+            {
+                args[i] = $"generated/File{i}.nl";
+                continue;
+            }
+
+            if (i % 53 == 0)
+            {
+                args[i] = $"operand-{i}";
+                continue;
+            }
+
+            args[i] = seeds[i % seeds.Length];
+        }
+
+        return args;
+    }
+
+    private int FirstMismatch()
+    {
+        var count = Math.Min(_csharpResult.Length, _nsharpResult.Length);
+        for (var i = 0; i < count; i++)
+        {
+            if (_csharpResult[i] != _nsharpResult[i])
+                return i;
+        }
+
+        return count;
+    }
+
+    private static int ChecksumArgs(string[] args)
+    {
+        var checksum = args.Length;
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            checksum += (i + 1) * 97 + arg.Length * 31;
+            if (arg.Length > 0)
+                checksum += arg[0] * 17 + arg[^1] * 13;
+        }
+
+        return checksum;
+    }
+
+    private static string FormatArgAt(string[] args, int index) =>
+        index >= 0 && index < args.Length ? $"\"{args[index]}\"" : "<missing>";
+}
+
+/// <summary>
 /// Dogfood benchmark for duplicate request-id validation in <c>nlc query batch</c>.
 /// </summary>
 [MemoryDiagnoser]

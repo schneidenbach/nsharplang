@@ -264,10 +264,13 @@ public class CodeIntelligenceOutputTests
             new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
             new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
             new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
-            new InspectReferencesResult(2, 1, new[]
+            new InspectReferencesResult(5, 1, new[]
             {
                 new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
-                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false),
+                new ReferenceResult(@"Services\TaskService.nl", 94, 9, 8, "normalized duplicate", false),
+                new ReferenceResult("Generated/Stats.nl", 12, 4, 8, "generated reference", false),
+                new ReferenceResult("Program.nl", 86, 11, 8, "duplicate program reference", false)
             }),
             new CompletionResult(
                 CompletionContext.MemberAccess,
@@ -297,10 +300,13 @@ public class CodeIntelligenceOutputTests
             new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
             new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
             new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
-            new InspectReferencesResult(2, 1, new[]
+            new InspectReferencesResult(5, 1, new[]
             {
                 new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
-                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false),
+                new ReferenceResult("Program.nl", 87, 14, 8, "Log(service.GetStats())", false),
+                new ReferenceResult("Generated\\Stats.nl", 12, 9, 8, "value = service.GetStats()", false),
+                new ReferenceResult("Services/TaskService.nl", 101, 13, 8, "return GetStats()", false)
             }),
             new CompletionResult(
                 CompletionContext.MemberAccess,
@@ -326,7 +332,11 @@ public class CodeIntelligenceOutputTests
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("summary", out var summary));
         Assert.False(doc.RootElement.TryGetProperty("result", out _));
-        Assert.Equal(2, summary.GetProperty("references").GetProperty("count").GetInt32());
+        var references = summary.GetProperty("references");
+        Assert.Equal(5, references.GetProperty("count").GetInt32());
+        Assert.Equal(
+            new[] { "Generated/Stats.nl", "Program.nl", "Services/TaskService.nl" },
+            references.GetProperty("files").EnumerateArray().Select(file => file.GetString()).ToArray());
         Assert.Equal(3, summary.GetProperty("completions").GetProperty("totalCount").GetInt32());
         Assert.Equal(2, summary.GetProperty("completions").GetProperty("groupCounts").GetProperty("functions").GetInt32());
         Assert.Equal("GetStats", summary.GetProperty("completions").GetProperty("groups").GetProperty("functions")[0].GetString());
