@@ -346,8 +346,8 @@ Current code-intelligence dogfood benchmarks:
   through one batch-local `StringBuilder`, and writes commands into caller-owned storage.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
-`CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`, and
-`CompilerServices/DiagnosticDeduplication.nl`.
+`CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
+`CompilerServices/DiagnosticDeduplication.nl`, and `CompilerServices/CliQueryParsing.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -356,7 +356,9 @@ and the current nullable-member-access edge. It verifies the production-shaped m
 the checksum parity helpers, the direct member receiver scanner, the cached receiver-cache API, and
 source-context span extraction. It also verifies variable declaration name spans through both the
 direct scanner and the cached by-line API, including Unicode identifier characters, member-assignment
-lines, missing-name assignments, and invalid lines. Raw source-line span parity now covers invalid
+lines, missing-name assignments, and invalid lines. It verifies CLI query position parsing against
+the current split/`int.TryParse` behavior for valid, invalid, signed, whitespace-padded, and overflow
+inputs. Raw source-line span parity now covers invalid
 lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing `\r`
 characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns, in-range
 columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content.
@@ -504,6 +506,22 @@ of the C# formatter-shaped baseline. This is measured language/runtime pressure,
 evidence, and the production formatter must keep the C# next-command path until N# has a
 lower-allocation public string construction strategy that clears the 5x gate.
 
+Current CLI dogfood benchmark:
+
+- `CliQueryPositionParsingBenchmarks` targets `nlc query --pos line:col` parsing and daemon query
+  dispatch position parsing. The C# baseline mirrors the current command parser shape: split on
+  `:` and parse the two pieces with `int.TryParse`. The N# candidate scans once, handles
+  whitespace/signs/overflow to match `int.TryParse` behavior, and writes line/column values into
+  caller-owned buffers through `CliQueryPositionsInto`.
+
+`CliQueryPositionsInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier, but missed the speed gate for CLI position parsing. The best measured
+N# path ran about 2.37x faster on the representative position corpus (11.56 us vs 27.44 us, 0 B vs
+107,056 B) and about 2.31x faster on the large generated position corpus (95.66 us vs 220.57 us,
+0 B vs 857,760 B). This is measured CLI command-orchestration pressure, not acceptance evidence, and
+the production CLI/daemon position parser must keep the current C# path until N# helper-call and
+small string parsing overhead clears the 5x gate.
+
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
@@ -632,6 +650,8 @@ C# formatter work.
 These public string materialization misses are specifically about short string construction: direct
 N# message-pattern construction, direct N# field hashing, and direct N# command-buffer construction
 all beat their C# formatter-shaped helpers modestly, but they remain far below the 5x gate. The
+CLI query position parser also shows helper-call overhead on tiny strings: direct parsing removes
+all split allocation but still only reaches about 2.4x on the measured batch. The
 strict reference/rename declaration-name guard now uses the same line-range cache, but the semantic
 binding tables and lookup policy are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still

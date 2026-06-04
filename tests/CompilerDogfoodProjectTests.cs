@@ -454,6 +454,18 @@ func documented(): int {
                     "CodeIntelligenceCompletionReceiversInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligenceCompletionReceiversInto.");
+            var cliTryParsePositionInto = programType.GetMethod(
+                    "CliTryParsePositionInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTryParsePositionInto.");
+            var cliQueryPositionsInto = programType.GetMethod(
+                    "CliQueryPositionsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionsInto.");
+            var cliQueryPositionChecksumInto = programType.GetMethod(
+                    "CliQueryPositionChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliQueryPositionChecksumInto.");
             var codeIntelligenceDocCommentChecksumInto = programType.GetMethod(
                     "CodeIntelligenceDocCommentChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -738,6 +750,10 @@ func main(customer: Customer, résumé: Profile) {
             AssertCompletionReceiversLikeProduction(
                 codeIntelligenceCompletionReceiverChecksumInto,
                 codeIntelligenceCompletionReceiversInto);
+            AssertCliQueryPositionsLikeProduction(
+                cliTryParsePositionInto,
+                cliQueryPositionsInto,
+                cliQueryPositionChecksumInto);
             AssertDocCommentsLikeProduction(
                 """
 // ignored
@@ -1886,6 +1902,83 @@ func main() {
         Assert.Equal(prefixes.Length, actualCount);
         Assert.Equal(expectedContexts, actualContexts);
         Assert.Equal(expectedReceivers, actualReceivers);
+    }
+
+    private static void AssertCliQueryPositionsLikeProduction(
+        MethodInfo cliTryParsePositionInto,
+        MethodInfo cliQueryPositionsInto,
+        MethodInfo cliQueryPositionChecksumInto)
+    {
+        var positions = new[]
+        {
+            "1:1",
+            "42:17",
+            " 42 : 17 ",
+            "+64:+10",
+            "-1:5",
+            "2147483647:2147483647",
+            "-2147483648:-2147483648",
+            "0:0",
+            "12:",
+            ":34",
+            "12:abc",
+            "abc:12",
+            "12:34:56",
+            "2147483648:1",
+            "1:-2147483649",
+            "1_000:2",
+            "7 :\t8"
+        };
+        var expectedLines = new int[positions.Length];
+        var expectedColumns = new int[positions.Length];
+        var expectedChecksum = positions.Length;
+
+        for (var i = 0; i < positions.Length; i++)
+        {
+            var parsed = TryParseCliPositionWithSplit(positions[i], out var line, out var column);
+            expectedLines[i] = line;
+            expectedColumns[i] = column;
+            expectedChecksum += (parsed ? 1 : 0) * 97 + line * 31 + column * 17;
+
+            var singleResult = new int[2];
+            var actualParsed = (int)(cliTryParsePositionInto.Invoke(
+                null,
+                new object[] { positions[i], singleResult }) ?? -1);
+            Assert.Equal(parsed ? 1 : 0, actualParsed);
+            Assert.Equal(line, singleResult[0]);
+            Assert.Equal(column, singleResult[1]);
+        }
+
+        var actualLines = new int[positions.Length];
+        var actualColumns = new int[positions.Length];
+        var actualCount = (int)(cliQueryPositionsInto.Invoke(
+            null,
+            new object[] { positions, actualLines, actualColumns }) ?? -1);
+
+        Assert.Equal(positions.Length, actualCount);
+        Assert.Equal(expectedLines, actualLines);
+        Assert.Equal(expectedColumns, actualColumns);
+
+        var checksumLines = new int[positions.Length];
+        var checksumColumns = new int[positions.Length];
+        var actualChecksum = (int)(cliQueryPositionChecksumInto.Invoke(
+            null,
+            new object[] { positions, checksumLines, checksumColumns }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedLines, checksumLines);
+        Assert.Equal(expectedColumns, checksumColumns);
+    }
+
+    private static bool TryParseCliPositionWithSplit(string position, out int line, out int column)
+    {
+        line = 0;
+        column = 0;
+        var parts = position.Split(':');
+        if (parts.Length != 2)
+            return false;
+
+        return int.TryParse(parts[0], out line) && int.TryParse(parts[1], out column);
     }
 
     private static void AssertDocCommentsLikeProduction(

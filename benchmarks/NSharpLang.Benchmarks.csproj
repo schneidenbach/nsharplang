@@ -50,6 +50,9 @@
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CompletionReceivers.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionReceivers.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliQueryParsing.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliQueryParsing.nl" />
   </ItemGroup>
 
 </Project>
