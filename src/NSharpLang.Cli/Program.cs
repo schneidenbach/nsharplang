@@ -245,9 +245,15 @@ Exit codes:
 
         // Find all nsharp/ output directories under obj/
         // Search for both "nsharp" and "NSharp" to handle case-sensitive filesystems (Linux)
-        var nsharpDirs = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
+        var nsharpDirCandidates = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
             .Concat(Directory.GetDirectories(objDir, "NSharp", SearchOption.AllDirectories))
-            .Distinct(StringComparer.Ordinal);
+            .ToArray();
+        var nsharpDirs = NSharpCliDogfoodAdapter.TryDeduplicateStable(
+                nsharpDirCandidates,
+                StringComparer.Ordinal,
+                out var dogfoodNsharpDirs)
+            ? dogfoodNsharpDirs
+            : nsharpDirCandidates.Distinct(StringComparer.Ordinal);
         foreach (var nsharpDir in nsharpDirs)
         {
             if (!Directory.Exists(nsharpDir))

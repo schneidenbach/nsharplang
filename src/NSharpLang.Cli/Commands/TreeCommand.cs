@@ -156,9 +156,7 @@ public static class TreeCommand
 
         var visibleDirect = maxDepth >= 1 ? Deduplicate(direct) : Array.Empty<TreeDependency>();
         var visibleTransitive = maxDepth >= 2 ? Deduplicate(transitive) : Array.Empty<TreeDependency>();
-        var frameworkName = targetFrameworks.Count == 0
-            ? "unknown"
-            : string.Join(",", targetFrameworks.Distinct(StringComparer.OrdinalIgnoreCase));
+        var frameworkName = FormatTargetFrameworks(targetFrameworks);
 
         return new TreeReport(
             SchemaVersion: 2,
@@ -227,6 +225,21 @@ public static class TreeCommand
             .OrderBy(dependency => dependency.Kind, StringComparer.Ordinal)
             .ThenBy(dependency => dependency.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    internal static string FormatTargetFrameworks(IReadOnlyList<string> targetFrameworks)
+    {
+        if (targetFrameworks.Count == 0)
+            return "unknown";
+
+        var distinctFrameworks = NSharpCliDogfoodAdapter.TryDeduplicateStable(
+                targetFrameworks,
+                StringComparer.OrdinalIgnoreCase,
+                out var dogfoodFrameworks)
+            ? dogfoodFrameworks
+            : targetFrameworks.Distinct(StringComparer.OrdinalIgnoreCase);
+
+        return string.Join(",", distinctFrameworks);
     }
 
     private static bool TryDeduplicateWithDogfood(

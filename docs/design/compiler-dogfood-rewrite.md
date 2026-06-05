@@ -1366,6 +1366,10 @@ available, with the previous C# `Distinct` paths kept as the fallback.
 `NSharpCliDogfoodAdapter.TryDeduplicateStable`, which calls the same compiled N# compact-rank stable
 distinct kernel when the dogfood assembly is available, with the previous C# `Distinct` path kept as
 the fallback.
+CLI stale generated-output cleanup and `nlc tree` target-framework summaries also route stable string
+de-duplication through `NSharpCliDogfoodAdapter.TryDeduplicateStable` when the dogfood assembly is
+available, preserving ordinal generated-directory identity, ordinal-ignore-case framework identity,
+and first-source output order, with the previous C# `Distinct` paths kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -1457,7 +1461,8 @@ ordering, CLI tree dependency deduplication, diagnostic severity filtering, symb
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
-inspect-summary reference-file summaries, and the pressure-only
+inspect-summary reference-file summaries, CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
+and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and

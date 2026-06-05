@@ -197,6 +197,53 @@ func Main() {
     }
 
     [Fact]
+    public void TreeCommand_FormatTargetFrameworks_UsesDogfoodStableDistinct()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+
+        Assert.Equal("unknown", TreeCommand.FormatTargetFrameworks(Array.Empty<string>()));
+        Assert.Equal(
+            "net10.0,net9.0,net8.0",
+            TreeCommand.FormatTargetFrameworks(new[]
+            {
+                "net10.0",
+                "NET10.0",
+                "net9.0",
+                "net8.0",
+                "NET9.0"
+            }));
+    }
+
+    [Fact]
+    public void Program_CleanStaleGeneratedFiles_UsesDogfoodStableDistinctDirectories()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-stale-generated-{Guid.NewGuid():N}");
+        var generatedDir = Path.Combine(tempDir, "obj", "Debug", "net10.0", "nsharp");
+        Directory.CreateDirectory(generatedDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func main(): int { return 0 }");
+
+            var liveGeneratedFile = Path.Combine(generatedDir, "Program.g.cs");
+            var staleGeneratedFile = Path.Combine(generatedDir, "Deleted.g.cs");
+            File.WriteAllText(liveGeneratedFile, "// live");
+            File.WriteAllText(staleGeneratedFile, "// stale");
+
+            Program.CleanStaleGeneratedFiles(tempDir);
+
+            Assert.True(File.Exists(liveGeneratedFile));
+            Assert.False(File.Exists(staleGeneratedFile));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CleanCommand_DogfoodAdapter_OrdersArtifactDirectories()
     {
         var directories = new[]
