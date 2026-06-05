@@ -48,6 +48,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/DiagnosticDeduplication.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticDeduplication.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/FormatterSafetyScan.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.FormatterSafetyScan.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/TextEditOrdering.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.TextEditOrdering.nl" />
     <EmbeddedResource

@@ -1914,6 +1914,18 @@ class OtherZetaType {
                     "DiagnosticDeduplicateStableChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticDeduplicateStableChecksumInto.");
+            var formatterSafetyHasError = programType.GetMethod(
+                    "FormatterSafetyHasError",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit FormatterSafetyHasError.");
+            var formatterSafetyErrorIndicesInto = programType.GetMethod(
+                    "FormatterSafetyErrorIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit FormatterSafetyErrorIndicesInto.");
+            var formatterSafetyErrorIndicesChecksumInto = programType.GetMethod(
+                    "FormatterSafetyErrorIndicesChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit FormatterSafetyErrorIndicesChecksumInto.");
             var referenceDeduplicateCompactInto = programType.GetMethod(
                     "ReferenceDeduplicateCompactInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2415,6 +2427,10 @@ func main() {
                 diagnosticDeduplicateCompactChecksumInto,
                 diagnosticDeduplicateStableInto,
                 diagnosticDeduplicateStableChecksumInto);
+            AssertFormatterSafetyScanLikeProduction(
+                formatterSafetyHasError,
+                formatterSafetyErrorIndicesInto,
+                formatterSafetyErrorIndicesChecksumInto);
             AssertReferenceDeduplicationLikeProduction(
                 referenceDeduplicateCompactInto,
                 referenceDeduplicateCompactChecksumInto);
@@ -8264,6 +8280,80 @@ func main() {
             .GroupBy(i => (codes[i], files[i], lines[i], columns[i], messages[i]))
             .Select(group => group.First())
             .ToArray();
+    }
+
+    private static void AssertFormatterSafetyScanLikeProduction(
+        MethodInfo formatterSafetyHasError,
+        MethodInfo formatterSafetyErrorIndicesInto,
+        MethodInfo formatterSafetyErrorIndicesChecksumInto)
+    {
+        // Severity encoding mirrors ErrorSeverity: Warning = 0, Error = 1. The production
+        // FormatSafe gate is Errors.Any(e => e.Severity == ErrorSeverity.Error), and the
+        // failure path collects error-severity entries for the message join.
+        AssertFormatterSafetyScanCase(
+            formatterSafetyHasError,
+            formatterSafetyErrorIndicesInto,
+            formatterSafetyErrorIndicesChecksumInto,
+            Array.Empty<int>());
+        AssertFormatterSafetyScanCase(
+            formatterSafetyHasError,
+            formatterSafetyErrorIndicesInto,
+            formatterSafetyErrorIndicesChecksumInto,
+            new[] { 0, 0, 0 });
+        AssertFormatterSafetyScanCase(
+            formatterSafetyHasError,
+            formatterSafetyErrorIndicesInto,
+            formatterSafetyErrorIndicesChecksumInto,
+            new[] { 1, 0, 1, 0, 1 });
+        AssertFormatterSafetyScanCase(
+            formatterSafetyHasError,
+            formatterSafetyErrorIndicesInto,
+            formatterSafetyErrorIndicesChecksumInto,
+            new[] { 0, 1, 0, 0, 1, 0, 0 });
+        AssertFormatterSafetyScanCase(
+            formatterSafetyHasError,
+            formatterSafetyErrorIndicesInto,
+            formatterSafetyErrorIndicesChecksumInto,
+            new[] { 1, 1, 1, 1 });
+    }
+
+    private static void AssertFormatterSafetyScanCase(
+        MethodInfo formatterSafetyHasError,
+        MethodInfo formatterSafetyErrorIndicesInto,
+        MethodInfo formatterSafetyErrorIndicesChecksumInto,
+        int[] severities)
+    {
+        var expectedHasError = severities.Any(severity => severity == 1);
+        var actualHasError = (bool)(formatterSafetyHasError.Invoke(
+            null,
+            new object[] { severities }) ?? false);
+        Assert.Equal(expectedHasError, actualHasError);
+
+        var expectedIndices = Enumerable.Range(0, severities.Length)
+            .Where(i => severities[i] == 1)
+            .ToArray();
+
+        var resultIndices = new int[Math.Max(severities.Length, 1)];
+        var actualCount = (int)(formatterSafetyErrorIndicesInto.Invoke(
+            null,
+            new object[] { severities, resultIndices }) ?? -1);
+        Assert.Equal(expectedIndices.Length, actualCount);
+        Assert.Equal(expectedIndices, resultIndices.Take(actualCount));
+
+        var checksumResultIndices = new int[Math.Max(severities.Length, 1)];
+        var actualChecksum = (int)(formatterSafetyErrorIndicesChecksumInto.Invoke(
+            null,
+            new object[] { severities, checksumResultIndices }) ?? -1);
+
+        var expectedChecksum = expectedIndices.Length;
+        for (var i = 0; i < expectedIndices.Length; i++)
+        {
+            var index = expectedIndices[i];
+            expectedChecksum += (index + 1) * 31 + (i + 1) * 13;
+        }
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedIndices, checksumResultIndices.Take(expectedIndices.Length));
     }
 
     private static void AssertReferenceDeduplicationLikeProduction(
