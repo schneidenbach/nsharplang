@@ -726,6 +726,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.StructCopyAnalysis.nl";
     private const string TypeLookupResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.TypeLookup.nl";
+    private const string ProjectSourceFilterResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.ProjectSourceFilter.nl";
 
     public static string LexerTokenKindScanner => ReadResource(LexerTokenKindScannerResourceName);
     public static string SourceTextLines => ReadResource(SourceTextLinesResourceName);
@@ -752,6 +754,7 @@ internal static class DogfoodCompilerSources
     public static string AnonymousUnionShims => ReadResource(AnonymousUnionShimsResourceName);
     public static string StructCopyAnalysis => ReadResource(StructCopyAnalysisResourceName);
     public static string TypeLookup => ReadResource(TypeLookupResourceName);
+    public static string ProjectSourceFilter => ReadResource(ProjectSourceFilterResourceName);
 
     private static string ReadResource(string resourceName)
     {
