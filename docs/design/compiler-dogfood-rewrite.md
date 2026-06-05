@@ -912,6 +912,19 @@ measured CLI command-parser pressure, not acceptance evidence, and production CL
 for commands that need every positional operand must keep the current C# helper until N# string
 comparison/helper-call overhead clears the 5x gate.
 
+Three additional low-level CLI orchestration candidates were measured and deliberately removed
+instead of being routed into production because they did not clear the speed gate. A caller-owned
+command-argument tail copy reduced allocation pressure but measured only 87.742 ns vs 95.460 ns on
+the representative corpus and regressed on the large corpus (12.409 us vs 10.387 us), so
+`args.Skip(1).ToArray()` remains the boundary until N# has a faster reference-array copy primitive
+or can call the BCL array-copy path without extra overhead. Top-level command classification by
+ASCII literal comparison removed lowercase string allocation but measured 9.951 us vs 9.670 us on
+representative command batches and 77.516 us vs 77.920 us on large batches, so the current C#
+`raw.ToLower()`/switch dispatcher remains. Batch query success/failure counting over compact ok
+flags measured 270.0 ns vs 342.7 ns representative and 2.156 us vs 2.882 us large, so
+`BatchQueryRunner` keeps the existing LINQ count until N# direct-call overhead and tiny-loop codegen
+can turn sub-microsecond kernels into 5x wins rather than modest allocation-free improvements.
+
 `CliFirstPositionalArgIndex` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for first positional-operand discovery. The accepted N# path returns
 as soon as it finds the first operand instead of using the previous shared helper shape that scanned
