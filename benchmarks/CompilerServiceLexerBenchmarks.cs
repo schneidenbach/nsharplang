@@ -690,6 +690,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticDeduplication.nl";
     private const string TextEditOrderingResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.TextEditOrdering.nl";
+    private const string FormatterImportOrderingResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.FormatterImportOrdering.nl";
     private const string BindingLookupResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.BindingLookup.nl";
     private const string SemanticScopesResourceName =
@@ -732,6 +734,7 @@ internal static class DogfoodCompilerSources
     public static string CodeIntelligenceDiagnosticClusters => ReadResource(DiagnosticClustersResourceName);
     public static string CodeIntelligenceDiagnosticDeduplication => ReadResource(DiagnosticDeduplicationResourceName);
     public static string CodeIntelligenceTextEditOrdering => ReadResource(TextEditOrderingResourceName);
+    public static string FormatterImportOrdering => ReadResource(FormatterImportOrderingResourceName);
     public static string CodeIntelligenceBindingLookup => ReadResource(BindingLookupResourceName);
     public static string CodeIntelligenceSemanticScopes => ReadResource(SemanticScopesResourceName);
     public static string CodeIntelligenceCompletionReceivers => ReadResource(CompletionReceiversResourceName);

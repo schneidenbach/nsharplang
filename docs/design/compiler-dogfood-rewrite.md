@@ -492,6 +492,14 @@ Current code-intelligence dogfood benchmarks:
   ascending end line/column, descending source index for same-position inserts, then materialize the
   list. The accepted N# candidate runs after the host has compacted `(startLine,startColumn)` and
   `(endLine,endColumn)` ranks and returns ordered source indices through caller-owned buffers.
+- `CompilerServiceFormatterImportOrderingBenchmarks` targets the import/using ordering in
+  `Formatter.Format` ("System* first, then namespace alphabetical"). The C# baseline mirrors the
+  production LINQ shape: `Select`-with-index projection, `OrderByDescending(StartsWith "System")`,
+  `ThenBy(namespace)`, then `ToList()`. The accepted N# candidate runs after the host has compacted
+  each import to a dense namespace rank (sharing a rank when namespaces compare equal under
+  `Comparer<string>.Default`, mirroring stable `ThenBy` ties) plus a System-prefix flag, then returns
+  ordered source indices through caller-owned buffers via a two-pass stable counting sort with no
+  per-call managed allocation.
 - `CompilerServiceErrorSuggestionBenchmarks` targets compiler typo-suggestion scoring used by
   Elm-style diagnostics. The C# baseline mirrors `SmartSuggester.SuggestSimilarNames`: LINQ
   projection/filter/order, lowercase string allocation, edit-distance matrix allocation, and final
@@ -1917,6 +1925,20 @@ LINQ grouping/order path kept as the fallback.
 two-pass stable counting kernel when the dogfood assembly is available, preserving the previous
 bottom-to-top, right-to-left, end-position, and same-position reverse-input ordering, with the
 previous LINQ ordering path kept as the fallback.
+`Formatter.Format` import/using ordering now routes through the compiled N#
+`FormatterImportOrderIndicesInto` two-pass stable counting kernel when the dogfood assembly is
+available, preserving the "System* first, then namespace alphabetical" ordering (including stable
+ties for duplicate namespaces), with the previous `OrderByDescending`/`ThenBy`/`ToList` LINQ path
+kept as the fallback. Measured `2026-06-05` on `.NET 10.0.5` (Arm64): the representative single-file
+import set (~33 imports) ran `330.6 ns` (N#) vs `2,057.0 ns` (C#), about `6.2x`, and the large
+generated multi-file set ran `63.40 us` (N#) vs `1,281.05 us` (C#), about `20.2x`, with zero
+per-operation managed allocation on the N# path (`0 B` vs `2,568 B` representative, `0 B` vs
+`478,176 B` large). Both rows clear the 5x acceptance gate; the representative win is convincing
+because the C# baseline's per-call LINQ projection plus list materialization dominates even at small
+import counts. Parity is asserted by `CompilerDogfoodProjectTests`
+(`AssertFormatterImportOrderingLikeProduction` checksum/sequence parity and
+`CompilerDogfoodAdapter_OrdersImportsBySystemThenNamespaceLikeProduction` reference-identical routed
+ordering against the exact production LINQ).
 `nlc fix --text` skipped-fix selection now routes through the compiled N# skipped-index kernel when
 the dogfood assembly is available, preserving the default safe-only behavior,
 include-review-needed behavior, suggestion-only exclusion, unknown-safety exclusion, and source-order
