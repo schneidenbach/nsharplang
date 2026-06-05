@@ -780,6 +780,58 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_OrdersTypesByDescendingKeyDotCount()
+    {
+        var types = new[]
+        {
+            typeof(string),
+            typeof(int),
+            typeof(decimal),
+            typeof(DateTime),
+            typeof(Guid)
+        };
+        var keys = new Dictionary<Type, string>
+        {
+            [typeof(string)] = "Root",
+            [typeof(int)] = "Root.Nested",
+            [typeof(decimal)] = "Root.Nested.Deep",
+            [typeof(DateTime)] = "Other.Deep",
+            [typeof(Guid)] = "Root.Nested.Deep.More"
+        };
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryOrderTypesByDescendingKeyDotCount = adapterType.GetMethod(
+                "TryOrderTypesByDescendingKeyDotCount",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryOrderTypesByDescendingKeyDotCount.");
+        var genericOrder = tryOrderTypesByDescendingKeyDotCount.MakeGenericMethod(typeof(Type));
+        var args = new object?[]
+        {
+            types,
+            (Func<Type, string>)(type => keys[type]),
+            null
+        };
+
+        Assert.True((bool)(genericOrder.Invoke(null, args) ?? false));
+        var orderedTypes = Assert.IsType<List<Type>>(args[2]);
+        Assert.Equal(new[]
+        {
+            typeof(Guid),
+            typeof(decimal),
+            typeof(int),
+            typeof(DateTime),
+            typeof(string)
+        }, orderedTypes);
+    }
+
+    [Fact]
     public void LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer()
     {
         var repoRoot = FindRepoRoot();
@@ -1344,6 +1396,14 @@ func main(): int {
                     "DeclaredTypeNameCandidateChecksum",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DeclaredTypeNameCandidateChecksum.");
+            var typeCreationOrderIndicesInto = programType.GetMethod(
+                    "TypeCreationOrderIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TypeCreationOrderIndicesInto.");
+            var typeCreationOrderChecksumInto = programType.GetMethod(
+                    "TypeCreationOrderChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TypeCreationOrderChecksumInto.");
 
             const string source = """"
 import System

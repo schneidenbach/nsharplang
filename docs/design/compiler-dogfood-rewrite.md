@@ -506,6 +506,10 @@ Current compiler-performance dogfood benchmarks:
   total match. The accepted N# candidate scans compact unique declared-name/import-flag/query-width
   tail-hash arrays and returns a 1-based selected name index, no-match/ambiguous sentinel, or invalid
   input sentinel through `DeclaredTypeNameCandidateIndex`.
+- `CompilerServiceTypeCreationOrderBenchmarks` targets IL compiler `TypeBuilder` creation order.
+  The C# baseline mirrors the fallback shape: stable `OrderByDescending` by type-key dot count and
+  array materialization. The accepted N# candidate counts key depths once, uses stable descending
+  counting buckets, and writes source indices through `TypeCreationOrderIndicesInto`.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
@@ -898,6 +902,13 @@ lookup (511.9 ns vs 47.894 us, 0 B vs 203,808 B), and about 93x-105x faster on t
 corpus (3.920-4.065 us vs 376.646-411.503 us, 0 B vs 650,538-1,370,818 B). This is
 acceptance-grade benchmark evidence for declared-name disambiguation after the host has projected
 declared names and imported-namespace membership into compact ordinal arrays.
+
+`TypeCreationOrderIndicesInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for IL compiler type creation ordering. It ran about 7.2x faster on
+the representative corpus (22.15 us vs 159.85 us, 0 B vs 57,648 B) and about 7.6x faster on the
+large generated corpus (179.48 us vs 1,355.23 us, 0 B vs 459,056 B). This is acceptance-grade
+benchmark evidence for stable descending type-key-depth ordering after the host has projected
+`TypeBuilder` keys into compact arrays.
 
 Current CLI dogfood benchmarks:
 
@@ -1302,6 +1313,11 @@ imported-namespace disambiguation tail of `GetDeclaredTypeNameCandidates` throug
 `NSharpCompilerDogfoodAdapter.TrySelectDeclaredTypeNameCandidate` when the dogfood assembly is
 available, preserving unique imported match, unique total match, no-match, and ambiguous behavior,
 with the previous C# LINQ scan kept as the fallback.
+IL compiler type-builder creation now routes nested enum `TypeBuilder`, string-enum container, and
+normal user-type creation order through
+`NSharpCompilerDogfoodAdapter.TryOrderTypesByDescendingKeyDotCount` when the dogfood assembly is
+available, preserving stable descending type-key dot-count order, with the previous C#
+`OrderByDescending` path kept as the fallback.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 Clustered diagnostic output also routes group root/count/order selection through the compiled N#
@@ -1434,7 +1450,7 @@ semantic scope index construction, scoped visible-variable selection, CLI batch 
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
-AOT requirement grouping, declared-type suffix lookup, inspect-summary reference-file summaries, and the pressure-only
+AOT requirement grouping, declared-type suffix lookup, type-creation ordering, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and

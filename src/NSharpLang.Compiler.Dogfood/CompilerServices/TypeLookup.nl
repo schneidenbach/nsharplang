@@ -122,6 +122,106 @@ func DeclaredTypeNameCandidateChecksum(
     return index * 97 + weight * 31
 }
 
+func TypeCreationOrderIndicesInto(
+    keys: string[],
+    count: int,
+    dotCounts: int[],
+    depthCounts: int[],
+    depthOffsets: int[],
+    resultIndices: int[]): int {
+    if count < 0 || count > keys.Length || count > dotCounts.Length || count > resultIndices.Length {
+        return -1
+    }
+
+    maxDepth := 0
+    i := 0
+    while i < count {
+        key := keys[i]
+        depth := 0
+        j := 0
+        while j < key.Length {
+            if key[j] == '.' {
+                depth = depth + 1
+            }
+
+            j = j + 1
+        }
+
+        dotCounts[i] = depth
+        if depth > maxDepth {
+            maxDepth = depth
+        }
+
+        i = i + 1
+    }
+
+    bucketCount := maxDepth + 1
+    if bucketCount > depthCounts.Length || bucketCount > depthOffsets.Length {
+        return -1
+    }
+
+    depth := 0
+    while depth < bucketCount {
+        depthCounts[depth] = 0
+        depthOffsets[depth] = 0
+        depth = depth + 1
+    }
+
+    i = 0
+    while i < count {
+        depthCounts[dotCounts[i]] = depthCounts[dotCounts[i]] + 1
+        i = i + 1
+    }
+
+    offset := 0
+    depth = maxDepth
+    while depth >= 0 {
+        depthOffsets[depth] = offset
+        offset = offset + depthCounts[depth]
+        depth = depth - 1
+    }
+
+    i = 0
+    while i < count {
+        depth = dotCounts[i]
+        writeIndex := depthOffsets[depth]
+        resultIndices[writeIndex] = i
+        depthOffsets[depth] = writeIndex + 1
+        i = i + 1
+    }
+
+    return count
+}
+
+func TypeCreationOrderChecksumInto(
+    keys: string[],
+    count: int,
+    dotCounts: int[],
+    depthCounts: int[],
+    depthOffsets: int[],
+    resultIndices: int[],
+    keyWeights: int[]): int {
+    orderedCount := TypeCreationOrderIndicesInto(keys, count, dotCounts, depthCounts, depthOffsets, resultIndices)
+    if orderedCount < 0 {
+        return orderedCount
+    }
+
+    checksum := orderedCount
+    i := 0
+    while i < orderedCount {
+        sourceIndex := resultIndices[i]
+        weight := 0
+        if sourceIndex >= 0 && sourceIndex < keyWeights.Length {
+            weight = keyWeights[sourceIndex]
+        }
+
+        checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + dotCounts[sourceIndex] * 17 + weight * 13
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func DeclaredTypeKeyMatches(key: string, typeName: string): bool {
     if key == typeName {
         return true

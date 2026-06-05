@@ -18,6 +18,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private static DeclaredTypeSuffixLookupScratch? t_declaredTypeSuffixLookupScratch;
     [ThreadStatic]
     private static DeclaredTypeNameCandidateScratch? t_declaredTypeNameCandidateScratch;
+    [ThreadStatic]
+    private static TypeCreationOrderScratch? t_typeCreationOrderScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -245,6 +247,69 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    internal static bool TryOrderTypesByDescendingKeyDotCount<TType>(
+        IEnumerable<TType> types,
+        Func<TType, string> getTypeKey,
+        out List<TType> orderedTypes)
+        where TType : Type
+    {
+        orderedTypes = [];
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var scratch = t_typeCreationOrderScratch ??= new TypeCreationOrderScratch();
+
+        try
+        {
+            if (!scratch.Load(types, getTypeKey))
+                return false;
+
+            if (scratch.Count == 0)
+                return true;
+
+            var orderedCount = bindings.TypeCreationOrderIndices(
+                scratch.Keys,
+                scratch.Count,
+                scratch.DotCounts,
+                scratch.DepthCounts,
+                scratch.DepthOffsets,
+                scratch.ResultIndices);
+
+            if (orderedCount < 0 || orderedCount > scratch.Count || orderedCount > scratch.ResultIndices.Length)
+            {
+                orderedTypes = [];
+                return false;
+            }
+
+            var result = new List<TType>(orderedCount);
+            for (var i = 0; i < orderedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= scratch.Count || scratch.Values[sourceIndex] is not TType type)
+                {
+                    orderedTypes = [];
+                    return false;
+                }
+
+                result.Add(type);
+            }
+
+            orderedTypes = result;
+            return true;
+        }
+        catch
+        {
+            orderedTypes = [];
+            return false;
+        }
+        finally
+        {
+            scratch.ClearValues();
+        }
+    }
+
     private static Bindings? LoadBindings()
     {
         try
@@ -266,7 +331,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "DeclaredTypeUniqueSuffixValueRank"),
                 CreateDelegate<DeclaredTypeNameCandidateIndex>(
                     programType,
-                    "DeclaredTypeNameCandidateIndex"));
+                    "DeclaredTypeNameCandidateIndex"),
+                CreateDelegate<TypeCreationOrderIndicesInto>(
+                    programType,
+                    "TypeCreationOrderIndicesInto"));
         }
         catch
         {
@@ -320,12 +388,20 @@ internal static class NSharpCompilerDogfoodAdapter
         string typeName,
         int queryTailHash,
         int count);
+    private delegate int TypeCreationOrderIndicesInto(
+        string[] keys,
+        int count,
+        int[] dotCounts,
+        int[] depthCounts,
+        int[] depthOffsets,
+        int[] resultIndices);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
         FirstDistinctRankIndicesInto FirstDistinctRankIndices,
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
-        DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex);
+        DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex,
+        TypeCreationOrderIndicesInto TypeCreationOrderIndices);
 
     private sealed class ParserTokenCompactionScratch
     {
@@ -641,6 +717,89 @@ internal static class NSharpCompilerDogfoodAdapter
             Array.Resize(ref Names, newCapacity);
             Array.Resize(ref ImportedNamespaceFlags, newCapacity);
             Array.Resize(ref TailHashes, newCapacity);
+        }
+    }
+
+    private sealed class TypeCreationOrderScratch
+    {
+        public int Count;
+        public int[] DepthCounts = Array.Empty<int>();
+        public int[] DepthOffsets = Array.Empty<int>();
+        public int[] DotCounts = Array.Empty<int>();
+        public string[] Keys = Array.Empty<string>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public Type[] Values = Array.Empty<Type>();
+
+        public bool Load<TType>(IEnumerable<TType> types, Func<TType, string> getTypeKey)
+            where TType : Type
+        {
+            Count = 0;
+            var maxKeyLength = 0;
+            foreach (var type in types)
+            {
+                if (type == null)
+                    return false;
+
+                var key = getTypeKey(type);
+                if (key == null)
+                    return false;
+
+                EnsureTypeCapacity(Count + 1);
+                Values[Count] = type;
+                Keys[Count] = key;
+                if (key.Length > maxKeyLength)
+                {
+                    maxKeyLength = key.Length;
+                }
+
+                Count++;
+            }
+
+            EnsureDepthCapacity(maxKeyLength + 1);
+            return true;
+        }
+
+        public void ClearValues()
+        {
+            for (var i = 0; i < Count; i++)
+            {
+                Values[i] = null!;
+                Keys[i] = null!;
+            }
+
+            Count = 0;
+        }
+
+        private void EnsureTypeCapacity(int count)
+        {
+            if (Values.Length >= count)
+                return;
+
+            var newCapacity = Values.Length == 0 ? 8 : Values.Length * 2;
+            while (newCapacity < count)
+            {
+                newCapacity *= 2;
+            }
+
+            Array.Resize(ref Values, newCapacity);
+            Array.Resize(ref Keys, newCapacity);
+            Array.Resize(ref DotCounts, newCapacity);
+            Array.Resize(ref ResultIndices, newCapacity);
+        }
+
+        private void EnsureDepthCapacity(int count)
+        {
+            if (DepthCounts.Length >= count)
+                return;
+
+            var newCapacity = DepthCounts.Length == 0 ? 8 : DepthCounts.Length * 2;
+            while (newCapacity < count)
+            {
+                newCapacity *= 2;
+            }
+
+            Array.Resize(ref DepthCounts, newCapacity);
+            Array.Resize(ref DepthOffsets, newCapacity);
         }
     }
 }

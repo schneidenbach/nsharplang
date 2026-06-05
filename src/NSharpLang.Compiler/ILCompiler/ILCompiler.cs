@@ -9645,15 +9645,12 @@ public partial class ILCompiler
             enumType.CreateType();
         }
 
-        foreach (var nestedEnumType in _enumTypes.Values
-                     .OfType<TypeBuilder>()
-                     .OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.')))
+        foreach (var nestedEnumType in OrderTypeBuildersByDescendingTypeKeyDepth(_enumTypes.Values.OfType<TypeBuilder>()))
         {
             nestedEnumType.CreateType();
         }
 
-        foreach (var stringEnumContainer in _stringEnumContainers.Values
-                     .OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.')))
+        foreach (var stringEnumContainer in OrderTypeBuildersByDescendingTypeKeyDepth(_stringEnumContainers.Values))
         {
             stringEnumContainer.CreateType();
         }
@@ -9669,7 +9666,7 @@ public partial class ILCompiler
         }
 
         // Create all types
-        foreach (var typeBuilder in _types.Values.OrderByDescending(tb => GetTypeKey(tb).Count(c => c == '.')))
+        foreach (var typeBuilder in OrderTypeBuildersByDescendingTypeKeyDepth(_types.Values))
         {
             typeBuilder.CreateType();
         }
@@ -9678,6 +9675,16 @@ public partial class ILCompiler
 
         SaveAssembly(assemblyBuilder);
 
+    }
+
+    private IEnumerable<TypeBuilder> OrderTypeBuildersByDescendingTypeKeyDepth(IEnumerable<TypeBuilder> typeBuilders)
+    {
+        return NSharpCompilerDogfoodAdapter.TryOrderTypesByDescendingKeyDotCount(
+            typeBuilders,
+            GetTypeKey,
+            out var dogfoodOrder)
+            ? dogfoodOrder
+            : typeBuilders.OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.'));
     }
 
     private void SaveAssembly(PersistedAssemblyBuilder assemblyBuilder)
