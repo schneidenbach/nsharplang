@@ -1772,6 +1772,17 @@ Compiler stub namespace import construction now routes ordinal distinct/order se
 `ReferenceFileSummaryRanksInto` rank-summary kernel after the host has collected namespace names,
 with the previous C# `Distinct(StringComparer.Ordinal).OrderBy(StringComparer.Ordinal)` path kept as
 the fallback.
+`ProjectConfig.GetSourceFiles` now routes its post-enumeration source-file filtering (test-file drop
+plus exclude-glob filtering) through `NSharpCompilerDogfoodAdapter.TryFilterSourceFiles`, which calls
+the accepted compact-flag `ProjectSourceFilterKeptIndicesInto` kernel after the host computes
+project-relative paths. The kernel classifies every file in a single pass and hand-matches the
+exclude globs (`**/`, `**`, `*`, `?`, slash normalization, case-sensitive literals) with the exact
+semantics of the previous per-file `Regex.Escape/Replace/IsMatch` `MatchesPattern`, preserving
+enumeration order and the public `string[]` contract; the previous two-pass `Where(...).ToArray()`
+filtering is kept as the fallback. `CompilerServiceProjectSourceFilterBenchmarks` measured
+`411.42 us` C# vs `15.94 us` N# representative (about 25.8x, 307,248 B -> 760 B) and `6.505 ms` C# vs
+`242.10 us` N# large (about 26.9x, 4,593,824 B -> 10,944 B); the C# baseline is dominated by
+recompiling a regex per (file, pattern) pair.
 IL compiler declared project-type suffix resolution now routes
 `TryLookupUniqueDeclaredTypeBySuffix` through
 `NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix` when the dogfood assembly is

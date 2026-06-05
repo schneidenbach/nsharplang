@@ -1490,6 +1490,14 @@ class OtherZetaType {
                     "CodeIntelligencePathMatchChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CodeIntelligencePathMatchChecksumInto.");
+            var projectSourceFilterKeptIndicesInto = programType.GetMethod(
+                    "ProjectSourceFilterKeptIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ProjectSourceFilterKeptIndicesInto.");
+            var projectSourceFilterKeptChecksumInto = programType.GetMethod(
+                    "ProjectSourceFilterKeptChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ProjectSourceFilterKeptChecksumInto.");
             var codeIntelligenceCompletionPrefixChecksumInto = programType.GetMethod(
                     "CodeIntelligenceCompletionPrefixChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2239,6 +2247,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertPathMatchingLikeProduction(
                 codeIntelligencePathMatches,
                 codeIntelligencePathMatchChecksumInto);
+            AssertProjectSourceFilterLikeProduction(
+                projectSourceFilterKeptIndicesInto,
+                projectSourceFilterKeptChecksumInto);
             AssertCompletionPrefixesLikeProduction(
                 "  first line  \n\tsecond line\r\n   \n\n café42  \n",
                 codeIntelligenceCompletionPrefixChecksumInto,
@@ -3627,6 +3638,101 @@ func main() {
 
         var charBefore = normalizedFull[normalizedFull.Length - normalizedQuery.Length - 1];
         return charBefore == '/';
+    }
+
+    private static void AssertProjectSourceFilterLikeProduction(
+        MethodInfo projectSourceFilterKeptIndicesInto,
+        MethodInfo projectSourceFilterKeptChecksumInto)
+    {
+        var relativePaths = new[]
+        {
+            "Program.nl",
+            "Core/Service.nl",
+            "Core/Internal/Helper.nl",
+            "Core/Service.tests.nl",
+            "Core/Service.TESTS.NL",
+            "Generated/Api.nl",
+            "Generated/Nested/Api.nl",
+            "temp/a/b/Work.nl",
+            "tools/snapshots/Snap.nl",
+            "vendor/pkg/Lib.nl",
+            "scratch7.nl",
+            "scratch42.nl",
+            @"Features\Auth\Login.nl",
+            @"Generated\Win.nl",
+            "Models/Customer.nl",
+        };
+
+        var excludeSets = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "Generated/*.nl" },
+            new[] { "temp/**/*.nl", "**/snapshots/*.nl", "vendor/**", "scratch?.nl" },
+            new[] { "Generated/*.nl", "**/snapshots/*.nl", "vendor/**", "scratch?.nl", "temp/**/*.nl" },
+        };
+
+        foreach (var excludePatterns in excludeSets)
+        {
+            foreach (var includeTests in new[] { false, true })
+            {
+                var expected = new List<int>(relativePaths.Length);
+                for (var i = 0; i < relativePaths.Length; i++)
+                {
+                    if (!includeTests &&
+                        relativePaths[i].EndsWith(".tests.nl", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    if (excludePatterns.Any(pattern => MatchesPatternLikeProduction(relativePaths[i], pattern)))
+                    {
+                        continue;
+                    }
+
+                    expected.Add(i);
+                }
+
+                var resultIndices = new int[relativePaths.Length];
+                var actualCount = (int)(projectSourceFilterKeptIndicesInto.Invoke(
+                    null,
+                    new object[] { relativePaths, excludePatterns, includeTests ? 1 : 0, resultIndices }) ?? -1);
+
+                Assert.Equal(expected.Count, actualCount);
+                for (var i = 0; i < expected.Count; i++)
+                {
+                    Assert.Equal(expected[i], resultIndices[i]);
+                }
+
+                var expectedChecksum = expected.Count;
+                for (var i = 0; i < expected.Count; i++)
+                {
+                    expectedChecksum += (expected[i] + 1) * (i + 1) * 31;
+                }
+
+                var checksumIndices = new int[relativePaths.Length];
+                var actualChecksum = (int)(projectSourceFilterKeptChecksumInto.Invoke(
+                    null,
+                    new object[] { relativePaths, excludePatterns, includeTests ? 1 : 0, checksumIndices }) ?? -1);
+
+                Assert.Equal(expectedChecksum, actualChecksum);
+            }
+        }
+    }
+
+    // Verbatim replica of ProjectConfig.MatchesPattern (the production exclude-glob regex).
+    private static bool MatchesPatternLikeProduction(string path, string pattern)
+    {
+        path = path.Replace('\\', '/');
+        pattern = pattern.Replace('\\', '/');
+
+        var regexPattern = "^" + System.Text.RegularExpressions.Regex.Escape(pattern)
+            .Replace("\\*\\*/", ".*?/")
+            .Replace("\\*\\*", ".*")
+            .Replace("\\*", "[^/]*")
+            .Replace("\\?", ".")
+            + "$";
+
+        return System.Text.RegularExpressions.Regex.IsMatch(path, regexPattern);
     }
 
     private static void AssertCompletionPrefixesLikeProduction(

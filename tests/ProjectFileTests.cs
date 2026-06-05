@@ -756,6 +756,49 @@ testFramework: nunit
     }
 
     [Fact]
+    public void TestGetSourceFilesAppliesExcludeGlobPatterns()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), "func main() {}\n");
+            File.WriteAllText(Path.Combine(tempDir, "Program.tests.nl"), "func test_main() {}\n");
+            File.WriteAllText(Path.Combine(tempDir, "scratch3.nl"), "func scratch() {}\n");
+
+            var generatedDir = Path.Combine(tempDir, "Generated");
+            Directory.CreateDirectory(generatedDir);
+            File.WriteAllText(Path.Combine(generatedDir, "Api.nl"), "func api() {}\n");
+
+            var nestedSnapshotsDir = Path.Combine(tempDir, "tools", "snapshots");
+            Directory.CreateDirectory(nestedSnapshotsDir);
+            File.WriteAllText(Path.Combine(nestedSnapshotsDir, "Snap.nl"), "func snap() {}\n");
+
+            var keepDir = Path.Combine(tempDir, "Core");
+            Directory.CreateDirectory(keepDir);
+            File.WriteAllText(Path.Combine(keepDir, "Service.nl"), "func service() {}\n");
+
+            var config = new ProjectConfig
+            {
+                Exclude = { "Generated/*.nl", "**/snapshots/*.nl", "scratch?.nl" }
+            };
+
+            var files = config.GetSourceFiles(tempDir).Select(Path.GetFileName).OrderBy(f => f).ToArray();
+            Assert.Equal(new[] { "Program.nl", "Service.nl" }, files);
+
+            var filesIncludingTests = config.GetSourceFiles(tempDir, includeTests: true)
+                .Select(Path.GetFileName)
+                .OrderBy(f => f)
+                .ToArray();
+            Assert.Equal(new[] { "Program.nl", "Program.tests.nl", "Service.nl" }, filesIncludingTests);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void TestParseTestFrameworkInvalid()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
