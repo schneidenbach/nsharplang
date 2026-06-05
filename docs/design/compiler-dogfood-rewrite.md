@@ -840,6 +840,11 @@ Current CLI dogfood benchmarks:
   candidate runs after the host has assigned compact `StringComparer.OrdinalIgnoreCase` severity
   ranks, scans an unrolled rank array, and writes matching diagnostic indices through
   `DiagnosticSeverityFilterIndicesInto`.
+- `CliSymbolKindFilteringBenchmarks` targets symbol-kind filtering in `nlc query symbols --kind`,
+  batch symbol queries, and daemon symbol queries. The C# baseline mirrors the current query LINQ
+  shape: enum comparison, list materialization, and stable source-order results. The N# candidate
+  runs after the host has projected symbol kinds into compact integer ids, scans an unrolled kind-id
+  array, and writes matching symbol indices through `SymbolKindFilterIndicesInto`.
 - `CliFirstPositionalArgumentBenchmarks` targets CLI commands that only need the first positional
   operand, such as project-name/project-root discovery, `nlc update` target package selection, and
   `nlc export csharp` input discovery. The
@@ -928,6 +933,15 @@ about 7.0x faster on the large generated diagnostic corpus (3.125 us vs 21.990 u
 diagnostics, daemon diagnostics, and strict build lint error filtering after the host has assigned
 compact case-insensitive severity ranks.
 
+`SymbolKindFilterIndicesInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for symbol-kind filtering. The accepted N# path uses compact symbol
+kind ids, an eight-wide unrolled scan for caller-owned result buffers, and a single-pass checksum
+wrapper. It ran about 6.1x faster on the representative symbol corpus in the latest short validation
+run (299.4 ns vs 1.824 us, 0 B vs 1,216 B) and about 6.2x faster on the large generated symbol
+corpus (2.337 us vs 14.567 us, 0 B vs 8,936 B). This is acceptance-grade benchmark evidence for
+`nlc query symbols --kind`, batch symbol queries, and daemon symbol queries after the host has
+projected symbol kinds into compact integer ids.
+
 `CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster
 on the representative batch corpus (1.075 us vs 23.400 us, 0 B vs 59,592 B) and about 23.2x faster
@@ -1004,6 +1018,10 @@ dogfood assembly is available, with the previous C# LINQ counts kept as the fall
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
 severity filter when the dogfood assembly is available, with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
+`CodeIntelligenceService.GetSymbols` now routes optional `SymbolKind` filtering through the compiled
+N# compact kind-id filter when the dogfood assembly is available, covering `nlc query symbols
+--kind`, batch symbol queries, and daemon symbol queries, with the previous C# LINQ
+`Where(s => s.Kind == kind).ToList()` path kept as the fallback.
 Strict `nlc build` lint gating now routes its error-only diagnostic filter through the same
 adapter-backed formatter path before the accepted diagnostic deduplication/order route, instead of
 running a local C# LINQ severity filter.
@@ -1087,7 +1105,7 @@ cluster file-list ordering, diagnostic deduplication, reference result deduplica
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering, CLI tree dependency deduplication, diagnostic severity filtering, CLI first positional-argument
+ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
@@ -1117,7 +1135,8 @@ application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc qu
 batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus first positional
 project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
-route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`.
+route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
+plus symbol-kind filtering in `nlc query symbols`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
 Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are

@@ -122,6 +122,184 @@ func CliDocSymbolOrderCountingChecksumInto(
     return checksum
 }
 
+func SymbolKindFilterIndicesInto(kindIds: int[], targetKindId: int, resultIndices: int[]): int {
+    count := 0
+    length := kindIds.Length
+    i := 0
+
+    if resultIndices.Length >= length {
+        unrolledLimit := length - 8
+        while i <= unrolledLimit {
+            if kindIds[i] == targetKindId {
+                resultIndices[count] = i
+                count = count + 1
+            }
+
+            next := i + 1
+            if kindIds[next] == targetKindId {
+                resultIndices[count] = next
+                count = count + 1
+            }
+
+            next = i + 2
+            if kindIds[next] == targetKindId {
+                resultIndices[count] = next
+                count = count + 1
+            }
+
+            next = i + 3
+            if kindIds[next] == targetKindId {
+                resultIndices[count] = next
+                count = count + 1
+            }
+
+            next = i + 4
+            if kindIds[next] == targetKindId {
+                resultIndices[count] = next
+                count = count + 1
+            }
+
+            next = i + 5
+            if kindIds[next] == targetKindId {
+                resultIndices[count] = next
+                count = count + 1
+            }
+
+            next = i + 6
+            if kindIds[next] == targetKindId {
+                resultIndices[count] = next
+                count = count + 1
+            }
+
+            next = i + 7
+            if kindIds[next] == targetKindId {
+                resultIndices[count] = next
+                count = count + 1
+            }
+
+            i = i + 8
+        }
+
+        while i < length {
+            if kindIds[i] == targetKindId {
+                resultIndices[count] = i
+                count = count + 1
+            }
+
+            i = i + 1
+        }
+
+        return count
+    }
+
+    while i < length {
+        if kindIds[i] == targetKindId {
+            if count >= resultIndices.Length {
+                return -1
+            }
+
+            resultIndices[count] = i
+            count = count + 1
+        }
+
+        i = i + 1
+    }
+
+    return count
+}
+
+func SymbolKindFilterChecksumInto(kindIds: int[], targetKindId: int, resultIndices: int[]): int {
+    length := kindIds.Length
+    if resultIndices.Length < length {
+        filteredCount := SymbolKindFilterIndicesInto(kindIds, targetKindId, resultIndices)
+        checksum := filteredCount
+
+        i := 0
+        while i < filteredCount {
+            index := resultIndices[i]
+            checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + kindIds[index] * 17
+            i = i + 1
+        }
+
+        return checksum
+    }
+
+    filteredCount := 0
+    checksum := 0
+    i := 0
+    unrolledLimit := length - 8
+    while i <= unrolledLimit {
+        if kindIds[i] == targetKindId {
+            resultIndices[filteredCount] = i
+            checksum = checksum + (filteredCount + 1) * 97 + (i + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        next := i + 1
+        if kindIds[next] == targetKindId {
+            resultIndices[filteredCount] = next
+            checksum = checksum + (filteredCount + 1) * 97 + (next + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        next = i + 2
+        if kindIds[next] == targetKindId {
+            resultIndices[filteredCount] = next
+            checksum = checksum + (filteredCount + 1) * 97 + (next + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        next = i + 3
+        if kindIds[next] == targetKindId {
+            resultIndices[filteredCount] = next
+            checksum = checksum + (filteredCount + 1) * 97 + (next + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        next = i + 4
+        if kindIds[next] == targetKindId {
+            resultIndices[filteredCount] = next
+            checksum = checksum + (filteredCount + 1) * 97 + (next + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        next = i + 5
+        if kindIds[next] == targetKindId {
+            resultIndices[filteredCount] = next
+            checksum = checksum + (filteredCount + 1) * 97 + (next + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        next = i + 6
+        if kindIds[next] == targetKindId {
+            resultIndices[filteredCount] = next
+            checksum = checksum + (filteredCount + 1) * 97 + (next + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        next = i + 7
+        if kindIds[next] == targetKindId {
+            resultIndices[filteredCount] = next
+            checksum = checksum + (filteredCount + 1) * 97 + (next + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        i = i + 8
+    }
+
+    while i < length {
+        if kindIds[i] == targetKindId {
+            resultIndices[filteredCount] = i
+            checksum = checksum + (filteredCount + 1) * 97 + (i + 1) * 31 + targetKindId * 17
+            filteredCount = filteredCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return checksum + filteredCount
+}
+
 func CliDocOrderingMinInt(left: int, right: int): int {
     if left < right {
         return left

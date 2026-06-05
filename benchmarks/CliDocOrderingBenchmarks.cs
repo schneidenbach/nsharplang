@@ -253,6 +253,166 @@ public class CliDocOrderingBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for <c>nlc query symbols --kind</c> and daemon symbol queries.
+///
+/// The C# baseline mirrors the production query shape: enum comparison, list
+/// materialization, and stable source-order results. The N# candidate runs after the host
+/// has projected symbol kinds into compact integer ids and writes matching source indices
+/// into caller-owned storage.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliSymbolKindFilteringBenchmarks
+{
+    private const int LargeSymbolCount = 8192;
+    private const int RepresentativeSymbolCount = 1024;
+    private const SymbolKind TargetKind = SymbolKind.Function;
+
+    private SymbolKindFilterChecksumInto _nsharpSymbolKindFilterChecksumInto =
+        (_, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int[] _csharpResultIndices = Array.Empty<int>();
+    private int[] _kindIds = Array.Empty<int>();
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+    private SymbolKindFilterEntry[] _symbols = Array.Empty<SymbolKindFilterEntry>();
+    private int _symbolCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _symbolCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeSymbolCount
+            : LargeSymbolCount;
+        _nsharpSymbolKindFilterChecksumInto =
+            NSharpCompiledMethod.Bind<SymbolKindFilterChecksumInto>(
+                DogfoodCompilerSources.CliDocOrdering,
+                "SymbolKindFilterChecksumInto");
+
+        _symbols = BuildSymbols(_symbolCount);
+        _kindIds = new int[_symbolCount];
+        _csharpResultIndices = new int[_symbolCount];
+        _nsharpResultIndices = new int[_symbolCount];
+        for (var i = 0; i < _symbols.Length; i++)
+        {
+            _kindIds[i] = (int)_symbols[i].Kind;
+        }
+
+        var expectedChecksum = CSharpSymbols_FilterByKind();
+        var actualChecksum = NSharpSymbols_FilterByKind();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# symbol kind filter checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        var expectedIndices = _symbols
+            .Where(symbol => symbol.Kind == TargetKind)
+            .Select(symbol => symbol.Index)
+            .ToArray();
+        if (expectedIndices.Length == 0)
+        {
+            throw new InvalidOperationException($"Symbol kind filter benchmark corpus {Corpus} has no matching symbols.");
+        }
+
+        for (var i = 0; i < expectedIndices.Length; i++)
+        {
+            if (_csharpResultIndices[i] != expectedIndices[i] || _nsharpResultIndices[i] != expectedIndices[i])
+            {
+                throw new InvalidOperationException(
+                    $"N# symbol kind filter mismatch for {Corpus} at result {i}: " +
+                    $"expected source index {expectedIndices[i]}, got {_nsharpResultIndices[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpSymbols_FilterByKind()
+    {
+        var filtered = _symbols
+            .Where(symbol => symbol.Kind == TargetKind)
+            .ToList();
+
+        var checksum = filtered.Count;
+        for (var i = 0; i < filtered.Count; i++)
+        {
+            var index = filtered[i].Index;
+            _csharpResultIndices[i] = index;
+            checksum += (i + 1) * 97 + (index + 1) * 31 + _kindIds[index] * 17;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpSymbols_FilterByKind() =>
+        _nsharpSymbolKindFilterChecksumInto(
+            _kindIds,
+            (int)TargetKind,
+            _nsharpResultIndices);
+
+    private static SymbolKindFilterEntry[] BuildSymbols(int count)
+    {
+        var names = new[]
+        {
+            "main",
+            "compile",
+            "parse",
+            "resolve",
+            "Customer",
+            "Order",
+            "Diagnostic",
+            "Completion",
+            "Name",
+            "Value",
+            "Run",
+            "Query"
+        };
+        var kinds = new[]
+        {
+            SymbolKind.Function,
+            SymbolKind.Class,
+            SymbolKind.Struct,
+            SymbolKind.Record,
+            SymbolKind.Interface,
+            SymbolKind.Enum,
+            SymbolKind.Property,
+            SymbolKind.Field,
+            SymbolKind.Method,
+            SymbolKind.Variable,
+            SymbolKind.Parameter,
+            SymbolKind.Constructor,
+            SymbolKind.EnumMember,
+            SymbolKind.TypeAlias,
+            SymbolKind.Test,
+            SymbolKind.Function
+        };
+
+        var symbols = new SymbolKindFilterEntry[count];
+        for (var i = 0; i < count; i++)
+        {
+            var kind = kinds[(i * 7 + i / 13) % kinds.Length];
+            var baseName = names[(i * 11 + i / 5) % names.Length];
+            var name = i % 23 == 0
+                ? baseName
+                : $"{baseName}{i % 307}";
+            symbols[i] = new SymbolKindFilterEntry(i, name, kind);
+        }
+
+        return symbols;
+    }
+
+    private sealed record SymbolKindFilterEntry(int Index, string Name, SymbolKind Kind);
+
+    private delegate int SymbolKindFilterChecksumInto(
+        int[] kindIds,
+        int targetKindId,
+        int[] resultIndices);
+}
+
+/// <summary>
 /// Dogfood benchmark for ordering members inside generated <c>nlc doc</c> symbol pages.
 ///
 /// The C# baseline mirrors the current symbol-page member rendering shape: order every member by

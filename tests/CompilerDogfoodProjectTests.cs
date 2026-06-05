@@ -564,6 +564,18 @@ func documented(): int {
         Assert.Equal(2, summary.Errors);
         Assert.Equal(1, summary.Warnings);
         Assert.Equal(2, summary.Info);
+
+        var tryFilterSymbolsByKind = adapterType.GetMethod(
+                "TryFilterSymbolsByKind",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryFilterSymbolsByKind.");
+        var symbols = BuildSymbolKindFilterSymbols();
+        var filterArgs = new object?[] { symbols, SymbolKind.Function, null };
+        Assert.True((bool)(tryFilterSymbolsByKind.Invoke(null, filterArgs) ?? false));
+        var filteredSymbols = Assert.IsType<List<SymbolResult>>(filterArgs[2]);
+        Assert.Equal(
+            symbols.Where(symbol => symbol.Kind == SymbolKind.Function).Select(symbol => symbol.Name),
+            filteredSymbols.Select(symbol => symbol.Name));
     }
 
     [Fact]
@@ -803,6 +815,14 @@ func documented(): int {
                     "CliDocSymbolOrderCountingChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocSymbolOrderCountingChecksumInto.");
+            var symbolKindFilterIndicesInto = programType.GetMethod(
+                    "SymbolKindFilterIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SymbolKindFilterIndicesInto.");
+            var symbolKindFilterChecksumInto = programType.GetMethod(
+                    "SymbolKindFilterChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit SymbolKindFilterChecksumInto.");
             var typoSuggestionIndicesInto = programType.GetMethod(
                     "TypoSuggestionIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1260,6 +1280,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliDocMemberOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
+            AssertSymbolKindFilteringLikeProduction(
+                symbolKindFilterIndicesInto,
+                symbolKindFilterChecksumInto);
             AssertTypoSuggestionsLikeProduction(
                 typoSuggestionIndicesInto,
                 typoSuggestionChecksumInto);
@@ -3969,6 +3992,56 @@ func main() {
         return checksum;
     }
 
+    private static void AssertSymbolKindFilteringLikeProduction(
+        MethodInfo symbolKindFilterIndicesInto,
+        MethodInfo symbolKindFilterChecksumInto)
+    {
+        var symbols = BuildSymbolKindFilterSymbols();
+        var kindIds = symbols.Select(static symbol => (int)symbol.Kind).ToArray();
+        var targetKindId = (int)SymbolKind.Function;
+        var expectedIndices = symbols
+            .Select((symbol, index) => (symbol, index))
+            .Where(item => item.symbol.Kind == SymbolKind.Function)
+            .Select(item => item.index)
+            .ToArray();
+
+        var actualIndices = new int[symbols.Count];
+        var actualCount = (int)(symbolKindFilterIndicesInto.Invoke(
+            null,
+            new object[] { kindIds, targetKindId, actualIndices }) ?? -1);
+
+        Assert.Equal(expectedIndices.Length, actualCount);
+        Assert.Equal(expectedIndices, actualIndices.Take(actualCount).ToArray());
+
+        var checksumIndices = new int[symbols.Count];
+        var actualChecksum = (int)(symbolKindFilterChecksumInto.Invoke(
+            null,
+            new object[] { kindIds, targetKindId, checksumIndices }) ?? -1);
+        var expectedChecksum = SymbolKindFilterChecksum(expectedIndices, kindIds);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedIndices, checksumIndices.Take(expectedIndices.Length).ToArray());
+
+        var missingIndices = new int[symbols.Count];
+        var missingCount = (int)(symbolKindFilterIndicesInto.Invoke(
+            null,
+            new object[] { kindIds, 99, missingIndices }) ?? -1);
+
+        Assert.Equal(0, missingCount);
+    }
+
+    private static int SymbolKindFilterChecksum(int[] orderedIndices, int[] kindIds)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31 + kindIds[index] * 17;
+        }
+
+        return checksum;
+    }
+
     private static void AssertDiagnosticClusterTraitsLikeProduction(
         MethodInfo diagnosticClusterTraitsInto,
         MethodInfo diagnosticClusterTraitChecksumInto,
@@ -5718,6 +5791,34 @@ func main() {
             BuildDiagnosticWithSeverity("info", 5),
             BuildDiagnosticWithSeverity("error", 6)
         };
+    }
+
+    private static List<SymbolResult> BuildSymbolKindFilterSymbols()
+    {
+        return new List<SymbolResult>
+        {
+            BuildSymbol("main", SymbolKind.Function, 1),
+            BuildSymbol("Customer", SymbolKind.Class, 5),
+            BuildSymbol("Name", SymbolKind.Property, 7),
+            BuildSymbol("helper", SymbolKind.Function, 12),
+            BuildSymbol("value", SymbolKind.Variable, 13),
+            BuildSymbol("render", SymbolKind.Method, 18),
+            BuildSymbol("calculate", SymbolKind.Function, 24)
+        };
+    }
+
+    private static SymbolResult BuildSymbol(string name, SymbolKind kind, int line)
+    {
+        return new SymbolResult(
+            name,
+            kind,
+            "Program.nl",
+            line,
+            1,
+            null,
+            null,
+            null,
+            null);
     }
 
     private static DiagnosticResult BuildDiagnosticWithSeverity(string severity, int line)

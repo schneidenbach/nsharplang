@@ -119,10 +119,20 @@ public class CodeIntelligenceService
 
         if (kind != null)
         {
-            results = results.Where(s => s.Kind == kind.Value).ToList();
+            results = FilterSymbolsByKind(results, kind.Value);
         }
 
         return results;
+    }
+
+    private static List<SymbolResult> FilterSymbolsByKind(List<SymbolResult> symbols, SymbolKind kind)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFilterSymbolsByKind(symbols, kind, out var filteredSymbols))
+        {
+            return filteredSymbols;
+        }
+
+        return symbols.Where(s => s.Kind == kind).ToList();
     }
 
     /// <summary>

@@ -39,6 +39,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static ReferenceDeduplicationScratch? t_referenceDeduplicationScratch;
     [ThreadStatic]
+    private static SymbolKindFilterScratch? t_symbolKindFilterScratch;
+    [ThreadStatic]
     private static TextEditOrderingScratch? t_textEditOrderingScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
@@ -606,6 +608,65 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         finally
         {
             scratch.Reset();
+        }
+    }
+
+    internal static bool TryFilterSymbolsByKind(
+        IReadOnlyList<SymbolResult> symbols,
+        SymbolKind targetKind,
+        out List<SymbolResult> filteredSymbols)
+    {
+        filteredSymbols = [];
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var symbolCount = symbols.Count;
+        if (symbolCount == 0)
+            return true;
+
+        var scratch = t_symbolKindFilterScratch ??= new SymbolKindFilterScratch();
+        scratch.EnsureCapacity(symbolCount);
+
+        try
+        {
+            for (var i = 0; i < symbolCount; i++)
+            {
+                scratch.KindIds[i] = (int)symbols[i].Kind;
+            }
+
+            var filteredCount = bindings.SymbolKindFilter(
+                scratch.KindIds,
+                (int)targetKind,
+                scratch.ResultIndices);
+
+            if (filteredCount < 0 || filteredCount > symbolCount)
+            {
+                filteredSymbols = [];
+                return false;
+            }
+
+            var results = new List<SymbolResult>(filteredCount);
+            for (var i = 0; i < filteredCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= symbolCount)
+                {
+                    filteredSymbols = [];
+                    return false;
+                }
+
+                results.Add(symbols[sourceIndex]);
+            }
+
+            filteredSymbols = results;
+            return true;
+        }
+        catch
+        {
+            filteredSymbols = [];
+            return false;
         }
     }
 
@@ -1420,6 +1481,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CompletionMethodOverloadGroupsInto>(programType, "CompletionMethodOverloadGroupsInto"),
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
+                CreateDelegate<SymbolKindFilterIndicesInto>(programType, "SymbolKindFilterIndicesInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(programType, "DiagnosticClusterCompactGroupMembersInto"),
@@ -1624,6 +1686,11 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int targetRank,
         int[] resultIndices);
 
+    private delegate int SymbolKindFilterIndicesInto(
+        int[] kindIds,
+        int targetKindId,
+        int[] resultIndices);
+
     private delegate int DiagnosticClusterCompactGroupsInto(
         int[] codeIds,
         int[] severityIds,
@@ -1823,6 +1890,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CompletionMethodOverloadGroupsInto CompletionMethodOverloadGroups,
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
+        SymbolKindFilterIndicesInto SymbolKindFilter,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
         DiagnosticClusterCompactGroupMembersInto DiagnosticClusterCompactGroupMembers,
@@ -2074,6 +2142,21 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             rank = _severityRanks.Count + 1;
             _severityRanks.Add(severity, rank);
             return rank;
+        }
+    }
+
+    private sealed class SymbolKindFilterScratch
+    {
+        public int[] KindIds = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (KindIds.Length != count)
+            {
+                KindIds = new int[count];
+                ResultIndices = new int[count];
+            }
         }
     }
 
