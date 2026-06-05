@@ -141,3 +141,177 @@ func AnalyzerUnionMissingCaseChecksumInto(
 
     return checksum
 }
+
+// Overload parameter-signature distinctness, compact-rank form.
+//
+// Each function declaration's parameter list is projected by the caller into a row of stable
+// parameter-type ranks (one int per parameter; distinct .NET/N# type signatures map to distinct
+// ranks). The candidate row lives at candidateRanks[0..candidateLength). Existing overload rows are
+// packed contiguously into existingRanks with per-row start offsets in existingOffsets and per-row
+// lengths in existingLengths (existingCount rows total).
+//
+// Returns 1 when the candidate signature is distinct from every existing row (a new overload),
+// 0 when some existing row has the same arity and identical rank sequence (a duplicate), and -1 on
+// a malformed request. This replaces the C# GetParameterTypeSignature string build + string `!=`
+// comparison with a single integer-rank scan over caller-owned buffers.
+func AnalyzerOverloadSignatureDistinct(
+    candidateRanks: int[],
+    candidateLength: int,
+    existingRanks: int[],
+    existingOffsets: int[],
+    existingLengths: int[],
+    existingCount: int): int {
+    if candidateLength < 0 ||
+        candidateLength > candidateRanks.Length ||
+        existingCount < 0 ||
+        existingCount > existingOffsets.Length ||
+        existingCount > existingLengths.Length {
+        return -1
+    }
+
+    row := 0
+    while row < existingCount {
+        existingLength := existingLengths[row]
+        if existingLength == candidateLength {
+            offset := existingOffsets[row]
+            // Subtraction-form bounds check avoids int overflow on offset + length for
+            // adversarial descriptors; offset and length are already known non-negative here
+            // (candidateLength >= 0 was validated and existingLength == candidateLength).
+            if offset < 0 || existingLength > existingRanks.Length || offset > existingRanks.Length - existingLength {
+                return -1
+            }
+
+            matches := true
+            i := 0
+            while i < existingLength {
+                if existingRanks[offset + i] != candidateRanks[i] {
+                    matches = false
+                    i = existingLength
+                } else {
+                    i = i + 1
+                }
+            }
+
+            if matches {
+                return 0
+            }
+        }
+
+        row = row + 1
+    }
+
+    return 1
+}
+
+// Batched distinctness checksum used for benchmark/parity. Each candidate row is projected like the
+// single-shot kernel above (ranks in candidateRanks, per-candidate start in candidateOffsets, length
+// in candidateLengths). For each candidate the kernel scans the same packed existing-overload table
+// and folds the distinct/duplicate verdict into a stable checksum, also recording 1/0 verdicts into a
+// caller-owned results buffer. Returns the checksum, or -1 on a malformed request.
+func AnalyzerOverloadSignatureDistinctChecksumInto(
+    candidateRanks: int[],
+    candidateOffsets: int[],
+    candidateLengths: int[],
+    candidateCount: int,
+    existingRanks: int[],
+    existingOffsets: int[],
+    existingLengths: int[],
+    existingCount: int,
+    results: int[]): int {
+    if candidateCount < 0 ||
+        candidateCount > candidateOffsets.Length ||
+        candidateCount > candidateLengths.Length ||
+        candidateCount > results.Length {
+        return -1
+    }
+
+    checksum := candidateCount
+    distinctCount := 0
+    c := 0
+    while c < candidateCount {
+        candidateLength := candidateLengths[c]
+        candidateOffset := candidateOffsets[c]
+        if candidateLength < 0 ||
+            candidateOffset < 0 ||
+            candidateLength > candidateRanks.Length ||
+            candidateOffset > candidateRanks.Length - candidateLength {
+            return -1
+        }
+
+        verdict := AnalyzerOverloadSignatureDistinctSlice(
+            candidateRanks,
+            candidateOffset,
+            candidateLength,
+            existingRanks,
+            existingOffsets,
+            existingLengths,
+            existingCount)
+        if verdict < 0 {
+            return -1
+        }
+
+        results[c] = verdict
+        if verdict == 1 {
+            distinctCount = distinctCount + 1
+        }
+
+        checksum = checksum + (c + 1) * 131 + (verdict + 1) * 17 + (candidateLength + 1) * 7
+        c = c + 1
+    }
+
+    checksum = checksum + distinctCount * 9973
+    return checksum
+}
+
+// Distinctness verdict for a candidate row stored at an arbitrary offset inside candidateRanks. Used
+// by the batched checksum kernel so each candidate can share one packed candidate-rank buffer.
+func AnalyzerOverloadSignatureDistinctSlice(
+    candidateRanks: int[],
+    candidateOffset: int,
+    candidateLength: int,
+    existingRanks: int[],
+    existingOffsets: int[],
+    existingLengths: int[],
+    existingCount: int): int {
+    if candidateOffset < 0 ||
+        candidateLength < 0 ||
+        candidateLength > candidateRanks.Length ||
+        candidateOffset > candidateRanks.Length - candidateLength ||
+        existingCount < 0 ||
+        existingCount > existingOffsets.Length ||
+        existingCount > existingLengths.Length {
+        return -1
+    }
+
+    row := 0
+    while row < existingCount {
+        existingLength := existingLengths[row]
+        if existingLength == candidateLength {
+            offset := existingOffsets[row]
+            // Subtraction-form bounds check (offset/length already non-negative) avoids
+            // int overflow on offset + length for adversarial existing-row descriptors.
+            if offset < 0 || existingLength > existingRanks.Length || offset > existingRanks.Length - existingLength {
+                return -1
+            }
+
+            matches := true
+            i := 0
+            while i < existingLength {
+                if existingRanks[offset + i] != candidateRanks[candidateOffset + i] {
+                    matches = false
+                    i = existingLength
+                } else {
+                    i = i + 1
+                }
+            }
+
+            if matches {
+                return 0
+            }
+        }
+
+        row = row + 1
+    }
+
+    return 1
+}

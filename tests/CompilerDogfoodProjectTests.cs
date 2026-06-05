@@ -2159,6 +2159,14 @@ class OtherZetaType {
                     "AnalyzerUnionMissingCaseChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit AnalyzerUnionMissingCaseChecksumInto.");
+            var analyzerOverloadSignatureDistinct = programType.GetMethod(
+                    "AnalyzerOverloadSignatureDistinct",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit AnalyzerOverloadSignatureDistinct.");
+            var analyzerOverloadSignatureDistinctChecksumInto = programType.GetMethod(
+                    "AnalyzerOverloadSignatureDistinctChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit AnalyzerOverloadSignatureDistinctChecksumInto.");
 
             const string source = """"
 import System
@@ -2584,6 +2592,9 @@ func main() {
                 semanticScopeLookupSymbolIndicesInto,
                 semanticScopeLookupSymbolChecksumInto);
             AssertAnalyzerUnionMissingCasesLikeProduction(analyzerUnionMissingCaseChecksumInto);
+            AssertAnalyzerOverloadSignatureDistinctLikeProduction(
+                analyzerOverloadSignatureDistinct,
+                analyzerOverloadSignatureDistinctChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2782,6 +2793,131 @@ func main() {
             checksum += (i + 1) * 37 + (sourceIndex + 1) * 23;
         }
 
+        return checksum;
+    }
+
+    private static void AssertAnalyzerOverloadSignatureDistinctLikeProduction(
+        MethodInfo analyzerOverloadSignatureDistinct,
+        MethodInfo analyzerOverloadSignatureDistinctChecksumInto)
+    {
+        // Existing overload group: three rows of parameter-type ranks.
+        //   row 0: (int)            -> ranks [1]
+        //   row 1: (int, string)    -> ranks [1, 2]
+        //   row 2: (string, int)    -> ranks [2, 1]   (order matters, distinct from row 1)
+        var existingRanks = new[] { 1, 1, 2, 2, 1 };
+        var existingOffsets = new[] { 0, 1, 3 };
+        var existingLengths = new[] { 1, 2, 2 };
+        var existingCount = 3;
+
+        // Single-shot distinct verdicts (1 = distinct/new overload, 0 = duplicate).
+        // Duplicate of row 1 (int, string).
+        Assert.Equal(0, InvokeOverloadDistinct(
+            analyzerOverloadSignatureDistinct,
+            new[] { 1, 2 }, 2, existingRanks, existingOffsets, existingLengths, existingCount));
+        // Same multiset but swapped order -> matches row 2 exactly (string, int).
+        Assert.Equal(0, InvokeOverloadDistinct(
+            analyzerOverloadSignatureDistinct,
+            new[] { 2, 1 }, 2, existingRanks, existingOffsets, existingLengths, existingCount));
+        // Distinct arity-2 row (int, int) -> new overload.
+        Assert.Equal(1, InvokeOverloadDistinct(
+            analyzerOverloadSignatureDistinct,
+            new[] { 1, 1 }, 2, existingRanks, existingOffsets, existingLengths, existingCount));
+        // Distinct arity-0 row -> new overload (no existing zero-arity row).
+        Assert.Equal(1, InvokeOverloadDistinct(
+            analyzerOverloadSignatureDistinct,
+            Array.Empty<int>(), 0, existingRanks, existingOffsets, existingLengths, existingCount));
+        // Distinct against an empty existing group -> always new.
+        Assert.Equal(1, InvokeOverloadDistinct(
+            analyzerOverloadSignatureDistinct,
+            new[] { 1, 2 }, 2, existingRanks, existingOffsets, existingLengths, 0));
+        // Malformed: candidate length exceeds buffer.
+        Assert.Equal(-1, InvokeOverloadDistinct(
+            analyzerOverloadSignatureDistinct,
+            new[] { 1 }, 5, existingRanks, existingOffsets, existingLengths, existingCount));
+
+        // Batched checksum + per-candidate verdicts (covered/partial/exhaustive analogues:
+        // candidate[0] duplicate, candidate[1] distinct order-swap-not-matching, candidate[2] distinct).
+        var candidateRanks = new[] { 1, 2, /*c0 dup row1*/ 1, 1, /*c1 distinct*/ 5, 6, 7 /*c2 distinct arity3*/ };
+        var candidateOffsets = new[] { 0, 2, 4 };
+        var candidateLengths = new[] { 2, 2, 3 };
+        var candidateCount = 3;
+        var results = new int[candidateCount];
+
+        var checksum = (int)(analyzerOverloadSignatureDistinctChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                candidateRanks,
+                candidateOffsets,
+                candidateLengths,
+                candidateCount,
+                existingRanks,
+                existingOffsets,
+                existingLengths,
+                existingCount,
+                results
+            }) ?? -1);
+
+        var expectedVerdicts = new[] { 0, 1, 1 };
+        Assert.Equal(expectedVerdicts, results);
+        Assert.Equal(
+            AnalyzerOverloadSignatureDistinctChecksum(expectedVerdicts, candidateLengths),
+            checksum);
+
+        // Malformed batched request: candidate offset/length overruns the packed buffer.
+        var malformed = (int)(analyzerOverloadSignatureDistinctChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                candidateRanks,
+                new[] { 0 },
+                new[] { candidateRanks.Length + 1 },
+                1,
+                existingRanks,
+                existingOffsets,
+                existingLengths,
+                existingCount,
+                new int[1]
+            }) ?? 0);
+        Assert.Equal(-1, malformed);
+    }
+
+    private static int InvokeOverloadDistinct(
+        MethodInfo analyzerOverloadSignatureDistinct,
+        int[] candidateRanks,
+        int candidateLength,
+        int[] existingRanks,
+        int[] existingOffsets,
+        int[] existingLengths,
+        int existingCount)
+        => (int)(analyzerOverloadSignatureDistinct.Invoke(
+            null,
+            new object[]
+            {
+                candidateRanks,
+                candidateLength,
+                existingRanks,
+                existingOffsets,
+                existingLengths,
+                existingCount
+            }) ?? int.MinValue);
+
+    private static int AnalyzerOverloadSignatureDistinctChecksum(int[] verdicts, int[] candidateLengths)
+    {
+        var checksum = verdicts.Length;
+        var distinctCount = 0;
+        for (var c = 0; c < verdicts.Length; c++)
+        {
+            var verdict = verdicts[c];
+            if (verdict == 1)
+            {
+                distinctCount++;
+            }
+
+            checksum += (c + 1) * 131 + (verdict + 1) * 17 + (candidateLengths[c] + 1) * 7;
+        }
+
+        checksum += distinctCount * 9973;
         return checksum;
     }
 
