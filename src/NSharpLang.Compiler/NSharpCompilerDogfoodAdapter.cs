@@ -13,6 +13,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private static ParserTokenCompactionScratch? t_parserTokenCompactionScratch;
     [ThreadStatic]
     private static FirstDistinctTypeKeyScratch? t_firstDistinctTypeKeyScratch;
+    [ThreadStatic]
+    private static DeclaredTypeSuffixLookupScratch? t_declaredTypeSuffixLookupScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -136,6 +138,59 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    internal static bool TryLookupUniqueDeclaredTypeBySuffix<TType>(
+        IReadOnlyDictionary<string, TType> types,
+        string typeName,
+        out TType type,
+        out bool found)
+        where TType : Type
+    {
+        type = null!;
+        found = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var scratch = t_declaredTypeSuffixLookupScratch ??= new DeclaredTypeSuffixLookupScratch();
+
+        try
+        {
+            if (!scratch.Load(types))
+                return false;
+
+            var tailHashWidth = DeclaredTypeSuffixLookupScratch.GetTailHashWidth(typeName);
+            scratch.RefreshTailHashes(tailHashWidth);
+
+            var rank = bindings.DeclaredTypeUniqueSuffixValueRank(
+                scratch.Keys,
+                scratch.ValueRanks,
+                scratch.TailHashes,
+                typeName,
+                DeclaredTypeSuffixLookupScratch.GetTailHash(typeName, tailHashWidth),
+                scratch.Count);
+
+            if (rank == -2)
+                return false;
+
+            if (rank <= 0)
+                return true;
+
+            if (rank >= scratch.Values.Length || scratch.Values[rank] is not TType result)
+                return false;
+
+            type = result;
+            found = true;
+            return true;
+        }
+        catch
+        {
+            type = null!;
+            found = false;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
     {
         try
@@ -151,7 +206,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "ParserTokenCompactionIndicesInto"),
                 CreateDelegate<FirstDistinctRankIndicesInto>(
                     programType,
-                    "FirstDistinctRankIndicesInto"));
+                    "FirstDistinctRankIndicesInto"),
+                CreateDelegate<DeclaredTypeUniqueSuffixValueRank>(
+                    programType,
+                    "DeclaredTypeUniqueSuffixValueRank"));
         }
         catch
         {
@@ -191,10 +249,18 @@ internal static class NSharpCompilerDogfoodAdapter
         int uniqueRankCount,
         int[] seenRanks,
         int[] resultIndices);
+    private delegate int DeclaredTypeUniqueSuffixValueRank(
+        string[] keys,
+        int[] valueRanks,
+        int[] tailHashes,
+        string typeName,
+        int queryTailHash,
+        int count);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
-        FirstDistinctRankIndicesInto FirstDistinctRankIndices);
+        FirstDistinctRankIndicesInto FirstDistinctRankIndices,
+        DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank);
 
     private sealed class ParserTokenCompactionScratch
     {
@@ -249,6 +315,99 @@ internal static class NSharpCompilerDogfoodAdapter
         {
             _keyRanks.Clear();
             UniqueKeyCount = 0;
+        }
+    }
+
+    private sealed class DeclaredTypeSuffixLookupScratch
+    {
+        private readonly Dictionary<Type, int> _valueRanks = new();
+        private object? _source;
+        private int _sourceCount;
+        private int _tailHashWidth = -1;
+
+        public int Count;
+        public string[] Keys = Array.Empty<string>();
+        public int[] TailHashes = Array.Empty<int>();
+        public int[] ValueRanks = Array.Empty<int>();
+        public Type[] Values = Array.Empty<Type>();
+
+        public bool Load<TType>(IReadOnlyDictionary<string, TType> types)
+            where TType : Type
+        {
+            var count = types.Count;
+            if (ReferenceEquals(_source, types) && _sourceCount == count)
+                return true;
+
+            EnsureCapacity(count);
+            _valueRanks.Clear();
+
+            var index = 0;
+            var uniqueValueCount = 0;
+            foreach (var entry in types)
+            {
+                var value = entry.Value;
+                if (value == null)
+                    return false;
+
+                if (!_valueRanks.TryGetValue(value, out var rank))
+                {
+                    rank = ++uniqueValueCount;
+                    _valueRanks.Add(value, rank);
+                    Values[rank] = value;
+                }
+
+                Keys[index] = entry.Key;
+                ValueRanks[index] = rank;
+                index++;
+            }
+
+            Count = count;
+            _source = types;
+            _sourceCount = count;
+            _tailHashWidth = -1;
+            return true;
+        }
+
+        public void RefreshTailHashes(int width)
+        {
+            if (_tailHashWidth == width)
+                return;
+
+            for (var i = 0; i < Count; i++)
+            {
+                TailHashes[i] = GetTailHash(Keys[i], width);
+            }
+
+            _tailHashWidth = width;
+        }
+
+        public static int GetTailHashWidth(string text) => Math.Min(4, text.Length);
+
+        public static int GetTailHash(string text, int width)
+        {
+            var hash = 0;
+            for (var offset = 0; offset < width && offset < text.Length; offset++)
+            {
+                hash = hash * 31 + text[text.Length - 1 - offset];
+            }
+
+            return hash;
+        }
+
+        private void EnsureCapacity(int count)
+        {
+            if (Keys.Length < count)
+            {
+                Keys = new string[count];
+                ValueRanks = new int[count];
+                TailHashes = new int[count];
+            }
+
+            var valueCapacity = count + 1;
+            if (Values.Length < valueCapacity)
+            {
+                Values = new Type[valueCapacity];
+            }
         }
     }
 }

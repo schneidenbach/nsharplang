@@ -1634,6 +1634,11 @@ public partial class ILCompiler
     private static bool TryLookupUniqueDeclaredTypeBySuffix<TType>(IReadOnlyDictionary<string, TType> types, string typeName, out TType type)
         where TType : Type
     {
+        if (NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix(types, typeName, out type, out var found))
+        {
+            return found;
+        }
+
         var matches = types
             .Where(entry => string.Equals(entry.Key, typeName, StringComparison.Ordinal)
                 || entry.Key.EndsWith("." + typeName, StringComparison.Ordinal))

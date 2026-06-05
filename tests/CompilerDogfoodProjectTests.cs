@@ -656,6 +656,57 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_LooksUpUniqueDeclaredTypeBySuffix()
+    {
+        var declaredTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
+        {
+            ["Demo.Models.Customer"] = typeof(string),
+            ["Demo.Tiny.Foo"] = typeof(decimal),
+            ["Demo.Core.Shared"] = typeof(int),
+            ["Demo.Other.Shared"] = typeof(long)
+        };
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryLookupUniqueDeclaredTypeBySuffix = adapterType.GetMethod(
+                "TryLookupUniqueDeclaredTypeBySuffix",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryLookupUniqueDeclaredTypeBySuffix.");
+        var genericLookup = tryLookupUniqueDeclaredTypeBySuffix.MakeGenericMethod(typeof(Type));
+
+        var uniqueArgs = new object?[] { declaredTypes, "Customer", null, false };
+        Assert.True((bool)(genericLookup.Invoke(null, uniqueArgs) ?? false));
+        Assert.Equal(true, uniqueArgs[3]);
+        Assert.Same(typeof(string), uniqueArgs[2]);
+
+        var tinyArgs = new object?[] { declaredTypes, "Foo", null, false };
+        Assert.True((bool)(genericLookup.Invoke(null, tinyArgs) ?? false));
+        Assert.Equal(true, tinyArgs[3]);
+        Assert.Same(typeof(decimal), tinyArgs[2]);
+
+        var exactArgs = new object?[] { declaredTypes, "Demo.Core.Shared", null, false };
+        Assert.True((bool)(genericLookup.Invoke(null, exactArgs) ?? false));
+        Assert.Equal(true, exactArgs[3]);
+        Assert.Same(typeof(int), exactArgs[2]);
+
+        var missingArgs = new object?[] { declaredTypes, "Missing", null, false };
+        Assert.True((bool)(genericLookup.Invoke(null, missingArgs) ?? false));
+        Assert.Equal(false, missingArgs[3]);
+        Assert.Null(missingArgs[2]);
+
+        var ambiguousArgs = new object?[] { declaredTypes, "Shared", null, false };
+        Assert.True((bool)(genericLookup.Invoke(null, ambiguousArgs) ?? false));
+        Assert.Equal(false, ambiguousArgs[3]);
+        Assert.Null(ambiguousArgs[2]);
+    }
+
+    [Fact]
     public void LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer()
     {
         var repoRoot = FindRepoRoot();

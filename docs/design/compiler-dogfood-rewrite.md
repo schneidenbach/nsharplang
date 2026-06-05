@@ -493,6 +493,12 @@ Current compiler-performance dogfood benchmarks:
   group, and materialize the result. The accepted N# candidate runs after the host has assigned
   dense type-key ranks, marks first-seen ranks in caller-owned buffers, and writes first-source
   indices through `FirstDistinctRankIndicesInto`.
+- `CompilerServiceDeclaredTypeLookupBenchmarks` targets declared project-type suffix resolution in
+  the IL compiler. The C# baseline mirrors `TryLookupUniqueDeclaredTypeBySuffix`: scan dictionary
+  keys for exact or dotted-suffix ordinal matches, select distinct `Type` values, take at most two,
+  and materialize the result. The accepted N# candidate scans compact key/value-rank/query-width
+  tail-hash arrays and returns a unique value rank, no-match sentinel, or ambiguous sentinel through
+  `DeclaredTypeUniqueSuffixValueRank`.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
@@ -500,8 +506,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`,
 `CompilerServices/CliArguments.nl`, `CompilerServices/CliDocOrdering.nl`,
 `CompilerServices/CompletionGrouping.nl`, `CompilerServices/PathMatching.nl`,
-`CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`, and
-`CompilerServices/ErrorSuggestions.nl`.
+`CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`,
+`CompilerServices/ErrorSuggestions.nl`, and `CompilerServices/TypeLookup.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -860,6 +866,21 @@ about 46.7x faster on the large generated interface corpus (6.990 us vs 326.717 
 209,704 B). This is acceptance-grade benchmark evidence for the IL compiler's type-key
 de-duplication after the host has expanded direct/inherited interfaces and assigned compact ordinal
 type-key ranks.
+
+`DeclaredTypeUniqueSuffixValueRank` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for declared project-type suffix lookup. It ran about 11.1x faster on
+the representative unique-short-name corpus (766.10 ns vs 8.518 us, 0 B vs 66,168 B), about 9.1x
+faster on representative three-character suffix lookup (768.36 ns vs 6.967 us, 0 B vs 33,400 B),
+about 11.9x faster on representative exact-full-name lookup (771.26 ns vs 9.144 us, 0 B vs
+107,024 B), about 10.2x faster on representative missing lookup (760.20 ns vs 7.787 us, 0 B vs
+65,904 B), and about 8.5x faster on representative ambiguous lookup (36.25 ns vs 306.51 ns, 0 B vs
+2,312 B). On the large generated corpus it ran about 10.8x faster for unique short-name lookup
+(6.085 us vs 65.424 us, 0 B vs 524,920 B), about 8.9x faster for three-character suffix lookup
+(6.103 us vs 54.548 us, 0 B vs 262,776 B), about 12.0x faster for exact full-name lookup (6.050 us
+vs 72.668 us, 0 B vs 852,496 B), about 10.2x faster for missing lookup (6.050 us vs 61.721 us, 0 B
+vs 524,656 B), and about 8.4x faster for ambiguous lookup (36.31 ns vs 305.61 ns, 0 B vs 2,312 B).
+This is acceptance-grade benchmark evidence for suffix lookup after the host has projected declared
+type dictionaries into compact ordinal key/value-rank/query-width tail-hash arrays.
 
 Current CLI dogfood benchmarks:
 
@@ -1240,6 +1261,11 @@ IL compiler implemented-interface expansion now routes first-source type-key de-
 `NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys` when the dogfood assembly is available,
 preserving direct/inherited interface expansion, ordinal type-key identity, and first-source
 selection, with the previous C# `GroupBy(GetTypeKey).Select(First)` path kept as the fallback.
+IL compiler declared project-type suffix resolution now routes
+`TryLookupUniqueDeclaredTypeBySuffix` through
+`NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix` when the dogfood assembly is
+available, preserving exact-or-dotted-suffix ordinal matching, distinct `Type` result uniqueness,
+and no-match/ambiguous false behavior, with the previous C# LINQ scan kept as the fallback.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 Clustered diagnostic output also routes group root/count/order selection through the compiled N#
@@ -1368,7 +1394,7 @@ semantic scope index construction, scoped visible-variable selection, CLI batch 
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
-AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
+AOT requirement grouping, declared-type suffix lookup, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
