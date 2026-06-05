@@ -989,6 +989,12 @@ Current CLI dogfood benchmarks:
   ordinal-ignore-case `Distinct` plus materialization. The accepted N# candidate runs after the host
   has assigned compact equality ranks and writes first-source indices through
   `CliStableDistinctRankIndicesInto`.
+- `CliRestoreProjectReferenceDeduplicationBenchmarks` targets stable first-source
+  project-reference de-duplication in `nlc restore` after N# project references have been resolved
+  to MSBuild project paths. The C# baseline mirrors the restore fallback shape:
+  ordinal-ignore-case `Distinct` plus array materialization. The accepted N# candidate reuses the
+  compact equality-rank stable distinct kernel and writes first-source indices through
+  `CliStableDistinctRankIndicesInto`.
 - `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
   The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
   `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
@@ -1101,6 +1107,14 @@ export-reference corpus (6.956 us vs 154.107 us, 0 B vs 186,066 B). This is acce
 benchmark evidence for replacing the export command's post-resolution reference `Distinct` passes
 while preserving first-source order and the host-owned project path, package metadata, DLL metadata,
 and XML emission boundaries.
+
+The same stable distinct kernel passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc restore` resolved project-reference de-duplication. It ran
+about 24.3x faster on the representative project-reference corpus (1.156 us vs 28.087 us, 0 B vs
+30,256 B) and about 28.1x faster on the large generated project-reference corpus (6.855 us vs
+192.416 us, 0 B vs 185,722 B). This is acceptance-grade benchmark evidence for replacing restore's
+post-resolution project-reference `Distinct` pass while preserving ordinal-ignore-case identity and
+first-source output order.
 
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path
@@ -1326,6 +1340,10 @@ kept as the fallback.
 framework, package, and DLL references through `NSharpCliDogfoodAdapter.TryDeduplicateExportReferences`,
 which calls the compiled N# compact-rank stable distinct kernel when the dogfood assembly is
 available, with the previous C# `Distinct` paths kept as the fallback.
+`nlc restore` now routes stable post-resolution project-reference de-duplication through
+`NSharpCliDogfoodAdapter.TryDeduplicateStable`, which calls the same compiled N# compact-rank stable
+distinct kernel when the dogfood assembly is available, with the previous C# `Distinct` path kept as
+the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -1421,8 +1439,8 @@ path-matching and all-positionals CLI argument kernels through the compiled N# m
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
-selection, clean artifact directory ordering, `nlc export csharp` reference de-duplication, and `nlc update` dependency
-filtering;
+selection, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
+`nlc restore` project-reference de-duplication, and `nlc update` dependency filtering;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through
 the production route;

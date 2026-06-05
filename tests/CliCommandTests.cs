@@ -820,6 +820,81 @@ func Main() {
     }
 
     [Fact]
+    public void RestoreCommand_DogfoodAdapter_DeduplicatesProjectReferences()
+    {
+        var projectReferences = new[]
+        {
+            "../Shared/Shared.csproj",
+            "../shared/shared.csproj",
+            "../Models/Models.csproj",
+            "../Shared/SHARED.csproj",
+            "../Utilities/Utilities.csproj",
+            "../models/models.csproj"
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.Equal(new[]
+        {
+            "../Shared/Shared.csproj",
+            "../Models/Models.csproj",
+            "../Utilities/Utilities.csproj"
+        }, RestoreCommand.DeduplicateProjectReferences(projectReferences));
+    }
+
+    [Fact]
+    public void RestoreCommand_DeduplicatesProjectReferencesInGeneratedProps()
+    {
+        static int CountOccurrences(string text, string value)
+        {
+            var count = 0;
+            var index = 0;
+            while ((index = text.IndexOf(value, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += value.Length;
+            }
+
+            return count;
+        }
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-restore-dedup-{Guid.NewGuid():N}");
+        var appDir = Path.Combine(tempDir, "App");
+        var sharedDir = Path.Combine(tempDir, "Shared");
+        Directory.CreateDirectory(appDir);
+        Directory.CreateDirectory(sharedDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(sharedDir, "project.yml"), """
+name: Shared
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(sharedDir, "Shared.csproj"), """<Project Sdk="NSharpLang.Sdk" />""");
+            File.WriteAllText(Path.Combine(appDir, "project.yml"), """
+name: App
+outputType: exe
+targetFramework: net10.0
+
+dependencies:
+  - project: ../Shared/project.yml
+  - project: ../Shared/Shared.csproj
+  - project: ../Shared/project.yml
+""");
+
+            Assert.Equal(0, RestoreCommand.Restore(appDir, quiet: true));
+
+            var props = File.ReadAllText(Path.Combine(appDir, "obj", "project.g.props"));
+            Assert.Equal(1, CountOccurrences(props, "<ProjectReference Include="));
+            Assert.Contains(Path.Combine(sharedDir, "Shared.csproj"), props);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void CliDogfoodAdapter_FiltersCompilerErrorsBySeverity()
     {
         var errors = new[]

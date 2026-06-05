@@ -569,6 +569,13 @@ internal static class NSharpCliDogfoodAdapter
         IEqualityComparer<T>? comparer,
         out List<T> deduplicatedValues)
         where T : notnull
+        => TryDeduplicateStable(values, comparer, out deduplicatedValues);
+
+    internal static bool TryDeduplicateStable<T>(
+        IReadOnlyList<T> values,
+        IEqualityComparer<T>? comparer,
+        out List<T> deduplicatedValues)
+        where T : notnull
     {
         deduplicatedValues = new List<T>();
 

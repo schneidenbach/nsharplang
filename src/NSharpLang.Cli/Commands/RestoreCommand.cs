@@ -75,7 +75,7 @@ public static class RestoreCommand
             sb.AppendLine($"    <_NSharpBaseSdk>{baseSdk}</_NSharpBaseSdk>");
             sb.AppendLine(@"  </PropertyGroup>");
 
-            var projectReferences = config.Dependencies
+            var resolvedProjectReferences = config.Dependencies
                 .Where(reference => reference.Type == ReferenceType.Project)
                 .Select(reference =>
                 {
@@ -84,8 +84,8 @@ public static class RestoreCommand
                         : Path.Combine(projectRoot, reference.Project!);
                     return ProjectReferenceResolver.ResolveMsBuildProjectPath(projectPath);
                 })
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            var projectReferences = DeduplicateProjectReferences(resolvedProjectReferences);
 
             if (projectReferences.Length > 0)
             {
@@ -151,6 +151,16 @@ NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.
 
 Options:
   -h, --help    Show this help message");
+    }
+
+    internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
+    {
+        return NSharpCliDogfoodAdapter.TryDeduplicateStable(
+            projectReferences,
+            StringComparer.OrdinalIgnoreCase,
+            out var dogfoodProjectReferences)
+            ? dogfoodProjectReferences.ToArray()
+            : projectReferences.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     private static string EscapeXml(string value)
