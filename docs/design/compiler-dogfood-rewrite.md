@@ -59,6 +59,7 @@ dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceLexer*'
 dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligence*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceSemanticScope*'
+dotnet run -c Release --project benchmarks -- --filter '*AnalyzerEnumExhaustiveness*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequirementGrouping*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAnonymousUnionShim*'
@@ -545,6 +546,12 @@ Current compiler-performance dogfood benchmarks:
   The C# baseline mirrors the fallback shape: stable `OrderByDescending` by type-key dot count and
   array materialization. The accepted N# candidate counts key depths once, uses stable descending
   counting buckets, and writes source indices through `TypeCreationOrderIndicesInto`.
+- `CompilerServiceAnalyzerEnumExhaustivenessBenchmarks` targets analyzer enum-match exhaustiveness
+  finalization. The C# baseline mirrors the existing `CheckEnumMatchExhaustiveness` tail: build an
+  all-member hash set from enum declaration member names, run `Except` against covered members, and
+  materialize missing names. The accepted N# candidate runs after the analyzer has projected
+  declaration-order covered-member flags, then writes missing source indices through
+  `AnalyzerMissingMemberIndicesInto`; final public diagnostic string materialization remains in C#.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
@@ -554,7 +561,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionGrouping.nl`, `CompilerServices/PathMatching.nl`,
 `CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`,
 `CompilerServices/StructCopyAnalysis.nl`, `CompilerServices/AnonymousUnionShims.nl`,
-`CompilerServices/ErrorSuggestions.nl`, and `CompilerServices/TypeLookup.nl`.
+`CompilerServices/ErrorSuggestions.nl`, `CompilerServices/AnalyzerExhaustiveness.nl`, and
+`CompilerServices/TypeLookup.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -588,6 +596,8 @@ can match a declaration name inside a larger token if the caller supplies that n
 analyzer declaration-column parity checks invalid lines, CRLF-trimmed source lines, Unicode
 identifiers, whole-identifier boundary skips such as `prefixvalue` vs `value`, retry-from-line-start
 behavior, and missing-name fallback columns. The
+enum exhaustiveness parity checks missing-member declaration order and the all-covered fast path
+through the compiler dogfood adapter. The
 diagnostic cluster trait parity checks known-code classification, unknown-message fallback,
 source-construct inference, and the compatibility message-pattern wrapper. Diagnostic cluster id
 parity checks stable public ids against the production key/hash/hex algorithm without routing
@@ -975,6 +985,17 @@ the representative corpus (22.15 us vs 159.85 us, 0 B vs 57,648 B) and about 7.6
 large generated corpus (179.48 us vs 1,355.23 us, 0 B vs 459,056 B). This is acceptance-grade
 benchmark evidence for stable descending type-key-depth ordering after the host has projected
 `TypeBuilder` keys into compact arrays.
+
+`AnalyzerMissingMemberIndicesInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for enum-match missing-member selection. It ran about 76x faster on
+the representative missing-every-fourth corpus (540.1 ns vs 41.169 us), about 116x faster on the
+representative one-missing-near-end corpus (351.8 ns vs 40.728 us), and about 115x faster on the
+representative all-covered corpus (396.5 ns vs 45.621 us). On the large generated corpus it ran
+about 86x faster for missing-every-fourth (6.051 us vs 523.441 us), about 241x faster for
+one-missing-near-end (2.251 us vs 543.218 us), and about 133x faster for all-covered
+(2.051 us vs 273.501 us). This is acceptance-grade benchmark evidence for replacing the analyzer's
+C# `ToHashSet().Except().ToList()` missing-member selection after the host has projected covered
+enum members into declaration-order flags.
 
 Current CLI dogfood benchmarks:
 
@@ -1502,6 +1523,9 @@ carriage return in the snippet.
 `NSharpCompilerDogfoodAdapter.TryCompactParserTokens` when the dogfood assembly is available, with
 the previous LINQ `Where(...).ToList()` path kept as the fallback. This is a temporary compact-token
 bridge: token objects and broader parser state remain C# until the parser is ported.
+`Analyzer.CheckEnumMatchExhaustiveness` now routes enum missing-member selection through
+`NSharpCompilerDogfoodAdapter.TrySelectMissingEnumMembers` when the dogfood assembly is available,
+with the previous C# `ToHashSet().Except().ToList()` path kept as the fallback.
 `CompletionEngine` member-access result grouping now routes through the compiled N# completion-item
 grouping kernel when the dogfood assembly is available, preserving the previous pluralized group
 keys and first-seen item-kind ordering, with the previous LINQ `GroupBy`/`ToList` path kept as the

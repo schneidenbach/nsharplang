@@ -26,6 +26,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private static TypeCreationOrderScratch? t_typeCreationOrderScratch;
     [ThreadStatic]
     private static AnonymousUnionShimScratch? t_anonymousUnionShimScratch;
+    [ThreadStatic]
+    private static MissingEnumMemberScratch? t_missingEnumMemberScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -517,6 +519,74 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    internal static bool TrySelectMissingEnumMembers(
+        IReadOnlyList<EnumMember> members,
+        ISet<string> coveredMembers,
+        out List<string> missingMembers)
+    {
+        missingMembers = [];
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var memberCount = members.Count;
+        if (memberCount == 0)
+            return true;
+
+        var scratch = t_missingEnumMemberScratch ??= new MissingEnumMemberScratch();
+        scratch.EnsureCapacity(memberCount);
+
+        try
+        {
+            scratch.ResetNames();
+            for (var i = 0; i < memberCount; i++)
+            {
+                var memberName = members[i].Name;
+                if (!scratch.AddName(memberName))
+                    return false;
+
+                scratch.CoveredFlags[i] = coveredMembers.Contains(memberName) ? 1 : 0;
+            }
+
+            var missingCount = bindings.AnalyzerMissingMemberIndices(
+                scratch.CoveredFlags,
+                memberCount,
+                scratch.ResultIndices);
+
+            if (missingCount < 0 || missingCount > memberCount || missingCount > scratch.ResultIndices.Length)
+            {
+                missingMembers = [];
+                return false;
+            }
+
+            var result = new List<string>(missingCount);
+            for (var i = 0; i < missingCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= memberCount)
+                {
+                    missingMembers = [];
+                    return false;
+                }
+
+                result.Add(members[sourceIndex].Name);
+            }
+
+            missingMembers = result;
+            return true;
+        }
+        catch
+        {
+            missingMembers = [];
+            return false;
+        }
+        finally
+        {
+            scratch.ResetNames();
+        }
+    }
+
     private static Bindings? LoadBindings()
     {
         try
@@ -547,7 +617,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "ReferenceFileSummaryRanksInto"),
                 CreateDelegate<AnonymousUnionDeclaresPublicShim>(
                     programType,
-                    "AnonymousUnionDeclaresPublicShim"));
+                    "AnonymousUnionDeclaresPublicShim"),
+                CreateDelegate<AnalyzerMissingMemberIndicesInto>(
+                    programType,
+                    "AnalyzerMissingMemberIndicesInto"));
         }
         catch
         {
@@ -614,6 +687,7 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] countsByRank,
         int[] resultRanks);
     private delegate int AnonymousUnionDeclaresPublicShim(int[] parameterFlags, int count);
+    private delegate int AnalyzerMissingMemberIndicesInto(int[] coveredFlags, int count, int[] resultIndices);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -622,7 +696,8 @@ internal static class NSharpCompilerDogfoodAdapter
         DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex,
         TypeCreationOrderIndicesInto TypeCreationOrderIndices,
         ReferenceFileSummaryRanksInto ReferenceFileSummaryRanks,
-        AnonymousUnionDeclaresPublicShim AnonymousUnionDeclaresPublicShim);
+        AnonymousUnionDeclaresPublicShim AnonymousUnionDeclaresPublicShim,
+        AnalyzerMissingMemberIndicesInto AnalyzerMissingMemberIndices);
 
     private sealed class ParserTokenCompactionScratch
     {
@@ -649,6 +724,30 @@ internal static class NSharpCompilerDogfoodAdapter
             {
                 ParameterFlags = new int[count];
             }
+        }
+    }
+
+    private sealed class MissingEnumMemberScratch
+    {
+        private readonly HashSet<string> _seenNames = new(StringComparer.Ordinal);
+
+        public int[] CoveredFlags = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+
+        public bool AddName(string name) => _seenNames.Add(name);
+
+        public void EnsureCapacity(int count)
+        {
+            if (CoveredFlags.Length < count)
+            {
+                CoveredFlags = new int[count];
+                ResultIndices = new int[count];
+            }
+        }
+
+        public void ResetNames()
+        {
+            _seenNames.Clear();
         }
     }
 

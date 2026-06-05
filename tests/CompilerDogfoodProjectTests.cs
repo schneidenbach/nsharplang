@@ -747,6 +747,66 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_SelectsMissingEnumMembers()
+    {
+        var members = new List<EnumMember>
+        {
+            new("Created", Value: null),
+            new("Queued", Value: null),
+            new("Running", Value: null),
+            new("Succeeded", Value: null),
+            new("Failed", Value: null),
+            new("Retrying", Value: null)
+        };
+        var coveredMembers = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Queued",
+            "Running",
+            "Succeeded"
+        };
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var trySelectMissingEnumMembers = adapterType.GetMethod(
+                "TrySelectMissingEnumMembers",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectMissingEnumMembers.");
+
+        var missingArgs = new object?[] { members, coveredMembers, null };
+        Assert.True((bool)(trySelectMissingEnumMembers.Invoke(null, missingArgs) ?? false));
+        Assert.Equal(
+            new[] { "Created", "Failed", "Retrying" },
+            Assert.IsType<List<string>>(missingArgs[2]));
+
+        var allCoveredArgs = new object?[]
+        {
+            members,
+            new HashSet<string>(members.Select(static member => member.Name), StringComparer.Ordinal),
+            null
+        };
+        Assert.True((bool)(trySelectMissingEnumMembers.Invoke(null, allCoveredArgs) ?? false));
+        Assert.Empty(Assert.IsType<List<string>>(allCoveredArgs[2]));
+
+        var duplicateMemberArgs = new object?[]
+        {
+            new List<EnumMember>
+            {
+                new("Created", Value: null),
+                new("Created", Value: null)
+            },
+            new HashSet<string>(StringComparer.Ordinal),
+            null
+        };
+        Assert.False((bool)(trySelectMissingEnumMembers.Invoke(null, duplicateMemberArgs) ?? true));
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_ChecksAnonymousUnionShimEligibility()
     {
         static SimpleTypeReference Simple(string name) => new(name);

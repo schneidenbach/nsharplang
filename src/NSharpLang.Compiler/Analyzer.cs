@@ -10042,10 +10042,16 @@ public class Analyzer : IDisposable
         }
 
         // Check if all enum members are covered
-        var allMembers = enumType.Declaration.Members.Select(m => m.Name).ToHashSet();
-        var missingMembers = allMembers.Except(coveredMembers).ToList();
+        if (!NSharpCompilerDogfoodAdapter.TrySelectMissingEnumMembers(
+                enumType.Declaration.Members,
+                coveredMembers,
+                out var missingMembers))
+        {
+            var allMembers = enumType.Declaration.Members.Select(m => m.Name).ToHashSet();
+            missingMembers = allMembers.Except(coveredMembers).ToList();
+        }
 
-        if (missingMembers.Any())
+        if (missingMembers.Count > 0)
         {
             var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
                 ? _sourceLines[match.Line - 1]
