@@ -54,6 +54,93 @@ func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): in
     return -1
 }
 
+func CliLintFileArgIndicesInto(
+    args: string[],
+    projectValueIndices: int[],
+    resultIndices: int[]): int {
+    if projectValueIndices.Length < args.Length || resultIndices.Length < args.Length {
+        return -1
+    }
+
+    projectValueCount := 0
+    i := 0
+    while i < args.Length - 1 {
+        if args[i] == "--project" {
+            projectValueIndices[projectValueCount] = i + 1
+            projectValueCount = projectValueCount + 1
+            i = i + 2
+            continue
+        }
+
+        i = i + 1
+    }
+
+    resultCount := 0
+    i = 0
+    while i < args.Length {
+        arg := args[i]
+        if arg == "help" {
+            i = i + 1
+            continue
+        }
+
+        if arg.Length > 0 && arg[0] == '-' {
+            i = i + 1
+            continue
+        }
+
+        if CliLintIsProjectOptionValue(args, projectValueIndices, projectValueCount, arg) {
+            i = i + 1
+            continue
+        }
+
+        resultIndices[resultCount] = i
+        resultCount = resultCount + 1
+        i = i + 1
+    }
+
+    return resultCount
+}
+
+func CliLintFileArgChecksumInto(
+    args: string[],
+    projectValueIndices: int[],
+    resultIndices: int[]): int {
+    resultCount := CliLintFileArgIndicesInto(args, projectValueIndices, resultIndices)
+    checksum := resultCount
+    i := 0
+    while i < resultCount {
+        index := resultIndices[i]
+        length := 0
+        if index >= 0 && index < args.Length {
+            length = args[index].Length
+        }
+
+        checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + length * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CliLintIsProjectOptionValue(
+    args: string[],
+    projectValueIndices: int[],
+    projectValueCount: int,
+    value: string): bool {
+    i := 0
+    while i < projectValueCount {
+        valueIndex := projectValueIndices[i]
+        if valueIndex >= 0 && valueIndex < args.Length && args[valueIndex] == value {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
+}
+
 func CliSymbolNameGlobFilterIndicesInto(
     names: string[],
     pattern: string,

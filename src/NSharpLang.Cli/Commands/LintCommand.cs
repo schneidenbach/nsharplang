@@ -18,11 +18,7 @@ public static class LintCommand
         var useJson = args.Contains("--json");
         var projectRoot = Path.GetFullPath(GetOption(args, "--project") ?? Directory.GetCurrentDirectory());
 
-        // Filter out flags to get positional file args
-        var positionalFiles = args
-            .Where(a => !a.StartsWith("-", StringComparison.Ordinal) && a != "help")
-            .Where(a => !IsOptionValue(args, a, "--project"))
-            .ToArray();
+        var positionalFiles = GetPositionalFiles(args);
 
         // Default to JSON when no explicit mode is specified (matches check/fix contract)
         if (!useText && !useJson)
@@ -268,6 +264,16 @@ Exit codes:
                 return true;
         }
         return false;
+    }
+
+    private static string[] GetPositionalFiles(string[] args)
+    {
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetLintFileArgs(args, out var files)
+            ? files
+            : args
+                .Where(a => !a.StartsWith("-", StringComparison.Ordinal) && a != "help")
+                .Where(a => !IsOptionValue(args, a, "--project"))
+                .ToArray();
     }
 
     private static string FormatElapsed(TimeSpan elapsed)

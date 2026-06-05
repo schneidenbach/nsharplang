@@ -1067,6 +1067,12 @@ Current CLI dogfood benchmarks:
   the result array, then read index zero. The accepted N# candidate returns the first positional
   source index through `CliFirstPositionalArgIndex`, letting the host read only that string and skip
   the rest of the positional materialization.
+- `CliLintFileArgBenchmarks` targets positional file-argument extraction in `nlc lint`. The C#
+  baseline mirrors the current command shape: filter non-flags with LINQ, then rescan the full
+  argument array for each candidate to remove values belonging to `--project`. The accepted N#
+  candidate records project-value source indices once, writes accepted file-argument source indices
+  through `CliLintFileArgIndicesInto`, and lets the host materialize the final string array at the
+  command boundary.
 - `CliUpdateAllDependencyFilterBenchmarks` targets all-NuGet dependency selection in `nlc update`
   when no package name is supplied. The C# baseline mirrors the fallback no-target filter:
   materialize dependencies whose `Nuget` field is present. The accepted N# candidate runs after the
@@ -1192,6 +1198,14 @@ the large generated argument corpus (48.35 ns vs 81.122 us, 0 B vs 175,280 B). T
 acceptance-grade benchmark evidence for `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and
 `nlc export csharp` first positional project/operand discovery when those commands do not need the
 full positional list.
+
+`CliLintFileArgIndicesInto` passed parity and routes `nlc lint` positional file-argument extraction
+through the dogfood adapter when the N# assembly is available. It preserves the current value-based
+`--project` exclusion semantics while replacing repeated full-array rescans with a caller-owned
+index buffer. A short validation run measured about 94.0x faster on the representative argument
+corpus (20.95 us vs 1.968 ms, 6.70 KB vs 34.32 KB) and about 118.8x faster on the large generated
+argument corpus (1.092 ms vs 129.694 ms, 53.68 KB vs 273.90 KB). This is acceptance-grade benchmark
+evidence for `nlc lint --project ... [files...]` command-boundary file selection.
 
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
@@ -1444,6 +1458,9 @@ through the compiled N# whole-identifier scanner when the dogfood assembly is av
 old split-based helper kept as the fallback. Completion receiver-context classification also routes
 through the compiled N# classifier
 when the dogfood assembly is available, with the old C# helper kept as the fallback.
+`LintCommand` positional file-argument extraction now routes through the compiled N#
+`CliLintFileArgIndicesInto` kernel when the dogfood assembly is available, with the previous
+LINQ/rescan helper retained as the fallback.
 Analyzer central error/warning snippets and namespace-import source-line lookups now route through
 the same source-only cached raw-line adapter, with the existing split-backed source lines retained
 for semantic span calculations that still need broader analyzer refactoring.

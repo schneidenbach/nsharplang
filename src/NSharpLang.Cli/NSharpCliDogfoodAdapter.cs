@@ -39,6 +39,8 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static StableDistinctScratch? t_stableDistinctScratch;
     [ThreadStatic]
+    private static LintFileArgScratch? t_lintFileArgScratch;
+    [ThreadStatic]
     private static TidyDependencyStatusFilterScratch? t_tidyDependencyStatusFilterScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
@@ -113,6 +115,55 @@ internal static class NSharpCliDogfoodAdapter
         catch
         {
             positional = null;
+            return false;
+        }
+    }
+
+    internal static bool TryGetLintFileArgs(string[] args, out string[] files)
+    {
+        files = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (args.Length == 0)
+            return true;
+
+        var scratch = t_lintFileArgScratch ??= new LintFileArgScratch();
+        scratch.EnsureCapacity(args.Length);
+
+        try
+        {
+            var count = bindings.CliLintFileArgIndices(
+                args,
+                scratch.ProjectValueIndices,
+                scratch.ResultIndices);
+
+            if (count < 0 || count > args.Length)
+                return false;
+
+            if (count == 0)
+                return true;
+
+            files = new string[count];
+            for (var i = 0; i < count; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= args.Length)
+                {
+                    files = Array.Empty<string>();
+                    return false;
+                }
+
+                files[i] = args[sourceIndex];
+            }
+
+            return true;
+        }
+        catch
+        {
+            files = Array.Empty<string>();
             return false;
         }
     }
@@ -1296,6 +1347,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
                 CreateDelegate<CliExportCSharpFirstOperandIndexInto>(programType, "CliExportCSharpFirstOperandIndexInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
+                CreateDelegate<CliLintFileArgIndicesInto>(programType, "CliLintFileArgIndicesInto"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
                 CreateDelegate<CliDocSlugsInto>(programType, "CliDocSlugsInto"),
@@ -1364,6 +1416,11 @@ internal static class NSharpCliDogfoodAdapter
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
         string[] optionsWithValues);
+
+    private delegate int CliLintFileArgIndicesInto(
+        string[] args,
+        int[] projectValueIndices,
+        int[] resultIndices);
 
     private delegate int CliBatchDuplicateIdRanksInto(
         int[] idRanks,
@@ -1478,6 +1535,7 @@ internal static class NSharpCliDogfoodAdapter
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
+        CliLintFileArgIndicesInto CliLintFileArgIndices,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
         CliDocSlugsInto CliDocSlugs,
@@ -1594,6 +1652,21 @@ internal static class NSharpCliDogfoodAdapter
                 NextIndices = new int[count];
                 NextOptionIndices = new int[count];
                 PreviousIndices = new int[count];
+                ResultIndices = new int[count];
+            }
+        }
+    }
+
+    private sealed class LintFileArgScratch
+    {
+        public int[] ProjectValueIndices = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (ProjectValueIndices.Length != count || ResultIndices.Length != count)
+            {
+                ProjectValueIndices = new int[count];
                 ResultIndices = new int[count];
             }
         }

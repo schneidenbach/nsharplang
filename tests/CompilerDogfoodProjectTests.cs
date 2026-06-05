@@ -1476,6 +1476,14 @@ class OtherZetaType {
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFirstPositionalArgIndex.");
+            var cliLintFileArgIndicesInto = programType.GetMethod(
+                    "CliLintFileArgIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintFileArgIndicesInto.");
+            var cliLintFileArgChecksumInto = programType.GetMethod(
+                    "CliLintFileArgChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintFileArgChecksumInto.");
             var cliPositionalArgChecksumInto = programType.GetMethod(
                     "CliPositionalArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2098,6 +2106,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
                 cliPositionalArgChecksumInto);
+            AssertCliLintFileArgsLikeProduction(
+                cliLintFileArgIndicesInto,
+                cliLintFileArgChecksumInto);
             AssertCliFixSafetyFilteringLikeProduction(
                 cliFixSafetyFilterIndicesInto,
                 cliFixSafetyFilterChecksumInto,
@@ -4091,6 +4102,87 @@ func main() {
         }
 
         return -1;
+    }
+
+    private static void AssertCliLintFileArgsLikeProduction(
+        MethodInfo cliLintFileArgIndicesInto,
+        MethodInfo cliLintFileArgChecksumInto)
+    {
+        var args = new[]
+        {
+            "--project",
+            "samples/demo",
+            "Program.nl",
+            "--json",
+            "help",
+            "samples/demo",
+            "src/App.nl",
+            "--project",
+            "other/project",
+            "other/project",
+            "--text",
+            "-v",
+            "src/Other.nl",
+            string.Empty
+        };
+        var expected = CreateExpectedCliLintFileArgIndices(args);
+
+        var projectValueIndices = new int[args.Length];
+        var resultIndices = new int[args.Length];
+        var actualCount = (int)(cliLintFileArgIndicesInto.Invoke(
+            null,
+            new object[] { args, projectValueIndices, resultIndices }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        Array.Clear(projectValueIndices);
+        Array.Clear(resultIndices);
+        var actualChecksum = (int)(cliLintFileArgChecksumInto.Invoke(
+            null,
+            new object[] { args, projectValueIndices, resultIndices }) ?? -1);
+
+        Assert.Equal(CliLintFileArgChecksum(expected, args), actualChecksum);
+        Assert.Equal(expected, resultIndices.Take(expected.Length).ToArray());
+
+        var failedCount = (int)(cliLintFileArgIndicesInto.Invoke(
+            null,
+            new object[] { args, new int[args.Length - 1], new int[args.Length] }) ?? 0);
+
+        Assert.Equal(-1, failedCount);
+    }
+
+    private static int[] CreateExpectedCliLintFileArgIndices(string[] args)
+    {
+        return args
+            .Select((arg, index) => (arg, index))
+            .Where(item => !item.arg.StartsWith("-", StringComparison.Ordinal) && item.arg != "help")
+            .Where(item => !CliLintIsProjectOptionValue(args, item.arg))
+            .Select(item => item.index)
+            .ToArray();
+    }
+
+    private static bool CliLintIsProjectOptionValue(string[] args, string value)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == "--project" && args[i + 1] == value)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static int CliLintFileArgChecksum(int[] orderedIndices, string[] args)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31 + args[index].Length * 17;
+        }
+
+        return checksum;
     }
 
     private static void AssertCliFixSafetyFilteringLikeProduction(

@@ -555,6 +555,33 @@ func Main() {
         }
     }
 
+    [Fact]
+    public void LintCommand_FileArgs_DoesNotTreatProjectValueAsFile()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "hello"
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, tempDir, "Program.nl", "--json" }));
+
+            Assert.Equal(0, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, doc.RootElement.GetProperty("lintedFiles").GetInt32());
+            Assert.Equal(0, doc.RootElement.GetProperty("results").GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // ── Step 4: C# export flow ───────────────────────────────────────────
 
     [Fact]
