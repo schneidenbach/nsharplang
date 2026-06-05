@@ -866,6 +866,14 @@ func main(): int {
                     "CliFixSafetyFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSafetyFilterChecksumInto.");
+            var cliFixSkippedIndicesInto = programType.GetMethod(
+                    "CliFixSkippedIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSkippedIndicesInto.");
+            var cliFixSkippedChecksumInto = programType.GetMethod(
+                    "CliFixSkippedChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSkippedChecksumInto.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1374,7 +1382,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliPositionalArgChecksumInto);
             AssertCliFixSafetyFilteringLikeProduction(
                 cliFixSafetyFilterIndicesInto,
-                cliFixSafetyFilterChecksumInto);
+                cliFixSafetyFilterChecksumInto,
+                cliFixSkippedIndicesInto,
+                cliFixSkippedChecksumInto);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
@@ -3342,7 +3352,9 @@ func main() {
 
     private static void AssertCliFixSafetyFilteringLikeProduction(
         MethodInfo cliFixSafetyFilterIndicesInto,
-        MethodInfo cliFixSafetyFilterChecksumInto)
+        MethodInfo cliFixSafetyFilterChecksumInto,
+        MethodInfo cliFixSkippedIndicesInto,
+        MethodInfo cliFixSkippedChecksumInto)
     {
         var safetyRanks = new[]
         {
@@ -3378,6 +3390,24 @@ func main() {
 
             Assert.Equal(expectedChecksum, actualChecksum);
             Assert.Equal(expected, checksumIndices.Take(expected.Length).ToArray());
+
+            var expectedSkipped = CreateExpectedCliFixSkippedIndices(safetyRanks, includeReviewNeeded);
+            var actualSkippedIndices = new int[safetyRanks.Length];
+            var actualSkippedCount = (int)(cliFixSkippedIndicesInto.Invoke(
+                null,
+                new object[] { safetyRanks, includeFlag, actualSkippedIndices }) ?? -1);
+
+            Assert.Equal(expectedSkipped.Length, actualSkippedCount);
+            Assert.Equal(expectedSkipped, actualSkippedIndices.Take(actualSkippedCount).ToArray());
+
+            var skippedChecksumIndices = new int[safetyRanks.Length];
+            var actualSkippedChecksum = (int)(cliFixSkippedChecksumInto.Invoke(
+                null,
+                new object[] { safetyRanks, includeFlag, skippedChecksumIndices }) ?? -1);
+            var expectedSkippedChecksum = CliFixSafetyFilterChecksum(expectedSkipped, safetyRanks);
+
+            Assert.Equal(expectedSkippedChecksum, actualSkippedChecksum);
+            Assert.Equal(expectedSkipped, skippedChecksumIndices.Take(expectedSkipped.Length).ToArray());
         }
     }
 
@@ -3387,6 +3417,16 @@ func main() {
         return safetyRanks
             .Select((rank, index) => (rank, index))
             .Where(item => item.rank > 0 && item.rank <= maxAppliedRank)
+            .Select(item => item.index)
+            .ToArray();
+    }
+
+    private static int[] CreateExpectedCliFixSkippedIndices(int[] safetyRanks, bool includeReviewNeeded)
+    {
+        var maxAppliedRank = includeReviewNeeded ? 2 : 1;
+        return safetyRanks
+            .Select((rank, index) => (rank, index))
+            .Where(item => item.rank == 0 || item.rank > maxAppliedRank)
             .Select(item => item.index)
             .ToArray();
     }

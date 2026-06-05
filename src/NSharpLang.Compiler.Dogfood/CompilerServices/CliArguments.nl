@@ -563,6 +563,55 @@ func CliFixSafetyFilterChecksumInto(
     return checksum + matchCount
 }
 
+func CliFixSkippedIndicesInto(
+    safetyRanks: int[],
+    includeReviewNeeded: int,
+    resultIndices: int[]): int {
+    maxAppliedRank := 1
+    if includeReviewNeeded != 0 {
+        maxAppliedRank = 2
+    }
+
+    skippedCount := 0
+    length := safetyRanks.Length
+    i := 0
+    while i < length {
+        rank := safetyRanks[i]
+        if rank == 0 || rank > maxAppliedRank {
+            if skippedCount < resultIndices.Length {
+                resultIndices[skippedCount] = i
+            }
+
+            skippedCount = skippedCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return skippedCount
+}
+
+func CliFixSkippedChecksumInto(
+    safetyRanks: int[],
+    includeReviewNeeded: int,
+    resultIndices: int[]): int {
+    skippedCount := CliFixSkippedIndicesInto(safetyRanks, includeReviewNeeded, resultIndices)
+    checksum := skippedCount
+    i := 0
+    while i < skippedCount && i < resultIndices.Length {
+        index := resultIndices[i]
+        rank := 0
+        if index >= 0 && index < safetyRanks.Length {
+            rank = safetyRanks[index]
+        }
+
+        checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + rank * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func CliPositionalArgChecksumInto(
     args: string[],
     optionsWithValues: string[],

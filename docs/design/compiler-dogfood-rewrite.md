@@ -876,6 +876,12 @@ Current CLI dogfood benchmarks:
   materialization over fix objects. The N# candidate runs after the host has projected `FixSafety`
   values into compact ranks, preserves source order, applies the safe-only or include-review-needed
   threshold, and writes matching fix indices through `CliFixSafetyFilterIndicesInto`.
+- `CliFixSkippedSelectionBenchmarks` targets skipped-fix selection in `nlc fix --text` output after
+  the accepted fixes have been applied. The C# baseline mirrors the previous text-output shape:
+  `results.Where(r => !applied.Contains(r)).ToList()`. The accepted N# candidate runs after the
+  host has projected fix safety strings into compact ranks, preserves the default
+  safe-only/include-review-needed behavior, treats unknown safety values as skipped, and writes
+  skipped source indices through `CliFixSkippedIndicesInto`.
 - `CliSymbolKindFilteringBenchmarks` targets symbol-kind filtering in `nlc query symbols --kind`,
   batch symbol queries, and daemon symbol queries. The C# baseline mirrors the current query LINQ
   shape: enum comparison, list materialization, and stable source-order results. The N# candidate
@@ -1039,6 +1045,17 @@ about 6.3x faster on representative include-review-needed filtering (493.9 ns vs
 (3.996 us vs 24.360 us, 0 B vs 41,568 B). This is acceptance-grade benchmark evidence for the
 `nlc fix` edit-collection safety gate after the host has projected `FixSafety` values into compact
 integer ranks.
+
+`CliFixSkippedIndicesInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc fix --text` skipped-fix selection. The accepted N# path uses
+compact safety ranks and caller-owned skipped-index buffers instead of the previous
+`Where(... !applied.Contains(...))` materialization. It ran about 181.8x faster on the
+representative safe-only skipped corpus (1.181 us vs 214.668 us, 0 B vs 5,776 B), about 430.4x
+faster on representative include-review-needed output (806.9 ns vs 347.289 us, 0 B vs 3,184 B),
+about 1,523x faster on the large generated safe-only corpus (9.459 us vs 14.410 ms, 0 B vs
+45,008 B), and about 5,972x faster on the large generated include-review-needed corpus (6.523 us vs
+38.953 ms, 0 B vs 24,304 B). This is acceptance-grade benchmark evidence for `nlc fix --text`
+skipped-fix output after the host has projected safety strings into compact integer ranks.
 
 `SymbolKindFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for symbol-kind filtering. The accepted N# path uses compact symbol
@@ -1243,6 +1260,10 @@ LINQ grouping/order path kept as the fallback.
 two-pass stable counting kernel when the dogfood assembly is available, preserving the previous
 bottom-to-top, right-to-left, end-position, and same-position reverse-input ordering, with the
 previous LINQ ordering path kept as the fallback.
+`nlc fix --text` skipped-fix selection now routes through the compiled N# skipped-index kernel when
+the dogfood assembly is available, preserving the default safe-only behavior,
+include-review-needed behavior, suggestion-only exclusion, unknown-safety exclusion, and source-order
+output, with the previous `Contains`-based C# path kept as the fallback.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, completion item grouping, reflected method overload
@@ -1255,11 +1276,12 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
+text-edit ordering, skipped-fix selection, AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
-`nlc query diagnostics --severity` filtering plus compiler-error severity filtering;
+`nlc query diagnostics --severity` filtering plus compiler-error severity filtering and skipped-fix
+selection;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route;
 `CodeFixTests` verifies the production fix-applicator ordering route.
@@ -1288,7 +1310,7 @@ batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus 
 project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
 route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
-plus symbol-kind filtering in `nlc query symbols`.
+plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output in `nlc fix --text`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
 Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are

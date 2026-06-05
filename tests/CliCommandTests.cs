@@ -772,6 +772,40 @@ func Main() {
     }
 
     [Fact]
+    public void CliDogfoodAdapter_SelectsSkippedFixEntries()
+    {
+        var entries = new[]
+        {
+            NewEntry("safe import", "safe"),
+            NewEntry("review unused variable", "reviewNeeded"),
+            NewEntry("suggest rewrite", "suggestionOnly"),
+            NewEntry("unknown safety", "unknown"),
+            NewEntry("safe empty catch", "safe"),
+            NewEntry("review null access", "reviewNeeded")
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
+            entries,
+            includeReviewNeeded: false,
+            out var defaultSkipped));
+        Assert.Equal(
+            entries.Where(entry => entry.Safety is not "safe"),
+            defaultSkipped);
+
+        Assert.True(NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
+            entries,
+            includeReviewNeeded: true,
+            out var reviewSkipped));
+        Assert.Equal(
+            entries.Where(entry => entry.Safety is not "safe" and not "reviewNeeded"),
+            reviewSkipped);
+
+        static FixEntry NewEntry(string title, string safety) =>
+            new("Program.nl", "NL000", title, new List<TextEdit>(), safety);
+    }
+
+    [Fact]
     public void DocCommand_DogfoodAdapter_OrdersSymbolsForGeneration()
     {
         var symbols = new[]

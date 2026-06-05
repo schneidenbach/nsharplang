@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 
@@ -402,6 +403,64 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TrySelectSkippedFixEntries(
+        IReadOnlyList<FixEntry> results,
+        bool includeReviewNeeded,
+        out List<FixEntry> skipped)
+    {
+        skipped = new List<FixEntry>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultCount = results.Count;
+        if (resultCount == 0)
+            return true;
+
+        var scratch = t_fixSafetyFilterScratch ??= new FixSafetyFilterScratch();
+        scratch.EnsureCapacity(resultCount);
+
+        try
+        {
+            for (var i = 0; i < resultCount; i++)
+            {
+                scratch.SafetyRanks[i] = GetFixEntrySafetyRank(results[i].Safety);
+            }
+
+            var skippedCount = bindings.CliFixSkippedIndices(
+                scratch.SafetyRanks,
+                includeReviewNeeded ? 1 : 0,
+                scratch.ResultIndices);
+
+            if (skippedCount < 0 || skippedCount > resultCount || skippedCount > scratch.ResultIndices.Length)
+            {
+                skipped = new List<FixEntry>();
+                return false;
+            }
+
+            skipped = new List<FixEntry>(skippedCount);
+            for (var i = 0; i < skippedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= resultCount)
+                {
+                    skipped = new List<FixEntry>();
+                    return false;
+                }
+
+                skipped.Add(results[sourceIndex]);
+            }
+
+            return true;
+        }
+        catch
+        {
+            skipped = new List<FixEntry>();
+            return false;
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -494,7 +553,8 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
-                CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"));
+                CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"),
+                CreateDelegate<CliFixSkippedIndicesInto>(programType, "CliFixSkippedIndicesInto"));
         }
         catch
         {
@@ -586,6 +646,11 @@ internal static class NSharpCliDogfoodAdapter
         int includeReviewNeeded,
         int[] resultIndices);
 
+    private delegate int CliFixSkippedIndicesInto(
+        int[] safetyRanks,
+        int includeReviewNeeded,
+        int[] resultIndices);
+
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
@@ -594,7 +659,8 @@ internal static class NSharpCliDogfoodAdapter
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
-        CliFixSafetyFilterIndicesInto CliFixSafetyFilter);
+        CliFixSafetyFilterIndicesInto CliFixSafetyFilter,
+        CliFixSkippedIndicesInto CliFixSkippedIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -635,6 +701,15 @@ internal static class NSharpCliDogfoodAdapter
             FixSafety.Safe => 1,
             FixSafety.ReviewNeeded => 2,
             FixSafety.SuggestionOnly => 3,
+            _ => 0
+        };
+
+    private static int GetFixEntrySafetyRank(string safety) =>
+        safety switch
+        {
+            "safe" => 1,
+            "reviewNeeded" => 2,
+            "suggestionOnly" => 3,
             _ => 0
         };
 

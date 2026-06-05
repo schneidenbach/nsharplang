@@ -239,7 +239,12 @@ Examples:
         }
 
         // Report skipped fixes
-        var skipped = results.Where(r => !applied.Contains(r)).ToList();
+        var skipped = NSharpLang.Cli.NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
+            results,
+            includeReviewNeeded,
+            out var dogfoodSkipped)
+            ? dogfoodSkipped
+            : results.Where(r => !applied.Contains(r)).ToList();
         if (skipped.Count > 0)
         {
             Console.Error.WriteLine();
