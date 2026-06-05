@@ -950,6 +950,14 @@ faster when the last instance field was mutable (164.5 ns vs 1,213.2 ns, 0 B vs 
 the C# `Where(...).ToList().All(...)` readonly-field gate after the host has projected compact
 static-or-readonly field flags.
 
+`NullableFlagsAllOne` was measured as a rejected direct-`List<byte>` nullable metadata candidate on
+2026-06-05 and removed instead of being routed. The completed representative all-default row measured
+the N# direct indexed scan slower than the current .NET 10 C# `flags.All(flag => flag == 1)` path
+(322.938 ns vs 264.926 ns), despite avoiding LINQ at the source level. This is useful systems-language
+pressure: direct N# `List<T>` indexer loops are not automatically faster than current BCL-specialized
+LINQ, so nullable metadata emission should keep its C# gate until the rewrite can use a compact array,
+span-like storage, or a proven lower-overhead list scan.
+
 `AnonymousUnionDeclaresPublicShim` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for anonymous-union overload-shim eligibility. It ran about 9.0x
 faster on representative dense two-arm-union parameters (148.51 ns vs 1,332.68 ns, 0 B vs 8,296 B)
@@ -1264,10 +1272,13 @@ instead of being routed into production because they did not clear the speed gat
 command-argument tail copy reduced allocation pressure but measured only 87.742 ns vs 95.460 ns on
 the representative corpus and regressed on the large corpus (12.409 us vs 10.387 us), so
 `args.Skip(1).ToArray()` remains the boundary until N# has a faster reference-array copy primitive
-or can call the BCL array-copy path without extra overhead. Top-level command classification by
-ASCII literal comparison removed lowercase string allocation but measured 9.951 us vs 9.670 us on
-representative command batches and 77.516 us vs 77.920 us on large batches, so the current C#
-`raw.ToLower()`/switch dispatcher remains.
+or can call the BCL array-copy path without extra overhead. A follow-up 2026-06-05 probe that
+allocated the exact N# result array and called `Array.Copy` directly from N# also missed the gate:
+307.765 ns vs 309.268 ns on the representative corpus, and a large-corpus regression of 1.971 us vs
+1.641 us, with essentially identical allocation. Top-level command classification by ASCII literal
+comparison removed lowercase string allocation but measured 9.951 us vs 9.670 us on representative
+command batches and 77.516 us vs 77.920 us on large batches, so the current C# `raw.ToLower()`/switch
+dispatcher remains.
 
 `CliBatchResultPackedSuccessCount` passed parity and reported zero managed allocation for the
 packed-flag kernel once successful-item flags are already represented as `ulong` words. A short
