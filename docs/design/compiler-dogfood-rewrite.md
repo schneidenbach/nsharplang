@@ -1912,8 +1912,8 @@ CLI command orchestration.
 
 ## Rejected Probes
 
-These probes were built, benchmarked with `--job Dry`, and removed because they did not clear the
-5x gate or did not produce a production-shaped win:
+These probes were built, benchmarked, and removed because they did not clear the 5x gate or did not
+produce a production-shaped win:
 
 - `CompilationStub` top-level function namespace grouping: replacing the C# `GroupBy`/namespace
   ordering shape with compact namespace ranks removed allocation, but dry timings were only about
@@ -1934,3 +1934,8 @@ These probes were built, benchmarked with `--job Dry`, and removed because they 
   the host still had to project `Reference.HasValue` and materialize the final `List<Reference>`
   (`77.0 us` N# vs `76.6 us` C# representative; `204.2 us` N# vs `178.4 us` C# large). This is a
   bad adapter slice; a useful port would need to own project-reference parsing/normalization.
+- CLI test timeout duration parsing: direct ASCII duration scanning removed the C# trim/slice parse
+  allocation, but the `--job Short` batch benchmark only reached about 1.27x on the representative
+  corpus (`7.829 us` N# vs `9.937 us` C#) and about 1.23x on the large corpus (`67.073 us` N# vs
+  `82.426 us` C#). Keep `nlc test --timeout` on the C# parser until N# has a faster tiny-string
+  parse path or the surrounding test-command option parsing moves into one N# batch.
