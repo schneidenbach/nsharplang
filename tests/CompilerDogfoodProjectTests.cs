@@ -777,6 +777,10 @@ func main(): int {
                 "TrySelectMissingEnumMembers",
                 BindingFlags.Static | BindingFlags.NonPublic)
             ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectMissingEnumMembers.");
+        var trySelectMissingUnionCasesFromFlags = adapterType.GetMethod(
+                "TrySelectMissingUnionCasesFromFlags",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectMissingUnionCasesFromFlags.");
 
         var missingArgs = new object?[] { members, coveredMembers, null };
         Assert.True((bool)(trySelectMissingEnumMembers.Invoke(null, missingArgs) ?? false));
@@ -804,6 +808,32 @@ func main(): int {
             null
         };
         Assert.False((bool)(trySelectMissingEnumMembers.Invoke(null, duplicateMemberArgs) ?? true));
+
+        var unionCases = new List<UnionCase>
+        {
+            new("Created", Properties: null),
+            new("Queued", Properties: null),
+            new("Running", Properties: null),
+            new("Succeeded", Properties: null),
+            new("Failed", Properties: null),
+            new("Retrying", Properties: null)
+        };
+        var coveredFlags = new[] { 0, 1, 0, 1, 0, 0 };
+        var partialFlags = new[] { 0, 0, 1, 0, 1, 0 };
+        var missingUnionArgs = new object?[] { unionCases, coveredFlags, partialFlags, unionCases.Count, null, null, null };
+        Assert.True((bool)(trySelectMissingUnionCasesFromFlags.Invoke(null, missingUnionArgs) ?? false));
+        Assert.Equal(
+            new[] { "Created", "Running", "Failed", "Retrying" },
+            Assert.IsType<List<string>>(missingUnionArgs[4]));
+        Assert.Equal(
+            new[] { "Running", "Failed" },
+            Assert.IsType<List<string>>(missingUnionArgs[5]));
+        Assert.Equal(
+            new[] { "Created", "Retrying" },
+            Assert.IsType<List<string>>(missingUnionArgs[6]));
+
+        var invalidUnionArgs = new object?[] { unionCases, coveredFlags, partialFlags, unionCases.Count + 1, null, null, null };
+        Assert.False((bool)(trySelectMissingUnionCasesFromFlags.Invoke(null, invalidUnionArgs) ?? true));
     }
 
     [Fact]

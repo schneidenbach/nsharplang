@@ -245,6 +245,9 @@ public class CompilerServiceAnalyzerUnionExhaustivenessBenchmarks
     private string[] _caseNames = Array.Empty<string>();
     private int[] _nameWeights = Array.Empty<int>();
     private int[] _neverCoveredIndices = Array.Empty<int>();
+    private List<string> _nsharpMaterializedMissingCases = [];
+    private List<string> _nsharpMaterializedNeverCoveredCases = [];
+    private List<string> _nsharpMaterializedPartialMissingCases = [];
     private int[] _nsharpMissingIndices = Array.Empty<int>();
     private int[] _nsharpPartialMissingIndices = Array.Empty<int>();
     private int[] _partialFlags = Array.Empty<int>();
@@ -290,21 +293,33 @@ public class CompilerServiceAnalyzerUnionExhaustivenessBenchmarks
         BuildCaseNames();
         BuildCoverage();
 
-        var expectedChecksum = CSharpUnionExhaustiveness_MissingCases();
+        var expectedNameChecksum = CSharpUnionExhaustiveness_MissingCases();
+        var expectedIndexChecksum = IndexChecksum(
+            _csharpMissingCases,
+            _csharpPartialMissingCases,
+            _csharpNeverCoveredCases);
         var actualChecksum = NSharpUnionExhaustiveness_MissingCases();
+        var materializedChecksum = NSharpMaterializedUnionExhaustiveness_MissingCases();
         var projectedChecksum = NSharpProjectedUnionExhaustiveness_MissingCases();
-        if (expectedChecksum != actualChecksum)
+        if (expectedIndexChecksum != actualChecksum)
         {
             throw new InvalidOperationException(
                 $"N# union exhaustiveness checksum mismatch for {Corpus}/{Shape}: " +
-                $"expected {expectedChecksum}, got {actualChecksum}.");
+                $"expected {expectedIndexChecksum}, got {actualChecksum}.");
         }
 
-        if (expectedChecksum != projectedChecksum)
+        if (expectedNameChecksum != materializedChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# materialized union exhaustiveness checksum mismatch for {Corpus}/{Shape}: " +
+                $"expected {expectedNameChecksum}, got {materializedChecksum}.");
+        }
+
+        if (expectedIndexChecksum != projectedChecksum)
         {
             throw new InvalidOperationException(
                 $"N# projected union exhaustiveness checksum mismatch for {Corpus}/{Shape}: " +
-                $"expected {expectedChecksum}, got {projectedChecksum}.");
+                $"expected {expectedIndexChecksum}, got {projectedChecksum}.");
         }
 
         AssertSequenceEqual(_csharpMissingCases, _nsharpMissingIndices, _resultCounts[0], "missing");
@@ -320,7 +335,7 @@ public class CompilerServiceAnalyzerUnionExhaustivenessBenchmarks
         _csharpPartialMissingCases = _csharpMissingCases.Where(_partiallyCoveredCases.Contains).ToArray();
         _csharpNeverCoveredCases = _csharpMissingCases.Except(_csharpPartialMissingCases).ToArray();
 
-        return Checksum(
+        return NameChecksum(
             _csharpMissingCases,
             _csharpPartialMissingCases,
             _csharpNeverCoveredCases);
@@ -337,6 +352,33 @@ public class CompilerServiceAnalyzerUnionExhaustivenessBenchmarks
             _nsharpPartialMissingIndices,
             _neverCoveredIndices,
             _resultCounts);
+
+    [Benchmark]
+    public int NSharpMaterializedUnionExhaustiveness_MissingCases()
+    {
+        var checksum = _nsharpMissingCaseChecksumInto(
+            _coveredFlags,
+            _partialFlags,
+            _caseCount,
+            _nameWeights,
+            _nsharpMissingIndices,
+            _nsharpPartialMissingIndices,
+            _neverCoveredIndices,
+            _resultCounts);
+        if (checksum < 0)
+        {
+            throw new InvalidOperationException(
+                $"N# union exhaustiveness returned invalid checksum {checksum} for {Corpus}/{Shape}.");
+        }
+
+        _nsharpMaterializedMissingCases = MaterializeCaseNames(_nsharpMissingIndices, _resultCounts[0]);
+        _nsharpMaterializedPartialMissingCases = MaterializeCaseNames(_nsharpPartialMissingIndices, _resultCounts[1]);
+        _nsharpMaterializedNeverCoveredCases = MaterializeCaseNames(_neverCoveredIndices, _resultCounts[2]);
+        return NameChecksum(
+            _nsharpMaterializedMissingCases,
+            _nsharpMaterializedPartialMissingCases,
+            _nsharpMaterializedNeverCoveredCases);
+    }
 
     [Benchmark]
     public int NSharpProjectedUnionExhaustiveness_MissingCases()
@@ -425,7 +467,7 @@ public class CompilerServiceAnalyzerUnionExhaustivenessBenchmarks
         }
     }
 
-    private int Checksum(
+    private int IndexChecksum(
         IReadOnlyList<string> missingCases,
         IReadOnlyList<string> partialMissingCases,
         IReadOnlyList<string> neverCoveredCases)
@@ -450,6 +492,48 @@ public class CompilerServiceAnalyzerUnionExhaustivenessBenchmarks
         }
 
         return checksum;
+    }
+
+    private static int NameChecksum(
+        IReadOnlyList<string> missingCases,
+        IReadOnlyList<string> partialMissingCases,
+        IReadOnlyList<string> neverCoveredCases)
+    {
+        var checksum = missingCases.Count * 31 + partialMissingCases.Count * 17 + neverCoveredCases.Count * 13;
+        for (var i = 0; i < missingCases.Count; i++)
+        {
+            checksum = checksum + (i + 1) * 97 + missingCases[i].Length * 17;
+        }
+
+        for (var i = 0; i < partialMissingCases.Count; i++)
+        {
+            checksum = checksum + (i + 1) * 43 + partialMissingCases[i].Length * 19;
+        }
+
+        for (var i = 0; i < neverCoveredCases.Count; i++)
+        {
+            checksum = checksum + (i + 1) * 37 + neverCoveredCases[i].Length * 23;
+        }
+
+        return checksum;
+    }
+
+    private List<string> MaterializeCaseNames(int[] indices, int count)
+    {
+        var result = new List<string>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var sourceIndex = indices[i];
+            if (sourceIndex < 0 || sourceIndex >= _caseNames.Length)
+            {
+                throw new InvalidOperationException(
+                    $"N# union exhaustiveness returned invalid source index {sourceIndex} for {Corpus}/{Shape}.");
+            }
+
+            result.Add(_caseNames[sourceIndex]);
+        }
+
+        return result;
     }
 
     private void AssertSequenceEqual(IReadOnlyList<string> expected, int[] indices, int count, string label)

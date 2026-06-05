@@ -28,6 +28,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private static AnonymousUnionShimScratch? t_anonymousUnionShimScratch;
     [ThreadStatic]
     private static MissingEnumMemberScratch? t_missingEnumMemberScratch;
+    [ThreadStatic]
+    private static MissingUnionCaseScratch? t_missingUnionCaseScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -587,6 +589,91 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    internal static bool TrySelectMissingUnionCasesFromFlags(
+        IReadOnlyList<UnionCase> cases,
+        int[] coveredFlags,
+        int[] partialFlags,
+        int count,
+        out List<string> missingCases,
+        out List<string> partialMissingCases,
+        out List<string> neverCoveredCases)
+    {
+        missingCases = [];
+        partialMissingCases = [];
+        neverCoveredCases = [];
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (count < 0 || count > cases.Count || count > coveredFlags.Length || count > partialFlags.Length)
+            return false;
+
+        if (count == 0)
+            return true;
+
+        var scratch = t_missingUnionCaseScratch ??= new MissingUnionCaseScratch();
+        scratch.EnsureCapacity(count);
+
+        try
+        {
+            var missingCount = bindings.AnalyzerUnionMissingCaseIndices(
+                coveredFlags,
+                partialFlags,
+                count,
+                scratch.MissingIndices,
+                scratch.PartialMissingIndices,
+                scratch.NeverCoveredIndices,
+                scratch.ResultCounts);
+
+            var partialMissingCount = scratch.ResultCounts[1];
+            var neverCoveredCount = scratch.ResultCounts[2];
+            if (missingCount < 0 ||
+                missingCount > count ||
+                partialMissingCount < 0 ||
+                partialMissingCount > missingCount ||
+                neverCoveredCount < 0 ||
+                neverCoveredCount > missingCount ||
+                partialMissingCount + neverCoveredCount != missingCount)
+            {
+                missingCases = [];
+                partialMissingCases = [];
+                neverCoveredCases = [];
+                return false;
+            }
+
+            missingCases = MaterializeCaseNames(cases, scratch.MissingIndices, missingCount);
+            partialMissingCases = MaterializeCaseNames(cases, scratch.PartialMissingIndices, partialMissingCount);
+            neverCoveredCases = MaterializeCaseNames(cases, scratch.NeverCoveredIndices, neverCoveredCount);
+            return true;
+        }
+        catch
+        {
+            missingCases = [];
+            partialMissingCases = [];
+            neverCoveredCases = [];
+            return false;
+        }
+    }
+
+    private static List<string> MaterializeCaseNames(
+        IReadOnlyList<UnionCase> cases,
+        int[] indices,
+        int count)
+    {
+        var result = new List<string>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var sourceIndex = indices[i];
+            if (sourceIndex < 0 || sourceIndex >= cases.Count)
+                throw new InvalidOperationException("Dogfood union missing-case selection returned an invalid source index.");
+
+            result.Add(cases[sourceIndex].Name);
+        }
+
+        return result;
+    }
+
     private static Bindings? LoadBindings()
     {
         try
@@ -620,7 +707,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "AnonymousUnionDeclaresPublicShim"),
                 CreateDelegate<AnalyzerMissingMemberIndicesInto>(
                     programType,
-                    "AnalyzerMissingMemberIndicesInto"));
+                    "AnalyzerMissingMemberIndicesInto"),
+                CreateDelegate<AnalyzerUnionMissingCaseIndicesInto>(
+                    programType,
+                    "AnalyzerUnionMissingCaseIndicesInto"));
         }
         catch
         {
@@ -688,6 +778,14 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] resultRanks);
     private delegate int AnonymousUnionDeclaresPublicShim(int[] parameterFlags, int count);
     private delegate int AnalyzerMissingMemberIndicesInto(int[] coveredFlags, int count, int[] resultIndices);
+    private delegate int AnalyzerUnionMissingCaseIndicesInto(
+        int[] coveredFlags,
+        int[] partialFlags,
+        int count,
+        int[] missingIndices,
+        int[] partialMissingIndices,
+        int[] neverCoveredIndices,
+        int[] resultCounts);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -697,7 +795,8 @@ internal static class NSharpCompilerDogfoodAdapter
         TypeCreationOrderIndicesInto TypeCreationOrderIndices,
         ReferenceFileSummaryRanksInto ReferenceFileSummaryRanks,
         AnonymousUnionDeclaresPublicShim AnonymousUnionDeclaresPublicShim,
-        AnalyzerMissingMemberIndicesInto AnalyzerMissingMemberIndices);
+        AnalyzerMissingMemberIndicesInto AnalyzerMissingMemberIndices,
+        AnalyzerUnionMissingCaseIndicesInto AnalyzerUnionMissingCaseIndices);
 
     private sealed class ParserTokenCompactionScratch
     {
@@ -748,6 +847,29 @@ internal static class NSharpCompilerDogfoodAdapter
         public void ResetNames()
         {
             _seenNames.Clear();
+        }
+    }
+
+    private sealed class MissingUnionCaseScratch
+    {
+        public int[] MissingIndices = Array.Empty<int>();
+        public int[] NeverCoveredIndices = Array.Empty<int>();
+        public int[] PartialMissingIndices = Array.Empty<int>();
+        public int[] ResultCounts = new int[3];
+
+        public void EnsureCapacity(int count)
+        {
+            if (MissingIndices.Length < count)
+            {
+                MissingIndices = new int[count];
+                NeverCoveredIndices = new int[count];
+                PartialMissingIndices = new int[count];
+            }
+
+            if (ResultCounts.Length != 3)
+            {
+                ResultCounts = new int[3];
+            }
         }
     }
 

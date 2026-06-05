@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9657,144 +9658,181 @@ public class Analyzer : IDisposable
             return;
         }
 
-        // Collect all union case names that are covered by UNGUARDED arms.
-        // Guarded arms only partially cover their pattern (the guard may be false at runtime),
-        // so they don't count toward exhaustiveness.
-        var coveredCases = new HashSet<string>();
-        var partiallyCoveredCases = new HashSet<string>();
-        var unionCasePatterns = new Dictionary<string, List<UnionCasePattern>>();
-        var partialCoverageHints = new Dictionary<string, List<string>>();
+        var unionDeclaration = unionType.Declaration!;
+        var unionCases = unionDeclaration.Cases;
+        var caseCount = unionCases.Count;
+        var coveredFlags = ArrayPool<int>.Shared.Rent(caseCount);
+        var partialFlags = ArrayPool<int>.Shared.Rent(caseCount);
 
-        foreach (var matchCase in match.Cases)
+        try
         {
-            // Skip guarded arms — they only partially cover their pattern
-            if (matchCase.Guard != null)
-                continue;
+            Array.Clear(coveredFlags, 0, caseCount);
+            Array.Clear(partialFlags, 0, caseCount);
 
-            if (matchCase.Pattern is UnionCasePattern unionPattern)
+            // Collect all union case names that are covered by UNGUARDED arms.
+            // Guarded arms only partially cover their pattern (the guard may be false at runtime),
+            // so they don't count toward exhaustiveness.
+            var caseIndexByName = new Dictionary<string, int>(caseCount, StringComparer.Ordinal);
+            for (var caseIndex = 0; caseIndex < caseCount; caseIndex++)
             {
-                if (TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchedCase))
-                {
-                    if (!unionCasePatterns.TryGetValue(matchedCase.Name, out var patterns))
-                    {
-                        patterns = new List<UnionCasePattern>();
-                        unionCasePatterns[matchedCase.Name] = patterns;
-                    }
+                caseIndexByName.TryAdd(unionCases[caseIndex].Name, caseIndex);
+            }
 
-                    patterns.Add(unionPattern);
+            var unionCasePatterns = new Dictionary<string, List<UnionCasePattern>>();
+            var partialCoverageHints = new Dictionary<string, List<string>>();
+
+            foreach (var matchCase in match.Cases)
+            {
+                // Skip guarded arms — they only partially cover their pattern
+                if (matchCase.Guard != null)
+                    continue;
+
+                if (matchCase.Pattern is UnionCasePattern unionPattern)
+                {
+                    if (TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchedCase))
+                    {
+                        if (!unionCasePatterns.TryGetValue(matchedCase.Name, out var patterns))
+                        {
+                            patterns = new List<UnionCasePattern>();
+                            unionCasePatterns[matchedCase.Name] = patterns;
+                        }
+
+                        patterns.Add(unionPattern);
+                    }
+                }
+                else if (matchCase.Pattern is IdentifierPattern identPattern)
+                {
+                    if (identPattern.Name == "_")
+                    {
+                        // Unguarded wildcard pattern covers all remaining cases
+                        match.IsExhaustive = true;
+                        return;
+                    }
+                    else if (identPattern.Name.Contains('.'))
+                    {
+                        // Qualified union case name without properties
+                        if (TryGetUnionCaseForPattern(unionType, identPattern.Name, out var matchedCase) &&
+                            caseIndexByName.TryGetValue(matchedCase.Name, out var matchedCaseIndex))
+                        {
+                            coveredFlags[matchedCaseIndex] = 1;
+                        }
+                    }
+                    else
+                    {
+                        // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
+                        // that matches everything at runtime — treat it the same as `_`
+                        match.IsExhaustive = true;
+                        return;
+                    }
                 }
             }
-            else if (matchCase.Pattern is IdentifierPattern identPattern)
+
+            // Check if all union cases are covered
+            for (var caseIndex = 0; caseIndex < caseCount; caseIndex++)
             {
-                if (identPattern.Name == "_")
+                var unionCase = unionCases[caseIndex];
+                if (!unionCasePatterns.TryGetValue(unionCase.Name, out var patterns))
+                    continue;
+
+                if (IsUnionCaseCoveredByPatterns(unionDeclaration.Name, unionCase, patterns, out var hints))
                 {
-                    // Unguarded wildcard pattern covers all remaining cases
-                    match.IsExhaustive = true;
-                    return;
-                }
-                else if (identPattern.Name.Contains('.'))
-                {
-                    // Qualified union case name without properties
-                    if (TryGetUnionCaseForPattern(unionType, identPattern.Name, out var matchedCase))
-                    {
-                        coveredCases.Add(matchedCase.Name);
-                    }
+                    coveredFlags[caseIndex] = 1;
                 }
                 else
                 {
-                    // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
-                    // that matches everything at runtime — treat it the same as `_`
-                    match.IsExhaustive = true;
-                    return;
-                }
-            }
-        }
-
-        // Check if all union cases are covered
-        foreach (var unionCase in unionType.Declaration!.Cases)
-        {
-            if (!unionCasePatterns.TryGetValue(unionCase.Name, out var patterns))
-                continue;
-
-            if (IsUnionCaseCoveredByPatterns(unionType.Declaration.Name, unionCase, patterns, out var hints))
-            {
-                coveredCases.Add(unionCase.Name);
-            }
-            else
-            {
-                partiallyCoveredCases.Add(unionCase.Name);
-                if (hints.Count > 0)
-                {
-                    partialCoverageHints[unionCase.Name] = hints;
-                }
-            }
-        }
-
-        var allCases = unionType.Declaration.Cases.Select(c => c.Name).ToHashSet();
-        var missingCases = allCases.Except(coveredCases).ToList();
-        var partialMissingCases = missingCases.Where(partiallyCoveredCases.Contains).ToList();
-        var neverCoveredCases = missingCases.Except(partialMissingCases).ToList();
-
-        if (missingCases.Any())
-        {
-            if (partialMissingCases.Any())
-            {
-                var messageParts = new List<string>();
-                if (neverCoveredCases.Any())
-                {
-                    messageParts.Add($"missing: {string.Join(", ", neverCoveredCases)}");
-                }
-
-                messageParts.Add($"partially covered: {FormatPartialCoverageCases(partialMissingCases, partialCoverageHints)}");
-
-                var partialHint = string.Join("; ", partialMissingCases.Select(caseName =>
-                {
-                    if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
+                    partialFlags[caseIndex] = 1;
+                    if (hints.Count > 0)
                     {
-                        return $"add '{hints[0]}', an unconstrained '{unionType.Declaration.Name}.{caseName}' arm, or a wildcard '_' arm";
+                        partialCoverageHints[unionCase.Name] = hints;
+                    }
+                }
+            }
+
+            if (!NSharpCompilerDogfoodAdapter.TrySelectMissingUnionCasesFromFlags(
+                    unionCases,
+                    coveredFlags,
+                    partialFlags,
+                    caseCount,
+                    out var missingCases,
+                    out var partialMissingCases,
+                    out var neverCoveredCases))
+            {
+                SelectMissingUnionCasesFromFlags(
+                    unionCases,
+                    coveredFlags,
+                    partialFlags,
+                    caseCount,
+                    out missingCases,
+                    out partialMissingCases,
+                    out neverCoveredCases);
+            }
+
+            if (missingCases.Any())
+            {
+                if (partialMissingCases.Any())
+                {
+                    var messageParts = new List<string>();
+                    if (neverCoveredCases.Any())
+                    {
+                        messageParts.Add($"missing: {string.Join(", ", neverCoveredCases)}");
                     }
 
-                    return $"add an unconstrained '{unionType.Declaration.Name}.{caseName}' arm or a wildcard '_' arm";
-                }));
-                Error(ErrorCode.NonExhaustiveMatch,
-                    $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
-                    match.Line,
-                    match.Column,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)),
-                    length: MatchKeywordLength);
-            }
-            else
-            {
-                var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
-                    ? _sourceLines[match.Line - 1]
-                    : null;
+                    messageParts.Add($"partially covered: {FormatPartialCoverageCases(partialMissingCases, partialCoverageHints)}");
 
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.NonExhaustiveMatch(
-                        _currentFilePath,
+                    var partialHint = string.Join("; ", partialMissingCases.Select(caseName =>
+                    {
+                        if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
+                        {
+                            return $"add '{hints[0]}', an unconstrained '{unionDeclaration.Name}.{caseName}' arm, or a wildcard '_' arm";
+                        }
+
+                        return $"add an unconstrained '{unionDeclaration.Name}.{caseName}' arm or a wildcard '_' arm";
+                    }));
+                    Error(ErrorCode.NonExhaustiveMatch,
+                        $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
                         match.Line,
                         match.Column,
-                        sourceSnippet,
-                        MatchKeywordLength,
-                        missingCases
-                    );
-                    _errors.Add(error);
+                        ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)),
+                        length: MatchKeywordLength);
                 }
                 else
                 {
-                    var missingCasesStr = string.Join(", ", missingCases);
-                    Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
-                        match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr),
-                        length: MatchKeywordLength);
+                    var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
+                        ? _sourceLines[match.Line - 1]
+                        : null;
+
+                    if (sourceSnippet != null && _currentFilePath != null)
+                    {
+                        var error = ErrorMessageBuilder.NonExhaustiveMatch(
+                            _currentFilePath,
+                            match.Line,
+                            match.Column,
+                            sourceSnippet,
+                            MatchKeywordLength,
+                            missingCases
+                        );
+                        _errors.Add(error);
+                    }
+                    else
+                    {
+                        var missingCasesStr = string.Join(", ", missingCases);
+                        Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
+                            match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr),
+                            length: MatchKeywordLength);
+                    }
                 }
             }
+            else
+            {
+                // All union cases covered by unguarded arms — mark exhaustive so the C# exporter
+                // emits a discard arm instead of relying on C# exhaustiveness analysis
+                match.IsExhaustive = true;
+            }
         }
-        else
+        finally
         {
-            // All union cases covered by unguarded arms — mark exhaustive so the C# exporter
-            // emits a discard arm instead of relying on C# exhaustiveness analysis
-            match.IsExhaustive = true;
+            ArrayPool<int>.Shared.Return(coveredFlags, clearArray: false);
+            ArrayPool<int>.Shared.Return(partialFlags, clearArray: false);
         }
     }
 
@@ -9811,6 +9849,40 @@ public class Analyzer : IDisposable
 
             return caseName;
         }));
+    }
+
+    private static void SelectMissingUnionCasesFromFlags(
+        IReadOnlyList<UnionCase> cases,
+        int[] coveredFlags,
+        int[] partialFlags,
+        int count,
+        out List<string> missingCases,
+        out List<string> partialMissingCases,
+        out List<string> neverCoveredCases)
+    {
+        missingCases = new List<string>();
+        partialMissingCases = new List<string>();
+        neverCoveredCases = new List<string>();
+
+        if (count < 0 || count > cases.Count || count > coveredFlags.Length || count > partialFlags.Length)
+            return;
+
+        for (var i = 0; i < count; i++)
+        {
+            if (coveredFlags[i] != 0)
+                continue;
+
+            var caseName = cases[i].Name;
+            missingCases.Add(caseName);
+            if (partialFlags[i] != 0)
+            {
+                partialMissingCases.Add(caseName);
+            }
+            else
+            {
+                neverCoveredCases.Add(caseName);
+            }
+        }
     }
 
     private bool IsUnionCaseCoveredByPatterns(
