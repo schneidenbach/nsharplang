@@ -1092,6 +1092,94 @@ func CliBuildFirstOperandIndexInto(
     return resultIndices[0]
 }
 
+func CliBuildOptionSummaryInto(args: string[], resultIndices: int[]): int {
+    if resultIndices.Length < 9 {
+        return -1
+    }
+
+    resultIndices[0] = -1
+    resultIndices[1] = -1
+    resultIndices[2] = -1
+    resultIndices[3] = 0
+    resultIndices[4] = 0
+    resultIndices[5] = 0
+    resultIndices[6] = 0
+    resultIndices[7] = 0
+    resultIndices[8] = 0
+
+    outputLongIndex := -1
+    outputShortIndex := -1
+    i := 0
+    while i < args.Length {
+        arg := args[i]
+        if i == 0 && arg == "help" {
+            resultIndices[8] = 1
+        }
+
+        kind := CliBuildOptionSummaryKind(arg)
+        if kind == 1 {
+            if outputLongIndex < 0 && i + 1 < args.Length {
+                outputLongIndex = i + 1
+            }
+        } else if kind == 2 {
+            if outputShortIndex < 0 && i + 1 < args.Length {
+                outputShortIndex = i + 1
+            }
+        } else if kind == 3 {
+            if resultIndices[1] < 0 && i + 1 < args.Length {
+                resultIndices[1] = i + 1
+            }
+        } else if kind == 4 {
+            if resultIndices[2] < 0 && i + 1 < args.Length {
+                resultIndices[2] = i + 1
+            }
+        } else if kind == 5 {
+            resultIndices[3] = 1
+        } else if kind == 6 {
+            resultIndices[4] = 1
+        } else if kind == 7 {
+            resultIndices[5] = 1
+        } else if kind == 8 {
+            resultIndices[6] = 1
+        } else if kind == 9 {
+            resultIndices[7] = 1
+        } else if kind == 10 {
+            resultIndices[8] = 1
+        }
+
+        i = i + 1
+    }
+
+    if outputLongIndex >= 0 {
+        resultIndices[0] = outputLongIndex
+    } else {
+        resultIndices[0] = outputShortIndex
+    }
+
+    return 0
+}
+
+func CliBuildOptionSummaryChecksumInto(args: string[], resultIndices: int[]): int {
+    code := CliBuildOptionSummaryInto(args, resultIndices)
+    if code < 0 {
+        return code
+    }
+
+    checksum := args.Length + 23
+    i := 0
+    while i < 9 {
+        value := resultIndices[i]
+        checksum = checksum + (i + 1) * 97 + (value + 1) * 31
+        if i < 3 && value >= 0 && value < args.Length {
+            checksum = checksum + args[value].Length * 13
+        }
+
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func CliExportCSharpFirstOperandIndexInto(
     args: string[],
     kindIds: int[],
@@ -3838,6 +3926,133 @@ func CliBuildArgumentKind(arg: string): int {
         && arg[11] == 'r'
         && arg[12] == 't' {
         return 5
+    }
+
+    return 0
+}
+
+func CliBuildOptionSummaryKind(arg: string): int {
+    length := arg.Length
+    if length == 2 {
+        if arg[0] != '-' {
+            return 0
+        }
+
+        if arg[1] == 'o' {
+            return 2
+        }
+
+        if arg[1] == 'h' {
+            return 10
+        }
+
+        return 0
+    }
+
+    if length < 5 || arg[0] != '-' || arg[1] != '-' {
+        return 0
+    }
+
+    if length == 5 {
+        if arg[2] == 'a' && arg[3] == 'o' && arg[4] == 't' {
+            return 9
+        }
+
+        return 0
+    }
+
+    if length == 6 {
+        if arg[2] == 'h'
+            && arg[3] == 'e'
+            && arg[4] == 'l'
+            && arg[5] == 'p' {
+            return 10
+        }
+
+        return 0
+    }
+
+    if length == 8 {
+        if arg[2] == 'o'
+            && arg[3] == 'u'
+            && arg[4] == 't'
+            && arg[5] == 'p'
+            && arg[6] == 'u'
+            && arg[7] == 't' {
+            return 1
+        }
+
+        return 0
+    }
+
+    if length == 9 {
+        marker := arg[2]
+        if marker == 'b'
+            && arg[3] == 'a'
+            && arg[4] == 'c'
+            && arg[5] == 'k'
+            && arg[6] == 'e'
+            && arg[7] == 'n'
+            && arg[8] == 'd' {
+            return 3
+        }
+
+        if marker == 'p'
+            && arg[3] == 'r'
+            && arg[4] == 'o'
+            && arg[5] == 'j'
+            && arg[6] == 'e'
+            && arg[7] == 'c'
+            && arg[8] == 't' {
+            return 4
+        }
+
+        if marker == 'r'
+            && arg[3] == 'e'
+            && arg[4] == 'l'
+            && arg[5] == 'e'
+            && arg[6] == 'a'
+            && arg[7] == 's'
+            && arg[8] == 'e' {
+            return 5
+        }
+
+        if marker == 't'
+            && arg[3] == 'i'
+            && arg[4] == 'm'
+            && arg[5] == 'i'
+            && arg[6] == 'n'
+            && arg[7] == 'g'
+            && arg[8] == 's' {
+            return 7
+        }
+
+        if marker == 'v'
+            && arg[3] == 'e'
+            && arg[4] == 'r'
+            && arg[5] == 'b'
+            && arg[6] == 'o'
+            && arg[7] == 's'
+            && arg[8] == 'e' {
+            return 6
+        }
+
+        return 0
+    }
+
+    if length == 13
+        && arg[2] == 'p'
+        && arg[3] == 'e'
+        && arg[4] == 'r'
+        && arg[5] == 'f'
+        && arg[6] == '-'
+        && arg[7] == 'r'
+        && arg[8] == 'e'
+        && arg[9] == 'p'
+        && arg[10] == 'o'
+        && arg[11] == 'r'
+        && arg[12] == 't' {
+        return 8
     }
 
     return 0

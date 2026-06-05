@@ -1200,6 +1200,13 @@ Current CLI dogfood benchmarks:
   `CliBuildFirstOperandIndexInto`; it exits immediately for the common source-first path and falls
   back to an exact linked-list scratch routine when leading options require the existing stripping
   order.
+- `CliBuildOptionSummaryBenchmarks` targets the remaining `nlc build` option discovery work after
+  source-operand routing. The C# baseline mirrors the current command shape: separate
+  `args.Contains(...)` scans for help/release/verbose/timings/perf-report/AOT plus separate
+  `GetOptionValue` scans for `--output`/`-o`, `--backend`, and `--project`. The N# pressure
+  candidate scans argv once and writes option value indices plus flags through
+  `CliBuildOptionSummaryInto`, but it remains benchmark-only because measured wall-clock speed
+  missed the production gate.
 - `CliRunArgumentNormalizationBenchmarks` targets `nlc run` source-file operand discovery. The C#
   baseline mirrors the previous run command shape: strip `--backend <value>` into a new array, then
   read the first remaining argument. The accepted N# candidate returns the first source operand
@@ -1292,6 +1299,14 @@ vs 1.142 ms on the large generated corpus, while reducing managed allocation to 
 command shape. This is useful allocation-pressure evidence only: the best dry run reached about
 1.5x to 1.6x, so `WatchCommand` must stay on the current C# forwarded-argument helper until N#
 string option classification and host-boundary materialization can clear the 5x route gate.
+
+`CliBuildOptionSummaryInto` passed parity but missed the dry BenchmarkDotNet speed gate for the
+remaining `nlc build` option-discovery work. The production-shaped benchmark measured 81.791 us vs
+95.750 us on the representative corpus and regressed on the large generated corpus at 503.041 us vs
+202.833 us. Both paths reported zero managed allocation. This is argv-classification pressure
+evidence only, not a production route; `BuildCommand` should keep the current C# `Contains` and
+`GetOptionValue` scans for option values and booleans until N# string/array iteration overhead drops
+enough to clear the 5x gate.
 
 Two additional low-level CLI orchestration candidates were measured and deliberately removed
 instead of being routed into production because they did not clear the speed gate. A caller-owned
@@ -1961,7 +1976,7 @@ add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 CLI test outcome summaries,
 and the pressure-only
-path-matching, all-positionals CLI argument, watch forwarded-argument, and batch result packed-count kernels through the
+path-matching, all-positionals CLI argument, build option summary, watch forwarded-argument, and batch result packed-count kernels through the
 compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and

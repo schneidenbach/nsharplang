@@ -1554,6 +1554,14 @@ class OtherZetaType {
                     "CliBuildFirstOperandIndexInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildFirstOperandIndexInto.");
+            var cliBuildOptionSummaryInto = programType.GetMethod(
+                    "CliBuildOptionSummaryInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOptionSummaryInto.");
+            var cliBuildOptionSummaryChecksumInto = programType.GetMethod(
+                    "CliBuildOptionSummaryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildOptionSummaryChecksumInto.");
             var cliExportCSharpFirstOperandIndexInto = programType.GetMethod(
                     "CliExportCSharpFirstOperandIndexInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2245,6 +2253,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
                 cliBuildFirstOperandIndexInto);
+            AssertCliBuildOptionsLikeProduction(
+                cliBuildOptionSummaryInto,
+                cliBuildOptionSummaryChecksumInto);
             AssertCliExportCSharpInputOperandLikeProduction(
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
@@ -4141,6 +4152,111 @@ func main() {
         }
 
         return result.ToArray();
+    }
+
+    private static void AssertCliBuildOptionsLikeProduction(
+        MethodInfo cliBuildOptionSummaryInto,
+        MethodInfo cliBuildOptionSummaryChecksumInto)
+    {
+        var cases = new[]
+        {
+            new[]
+            {
+                "--release",
+                "--verbose",
+                "--timings",
+                "--perf-report",
+                "--aot",
+                "--output",
+                "dist",
+                "-o",
+                "ignored-short-output",
+                "--backend",
+                "il",
+                "--project",
+                "samples/demo",
+                "Program.nl"
+            },
+            new[] { "-o", "short-dist", "--output", "long-dist", "--project", "--backend" },
+            new[] { "--output", "--release", "--backend", "il", "--project" },
+            new[] { "help", "--release" },
+            new[] { "--help" },
+            new[] { "-h" },
+            Array.Empty<string>()
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliBuildOptionSummary(args);
+
+            var resultIndices = new int[9];
+            var actualCode = (int)(cliBuildOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(0, actualCode);
+            Assert.Equal(expected, resultIndices);
+
+            Array.Clear(resultIndices);
+            var actualChecksum = (int)(cliBuildOptionSummaryChecksumInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(CliBuildOptionSummaryChecksum(args, expected), actualChecksum);
+            Assert.Equal(expected, resultIndices);
+
+            var shortCode = (int)(cliBuildOptionSummaryInto.Invoke(
+                null,
+                new object[] { args, new int[8] }) ?? 0);
+
+            Assert.Equal(-1, shortCode);
+        }
+    }
+
+    private static int[] CreateExpectedCliBuildOptionSummary(string[] args)
+    {
+        var result = new int[9];
+        result[0] = IndexOfOptionValue(args, "--output");
+        if (result[0] < 0)
+            result[0] = IndexOfOptionValue(args, "-o");
+        result[1] = IndexOfOptionValue(args, "--backend");
+        result[2] = IndexOfOptionValue(args, "--project");
+        result[3] = args.Contains("--release") ? 1 : 0;
+        result[4] = args.Contains("--verbose") ? 1 : 0;
+        result[5] = args.Contains("--timings") ? 1 : 0;
+        result[6] = args.Contains("--perf-report") ? 1 : 0;
+        result[7] = args.Contains("--aot") ? 1 : 0;
+        result[8] = args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help")
+            ? 1
+            : 0;
+        return result;
+    }
+
+    private static int IndexOfOptionValue(string[] args, string flag)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == flag)
+                return i + 1;
+        }
+
+        return -1;
+    }
+
+    private static int CliBuildOptionSummaryChecksum(string[] args, int[] resultIndices)
+    {
+        var checksum = args.Length + 23;
+        for (var i = 0; i < 9; i++)
+        {
+            var value = resultIndices[i];
+            checksum += (i + 1) * 97 + (value + 1) * 31;
+            if (i < 3 && value >= 0 && value < args.Length)
+            {
+                checksum += args[value].Length * 13;
+            }
+        }
+
+        return checksum;
     }
 
     private static void AssertCliExportCSharpInputOperandLikeProduction(
