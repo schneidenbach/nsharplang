@@ -1909,3 +1909,28 @@ cache materialization around the N# lookup kernels are still C# host logic.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
 needs N# implementations for broader semantic lookup, completion construction, output shaping, and
 CLI command orchestration.
+
+## Rejected Probes
+
+These probes were built, benchmarked with `--job Dry`, and removed because they did not clear the
+5x gate or did not produce a production-shaped win:
+
+- `CompilationStub` top-level function namespace grouping: replacing the C# `GroupBy`/namespace
+  ordering shape with compact namespace ranks removed allocation, but dry timings were only about
+  1.75x faster on the representative corpus and 1.48x faster on the large corpus. Do not re-add this
+  until the top-level function stub path can move more of the surrounding emission into N#.
+- Declared extension-method key lookup in the IL compiler: a compact key-index scan avoided most
+  LINQ allocation, but the N# string suffix loop was only about 1.4x-1.6x faster on representative
+  rows and was slower on the many-match large row. This needs a better ordinal suffix/string
+  comparison primitive or a broader declared-method binding table port.
+- Project-reference cycle canonicalization: ranking nodes and selecting a minimal rotation in N#
+  was about 25x faster on a large 512-node cycle, but only about 1.3x faster on a representative
+  32-node cycle because rank construction and final public string materialization dominated. Keep
+  the current C# rotation path unless a broader project-graph representation can cache ranks.
+- Source-map validating cached-query eight-wide unrolling: doubling the existing four-wide
+  equal-length fast path preserved parity but did not push the representative row over the gate in
+  dry smoke (`89.6 us` N# vs `369.4 us` C#, about 4.1x). The added duplication was removed.
+- Project config reference `HasValue` filtering: compact flag filtering was neutral to slower once
+  the host still had to project `Reference.HasValue` and materialize the final `List<Reference>`
+  (`77.0 us` N# vs `76.6 us` C# representative; `204.2 us` N# vs `178.4 us` C# large). This is a
+  bad adapter slice; a useful port would need to own project-reference parsing/normalization.
