@@ -229,6 +229,109 @@ func CliTidyDependencyStatusRankChecksumInto(
     return checksum
 }
 
+func CliTidyRemovalLineKeepFlagsInto(lines: string[], packageNames: string[], resultFlags: int[]): int {
+    if resultFlags.Length < lines.Length {
+        return -1
+    }
+
+    i := 0
+    while i < lines.Length {
+        resultFlags[i] = CliTidyRemovalLineKeepFlag(lines[i], packageNames)
+        i = i + 1
+    }
+
+    return lines.Length
+}
+
+func CliTidyRemovalLineKeepFlag(line: string, packageNames: string[]): int {
+    start := 0
+    while start < line.Length && CliTidyIsAsciiWhitespace(line[start]) {
+        start = start + 1
+    }
+
+    if start + 2 > line.Length || line[start] != '-' || line[start + 1] != ' ' {
+        return 1
+    }
+
+    if CliTidyRemovalLineStartsWithAnyPackage(line, start + 2, packageNames) {
+        return 0
+    }
+
+    markerLimit := line.Length - 7
+    markerStart := start
+    while markerStart <= markerLimit {
+        if CliTidyRemovalLineHasNugetMarkerAt(line, markerStart)
+            && CliTidyRemovalLineStartsWithAnyPackage(line, markerStart + 7, packageNames) {
+            return 0
+        }
+
+        markerStart = markerStart + 1
+    }
+
+    return 1
+}
+
+func CliTidyIsAsciiWhitespace(value: char): bool {
+    code := (int)value
+    return code == 32 || (code >= 9 && code <= 13)
+}
+
+func CliTidyRemovalLineStartsWithAnyPackage(line: string, packageStart: int, packageNames: string[]): bool {
+    i := 0
+    while i < packageNames.Length {
+        if CliTidyRemovalLineStartsWithPackage(line, packageStart, packageNames[i]) {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
+}
+
+func CliTidyRemovalLineStartsWithPackage(line: string, packageStart: int, packageName: string): bool {
+    if packageStart + packageName.Length > line.Length {
+        return false
+    }
+
+    i := 0
+    while i < packageName.Length {
+        if !CliTidyCharsEqualAsciiIgnoreCase(line[packageStart + i], packageName[i]) {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
+func CliTidyRemovalLineHasNugetMarkerAt(line: string, start: int): bool {
+    if !CliTidyCharsEqualAsciiIgnoreCase(line[start], 'n')
+        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 1], 'u')
+        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 2], 'g')
+        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 3], 'e')
+        || !CliTidyCharsEqualAsciiIgnoreCase(line[start + 4], 't')
+        || line[start + 5] != ':'
+        || line[start + 6] != ' ' {
+        return false
+    }
+
+    return true
+}
+
+func CliTidyRemovalLineKeepChecksumInto(lines: string[], packageNames: string[], resultFlags: int[]): int {
+    count := CliTidyRemovalLineKeepFlagsInto(lines, packageNames, resultFlags)
+    checksum := count
+    i := 0
+    while i < count && i < resultFlags.Length {
+        checksum = checksum + (i + 1) * 97 + resultFlags[i] * 31 + lines[i].Length * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func CliSymbolNameGlobFilterIndicesInto(
     names: string[],
     pattern: string,

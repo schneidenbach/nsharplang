@@ -1258,6 +1258,55 @@ dependencies:
     }
 
     [Fact]
+    public void CliDogfoodAdapter_FiltersTidyRemovalLines()
+    {
+        var lines = new[]
+        {
+            "dependencies:",
+            "  - Serilog.Sinks.Console@5.0.1",
+            "  - nuget: Newtonsoft.Json",
+            "  - NUGET: unused.package",
+            "  - framework: Microsoft.AspNetCore.App",
+            "  - project: ../Shared/Shared.csproj",
+            "  - Other.Package",
+            "  - SerilogExtra",
+            "name: Demo"
+        };
+        var packageNames = new[]
+        {
+            "Serilog",
+            "Newtonsoft.Json",
+            "Unused.Package"
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(
+            lines,
+            packageNames,
+            out var filteredLines));
+
+        Assert.Equal(
+            new[]
+            {
+                "dependencies:",
+                "  - framework: Microsoft.AspNetCore.App",
+                "  - project: ../Shared/Shared.csproj",
+                "  - Other.Package",
+                "name: Demo"
+            },
+            filteredLines);
+
+        Assert.False(NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(
+            new[] { "  - R\u00e9sum\u00e9.Package" },
+            packageNames,
+            out _));
+        Assert.False(NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(
+            lines,
+            new[] { "R\u00e9sum\u00e9.Package" },
+            out _));
+    }
+
+    [Fact]
     public void DocCommand_DogfoodAdapter_OrdersSymbolsForGeneration()
     {
         var symbols = new[]

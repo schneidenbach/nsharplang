@@ -1492,6 +1492,14 @@ class OtherZetaType {
                     "CliTidyDependencyStatusRankChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyDependencyStatusRankChecksumInto.");
+            var cliTidyRemovalLineKeepFlagsInto = programType.GetMethod(
+                    "CliTidyRemovalLineKeepFlagsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyRemovalLineKeepFlagsInto.");
+            var cliTidyRemovalLineKeepChecksumInto = programType.GetMethod(
+                    "CliTidyRemovalLineKeepChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyRemovalLineKeepChecksumInto.");
             var cliPositionalArgChecksumInto = programType.GetMethod(
                     "CliPositionalArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2120,6 +2128,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliTidyDependencyClassificationLikeProduction(
                 cliTidyDependencyStatusRanksInto,
                 cliTidyDependencyStatusRankChecksumInto);
+            AssertCliTidyRemovalLinesLikeProduction(
+                cliTidyRemovalLineKeepFlagsInto,
+                cliTidyRemovalLineKeepChecksumInto);
             AssertCliFixSafetyFilteringLikeProduction(
                 cliFixSafetyFilterIndicesInto,
                 cliFixSafetyFilterChecksumInto,
@@ -4272,6 +4283,96 @@ func main() {
         for (var i = 0; i < statusRanks.Length; i++)
         {
             checksum += (i + 1) * 97 + statusRanks[i] * 31 + packageNames[i].Length * 17;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertCliTidyRemovalLinesLikeProduction(
+        MethodInfo cliTidyRemovalLineKeepFlagsInto,
+        MethodInfo cliTidyRemovalLineKeepChecksumInto)
+    {
+        var lines = new[]
+        {
+            "dependencies:",
+            "  - Serilog.Sinks.Console@5.0.1",
+            "\t- Newtonsoft.Json@13.0.3",
+            "  - nuget: Unused.Package",
+            "  - NUGET: case.package",
+            "  - framework: Microsoft.AspNetCore.App",
+            "  - project: ../Shared/Shared.csproj",
+            "  - Serilog",
+            "  - Other.Package",
+            "name: Demo",
+            "  - nuget: Kept.Package",
+            "  - Humanizer.Core",
+            "  - SerilogExtra"
+        };
+        var packageNames = new[]
+        {
+            "Serilog",
+            "Newtonsoft.Json",
+            "Unused.Package",
+            "Case.Package"
+        };
+        var expected = CreateExpectedCliTidyRemovalLineKeepFlags(lines, packageNames);
+
+        var resultFlags = new int[lines.Length];
+        var actualCount = (int)(cliTidyRemovalLineKeepFlagsInto.Invoke(
+            null,
+            new object[] { lines, packageNames, resultFlags }) ?? -1);
+
+        Assert.Equal(lines.Length, actualCount);
+        Assert.Equal(expected, resultFlags);
+
+        Array.Clear(resultFlags);
+        var actualChecksum = (int)(cliTidyRemovalLineKeepChecksumInto.Invoke(
+            null,
+            new object[] { lines, packageNames, resultFlags }) ?? -1);
+
+        Assert.Equal(CliTidyRemovalLineKeepChecksum(expected, lines), actualChecksum);
+        Assert.Equal(expected, resultFlags);
+
+        var failedCount = (int)(cliTidyRemovalLineKeepFlagsInto.Invoke(
+            null,
+            new object[] { lines, packageNames, new int[lines.Length - 1] }) ?? 0);
+
+        Assert.Equal(-1, failedCount);
+    }
+
+    private static int[] CreateExpectedCliTidyRemovalLineKeepFlags(
+        string[] lines,
+        string[] packageNames)
+    {
+        var toRemove = new HashSet<string>(packageNames, StringComparer.OrdinalIgnoreCase);
+        return lines.Select(line =>
+        {
+            var trimmed = line.TrimStart();
+            if (!trimmed.StartsWith("- "))
+                return 1;
+
+            foreach (var packageName in toRemove)
+            {
+                if (trimmed.StartsWith($"- {packageName}@", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.StartsWith($"- {packageName}", StringComparison.OrdinalIgnoreCase) ||
+                    trimmed.Contains($"nuget: {packageName}", StringComparison.OrdinalIgnoreCase))
+                {
+                    return 0;
+                }
+            }
+
+            return 1;
+        }).ToArray();
+    }
+
+    private static int CliTidyRemovalLineKeepChecksum(
+        int[] keepFlags,
+        string[] lines)
+    {
+        var checksum = keepFlags.Length;
+        for (var i = 0; i < keepFlags.Length; i++)
+        {
+            checksum += (i + 1) * 97 + keepFlags[i] * 31 + lines[i].Length * 17;
         }
 
         return checksum;

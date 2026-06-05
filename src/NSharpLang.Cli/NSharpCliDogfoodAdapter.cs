@@ -42,6 +42,8 @@ internal static class NSharpCliDogfoodAdapter
     private static LintFileArgScratch? t_lintFileArgScratch;
     [ThreadStatic]
     private static TidyDependencyStatusFilterScratch? t_tidyDependencyStatusFilterScratch;
+    [ThreadStatic]
+    private static TidyRemovalLineScratch? t_tidyRemovalLineScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -1334,6 +1336,88 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryFilterTidyRemovalLines(
+        IReadOnlyList<string> lines,
+        IReadOnlyList<string> packageNames,
+        out string[] filteredLines)
+    {
+        filteredLines = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var lineCount = lines.Count;
+        if (lineCount == 0)
+            return true;
+
+        var packageCount = packageNames.Count;
+        var scratch = t_tidyRemovalLineScratch ??= new TidyRemovalLineScratch();
+        scratch.EnsureCapacity(lineCount, packageCount);
+
+        try
+        {
+            for (var i = 0; i < lineCount; i++)
+            {
+                var line = lines[i];
+                if (line == null || !IsAscii(line))
+                    return false;
+
+                scratch.Lines[i] = line;
+            }
+
+            for (var i = 0; i < packageCount; i++)
+            {
+                var packageName = packageNames[i];
+                if (packageName == null || !IsAscii(packageName))
+                    return false;
+
+                scratch.PackageNames[i] = packageName;
+            }
+
+            var processedCount = bindings.CliTidyRemovalLineKeepFlags(
+                scratch.Lines,
+                scratch.PackageNames,
+                scratch.KeepFlags);
+
+            if (processedCount != lineCount)
+                return false;
+
+            var keptCount = 0;
+            for (var i = 0; i < lineCount; i++)
+            {
+                var flag = scratch.KeepFlags[i];
+                if (flag is not 0 and not 1)
+                    return false;
+
+                keptCount += flag;
+            }
+
+            var result = new string[keptCount];
+            var resultIndex = 0;
+            for (var i = 0; i < lineCount; i++)
+            {
+                if (scratch.KeepFlags[i] == 0)
+                    continue;
+
+                result[resultIndex] = scratch.Lines[i];
+                resultIndex++;
+            }
+
+            filteredLines = result;
+            return true;
+        }
+        catch
+        {
+            filteredLines = Array.Empty<string>();
+            return false;
+        }
+        finally
+        {
+            scratch.ClearInputs(lineCount, packageCount);
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -1439,6 +1523,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliTidyDependencyStatusSummaryInto>(programType, "CliTidyDependencyStatusSummaryInto"),
                 CreateDelegate<CliTidyDependencyStatusRanksInto>(programType, "CliTidyDependencyStatusRanksInto"),
+                CreateDelegate<CliTidyRemovalLineKeepFlagsInto>(programType, "CliTidyRemovalLineKeepFlagsInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
         }
         catch
@@ -1612,6 +1697,11 @@ internal static class NSharpCliDogfoodAdapter
         string[] importNamespaces,
         int[] resultStatusRanks);
 
+    private delegate int CliTidyRemovalLineKeepFlagsInto(
+        string[] lines,
+        string[] packageNames,
+        int[] resultFlags);
+
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
@@ -1633,6 +1723,7 @@ internal static class NSharpCliDogfoodAdapter
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliTidyDependencyStatusSummaryInto CliTidyDependencyStatusSummary,
         CliTidyDependencyStatusRanksInto CliTidyDependencyStatusRanks,
+        CliTidyRemovalLineKeepFlagsInto CliTidyRemovalLineKeepFlags,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
@@ -2273,6 +2364,34 @@ internal static class NSharpCliDogfoodAdapter
 
             if (importCount > 0 && importCount <= ImportNamespaces.Length)
                 Array.Clear(ImportNamespaces, 0, importCount);
+        }
+    }
+
+    private sealed class TidyRemovalLineScratch
+    {
+        public int[] KeepFlags = Array.Empty<int>();
+        public string[] Lines = Array.Empty<string>();
+        public string[] PackageNames = Array.Empty<string>();
+
+        public void EnsureCapacity(int lineCount, int packageCount)
+        {
+            if (Lines.Length != lineCount)
+            {
+                Lines = new string[lineCount];
+                KeepFlags = new int[lineCount];
+            }
+
+            if (PackageNames.Length != packageCount)
+                PackageNames = new string[packageCount];
+        }
+
+        public void ClearInputs(int lineCount, int packageCount)
+        {
+            if (lineCount > 0 && lineCount <= Lines.Length)
+                Array.Clear(Lines, 0, lineCount);
+
+            if (packageCount > 0 && packageCount <= PackageNames.Length)
+                Array.Clear(PackageNames, 0, packageCount);
         }
     }
 }

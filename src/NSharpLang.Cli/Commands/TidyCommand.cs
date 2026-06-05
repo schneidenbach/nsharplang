@@ -288,10 +288,23 @@ public static class TidyCommand
 
     private static void RemoveDependencies(string projectYml, List<string> packageNames)
     {
-        var lines = new List<string>(File.ReadAllLines(projectYml));
+        var lines = File.ReadAllLines(projectYml);
+        if (NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(lines, packageNames, out var dogfoodFiltered))
+        {
+            File.WriteAllLines(projectYml, dogfoodFiltered);
+            return;
+        }
+
+        File.WriteAllLines(projectYml, FilterDependencyLinesWithCSharp(lines, packageNames));
+    }
+
+    private static List<string> FilterDependencyLinesWithCSharp(
+        IReadOnlyList<string> lines,
+        IReadOnlyList<string> packageNames)
+    {
         var toRemove = new HashSet<string>(packageNames, StringComparer.OrdinalIgnoreCase);
 
-        var filtered = lines.Where(line =>
+        return lines.Where(line =>
         {
             var trimmed = line.TrimStart();
             if (!trimmed.StartsWith("- "))
@@ -310,8 +323,6 @@ public static class TidyCommand
 
             return true;
         }).ToList();
-
-        File.WriteAllLines(projectYml, filtered);
     }
 
     // ── Output ────────────────────────────────────────────────────────────

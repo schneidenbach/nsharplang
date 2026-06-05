@@ -1037,6 +1037,12 @@ Current CLI dogfood benchmarks:
   segments, then scan imports with case-insensitive prefix checks. The accepted N# candidate scans
   ASCII package/import strings directly, writes compact status ranks through
   `CliTidyDependencyStatusRanksInto`, and leaves non-ASCII names on the exact C# fallback.
+- `CliTidyRemovalLineBenchmarks` targets `nlc tidy --fix` project.yml dependency-line removal after
+  dependency names have been selected for removal. The C# baseline mirrors the current command
+  shape: trim each line, check list-item syntax, then scan every package with case-insensitive
+  interpolated `StartsWith`/`Contains` patterns and materialize a filtered list. The accepted N#
+  candidate scans ASCII project lines and package names directly, preserves the current broad
+  `- Package` prefix behavior, and writes keep/remove flags through caller-owned storage.
 - `CliFixEditFlattenBenchmarks` targets safe-edit flattening in `nlc fix` after the safety gate has
   selected applicable actions. The C# baseline mirrors the current CLI shape:
   `safeActions.SelectMany(action => action.Edits).ToList()`. The N# pressure candidate runs after
@@ -1294,6 +1300,16 @@ reason text in the host. It ran about 10.9x faster on the representative depende
 (17.414 us vs 199.280 us, 0 B vs 1,485,616 B) and about 7.5x faster on the large generated corpus
 (665.013 us vs 5.001 ms, 0 B vs 38,533,472 B). The production adapter guards the ASCII-specialized
 fast path and keeps the C# classifier for non-ASCII package or import names.
+
+`CliTidyRemovalLineKeepFlagsInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc tidy --fix` project.yml dependency-line removal. The accepted
+N# path scans ASCII project lines and selected package names directly, writes keep/remove flags into
+caller-owned storage, and preserves the current C# fallback semantics including broad `- Package`
+prefix matching and case-insensitive `nuget: Package` containment. It ran about 8.5x faster on the
+representative tidy project corpus (92.15 us vs 779.59 us, 0 B vs 6,639,824 B) and about 8.6x
+faster on the large generated corpus (2.525 ms vs 21.848 ms, 0 B vs 203,167,904 B). The production
+adapter guards the ASCII-specialized fast path and keeps the C# line filter for non-ASCII project
+lines, non-ASCII package names, or unavailable dogfood.
 
 `CliFixSafetyFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for `nlc fix` safety filtering. The accepted N# path uses compact
@@ -1703,6 +1719,10 @@ dogfood.
 rank filter when the dogfood assembly is available, preserving exact status matching and source
 order after dependency classification, with the previous C# `Where(...).ToList()` path kept as the
 fallback.
+`nlc tidy --fix` project.yml dependency-line removal now routes through the compiled N#
+`CliTidyRemovalLineKeepFlagsInto` kernel for ASCII project lines and package names, preserving
+current broad dependency-prefix removal and case-insensitive `nuget:` matching, with the previous C#
+line filter kept as the fallback for non-ASCII input or unavailable dogfood.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, completion item grouping, reflected method overload
@@ -1720,7 +1740,8 @@ CLI reference-type filtering,
 AOT requirement grouping, anonymous-union overload-shim eligibility, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
-add/remove package operand discovery, DocQuery reference-pack assembly-name and type-candidate de-duplication,
+add/remove package operand discovery, tidy dependency-line keep flags,
+DocQuery reference-pack assembly-name and type-candidate de-duplication,
 and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
@@ -1729,7 +1750,8 @@ selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` depe
 selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
 CLI reference-type filtering,
 `nlc restore` project-reference de-duplication, `nlc update` dependency filtering, `nlc tidy`
-status summaries, and `nlc tidy --fix` possibly-unused dependency selection;
+status summaries, `nlc tidy --fix` possibly-unused dependency selection, and `nlc tidy --fix`
+project.yml dependency-line removal;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through
 the production route;
