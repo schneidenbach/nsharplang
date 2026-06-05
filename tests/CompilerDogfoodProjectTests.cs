@@ -1199,6 +1199,62 @@ class OtherZetaType {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_OrdersImportsAfterLargerListReusesScratchCorrectly()
+    {
+        // Regression: the kernel derives its working count from array length, and the
+        // adapter scratch is thread-static and reused. A larger list followed by a smaller
+        // list on the same thread must not leak stale tail slots into the smaller result.
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryOrderImports = adapterType.GetMethod(
+                "TryOrderImportsBySystemThenNamespace",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryOrderImportsBySystemThenNamespace.");
+
+        static List<ImportDirective> ExpectedOrder(List<ImportDirective> imports) => imports
+            .OrderByDescending(i => i.Namespace.StartsWith("System"))
+            .ThenBy(i => i.Namespace)
+            .ToList();
+
+        static List<ImportDirective> Invoke(MethodInfo method, List<ImportDirective> imports)
+        {
+            var args = new object?[] { imports, null };
+            Assert.True((bool)(method.Invoke(null, args) ?? false));
+            return Assert.IsType<List<ImportDirective>>(args[1]);
+        }
+
+        // First: a large list to grow the thread-static scratch buffers.
+        var large = new List<ImportDirective>();
+        for (var i = 0; i < 64; i++)
+        {
+            var ns = (i % 3 == 0 ? "System.Ns" : "Acme.Ns") + (63 - i).ToString("D3");
+            large.Add(new ImportDirective(ns, Alias: null, Line: i + 1, Column: 1));
+        }
+
+        var largeOrdered = Invoke(tryOrderImports, large);
+        Assert.Equal(ExpectedOrder(large), largeOrdered);
+
+        // Then: a smaller list on the same thread must still match production exactly.
+        var small = new List<ImportDirective>
+        {
+            new("Zeta.Core", Alias: null, Line: 1, Column: 1),
+            new("System.Linq", Alias: null, Line: 2, Column: 1),
+            new("Acme.Widgets", Alias: null, Line: 3, Column: 1),
+            new("System", Alias: null, Line: 4, Column: 1),
+        };
+
+        var smallOrdered = Invoke(tryOrderImports, small);
+        Assert.Equal(ExpectedOrder(small), smallOrdered);
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_LooksUpUniqueDeclaredTypeBySuffix()
     {
         var declaredTypes = new Dictionary<string, Type>(StringComparer.Ordinal)

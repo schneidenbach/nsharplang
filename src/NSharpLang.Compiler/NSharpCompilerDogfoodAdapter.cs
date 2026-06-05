@@ -1442,7 +1442,10 @@ internal static class NSharpCompilerDogfoodAdapter
 
         public void EnsureCapacity(int count)
         {
-            if (SystemFlags.Length < count)
+            // Size the per-item arrays exactly to the logical import count: the kernel
+            // derives its working count from systemFlags.Length, so these arrays must not
+            // retain extra (stale) tail slots from a larger prior call on this thread.
+            if (SystemFlags.Length != count)
             {
                 SystemFlags = new int[count];
                 NameRanks = new int[count];
@@ -1454,7 +1457,7 @@ internal static class NSharpCompilerDogfoodAdapter
             // The name-pass counting sort uses ranks 1..uniqueRankCount; capacity must
             // cover the worst case where every namespace is distinct (uniqueRankCount == count).
             var bucketCapacity = count + 1;
-            if (BucketCounts.Length < bucketCapacity)
+            if (BucketCounts.Length != bucketCapacity)
             {
                 BucketCounts = new int[bucketCapacity];
                 BucketOffsets = new int[bucketCapacity];
