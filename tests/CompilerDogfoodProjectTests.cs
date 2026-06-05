@@ -882,6 +882,14 @@ func main(): int {
                     "DocQueryBestTypeChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DocQueryBestTypeChecksumInto.");
+            var docQueryMemberOrderIndicesInto = programType.GetMethod(
+                    "DocQueryMemberOrderIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DocQueryMemberOrderIndicesInto.");
+            var docQueryMemberOrderChecksumInto = programType.GetMethod(
+                    "DocQueryMemberOrderChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DocQueryMemberOrderChecksumInto.");
             var typoSuggestionIndicesInto = programType.GetMethod(
                     "TypoSuggestionIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1360,6 +1368,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertDocQueryBestTypeSelectionLikeProduction(
                 docQueryBestTypeIndex,
                 docQueryBestTypeChecksumInto);
+            AssertDocQueryMemberOrderingLikeProduction(
+                docQueryMemberOrderIndicesInto,
+                docQueryMemberOrderChecksumInto);
             AssertTypoSuggestionsLikeProduction(
                 typoSuggestionIndicesInto,
                 typoSuggestionChecksumInto);
@@ -3612,6 +3623,105 @@ func main() {
 
         Assert.Equal(-1, empty);
     }
+
+    private static void AssertDocQueryMemberOrderingLikeProduction(
+        MethodInfo docQueryMemberOrderIndicesInto,
+        MethodInfo docQueryMemberOrderChecksumInto)
+    {
+        var kinds = new[]
+        {
+            "method",
+            "property",
+            "constructor",
+            "field",
+            "event",
+            "nested type",
+            "method",
+            "property",
+            "method"
+        };
+        var names = new[]
+        {
+            "ToString",
+            "Count",
+            "Sample()",
+            "value",
+            "Changed",
+            "Enumerator",
+            "add",
+            "count",
+            "Add"
+        };
+        var kindRanks = kinds.Select(GetDocQueryMemberKindRank).ToArray();
+        var sortedNames = names.ToArray();
+        Array.Sort(sortedNames, StringComparer.OrdinalIgnoreCase);
+
+        var nameRankMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var nextRank = 1;
+        foreach (var name in sortedNames)
+        {
+            if (!nameRankMap.ContainsKey(name))
+            {
+                nameRankMap[name] = nextRank;
+                nextRank++;
+            }
+        }
+
+        var nameRanks = names.Select(name => nameRankMap[name]).ToArray();
+        var expected = Enumerable.Range(0, names.Length)
+            .OrderBy(i => kinds[i])
+            .ThenBy(i => names[i], StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        var resultIndices = new int[names.Length];
+        var actualCount = (int)(docQueryMemberOrderIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                new int[nameRankMap.Count + 1],
+                new int[nameRankMap.Count + 1],
+                new int[16],
+                new int[16],
+                new int[names.Length],
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[names.Length];
+        var actualChecksum = (int)(docQueryMemberOrderChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nameRanks,
+                new int[nameRankMap.Count + 1],
+                new int[nameRankMap.Count + 1],
+                new int[16],
+                new int[16],
+                new int[names.Length],
+                checksumResultIndices
+            }) ?? -1);
+        var expectedChecksum = CliDocSymbolOrderChecksum(expected, kindRanks, nameRanks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static int GetDocQueryMemberKindRank(string kind) =>
+        kind switch
+        {
+            "constructor" => 1,
+            "event" => 2,
+            "field" => 3,
+            "method" => 4,
+            "nested type" => 5,
+            "property" => 6,
+            _ => 0
+        };
 
     private static void AssertTextEditOrderingLikeProduction(
         MethodInfo textEditOrderIndicesInto,

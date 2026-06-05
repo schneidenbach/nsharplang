@@ -37,6 +37,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static DocQueryBestTypeScratch? t_docQueryBestTypeScratch;
     [ThreadStatic]
+    private static DocQueryMemberOrderScratch? t_docQueryMemberOrderScratch;
+    [ThreadStatic]
     private static ReferenceFileSummaryScratch? t_referenceFileSummaryScratch;
     [ThreadStatic]
     private static ReferenceDeduplicationScratch? t_referenceDeduplicationScratch;
@@ -725,6 +727,82 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         finally
         {
             scratch.ClearFullNames(candidateCount);
+        }
+    }
+
+    internal static bool TryOrderDocMembers(
+        IReadOnlyList<DocMemberResult> members,
+        out DocMemberResult[] orderedMembers)
+    {
+        orderedMembers = Array.Empty<DocMemberResult>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var memberCount = members.Count;
+        if (memberCount == 0)
+            return true;
+
+        var scratch = t_docQueryMemberOrderScratch ??= new DocQueryMemberOrderScratch();
+        scratch.EnsureCapacity(memberCount);
+
+        try
+        {
+            scratch.ResetNames();
+            for (var i = 0; i < memberCount; i++)
+            {
+                scratch.AddName(members[i].Name);
+            }
+
+            scratch.BuildSortedNameRanks();
+            for (var i = 0; i < memberCount; i++)
+            {
+                var member = members[i];
+                var kindRank = GetDocMemberKindRank(member.Kind);
+                if (kindRank == 0)
+                    return false;
+
+                scratch.KindRanks[i] = kindRank;
+                scratch.NameRanks[i] = scratch.GetNameRank(member.Name);
+            }
+
+            var orderedCount = bindings.DocQueryMemberOrderIndices(
+                scratch.KindRanks,
+                scratch.NameRanks,
+                scratch.NameCounts,
+                scratch.NameOffsets,
+                scratch.KindCounts,
+                scratch.KindOffsets,
+                scratch.TempIndices,
+                scratch.ResultIndices);
+
+            if (orderedCount != memberCount)
+                return false;
+
+            orderedMembers = new DocMemberResult[memberCount];
+            for (var i = 0; i < memberCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= memberCount)
+                {
+                    orderedMembers = Array.Empty<DocMemberResult>();
+                    return false;
+                }
+
+                orderedMembers[i] = members[sourceIndex];
+            }
+
+            return true;
+        }
+        catch
+        {
+            orderedMembers = Array.Empty<DocMemberResult>();
+            return false;
+        }
+        finally
+        {
+            scratch.ResetNames();
         }
     }
 
@@ -1503,6 +1581,18 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static bool IsIncludedCompletionMethod(MethodInfo method) =>
         !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
 
+    private static int GetDocMemberKindRank(string kind) =>
+        kind switch
+        {
+            "constructor" => 1,
+            "event" => 2,
+            "field" => 3,
+            "method" => 4,
+            "nested type" => 5,
+            "property" => 6,
+            _ => 0
+        };
+
     private static bool IsAscii(string value)
     {
         for (var i = 0; i < value.Length; i++)
@@ -1552,6 +1642,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<SymbolKindFilterIndicesInto>(programType, "SymbolKindFilterIndicesInto"),
                 CreateDelegate<DocQueryBestTypeIndexInto>(programType, "DocQueryBestTypeIndex"),
+                CreateDelegate<DocQueryMemberOrderIndicesInto>(programType, "DocQueryMemberOrderIndicesInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(programType, "DiagnosticClusterCompactGroupMembersInto"),
@@ -1767,6 +1858,16 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         string[] fullNames,
         int count);
 
+    private delegate int DocQueryMemberOrderIndicesInto(
+        int[] kindRanks,
+        int[] nameRanks,
+        int[] nameCounts,
+        int[] nameOffsets,
+        int[] kindCounts,
+        int[] kindOffsets,
+        int[] tempIndices,
+        int[] resultIndices);
+
     private delegate int DiagnosticClusterCompactGroupsInto(
         int[] codeIds,
         int[] severityIds,
@@ -1968,6 +2069,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         SymbolKindFilterIndicesInto SymbolKindFilter,
         DocQueryBestTypeIndexInto DocQueryBestTypeIndex,
+        DocQueryMemberOrderIndicesInto DocQueryMemberOrderIndices,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
         DiagnosticClusterCompactGroupMembersInto DiagnosticClusterCompactGroupMembers,
@@ -2202,6 +2304,78 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             if (count > 0)
             {
                 Array.Clear(FullNames, 0, count);
+            }
+        }
+    }
+
+    private sealed class DocQueryMemberOrderScratch
+    {
+        private readonly Dictionary<string, int> _nameRanks = new(StringComparer.OrdinalIgnoreCase);
+
+        public int[] KindCounts = Array.Empty<int>();
+        public int[] KindOffsets = Array.Empty<int>();
+        public int[] KindRanks = Array.Empty<int>();
+        public int[] NameCounts = Array.Empty<int>();
+        public int[] NameOffsets = Array.Empty<int>();
+        public int[] NameRanks = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] TempIndices = Array.Empty<int>();
+        public string[] UniqueNames = Array.Empty<string>();
+        public int UniqueNameCount;
+
+        public void EnsureCapacity(int memberCount)
+        {
+            if (KindRanks.Length != memberCount)
+            {
+                KindRanks = new int[memberCount];
+                NameRanks = new int[memberCount];
+                TempIndices = new int[memberCount];
+                ResultIndices = new int[memberCount];
+                UniqueNames = new string[memberCount];
+            }
+
+            var nameRankCapacity = memberCount + 1;
+            if (NameCounts.Length != nameRankCapacity)
+            {
+                NameCounts = new int[nameRankCapacity];
+                NameOffsets = new int[nameRankCapacity];
+            }
+
+            if (KindCounts.Length != 16)
+            {
+                KindCounts = new int[16];
+                KindOffsets = new int[16];
+            }
+        }
+
+        public void AddName(string name)
+        {
+            if (_nameRanks.ContainsKey(name))
+                return;
+
+            _nameRanks.Add(name, 0);
+            UniqueNames[UniqueNameCount] = name;
+            UniqueNameCount++;
+        }
+
+        public void BuildSortedNameRanks()
+        {
+            Array.Sort(UniqueNames, 0, UniqueNameCount, StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < UniqueNameCount; i++)
+            {
+                _nameRanks[UniqueNames[i]] = i + 1;
+            }
+        }
+
+        public int GetNameRank(string name) => _nameRanks[name];
+
+        public void ResetNames()
+        {
+            _nameRanks.Clear();
+            if (UniqueNameCount > 0)
+            {
+                Array.Clear(UniqueNames, 0, UniqueNameCount);
+                UniqueNameCount = 0;
             }
         }
     }

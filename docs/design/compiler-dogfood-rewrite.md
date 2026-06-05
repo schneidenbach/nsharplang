@@ -866,6 +866,12 @@ Current CLI dogfood benchmarks:
   the first candidate. The accepted N# candidate runs after the host has projected distinct
   reflection candidates into score/namespace/full-name arrays and selects the best index with an
   eight-wide unrolled scan through `DocQueryBestTypeIndex`.
+- `CompilerServiceDocQueryMemberOrderingBenchmarks` targets member ordering inside `nlc query doc`
+  type descriptions. The C# baseline mirrors `DocQuery.GetTypeMembers`: order by member kind, then
+  by member name with ordinal-ignore-case comparison, and materialize the array. The accepted N#
+  candidate runs after the host has projected fixed member-kind ranks and exact .NET
+  ordinal-ignore-case name ranks, then uses stable counting passes through
+  `DocQueryMemberOrderIndicesInto`.
 - `CliFirstPositionalArgumentBenchmarks` targets CLI commands that only need the first positional
   operand, such as project-name/project-root discovery, `nlc update` target package selection, and
   `nlc export csharp` input discovery. The
@@ -1016,6 +1022,16 @@ routes distinct candidate arrays through `NSharpCodeIntelligenceDogfoodAdapter.T
 when the dogfood assembly is available, with the previous LINQ ordering retained as the exact
 fallback; the adapter also falls back for non-ASCII CLR full names so the public
 `StringComparer.OrdinalIgnoreCase` tie-break contract is not approximated.
+
+`DocQueryMemberOrderIndicesInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence run for `nlc query doc` member ordering. The accepted N# path receives
+fixed member-kind ranks plus host-computed `StringComparer.OrdinalIgnoreCase` name ranks, then uses
+stable counting passes to preserve the C# `OrderBy(kind).ThenBy(name)` contract. It ran about
+22.0x faster on the representative member corpus (5.585 us vs 122.970 us, 0 B vs 37,368 B) and
+about 30.0x faster on the large generated corpus (51.244 us vs 1.535 ms, 0 B vs 295,416 B).
+`DocQuery.GetTypeMembers` now routes through
+`NSharpCodeIntelligenceDogfoodAdapter.TryOrderDocMembers` when the dogfood assembly is available,
+with the previous LINQ ordering retained for unexpected member kinds or unavailable dogfood.
 
 `ParserTokenCompactionIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for parser newline-token compaction. It ran about 7.3x faster on the

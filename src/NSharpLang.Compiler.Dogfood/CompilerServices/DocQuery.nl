@@ -202,6 +202,118 @@ func DocQueryBestTypeChecksumInto(scores: int[], namespaceLengths: int[], fullNa
     return (bestIndex + 1) * 97 + scores[bestIndex] * 31 + namespaceLengths[bestIndex] * 17
 }
 
+func DocQueryMemberOrderIndicesInto(
+    kindRanks: int[],
+    nameRanks: int[],
+    nameCounts: int[],
+    nameOffsets: int[],
+    kindCounts: int[],
+    kindOffsets: int[],
+    tempIndices: int[],
+    resultIndices: int[]): int {
+    count := DocQueryMinInt(kindRanks.Length, nameRanks.Length)
+    nameBucketCount := DocQueryMinInt(nameCounts.Length, nameOffsets.Length)
+    kindBucketCount := DocQueryMinInt(kindCounts.Length, kindOffsets.Length)
+
+    if tempIndices.Length < count || resultIndices.Length < count {
+        return -1
+    }
+
+    i := 0
+    while i < nameBucketCount {
+        nameCounts[i] = 0
+        nameOffsets[i] = 0
+        i = i + 1
+    }
+
+    i = 0
+    while i < kindBucketCount {
+        kindCounts[i] = 0
+        kindOffsets[i] = 0
+        i = i + 1
+    }
+
+    i = 0
+    while i < count {
+        nameRank := nameRanks[i]
+        kindRank := kindRanks[i]
+        if nameRank <= 0 || nameRank >= nameBucketCount || kindRank <= 0 || kindRank >= kindBucketCount {
+            return -1
+        }
+
+        nameCounts[nameRank] = nameCounts[nameRank] + 1
+        kindCounts[kindRank] = kindCounts[kindRank] + 1
+        i = i + 1
+    }
+
+    offset := 0
+    rank := 0
+    while rank < nameBucketCount {
+        nameOffsets[rank] = offset
+        offset = offset + nameCounts[rank]
+        rank = rank + 1
+    }
+
+    i = 0
+    while i < count {
+        nameRank := nameRanks[i]
+        writeIndex := nameOffsets[nameRank]
+        tempIndices[writeIndex] = i
+        nameOffsets[nameRank] = writeIndex + 1
+        i = i + 1
+    }
+
+    offset = 0
+    rank = 0
+    while rank < kindBucketCount {
+        kindOffsets[rank] = offset
+        offset = offset + kindCounts[rank]
+        rank = rank + 1
+    }
+
+    i = 0
+    while i < count {
+        sourceIndex := tempIndices[i]
+        kindRank := kindRanks[sourceIndex]
+        writeIndex := kindOffsets[kindRank]
+        resultIndices[writeIndex] = sourceIndex
+        kindOffsets[kindRank] = writeIndex + 1
+        i = i + 1
+    }
+
+    return count
+}
+
+func DocQueryMemberOrderChecksumInto(
+    kindRanks: int[],
+    nameRanks: int[],
+    nameCounts: int[],
+    nameOffsets: int[],
+    kindCounts: int[],
+    kindOffsets: int[],
+    tempIndices: int[],
+    resultIndices: int[]): int {
+    orderedCount := DocQueryMemberOrderIndicesInto(
+        kindRanks,
+        nameRanks,
+        nameCounts,
+        nameOffsets,
+        kindCounts,
+        kindOffsets,
+        tempIndices,
+        resultIndices)
+    checksum := orderedCount
+
+    i := 0
+    while i < orderedCount {
+        index := resultIndices[i]
+        checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + kindRanks[index] * 17 + nameRanks[index] * 13
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func DocQueryCompareOrdinalIgnoreCase(left: string, right: string): int {
     length := DocQueryMinInt(left.Length, right.Length)
     i := 0

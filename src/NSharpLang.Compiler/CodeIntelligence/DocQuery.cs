@@ -493,6 +493,11 @@ public class DocQuery
                 GetEventSummary(evt), null));
         }
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryOrderDocMembers(results, out var dogfoodMembers))
+        {
+            return dogfoodMembers;
+        }
+
         return results
             .OrderBy(r => r.Kind)
             .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
