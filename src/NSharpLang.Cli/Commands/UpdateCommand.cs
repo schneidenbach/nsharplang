@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler;
@@ -24,18 +25,18 @@ public static class UpdateCommand
         try
         {
             var config = ProjectFileParser.Parse(projectYml);
-            var nugetDeps = config.Dependencies.Where(d => d.Nuget != null).ToList();
+            var allNuGetDeps = FilterNuGetDependenciesWithCSharp(config.Dependencies, targetPackage: null);
 
-            if (nugetDeps.Count == 0)
+            if (allNuGetDeps.Count == 0)
             {
                 Console.WriteLine("No NuGet dependencies to update.");
                 return 0;
             }
 
+            var nugetDeps = allNuGetDeps;
             if (targetPackage != null)
             {
-                nugetDeps = nugetDeps.Where(d =>
-                    string.Equals(d.Nuget, targetPackage, StringComparison.OrdinalIgnoreCase)).ToList();
+                nugetDeps = FilterNuGetDependencies(allNuGetDeps, targetPackage);
                 if (nugetDeps.Count == 0)
                     return Error($"Package '{targetPackage}' not found in dependencies.");
             }
@@ -154,6 +155,35 @@ Exit codes:
 
     private static string? GetTargetPackageWithCSharp(string[] args)
         => args.FirstOrDefault(arg => !arg.StartsWith("-"));
+
+    internal static List<Reference> FilterNuGetDependencies(
+        IReadOnlyList<Reference> dependencies,
+        string? targetPackage)
+    {
+        if (targetPackage == null)
+            return FilterNuGetDependenciesWithCSharp(dependencies, targetPackage);
+
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterUpdateTargetNuGetDependencies(
+            dependencies,
+            targetPackage,
+            out var filteredDependencies)
+            ? filteredDependencies
+            : FilterNuGetDependenciesWithCSharp(dependencies, targetPackage);
+    }
+
+    private static List<Reference> FilterNuGetDependenciesWithCSharp(
+        IEnumerable<Reference> dependencies,
+        string? targetPackage)
+    {
+        var nugetDeps = dependencies.Where(d => d.Nuget != null).ToList();
+        if (targetPackage != null)
+        {
+            nugetDeps = nugetDeps.Where(d =>
+                string.Equals(d.Nuget, targetPackage, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+
+        return nugetDeps;
+    }
 
     static int Error(string message)
     {

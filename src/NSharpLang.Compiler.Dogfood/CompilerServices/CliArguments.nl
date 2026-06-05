@@ -736,6 +736,262 @@ func CliCleanArtifactDirectoryChecksumInto(
     return checksum
 }
 
+func CliUpdateTargetNuGetDependencyIndicesInto(
+    nameRanks: int[],
+    targetNameRank: int,
+    resultIndices: int[]): int {
+    if targetNameRank <= 0 {
+        return 0
+    }
+
+    length := nameRanks.Length
+    resultCount := 0
+    i := 0
+    if resultIndices.Length >= length {
+        unrolledLimit := length - 8
+        while i <= unrolledLimit {
+            if nameRanks[i] == targetNameRank {
+                resultIndices[resultCount] = i
+                resultCount = resultCount + 1
+            }
+
+            next := i + 1
+            if nameRanks[next] == targetNameRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 2
+            if nameRanks[next] == targetNameRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 3
+            if nameRanks[next] == targetNameRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 4
+            if nameRanks[next] == targetNameRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 5
+            if nameRanks[next] == targetNameRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 6
+            if nameRanks[next] == targetNameRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 7
+            if nameRanks[next] == targetNameRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            i = i + 8
+        }
+
+        while i < length {
+            if nameRanks[i] == targetNameRank {
+                resultIndices[resultCount] = i
+                resultCount = resultCount + 1
+            }
+
+            i = i + 1
+        }
+
+        return resultCount
+    }
+
+    while i < length {
+        if nameRanks[i] == targetNameRank {
+            if resultCount < resultIndices.Length {
+                resultIndices[resultCount] = i
+            }
+
+            resultCount = resultCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return resultCount
+}
+
+func CliUpdateTargetNuGetDependencyChecksumInto(
+    nameRanks: int[],
+    targetNameRank: int,
+    resultIndices: int[]): int {
+    if targetNameRank <= 0 {
+        return 0
+    }
+
+    length := nameRanks.Length
+    if resultIndices.Length < length {
+        matchCount := CliUpdateTargetNuGetDependencyIndicesInto(nameRanks, targetNameRank, resultIndices)
+        if matchCount < 0 {
+            return matchCount
+        }
+
+        checksum := matchCount
+        i := 0
+        while i < matchCount && i < resultIndices.Length {
+            sourceIndex := resultIndices[i]
+            nameRank := 0
+            if sourceIndex >= 0 && sourceIndex < length {
+                nameRank = nameRanks[sourceIndex]
+            }
+
+            checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + 17 + nameRank * 13
+            i = i + 1
+        }
+
+        return checksum
+    }
+
+    matchCount := 0
+    checksum := matchCount
+    i := 0
+    targetScore := 17 + targetNameRank * 13
+
+    unrolledLimit := length - 16
+    while i <= unrolledLimit {
+        if nameRanks[i] == targetNameRank {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (i + 1) * 31 + targetScore
+        }
+
+        next := i + 1
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 2
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 3
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 4
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 5
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 6
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 7
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 8
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 9
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 10
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 11
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 12
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 13
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 14
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 15
+        if nameRanks[next] == targetNameRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        i = i + 16
+    }
+
+    while i < length {
+        if nameRanks[i] == targetNameRank {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (i + 1) * 31 + targetScore
+        }
+
+        i = i + 1
+    }
+
+    return checksum + matchCount
+}
+
 func CliPositionalArgChecksumInto(
     args: string[],
     optionsWithValues: string[],

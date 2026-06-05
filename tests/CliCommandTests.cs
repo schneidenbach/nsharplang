@@ -224,6 +224,40 @@ func Main() {
         Assert.Equal(expected, actual);
     }
 
+    [Fact]
+    public void UpdateCommand_DogfoodAdapter_FiltersTargetNuGetDependencies()
+    {
+        var dependencies = new[]
+        {
+            new Reference { Nuget = "Serilog", Version = "3.1.1" },
+            new Reference { Framework = "Microsoft.AspNetCore.App" },
+            new Reference { Nuget = "Newtonsoft.Json", Version = "13.0.3" },
+            new Reference { Dll = "lib/Analyzer.dll" },
+            new Reference { Nuget = "serilog", Version = "4.0.0" },
+            new Reference { Project = "../Shared/project.yml" },
+            new Reference { Nuget = "System.Text.Json", Version = "10.0.0" }
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+
+        var allNuGet = UpdateCommand.FilterNuGetDependencies(dependencies, targetPackage: null);
+        Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
+            allNuGet.Select(reference => reference.Nuget));
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterUpdateTargetNuGetDependencies(
+            dependencies,
+            "SERILOG",
+            out var serilog));
+        Assert.Equal(new[] { "Serilog", "serilog" },
+            serilog.Select(reference => reference.Nuget));
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterUpdateTargetNuGetDependencies(
+            dependencies,
+            "Missing.Package",
+            out var missing));
+        Assert.Empty(missing);
+    }
+
     [Theory]
     [MemberData(nameof(QueryJsonContractCases))]
     public void QueryCommand_EmitsStableJsonEnvelope(string contractName, string[] args)

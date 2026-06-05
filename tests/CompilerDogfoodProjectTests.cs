@@ -882,6 +882,14 @@ func main(): int {
                     "CliCleanArtifactDirectoryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanArtifactDirectoryChecksumInto.");
+            var cliUpdateTargetNuGetDependencyIndicesInto = programType.GetMethod(
+                    "CliUpdateTargetNuGetDependencyIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateTargetNuGetDependencyIndicesInto.");
+            var cliUpdateTargetNuGetDependencyChecksumInto = programType.GetMethod(
+                    "CliUpdateTargetNuGetDependencyChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateTargetNuGetDependencyChecksumInto.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1396,6 +1404,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliCleanArtifactDirectoryOrderingLikeProduction(
                 cliCleanArtifactDirectoryIndicesInto,
                 cliCleanArtifactDirectoryChecksumInto);
+            AssertCliUpdateTargetNuGetDependencyFilteringLikeProduction(
+                cliUpdateTargetNuGetDependencyIndicesInto,
+                cliUpdateTargetNuGetDependencyChecksumInto);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
@@ -3531,6 +3542,60 @@ func main() {
                 + kindRanks[index] * 17
                 + pathRanks[index] * 13
                 + pathLengths[index] * 7;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertCliUpdateTargetNuGetDependencyFilteringLikeProduction(
+        MethodInfo cliUpdateTargetNuGetDependencyIndicesInto,
+        MethodInfo cliUpdateTargetNuGetDependencyChecksumInto)
+    {
+        var nameRanks = new[]
+        {
+            1, 0, 2, 1, 0, 3, 2, 0
+        };
+        var cases = new[]
+        {
+            (TargetNameRank: 1, Expected: new[] { 0, 3 }),
+            (TargetNameRank: 2, Expected: new[] { 2, 6 }),
+            (TargetNameRank: -1, Expected: Array.Empty<int>()),
+            (TargetNameRank: 0, Expected: Array.Empty<int>())
+        };
+
+        foreach (var (targetNameRank, expected) in cases)
+        {
+            var resultIndices = new int[nameRanks.Length];
+            var actualCount = (int)(cliUpdateTargetNuGetDependencyIndicesInto.Invoke(
+                null,
+                new object[] { nameRanks, targetNameRank, resultIndices }) ?? -1);
+
+            Assert.Equal(expected.Length, actualCount);
+            Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+            var checksumResultIndices = new int[nameRanks.Length];
+            var actualChecksum = (int)(cliUpdateTargetNuGetDependencyChecksumInto.Invoke(
+                null,
+                new object[] { nameRanks, targetNameRank, checksumResultIndices }) ?? -1);
+            var expectedChecksum = CliUpdateTargetNuGetDependencyChecksum(expected, nameRanks);
+
+            Assert.Equal(expectedChecksum, actualChecksum);
+            Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+        }
+    }
+
+    private static int CliUpdateTargetNuGetDependencyChecksum(
+        int[] orderedIndices,
+        int[] nameRanks)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97
+                + (index + 1) * 31
+                + 17
+                + nameRanks[index] * 13;
         }
 
         return checksum;

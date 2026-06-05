@@ -906,6 +906,14 @@ Current CLI dogfood benchmarks:
   the result array, then read index zero. The accepted N# candidate returns the first positional
   source index through `CliFirstPositionalArgIndex`, letting the host read only that string and skip
   the rest of the positional materialization.
+- `CliUpdateDependencyFilterBenchmarks` targets target-package narrowing in `nlc update` after the
+  command has parsed `project.yml` and decided a package name was supplied. The C# baseline mirrors
+  the fallback target filter: keep NuGet dependencies whose package name matches the target with
+  ordinal-ignore-case comparison. The accepted N# candidate runs after the host has assigned
+  case-insensitive package-name ranks, reserves rank 0 for non-NuGet dependencies, and scans only
+  the rank array through `CliUpdateTargetNuGetDependencyIndicesInto`. The all-packages `nlc update`
+  NuGet selection path remains C# because the measured no-target N# rank-filter attempt missed the
+  5x gate.
 - `CliBuildArgumentNormalizationBenchmarks` targets `nlc build` source-file operand discovery. The
   C# baseline mirrors the current build command shape: remove value-less build flags with LINQ, run
   four option-with-value stripping passes, materialize the normalized operand array, then read the
@@ -1138,6 +1146,18 @@ It ran about 19.4x faster on the representative directory corpus (2.703 us vs 52
 post-enumeration artifact de-duplication and deletion order after the host has projected compact
 path facts.
 
+`CliUpdateTargetNuGetDependencyIndicesInto` passed parity and reported zero managed allocation in
+the short BenchmarkDotNet evidence tier for `nlc update <package>` target-package narrowing. It ran
+about 7.7x faster on the representative existing-target corpus (266.107 ns vs 2.049 us, 0 B vs
+912 B) and about 7.9x faster on the large generated existing-target corpus (2.150 us vs 16.941 us,
+0 B vs 6,120 B). Missing target ranks return immediately on the N# path: the representative
+missing-target row measured 0.397 ns vs 1.945 us, and the large generated missing-target row
+measured 0.401 ns vs 15.558 us. This is acceptance-grade benchmark evidence for named-package
+`nlc update` narrowing after the host has assigned case-insensitive package-name ranks with rank 0
+reserved for non-NuGet dependencies. It is not evidence for `nlc update` without a package name; the
+general all-NuGet selection attempt measured only about 4.96x on the representative corpus and was
+left unrouted.
+
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
@@ -1283,6 +1303,11 @@ output, with the previous `Contains`-based C# path kept as the fallback.
 when the dogfood assembly is available, preserving ordinal first-source de-duplication,
 node_modules exclusion, `bin`/`obj`/`.nlc` filtering, and stable descending-length deletion order,
 with the previous LINQ selection/order path kept as the fallback after directory-existence IO.
+`nlc update <package>` target-package narrowing now routes through the compiled N# package-rank
+kernel when the dogfood assembly is available, preserving source order, duplicate package entries,
+case-insensitive package-name matching, non-NuGet exclusion, and empty results for missing package
+targets, with the previous C# filter kept as the fallback. `nlc update` without a package name keeps
+the current C# all-NuGet selection path until an N# general-selection route clears the 5x gate.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, completion item grouping, reflected method overload
@@ -1295,12 +1320,14 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, skipped-fix selection, clean artifact directory ordering, AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
+text-edit ordering, skipped-fix selection, clean artifact directory ordering, update target-package dependency filtering,
+AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
-selection, and clean artifact directory ordering;
+selection, clean artifact directory ordering, and `nlc update <package>` target dependency
+filtering;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through
 the production route;
