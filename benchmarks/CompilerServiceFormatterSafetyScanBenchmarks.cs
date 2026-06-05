@@ -36,6 +36,9 @@ public class CompilerServiceFormatterSafetyScanBenchmarks
     private Func<int[], int[], int> _nsharpErrorIndicesChecksumInto =
         (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
 
+    private Func<int[], bool> _nsharpHasError =
+        _ => throw new InvalidOperationException("Benchmark not initialized.");
+
     private int[] _severities = Array.Empty<int>();
     private int _csharpResultCount;
     private int[] _csharpResultIndices = Array.Empty<int>();
@@ -55,12 +58,24 @@ public class CompilerServiceFormatterSafetyScanBenchmarks
             NSharpCompiledMethod.Bind<Func<int[], int[], int>>(
                 DogfoodCompilerSources.FormatterSafetyScan,
                 "FormatterSafetyErrorIndicesChecksumInto");
+        _nsharpHasError =
+            NSharpCompiledMethod.Bind<Func<int[], bool>>(
+                DogfoodCompilerSources.FormatterSafetyScan,
+                "FormatterSafetyHasError");
 
         _severities = new int[errorCount];
         _csharpResultIndices = new int[errorCount];
         _nsharpResultIndices = new int[errorCount];
 
         BuildSeverities();
+
+        var expectedHasError = _severities.Any(severity => severity == 1);
+        var actualHasError = _nsharpHasError(_severities);
+        if (expectedHasError != actualHasError)
+        {
+            throw new InvalidOperationException(
+                $"N# formatter safety scan HasError mismatch for {Corpus}: expected {expectedHasError}, got {actualHasError}.");
+        }
 
         var expectedChecksum = CSharpFormatterSafetyScan_QueryBatch();
         var actualChecksum = NSharpFormatterSafetyScan_QueryBatch();
