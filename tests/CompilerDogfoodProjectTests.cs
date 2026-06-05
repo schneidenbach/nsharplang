@@ -1150,6 +1150,111 @@ class OtherZetaType {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_OrdersImportsBySystemThenNamespaceLikeProduction()
+    {
+        var imports = new List<ImportDirective>
+        {
+            new("Zenith.Core", Alias: null, Line: 1, Column: 1),
+            new("System.Linq", Alias: null, Line: 2, Column: 1),
+            new("Acme.Widgets", Alias: "Widgets", Line: 3, Column: 1),
+            new("System", Alias: null, Line: 4, Column: 1),
+            new("System.Collections.Generic", Alias: null, Line: 5, Column: 1),
+            new("Microsoft.Extensions.Logging", Alias: null, Line: 6, Column: 1),
+            new("System.Linq", Alias: null, Line: 7, Column: 1),
+            new("Acme.Widgets", Alias: null, Line: 8, Column: 1),
+            new("NSharpLang.Compiler", Alias: null, Line: 9, Column: 1),
+            new("System.Text", Alias: null, Line: 10, Column: 1),
+        };
+
+        // Exact production LINQ shape from Formatter.Format.
+        var expected = imports
+            .OrderByDescending(i => i.Namespace.StartsWith("System"))
+            .ThenBy(i => i.Namespace)
+            .ToList();
+
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryOrderImports = adapterType.GetMethod(
+                "TryOrderImportsBySystemThenNamespace",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryOrderImportsBySystemThenNamespace.");
+
+        var args = new object?[] { imports, null };
+        Assert.True((bool)(tryOrderImports.Invoke(null, args) ?? false));
+        var ordered = Assert.IsType<List<ImportDirective>>(args[1]);
+
+        // Same references, in the same order as production LINQ (stable, reference-identical).
+        Assert.Equal(expected.Count, ordered.Count);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            Assert.Same(expected[i], ordered[i]);
+        }
+    }
+
+    [Fact]
+    public void CompilerDogfoodAdapter_OrdersImportsAfterLargerListReusesScratchCorrectly()
+    {
+        // Regression: the kernel derives its working count from array length, and the
+        // adapter scratch is thread-static and reused. A larger list followed by a smaller
+        // list on the same thread must not leak stale tail slots into the smaller result.
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryOrderImports = adapterType.GetMethod(
+                "TryOrderImportsBySystemThenNamespace",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryOrderImportsBySystemThenNamespace.");
+
+        static List<ImportDirective> ExpectedOrder(List<ImportDirective> imports) => imports
+            .OrderByDescending(i => i.Namespace.StartsWith("System"))
+            .ThenBy(i => i.Namespace)
+            .ToList();
+
+        static List<ImportDirective> Invoke(MethodInfo method, List<ImportDirective> imports)
+        {
+            var args = new object?[] { imports, null };
+            Assert.True((bool)(method.Invoke(null, args) ?? false));
+            return Assert.IsType<List<ImportDirective>>(args[1]);
+        }
+
+        // First: a large list to grow the thread-static scratch buffers.
+        var large = new List<ImportDirective>();
+        for (var i = 0; i < 64; i++)
+        {
+            var ns = (i % 3 == 0 ? "System.Ns" : "Acme.Ns") + (63 - i).ToString("D3");
+            large.Add(new ImportDirective(ns, Alias: null, Line: i + 1, Column: 1));
+        }
+
+        var largeOrdered = Invoke(tryOrderImports, large);
+        Assert.Equal(ExpectedOrder(large), largeOrdered);
+
+        // Then: a smaller list on the same thread must still match production exactly.
+        var small = new List<ImportDirective>
+        {
+            new("Zeta.Core", Alias: null, Line: 1, Column: 1),
+            new("System.Linq", Alias: null, Line: 2, Column: 1),
+            new("Acme.Widgets", Alias: null, Line: 3, Column: 1),
+            new("System", Alias: null, Line: 4, Column: 1),
+        };
+
+        var smallOrdered = Invoke(tryOrderImports, small);
+        Assert.Equal(ExpectedOrder(small), smallOrdered);
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_LooksUpUniqueDeclaredTypeBySuffix()
     {
         var declaredTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -1798,6 +1903,14 @@ class OtherZetaType {
                     "TextEditOrderChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TextEditOrderChecksumInto.");
+            var formatterImportOrderIndicesInto = programType.GetMethod(
+                    "FormatterImportOrderIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit FormatterImportOrderIndicesInto.");
+            var formatterImportOrderChecksumInto = programType.GetMethod(
+                    "FormatterImportOrderChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit FormatterImportOrderChecksumInto.");
             var codeIntelligenceDocCommentChecksumInto = programType.GetMethod(
                     "CodeIntelligenceDocCommentChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2351,6 +2464,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertTextEditOrderingLikeProduction(
                 textEditOrderIndicesInto,
                 textEditOrderChecksumInto);
+            AssertFormatterImportOrderingLikeProduction(
+                formatterImportOrderIndicesInto,
+                formatterImportOrderChecksumInto);
             AssertDocCommentsLikeProduction(
                 """
 // ignored
@@ -6473,6 +6589,110 @@ func main() {
             var index = orderedIndices[i];
             checksum += (i + 1) * 97 + (index + 1) * 31;
             checksum += startPositionRanks[index] * 17 + endPositionRanks[index] * 13;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertFormatterImportOrderingLikeProduction(
+        MethodInfo formatterImportOrderIndicesInto,
+        MethodInfo formatterImportOrderChecksumInto)
+    {
+        // Mirrors Formatter.Format import ordering, including identical-namespace
+        // duplicates to exercise the stable-sort tie path.
+        var namespaces = new[]
+        {
+            "Zenith.Core",
+            "System.Linq",
+            "Acme.Widgets",
+            "System",
+            "System.Collections.Generic",
+            "Microsoft.Extensions.Logging",
+            "System.Linq",
+            "Acme.Widgets",
+            "NSharpLang.Compiler",
+            "System.Text",
+        };
+        var expected = namespaces
+            .Select((ns, index) => (ns, index))
+            .OrderByDescending(item => item.ns.StartsWith("System", StringComparison.Ordinal))
+            .ThenBy(item => item.ns, StringComparer.Ordinal)
+            .Select(item => item.index)
+            .ToArray();
+
+        var systemFlags = new int[namespaces.Length];
+        for (var i = 0; i < namespaces.Length; i++)
+        {
+            systemFlags[i] = namespaces[i].StartsWith("System", StringComparison.Ordinal) ? 1 : 0;
+        }
+
+        var nameRanks = BuildFormatterImportNameRanks(namespaces, out var nameRankCount);
+        var bucketCapacity = nameRankCount + 1;
+
+        var resultIndices = new int[namespaces.Length];
+        var actualCount = (int)(formatterImportOrderIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                systemFlags,
+                nameRanks,
+                nameRankCount,
+                new int[bucketCapacity],
+                new int[bucketCapacity],
+                new int[namespaces.Length],
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[namespaces.Length];
+        var actualChecksum = (int)(formatterImportOrderChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                systemFlags,
+                nameRanks,
+                nameRankCount,
+                new int[bucketCapacity],
+                new int[bucketCapacity],
+                new int[namespaces.Length],
+                checksumResultIndices
+            }) ?? -1);
+        var expectedChecksum = FormatterImportOrderChecksum(expected, systemFlags, nameRanks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static int[] BuildFormatterImportNameRanks(string[] namespaces, out int rankCount)
+    {
+        var rankMap = namespaces
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .Select((value, index) => (value, rank: index + 1))
+            .ToDictionary(item => item.value, item => item.rank, StringComparer.Ordinal);
+        var ranks = new int[namespaces.Length];
+        for (var i = 0; i < namespaces.Length; i++)
+        {
+            ranks[i] = rankMap[namespaces[i]];
+        }
+
+        rankCount = rankMap.Count;
+        return ranks;
+    }
+
+    private static int FormatterImportOrderChecksum(
+        int[] orderedIndices,
+        int[] systemFlags,
+        int[] nameRanks)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31;
+            checksum += systemFlags[index] * 17 + nameRanks[index] * 13;
         }
 
         return checksum;

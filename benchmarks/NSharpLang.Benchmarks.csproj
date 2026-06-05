@@ -51,6 +51,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/TextEditOrdering.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.TextEditOrdering.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/FormatterImportOrdering.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.FormatterImportOrdering.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/BindingLookup.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.BindingLookup.nl" />
     <EmbeddedResource
