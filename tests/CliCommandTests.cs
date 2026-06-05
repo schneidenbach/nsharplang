@@ -1226,6 +1226,15 @@ dependencies:
         Assert.Equal(2, summary.PossiblyUnusedCount);
         Assert.Equal(1, summary.UnknownCount);
 
+        Assert.True(NSharpCliDogfoodAdapter.TrySummarizeTestOutcomeRanks(
+            new[] { 1, 1, 3, 2, 0, 1 },
+            6,
+            out var testSummary));
+        Assert.False(testSummary.Ok);
+        Assert.Equal(3, testSummary.Passed);
+        Assert.Equal(1, testSummary.Failed);
+        Assert.Equal(1, testSummary.Skipped);
+
         var references = new[]
         {
             new Reference { Nuget = "Newtonsoft.Json", Version = "13.0.3" },

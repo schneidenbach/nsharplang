@@ -2764,6 +2764,169 @@ func CliTidyDependencyStatusSummaryChecksumInto(statusRanks: int[], resultCounts
     return count + okValue + resultCounts[0] * 31 + resultCounts[1] * 17
 }
 
+func CliTestOutcomeSummaryInto(outcomeRanks: int[], count: int, resultCounts: int[]): int {
+    if resultCounts.Length < 4 {
+        return -1
+    }
+
+    if count > outcomeRanks.Length {
+        count = outcomeRanks.Length
+    }
+
+    if count < 0 {
+        count = 0
+    }
+
+    passed := 0
+    failed := 0
+    skipped := 0
+    nonOk := 0
+    i := 0
+    unrolledLimit := count - 8
+    while i <= unrolledLimit {
+        rank := outcomeRanks[i]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        next := i + 1
+        rank = outcomeRanks[next]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        next = i + 2
+        rank = outcomeRanks[next]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        next = i + 3
+        rank = outcomeRanks[next]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        next = i + 4
+        rank = outcomeRanks[next]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        next = i + 5
+        rank = outcomeRanks[next]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        next = i + 6
+        rank = outcomeRanks[next]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        next = i + 7
+        rank = outcomeRanks[next]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        i = i + 8
+    }
+
+    while i < count {
+        rank := outcomeRanks[i]
+        if rank == 1 {
+            passed = passed + 1
+        } else if rank == 2 {
+            failed = failed + 1
+            nonOk = nonOk + 1
+        } else if rank == 3 {
+            skipped = skipped + 1
+        } else {
+            nonOk = nonOk + 1
+        }
+
+        i = i + 1
+    }
+
+    resultCounts[0] = passed
+    resultCounts[1] = failed
+    resultCounts[2] = skipped
+    resultCounts[3] = nonOk
+    return count
+}
+
+func CliTestOutcomeSummaryChecksumInto(outcomeRanks: int[], count: int, resultCounts: int[]): int {
+    count = CliTestOutcomeSummaryInto(outcomeRanks, count, resultCounts)
+    if count < 0 {
+        return count
+    }
+
+    okValue := 7
+    if resultCounts[3] != 0 {
+        okValue = 13
+    }
+
+    return count + okValue + resultCounts[0] * 31 + resultCounts[1] * 17 + resultCounts[2] * 11 + resultCounts[3] * 5
+}
+
 func CliArgumentIsOptionWithValue(arg: string, optionsWithValues: string[]): bool {
     i := 0
     while i < optionsWithValues.Length {

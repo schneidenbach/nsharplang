@@ -64,6 +64,7 @@ dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequi
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAnonymousUnionShim*'
 dotnet run -c Release --project benchmarks -- --filter '*CliQueryBatchResultCount*'
+dotnet run -c Release --project benchmarks -- --filter '*CliTestOutcomeSummary*'
 dotnet run -c Release --project benchmarks -- --filter '*CliTidy*'
 dotnet run -c Release --project benchmarks -- --filter '*CliDocSlug*'
 ```
@@ -1017,6 +1018,13 @@ Current CLI dogfood benchmarks:
   successful-item flags are already stored in compact `ulong` words and counts set bits through
   `CliBatchResultPackedSuccessCount`; the production-shaped projected row measures the current C#
   object-to-bitset adapter cost separately and is not routed.
+- `CliTestOutcomeSummaryBenchmarks` targets `nlc test` text/JSON summary counting after the native
+  test runner has produced public result objects. The C# baseline mirrors the current text-output
+  shape: one `All(...)` pass for `ok`, then three `Count(...)` passes for passed/failed/skipped.
+  The accepted N# route runs after the xUnit/reflection runners retain compact outcome ranks as
+  results are created, then computes `ok`, passed, failed, and skipped in one pass through
+  `CliTestOutcomeSummaryInto`. The benchmark also keeps a projected string-to-rank row to prove
+  late projection is not the accepted production shape.
 - `CliDiagnosticSeverityFilterBenchmarks` targets diagnostic severity filtering in
   `nlc query diagnostics`, batch diagnostics, and daemon diagnostics. The C# baseline mirrors the
   current CLI LINQ shape: case-insensitive severity comparison and list materialization. The N#
@@ -1225,6 +1233,20 @@ failed the gate immediately because packing current C# `BatchQueryItemResult` ob
 bitset cost 1.452 us on the representative mixed corpus versus 300 ns for the existing C# count.
 `BatchQueryRunner` therefore keeps the existing C# count until batch execution/result storage moves
 to a compact N# representation that can maintain the packed ok flags directly.
+
+`CliTestOutcomeSummaryInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc test` summary calculation after the runner has retained
+compact outcome ranks. It ran about 15.7x faster on the representative all-passed corpus
+(276.6 ns vs 4.333 us), about 17.7x faster on representative mostly-passed results
+(282.6 ns vs 5.012 us), and about 16.5x faster on representative mixed/unknown outcomes
+(301.6 ns vs 4.964 us). On the large generated corpus it ran about 14.0x faster for all-passed
+results (2.174 us vs 30.539 us), about 16.5x faster for mostly-passed results
+(2.252 us vs 37.141 us), and about 16.4x faster for mixed/unknown outcomes
+(2.730 us vs 44.659 us). The same benchmark shows why late projection is not routed:
+string-to-rank projection rows only reached about 4.1x-5.2x and missed the 5x gate on
+all-passed and mixed/unknown corpora. The production xUnit/reflection runners therefore keep the
+public result objects for JSON output but also retain compact ranks as each result is created, then
+route text and JSON summary counts through the N# kernel.
 
 `CliFixEditFlattenIndicesInto` was reintroduced as a benchmark-only pressure kernel and remains
 unrouted. The revised caller-owned shape projects each safe `nlc fix` action's edit count, writes
@@ -1749,6 +1771,11 @@ targets, with the previous C# filter kept as the fallback.
 `nlc tidy` status summary calculation now routes through the compiled N# tidy summary kernel when
 the dogfood assembly is available, preserving exact status matching for JSON `ok` and text summary
 counts, with equivalent C# status-count scans kept as the fallback.
+`nlc test` native xUnit/reflection runs now retain compact outcome ranks as public result objects
+are created, then route text and JSON summary calculation through the compiled N#
+`CliTestOutcomeSummaryInto` kernel when the dogfood assembly is available, preserving `ok` as
+passed-or-skipped-only and preserving public passed/failed/skipped counts, with the previous C#
+string-count summary kept as the fallback.
 `nlc tidy` dependency usage classification now routes through the compiled N#
 `CliTidyDependencyStatusRanksInto` kernel for ASCII package and import names, preserving the current
 single-segment unknown rule, first-segment namespace match semantics, public status strings, and
@@ -1781,6 +1808,7 @@ compiler stub namespace import ordering, inspect-summary reference-file summarie
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
+CLI test outcome summaries,
 and the pressure-only
 path-matching, all-positionals CLI argument, and batch result packed-count kernels through the
 compiled N# methods; `CliCommandTests` verifies both
@@ -1790,7 +1818,7 @@ selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` depe
 selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
 CLI reference-type filtering,
 `nlc restore` project-reference de-duplication, `nlc update` dependency filtering, `nlc tidy`
-status summaries, `nlc tidy --fix` possibly-unused dependency selection, and `nlc tidy --fix`
+status summaries, `nlc test` outcome summaries, `nlc tidy --fix` possibly-unused dependency selection, and `nlc tidy --fix`
 project.yml dependency-line removal;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through
@@ -1952,6 +1980,9 @@ The batch result packed-count probe shows the same representation boundary:
 object-to-bitset projection overwhelms the win. A manual N# popcount using large unsigned mask
 constants also exposed an IL-emission overflow, so a production-quality systems rewrite needs
 reliable unsigned literal lowering and intrinsic-friendly bit operations.
+The `nlc test` outcome summary slice is the positive version of the same lesson: late projection of
+public outcome strings misses the gate, but retaining compact ranks while result objects are created
+lets the N# summary kernel clear 5x comfortably.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
 needs N# implementations for broader semantic lookup, completion construction, output shaping, and
 CLI command orchestration.

@@ -1704,6 +1704,10 @@ class OtherZetaType {
                     "CliBatchResultPackedCountChecksum",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchResultPackedCountChecksum.");
+            var cliTestOutcomeSummaryChecksumInto = programType.GetMethod(
+                    "CliTestOutcomeSummaryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestOutcomeSummaryChecksumInto.");
             var cliTreeDependencyDeduplicateIndicesInto = programType.GetMethod(
                     "CliTreeDependencyDeduplicateIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2247,6 +2251,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliBatchDuplicateIdRanksInto,
                 cliBatchDuplicateIdRankChecksumInto);
             AssertCliBatchResultCountsLikeProduction(cliBatchResultPackedCountChecksum);
+            AssertCliTestOutcomeSummaryLikeProduction(cliTestOutcomeSummaryChecksumInto);
             AssertCliTreeDependencyDeduplicationLikeProduction(
                 cliTreeDependencyDeduplicateIndicesInto,
                 cliTreeDependencyDeduplicateChecksumInto);
@@ -6167,6 +6172,35 @@ func main() {
         }
 
         return words;
+    }
+
+    private static void AssertCliTestOutcomeSummaryLikeProduction(MethodInfo cliTestOutcomeSummaryChecksumInto)
+    {
+        var cases = new[]
+        {
+            new[] { 1, 1, 1, 1 },
+            new[] { 1, 3, 1, 2, 1, 3 },
+            new[] { 1, 0, 2, 3, 1 },
+            Array.Empty<int>()
+        };
+
+        foreach (var outcomeRanks in cases)
+        {
+            var passed = outcomeRanks.Count(rank => rank == 1);
+            var failed = outcomeRanks.Count(rank => rank == 2);
+            var skipped = outcomeRanks.Count(rank => rank == 3);
+            var nonOk = outcomeRanks.Count(rank => rank is not 1 and not 3);
+            var okValue = nonOk == 0 ? 7 : 13;
+            var expectedChecksum =
+                outcomeRanks.Length + okValue + passed * 31 + failed * 17 + skipped * 11 + nonOk * 5;
+            var counts = new int[4];
+            var actualChecksum = (int)(cliTestOutcomeSummaryChecksumInto.Invoke(
+                null,
+                new object[] { outcomeRanks, outcomeRanks.Length, counts }) ?? -1);
+
+            Assert.Equal(expectedChecksum, actualChecksum);
+            Assert.Equal(new[] { passed, failed, skipped, nonOk }, counts);
+        }
     }
 
     private static void AssertDocCommentsLikeProduction(

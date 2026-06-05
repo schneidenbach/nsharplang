@@ -44,6 +44,8 @@ internal static class NSharpCliDogfoodAdapter
     private static TidyDependencyStatusFilterScratch? t_tidyDependencyStatusFilterScratch;
     [ThreadStatic]
     private static TidyRemovalLineScratch? t_tidyRemovalLineScratch;
+    [ThreadStatic]
+    private static TestOutcomeSummaryScratch? t_testOutcomeSummaryScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -1261,6 +1263,63 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TrySummarizeTestOutcomeRanks(
+        int[] outcomeRanks,
+        int outcomeCount,
+        out (bool Ok, int Passed, int Failed, int Skipped) summary)
+    {
+        summary = (true, 0, 0, 0);
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (outcomeCount < 0 || outcomeCount > outcomeRanks.Length)
+            return false;
+
+        if (outcomeCount == 0)
+            return true;
+
+        var scratch = t_testOutcomeSummaryScratch ??= new TestOutcomeSummaryScratch();
+        scratch.EnsureCapacity();
+
+        try
+        {
+            var summarizedCount = bindings.CliTestOutcomeSummary(
+                outcomeRanks,
+                outcomeCount,
+                scratch.SummaryCounts);
+
+            var passed = scratch.SummaryCounts[0];
+            var failed = scratch.SummaryCounts[1];
+            var skipped = scratch.SummaryCounts[2];
+            var nonOk = scratch.SummaryCounts[3];
+            if (summarizedCount != outcomeCount ||
+                passed < 0 ||
+                failed < 0 ||
+                skipped < 0 ||
+                nonOk < 0 ||
+                passed > outcomeCount ||
+                failed > outcomeCount ||
+                skipped > outcomeCount ||
+                nonOk > outcomeCount ||
+                passed + failed + skipped > outcomeCount ||
+                nonOk < failed)
+            {
+                summary = (true, 0, 0, 0);
+                return false;
+            }
+
+            summary = (nonOk == 0, passed, failed, skipped);
+            return true;
+        }
+        catch
+        {
+            summary = (true, 0, 0, 0);
+            return false;
+        }
+    }
+
     internal static bool TryClassifyTidyDependencyStatusRanks(
         IReadOnlyList<Reference> dependencies,
         IReadOnlyCollection<string> importedNamespaces,
@@ -1522,6 +1581,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliTidyDependencyStatusSummaryInto>(programType, "CliTidyDependencyStatusSummaryInto"),
+                CreateDelegate<CliTestOutcomeSummaryInto>(programType, "CliTestOutcomeSummaryInto"),
                 CreateDelegate<CliTidyDependencyStatusRanksInto>(programType, "CliTidyDependencyStatusRanksInto"),
                 CreateDelegate<CliTidyRemovalLineKeepFlagsInto>(programType, "CliTidyRemovalLineKeepFlagsInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
@@ -1692,6 +1752,11 @@ internal static class NSharpCliDogfoodAdapter
         int[] statusRanks,
         int[] resultCounts);
 
+    private delegate int CliTestOutcomeSummaryInto(
+        int[] outcomeRanks,
+        int count,
+        int[] resultCounts);
+
     private delegate int CliTidyDependencyStatusRanksInto(
         string[] packageNames,
         string[] importNamespaces,
@@ -1722,6 +1787,7 @@ internal static class NSharpCliDogfoodAdapter
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliTidyDependencyStatusSummaryInto CliTidyDependencyStatusSummary,
+        CliTestOutcomeSummaryInto CliTestOutcomeSummary,
         CliTidyDependencyStatusRanksInto CliTidyDependencyStatusRanks,
         CliTidyRemovalLineKeepFlagsInto CliTidyRemovalLineKeepFlags,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
@@ -2392,6 +2458,19 @@ internal static class NSharpCliDogfoodAdapter
 
             if (packageCount > 0 && packageCount <= PackageNames.Length)
                 Array.Clear(PackageNames, 0, packageCount);
+        }
+    }
+
+    private sealed class TestOutcomeSummaryScratch
+    {
+        public int[] SummaryCounts = Array.Empty<int>();
+
+        public void EnsureCapacity()
+        {
+            if (SummaryCounts.Length != 4)
+            {
+                SummaryCounts = new int[4];
+            }
         }
     }
 }
