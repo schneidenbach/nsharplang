@@ -1948,6 +1948,10 @@ class OtherZetaType {
                     "TypeCreationOrderChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TypeCreationOrderChecksumInto.");
+            var analyzerUnionMissingCaseChecksumInto = programType.GetMethod(
+                    "AnalyzerUnionMissingCaseChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit AnalyzerUnionMissingCaseChecksumInto.");
 
             const string source = """"
 import System
@@ -2347,6 +2351,7 @@ func main() {
                 semanticScopeBuildDepthChecksumInto,
                 semanticScopeLookupSymbolIndicesInto,
                 semanticScopeLookupSymbolChecksumInto);
+            AssertAnalyzerUnionMissingCasesLikeProduction(analyzerUnionMissingCaseChecksumInto);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2458,6 +2463,91 @@ func main() {
         for (var i = 0; i < orderedIndices.Length; i++)
         {
             checksum += (i + 1) * 97 + tokenKinds[orderedIndices[i]] * 17;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertAnalyzerUnionMissingCasesLikeProduction(MethodInfo analyzerUnionMissingCaseChecksumInto)
+    {
+        var coveredFlags = new[] { 0, 1, 0, 1, 0, 0 };
+        var partialFlags = new[] { 0, 0, 1, 0, 1, 0 };
+        var nameWeights = new[] { 7, 11, 13, 17, 19, 23 };
+        var missingIndices = new int[coveredFlags.Length];
+        var partialMissingIndices = new int[coveredFlags.Length];
+        var neverCoveredIndices = new int[coveredFlags.Length];
+        var resultCounts = new int[3];
+
+        var checksum = (int)(analyzerUnionMissingCaseChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                coveredFlags,
+                partialFlags,
+                coveredFlags.Length,
+                nameWeights,
+                missingIndices,
+                partialMissingIndices,
+                neverCoveredIndices,
+                resultCounts
+            }) ?? -1);
+
+        var expectedMissingIndices = new[] { 0, 2, 4, 5 };
+        var expectedPartialMissingIndices = new[] { 2, 4 };
+        var expectedNeverCoveredIndices = new[] { 0, 5 };
+
+        Assert.Equal(new[] { 4, 2, 2 }, resultCounts);
+        Assert.Equal(expectedMissingIndices, missingIndices.Take(resultCounts[0]).ToArray());
+        Assert.Equal(expectedPartialMissingIndices, partialMissingIndices.Take(resultCounts[1]).ToArray());
+        Assert.Equal(expectedNeverCoveredIndices, neverCoveredIndices.Take(resultCounts[2]).ToArray());
+        Assert.Equal(
+            AnalyzerUnionMissingCaseChecksum(
+                expectedMissingIndices,
+                expectedPartialMissingIndices,
+                expectedNeverCoveredIndices,
+                nameWeights),
+            checksum);
+
+        var invalidChecksum = (int)(analyzerUnionMissingCaseChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                coveredFlags,
+                partialFlags,
+                coveredFlags.Length + 1,
+                nameWeights,
+                new int[coveredFlags.Length],
+                new int[coveredFlags.Length],
+                new int[coveredFlags.Length],
+                new int[3]
+            }) ?? 0);
+        Assert.Equal(-1, invalidChecksum);
+    }
+
+    private static int AnalyzerUnionMissingCaseChecksum(
+        int[] missingIndices,
+        int[] partialMissingIndices,
+        int[] neverCoveredIndices,
+        int[] nameWeights)
+    {
+        var checksum = missingIndices.Length * 31 + partialMissingIndices.Length * 17 + neverCoveredIndices.Length * 13;
+        for (var i = 0; i < missingIndices.Length; i++)
+        {
+            var sourceIndex = missingIndices[i];
+            var weight = sourceIndex >= 0 && sourceIndex < nameWeights.Length ? nameWeights[sourceIndex] : 0;
+            checksum += (i + 1) * 97 + (sourceIndex + 1) * 31 + weight * 17;
+        }
+
+        for (var i = 0; i < partialMissingIndices.Length; i++)
+        {
+            var sourceIndex = partialMissingIndices[i];
+            checksum += (i + 1) * 43 + (sourceIndex + 1) * 19;
+        }
+
+        for (var i = 0; i < neverCoveredIndices.Length; i++)
+        {
+            var sourceIndex = neverCoveredIndices[i];
+            checksum += (i + 1) * 37 + (sourceIndex + 1) * 23;
         }
 
         return checksum;

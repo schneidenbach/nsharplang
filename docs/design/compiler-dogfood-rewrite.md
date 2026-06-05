@@ -60,6 +60,7 @@ dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligence*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceSemanticScope*'
 dotnet run -c Release --project benchmarks -- --filter '*AnalyzerEnumExhaustiveness*'
+dotnet run -c Release --project benchmarks -- --filter '*AnalyzerUnionExhaustiveness*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequirementGrouping*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAnonymousUnionShim*'
@@ -554,6 +555,14 @@ Current compiler-performance dogfood benchmarks:
   materialize missing names. The accepted N# candidate runs after the analyzer has projected
   declaration-order covered-member flags, then writes missing source indices through
   `AnalyzerMissingMemberIndicesInto`; final public diagnostic string materialization remains in C#.
+- `CompilerServiceAnalyzerUnionExhaustivenessBenchmarks` targets analyzer union-match
+  exhaustiveness finalization. The C# baseline mirrors the existing `CheckMatchExhaustiveness`
+  tail: build the all-case set, run `Except` against covered cases, then partition missing cases
+  into partially-covered and never-covered lists. The compact N# candidate runs after the analyzer
+  has declaration-order covered/partial flags and writes missing, partial-missing, and
+  never-covered source indices through `AnalyzerUnionMissingCaseIndicesInto`. The benchmark also
+  keeps a projected C# set-to-flag row as rejection evidence; do not route production through that
+  late adapter shape.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
@@ -599,7 +608,8 @@ analyzer declaration-column parity checks invalid lines, CRLF-trimmed source lin
 identifiers, whole-identifier boundary skips such as `prefixvalue` vs `value`, retry-from-line-start
 behavior, and missing-name fallback columns. The
 enum exhaustiveness parity checks missing-member declaration order and the all-covered fast path
-through the compiler dogfood adapter. The
+through the compiler dogfood adapter. Union exhaustiveness parity checks the compact N# missing,
+partial-missing, and never-covered source-index streams directly against the dogfood assembly. The
 diagnostic cluster trait parity checks known-code classification, unknown-message fallback,
 source-construct inference, and the compatibility message-pattern wrapper. Diagnostic cluster id
 parity checks stable public ids against the production key/hash/hex algorithm without routing
@@ -998,6 +1008,21 @@ one-missing-near-end (2.251 us vs 543.218 us), and about 133x faster for all-cov
 (2.051 us vs 273.501 us). This is acceptance-grade benchmark evidence for replacing the analyzer's
 C# `ToHashSet().Except().ToList()` missing-member selection after the host has projected covered
 enum members into declaration-order flags.
+
+`AnalyzerUnionMissingCaseIndicesInto` passed parity and reported zero managed allocation in the
+short BenchmarkDotNet evidence tier for union-match missing-case partitioning. With compact
+declaration-order covered/partial flags already available, it ran about 409x faster on the
+representative missing-every-fourth corpus (699.0 ns vs 285.938 us), about 91x faster on the
+representative one-partial/one-never corpus (271.7 ns vs 24.852 us), and about 74x faster on the
+representative all-covered corpus (267.8 ns vs 19.782 us). On the large generated corpus it ran
+about 2,989x faster for missing-every-fourth (5.532 us vs 16.533 ms), about 146x faster for
+one-partial/one-never (2.048 us vs 300.136 us), and about 121x faster for all-covered
+(2.043 us vs 247.849 us). This is acceptance-grade evidence for the compact systems-language
+primitive, but not yet for the current production analyzer route: the late projected adapter row
+missed the gate on sparse representative shapes (10.399 us vs 24.852 us and 7.385 us vs 19.782 us)
+and sparse large shapes (113.378 us vs 300.136 us and 72.299 us vs 247.849 us). The production
+route should only move once union coverage collection retains compact flags instead of rebuilding
+them from C# sets.
 
 Current CLI dogfood benchmarks:
 
@@ -2025,6 +2050,12 @@ produce a production-shaped win:
   corpus (`7.829 us` N# vs `9.937 us` C#) and about 1.23x on the large corpus (`67.073 us` N# vs
   `82.426 us` C#). Keep `nlc test --timeout` on the C# parser until N# has a faster tiny-string
   parse path or the surrounding test-command option parsing moves into one N# batch.
+- Union exhaustiveness through a late C# set-to-flag adapter: the compact N# kernel cleared the
+  gate, but projecting `HashSet<string>` coverage into flags at the tail of `CheckMatchExhaustiveness`
+  missed the 5x bar on sparse/all-covered rows (`10.399 us` N# vs `24.852 us` C#,
+  `7.385 us` N# vs `19.782 us` C#, `113.378 us` N# vs `300.136 us` C#, and `72.299 us` N# vs
+  `247.849 us` C#). Do not route union-match diagnostics through a one-off compiler adapter; move
+  only after the analyzer builds and retains compact coverage flags directly.
 - CLI implicit test-package membership: a compact package-rank membership kernel made missing
   package checks dramatically faster (`2.848 ns` N# vs `743.150 ns` C# representative and
   `2.807 ns` N# vs `6.844 us` C# large), but existing-package rows only reached about 1.8x
