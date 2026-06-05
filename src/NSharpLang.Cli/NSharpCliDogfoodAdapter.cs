@@ -380,9 +380,10 @@ internal static class NSharpCliDogfoodAdapter
         if (limit <= 0 || symbols.Count == 0)
             return true;
 
-        if (!pattern.Contains('*') || !IsAscii(pattern))
+        if (!IsAscii(pattern))
             return false;
 
+        var useGlob = pattern.Contains('*');
         var symbolCount = symbols.Count;
         var resultCapacity = Math.Min(symbolCount, limit);
         var scratch = t_symbolNameFilterScratch ??= new SymbolNameFilterScratch();
@@ -402,11 +403,17 @@ internal static class NSharpCliDogfoodAdapter
                 scratch.Names[i] = name;
             }
 
-            var filteredCount = bindings.CliSymbolNameGlobFilterIndices(
-                scratch.Names,
-                pattern,
-                resultCapacity,
-                scratch.ResultIndices);
+            var filteredCount = useGlob
+                ? bindings.CliSymbolNameGlobFilterIndices(
+                    scratch.Names,
+                    pattern,
+                    resultCapacity,
+                    scratch.ResultIndices)
+                : bindings.CliSymbolNameSubstringFilterIndices(
+                    scratch.Names,
+                    pattern,
+                    resultCapacity,
+                    scratch.ResultIndices);
 
             if (filteredCount < 0 || filteredCount > resultCapacity || filteredCount > scratch.ResultIndices.Length)
             {
@@ -1607,6 +1614,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
                 CreateDelegate<CliDocSlugsInto>(programType, "CliDocSlugsInto"),
                 CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
+                CreateDelegate<CliSymbolNameSubstringFilterIndicesInto>(programType, "CliSymbolNameSubstringFilterIndicesInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"),
@@ -1704,6 +1712,12 @@ internal static class NSharpCliDogfoodAdapter
     private delegate int CliDocSlugsInto(string[] rawSlugs, string[] resultSlugs);
 
     private delegate int CliSymbolNameGlobFilterIndicesInto(
+        string[] names,
+        string pattern,
+        int limit,
+        int[] resultIndices);
+
+    private delegate int CliSymbolNameSubstringFilterIndicesInto(
         string[] names,
         string pattern,
         int limit,
@@ -1818,6 +1832,7 @@ internal static class NSharpCliDogfoodAdapter
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
         CliDocSlugsInto CliDocSlugs,
         CliSymbolNameGlobFilterIndicesInto CliSymbolNameGlobFilterIndices,
+        CliSymbolNameSubstringFilterIndicesInto CliSymbolNameSubstringFilterIndices,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         CliFixSafetyFilterIndicesInto CliFixSafetyFilter,

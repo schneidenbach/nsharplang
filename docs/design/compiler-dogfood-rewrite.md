@@ -1124,12 +1124,13 @@ Current CLI dogfood benchmarks:
   shape: enum comparison, list materialization, and stable source-order results. The N# candidate
   runs after the host has projected symbol kinds into compact integer ids, scans an unrolled kind-id
   array, and writes matching symbol indices through `SymbolKindFilterIndicesInto`.
-- `CliSymbolNameFilterBenchmarks` targets wildcard name filtering in `nlc query symbols --filter`.
-  The C# baseline mirrors the current CLI regex path for `*` patterns: build a case-insensitive
-  regex, filter symbol names, stop at 200 matches, and materialize the result. The accepted N#
-  candidate handles ASCII glob patterns in systems code, specializes prefix/suffix globs, and
-  writes matching symbol indices through `CliSymbolNameGlobFilterIndicesInto`; bare substring
-  filters stay on the C# regex fallback until that path clears the 5x gate.
+- `CliSymbolNameFilterBenchmarks` targets name filtering in `nlc query symbols --filter`. The C#
+  baseline mirrors the current CLI regex path: build a case-insensitive regex, filter symbol names,
+  stop at 200 matches, and materialize the result. The accepted N# candidate handles ASCII glob
+  patterns in systems code, specializes prefix/suffix globs, routes ASCII bare substring patterns
+  through a compiled N# index filter with `StringComparison.OrdinalIgnoreCase`, and writes matching
+  symbol indices through `CliSymbolNameGlobFilterIndicesInto` or
+  `CliSymbolNameSubstringFilterIndicesInto`.
 - `CompilerServiceDocQueryBestTypeBenchmarks` targets candidate selection in `nlc query doc` type
   lookup. The C# baseline mirrors the current post-scoring LINQ selection shape: order by descending
   match score, then namespace length, then full name with ordinal-ignore-case comparison, and take
@@ -1459,16 +1460,18 @@ corpus (2.337 us vs 14.567 us, 0 B vs 8,936 B). This is acceptance-grade benchma
 `nlc query symbols --kind`, batch symbol queries, and daemon symbol queries after the host has
 projected symbol kinds into compact integer ids.
 
-`CliSymbolNameGlobFilterIndicesInto` passed parity in the short BenchmarkDotNet evidence tier for
-`nlc query symbols --filter` wildcard name filters. The accepted N# path handles ASCII glob matching
-with caller-owned result-index buffers and prefix/suffix specializations, preserving source order
-and the 200-result cap while leaving bare substring filters on the C# fallback. It ran about 15.0x
-faster on the representative prefix-glob corpus (3.972 us vs 59.672 us), about 74.4x faster on the
-representative suffix-glob corpus (4.764 us vs 354.534 us), about 14.9x faster on the large
-generated prefix-glob corpus (7.948 us vs 118.153 us), and about 71.9x faster on the large
-generated suffix-glob corpus (8.986 us vs 645.672 us). This is acceptance-grade benchmark evidence
-for wildcard name filtering in `nlc query symbols --filter` after the host has projected public
-symbol names into a string array and the pattern is ASCII.
+`CliSymbolNameGlobFilterIndicesInto` and `CliSymbolNameSubstringFilterIndicesInto` passed parity in
+the short BenchmarkDotNet evidence tier for `nlc query symbols --filter` name filters. The accepted
+N# path handles ASCII glob matching with caller-owned result-index buffers and prefix/suffix
+specializations, and routes ASCII bare substring matching through the compiled N# index filter with
+`StringComparison.OrdinalIgnoreCase`, preserving source order and the 200-result cap. It ran about
+15.1x faster on the representative prefix-glob corpus (4.026 us vs 60.997 us), about 72.6x faster
+on the representative suffix-glob corpus (4.922 us vs 357.321 us), about 7.4x faster on the
+representative substring corpus (3.298 us vs 24.519 us), about 14.9x faster on the large generated
+prefix-glob corpus (8.065 us vs 119.854 us), about 70.2x faster on the large generated suffix-glob
+corpus (9.128 us vs 640.915 us), and about 7.1x faster on the large generated substring corpus
+(9.770 us vs 69.645 us). This is acceptance-grade benchmark evidence for ASCII name filtering in
+`nlc query symbols --filter` after the host has projected public symbol names into a string array.
 
 `DocQueryBestTypeIndex` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence run for `nlc query doc` candidate selection. The accepted N# path uses
@@ -1691,11 +1694,11 @@ previous C# LINQ `Where(e => e.Severity == ...).ToList()` path kept as the fallb
 N# compact kind-id filter when the dogfood assembly is available, covering `nlc query symbols
 --kind`, batch symbol queries, and daemon symbol queries, with the previous C# LINQ
 `Where(s => s.Kind == kind).ToList()` path kept as the fallback.
-`nlc query symbols --filter` now routes ASCII wildcard name filters through
-`NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern`, which calls the compiled N# glob matcher
-when the dogfood assembly is available, preserving case-insensitive `*` semantics, source order, and
-the 200-result cap. Non-ASCII patterns/names and bare substring filters keep the previous C# regex
-fallback because the substring N# prototype did not clear the 5x gate.
+`nlc query symbols --filter` now routes ASCII wildcard and bare substring name filters through
+`NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern`, which calls the compiled N# glob or
+substring matcher when the dogfood assembly is available, preserving case-insensitive matching
+semantics, source order, and the 200-result cap. Non-ASCII patterns/names keep the previous C#
+regex fallback.
 Strict `nlc build` lint gating now routes its error-only diagnostic filter through the same
 adapter-backed formatter path before the accepted diagnostic deduplication/order route, instead of
 running a local C# LINQ severity filter.
@@ -1847,7 +1850,7 @@ cluster file-list ordering, diagnostic shadow suppression, diagnostic deduplicat
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering and slug generation, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, wildcard symbol-name filtering, CLI first positional-argument
+ordering and slug generation, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, symbol-name filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
@@ -1899,14 +1902,13 @@ project/operand/package discovery in
 route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
 plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output and applied-fix
 file grouping in `nlc fix --text`,
-plus wildcard symbol-name filtering in `nlc query symbols --filter`, plus artifact directory
+plus wildcard and bare substring symbol-name filtering in `nlc query symbols --filter`, plus artifact directory
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
 Path matching, all-positionals CLI argument filtering, batch result counting through current C#
-object projection, and bare substring symbol-name filtering have parity and benchmark evidence but
-are not routed through production code-intelligence, query, batch, or daemon paths because they
-currently miss the 5x speed gate.
+object projection have parity and benchmark evidence but are not routed through production
+code-intelligence, query, batch, or daemon paths because they currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in

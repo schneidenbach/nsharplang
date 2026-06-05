@@ -361,6 +361,39 @@ func CliSymbolNameGlobFilterIndicesInto(
     return matchCount
 }
 
+func CliSymbolNameSubstringFilterIndicesInto(
+    names: string[],
+    pattern: string,
+    limit: int,
+    resultIndices: int[]): int {
+    if limit <= 0 || resultIndices.Length == 0 {
+        return 0
+    }
+
+    maxCount := limit
+    if maxCount > resultIndices.Length {
+        maxCount = resultIndices.Length
+    }
+
+    matchCount := 0
+    i := 0
+    while i < names.Length && matchCount < maxCount {
+        name := names[i]
+        if CliSymbolNameContainsAsciiIgnoreCase(name, pattern) {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return matchCount
+}
+
+func CliSymbolNameContainsAsciiIgnoreCase(text: string, pattern: string): bool {
+    return text.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0
+}
+
 func CliSymbolNameGlobMatchesAsciiIgnoreCase(text: string, pattern: string): bool {
     if pattern.Length == 1 && pattern[0] == '*' {
         return true

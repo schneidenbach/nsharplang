@@ -1058,11 +1058,14 @@ dependencies:
         };
 
         Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
-        Assert.False(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
             symbols,
             "user",
             200,
-            out _));
+            out var substringMatches));
+        Assert.Equal(
+            new[] { "UserService", "UserQuery", "CurrentUser" },
+            substringMatches.Select(symbol => symbol.Name));
 
         Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
             symbols,

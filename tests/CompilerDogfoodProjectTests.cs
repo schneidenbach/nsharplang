@@ -1682,6 +1682,10 @@ class OtherZetaType {
                     "CliSymbolNameGlobFilterIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliSymbolNameGlobFilterIndicesInto.");
+            var cliSymbolNameSubstringFilterIndicesInto = programType.GetMethod(
+                    "CliSymbolNameSubstringFilterIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliSymbolNameSubstringFilterIndicesInto.");
             var symbolKindFilterIndicesInto = programType.GetMethod(
                     "SymbolKindFilterIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2266,6 +2270,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliDocSymbolOrderCountingChecksumInto);
             AssertCliDocSlugsLikeProduction(cliDocSlugsInto);
             AssertCliSymbolNameGlobFilteringLikeProduction(cliSymbolNameGlobFilterIndicesInto);
+            AssertCliSymbolNameSubstringFilteringLikeProduction(cliSymbolNameSubstringFilterIndicesInto);
             AssertSymbolKindFilteringLikeProduction(
                 symbolKindFilterIndicesInto,
                 symbolKindFilterChecksumInto);
@@ -5331,7 +5336,7 @@ func main() {
 
         foreach (var (pattern, limit) in cases)
         {
-            var expectedIndices = ExpectedCliSymbolNameGlobFilterIndices(names, pattern, limit);
+            var expectedIndices = ExpectedCliSymbolNameFilterIndices(names, pattern, limit);
             var actualIndices = new int[Math.Min(limit, names.Length)];
             var actualCount = (int)(cliSymbolNameGlobFilterIndicesInto.Invoke(
                 null,
@@ -5342,7 +5347,7 @@ func main() {
         }
     }
 
-    private static int[] ExpectedCliSymbolNameGlobFilterIndices(
+    private static int[] ExpectedCliSymbolNameFilterIndices(
         string[] names,
         string pattern,
         int limit)
@@ -5354,6 +5359,44 @@ func main() {
             .Take(limit)
             .Select(item => item.index)
             .ToArray();
+    }
+
+    private static void AssertCliSymbolNameSubstringFilteringLikeProduction(
+        MethodInfo cliSymbolNameSubstringFilterIndicesInto)
+    {
+        var names = new[]
+        {
+            "UserService",
+            "OrderService",
+            "UserQuery",
+            "RenderPipeline",
+            "CurrentUser",
+            "DataSet",
+            "DataQuerySet",
+            "BuildGraph",
+            "queryRunner",
+            "USER_INDEX"
+        };
+        var cases = new[]
+        {
+            (Pattern: "service", Limit: 200),
+            (Pattern: "USER", Limit: 200),
+            (Pattern: "query", Limit: 2),
+            (Pattern: "Pipeline", Limit: 200),
+            (Pattern: "NoMatch", Limit: 200)
+        };
+
+        foreach (var (pattern, limit) in cases)
+        {
+            var expectedIndices = ExpectedCliSymbolNameFilterIndices(names, pattern, limit);
+            var actualIndices = new int[Math.Min(limit, names.Length)];
+            var actualCount = (int)(cliSymbolNameSubstringFilterIndicesInto.Invoke(
+                null,
+                new object[] { names, pattern, limit, actualIndices }) ?? -1);
+
+            Assert.Equal(expectedIndices.Length, actualCount);
+            Assert.Equal(expectedIndices, actualIndices.Take(actualCount).ToArray());
+        }
     }
 
     private static Regex BuildCliSymbolNameFilterRegex(string pattern)

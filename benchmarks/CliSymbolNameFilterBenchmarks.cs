@@ -9,7 +9,8 @@ namespace NSharpLang.Benchmarks;
 public enum CliSymbolNameFilterPattern
 {
     PrefixGlob,
-    SuffixGlob
+    SuffixGlob,
+    Substring
 }
 
 /// <summary>
@@ -28,6 +29,8 @@ public class CliSymbolNameFilterBenchmarks
 
     private Func<string[], string, int, int[], int> _nsharpCliSymbolNameGlobFilterIndicesInto =
         (_, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private Func<string[], string, int, int[], int> _nsharpCliSymbolNameSubstringFilterIndicesInto =
+        (_, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
 
     private string[] _csharpResult = Array.Empty<string>();
     private string[] _names = Array.Empty<string>();
@@ -40,7 +43,8 @@ public class CliSymbolNameFilterBenchmarks
 
     [Params(
         CliSymbolNameFilterPattern.PrefixGlob,
-        CliSymbolNameFilterPattern.SuffixGlob)]
+        CliSymbolNameFilterPattern.SuffixGlob,
+        CliSymbolNameFilterPattern.Substring)]
     public CliSymbolNameFilterPattern Pattern { get; set; }
 
     [GlobalSetup]
@@ -53,6 +57,10 @@ public class CliSymbolNameFilterBenchmarks
             NSharpCompiledMethod.Bind<Func<string[], string, int, int[], int>>(
                 DogfoodCompilerSources.CliArguments,
                 "CliSymbolNameGlobFilterIndicesInto");
+        _nsharpCliSymbolNameSubstringFilterIndicesInto =
+            NSharpCompiledMethod.Bind<Func<string[], string, int, int[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliSymbolNameSubstringFilterIndicesInto");
 
         _names = BuildSymbolNames(symbolCount);
         _nsharpIndices = new int[Math.Min(symbolCount, Limit)];
@@ -60,6 +68,7 @@ public class CliSymbolNameFilterBenchmarks
         {
             CliSymbolNameFilterPattern.PrefixGlob => "User*",
             CliSymbolNameFilterPattern.SuffixGlob => "*Service",
+            CliSymbolNameFilterPattern.Substring => "query",
             _ => throw new InvalidOperationException($"Unexpected pattern mode {Pattern}.")
         };
 
@@ -95,7 +104,9 @@ public class CliSymbolNameFilterBenchmarks
     [Benchmark]
     public int NSharpCliSymbolNameFilter_QuerySymbols()
     {
-        var count = _nsharpCliSymbolNameGlobFilterIndicesInto(_names, _pattern, Limit, _nsharpIndices);
+        var count = Pattern == CliSymbolNameFilterPattern.Substring
+            ? _nsharpCliSymbolNameSubstringFilterIndicesInto(_names, _pattern, Limit, _nsharpIndices)
+            : _nsharpCliSymbolNameGlobFilterIndicesInto(_names, _pattern, Limit, _nsharpIndices);
         if (count < 0 || count > _nsharpIndices.Length)
             throw new InvalidOperationException($"N# CLI symbol-name filter count out of range: {count}.");
 
