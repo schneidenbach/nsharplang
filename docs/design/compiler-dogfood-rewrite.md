@@ -967,6 +967,9 @@ for display, and overload count details, with the previous LINQ `Where`/`GroupBy
 as the fallback.
 Source-only diagnostic formatting uses a `ConditionalWeakTable<string, ...>` cache for callers such
 as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot`.
+`MultiFileCompiler` circular-import and AOT diagnostic snippets now route LF-only source texts
+through the same source-only cached raw-line adapter, with the previous CR/CRLF split fallback kept
+for files where the raw-line LF semantics would otherwise preserve carriage returns.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 Clustered diagnostic output also routes group root/count/order selection through the compiled N#

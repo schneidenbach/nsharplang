@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.ILCompiler;
 using NSharpLang.Compiler.Performance;
 
@@ -445,7 +446,14 @@ public class MultiFileCompiler
 
         try
         {
-            return ReadSourceText(filePath)
+            var source = ReadSourceText(filePath);
+            if (source.IndexOf('\r') < 0 &&
+                NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(source, line, out var dogfoodLine))
+            {
+                return dogfoodLine;
+            }
+
+            return source
                 .Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None)
                 .Skip(line - 1)
                 .FirstOrDefault();
