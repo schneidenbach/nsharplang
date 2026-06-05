@@ -680,8 +680,17 @@ public class DocQuery
 
     private static Type? SelectBestType(string query, IEnumerable<Type> candidates)
     {
-        return candidates
-            .Distinct()
+        var distinctCandidates = candidates.Distinct().ToArray();
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType(
+            query,
+            distinctCandidates,
+            ScoreTypeMatch,
+            out var dogfoodType))
+        {
+            return dogfoodType;
+        }
+
+        return distinctCandidates
             .OrderByDescending(t => ScoreTypeMatch(query, t))
             .ThenBy(t => t.Namespace?.Length ?? int.MaxValue)
             .ThenBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)

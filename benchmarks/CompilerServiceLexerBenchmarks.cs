@@ -706,6 +706,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CliArguments.nl";
     private const string CliDocOrderingResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CliDocOrdering.nl";
+    private const string DocQueryResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.DocQuery.nl";
     private const string CliTreeDependenciesResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CliTreeDependencies.nl";
     private const string ErrorSuggestionsResourceName =
@@ -726,6 +728,7 @@ internal static class DogfoodCompilerSources
     public static string CliQueryParsing => ReadResource(CliQueryParsingResourceName);
     public static string CliArguments => ReadResource(CliArgumentsResourceName);
     public static string CliDocOrdering => ReadResource(CliDocOrderingResourceName);
+    public static string CodeIntelligenceDocQuery => ReadResource(DocQueryResourceName);
     public static string CliTreeDependencies => ReadResource(CliTreeDependenciesResourceName);
     public static string ErrorSuggestions => ReadResource(ErrorSuggestionsResourceName);
 

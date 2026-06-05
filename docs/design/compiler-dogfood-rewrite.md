@@ -860,6 +860,12 @@ Current CLI dogfood benchmarks:
   shape: enum comparison, list materialization, and stable source-order results. The N# candidate
   runs after the host has projected symbol kinds into compact integer ids, scans an unrolled kind-id
   array, and writes matching symbol indices through `SymbolKindFilterIndicesInto`.
+- `CompilerServiceDocQueryBestTypeBenchmarks` targets candidate selection in `nlc query doc` type
+  lookup. The C# baseline mirrors the current post-scoring LINQ selection shape: order by descending
+  match score, then namespace length, then full name with ordinal-ignore-case comparison, and take
+  the first candidate. The accepted N# candidate runs after the host has projected distinct
+  reflection candidates into score/namespace/full-name arrays and selects the best index with an
+  eight-wide unrolled scan through `DocQueryBestTypeIndex`.
 - `CliFirstPositionalArgumentBenchmarks` targets CLI commands that only need the first positional
   operand, such as project-name/project-root discovery, `nlc update` target package selection, and
   `nlc export csharp` input discovery. The
@@ -930,6 +936,16 @@ flags measured 270.0 ns vs 342.7 ns representative and 2.156 us vs 2.882 us larg
 `BatchQueryRunner` keeps the existing LINQ count until N# direct-call overhead and tiny-loop codegen
 can turn sub-microsecond kernels into 5x wins rather than modest allocation-free improvements.
 
+`CliFixEditFlattenIndicesInto` was also measured and deliberately removed instead of being routed
+into production. The candidate projected each safe `nlc fix` action's edit count, wrote flattened
+action/edit index pairs into caller-owned buffers, and used prevalidated output capacity plus
+explicit fast paths for one- through five-edit actions. It still measured only about 4.7x faster on
+the representative corpus (1.985 us vs 9.311 us, 0 B vs 17,208 B), though it did clear about 5.8x
+on the large generated corpus (15.904 us vs 91.693 us, 0 B vs 136,440 B). Because acceptance
+requires every measured corpus to clear 5x, `nlc fix` keeps the current `SelectMany(...).ToList()`
+edit flattening path until N# has lower loop/arithmetic overhead or a faster way to bulk-fill
+parallel integer result buffers.
+
 `CliFirstPositionalArgIndex` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for first positional-operand discovery. The accepted N# path returns
 as soon as it finds the first operand instead of using the previous shared helper shape that scanned
@@ -988,6 +1004,18 @@ run (299.4 ns vs 1.824 us, 0 B vs 1,216 B) and about 6.2x faster on the large ge
 corpus (2.337 us vs 14.567 us, 0 B vs 8,936 B). This is acceptance-grade benchmark evidence for
 `nlc query symbols --kind`, batch symbol queries, and daemon symbol queries after the host has
 projected symbol kinds into compact integer ids.
+
+`DocQueryBestTypeIndex` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence run for `nlc query doc` candidate selection. The accepted N# path uses
+caller-owned score, namespace-length, and full-name arrays plus an eight-wide unrolled scan that
+preserves the C# ordering contract: score descending, namespace length ascending, and
+`StringComparer.OrdinalIgnoreCase` full-name order for ties. It ran about 5.1x faster on the
+representative type-candidate corpus (437.7 ns vs 2.248 us, 0 B vs 440 B) and about 5.2x faster on
+the large generated corpus (3.282 us vs 17.028 us, 0 B vs 440 B). `DocQuery.SelectBestType` now
+routes distinct candidate arrays through `NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType`
+when the dogfood assembly is available, with the previous LINQ ordering retained as the exact
+fallback; the adapter also falls back for non-ASCII CLR full names so the public
+`StringComparer.OrdinalIgnoreCase` tie-break contract is not approximated.
 
 `ParserTokenCompactionIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for parser newline-token compaction. It ran about 7.3x faster on the

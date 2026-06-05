@@ -874,6 +874,14 @@ func main(): int {
                     "SymbolKindFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit SymbolKindFilterChecksumInto.");
+            var docQueryBestTypeIndex = programType.GetMethod(
+                    "DocQueryBestTypeIndex",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DocQueryBestTypeIndex.");
+            var docQueryBestTypeChecksumInto = programType.GetMethod(
+                    "DocQueryBestTypeChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DocQueryBestTypeChecksumInto.");
             var typoSuggestionIndicesInto = programType.GetMethod(
                     "TypoSuggestionIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1349,6 +1357,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertSymbolKindFilteringLikeProduction(
                 symbolKindFilterIndicesInto,
                 symbolKindFilterChecksumInto);
+            AssertDocQueryBestTypeSelectionLikeProduction(
+                docQueryBestTypeIndex,
+                docQueryBestTypeChecksumInto);
             AssertTypoSuggestionsLikeProduction(
                 typoSuggestionIndicesInto,
                 typoSuggestionChecksumInto);
@@ -3558,6 +3569,48 @@ func main() {
 
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static void AssertDocQueryBestTypeSelectionLikeProduction(
+        MethodInfo docQueryBestTypeIndex,
+        MethodInfo docQueryBestTypeChecksumInto)
+    {
+        var scores = new[] { 410, 2400, 900, 2400, 2400, 1300, 2400 };
+        var namespaceLengths = new[] { 12, 6, 8, 6, 6, 4, 6 };
+        var fullNames = new[]
+        {
+            "NSharpLang.Compiler.DocQuery",
+            "System.ConsoleZ",
+            "System.Text.StringBuilder",
+            "System.ConsoleA",
+            "system.consolea",
+            "System.IO.File",
+            "System.Collections.List"
+        };
+        var expected = Enumerable.Range(0, scores.Length)
+            .OrderByDescending(i => scores[i])
+            .ThenBy(i => namespaceLengths[i])
+            .ThenBy(i => fullNames[i], StringComparer.OrdinalIgnoreCase)
+            .First();
+
+        var actual = (int)(docQueryBestTypeIndex.Invoke(
+            null,
+            new object[] { scores, namespaceLengths, fullNames, scores.Length }) ?? -1);
+
+        Assert.Equal(expected, actual);
+
+        var actualChecksum = (int)(docQueryBestTypeChecksumInto.Invoke(
+            null,
+            new object[] { scores, namespaceLengths, fullNames, scores.Length }) ?? -1);
+        var expectedChecksum = (expected + 1) * 97 + scores[expected] * 31 + namespaceLengths[expected] * 17;
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+
+        var empty = (int)(docQueryBestTypeIndex.Invoke(
+            null,
+            new object[] { scores, namespaceLengths, fullNames, 0 }) ?? 0);
+
+        Assert.Equal(-1, empty);
     }
 
     private static void AssertTextEditOrderingLikeProduction(

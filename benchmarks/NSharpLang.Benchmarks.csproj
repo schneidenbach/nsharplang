@@ -75,6 +75,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliDocOrdering.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliDocOrdering.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/DocQuery.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.DocQuery.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliTreeDependencies.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliTreeDependencies.nl" />
     <EmbeddedResource

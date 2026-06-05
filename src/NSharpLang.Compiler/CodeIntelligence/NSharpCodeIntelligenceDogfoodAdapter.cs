@@ -35,6 +35,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static DiagnosticDeduplicationScratch? t_diagnosticDeduplicationScratch;
     [ThreadStatic]
+    private static DocQueryBestTypeScratch? t_docQueryBestTypeScratch;
+    [ThreadStatic]
     private static ReferenceFileSummaryScratch? t_referenceFileSummaryScratch;
     [ThreadStatic]
     private static ReferenceDeduplicationScratch? t_referenceDeduplicationScratch;
@@ -667,6 +669,62 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         {
             filteredSymbols = [];
             return false;
+        }
+    }
+
+    internal static bool TrySelectBestDocType(
+        string query,
+        Type[] candidates,
+        Func<string, Type, int> scoreTypeMatch,
+        out Type? selected)
+    {
+        selected = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var candidateCount = candidates.Length;
+        if (candidateCount == 0)
+            return true;
+
+        var scratch = t_docQueryBestTypeScratch ??= new DocQueryBestTypeScratch();
+        scratch.EnsureCapacity(candidateCount);
+
+        try
+        {
+            for (var i = 0; i < candidateCount; i++)
+            {
+                var candidate = candidates[i];
+                var fullName = candidate.FullName;
+                if (fullName == null || !IsAscii(fullName))
+                    return false;
+
+                scratch.Scores[i] = scoreTypeMatch(query, candidate);
+                scratch.NamespaceLengths[i] = candidate.Namespace?.Length ?? int.MaxValue;
+                scratch.FullNames[i] = fullName;
+            }
+
+            var bestIndex = bindings.DocQueryBestTypeIndex(
+                scratch.Scores,
+                scratch.NamespaceLengths,
+                scratch.FullNames,
+                candidateCount);
+
+            if (bestIndex < 0 || bestIndex >= candidateCount)
+                return false;
+
+            selected = candidates[bestIndex];
+            return true;
+        }
+        catch
+        {
+            selected = null;
+            return false;
+        }
+        finally
+        {
+            scratch.ClearFullNames(candidateCount);
         }
     }
 
@@ -1445,6 +1503,17 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private static bool IsIncludedCompletionMethod(MethodInfo method) =>
         !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
 
+    private static bool IsAscii(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (value[i] > '\u007f')
+                return false;
+        }
+
+        return true;
+    }
+
     private static FileCache GetFileCache(ProjectSnapshot snapshot, string filePath, string source)
     {
         var snapshotCache = s_snapshotCaches.GetValue(snapshot, static _ => new SnapshotCache());
@@ -1482,6 +1551,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<SymbolKindFilterIndicesInto>(programType, "SymbolKindFilterIndicesInto"),
+                CreateDelegate<DocQueryBestTypeIndexInto>(programType, "DocQueryBestTypeIndex"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupsInto>(programType, "DiagnosticClusterCompactGroupsInto"),
                 CreateDelegate<DiagnosticClusterCompactGroupMembersInto>(programType, "DiagnosticClusterCompactGroupMembersInto"),
@@ -1691,6 +1761,12 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int targetKindId,
         int[] resultIndices);
 
+    private delegate int DocQueryBestTypeIndexInto(
+        int[] scores,
+        int[] namespaceLengths,
+        string[] fullNames,
+        int count);
+
     private delegate int DiagnosticClusterCompactGroupsInto(
         int[] codeIds,
         int[] severityIds,
@@ -1891,6 +1967,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         SymbolKindFilterIndicesInto SymbolKindFilter,
+        DocQueryBestTypeIndexInto DocQueryBestTypeIndex,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
         DiagnosticClusterCompactGroupsInto DiagnosticClusterCompactGroups,
         DiagnosticClusterCompactGroupMembersInto DiagnosticClusterCompactGroupMembers,
@@ -2100,6 +2177,31 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             if (Severities.Length < count)
             {
                 Severities = new string[count];
+            }
+        }
+    }
+
+    private sealed class DocQueryBestTypeScratch
+    {
+        public string[] FullNames = Array.Empty<string>();
+        public int[] NamespaceLengths = Array.Empty<int>();
+        public int[] Scores = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (Scores.Length < count)
+            {
+                Scores = new int[count];
+                NamespaceLengths = new int[count];
+                FullNames = new string[count];
+            }
+        }
+
+        public void ClearFullNames(int count)
+        {
+            if (count > 0)
+            {
+                Array.Clear(FullNames, 0, count);
             }
         }
     }
