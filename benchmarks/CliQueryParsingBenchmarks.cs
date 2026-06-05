@@ -1041,3 +1041,123 @@ public class CliQueryBatchDuplicateIdBenchmarks
         return count;
     }
 }
+
+/// <summary>
+/// Dogfood benchmark for batch query envelope result counting.
+/// The C# baseline mirrors <c>BatchQueryRunner.Execute</c>: count successful item objects with
+/// <c>items.Count(item =&gt; item.Ok)</c>, then derive the failure count. The N# candidate runs after
+/// the host has projected successful-item flags into a compact caller-owned buffer.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliQueryBatchResultCountBenchmarks
+{
+    private const int LargeRequestCount = 8192;
+    private const int RepresentativeRequestCount = 1024;
+
+    private Func<ulong[], int, int> _nsharpResultCountChecksum =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private List<BenchmarkBatchQueryItem> _items = new();
+    private ulong[] _okWords = Array.Empty<ulong>();
+    private ulong[] _projectedOkWords = Array.Empty<ulong>();
+    private int _requestCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [Params(
+        CliBatchResultPattern.Mixed,
+        CliBatchResultPattern.AllSuccess,
+        CliBatchResultPattern.AllFailure)]
+    public CliBatchResultPattern Pattern { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _requestCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeRequestCount
+            : LargeRequestCount;
+        _nsharpResultCountChecksum =
+            NSharpCompiledMethod.Bind<Func<ulong[], int, int>>(
+                DogfoodCompilerSources.CliQueryParsing,
+                "CliBatchResultPackedCountChecksum");
+
+        _items = BuildItems(_requestCount, Pattern);
+        _okWords = new ulong[(_requestCount + 63) >> 6];
+        _projectedOkWords = new ulong[_okWords.Length];
+        for (var i = 0; i < _items.Count; i++)
+        {
+            if (_items[i].Ok)
+                _okWords[i >> 6] |= 1UL << (i & 63);
+        }
+
+        var expectedChecksum = CSharpBatchResultCounts_QueryBatch();
+        var actualChecksum = NSharpBatchResultCounts_QueryBatch();
+        var projectedChecksum = NSharpProjectedBatchResultCounts_QueryBatch();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI batch result-count checksum mismatch for {Corpus}/{Pattern}: " +
+                $"expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        if (expectedChecksum != projectedChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# projected CLI batch result-count checksum mismatch for {Corpus}/{Pattern}: " +
+                $"expected {expectedChecksum}, got {projectedChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpBatchResultCounts_QueryBatch()
+    {
+        var successCount = _items.Count(item => item.Ok);
+        var failureCount = _items.Count - successCount;
+        return _items.Count * 31 + successCount * 17 + failureCount * 13;
+    }
+
+    [Benchmark]
+    public int NSharpBatchResultCounts_QueryBatch() =>
+        _nsharpResultCountChecksum(_okWords, _requestCount);
+
+    [Benchmark]
+    public int NSharpProjectedBatchResultCounts_QueryBatch()
+    {
+        Array.Clear(_projectedOkWords, 0, _projectedOkWords.Length);
+        for (var i = 0; i < _items.Count; i++)
+        {
+            if (_items[i].Ok)
+                _projectedOkWords[i >> 6] |= 1UL << (i & 63);
+        }
+
+        return _nsharpResultCountChecksum(_projectedOkWords, _items.Count);
+    }
+
+    private static List<BenchmarkBatchQueryItem> BuildItems(int count, CliBatchResultPattern pattern)
+    {
+        var items = new List<BenchmarkBatchQueryItem>(count);
+        for (var i = 0; i < count; i++)
+        {
+            var ok = pattern switch
+            {
+                CliBatchResultPattern.AllSuccess => true,
+                CliBatchResultPattern.AllFailure => false,
+                _ => (i * 17 + i / 7) % 11 is not 0 and not 5
+            };
+            items.Add(new BenchmarkBatchQueryItem(ok));
+        }
+
+        return items;
+    }
+
+    private sealed record BenchmarkBatchQueryItem(bool Ok);
+}
+
+public enum CliBatchResultPattern
+{
+    Mixed,
+    AllSuccess,
+    AllFailure
+}

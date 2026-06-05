@@ -1,4 +1,5 @@
 import System
+import System.Numerics
 
 func CliQueryPositionChecksumInto(
     positions: string[],
@@ -103,6 +104,43 @@ func CliBatchDuplicateIdRankChecksumInto(
     }
 
     return checksum
+}
+
+func CliBatchResultPackedSuccessCount(okWords: ulong[], itemCount: int): int {
+    if itemCount <= 0 {
+        return 0
+    }
+
+    fullWordCount := itemCount >> 6
+    if fullWordCount > okWords.Length {
+        fullWordCount = okWords.Length
+    }
+
+    successCount := 0
+    i := 0
+    while i < fullWordCount {
+        successCount = successCount + CliBatchResultPopCount64(okWords[i])
+        i = i + 1
+    }
+
+    lastBits := itemCount & 63
+    if lastBits != 0 && fullWordCount < okWords.Length {
+        shift := 64 - lastBits
+        lastWord := (okWords[fullWordCount] << shift) >> shift
+        successCount = successCount + CliBatchResultPopCount64(lastWord)
+    }
+
+    return successCount
+}
+
+func CliBatchResultPackedCountChecksum(okWords: ulong[], itemCount: int): int {
+    successCount := CliBatchResultPackedSuccessCount(okWords, itemCount)
+    failureCount := itemCount - successCount
+    return itemCount * 31 + successCount * 17 + failureCount * 13
+}
+
+func CliBatchResultPopCount64(value: ulong): int {
+    return BitOperations.PopCount(value)
 }
 
 func CliTryParsePositionInto(position: string, result: int[]): int {

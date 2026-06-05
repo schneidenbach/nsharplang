@@ -63,6 +63,7 @@ dotnet run -c Release --project benchmarks -- --filter '*AnalyzerEnumExhaustiven
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequirementGrouping*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAnonymousUnionShim*'
+dotnet run -c Release --project benchmarks -- --filter '*CliQueryBatchResultCount*'
 dotnet run -c Release --project benchmarks -- --filter '*CliTidy*'
 dotnet run -c Release --project benchmarks -- --filter '*CliDocSlug*'
 ```
@@ -1010,6 +1011,12 @@ Current CLI dogfood benchmarks:
   string order. The N# candidate runs after the host has assigned dense sorted ordinal ranks to
   nonblank ids, counts duplicate ranks in caller-owned buffers, and returns the duplicate ranks in
   public error-order through `CliBatchDuplicateIdRanksInto`.
+- `CliQueryBatchResultCountBenchmarks` targets success/failure summary counting after `nlc query
+  batch` has executed each request. The C# baseline mirrors the current command shape:
+  `items.Count(item => item.Ok)` followed by derived failure count. The N# packed kernel runs after
+  successful-item flags are already stored in compact `ulong` words and counts set bits through
+  `CliBatchResultPackedSuccessCount`; the production-shaped projected row measures the current C#
+  object-to-bitset adapter cost separately and is not routed.
 - `CliDiagnosticSeverityFilterBenchmarks` targets diagnostic severity filtering in
   `nlc query diagnostics`, batch diagnostics, and daemon diagnostics. The C# baseline mirrors the
   current CLI LINQ shape: case-insensitive severity comparison and list materialization. The N#
@@ -1198,7 +1205,7 @@ measured CLI command-parser pressure, not acceptance evidence, and production CL
 for commands that need every positional operand must keep the current C# helper until N# string
 comparison/helper-call overhead clears the 5x gate.
 
-Three additional low-level CLI orchestration candidates were measured and deliberately removed
+Two additional low-level CLI orchestration candidates were measured and deliberately removed
 instead of being routed into production because they did not clear the speed gate. A caller-owned
 command-argument tail copy reduced allocation pressure but measured only 87.742 ns vs 95.460 ns on
 the representative corpus and regressed on the large corpus (12.409 us vs 10.387 us), so
@@ -1206,10 +1213,18 @@ the representative corpus and regressed on the large corpus (12.409 us vs 10.387
 or can call the BCL array-copy path without extra overhead. Top-level command classification by
 ASCII literal comparison removed lowercase string allocation but measured 9.951 us vs 9.670 us on
 representative command batches and 77.516 us vs 77.920 us on large batches, so the current C#
-`raw.ToLower()`/switch dispatcher remains. Batch query success/failure counting over compact ok
-flags measured 270.0 ns vs 342.7 ns representative and 2.156 us vs 2.882 us large, so
-`BatchQueryRunner` keeps the existing LINQ count until N# direct-call overhead and tiny-loop codegen
-can turn sub-microsecond kernels into 5x wins rather than modest allocation-free improvements.
+`raw.ToLower()`/switch dispatcher remains.
+
+`CliBatchResultPackedSuccessCount` passed parity and reported zero managed allocation for the
+packed-flag kernel once successful-item flags are already represented as `ulong` words. A short
+validation run measured the N# packed kernel about 10.2x-11.7x faster than the C#
+`items.Count(item => item.Ok)` baseline across representative mixed/all-success/all-failure rows
+(about 25.9 ns-26.1 ns vs 264.2 ns-304.0 ns) and about 11.0x-11.3x faster across large generated
+rows (about 212 ns-213 ns vs 2.350 us-2.406 us). The production-shaped projected adapter row
+failed the gate immediately because packing current C# `BatchQueryItemResult` objects into the
+bitset cost 1.452 us on the representative mixed corpus versus 300 ns for the existing C# count.
+`BatchQueryRunner` therefore keeps the existing C# count until batch execution/result storage moves
+to a compact N# representation that can maintain the packed ok flags directly.
 
 `CliFixEditFlattenIndicesInto` was reintroduced as a benchmark-only pressure kernel and remains
 unrouted. The revised caller-owned shape projects each safe `nlc fix` action's edit count, writes
@@ -1767,7 +1782,8 @@ CLI stable string de-duplication for stale generated cleanup and target-framewor
 add/remove package operand discovery, tidy dependency-line keep flags,
 DocQuery reference-pack assembly-name and type-candidate de-duplication,
 and the pressure-only
-path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
+path-matching, all-positionals CLI argument, and batch result packed-count kernels through the
+compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
@@ -1811,9 +1827,10 @@ plus wildcard symbol-name filtering in `nlc query symbols --filter`, plus artifa
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
-Path matching, all-positionals CLI argument filtering, and bare substring symbol-name filtering have
-parity and benchmark evidence but are not routed through production code-intelligence, query, batch,
-or daemon paths because they currently miss the 5x speed gate.
+Path matching, all-positionals CLI argument filtering, batch result counting through current C#
+object projection, and bare substring symbol-name filtering have parity and benchmark evidence but
+are not routed through production code-intelligence, query, batch, or daemon paths because they
+currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in
@@ -1930,6 +1947,11 @@ checksum evidence stopped rescanning the output. The
 strict reference/rename declaration-name guard now uses the same line-range cache, and semantic scope
 index sorting has moved into N#, but broader semantic binding/scope table construction and compact
 cache materialization around the N# lookup kernels are still C# host logic.
+The batch result packed-count probe shows the same representation boundary:
+`BitOperations.PopCount` gives a fast N# systems kernel over compact `ulong` words, but current C#
+object-to-bitset projection overwhelms the win. A manual N# popcount using large unsigned mask
+constants also exposed an IL-emission overflow, so a production-quality systems rewrite needs
+reliable unsigned literal lowering and intrinsic-friendly bit operations.
 The production adapter keeps cache lifetime explicit, but the remaining code-intelligence work still
 needs N# implementations for broader semantic lookup, completion construction, output shaping, and
 CLI command orchestration.
@@ -1963,6 +1985,19 @@ produce a production-shaped win:
   corpus (`7.829 us` N# vs `9.937 us` C#) and about 1.23x on the large corpus (`67.073 us` N# vs
   `82.426 us` C#). Keep `nlc test --timeout` on the C# parser until N# has a faster tiny-string
   parse path or the surrounding test-command option parsing moves into one N# batch.
+- CLI implicit test-package membership: a compact package-rank membership kernel made missing
+  package checks dramatically faster (`2.848 ns` N# vs `743.150 ns` C# representative and
+  `2.807 ns` N# vs `6.844 us` C# large), but existing-package rows only reached about 1.8x
+  (`4.570 ns` N# vs `8.382 ns` C# representative; `4.687 ns` N# vs `8.388 ns` C# large) because the
+  C# `Any` baseline exits after the first early match. Do not route `AddPackageReferenceIfMissing`
+  through a one-off adapter call; revisit this only as part of a retained package-name index or
+  broader reference-resolution port.
+- CLI batch result counting through current result objects: the packed N# popcount kernel cleared
+  the speed gate once ok flags were already represented as compact `ulong` words, but the
+  production-shaped C# projection from `BatchQueryItemResult.Ok` into that bitset failed immediately
+  (`1.452 us` N# projected row vs `300 ns` C# count on the representative mixed corpus). Do not
+  route `BatchQueryRunner` through this adapter bridge; revisit when the batch runner/result table
+  itself is represented in N# and can maintain packed ok flags directly.
 - IL compiler entry-point single-candidate selection: compact key/name/static arrays removed the
   LINQ branch allocation for the fallback `_methods.Where(...).OrderByDescending(...).ThenBy(...)`
   path, but `--job Short` only reached about 1.16x on the representative single-candidate row

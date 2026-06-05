@@ -1700,6 +1700,10 @@ class OtherZetaType {
                     "CliBatchDuplicateIdRankChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchDuplicateIdRankChecksumInto.");
+            var cliBatchResultPackedCountChecksum = programType.GetMethod(
+                    "CliBatchResultPackedCountChecksum",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBatchResultPackedCountChecksum.");
             var cliTreeDependencyDeduplicateIndicesInto = programType.GetMethod(
                     "CliTreeDependencyDeduplicateIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2242,6 +2246,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliBatchDuplicateIdsLikeProduction(
                 cliBatchDuplicateIdRanksInto,
                 cliBatchDuplicateIdRankChecksumInto);
+            AssertCliBatchResultCountsLikeProduction(cliBatchResultPackedCountChecksum);
             AssertCliTreeDependencyDeduplicationLikeProduction(
                 cliTreeDependencyDeduplicateIndicesInto,
                 cliTreeDependencyDeduplicateChecksumInto);
@@ -6118,6 +6123,50 @@ func main() {
 
         Assert.Equal(expectedRanks.Length, actualCount);
         Assert.Equal(expectedRanks, resultRanks.Take(actualCount));
+    }
+
+    private static void AssertCliBatchResultCountsLikeProduction(MethodInfo cliBatchResultPackedCountChecksum)
+    {
+        var cases = new[]
+        {
+            new[] { 1, 0, 1, 1, 0, 1 },
+            new[] { 1, 1, 1, 1 },
+            new[] { 0, 0, 0, 0 },
+            Array.Empty<int>()
+        };
+
+        foreach (var okFlags in cases)
+        {
+            var successCount = okFlags.Count(flag => flag == 1);
+            var failureCount = okFlags.Length - successCount;
+            var expectedChecksum = okFlags.Length * 31 + successCount * 17 + failureCount * 13;
+            var okWords = PackFlags(okFlags);
+            var actualChecksum = (int)(cliBatchResultPackedCountChecksum.Invoke(
+                null,
+                new object[] { okWords, okFlags.Length }) ?? -1);
+
+            Assert.Equal(expectedChecksum, actualChecksum);
+        }
+
+        var trailingBits = PackFlags(new[] { 1, 0, 1 });
+        trailingBits[0] |= 1UL << 3;
+        trailingBits[0] |= 1UL << 63;
+        var trailingActualChecksum = (int)(cliBatchResultPackedCountChecksum.Invoke(
+            null,
+            new object[] { trailingBits, 3 }) ?? -1);
+        Assert.Equal(3 * 31 + 2 * 17 + 1 * 13, trailingActualChecksum);
+    }
+
+    private static ulong[] PackFlags(IReadOnlyList<int> okFlags)
+    {
+        var words = new ulong[(okFlags.Count + 63) >> 6];
+        for (var i = 0; i < okFlags.Count; i++)
+        {
+            if (okFlags[i] == 1)
+                words[i >> 6] |= 1UL << (i & 63);
+        }
+
+        return words;
     }
 
     private static void AssertDocCommentsLikeProduction(
