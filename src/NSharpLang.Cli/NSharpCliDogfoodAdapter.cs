@@ -29,6 +29,8 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static UpdateDependencyFilterScratch? t_updateDependencyFilterScratch;
     [ThreadStatic]
+    private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
+    [ThreadStatic]
     private static StableDistinctScratch? t_stableDistinctScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
@@ -564,6 +566,70 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryFilterExportReferencesByType(
+        IReadOnlyList<Reference> dependencies,
+        ReferenceType targetType,
+        out List<Reference> filteredDependencies)
+    {
+        filteredDependencies = new List<Reference>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var dependencyCount = dependencies.Count;
+        if (dependencyCount == 0)
+            return true;
+
+        var targetTypeRank = GetReferenceTypeRank(targetType);
+        if (targetTypeRank <= 0)
+            return false;
+
+        var scratch = t_referenceTypeFilterScratch ??= new ReferenceTypeFilterScratch();
+        scratch.EnsureCapacity(dependencyCount);
+
+        try
+        {
+            for (var i = 0; i < dependencyCount; i++)
+                scratch.TypeRanks[i] = GetReferenceTypeRank(dependencies[i].Type);
+
+            var filteredCount = bindings.CliReferenceTypeFilterIndices(
+                scratch.TypeRanks,
+                targetTypeRank,
+                scratch.ResultIndices);
+
+            if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
+                return false;
+
+            filteredDependencies = new List<Reference>(filteredCount);
+            for (var i = 0; i < filteredCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= dependencyCount)
+                {
+                    filteredDependencies = new List<Reference>();
+                    return false;
+                }
+
+                var dependency = dependencies[sourceIndex];
+                if (dependency.Type != targetType)
+                {
+                    filteredDependencies = new List<Reference>();
+                    return false;
+                }
+
+                filteredDependencies.Add(dependency);
+            }
+
+            return true;
+        }
+        catch
+        {
+            filteredDependencies = new List<Reference>();
+            return false;
+        }
+    }
+
     internal static bool TryDeduplicateExportReferences<T>(
         IReadOnlyList<T> values,
         IEqualityComparer<T>? comparer,
@@ -858,6 +924,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(programType, "CliCleanArtifactDirectoryIndicesInto"),
                 CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
+                CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
         }
         catch
@@ -975,6 +1042,11 @@ internal static class NSharpCliDogfoodAdapter
         int targetNameRank,
         int[] resultIndices);
 
+    private delegate int CliReferenceTypeFilterIndicesInto(
+        int[] typeRanks,
+        int targetTypeRank,
+        int[] resultIndices);
+
     private delegate int CliStableDistinctRankIndicesInto(
         int[] ranks,
         int uniqueRankCount,
@@ -994,6 +1066,7 @@ internal static class NSharpCliDogfoodAdapter
         CliCleanArtifactDirectoryIndicesInto CliCleanArtifactDirectoryIndices,
         CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
+        CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
@@ -1019,6 +1092,16 @@ internal static class NSharpCliDogfoodAdapter
             SymbolKind.Union => 15,
             SymbolKind.Variable => 16,
             _ => 100
+        };
+
+    private static int GetReferenceTypeRank(ReferenceType type) =>
+        type switch
+        {
+            ReferenceType.NuGet => 1,
+            ReferenceType.Dll => 2,
+            ReferenceType.Project => 3,
+            ReferenceType.Framework => 4,
+            _ => 0
         };
 
     private static int GetCompilerErrorSeverityRank(ErrorSeverity severity) =>
@@ -1365,6 +1448,21 @@ internal static class NSharpCliDogfoodAdapter
         {
             _nameRanks.Clear();
             UniqueNameCount = 0;
+        }
+    }
+
+    private sealed class ReferenceTypeFilterScratch
+    {
+        public int[] TypeRanks = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+
+        public void EnsureCapacity(int dependencyCount)
+        {
+            if (TypeRanks.Length != dependencyCount || ResultIndices.Length != dependencyCount)
+            {
+                TypeRanks = new int[dependencyCount];
+                ResultIndices = new int[dependencyCount];
+            }
         }
     }
 

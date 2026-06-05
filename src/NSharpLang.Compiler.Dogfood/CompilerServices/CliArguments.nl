@@ -1454,6 +1454,310 @@ func CliUpdateTargetNuGetDependencyChecksumInto(
     return checksum + matchCount
 }
 
+func CliReferenceTypeFilterIndicesInto(
+    typeRanks: int[],
+    targetTypeRank: int,
+    resultIndices: int[]): int {
+    if targetTypeRank <= 0 {
+        return 0
+    }
+
+    length := typeRanks.Length
+    resultCount := 0
+    i := 0
+    if resultIndices.Length >= length {
+        unrolledLimit := length - 16
+        while i <= unrolledLimit {
+            if typeRanks[i] == targetTypeRank {
+                resultIndices[resultCount] = i
+                resultCount = resultCount + 1
+            }
+
+            next := i + 1
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 2
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 3
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 4
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 5
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 6
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 7
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 8
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 9
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 10
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 11
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 12
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 13
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 14
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 15
+            if typeRanks[next] == targetTypeRank {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            i = i + 16
+        }
+
+        while i < length {
+            if typeRanks[i] == targetTypeRank {
+                resultIndices[resultCount] = i
+                resultCount = resultCount + 1
+            }
+
+            i = i + 1
+        }
+
+        return resultCount
+    }
+
+    while i < length {
+        if typeRanks[i] == targetTypeRank {
+            if resultCount < resultIndices.Length {
+                resultIndices[resultCount] = i
+            }
+
+            resultCount = resultCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return resultCount
+}
+
+func CliReferenceTypeFilterChecksumInto(
+    typeRanks: int[],
+    targetTypeRank: int,
+    resultIndices: int[]): int {
+    if targetTypeRank <= 0 {
+        return 0
+    }
+
+    length := typeRanks.Length
+    if resultIndices.Length < length {
+        matchCount := CliReferenceTypeFilterIndicesInto(typeRanks, targetTypeRank, resultIndices)
+        if matchCount < 0 {
+            return matchCount
+        }
+
+        checksum := matchCount
+        i := 0
+        while i < matchCount && i < resultIndices.Length {
+            sourceIndex := resultIndices[i]
+            typeRank := 0
+            if sourceIndex >= 0 && sourceIndex < length {
+                typeRank = typeRanks[sourceIndex]
+            }
+
+            checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + typeRank * 17
+            i = i + 1
+        }
+
+        return checksum
+    }
+
+    matchCount := 0
+    checksum := matchCount
+    i := 0
+    targetScore := targetTypeRank * 17
+
+    unrolledLimit := length - 16
+    while i <= unrolledLimit {
+        if typeRanks[i] == targetTypeRank {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (i + 1) * 31 + targetScore
+        }
+
+        next := i + 1
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 2
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 3
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 4
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 5
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 6
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 7
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 8
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 9
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 10
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 11
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 12
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 13
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 14
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        next = i + 15
+        if typeRanks[next] == targetTypeRank {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + targetScore
+        }
+
+        i = i + 16
+    }
+
+    while i < length {
+        if typeRanks[i] == targetTypeRank {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (i + 1) * 31 + targetScore
+        }
+
+        i = i + 1
+    }
+
+    return checksum + matchCount
+}
+
 func CliStableDistinctRankIndicesInto(
     ranks: int[],
     uniqueRankCount: int,

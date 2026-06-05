@@ -843,6 +843,45 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommand_DogfoodAdapter_FiltersReferenceValuesByType()
+    {
+        var references = new[]
+        {
+            new Reference { Nuget = "Serilog", Version = "3.1.1" },
+            new Reference { Framework = "Microsoft.AspNetCore.App" },
+            new Reference { Dll = "lib/Analyzer.dll" },
+            new Reference { Project = "../Shared/project.yml" },
+            new Reference { Nuget = "YamlDotNet", Version = "16.0.0" },
+            new Reference { Framework = "Microsoft.WindowsDesktop.App" }
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+            references,
+            ReferenceType.NuGet,
+            out var packageReferences));
+        Assert.Equal(new[] { "Serilog", "YamlDotNet" }, packageReferences.Select(reference => reference.Nuget).ToArray());
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+            references,
+            ReferenceType.Framework,
+            out var frameworkReferences));
+        Assert.Equal(new[] { "Microsoft.AspNetCore.App", "Microsoft.WindowsDesktop.App" }, frameworkReferences.Select(reference => reference.Framework).ToArray());
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+            references,
+            ReferenceType.Dll,
+            out var dllReferences));
+        Assert.Equal(new[] { "lib/Analyzer.dll" }, dllReferences.Select(reference => reference.Dll).ToArray());
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+            references,
+            ReferenceType.Project,
+            out var projectReferences));
+        Assert.Equal(new[] { "../Shared/project.yml" }, projectReferences.Select(reference => reference.Project).ToArray());
+    }
+
+    [Fact]
     public void ExportCommand_DogfoodAdapter_DeduplicatesReferenceValues()
     {
         var projectReferences = new[]

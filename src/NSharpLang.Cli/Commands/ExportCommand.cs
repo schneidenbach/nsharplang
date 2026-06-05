@@ -439,7 +439,7 @@ Exit codes:
         {
             var projectReferences = new List<string>();
 
-            foreach (var dependency in dependencies.Where(reference => reference.Type == ReferenceType.Project))
+            foreach (var dependency in FilterExportReferencesByType(dependencies, ReferenceType.Project))
             {
                 var absoluteReferencePath = Path.GetFullPath(Path.IsPathRooted(dependency.Project!)
                     ? dependency.Project!
@@ -470,7 +470,7 @@ Exit codes:
         {
             var dllReferences = new List<DllReferenceInfo>();
 
-            foreach (var dependency in dependencies.Where(reference => reference.Type == ReferenceType.Dll))
+            foreach (var dependency in FilterExportReferencesByType(dependencies, ReferenceType.Dll))
             {
                 var absoluteReferencePath = Path.GetFullPath(Path.IsPathRooted(dependency.Dll!)
                     ? dependency.Dll!
@@ -501,8 +501,7 @@ Exit codes:
 
         private static List<PackageReferenceInfo> ResolvePackageReferences(IEnumerable<Reference> dependencies)
         {
-            var packageReferences = dependencies
-                .Where(reference => reference.Type == ReferenceType.NuGet)
+            var packageReferences = FilterExportReferencesByType(dependencies, ReferenceType.NuGet)
                 .Select(reference => new PackageReferenceInfo(reference.Nuget!, reference.Version))
                 .ToList();
 
@@ -511,12 +510,21 @@ Exit codes:
 
         private static List<string> ResolveFrameworkReferences(IEnumerable<Reference> dependencies)
         {
-            var frameworkReferences = dependencies
-                .Where(reference => reference.Type == ReferenceType.Framework)
+            var frameworkReferences = FilterExportReferencesByType(dependencies, ReferenceType.Framework)
                 .Select(reference => reference.Framework!)
                 .ToList();
 
             return DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static List<Reference> FilterExportReferencesByType(
+            IEnumerable<Reference> dependencies,
+            ReferenceType referenceType)
+        {
+            var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
+            return NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(dependencyList, referenceType, out var dogfoodReferences)
+                ? dogfoodReferences
+                : dependencyList.Where(reference => reference.Type == referenceType).ToList();
         }
 
         private static string GenerateMainProjectFile(

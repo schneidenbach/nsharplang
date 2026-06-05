@@ -1371,6 +1371,14 @@ class OtherZetaType {
                     "CliUpdateTargetNuGetDependencyChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateTargetNuGetDependencyChecksumInto.");
+            var cliReferenceTypeFilterIndicesInto = programType.GetMethod(
+                    "CliReferenceTypeFilterIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliReferenceTypeFilterIndicesInto.");
+            var cliReferenceTypeFilterChecksumInto = programType.GetMethod(
+                    "CliReferenceTypeFilterChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliReferenceTypeFilterChecksumInto.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1925,6 +1933,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliUpdateTargetNuGetDependencyFilteringLikeProduction(
                 cliUpdateTargetNuGetDependencyIndicesInto,
                 cliUpdateTargetNuGetDependencyChecksumInto);
+            AssertCliReferenceTypeFilteringLikeProduction(
+                cliReferenceTypeFilterIndicesInto,
+                cliReferenceTypeFilterChecksumInto);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
@@ -4242,6 +4253,62 @@ func main() {
                 + (index + 1) * 31
                 + 17
                 + nameRanks[index] * 13;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertCliReferenceTypeFilteringLikeProduction(
+        MethodInfo cliReferenceTypeFilterIndicesInto,
+        MethodInfo cliReferenceTypeFilterChecksumInto)
+    {
+        var typeRanks = new[]
+        {
+            1, 3, 2, 4, 1, 0, 4, 2, 3, 1
+        };
+        var cases = new[]
+        {
+            (TargetTypeRank: 1, Expected: new[] { 0, 4, 9 }),
+            (TargetTypeRank: 2, Expected: new[] { 2, 7 }),
+            (TargetTypeRank: 3, Expected: new[] { 1, 8 }),
+            (TargetTypeRank: 4, Expected: new[] { 3, 6 }),
+            (TargetTypeRank: 0, Expected: Array.Empty<int>()),
+            (TargetTypeRank: -1, Expected: Array.Empty<int>()),
+            (TargetTypeRank: 99, Expected: Array.Empty<int>())
+        };
+
+        foreach (var (targetTypeRank, expected) in cases)
+        {
+            var resultIndices = new int[typeRanks.Length];
+            var actualCount = (int)(cliReferenceTypeFilterIndicesInto.Invoke(
+                null,
+                new object[] { typeRanks, targetTypeRank, resultIndices }) ?? -1);
+
+            Assert.Equal(expected.Length, actualCount);
+            Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+            var checksumResultIndices = new int[typeRanks.Length];
+            var actualChecksum = (int)(cliReferenceTypeFilterChecksumInto.Invoke(
+                null,
+                new object[] { typeRanks, targetTypeRank, checksumResultIndices }) ?? -1);
+            var expectedChecksum = CliReferenceTypeFilterChecksum(expected, typeRanks);
+
+            Assert.Equal(expectedChecksum, actualChecksum);
+            Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+        }
+    }
+
+    private static int CliReferenceTypeFilterChecksum(
+        int[] orderedIndices,
+        int[] typeRanks)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97
+                + (index + 1) * 31
+                + typeRanks[index] * 17;
         }
 
         return checksum;
