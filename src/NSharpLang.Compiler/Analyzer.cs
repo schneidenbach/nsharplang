@@ -12518,10 +12518,9 @@ public class Analyzer : IDisposable
     {
         CompilerError error;
 
-        // If we have source lines and the line is valid, include snippet
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
-            var sourceSnippet = _sourceLines[line - 1]; // Lines are 1-indexed
             error = CompilerError.WithSnippet(
                 code,
                 message,
@@ -12556,10 +12555,9 @@ public class Analyzer : IDisposable
     {
         CompilerError warning;
 
-        // If we have source lines and the line is valid, include snippet
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
-            var sourceSnippet = _sourceLines[line - 1]; // Lines are 1-indexed
             warning = CompilerError.WithSnippet(
                 code,
                 message,
@@ -12586,9 +12584,20 @@ public class Analyzer : IDisposable
     }
 
     private string? GetSourceSnippet(int line)
-        => _sourceLines != null && line > 0 && line <= _sourceLines.Length
+    {
+        if (line <= 0)
+            return null;
+
+        if (_sourceText != null &&
+            NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(_sourceText, line, out var dogfoodLine))
+        {
+            return dogfoodLine;
+        }
+
+        return _sourceLines != null && line <= _sourceLines.Length
             ? _sourceLines[line - 1]
             : null;
+    }
 
     // Package validation
     private void ValidatePackageName(PackageDeclaration package)
@@ -13032,11 +13041,8 @@ public class Analyzer : IDisposable
     {
         string? sourceLine = null;
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length)
-        {
-            sourceLine = _sourceLines[line - 1];
-        }
-        else if (!string.IsNullOrWhiteSpace(_currentFilePath) && File.Exists(_currentFilePath))
+        sourceLine = GetSourceSnippet(line);
+        if (sourceLine == null && !string.IsNullOrWhiteSpace(_currentFilePath) && File.Exists(_currentFilePath))
         {
             sourceLine = File.ReadLines(_currentFilePath).Skip(line - 1).FirstOrDefault();
         }

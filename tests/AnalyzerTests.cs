@@ -130,6 +130,24 @@ func main(): int {
 }", "'var' is not a type");
     }
 
+    [Fact]
+    public void Analyzer_SourceSnippet_PreservesCrLfSplitBehavior()
+    {
+        var source = string.Join("\r\n", new[]
+        {
+            "func main() {",
+            "    let value: var = 42",
+            "}"
+        });
+
+        var result = AnalyzeWithSource(source);
+
+        var diagnostic = Assert.Single(
+            result.Errors,
+            error => error.Message.Contains("'var' is not a type", StringComparison.Ordinal));
+        Assert.Equal("    let value: var = 42\r", diagnostic.SourceSnippet);
+    }
+
     private void AssertHasParseError(string source, string expectedMessage)
     {
         var lexer = new Lexer(source, "test.nl");

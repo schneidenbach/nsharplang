@@ -956,6 +956,9 @@ through the compiled N# whole-identifier scanner when the dogfood assembly is av
 old split-based helper kept as the fallback. Completion receiver-context classification also routes
 through the compiled N# classifier
 when the dogfood assembly is available, with the old C# helper kept as the fallback.
+Analyzer central error/warning snippets and namespace-import source-line lookups now route through
+the same source-only cached raw-line adapter, with the existing split-backed source lines retained
+for semantic span calculations that still need broader analyzer refactoring.
 Parser diagnostic source snippets now route through the same source-only cached raw-line adapter,
 with the previous `source.Split('\n')` helper kept as the fallback when the dogfood assembly is not
 available; this preserves the parser's LF-split semantics, including CRLF lines retaining a trailing
