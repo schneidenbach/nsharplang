@@ -945,6 +945,11 @@ Current CLI dogfood benchmarks:
   host has projected fix safety strings into compact ranks, preserves the default
   safe-only/include-review-needed behavior, treats unknown safety values as skipped, and writes
   skipped source indices through `CliFixSkippedIndicesInto`.
+- `CliFixEditFlattenBenchmarks` targets safe-edit flattening in `nlc fix` after the safety gate has
+  selected applicable actions. The C# baseline mirrors the current CLI shape:
+  `safeActions.SelectMany(action => action.Edits).ToList()`. The N# pressure candidate runs after
+  the host has projected each safe action's edit count, then writes flattened action/edit indices
+  through `CliFixEditFlattenIndicesInto`.
 - `CliSymbolKindFilteringBenchmarks` targets symbol-kind filtering in `nlc query symbols --kind`,
   batch symbol queries, and daemon symbol queries. The C# baseline mirrors the current query LINQ
   shape: enum comparison, list materialization, and stable source-order results. The N# candidate
@@ -1069,15 +1074,15 @@ flags measured 270.0 ns vs 342.7 ns representative and 2.156 us vs 2.882 us larg
 `BatchQueryRunner` keeps the existing LINQ count until N# direct-call overhead and tiny-loop codegen
 can turn sub-microsecond kernels into 5x wins rather than modest allocation-free improvements.
 
-`CliFixEditFlattenIndicesInto` was also measured and deliberately removed instead of being routed
-into production. The candidate projected each safe `nlc fix` action's edit count, wrote flattened
-action/edit index pairs into caller-owned buffers, and used prevalidated output capacity plus
-explicit fast paths for one- through five-edit actions. It still measured only about 4.7x faster on
-the representative corpus (1.985 us vs 9.311 us, 0 B vs 17,208 B), though it did clear about 5.8x
-on the large generated corpus (15.904 us vs 91.693 us, 0 B vs 136,440 B). Because acceptance
-requires every measured corpus to clear 5x, `nlc fix` keeps the current `SelectMany(...).ToList()`
-edit flattening path until N# has lower loop/arithmetic overhead or a faster way to bulk-fill
-parallel integer result buffers.
+`CliFixEditFlattenIndicesInto` was reintroduced as a benchmark-only pressure kernel and remains
+unrouted. The revised caller-owned shape projects each safe `nlc fix` action's edit count, writes
+flattened action/edit index pairs into caller-owned buffers, and uses explicit fast paths for one-
+through eight-edit actions. A short validation run on 2026-06-05 measured only about 2.1x faster on
+the representative corpus (6.477 us vs 13.656 us, 0 B vs 35,720 B) and about 2.6x faster on the
+large generated corpus (51.822 us vs 133.055 us, 0 B vs 285,295 B). Because acceptance requires
+every measured corpus to clear 5x, `nlc fix` keeps the current `SelectMany(...).ToList()` edit
+flattening path until N# has lower loop/arithmetic overhead or a faster way to bulk-fill parallel
+integer result buffers.
 
 `CliFirstPositionalArgIndex` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for first positional-operand discovery. The accepted N# path returns

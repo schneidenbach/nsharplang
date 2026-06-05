@@ -1318,6 +1318,14 @@ class OtherZetaType {
                     "CliFixSafetyFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSafetyFilterChecksumInto.");
+            var cliFixEditFlattenIndicesInto = programType.GetMethod(
+                    "CliFixEditFlattenIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixEditFlattenIndicesInto.");
+            var cliFixEditFlattenChecksumInto = programType.GetMethod(
+                    "CliFixEditFlattenChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixEditFlattenChecksumInto.");
             var cliFixSkippedIndicesInto = programType.GetMethod(
                     "CliFixSkippedIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1883,6 +1891,8 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliFixSafetyFilteringLikeProduction(
                 cliFixSafetyFilterIndicesInto,
                 cliFixSafetyFilterChecksumInto,
+                cliFixEditFlattenIndicesInto,
+                cliFixEditFlattenChecksumInto,
                 cliFixSkippedIndicesInto,
                 cliFixSkippedChecksumInto);
             AssertCliCleanArtifactDirectoryOrderingLikeProduction(
@@ -3862,6 +3872,8 @@ func main() {
     private static void AssertCliFixSafetyFilteringLikeProduction(
         MethodInfo cliFixSafetyFilterIndicesInto,
         MethodInfo cliFixSafetyFilterChecksumInto,
+        MethodInfo cliFixEditFlattenIndicesInto,
+        MethodInfo cliFixEditFlattenChecksumInto,
         MethodInfo cliFixSkippedIndicesInto,
         MethodInfo cliFixSkippedChecksumInto)
     {
@@ -3918,6 +3930,85 @@ func main() {
             Assert.Equal(expectedSkippedChecksum, actualSkippedChecksum);
             Assert.Equal(expectedSkipped, skippedChecksumIndices.Take(expectedSkipped.Length).ToArray());
         }
+
+        AssertCliFixEditFlatteningLikeProduction(
+            cliFixEditFlattenIndicesInto,
+            cliFixEditFlattenChecksumInto);
+    }
+
+    private static void AssertCliFixEditFlatteningLikeProduction(
+        MethodInfo cliFixEditFlattenIndicesInto,
+        MethodInfo cliFixEditFlattenChecksumInto)
+    {
+        var editCounts = new[]
+        {
+            1,
+            0,
+            3,
+            8,
+            9,
+            2
+        };
+        var expected = CreateExpectedCliFixEditPairs(editCounts);
+
+        var actionIndices = new int[expected.Length];
+        var editIndices = new int[expected.Length];
+        var actualCount = (int)(cliFixEditFlattenIndicesInto.Invoke(
+            null,
+            new object[] { editCounts, actionIndices, editIndices }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected.Select(pair => pair.ActionIndex), actionIndices.Take(actualCount));
+        Assert.Equal(expected.Select(pair => pair.EditIndex), editIndices.Take(actualCount));
+
+        Array.Clear(actionIndices);
+        Array.Clear(editIndices);
+        var actualChecksum = (int)(cliFixEditFlattenChecksumInto.Invoke(
+            null,
+            new object[] { editCounts, actionIndices, editIndices }) ?? -1);
+
+        Assert.Equal(CliFixEditFlattenChecksum(expected, editCounts), actualChecksum);
+        Assert.Equal(expected.Select(pair => pair.ActionIndex), actionIndices.Take(expected.Length));
+        Assert.Equal(expected.Select(pair => pair.EditIndex), editIndices.Take(expected.Length));
+
+        var tooSmallActions = new int[expected.Length - 1];
+        var tooSmallEdits = new int[expected.Length];
+        var failedCount = (int)(cliFixEditFlattenIndicesInto.Invoke(
+            null,
+            new object[] { editCounts, tooSmallActions, tooSmallEdits }) ?? 0);
+
+        Assert.Equal(-1, failedCount);
+    }
+
+    private static (int ActionIndex, int EditIndex)[] CreateExpectedCliFixEditPairs(int[] editCounts)
+    {
+        var expected = new List<(int ActionIndex, int EditIndex)>();
+        for (var actionIndex = 0; actionIndex < editCounts.Length; actionIndex++)
+        {
+            for (var editIndex = 0; editIndex < editCounts[actionIndex]; editIndex++)
+            {
+                expected.Add((actionIndex, editIndex));
+            }
+        }
+
+        return expected.ToArray();
+    }
+
+    private static int CliFixEditFlattenChecksum(
+        (int ActionIndex, int EditIndex)[] pairs,
+        int[] editCounts)
+    {
+        var checksum = pairs.Length;
+        for (var i = 0; i < pairs.Length; i++)
+        {
+            var (actionIndex, editIndex) = pairs[i];
+            checksum += (i + 1) * 97
+                + (actionIndex + 1) * 31
+                + (editIndex + 1) * 17
+                + editCounts[actionIndex] * 13;
+        }
+
+        return checksum;
     }
 
     private static int[] CreateExpectedCliFixSafetyIndices(int[] safetyRanks, bool includeReviewNeeded)

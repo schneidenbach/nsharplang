@@ -563,6 +563,176 @@ func CliFixSafetyFilterChecksumInto(
     return checksum + matchCount
 }
 
+func CliFixEditFlattenIndicesInto(
+    editCounts: int[],
+    resultActionIndices: int[],
+    resultEditIndices: int[]): int {
+    resultIndex := 0
+    actionIndex := 0
+    actionCount := editCounts.Length
+
+    while actionIndex < actionCount {
+        editCount := editCounts[actionIndex]
+        if editCount < 0 {
+            return -1
+        }
+
+        nextResultIndex := resultIndex + editCount
+        if nextResultIndex > resultActionIndices.Length || nextResultIndex > resultEditIndices.Length {
+            return -1
+        }
+
+        if editCount == 1 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+        } else if editCount == 2 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+            next := resultIndex + 1
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 1
+        } else if editCount == 3 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+            next := resultIndex + 1
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 1
+            next = resultIndex + 2
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 2
+        } else if editCount == 4 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+            next := resultIndex + 1
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 1
+            next = resultIndex + 2
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 2
+            next = resultIndex + 3
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 3
+        } else if editCount == 5 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+            next := resultIndex + 1
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 1
+            next = resultIndex + 2
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 2
+            next = resultIndex + 3
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 3
+            next = resultIndex + 4
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 4
+        } else if editCount == 6 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+            next := resultIndex + 1
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 1
+            next = resultIndex + 2
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 2
+            next = resultIndex + 3
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 3
+            next = resultIndex + 4
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 4
+            next = resultIndex + 5
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 5
+        } else if editCount == 7 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+            next := resultIndex + 1
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 1
+            next = resultIndex + 2
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 2
+            next = resultIndex + 3
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 3
+            next = resultIndex + 4
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 4
+            next = resultIndex + 5
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 5
+            next = resultIndex + 6
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 6
+        } else if editCount == 8 {
+            resultActionIndices[resultIndex] = actionIndex
+            resultEditIndices[resultIndex] = 0
+            next := resultIndex + 1
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 1
+            next = resultIndex + 2
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 2
+            next = resultIndex + 3
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 3
+            next = resultIndex + 4
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 4
+            next = resultIndex + 5
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 5
+            next = resultIndex + 6
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 6
+            next = resultIndex + 7
+            resultActionIndices[next] = actionIndex
+            resultEditIndices[next] = 7
+        } else {
+            editIndex := 0
+            while editIndex < editCount {
+                targetIndex := resultIndex + editIndex
+                resultActionIndices[targetIndex] = actionIndex
+                resultEditIndices[targetIndex] = editIndex
+                editIndex = editIndex + 1
+            }
+        }
+
+        resultIndex = nextResultIndex
+        actionIndex = actionIndex + 1
+    }
+
+    return resultIndex
+}
+
+func CliFixEditFlattenChecksumInto(
+    editCounts: int[],
+    resultActionIndices: int[],
+    resultEditIndices: int[]): int {
+    flattenedCount := CliFixEditFlattenIndicesInto(editCounts, resultActionIndices, resultEditIndices)
+    if flattenedCount < 0 {
+        return flattenedCount
+    }
+
+    checksum := flattenedCount
+    i := 0
+    while i < flattenedCount {
+        actionIndex := resultActionIndices[i]
+        editIndex := resultEditIndices[i]
+        editCount := 0
+        if actionIndex >= 0 && actionIndex < editCounts.Length {
+            editCount = editCounts[actionIndex]
+        }
+
+        checksum = checksum + (i + 1) * 97 + (actionIndex + 1) * 31 + (editIndex + 1) * 17 + editCount * 13
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func CliFixSkippedIndicesInto(
     safetyRanks: int[],
     includeReviewNeeded: int,
