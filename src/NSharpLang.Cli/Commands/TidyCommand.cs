@@ -83,7 +83,8 @@ public static class TidyCommand
             results.Add(status);
         }
 
-        var ok = results.All(r => r.Status != "possibly-unused");
+        var summary = SummarizeDependencies(results);
+        var ok = summary.PossiblyUnusedCount == 0;
 
         if (json)
         {
@@ -104,7 +105,7 @@ public static class TidyCommand
         }
         else
         {
-            PrintTable(results, projectRoot);
+            PrintTable(results, projectRoot, summary);
         }
 
         // Apply fixes if requested
@@ -244,7 +245,27 @@ public static class TidyCommand
 
     // ── Output ────────────────────────────────────────────────────────────
 
-    private static void PrintTable(List<DependencyStatus> results, string projectRoot)
+    private static TidyDependencySummary SummarizeDependencies(IReadOnlyList<DependencyStatus> results)
+    {
+        if (NSharpCliDogfoodAdapter.TrySummarizeTidyDependencyStatuses(
+                results,
+                static result => result.Status,
+                out var dogfoodSummary))
+        {
+            return new TidyDependencySummary(
+                dogfoodSummary.PossiblyUnusedCount,
+                dogfoodSummary.UnknownCount);
+        }
+
+        return new TidyDependencySummary(
+            results.Count(r => r.Status == "possibly-unused"),
+            results.Count(r => r.Status == "unknown"));
+    }
+
+    private static void PrintTable(
+        List<DependencyStatus> results,
+        string projectRoot,
+        TidyDependencySummary summary)
     {
         if (results.Count == 0)
         {
@@ -263,8 +284,8 @@ public static class TidyCommand
             Console.WriteLine($"  {r.Name.PadRight(nameWidth)}  {r.Status.PadRight(statusWidth)}  {r.Reason}");
         }
 
-        var possiblyUnused = results.Count(r => r.Status == "possibly-unused");
-        var unknown = results.Count(r => r.Status == "unknown");
+        var possiblyUnused = summary.PossiblyUnusedCount;
+        var unknown = summary.UnknownCount;
 
         Console.WriteLine();
         if (possiblyUnused > 0)
@@ -337,4 +358,8 @@ Exit codes:
     // ── Types ─────────────────────────────────────────────────────────────
 
     private sealed record DependencyStatus(string Name, string? Version, string Status, string Reason);
+
+    private readonly record struct TidyDependencySummary(
+        int PossiblyUnusedCount,
+        int UnknownCount);
 }

@@ -891,6 +891,56 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TrySummarizeTidyDependencyStatuses<T>(
+        IReadOnlyList<T> results,
+        Func<T, string> statusSelector,
+        out (int PossiblyUnusedCount, int UnknownCount) summary)
+    {
+        summary = (0, 0);
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultCount = results.Count;
+        if (resultCount == 0)
+            return true;
+
+        var scratch = t_tidyDependencyStatusFilterScratch ??= new TidyDependencyStatusFilterScratch();
+        scratch.EnsureCapacity(resultCount);
+
+        try
+        {
+            for (var i = 0; i < resultCount; i++)
+            {
+                scratch.StatusRanks[i] = GetTidyDependencyStatusRank(statusSelector(results[i]));
+            }
+
+            var summarizedCount = bindings.CliTidyDependencyStatusSummary(
+                scratch.StatusRanks,
+                scratch.SummaryCounts);
+
+            if (summarizedCount != resultCount ||
+                scratch.SummaryCounts[0] < 0 ||
+                scratch.SummaryCounts[1] < 0 ||
+                scratch.SummaryCounts[0] > resultCount ||
+                scratch.SummaryCounts[1] > resultCount ||
+                scratch.SummaryCounts[0] + scratch.SummaryCounts[1] > resultCount)
+            {
+                summary = (0, 0);
+                return false;
+            }
+
+            summary = (scratch.SummaryCounts[0], scratch.SummaryCounts[1]);
+            return true;
+        }
+        catch
+        {
+            summary = (0, 0);
+            return false;
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -989,6 +1039,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
+                CreateDelegate<CliTidyDependencyStatusSummaryInto>(programType, "CliTidyDependencyStatusSummaryInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
         }
         catch
@@ -1117,6 +1168,10 @@ internal static class NSharpCliDogfoodAdapter
         int[] seenRanks,
         int[] resultIndices);
 
+    private delegate int CliTidyDependencyStatusSummaryInto(
+        int[] statusRanks,
+        int[] resultCounts);
+
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
@@ -1131,6 +1186,7 @@ internal static class NSharpCliDogfoodAdapter
         CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
+        CliTidyDependencyStatusSummaryInto CliTidyDependencyStatusSummary,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
@@ -1570,6 +1626,7 @@ internal static class NSharpCliDogfoodAdapter
     {
         public int[] ResultIndices = Array.Empty<int>();
         public int[] StatusRanks = Array.Empty<int>();
+        public int[] SummaryCounts = Array.Empty<int>();
 
         public void EnsureCapacity(int count)
         {
@@ -1577,6 +1634,11 @@ internal static class NSharpCliDogfoodAdapter
             {
                 StatusRanks = new int[count];
                 ResultIndices = new int[count];
+            }
+
+            if (SummaryCounts.Length != 2)
+            {
+                SummaryCounts = new int[2];
             }
         }
     }

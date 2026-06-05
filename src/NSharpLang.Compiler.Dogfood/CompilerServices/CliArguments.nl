@@ -1876,6 +1876,113 @@ func CliExportCSharpFirstOperandChecksumInto(
     return checksum
 }
 
+func CliTidyDependencyStatusSummaryInto(statusRanks: int[], resultCounts: int[]): int {
+    if resultCounts.Length < 2 {
+        return -1
+    }
+
+    possiblyUnused := 0
+    unknown := 0
+    i := 0
+    length := statusRanks.Length
+    unrolledLimit := length - 8
+    while i <= unrolledLimit {
+        rank := statusRanks[i]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        next := i + 1
+        rank = statusRanks[next]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        next = i + 2
+        rank = statusRanks[next]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        next = i + 3
+        rank = statusRanks[next]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        next = i + 4
+        rank = statusRanks[next]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        next = i + 5
+        rank = statusRanks[next]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        next = i + 6
+        rank = statusRanks[next]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        next = i + 7
+        rank = statusRanks[next]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        i = i + 8
+    }
+
+    while i < length {
+        rank := statusRanks[i]
+        if rank == 1 {
+            possiblyUnused = possiblyUnused + 1
+        } else if rank == 3 {
+            unknown = unknown + 1
+        }
+
+        i = i + 1
+    }
+
+    resultCounts[0] = possiblyUnused
+    resultCounts[1] = unknown
+    return length
+}
+
+func CliTidyDependencyStatusSummaryChecksumInto(statusRanks: int[], resultCounts: int[]): int {
+    count := CliTidyDependencyStatusSummaryInto(statusRanks, resultCounts)
+    if count < 0 {
+        return count
+    }
+
+    okValue := 13
+    if resultCounts[0] == 0 {
+        okValue = 7
+    }
+
+    return count + okValue + resultCounts[0] * 31 + resultCounts[1] * 17
+}
+
 func CliArgumentIsOptionWithValue(arg: string, optionsWithValues: string[]): bool {
     i := 0
     while i < optionsWithValues.Length {

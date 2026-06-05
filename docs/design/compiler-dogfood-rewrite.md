@@ -62,7 +62,7 @@ dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceSemantic
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequirementGrouping*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAnonymousUnionShim*'
-dotnet run -c Release --project benchmarks -- --filter '*CliTidyDependencyFilter*'
+dotnet run -c Release --project benchmarks -- --filter '*CliTidy*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -1015,6 +1015,11 @@ Current CLI dogfood benchmarks:
   `results.Where(r => r.Status == "possibly-unused").ToList()`. The accepted N# candidate reuses
   the compact rank filter after the host has projected tidy status strings into integer ranks, then
   writes possibly-unused source indices through caller-owned buffers.
+- `CliTidyStatusSummaryBenchmarks` targets `nlc tidy` status summary calculation after dependencies
+  have been classified. The C# baseline mirrors the previous command shape: one `All(...)` pass to
+  compute the JSON `ok` value, then two `Count(...)` passes for the text summary's possibly-unused
+  and unknown counts. The accepted N# candidate scans compact tidy status ranks once through
+  `CliTidyDependencyStatusSummaryInto` and writes summary counts into caller-owned storage.
 - `CliFixEditFlattenBenchmarks` targets safe-edit flattening in `nlc fix` after the safety gate has
   selected applicable actions. The C# baseline mirrors the current CLI shape:
   `safeActions.SelectMany(action => action.Edits).ToList()`. The N# pressure candidate runs after
@@ -1230,6 +1235,13 @@ about 8.0x faster on the representative tidy dependency corpus (298.0 ns vs 2.36
 14,672 B). This is acceptance-grade benchmark evidence for replacing tidy's
 `Where(r => r.Status == "possibly-unused").ToList()` removal-selection gate after the host has
 projected status strings into compact integer ranks.
+
+`CliTidyDependencyStatusSummaryInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc tidy` status summary calculation. It ran about 6.3x faster
+on the representative tidy status corpus (420.8 ns vs 2.667 us) and about 5.8x faster on the large
+generated corpus (3.526 us vs 20.613 us). This is acceptance-grade benchmark evidence for replacing
+the command's previous `All(...)` plus two `Count(...)` status scans after the host has projected
+status strings into compact integer ranks.
 
 `CliFixSafetyFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for `nlc fix` safety filtering. The accepted N# path uses compact
@@ -1574,6 +1586,9 @@ filter kept as the fallback.
 kernel when the dogfood assembly is available, preserving source order, duplicate package entries,
 case-insensitive package-name matching, non-NuGet exclusion, and empty results for missing package
 targets, with the previous C# filter kept as the fallback.
+`nlc tidy` status summary calculation now routes through the compiled N# tidy summary kernel when
+the dogfood assembly is available, preserving exact status matching for JSON `ok` and text summary
+counts, with equivalent C# status-count scans kept as the fallback.
 `nlc tidy --fix` possibly-unused dependency selection now routes through the compiled N# compact
 rank filter when the dogfood assembly is available, preserving exact status matching and source
 order after dependency classification, with the previous C# `Where(...).ToList()` path kept as the
@@ -1603,8 +1618,8 @@ selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
 selection, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
 CLI reference-type filtering,
-`nlc restore` project-reference de-duplication, `nlc update` dependency filtering, and
-`nlc tidy --fix` possibly-unused dependency selection;
+`nlc restore` project-reference de-duplication, `nlc update` dependency filtering, `nlc tidy`
+status summaries, and `nlc tidy --fix` possibly-unused dependency selection;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through
 the production route;

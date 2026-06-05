@@ -1126,6 +1126,13 @@ dependencies:
             dependencies.Where(dependency => dependency.Status == "possibly-unused"),
             actual);
 
+        Assert.True(NSharpCliDogfoodAdapter.TrySummarizeTidyDependencyStatuses(
+            dependencies,
+            static dependency => dependency.Status,
+            out var summary));
+        Assert.Equal(2, summary.PossiblyUnusedCount);
+        Assert.Equal(1, summary.UnknownCount);
+
         static TidyDependency NewDependency(string name, string status) => new(name, status);
     }
 
