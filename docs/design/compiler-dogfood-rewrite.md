@@ -1939,3 +1939,10 @@ produce a production-shaped win:
   corpus (`7.829 us` N# vs `9.937 us` C#) and about 1.23x on the large corpus (`67.073 us` N# vs
   `82.426 us` C#). Keep `nlc test --timeout` on the C# parser until N# has a faster tiny-string
   parse path or the surrounding test-command option parsing moves into one N# batch.
+- IL compiler entry-point single-candidate selection: compact key/name/static arrays removed the
+  LINQ branch allocation for the fallback `_methods.Where(...).OrderByDescending(...).ThenBy(...)`
+  path, but `--job Short` only reached about 1.16x on the representative single-candidate row
+  (`568.9 ns` N# vs `661.9 ns` C#), 1.12x on the representative missing row (`570.7 ns` N# vs
+  `641.5 ns` C#), and about 1.09x on the large rows (`4.518 us`/`4.503 us` N# vs
+  `4.916 us`/`4.899 us` C#). Keep `GetEntryPointMethod` on the current C# path until N# owns the
+  broader method table or entry-point diagnostics instead of just this one scan.
