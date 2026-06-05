@@ -222,6 +222,50 @@ func TypeCreationOrderChecksumInto(
     return checksum
 }
 
+func DeclaredTypeExactNameFirstIndex(
+    names: string[],
+    tailHashes: int[],
+    typeName: string,
+    queryTailHash: int,
+    count: int): int {
+    if count < 0 || count > names.Length || count > tailHashes.Length {
+        return -2
+    }
+
+    useTailHash := typeName.Length > 0
+    i := 0
+    while i < count {
+        if (!useTailHash || tailHashes[i] == queryTailHash)
+            && names[i] == typeName {
+            return i + 1
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
+func DeclaredTypeExactNameFirstChecksum(
+    names: string[],
+    tailHashes: int[],
+    typeName: string,
+    queryTailHash: int,
+    count: int,
+    nameWeights: int[]): int {
+    index := DeclaredTypeExactNameFirstIndex(names, tailHashes, typeName, queryTailHash, count)
+    if index <= 0 {
+        return index
+    }
+
+    weight := 0
+    if index - 1 < nameWeights.Length {
+        weight = nameWeights[index - 1]
+    }
+
+    return index * 97 + weight * 31
+}
+
 func DeclaredTypeKeyMatches(key: string, typeName: string): bool {
     if key == typeName {
         return true

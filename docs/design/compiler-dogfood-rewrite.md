@@ -2169,6 +2169,36 @@ CLI command orchestration.
 These probes were built, benchmarked, and removed because they did not clear the 5x gate or did not
 produce a production-shaped win:
 
+- IL compiler declared-type exact-name resolution (`ILCompiler.TryGetDeclaredTypeInfo` /
+  `GetDeclaredTypeMetadataName`): the remaining unrouted declared-type candidate path is a first
+  ordinal exact-name match over the enumerated declared-type name list. `DeclaredTypeExactNameFirstIndex`
+  (in `CompilerServices/TypeLookup.nl`) reproduces that scan exactly — first-wins on duplicate names,
+  1-based index, 0 on no match, with a tail-hash prefilter — and passes parity
+  (`CompilerDogfoodProjectTests.AssertDeclaredTypeExactNameLookupLikeProduction`, including
+  non-interned positive queries so ordinal string value equality is exercised). It is benchmarked by
+  `CompilerServiceTypeLookupBenchmarks` over both corpus rows, kept as benchmark-only, and NOT routed.
+  Unlike the accepted declared-type suffix/name-candidate kernels (whose C# baselines allocate via
+  `Distinct`/`Where`/`ToArray` and run 11x-93x faster), the realistic baseline here is a plain
+  zero-allocation `FirstOrDefault(Ordinal Equals)` loop over the already-projected name array, so
+  there is no allocation to recover and the only edge is the tail-hash prefilter skipping full string
+  compares on long dotted names. Measured (BenchmarkDotNet, Apple M4, .NET 10, 0 B both sides):
+  - Representative (1024 names): NestedMiddle C# 1,326.79 ns vs N# 344.09 ns = **3.86x**; NestedLate
+    C# 2,551.71 ns vs N# 798.61 ns = **3.19x**; Missing C# 1,162.79 ns vs N# 832.74 ns = **1.40x**;
+    NestedEarly (2-element match) C# 1.458 ns vs N# 4.964 ns = **0.29x (N# slower)**.
+  - LargeGenerated (8192 names): NestedLate C# 28,250.15 ns vs N# 5,653.97 ns = **5.00x**; NestedMiddle
+    C# 13,844.46 ns vs N# 3,800.06 ns = **3.64x**; Missing C# 12,444.62 ns vs N# 5,297.66 ns = **2.35x**;
+    NestedEarly C# 1.871 ns vs N# 4.923 ns = **0.38x (N# slower)**.
+  Representative tops out at ~3.86x and the common compiler cases (tiny lists, early match, missing)
+  are at or below 1.4x or actively slower because the N# delegate-call and bounds-check overhead
+  dominates when there is no allocation to amortize. Only the LargeGenerated worst-case full scan
+  reaches exactly 5.0x, and firm rule (b) forbids routing on the large/generated row alone. Do not
+  route `TryGetDeclaredTypeInfo` through this kernel until the call site can own a cached compact
+  declared-name table (so the scan is not the only thing measured) or the surrounding
+  `GetDeclaredTypeMetadataName` recursion moves into one N# batch. Note also: `TypeResolver`
+  simple-name resolution (`TypeResolver.ResolveTypeBySimpleName`, a `FirstOrDefault(t => t.Name ==
+  simpleName)` over CLR exported types) is a sibling declared/CLR-type candidate path, but it lives in
+  the LanguageServer project and is therefore out of scope for routing in this unit (touching it would
+  trigger mandatory IDE visual verification); it is left unmeasured and unrouted here by constraint.
 - `CompilationStub` top-level function namespace grouping: replacing the C# `GroupBy`/namespace
   ordering shape with compact namespace ranks removed allocation, but dry timings were only about
   1.75x faster on the representative corpus and 1.48x faster on the large corpus. Do not re-add this

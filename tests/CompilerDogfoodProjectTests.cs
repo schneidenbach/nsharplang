@@ -2026,6 +2026,14 @@ class OtherZetaType {
                     "AnalyzerUnionMissingCaseChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit AnalyzerUnionMissingCaseChecksumInto.");
+            var declaredTypeExactNameFirstIndex = programType.GetMethod(
+                    "DeclaredTypeExactNameFirstIndex",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DeclaredTypeExactNameFirstIndex.");
+            var declaredTypeExactNameFirstChecksum = programType.GetMethod(
+                    "DeclaredTypeExactNameFirstChecksum",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DeclaredTypeExactNameFirstChecksum.");
 
             const string source = """"
 import System
@@ -2441,6 +2449,9 @@ func main() {
                 semanticScopeLookupSymbolIndicesInto,
                 semanticScopeLookupSymbolChecksumInto);
             AssertAnalyzerUnionMissingCasesLikeProduction(analyzerUnionMissingCaseChecksumInto);
+            AssertDeclaredTypeExactNameLookupLikeProduction(
+                declaredTypeExactNameFirstIndex,
+                declaredTypeExactNameFirstChecksum);
             AssertDiagnosticSeveritySummaryLikeProduction(
                 diagnosticSeveritySummaryInto,
                 diagnosticSeveritySummaryChecksumInto);
@@ -2611,6 +2622,88 @@ func main() {
                 new int[3]
             }) ?? 0);
         Assert.Equal(-1, invalidChecksum);
+    }
+
+    private static void AssertDeclaredTypeExactNameLookupLikeProduction(
+        MethodInfo declaredTypeExactNameFirstIndex,
+        MethodInfo declaredTypeExactNameFirstChecksum)
+    {
+        var names = new[]
+        {
+            "Project.Local.Container",
+            "Project.Local.Container.Inner",
+            "Project.Local.Container.Inner.Leaf",
+            "Project.Other.Container",
+            "Project.Local.Container.Inner"
+        };
+        var nameWeights = new int[names.Length];
+        for (var i = 0; i < names.Length; i++)
+        {
+            nameWeights[i] = names[i].Length;
+        }
+
+        // Mirror the production fallback: first ordinal exact-name match wins.
+        int CSharpFirstIndex(string typeName, int count)
+        {
+            for (var i = 0; i < count; i++)
+            {
+                if (string.Equals(names[i], typeName, StringComparison.Ordinal))
+                {
+                    return i + 1;
+                }
+            }
+
+            return 0;
+        }
+
+        int TailHash(string text)
+        {
+            var width = Math.Min(4, text.Length);
+            var hash = 0;
+            for (var offset = 0; offset < width; offset++)
+            {
+                hash = hash * 31 + text[text.Length - 1 - offset];
+            }
+
+            return hash;
+        }
+
+        var tailHashes = names.Select(TailHash).ToArray();
+
+        // Build positive queries as fresh, non-interned instances so the assertion verifies N#
+        // string '==' performs ordinal value equality (not reference equality against the interned
+        // literals already stored in names).
+        static string Fresh(string value) => new(value.ToCharArray());
+
+        foreach (var query in new[]
+        {
+            Fresh("Project.Local.Container"),          // first top-level
+            Fresh("Project.Local.Container.Inner"),    // earliest of two duplicates (index 1, not 4)
+            Fresh("Project.Other.Container"),          // later unique match
+            Fresh("Project.Missing.Type"),             // no match
+            ""                                          // empty query short-circuits the tail-hash gate
+        })
+        {
+            var expectedIndex = CSharpFirstIndex(query, names.Length);
+            var actualIndex = (int)(declaredTypeExactNameFirstIndex.Invoke(
+                null,
+                new object[] { names, tailHashes, query, TailHash(query), names.Length }) ?? -99);
+            Assert.Equal(expectedIndex, actualIndex);
+
+            var expectedChecksum = expectedIndex <= 0
+                ? expectedIndex
+                : expectedIndex * 97 + nameWeights[expectedIndex - 1] * 31;
+            var actualChecksum = (int)(declaredTypeExactNameFirstChecksum.Invoke(
+                null,
+                new object[] { names, tailHashes, query, TailHash(query), names.Length, nameWeights }) ?? -99);
+            Assert.Equal(expectedChecksum, actualChecksum);
+        }
+
+        // Out-of-range count is rejected.
+        var invalid = (int)(declaredTypeExactNameFirstIndex.Invoke(
+            null,
+            new object[] { names, tailHashes, "Project.Local.Container", TailHash("Project.Local.Container"), names.Length + 1 }) ?? 0);
+        Assert.Equal(-2, invalid);
     }
 
     private static int AnalyzerUnionMissingCaseChecksum(
