@@ -3661,6 +3661,15 @@ func main() {
             @"Features\Auth\Login.nl",
             @"Generated\Win.nl",
             "Models/Customer.nl",
+            // Edge cases for glob-semantics parity with the production regex.
+            "foo",          // "**/foo" must NOT match (".*?/" requires a slash); "foo" exact must
+            "a/foo",        // "**/foo" matches here
+            "deep/a/b/foo", // "**/foo" matches across multiple dirs
+            "anything/x",   // "**" (greedy ".*") and "src/**" trailing-** cases
+            "src/x/y",      // "src/**" matches
+            "src",          // "src/**" must NOT match (requires "src/")
+            "",             // empty path
+            "x/y/z.nl",     // "***" consecutive-star pattern stress
         };
 
         var excludeSets = new[]
@@ -3669,6 +3678,12 @@ func main() {
             new[] { "Generated/*.nl" },
             new[] { "temp/**/*.nl", "**/snapshots/*.nl", "vendor/**", "scratch?.nl" },
             new[] { "Generated/*.nl", "**/snapshots/*.nl", "vendor/**", "scratch?.nl", "temp/**/*.nl" },
+            new[] { "**/foo" },       // lazy "**/" anchoring
+            new[] { "src/**" },       // trailing "**"
+            new[] { "foo" },          // exact-match literal
+            new[] { "***" },          // consecutive stars
+            new[] { "" },             // empty pattern (matches only empty path)
+            new[] { "*" },            // single star, non-slash run
         };
 
         foreach (var excludePatterns in excludeSets)

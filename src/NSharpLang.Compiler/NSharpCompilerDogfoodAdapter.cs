@@ -72,7 +72,16 @@ internal static class NSharpCompilerDogfoodAdapter
                 if (file == null)
                     return false;
 
-                scratch.RelativePaths[i] = getRelativePath(projectRoot, file);
+                var relativePath = getRelativePath(projectRoot, file);
+
+                // The production glob uses .NET regex, where '.' (and '.*') does not match '\n' and
+                // the trailing '$' anchor matches before a final '\n'. The N# kernel treats '\n' as
+                // an ordinary character, so fall back to the exact C# regex path for the (extremely
+                // rare) case of a newline in an on-disk file path to preserve exact parity.
+                if (relativePath.Contains('\n'))
+                    return false;
+
+                scratch.RelativePaths[i] = relativePath;
             }
 
             var keptCount = bindings.ProjectSourceFilterKeptIndices(
