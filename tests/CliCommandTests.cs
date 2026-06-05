@@ -713,6 +713,39 @@ func Main() {
     }
 
     [Fact]
+    public void CliDogfoodAdapter_FiltersFixesBySafety()
+    {
+        var fixes = new[]
+        {
+            NewFix("safe import", FixSafety.Safe),
+            NewFix("review unused variable", FixSafety.ReviewNeeded),
+            NewFix("suggest rewrite", FixSafety.SuggestionOnly),
+            NewFix("safe empty catch", FixSafety.Safe),
+            NewFix("review null access", FixSafety.ReviewNeeded)
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
+            fixes,
+            includeReviewNeeded: false,
+            out var defaultSafeActions));
+        Assert.Equal(
+            fixes.Where(fix => fix.Safety == FixSafety.Safe),
+            defaultSafeActions);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
+            fixes,
+            includeReviewNeeded: true,
+            out var reviewSafeActions));
+        Assert.Equal(
+            fixes.Where(fix => fix.Safety is FixSafety.Safe or FixSafety.ReviewNeeded),
+            reviewSafeActions);
+
+        static CodeAction NewFix(string title, FixSafety safety) =>
+            new(title, "NL000", new List<TextEdit>(), Safety: safety);
+    }
+
+    [Fact]
     public void DocCommand_DogfoodAdapter_OrdersSymbolsForGeneration()
     {
         var symbols = new[]

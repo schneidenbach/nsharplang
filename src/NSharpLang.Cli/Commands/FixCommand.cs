@@ -111,7 +111,12 @@ public static class FixCommand
                 {
                     // Collect only edits from fixes that passed the safety gate. Validate in dry-run too so
                     // the JSON never promises a write plan that would later fail or corrupt a file.
-                    var safeActions = fixes.Where(f => ShouldApply(f.Safety, includeReviewNeeded)).ToList();
+                    var safeActions = NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
+                        fixes,
+                        includeReviewNeeded,
+                        out var dogfoodSafeActions)
+                        ? dogfoodSafeActions
+                        : fixes.Where(f => ShouldApply(f.Safety, includeReviewNeeded)).ToList();
                     var allEdits = safeActions.SelectMany(f => f.Edits).ToList();
                     FixApplicator.ValidateAndSortEdits(source, allEdits);
 

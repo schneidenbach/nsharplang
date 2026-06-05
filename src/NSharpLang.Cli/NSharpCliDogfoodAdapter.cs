@@ -21,6 +21,8 @@ internal static class NSharpCliDogfoodAdapter
     private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
     [ThreadStatic]
     private static CompilerErrorSeverityFilterScratch? t_compilerErrorSeverityFilterScratch;
+    [ThreadStatic]
+    private static FixSafetyFilterScratch? t_fixSafetyFilterScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -303,6 +305,64 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryFilterFixesBySafety(
+        IReadOnlyList<CodeAction> fixes,
+        bool includeReviewNeeded,
+        out List<CodeAction> safeActions)
+    {
+        safeActions = new List<CodeAction>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var fixCount = fixes.Count;
+        if (fixCount == 0)
+            return true;
+
+        var scratch = t_fixSafetyFilterScratch ??= new FixSafetyFilterScratch();
+        scratch.EnsureCapacity(fixCount);
+
+        try
+        {
+            for (var i = 0; i < fixCount; i++)
+            {
+                scratch.SafetyRanks[i] = GetFixSafetyRank(fixes[i].Safety);
+            }
+
+            var safeCount = bindings.CliFixSafetyFilter(
+                scratch.SafetyRanks,
+                includeReviewNeeded ? 1 : 0,
+                scratch.ResultIndices);
+
+            if (safeCount < 0 || safeCount > fixCount || safeCount > scratch.ResultIndices.Length)
+            {
+                safeActions = new List<CodeAction>();
+                return false;
+            }
+
+            safeActions = new List<CodeAction>(safeCount);
+            for (var i = 0; i < safeCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= fixCount)
+                {
+                    safeActions = new List<CodeAction>();
+                    return false;
+                }
+
+                safeActions.Add(fixes[sourceIndex]);
+            }
+
+            return true;
+        }
+        catch
+        {
+            safeActions = new List<CodeAction>();
+            return false;
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -393,7 +453,8 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
-                CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"));
+                CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
+                CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"));
         }
         catch
         {
@@ -472,13 +533,19 @@ internal static class NSharpCliDogfoodAdapter
         int targetRank,
         int[] resultIndices);
 
+    private delegate int CliFixSafetyFilterIndicesInto(
+        int[] safetyRanks,
+        int includeReviewNeeded,
+        int[] resultIndices);
+
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
-        DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter);
+        DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
+        CliFixSafetyFilterIndicesInto CliFixSafetyFilter);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -510,6 +577,15 @@ internal static class NSharpCliDogfoodAdapter
         {
             ErrorSeverity.Error => 1,
             ErrorSeverity.Warning => 2,
+            _ => 0
+        };
+
+    private static int GetFixSafetyRank(FixSafety safety) =>
+        safety switch
+        {
+            FixSafety.Safe => 1,
+            FixSafety.ReviewNeeded => 2,
+            FixSafety.SuggestionOnly => 3,
             _ => 0
         };
 
@@ -712,6 +788,21 @@ internal static class NSharpCliDogfoodAdapter
             {
                 SeverityRanks = new int[errorCount];
                 ResultIndices = new int[errorCount];
+            }
+        }
+    }
+
+    private sealed class FixSafetyFilterScratch
+    {
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SafetyRanks = Array.Empty<int>();
+
+        public void EnsureCapacity(int fixCount)
+        {
+            if (SafetyRanks.Length != fixCount)
+            {
+                SafetyRanks = new int[fixCount];
+                ResultIndices = new int[fixCount];
             }
         }
     }

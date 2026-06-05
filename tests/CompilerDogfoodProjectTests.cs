@@ -850,6 +850,14 @@ func main(): int {
                     "CliPositionalArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPositionalArgChecksumInto.");
+            var cliFixSafetyFilterIndicesInto = programType.GetMethod(
+                    "CliFixSafetyFilterIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSafetyFilterIndicesInto.");
+            var cliFixSafetyFilterChecksumInto = programType.GetMethod(
+                    "CliFixSafetyFilterChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSafetyFilterChecksumInto.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1329,6 +1337,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
                 cliPositionalArgChecksumInto);
+            AssertCliFixSafetyFilteringLikeProduction(
+                cliFixSafetyFilterIndicesInto,
+                cliFixSafetyFilterChecksumInto);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
@@ -3200,6 +3211,69 @@ func main() {
         }
 
         return -1;
+    }
+
+    private static void AssertCliFixSafetyFilteringLikeProduction(
+        MethodInfo cliFixSafetyFilterIndicesInto,
+        MethodInfo cliFixSafetyFilterChecksumInto)
+    {
+        var safetyRanks = new[]
+        {
+            1,
+            2,
+            3,
+            1,
+            0,
+            2,
+            3,
+            1,
+            2
+        };
+
+        foreach (var includeReviewNeeded in new[] { false, true })
+        {
+            var expected = CreateExpectedCliFixSafetyIndices(safetyRanks, includeReviewNeeded);
+            var includeFlag = includeReviewNeeded ? 1 : 0;
+
+            var actualIndices = new int[safetyRanks.Length];
+            var actualCount = (int)(cliFixSafetyFilterIndicesInto.Invoke(
+                null,
+                new object[] { safetyRanks, includeFlag, actualIndices }) ?? -1);
+
+            Assert.Equal(expected.Length, actualCount);
+            Assert.Equal(expected, actualIndices.Take(actualCount).ToArray());
+
+            var checksumIndices = new int[safetyRanks.Length];
+            var actualChecksum = (int)(cliFixSafetyFilterChecksumInto.Invoke(
+                null,
+                new object[] { safetyRanks, includeFlag, checksumIndices }) ?? -1);
+            var expectedChecksum = CliFixSafetyFilterChecksum(expected, safetyRanks);
+
+            Assert.Equal(expectedChecksum, actualChecksum);
+            Assert.Equal(expected, checksumIndices.Take(expected.Length).ToArray());
+        }
+    }
+
+    private static int[] CreateExpectedCliFixSafetyIndices(int[] safetyRanks, bool includeReviewNeeded)
+    {
+        var maxAppliedRank = includeReviewNeeded ? 2 : 1;
+        return safetyRanks
+            .Select((rank, index) => (rank, index))
+            .Where(item => item.rank > 0 && item.rank <= maxAppliedRank)
+            .Select(item => item.index)
+            .ToArray();
+    }
+
+    private static int CliFixSafetyFilterChecksum(int[] orderedIndices, int[] safetyRanks)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31 + safetyRanks[index] * 17;
+        }
+
+        return checksum;
     }
 
     private static void AssertCliDocSymbolOrderingLikeProduction(

@@ -205,6 +205,266 @@ func CliBuildOperandIndicesInto(
     return resultCount
 }
 
+func CliFixSafetyFilterIndicesInto(
+    safetyRanks: int[],
+    includeReviewNeeded: int,
+    resultIndices: int[]): int {
+    maxAppliedRank := 1
+    if includeReviewNeeded != 0 {
+        maxAppliedRank = 2
+    }
+
+    matchCount := 0
+    length := safetyRanks.Length
+    i := 0
+
+    if resultIndices.Length >= length {
+        unrolledLimit := length - 8
+        while i <= unrolledLimit {
+            rank := safetyRanks[i]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = i
+                matchCount = matchCount + 1
+            }
+
+            next := i + 1
+            rank = safetyRanks[next]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 2
+            rank = safetyRanks[next]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 3
+            rank = safetyRanks[next]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 4
+            rank = safetyRanks[next]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 5
+            rank = safetyRanks[next]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 6
+            rank = safetyRanks[next]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            next = i + 7
+            rank = safetyRanks[next]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = next
+                matchCount = matchCount + 1
+            }
+
+            i = i + 8
+        }
+
+        while i < length {
+            rank := safetyRanks[i]
+            if rank > 0 && rank <= maxAppliedRank {
+                resultIndices[matchCount] = i
+                matchCount = matchCount + 1
+            }
+
+            i = i + 1
+        }
+
+        return matchCount
+    }
+
+    unrolledLimit := length - 4
+    while i <= unrolledLimit {
+        rank := safetyRanks[i]
+        if rank > 0 && rank <= maxAppliedRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = i
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        next := i + 1
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = next
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        next = i + 2
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = next
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        next = i + 3
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = next
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        i = i + 4
+    }
+
+    while i < length {
+        rank := safetyRanks[i]
+        if rank > 0 && rank <= maxAppliedRank {
+            if matchCount < resultIndices.Length {
+                resultIndices[matchCount] = i
+            }
+
+            matchCount = matchCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return matchCount
+}
+
+func CliFixSafetyFilterChecksumInto(
+    safetyRanks: int[],
+    includeReviewNeeded: int,
+    resultIndices: int[]): int {
+    maxAppliedRank := 1
+    if includeReviewNeeded != 0 {
+        maxAppliedRank = 2
+    }
+
+    length := safetyRanks.Length
+    if resultIndices.Length < length {
+        matchCount := CliFixSafetyFilterIndicesInto(safetyRanks, includeReviewNeeded, resultIndices)
+        checksum := matchCount
+        i := 0
+        while i < matchCount && i < resultIndices.Length {
+            index := resultIndices[i]
+            rank := 0
+            if index >= 0 && index < length {
+                rank = safetyRanks[index]
+            }
+
+            checksum = checksum + (i + 1) * 97 + (index + 1) * 31 + rank * 17
+            i = i + 1
+        }
+
+        return checksum
+    }
+
+    matchCount := 0
+    checksum := 0
+    i := 0
+    unrolledLimit := length - 8
+    while i <= unrolledLimit {
+        rank := safetyRanks[i]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = i
+            checksum = checksum + (matchCount + 1) * 97 + (i + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        next := i + 1
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 2
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 3
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 4
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 5
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 6
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        next = i + 7
+        rank = safetyRanks[next]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = next
+            checksum = checksum + (matchCount + 1) * 97 + (next + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        i = i + 8
+    }
+
+    while i < length {
+        rank := safetyRanks[i]
+        if rank > 0 && rank <= maxAppliedRank {
+            resultIndices[matchCount] = i
+            checksum = checksum + (matchCount + 1) * 97 + (i + 1) * 31 + rank * 17
+            matchCount = matchCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return checksum + matchCount
+}
+
 func CliPositionalArgChecksumInto(
     args: string[],
     optionsWithValues: string[],

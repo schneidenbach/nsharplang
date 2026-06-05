@@ -850,6 +850,11 @@ Current CLI dogfood benchmarks:
   current CLI LINQ shape: enum severity comparison and list materialization over `CompilerError`
   objects. The N# candidate reuses the compact severity-rank scanner after the host has projected
   `ErrorSeverity` values into small integer ranks.
+- `CliFixSafetyFilterBenchmarks` targets `nlc fix` safety filtering before text edits are collected
+  and validated. The C# baseline mirrors the current CLI LINQ shape: enum safety checks and list
+  materialization over fix objects. The N# candidate runs after the host has projected `FixSafety`
+  values into compact ranks, preserves source order, applies the safe-only or include-review-needed
+  threshold, and writes matching fix indices through `CliFixSafetyFilterIndicesInto`.
 - `CliSymbolKindFilteringBenchmarks` targets symbol-kind filtering in `nlc query symbols --kind`,
   batch symbol queries, and daemon symbol queries. The C# baseline mirrors the current query LINQ
   shape: enum comparison, list materialization, and stable source-order results. The N# candidate
@@ -962,6 +967,17 @@ faster on the representative compiler-error corpus (399.7 ns vs 2.577 us, 0 B vs
 6.8x faster on the large generated compiler-error corpus (3.180 us vs 21.625 us, 0 B vs 26,312 B).
 This is acceptance-grade benchmark evidence for `nlc check` backend-verification error filtering
 and `nlc lint` parse-error filtering after the host has projected `ErrorSeverity` values into compact
+integer ranks.
+
+`CliFixSafetyFilterIndicesInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for `nlc fix` safety filtering. The accepted N# path uses compact
+`FixSafety` ranks, an eight-wide unrolled threshold scan, and a single-pass checksum wrapper. It ran
+about 7.5x faster on the representative safe-only corpus (334.2 ns vs 2.499 us, 0 B vs 2,752 B),
+about 6.3x faster on representative include-review-needed filtering (493.9 ns vs 3.102 us, 0 B vs
+5,344 B), about 7.2x faster on the large generated safe-only corpus (2.635 us vs 19.008 us,
+0 B vs 20,864 B), and about 6.1x faster on the large generated include-review-needed corpus
+(3.996 us vs 24.360 us, 0 B vs 41,568 B). This is acceptance-grade benchmark evidence for the
+`nlc fix` edit-collection safety gate after the host has projected `FixSafety` values into compact
 integer ranks.
 
 `SymbolKindFilterIndicesInto` passed parity and reported zero managed allocation in the normal
