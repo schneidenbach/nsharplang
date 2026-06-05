@@ -110,7 +110,12 @@ public static class TidyCommand
         // Apply fixes if requested
         if (fix)
         {
-            var toRemove = results.Where(r => r.Status == "possibly-unused").ToList();
+            var toRemove = NSharpCliDogfoodAdapter.TrySelectTidyPossiblyUnusedDependencies(
+                results,
+                static result => result.Status,
+                out var dogfoodToRemove)
+                ? dogfoodToRemove
+                : results.Where(r => r.Status == "possibly-unused").ToList();
             if (toRemove.Count == 0)
             {
                 if (!json) Console.WriteLine("Nothing to remove.");

@@ -32,6 +32,8 @@ internal static class NSharpCliDogfoodAdapter
     private static ReferenceTypeFilterScratch? t_referenceTypeFilterScratch;
     [ThreadStatic]
     private static StableDistinctScratch? t_stableDistinctScratch;
+    [ThreadStatic]
+    private static TidyDependencyStatusFilterScratch? t_tidyDependencyStatusFilterScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -827,6 +829,68 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TrySelectTidyPossiblyUnusedDependencies<T>(
+        IReadOnlyList<T> results,
+        Func<T, string> statusSelector,
+        out List<T> possiblyUnused)
+    {
+        possiblyUnused = new List<T>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var resultCount = results.Count;
+        if (resultCount == 0)
+            return true;
+
+        var scratch = t_tidyDependencyStatusFilterScratch ??= new TidyDependencyStatusFilterScratch();
+        scratch.EnsureCapacity(resultCount);
+
+        try
+        {
+            for (var i = 0; i < resultCount; i++)
+            {
+                scratch.StatusRanks[i] = GetTidyDependencyStatusRank(statusSelector(results[i]));
+            }
+
+            var possiblyUnusedCount = bindings.DiagnosticSeverityFilter(
+                scratch.StatusRanks,
+                TidyPossiblyUnusedStatusRank,
+                scratch.ResultIndices);
+
+            if (possiblyUnusedCount < 0 ||
+                possiblyUnusedCount > resultCount ||
+                possiblyUnusedCount > scratch.ResultIndices.Length)
+            {
+                possiblyUnused = new List<T>();
+                return false;
+            }
+
+            possiblyUnused = new List<T>(possiblyUnusedCount);
+            for (var i = 0; i < possiblyUnusedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 ||
+                    sourceIndex >= resultCount ||
+                    scratch.StatusRanks[sourceIndex] != TidyPossiblyUnusedStatusRank)
+                {
+                    possiblyUnused = new List<T>();
+                    return false;
+                }
+
+                possiblyUnused.Add(results[sourceIndex]);
+            }
+
+            return true;
+        }
+        catch
+        {
+            possiblyUnused = new List<T>();
+            return false;
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -1127,6 +1191,17 @@ internal static class NSharpCliDogfoodAdapter
             "safe" => 1,
             "reviewNeeded" => 2,
             "suggestionOnly" => 3,
+            _ => 0
+        };
+
+    private const int TidyPossiblyUnusedStatusRank = 1;
+
+    private static int GetTidyDependencyStatusRank(string status) =>
+        status switch
+        {
+            "possibly-unused" => TidyPossiblyUnusedStatusRank,
+            "used" => 2,
+            "unknown" => 3,
             _ => 0
         };
 
@@ -1487,6 +1562,21 @@ internal static class NSharpCliDogfoodAdapter
             if (SeenRanks.Length != rankCapacity)
             {
                 SeenRanks = new int[rankCapacity];
+            }
+        }
+    }
+
+    private sealed class TidyDependencyStatusFilterScratch
+    {
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] StatusRanks = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (StatusRanks.Length != count)
+            {
+                StatusRanks = new int[count];
+                ResultIndices = new int[count];
             }
         }
     }

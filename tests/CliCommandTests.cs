@@ -1106,6 +1106,30 @@ dependencies:
     }
 
     [Fact]
+    public void CliDogfoodAdapter_SelectsTidyPossiblyUnusedDependencies()
+    {
+        var dependencies = new[]
+        {
+            NewDependency("Newtonsoft.Json", "used"),
+            NewDependency("Serilog", "possibly-unused"),
+            NewDependency("Polly", "unknown"),
+            NewDependency("Humanizer", "possibly-unused"),
+            NewDependency("Custom.Package", "custom")
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TrySelectTidyPossiblyUnusedDependencies(
+            dependencies,
+            static dependency => dependency.Status,
+            out var actual));
+        Assert.Equal(
+            dependencies.Where(dependency => dependency.Status == "possibly-unused"),
+            actual);
+
+        static TidyDependency NewDependency(string name, string status) => new(name, status);
+    }
+
+    [Fact]
     public void DocCommand_DogfoodAdapter_OrdersSymbolsForGeneration()
     {
         var symbols = new[]
@@ -2277,4 +2301,6 @@ func Main() {
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 
     private sealed record ExportReferenceValue(string Name, string Version);
+
+    private sealed record TidyDependency(string Name, string Status);
 }
