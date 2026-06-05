@@ -174,7 +174,10 @@ func AnalyzerOverloadSignatureDistinct(
         existingLength := existingLengths[row]
         if existingLength == candidateLength {
             offset := existingOffsets[row]
-            if offset < 0 || existingLength < 0 || offset + existingLength > existingRanks.Length {
+            // Subtraction-form bounds check avoids int overflow on offset + length for
+            // adversarial descriptors; offset and length are already known non-negative here
+            // (candidateLength >= 0 was validated and existingLength == candidateLength).
+            if offset < 0 || existingLength > existingRanks.Length || offset > existingRanks.Length - existingLength {
                 return -1
             }
 
@@ -228,7 +231,10 @@ func AnalyzerOverloadSignatureDistinctChecksumInto(
     while c < candidateCount {
         candidateLength := candidateLengths[c]
         candidateOffset := candidateOffsets[c]
-        if candidateLength < 0 || candidateOffset < 0 || candidateOffset + candidateLength > candidateRanks.Length {
+        if candidateLength < 0 ||
+            candidateOffset < 0 ||
+            candidateLength > candidateRanks.Length ||
+            candidateOffset > candidateRanks.Length - candidateLength {
             return -1
         }
 
@@ -269,7 +275,8 @@ func AnalyzerOverloadSignatureDistinctSlice(
     existingCount: int): int {
     if candidateOffset < 0 ||
         candidateLength < 0 ||
-        candidateOffset + candidateLength > candidateRanks.Length ||
+        candidateLength > candidateRanks.Length ||
+        candidateOffset > candidateRanks.Length - candidateLength ||
         existingCount < 0 ||
         existingCount > existingOffsets.Length ||
         existingCount > existingLengths.Length {
@@ -281,7 +288,9 @@ func AnalyzerOverloadSignatureDistinctSlice(
         existingLength := existingLengths[row]
         if existingLength == candidateLength {
             offset := existingOffsets[row]
-            if offset < 0 || offset + existingLength > existingRanks.Length {
+            // Subtraction-form bounds check (offset/length already non-negative) avoids
+            // int overflow on offset + length for adversarial existing-row descriptors.
+            if offset < 0 || existingLength > existingRanks.Length || offset > existingRanks.Length - existingLength {
                 return -1
             }
 
