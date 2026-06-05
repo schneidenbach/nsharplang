@@ -1947,10 +1947,10 @@ plus wildcard and bare substring symbol-name filtering in `nlc query symbols --f
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
-Path matching, all-positionals CLI argument filtering, option-bearing `nlc publish` argument
-normalization, and batch result counting through current C# object projection have parity and
-benchmark evidence but are not routed through production code-intelligence, query, batch, daemon, or
-publish option-bearing paths because they currently miss the 5x speed gate.
+Path matching, all-positionals CLI argument filtering, and option-bearing `nlc publish` argument
+normalization have parity and benchmark evidence but are not routed through production
+code-intelligence, query, daemon, or publish option-bearing paths because they currently miss the 5x
+speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in
@@ -2100,6 +2100,12 @@ produce a production-shaped win:
 - Source-map validating cached-query eight-wide unrolling: doubling the existing four-wide
   equal-length fast path preserved parity but did not push the representative row over the gate in
   dry smoke (`89.6 us` N# vs `369.4 us` C#, about 4.1x). The added duplication was removed.
+- Parser-facing lexer token materialization: compact N# `TokenizeMetadataInto` output can recreate
+  the parser token stream on explicit-brace corpora, but the C# boundary still has to allocate
+  `Token` records and public token values. A dry probe measured only about 1.2x on the
+  representative corpus (`151.208 us` N# vs `180.334 us` C#) and about 3.0x on the large generated
+  corpus (`2.466 ms` N# vs `7.325 ms` C#), so this is not a production lexer route. The parser needs
+  a compact token table owned by N# before lexer dogfood can satisfy the 5x gate.
 - Project config reference `HasValue` filtering: compact flag filtering was neutral to slower once
   the host still had to project `Reference.HasValue` and materialize the final `List<Reference>`
   (`77.0 us` N# vs `76.6 us` C# representative; `204.2 us` N# vs `178.4 us` C# large). This is a
@@ -2127,8 +2133,9 @@ produce a production-shaped win:
   the speed gate once ok flags were already represented as compact `ulong` words, but the
   production-shaped C# projection from `BatchQueryItemResult.Ok` into that bitset failed immediately
   (`1.452 us` N# projected row vs `300 ns` C# count on the representative mixed corpus). Do not
-  route `BatchQueryRunner` through this adapter bridge; revisit when the batch runner/result table
-  itself is represented in N# and can maintain packed ok flags directly.
+  route `BatchQueryRunner` through this adapter bridge. The accepted production route keeps packed
+  ok flags while each public result object is created and calls `CliBatchResultPackedSuccessCount`
+  directly.
 - IL compiler entry-point single-candidate selection: compact key/name/static arrays removed the
   LINQ branch allocation for the fallback `_methods.Where(...).OrderByDescending(...).ThenBy(...)`
   path, but `--job Short` only reached about 1.16x on the representative single-candidate row
