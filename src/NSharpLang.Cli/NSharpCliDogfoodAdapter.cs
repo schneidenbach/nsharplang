@@ -27,6 +27,8 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static FixAppliedFileGroupingScratch? t_fixAppliedFileGroupingScratch;
     [ThreadStatic]
+    private static UnifiedDiffHunkScratch? t_unifiedDiffHunkScratch;
+    [ThreadStatic]
     private static FixSafetyFilterScratch? t_fixSafetyFilterScratch;
     [ThreadStatic]
     private static CleanArtifactDirectoryScratch? t_cleanArtifactDirectoryScratch;
@@ -1022,6 +1024,78 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryBuildUnifiedDiffHunkRanges(
+        IReadOnlyList<UnifiedDiff.DiffLine> lines,
+        int contextLines,
+        out UnifiedDiffHunkRanges ranges)
+    {
+        ranges = UnifiedDiffHunkRanges.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null || contextLines < 0)
+            return false;
+
+        var lineCount = lines.Count;
+        if (lineCount == 0)
+            return true;
+
+        var scratch = t_unifiedDiffHunkScratch ??= new UnifiedDiffHunkScratch();
+        scratch.EnsureCapacity(lineCount);
+
+        try
+        {
+            for (var i = 0; i < lineCount; i++)
+            {
+                var line = lines[i];
+                scratch.KindIds[i] = (int)line.Kind;
+                scratch.OldLines[i] = line.OldLine;
+                scratch.NewLines[i] = line.NewLine;
+            }
+
+            var hunkCount = bindings.CliUnifiedDiffHunkRanges(
+                scratch.KindIds,
+                scratch.OldLines,
+                scratch.NewLines,
+                contextLines,
+                scratch.Ranges.Starts,
+                scratch.Ranges.Lengths,
+                scratch.Ranges.OldStarts,
+                scratch.Ranges.OldCounts,
+                scratch.Ranges.NewStarts,
+                scratch.Ranges.NewCounts);
+
+            if (hunkCount < 0 || hunkCount > lineCount)
+                return false;
+
+            for (var hunkIndex = 0; hunkIndex < hunkCount; hunkIndex++)
+            {
+                var start = scratch.Ranges.Starts[hunkIndex];
+                var length = scratch.Ranges.Lengths[hunkIndex];
+                if (start < 0 ||
+                    length <= 0 ||
+                    start + length > lineCount ||
+                    scratch.Ranges.OldStarts[hunkIndex] <= 0 ||
+                    scratch.Ranges.NewStarts[hunkIndex] <= 0 ||
+                    scratch.Ranges.OldCounts[hunkIndex] < 0 ||
+                    scratch.Ranges.NewCounts[hunkIndex] < 0 ||
+                    scratch.Ranges.OldCounts[hunkIndex] > length ||
+                    scratch.Ranges.NewCounts[hunkIndex] > length)
+                {
+                    return false;
+                }
+            }
+
+            scratch.Ranges.Count = hunkCount;
+            ranges = scratch.Ranges;
+            return true;
+        }
+        catch
+        {
+            ranges = UnifiedDiffHunkRanges.Empty;
+            return false;
+        }
+    }
+
     internal static bool TrySelectTidyPossiblyUnusedDependencies<T>(
         IReadOnlyList<T> results,
         Func<T, string> statusSelector,
@@ -1231,6 +1305,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"),
                 CreateDelegate<CliFixSkippedIndicesInto>(programType, "CliFixSkippedIndicesInto"),
                 CreateDelegate<CliFixAppliedFileGroupsInto>(programType, "CliFixAppliedFileGroupsInto"),
+                CreateDelegate<CliUnifiedDiffHunkRangesInto>(programType, "CliUnifiedDiffHunkRangesInto"),
                 CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(programType, "CliCleanArtifactDirectoryIndicesInto"),
                 CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
@@ -1352,6 +1427,18 @@ internal static class NSharpCliDogfoodAdapter
         int[] resultCounts,
         int[] resultIndices);
 
+    private delegate int CliUnifiedDiffHunkRangesInto(
+        int[] kindIds,
+        int[] oldLines,
+        int[] newLines,
+        int contextLines,
+        int[] resultStarts,
+        int[] resultLengths,
+        int[] resultOldStarts,
+        int[] resultOldCounts,
+        int[] resultNewStarts,
+        int[] resultNewCounts);
+
     private delegate int CliCleanArtifactDirectoryIndicesInto(
         int[] kindRanks,
         int[] nodeModuleFlags,
@@ -1400,6 +1487,7 @@ internal static class NSharpCliDogfoodAdapter
         CliFixSafetyFilterIndicesInto CliFixSafetyFilter,
         CliFixSkippedIndicesInto CliFixSkippedIndices,
         CliFixAppliedFileGroupsInto CliFixAppliedFileGroups,
+        CliUnifiedDiffHunkRangesInto CliUnifiedDiffHunkRanges,
         CliCleanArtifactDirectoryIndicesInto CliCleanArtifactDirectoryIndices,
         CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
@@ -1681,6 +1769,19 @@ internal static class NSharpCliDogfoodAdapter
         internal int[] Indices { get; }
     }
 
+    internal sealed class UnifiedDiffHunkRanges
+    {
+        internal static readonly UnifiedDiffHunkRanges Empty = new();
+
+        internal int Count { get; set; }
+        internal int[] Starts { get; set; } = Array.Empty<int>();
+        internal int[] Lengths { get; set; } = Array.Empty<int>();
+        internal int[] OldStarts { get; set; } = Array.Empty<int>();
+        internal int[] OldCounts { get; set; } = Array.Empty<int>();
+        internal int[] NewStarts { get; set; } = Array.Empty<int>();
+        internal int[] NewCounts { get; set; } = Array.Empty<int>();
+    }
+
     private sealed class FixAppliedFileGroupingScratch
     {
         private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
@@ -1737,6 +1838,34 @@ internal static class NSharpCliDogfoodAdapter
                 Array.Clear(FilesByRank, 0, UniqueFileRankCount + 1);
                 UniqueFileRankCount = 0;
             }
+        }
+    }
+
+    private sealed class UnifiedDiffHunkScratch
+    {
+        public int[] KindIds = Array.Empty<int>();
+        public int[] NewLines = Array.Empty<int>();
+        public int[] OldLines = Array.Empty<int>();
+        public UnifiedDiffHunkRanges Ranges { get; } = new();
+
+        public void EnsureCapacity(int lineCount)
+        {
+            if (KindIds.Length == lineCount)
+            {
+                Ranges.Count = 0;
+                return;
+            }
+
+            KindIds = new int[lineCount];
+            OldLines = new int[lineCount];
+            NewLines = new int[lineCount];
+            Ranges.Starts = new int[lineCount];
+            Ranges.Lengths = new int[lineCount];
+            Ranges.OldStarts = new int[lineCount];
+            Ranges.OldCounts = new int[lineCount];
+            Ranges.NewStarts = new int[lineCount];
+            Ranges.NewCounts = new int[lineCount];
+            Ranges.Count = 0;
         }
     }
 

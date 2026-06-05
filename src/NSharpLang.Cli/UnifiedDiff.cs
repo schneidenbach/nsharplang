@@ -7,14 +7,14 @@ namespace NSharpLang.Cli;
 
 internal static class UnifiedDiff
 {
-    private enum DiffKind
+    internal enum DiffKind
     {
         Equal,
         Added,
         Removed
     }
 
-    private readonly record struct DiffLine(DiffKind Kind, string Text, int OldLine, int NewLine);
+    internal readonly record struct DiffLine(DiffKind Kind, string Text, int OldLine, int NewLine);
     private readonly record struct Hunk(IReadOnlyList<DiffLine> Lines, int OldStart, int OldCount, int NewStart, int NewCount);
 
     public static string Create(string before, string after, string beforeLabel, string afterLabel, int contextLines = 3)
@@ -23,27 +23,20 @@ internal static class UnifiedDiff
             return string.Empty;
 
         var diffLines = Diff(before, after);
-        var hunks = BuildHunks(diffLines, contextLines);
 
         var sb = new StringBuilder();
         sb.AppendLine($"--- {beforeLabel}");
         sb.AppendLine($"+++ {afterLabel}");
 
-        foreach (var hunk in hunks)
+        if (NSharpCliDogfoodAdapter.TryBuildUnifiedDiffHunkRanges(diffLines, contextLines, out var ranges))
         {
-            sb.AppendLine($"@@ -{hunk.OldStart},{hunk.OldCount} +{hunk.NewStart},{hunk.NewCount} @@");
-            foreach (var line in hunk.Lines)
-            {
-                var prefix = line.Kind switch
-                {
-                    DiffKind.Added => '+',
-                    DiffKind.Removed => '-',
-                    _ => ' '
-                };
+            AppendHunks(sb, diffLines, ranges);
+            return sb.ToString();
+        }
 
-                sb.Append(prefix);
-                sb.AppendLine(line.Text);
-            }
+        foreach (var hunk in BuildHunks(diffLines, contextLines))
+        {
+            AppendHunk(sb, hunk);
         }
 
         return sb.ToString();
@@ -153,6 +146,47 @@ internal static class UnifiedDiff
                 return new Hunk(slice, oldStart, oldCount, newStart, newCount);
             })
             .ToList();
+    }
+
+    private static void AppendHunks(
+        StringBuilder sb,
+        IReadOnlyList<DiffLine> lines,
+        NSharpCliDogfoodAdapter.UnifiedDiffHunkRanges ranges)
+    {
+        for (var hunkIndex = 0; hunkIndex < ranges.Count; hunkIndex++)
+        {
+            sb.AppendLine(
+                $"@@ -{ranges.OldStarts[hunkIndex]},{ranges.OldCounts[hunkIndex]} +{ranges.NewStarts[hunkIndex]},{ranges.NewCounts[hunkIndex]} @@");
+
+            var start = ranges.Starts[hunkIndex];
+            var end = start + ranges.Lengths[hunkIndex];
+            for (var lineIndex = start; lineIndex < end; lineIndex++)
+            {
+                AppendLine(sb, lines[lineIndex]);
+            }
+        }
+    }
+
+    private static void AppendHunk(StringBuilder sb, Hunk hunk)
+    {
+        sb.AppendLine($"@@ -{hunk.OldStart},{hunk.OldCount} +{hunk.NewStart},{hunk.NewCount} @@");
+        foreach (var line in hunk.Lines)
+        {
+            AppendLine(sb, line);
+        }
+    }
+
+    private static void AppendLine(StringBuilder sb, DiffLine line)
+    {
+        var prefix = line.Kind switch
+        {
+            DiffKind.Added => '+',
+            DiffKind.Removed => '-',
+            _ => ' '
+        };
+
+        sb.Append(prefix);
+        sb.AppendLine(line.Text);
     }
 
     private static string[] SplitLines(string text)

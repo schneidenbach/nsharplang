@@ -1016,6 +1016,12 @@ Current CLI dogfood benchmarks:
   per-group materialization. The accepted N# candidate runs after the host has assigned first-seen
   dense file ranks, then writes group ranks, group spans, and grouped source indices through
   `CliFixAppliedFileGroupsInto`.
+- `CliUnifiedDiffHunkBenchmarks` targets unified-diff hunk range construction in
+  `nlc format --diff` after the line diff has been produced. The C# baseline mirrors the previous
+  `UnifiedDiff.BuildHunks` LINQ shape: collect changed indices, build ranges, materialize hunk
+  slices, and count old/new lines. The accepted N# candidate writes hunk ranges and metadata through
+  `CliUnifiedDiffHunkRangesInto`, letting the host render directly from the original diff lines
+  without materializing hunk objects or slice arrays.
 - `CliTidyDependencyFilterBenchmarks` targets `nlc tidy --fix` dependency removal selection after
   dependencies have been classified. The C# baseline mirrors the command fallback shape:
   `results.Where(r => r.Status == "possibly-unused").ToList()`. The accepted N# candidate reuses
@@ -1291,6 +1297,16 @@ faster on the representative applied-fix corpus (2.081 us vs 27.244 us, 0 B vs 4
 12.8x faster on the large generated corpus (15.710 us vs 200.511 us, 0 B vs 233,952 B). This is
 acceptance-grade benchmark evidence for `nlc fix --text` applied-fix output after the host has
 projected file names into compact integer ranks.
+
+`CliUnifiedDiffHunkRangesInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc format --diff` hunk range construction after line diffing.
+The first production-shaped candidate still materialized hunk records and slice arrays and only
+reached about 4.6x on the representative corpus, so the accepted route computes N# hunk ranges and
+renders directly from the original diff lines. It ran about 7.5x faster on the representative diff
+corpus (911.0 ns vs 6.820 us, 0 B vs 14,216 B) and about 7.2x faster on the large generated diff
+corpus (7.315 us vs 53.003 us, 0 B vs 108,672 B). `UnifiedDiff.Create` now routes through
+`NSharpCliDogfoodAdapter.TryBuildUnifiedDiffHunkRanges` when the dogfood assembly is available,
+with the previous C# `BuildHunks` path retained as an exact fallback.
 
 `SymbolKindFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for symbol-kind filtering. The accepted N# path uses compact symbol

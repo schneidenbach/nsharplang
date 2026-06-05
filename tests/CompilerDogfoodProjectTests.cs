@@ -1512,6 +1512,14 @@ class OtherZetaType {
                     "CliFixAppliedFileGroupChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixAppliedFileGroupChecksumInto.");
+            var cliUnifiedDiffHunkRangesInto = programType.GetMethod(
+                    "CliUnifiedDiffHunkRangesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUnifiedDiffHunkRangesInto.");
+            var cliUnifiedDiffHunkRangeChecksumInto = programType.GetMethod(
+                    "CliUnifiedDiffHunkRangeChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUnifiedDiffHunkRangeChecksumInto.");
             var cliCleanArtifactDirectoryIndicesInto = programType.GetMethod(
                     "CliCleanArtifactDirectoryIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2100,6 +2108,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliFixAppliedFileGroupingLikeProduction(
                 cliFixAppliedFileGroupsInto,
                 cliFixAppliedFileGroupChecksumInto);
+            AssertCliUnifiedDiffHunkRangesLikeProduction(
+                cliUnifiedDiffHunkRangesInto,
+                cliUnifiedDiffHunkRangeChecksumInto);
             AssertCliCleanArtifactDirectoryOrderingLikeProduction(
                 cliCleanArtifactDirectoryIndicesInto,
                 cliCleanArtifactDirectoryChecksumInto);
@@ -4263,6 +4274,215 @@ func main() {
         Assert.Equal(expectedStarts, resultStarts.Take(actualGroupCount).ToArray());
         Assert.Equal(expectedCounts, resultCounts.Take(actualGroupCount).ToArray());
         Assert.Equal(expectedIndices, resultIndices);
+    }
+
+    private static void AssertCliUnifiedDiffHunkRangesLikeProduction(
+        MethodInfo cliUnifiedDiffHunkRangesInto,
+        MethodInfo cliUnifiedDiffHunkRangeChecksumInto)
+    {
+        var kindIds = new[]
+        {
+            0, 0, 2, 1, 0, 0, 0, 0, 2, 0, 1, 1, 0, 0, 0, 2, 2, 1, 0
+        };
+        var oldLines = new int[kindIds.Length];
+        var newLines = new int[kindIds.Length];
+        var oldLine = 1;
+        var newLine = 1;
+        for (var i = 0; i < kindIds.Length; i++)
+        {
+            if (kindIds[i] == 1)
+            {
+                oldLines[i] = oldLine;
+                newLines[i] = newLine;
+                newLine++;
+            }
+            else if (kindIds[i] == 2)
+            {
+                oldLines[i] = oldLine;
+                newLines[i] = newLine;
+                oldLine++;
+            }
+            else
+            {
+                oldLines[i] = oldLine;
+                newLines[i] = newLine;
+                oldLine++;
+                newLine++;
+            }
+        }
+
+        const int ContextLines = 1;
+        var expected = CreateExpectedCliUnifiedDiffHunkRanges(kindIds, oldLines, newLines, ContextLines);
+        var expectedChecksum = CliUnifiedDiffHunkRangeChecksum(expected);
+
+        var starts = new int[kindIds.Length];
+        var lengths = new int[kindIds.Length];
+        var oldStarts = new int[kindIds.Length];
+        var oldCounts = new int[kindIds.Length];
+        var newStarts = new int[kindIds.Length];
+        var newCounts = new int[kindIds.Length];
+        var actualCount = (int)(cliUnifiedDiffHunkRangesInto.Invoke(
+            null,
+            new object[]
+            {
+                kindIds,
+                oldLines,
+                newLines,
+                ContextLines,
+                starts,
+                lengths,
+                oldStarts,
+                oldCounts,
+                newStarts,
+                newCounts
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected.Select(range => range.Start), starts.Take(actualCount));
+        Assert.Equal(expected.Select(range => range.Length), lengths.Take(actualCount));
+        Assert.Equal(expected.Select(range => range.OldStart), oldStarts.Take(actualCount));
+        Assert.Equal(expected.Select(range => range.OldCount), oldCounts.Take(actualCount));
+        Assert.Equal(expected.Select(range => range.NewStart), newStarts.Take(actualCount));
+        Assert.Equal(expected.Select(range => range.NewCount), newCounts.Take(actualCount));
+
+        Array.Clear(starts);
+        Array.Clear(lengths);
+        Array.Clear(oldStarts);
+        Array.Clear(oldCounts);
+        Array.Clear(newStarts);
+        Array.Clear(newCounts);
+        var actualChecksum = (int)(cliUnifiedDiffHunkRangeChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                kindIds,
+                oldLines,
+                newLines,
+                ContextLines,
+                starts,
+                lengths,
+                oldStarts,
+                oldCounts,
+                newStarts,
+                newCounts
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected.Select(range => range.Start), starts.Take(expected.Length));
+        Assert.Equal(expected.Select(range => range.Length), lengths.Take(expected.Length));
+        Assert.Equal(expected.Select(range => range.OldStart), oldStarts.Take(expected.Length));
+        Assert.Equal(expected.Select(range => range.OldCount), oldCounts.Take(expected.Length));
+        Assert.Equal(expected.Select(range => range.NewStart), newStarts.Take(expected.Length));
+        Assert.Equal(expected.Select(range => range.NewCount), newCounts.Take(expected.Length));
+
+        var tooSmallStarts = new int[kindIds.Length - 1];
+        var failedCount = (int)(cliUnifiedDiffHunkRangesInto.Invoke(
+            null,
+            new object[]
+            {
+                kindIds,
+                oldLines,
+                newLines,
+                ContextLines,
+                tooSmallStarts,
+                new int[kindIds.Length],
+                new int[kindIds.Length],
+                new int[kindIds.Length],
+                new int[kindIds.Length],
+                new int[kindIds.Length]
+            }) ?? 0);
+
+        Assert.Equal(-1, failedCount);
+    }
+
+    private static (int Start, int Length, int OldStart, int OldCount, int NewStart, int NewCount)[]
+        CreateExpectedCliUnifiedDiffHunkRanges(
+            int[] kindIds,
+            int[] oldLines,
+            int[] newLines,
+            int contextLines)
+    {
+        var ranges = new List<(int Start, int End)>();
+        var rangeStart = -1;
+        var rangeEnd = -1;
+        for (var i = 0; i < kindIds.Length; i++)
+        {
+            if (kindIds[i] == 0)
+                continue;
+
+            var nextStart = Math.Max(0, i - contextLines);
+            var nextEnd = Math.Min(kindIds.Length - 1, i + contextLines);
+            if (rangeStart < 0)
+            {
+                rangeStart = nextStart;
+                rangeEnd = nextEnd;
+            }
+            else if (nextStart <= rangeEnd + 1)
+            {
+                rangeEnd = Math.Max(rangeEnd, nextEnd);
+            }
+            else
+            {
+                ranges.Add((rangeStart, rangeEnd));
+                rangeStart = nextStart;
+                rangeEnd = nextEnd;
+            }
+        }
+
+        if (rangeStart >= 0)
+            ranges.Add((rangeStart, rangeEnd));
+
+        return ranges
+            .Select(range =>
+            {
+                var oldStart = 0;
+                var newStart = 0;
+                var oldCount = 0;
+                var newCount = 0;
+                for (var i = range.Start; i <= range.End; i++)
+                {
+                    if (oldStart == 0 && oldLines[i] > 0)
+                        oldStart = oldLines[i];
+                    if (newStart == 0 && newLines[i] > 0)
+                        newStart = newLines[i];
+                    if (kindIds[i] != 1)
+                        oldCount++;
+                    if (kindIds[i] != 2)
+                        newCount++;
+                }
+
+                if (oldStart == 0)
+                    oldStart = 1;
+                if (newStart == 0)
+                    newStart = 1;
+
+                return (
+                    range.Start,
+                    range.End - range.Start + 1,
+                    oldStart,
+                    oldCount,
+                    newStart,
+                    newCount);
+            })
+            .ToArray();
+    }
+
+    private static int CliUnifiedDiffHunkRangeChecksum(
+        (int Start, int Length, int OldStart, int OldCount, int NewStart, int NewCount)[] ranges)
+    {
+        var checksum = ranges.Length;
+        for (var i = 0; i < ranges.Length; i++)
+        {
+            checksum += (i + 1) * 97
+                + (ranges[i].Start + 1) * 31
+                + ranges[i].Length * 17
+                + ranges[i].OldStart * 13
+                + ranges[i].OldCount * 11
+                + ranges[i].NewStart * 7
+                + ranges[i].NewCount * 5;
+        }
+
+        return checksum;
     }
 
     private static void AssertCliFixEditFlatteningLikeProduction(

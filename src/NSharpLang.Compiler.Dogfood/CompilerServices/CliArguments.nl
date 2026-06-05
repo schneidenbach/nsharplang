@@ -1079,6 +1079,212 @@ func CliFixAppliedFileGroupChecksumInto(
     return checksum
 }
 
+func CliUnifiedDiffHunkRangesInto(
+    kindIds: int[],
+    oldLines: int[],
+    newLines: int[],
+    contextLines: int,
+    resultStarts: int[],
+    resultLengths: int[],
+    resultOldStarts: int[],
+    resultOldCounts: int[],
+    resultNewStarts: int[],
+    resultNewCounts: int[]): int {
+    lineCount := kindIds.Length
+    if contextLines < 0 {
+        return -1
+    }
+
+    if oldLines.Length < lineCount
+        || newLines.Length < lineCount
+        || resultStarts.Length < lineCount
+        || resultLengths.Length < lineCount
+        || resultOldStarts.Length < lineCount
+        || resultOldCounts.Length < lineCount
+        || resultNewStarts.Length < lineCount
+        || resultNewCounts.Length < lineCount {
+        return -1
+    }
+
+    rangeStart := -1
+    rangeEnd := -1
+    hunkCount := 0
+    i := 0
+    while i < lineCount {
+        if kindIds[i] != 0 {
+            nextStart := i - contextLines
+            if nextStart < 0 {
+                nextStart = 0
+            }
+
+            nextEnd := i + contextLines
+            if nextEnd >= lineCount {
+                nextEnd = lineCount - 1
+            }
+
+            if rangeStart < 0 {
+                rangeStart = nextStart
+                rangeEnd = nextEnd
+            } else if nextStart <= rangeEnd + 1 {
+                if nextEnd > rangeEnd {
+                    rangeEnd = nextEnd
+                }
+            } else {
+                if !CliUnifiedDiffWriteHunkRange(
+                    kindIds,
+                    oldLines,
+                    newLines,
+                    rangeStart,
+                    rangeEnd,
+                    hunkCount,
+                    resultStarts,
+                    resultLengths,
+                    resultOldStarts,
+                    resultOldCounts,
+                    resultNewStarts,
+                    resultNewCounts) {
+                    return -1
+                }
+
+                hunkCount = hunkCount + 1
+                rangeStart = nextStart
+                rangeEnd = nextEnd
+            }
+        }
+
+        i = i + 1
+    }
+
+    if rangeStart >= 0 {
+        if !CliUnifiedDiffWriteHunkRange(
+            kindIds,
+            oldLines,
+            newLines,
+            rangeStart,
+            rangeEnd,
+            hunkCount,
+            resultStarts,
+            resultLengths,
+            resultOldStarts,
+            resultOldCounts,
+            resultNewStarts,
+            resultNewCounts) {
+            return -1
+        }
+
+        hunkCount = hunkCount + 1
+    }
+
+    return hunkCount
+}
+
+func CliUnifiedDiffHunkRangeChecksumInto(
+    kindIds: int[],
+    oldLines: int[],
+    newLines: int[],
+    contextLines: int,
+    resultStarts: int[],
+    resultLengths: int[],
+    resultOldStarts: int[],
+    resultOldCounts: int[],
+    resultNewStarts: int[],
+    resultNewCounts: int[]): int {
+    hunkCount := CliUnifiedDiffHunkRangesInto(
+        kindIds,
+        oldLines,
+        newLines,
+        contextLines,
+        resultStarts,
+        resultLengths,
+        resultOldStarts,
+        resultOldCounts,
+        resultNewStarts,
+        resultNewCounts)
+
+    checksum := hunkCount
+    i := 0
+    while i < hunkCount {
+        checksum = checksum
+            + (i + 1) * 97
+            + (resultStarts[i] + 1) * 31
+            + resultLengths[i] * 17
+            + resultOldStarts[i] * 13
+            + resultOldCounts[i] * 11
+            + resultNewStarts[i] * 7
+            + resultNewCounts[i] * 5
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CliUnifiedDiffWriteHunkRange(
+    kindIds: int[],
+    oldLines: int[],
+    newLines: int[],
+    rangeStart: int,
+    rangeEnd: int,
+    hunkIndex: int,
+    resultStarts: int[],
+    resultLengths: int[],
+    resultOldStarts: int[],
+    resultOldCounts: int[],
+    resultNewStarts: int[],
+    resultNewCounts: int[]): bool {
+    if hunkIndex < 0
+        || hunkIndex >= resultStarts.Length
+        || hunkIndex >= resultLengths.Length
+        || hunkIndex >= resultOldStarts.Length
+        || hunkIndex >= resultOldCounts.Length
+        || hunkIndex >= resultNewStarts.Length
+        || hunkIndex >= resultNewCounts.Length {
+        return false
+    }
+
+    oldStart := 0
+    newStart := 0
+    oldCount := 0
+    newCount := 0
+
+    i := rangeStart
+    while i <= rangeEnd {
+        kind := kindIds[i]
+        if oldStart == 0 && oldLines[i] > 0 {
+            oldStart = oldLines[i]
+        }
+
+        if newStart == 0 && newLines[i] > 0 {
+            newStart = newLines[i]
+        }
+
+        if kind != 1 {
+            oldCount = oldCount + 1
+        }
+
+        if kind != 2 {
+            newCount = newCount + 1
+        }
+
+        i = i + 1
+    }
+
+    if oldStart == 0 {
+        oldStart = 1
+    }
+
+    if newStart == 0 {
+        newStart = 1
+    }
+
+    resultStarts[hunkIndex] = rangeStart
+    resultLengths[hunkIndex] = rangeEnd - rangeStart + 1
+    resultOldStarts[hunkIndex] = oldStart
+    resultOldCounts[hunkIndex] = oldCount
+    resultNewStarts[hunkIndex] = newStart
+    resultNewCounts[hunkIndex] = newCount
+    return true
+}
+
 func CliCleanArtifactDirectoryIndicesInto(
     kindRanks: int[],
     nodeModuleFlags: int[],

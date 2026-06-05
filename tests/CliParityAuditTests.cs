@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
+using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using Xunit;
@@ -97,6 +98,68 @@ public class CliParityAuditTests
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void UnifiedDiff_Create_EmitsStableMultiHunkDiff()
+    {
+        var before = string.Join(
+            '\n',
+            new[]
+            {
+                "one",
+                "two",
+                "three",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine",
+                "ten",
+                "eleven",
+                "twelve"
+            });
+        var after = string.Join(
+            '\n',
+            new[]
+            {
+                "one",
+                "two",
+                "THREE",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine-a",
+                "nine",
+                "ten",
+                "twelve"
+            });
+
+        var diff = UnifiedDiff.Create(before, after, "a/Program.nl", "b/Program.nl", contextLines: 1);
+        var expected = string.Join(
+            '\n',
+            new[]
+            {
+                "--- a/Program.nl",
+                "+++ b/Program.nl",
+                "@@ -2,3 +2,3 @@",
+                " two",
+                "-three",
+                "+THREE",
+                " four",
+                "@@ -8,5 +8,5 @@",
+                " eight",
+                "+nine-a",
+                " nine",
+                " ten",
+                "-eleven",
+                " twelve"
+            }) + "\n";
+
+        Assert.Equal(expected, diff);
     }
 
     [Fact]
