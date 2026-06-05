@@ -1543,6 +1543,10 @@ class OtherZetaType {
                     "CliDocSymbolOrderCountingChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocSymbolOrderCountingChecksumInto.");
+            var cliDocSlugsInto = programType.GetMethod(
+                    "CliDocSlugsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocSlugsInto.");
             var symbolKindFilterIndicesInto = programType.GetMethod(
                     "SymbolKindFilterIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2098,6 +2102,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliDocMemberOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
+            AssertCliDocSlugsLikeProduction(cliDocSlugsInto);
             AssertSymbolKindFilteringLikeProduction(
                 symbolKindFilterIndicesInto,
                 symbolKindFilterChecksumInto);
@@ -4653,6 +4658,36 @@ func main() {
 
         Assert.Equal(expectedChecksum, actualChecksum);
         Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static void AssertCliDocSlugsLikeProduction(MethodInfo cliDocSlugsInto)
+    {
+        var rawSlugs = new[]
+        {
+            "Class-Customer-/tmp/Customer.nl",
+            "Method-GetById-Service.Core.nl",
+            "TypeAlias-Result<T>-Errors.nl",
+            "Function-R\u00e9sum\u00e9_Count-Reports 2026.nl",
+            "Property-HTTPClient2-API.Client.nl"
+        };
+        var expectedSlugs = rawSlugs.Select(CreateExpectedCliDocSlug).ToArray();
+
+        var directSlugs = new string[rawSlugs.Length];
+        var directCount = (int)(cliDocSlugsInto.Invoke(
+            null,
+            new object[] { rawSlugs, directSlugs }) ?? -1);
+
+        Assert.Equal(rawSlugs.Length, directCount);
+        Assert.Equal(expectedSlugs, directSlugs);
+    }
+
+    private static string CreateExpectedCliDocSlug(string raw)
+    {
+        var chars = raw
+            .ToLowerInvariant()
+            .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+            .ToArray();
+        return string.Join(string.Empty, new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static void AssertCliTreeDependencyDeduplicationLikeProduction(

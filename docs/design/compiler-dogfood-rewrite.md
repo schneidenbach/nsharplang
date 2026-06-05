@@ -63,6 +63,7 @@ dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequi
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAnonymousUnionShim*'
 dotnet run -c Release --project benchmarks -- --filter '*CliTidy*'
+dotnet run -c Release --project benchmarks -- --filter '*CliDocSlug*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -1098,6 +1099,12 @@ Current CLI dogfood benchmarks:
   the list. The accepted N# candidate reuses the compact kind/name rank counting-order kernel with
   all include flags set, preserving full member inclusion while avoiding comparison-sort and list
   allocation on the hot ordering path.
+- `CliDocSlugBenchmarks` targets generated `nlc doc` symbol-page slug materialization. The C#
+  baseline mirrors the previous production slugifier: lower-case the raw kind/name/file slug, map
+  non-letter/digit characters through LINQ, allocate an intermediate string, split on separators,
+  and join the remaining parts. The accepted N# candidate batches raw slugs, grows one reusable
+  char scratch buffer as needed, uses an ASCII-specialized hot path with Unicode fallback, and
+  materializes only the final slug strings through `CliDocSlugsInto`.
 - `CliTreeDependencyDeduplicationBenchmarks` targets dependency deduplication and ordering before
   `nlc tree` renders JSON or text output. The C# baseline mirrors the previous CLI LINQ shape:
   group dependencies by ordinal kind and case-insensitive name, keep the first dependency in each
@@ -1325,6 +1332,14 @@ all include flags set. It ran about 10.3x faster on the representative member co
 50.641 us, 0 B vs 61,952 B) and about 29.0x faster on the large generated member corpus
 (36.541 us vs 1,058.544 us, 0 B vs 492,088 B). This is acceptance-grade benchmark evidence for
 `nlc doc` member-list ordering after the host has assigned compact ordinal ranks.
+
+`CliDocSlugsInto` passed parity in the short BenchmarkDotNet evidence tier for generated doc page
+slug materialization. The accepted N# path batches raw slugs, reuses one growable scratch char
+buffer, and uses an ASCII-specialized slug loop with Unicode fallback. It ran about 5.1x faster on
+the representative slug corpus (36.179 us vs 184.292 us, 94.55 KB vs 803.74 KB) and about 5.7x
+faster on the large generated slug corpus (306.967 us vs 1.760 ms, 754.95 KB vs 6,431.67 KB). This
+is acceptance-grade benchmark evidence for `nlc doc` slug generation after the host has built the
+raw kind/name/file slug strings.
 
 `CliTreeDependencyDeduplicateIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for `nlc tree` dependency deduplication and order. It ran about
@@ -1563,6 +1578,10 @@ Generated `nlc doc` symbol-page member ordering also routes through the same com
 counting-sort kernel when the dogfood assembly is available, preserving the previous full member
 inclusion and `SymbolKind.ToString()`/ordinal name order, with the previous LINQ ordering path kept
 as the fallback.
+Generated `nlc doc` symbol-page slug generation now batches raw kind/name/file slug strings through
+the compiled N# `CliDocSlugsInto` route when the dogfood assembly is available, preserving the
+previous lower-case letter/digit-only slug text, with the previous LINQ/split/join slugifier kept
+as the fallback.
 `nlc tree` dependency deduplication and kind/name ordering now routes through the compiled N#
 stable counting-sort kernel when the dogfood assembly is available, preserving the previous
 first-source dependency selection for each ordinal-kind/case-insensitive-name key, with the previous
@@ -1603,7 +1622,7 @@ cluster file-list ordering, diagnostic shadow suppression, diagnostic deduplicat
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
+ordering and slug generation, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
@@ -1614,7 +1633,7 @@ add/remove package operand discovery, DocQuery reference-pack assembly-name and 
 and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
-selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
+selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
 selection, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
 CLI reference-type filtering,
@@ -1643,7 +1662,7 @@ and depth construction, and scoped visible-variable
 selection in CLI/daemon identifier completion plus scoped receiver identifier lookup in CLI/daemon
 member-access completion plus reflected method overload grouping and grouped member-completion
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
-ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
+ordering and slug generation in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
 batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus first positional
 project/operand/package discovery in
@@ -1651,8 +1670,8 @@ project/operand/package discovery in
 route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
 plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output in `nlc fix --text`,
 plus artifact directory selection in `nlc clean`.
-`nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
-compiled N# doc-ordering kernel.
+`nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
+also routed through the compiled N# doc-ordering kernel.
 Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are
 not routed through production code-intelligence, query, batch, or daemon paths because they
 currently miss the 5x speed gate.

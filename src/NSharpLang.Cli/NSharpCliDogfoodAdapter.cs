@@ -243,6 +243,31 @@ internal static class NSharpCliDogfoodAdapter
         out List<SymbolResult> orderedMembers)
         => TryOrderDocEntriesForGeneration(members, includeAllKinds: true, out orderedMembers);
 
+    internal static bool TryCreateDocSlugs(string[] rawSlugs, out string[] slugs)
+    {
+        slugs = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var resultSlugs = new string[rawSlugs.Length];
+            var count = bindings.CliDocSlugs(rawSlugs, resultSlugs);
+            if (count != rawSlugs.Length)
+                return false;
+
+            slugs = resultSlugs;
+            return true;
+        }
+        catch
+        {
+            slugs = Array.Empty<string>();
+            return false;
+        }
+    }
+
     internal static bool TryDeduplicateTreeDependencyIndices(
         int[] kindRanks,
         int[] nameRanks,
@@ -1031,6 +1056,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
+                CreateDelegate<CliDocSlugsInto>(programType, "CliDocSlugsInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"),
@@ -1111,6 +1137,8 @@ internal static class NSharpCliDogfoodAdapter
         int[] tempIndices,
         int[] resultIndices);
 
+    private delegate int CliDocSlugsInto(string[] rawSlugs, string[] resultSlugs);
+
     private delegate int CliTreeDependencyDeduplicateIndicesInto(
         int[] kindRanks,
         int[] nameRanks,
@@ -1178,6 +1206,7 @@ internal static class NSharpCliDogfoodAdapter
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
+        CliDocSlugsInto CliDocSlugs,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         CliFixSafetyFilterIndicesInto CliFixSafetyFilter,

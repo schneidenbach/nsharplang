@@ -1,3 +1,5 @@
+import System
+
 func CliDocSymbolOrderCountingIndicesInto(
     kindRanks: int[],
     nameRanks: int[],
@@ -120,6 +122,53 @@ func CliDocSymbolOrderCountingChecksumInto(
     }
 
     return checksum
+}
+
+func CliDocSlugsInto(rawSlugs: string[], resultSlugs: string[]): int {
+    count := CliDocOrderingMinInt(rawSlugs.Length, resultSlugs.Length)
+    bufferLength := 0
+    if count > 0 {
+        bufferLength = 128
+    }
+
+    buffer := new char[](bufferLength)
+    i := 0
+    while i < count {
+        raw := rawSlugs[i]
+        length := raw.Length
+        if length > bufferLength {
+            bufferLength = length
+            buffer = new char[](length)
+        }
+
+        resultSlugs[i] = CliDocSlugInto(raw, length, buffer)
+        i = i + 1
+    }
+
+    return count
+}
+
+func CliDocSlugInto(raw: string, length: int, buffer: char[]): string {
+    i := 0
+    slugLength := 0
+    while i < length {
+        ch := raw[i]
+        code := (int)ch
+        if code >= 65 && code <= 90 {
+            buffer[slugLength] = (char)(code + 32)
+            slugLength = slugLength + 1
+        } else if (code >= 97 && code <= 122) || (code >= 48 && code <= 57) {
+            buffer[slugLength] = ch
+            slugLength = slugLength + 1
+        } else if code > 127 && Char.IsLetterOrDigit(ch) {
+            buffer[slugLength] = Char.ToLowerInvariant(ch)
+            slugLength = slugLength + 1
+        }
+
+        i = i + 1
+    }
+
+    return new string(buffer, 0, slugLength)
 }
 
 func SymbolKindFilterIndicesInto(kindIds: int[], targetKindId: int, resultIndices: int[]): int {

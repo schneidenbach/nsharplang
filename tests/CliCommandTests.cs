@@ -1197,6 +1197,32 @@ dependencies:
     }
 
     [Fact]
+    public void DocCommand_DogfoodAdapter_CreatesSlugs()
+    {
+        var rawSlugs = new[]
+        {
+            "Class-Customer-/tmp/Customer.nl",
+            "Method-GetById-Service.Core.nl",
+            "TypeAlias-Result<T>-Errors.nl",
+            "Function-R\u00e9sum\u00e9_Count-Reports 2026.nl",
+            "Property-HTTPClient2-API.Client.nl"
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryCreateDocSlugs(rawSlugs, out var actual));
+        Assert.Equal(rawSlugs.Select(CreateExpectedDocSlug).ToArray(), actual);
+
+        static string CreateExpectedDocSlug(string raw)
+        {
+            var chars = raw
+                .ToLowerInvariant()
+                .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
+                .ToArray();
+            return string.Join(string.Empty, new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
+        }
+    }
+
+    [Fact]
     public void BatchCommand_TextMode_IsRejected()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-batch-{Guid.NewGuid():N}");

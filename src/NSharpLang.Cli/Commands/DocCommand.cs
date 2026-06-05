@@ -196,10 +196,12 @@ internal static class ProjectDocGenerator
         Directory.CreateDirectory(symbolDir);
 
         var pages = new List<DocPage>();
+        var slugs = CreateSlugs(orderedSymbols);
 
-        foreach (var symbol in orderedSymbols)
+        for (var i = 0; i < orderedSymbols.Count; i++)
         {
-            var slug = ToSlug(symbol);
+            var symbol = orderedSymbols[i];
+            var slug = slugs[i];
             var relativePath = NormalizePath(Path.Combine("symbols", $"{slug}.html"));
             var absolutePath = Path.Combine(outputDir, relativePath.Replace('/', Path.DirectorySeparatorChar));
             File.WriteAllText(absolutePath, RenderSymbolPage(symbol, projectRoot));
@@ -430,9 +432,27 @@ internal static class ProjectDocGenerator
             ? $"{parameter.Name}: {parameter.Type} = {parameter.DefaultValue}"
             : $"{parameter.Name}: {parameter.Type}";
 
-    private static string ToSlug(SymbolResult symbol)
+    private static string[] CreateSlugs(IReadOnlyList<SymbolResult> symbols)
     {
-        var raw = $"{symbol.Kind}-{symbol.Name}-{Path.GetFileNameWithoutExtension(symbol.File)}";
+        var rawSlugs = new string[symbols.Count];
+        for (var i = 0; i < symbols.Count; i++)
+            rawSlugs[i] = CreateRawSlug(symbols[i]);
+
+        if (NSharpCliDogfoodAdapter.TryCreateDocSlugs(rawSlugs, out var dogfoodSlugs))
+            return dogfoodSlugs;
+
+        var slugs = new string[rawSlugs.Length];
+        for (var i = 0; i < rawSlugs.Length; i++)
+            slugs[i] = ToSlugWithLinq(rawSlugs[i]);
+
+        return slugs;
+    }
+
+    private static string CreateRawSlug(SymbolResult symbol)
+        => $"{symbol.Kind}-{symbol.Name}-{Path.GetFileNameWithoutExtension(symbol.File)}";
+
+    private static string ToSlugWithLinq(string raw)
+    {
         var chars = raw
             .ToLowerInvariant()
             .Select(ch => char.IsLetterOrDigit(ch) ? ch : '-')
