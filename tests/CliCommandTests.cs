@@ -795,6 +795,28 @@ func Main() {
     }
 
     [Fact]
+    public void AddCommand_DogfoodAdapter_SelectsPackageOperand()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.Equal(
+            "Newtonsoft.Json",
+            AddCommand.GetPackageOperand(new[] { "--version", "13.0.3", "--framework", "Newtonsoft.Json" }));
+        Assert.Equal(
+            "Serilog@3.1.1",
+            AddCommand.GetPackageOperand(new[] { "--prerelease", "Serilog@3.1.1" }));
+        Assert.Null(AddCommand.GetPackageOperand(new[] { "--version", "13.0.3" }));
+    }
+
+    [Fact]
+    public void RemoveCommand_DogfoodAdapter_SelectsPackageOperand()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.Equal("Newtonsoft.Json", RemoveCommand.GetPackageOperand(new[] { "Newtonsoft.Json" }));
+        Assert.Equal("Serilog", RemoveCommand.GetPackageOperand(new[] { "--dry-run", "Serilog" }));
+        Assert.Null(RemoveCommand.GetPackageOperand(new[] { "--dry-run" }));
+    }
+
+    [Fact]
     public void ExportCommand_DogfoodAdapter_SelectsInputOperandAfterOrderedOptionStripping()
     {
         Assert.True(NSharpCliDogfoodAdapter.IsAvailable);

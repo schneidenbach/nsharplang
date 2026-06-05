@@ -9,6 +9,8 @@ namespace NSharpLang.Cli.Commands;
 
 public static class AddCommand
 {
+    private static readonly string[] PackageOptionsWithValues = { "--version", "--path" };
+
     public static int Execute(string[] args)
     {
         if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
@@ -31,7 +33,9 @@ public static class AddCommand
         if (localPath != null)
             return AddProjectReference(projectYml, localPath);
 
-        var raw = args.First(a => !a.StartsWith("-"));
+        var raw = GetPackageOperand(args);
+        if (string.IsNullOrWhiteSpace(raw))
+            return Error("Usage: nlc add <package> [--version <ver>]\n       nlc add <package>@<version>");
 
         string packageName;
         string? version = null;
@@ -115,6 +119,30 @@ public static class AddCommand
             Console.WriteLine($"Added {packageName}@{version} to project.yml");
 
         return 0;
+    }
+
+    internal static string? GetPackageOperand(string[] args)
+    {
+        return NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, PackageOptionsWithValues, out var positional)
+            ? positional
+            : GetPackageOperandWithCSharp(args);
+    }
+
+    private static string? GetPackageOperandWithCSharp(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (PackageOptionsWithValues.Contains(args[i], StringComparer.Ordinal))
+            {
+                i++;
+                continue;
+            }
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        }
+
+        return null;
     }
 
     static int AddProjectReference(string projectYml, string localPath)

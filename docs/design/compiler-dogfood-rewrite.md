@@ -1355,10 +1355,11 @@ N# compact kind-id filter when the dogfood assembly is available, covering `nlc 
 Strict `nlc build` lint gating now routes its error-only diagnostic filter through the same
 adapter-backed formatter path before the accepted diagnostic deduplication/order route, instead of
 running a local C# LINQ severity filter.
-`nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp` now route first positional
-project/operand/package discovery through `NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which
-calls the compiled N# first-index scanner when the dogfood assembly is available, with the previous
-C# positional scan kept as the fallback.
+`nlc new`, `nlc check`, `nlc fix`, `nlc add`, `nlc remove`, `nlc update`, and `nlc export csharp`
+now route first positional project/operand/package discovery through
+`NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which calls the compiled N# first-index scanner
+when the dogfood assembly is available, with command-local C# positional scans kept as the
+fallback.
 `nlc build` now routes source-file operand discovery through
 `NSharpCliDogfoodAdapter.TryGetBuildOperandSummary`, which calls the compiled N# first-operand
 scanner when the dogfood assembly is available, with the previous C# build-argument normalization
@@ -1468,6 +1469,7 @@ text-edit ordering, skipped-fix selection, clean artifact directory ordering, up
 AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
+add/remove package operand discovery,
 and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
