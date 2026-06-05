@@ -842,6 +842,14 @@ func main(): int {
                     "CliBuildFirstOperandIndexInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliBuildFirstOperandIndexInto.");
+            var cliExportCSharpFirstOperandIndexInto = programType.GetMethod(
+                    "CliExportCSharpFirstOperandIndexInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpFirstOperandIndexInto.");
+            var cliExportCSharpFirstOperandChecksumInto = programType.GetMethod(
+                    "CliExportCSharpFirstOperandChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpFirstOperandChecksumInto.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1349,6 +1357,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliBuildOperandIndicesInto,
                 cliBuildOperandSummaryInto,
                 cliBuildFirstOperandIndexInto);
+            AssertCliExportCSharpInputOperandLikeProduction(
+                cliExportCSharpFirstOperandIndexInto,
+                cliExportCSharpFirstOperandChecksumInto);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -3106,6 +3117,89 @@ func main() {
         }
 
         return result.ToArray();
+    }
+
+    private static void AssertCliExportCSharpInputOperandLikeProduction(
+        MethodInfo cliExportCSharpFirstOperandIndexInto,
+        MethodInfo cliExportCSharpFirstOperandChecksumInto)
+    {
+        var cases = new[]
+        {
+            new[] { "Program.nl" },
+            new[] { "--output", "dist", "Program.nl" },
+            new[] { "-o", "bin/out", "--project", "samples/demo", "Program.nl" },
+            new[] { "--project", "samples/demo" },
+            new[] { "--project" },
+            new[] { "--unknown", "value-after-unknown" },
+            new[] { "-o", "--output", "file" },
+            new[] { "--output", "-o", "file" },
+            new[] { "--project", "--output", "file" },
+            new[] { "--output", "--project", "file" },
+            new[] { string.Empty, "--project", "samples/demo" },
+            Array.Empty<string>()
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliExportCSharpInputOperandIndex(args);
+            var expectedChecksum = ChecksumCliExportCSharpInputOperand(args, expected);
+            var kindIds = new int[args.Length];
+            var nextIndices = new int[args.Length];
+            var previousIndices = new int[args.Length];
+            var nextOptionIndices = new int[args.Length];
+            var resultIndices = new int[args.Length];
+            var actualChecksum = (int)(cliExportCSharpFirstOperandChecksumInto.Invoke(
+                null,
+                new object[] { args, kindIds, nextIndices, previousIndices, nextOptionIndices, resultIndices }) ?? -3);
+
+            Assert.Equal(expectedChecksum, actualChecksum);
+
+            Array.Clear(kindIds);
+            Array.Clear(nextIndices);
+            Array.Clear(previousIndices);
+            Array.Clear(nextOptionIndices);
+            Array.Clear(resultIndices);
+            var actual = (int)(cliExportCSharpFirstOperandIndexInto.Invoke(
+                null,
+                new object[] { args, kindIds, nextIndices, previousIndices, nextOptionIndices, resultIndices }) ?? -3);
+
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    private static int CreateExpectedCliExportCSharpInputOperandIndex(string[] args)
+    {
+        var remaining = args
+            .Select((arg, index) => (arg, index))
+            .ToArray();
+
+        remaining = StripExpectedBuildOptionWithValue(remaining, "--output");
+        remaining = StripExpectedBuildOptionWithValue(remaining, "-o");
+        remaining = StripExpectedBuildOptionWithValue(remaining, "--project");
+
+        foreach (var (arg, index) in remaining)
+        {
+            if (!arg.StartsWith("-", StringComparison.Ordinal))
+                return index;
+        }
+
+        return -1;
+    }
+
+    private static int ChecksumCliExportCSharpInputOperand(string[] args, int sourceIndex)
+    {
+        var checksum = sourceIndex + 1;
+        if (sourceIndex < 0)
+            return checksum;
+
+        var arg = args[sourceIndex];
+        checksum += arg.Length * 31;
+        for (var i = 0; i < arg.Length; i++)
+        {
+            checksum += arg[i] * (i + 1);
+        }
+
+        return checksum;
     }
 
     private static void AssertCliPositionalArgsLikeProduction(

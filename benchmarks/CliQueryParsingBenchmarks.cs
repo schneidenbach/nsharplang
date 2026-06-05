@@ -687,6 +687,185 @@ public class CliBuildArgumentNormalizationBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for <c>nlc export csharp</c> input operand discovery. The C# baseline
+/// mirrors the current command parser: run three option-with-value stripping passes for
+/// <c>--output</c>, <c>-o</c>, and <c>--project</c>, then scan for the first positional operand.
+/// The N# candidate returns the first source operand index directly, with a source-first fast path
+/// and an exact linked-list fallback for option-leading edge cases.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliExportCSharpArgumentNormalizationBenchmarks
+{
+    private const int LargeArgumentCount = 8192;
+    private const int RepresentativeArgumentCount = 1024;
+
+    private Func<string[], int[], int[], int[], int[], int[], int> _nsharpCliExportFirstOperandIndexInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _args = Array.Empty<string>();
+    private string? _csharpFirstOperand;
+    private int[] _nsharpKindIds = Array.Empty<int>();
+    private int[] _nsharpNextIndices = Array.Empty<int>();
+    private int[] _nsharpNextOptionIndices = Array.Empty<int>();
+    private int[] _nsharpPreviousIndices = Array.Empty<int>();
+    private string? _nsharpFirstOperand;
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var argumentCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeArgumentCount
+            : LargeArgumentCount;
+        _nsharpCliExportFirstOperandIndexInto =
+            NSharpCompiledMethod.Bind<Func<string[], int[], int[], int[], int[], int[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliExportCSharpFirstOperandIndexInto");
+
+        _args = BuildExportArguments(argumentCount);
+        _nsharpKindIds = new int[argumentCount];
+        _nsharpNextIndices = new int[argumentCount];
+        _nsharpNextOptionIndices = new int[argumentCount];
+        _nsharpPreviousIndices = new int[argumentCount];
+        _nsharpResultIndices = new int[argumentCount];
+
+        var expectedChecksum = CSharpExportCSharpArgs_FindInputOperand();
+        var actualChecksum = NSharpExportCSharpArgs_FindInputOperand();
+        if (expectedChecksum != actualChecksum || _csharpFirstOperand != _nsharpFirstOperand)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI export csharp argument mismatch for {Corpus}: " +
+                $"expected {FormatArg(_csharpFirstOperand)}, got {FormatArg(_nsharpFirstOperand)}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpExportCSharpArgs_FindInputOperand()
+    {
+        var args = StripOptionWithValue(_args, "--output");
+        args = StripOptionWithValue(args, "-o");
+        args = StripOptionWithValue(args, "--project");
+        _csharpFirstOperand = GetFirstPositionalArg(args);
+        return ChecksumFirst(_csharpFirstOperand);
+    }
+
+    [Benchmark]
+    public int NSharpExportCSharpArgs_FindInputOperand()
+    {
+        var sourceIndex = _nsharpCliExportFirstOperandIndexInto(
+            _args,
+            _nsharpKindIds,
+            _nsharpNextIndices,
+            _nsharpPreviousIndices,
+            _nsharpNextOptionIndices,
+            _nsharpResultIndices);
+        if (sourceIndex < -1 || sourceIndex >= _args.Length)
+            throw new InvalidOperationException($"N# CLI export csharp argument source index out of range: {sourceIndex}.");
+
+        _nsharpFirstOperand = sourceIndex >= 0 ? _args[sourceIndex] : null;
+        return ChecksumFirst(_nsharpFirstOperand);
+    }
+
+    private static string[] StripOptionWithValue(string[] args, string option)
+    {
+        var result = new List<string>(args.Length);
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == option && i + 1 < args.Length)
+            {
+                i++;
+                continue;
+            }
+
+            result.Add(args[i]);
+        }
+
+        return result.ToArray();
+    }
+
+    private static string? GetFirstPositionalArg(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        }
+
+        return null;
+    }
+
+    private static string[] BuildExportArguments(int count)
+    {
+        var args = new string[count];
+        var seeds = new[]
+        {
+            "Program.nl",
+            "--output",
+            "dist/Program.cs",
+            "-o",
+            "bin/out",
+            "--project",
+            "samples/demo",
+            "--unknown",
+            "value-after-unknown",
+            "src/Feature.nl",
+            "--output",
+            "--project",
+            "edge-after-output.nl",
+            "-o",
+            "--output",
+            "edge-hidden-by-short-output.nl"
+        };
+
+        for (var i = 0; i < count; i++)
+        {
+            if (i == 0)
+            {
+                args[i] = "Program.nl";
+                continue;
+            }
+
+            if (i % 47 == 0)
+            {
+                args[i] = $"generated/File{i}.nl";
+                continue;
+            }
+
+            if (i % 71 == 0)
+            {
+                args[i] = $"operand-{i}";
+                continue;
+            }
+
+            args[i] = seeds[i % seeds.Length];
+        }
+
+        return args;
+    }
+
+    private static int ChecksumFirst(string? first)
+    {
+        var checksum = first == null ? 0 : 1;
+        if (first == null)
+            return checksum;
+
+        checksum += first.Length * 31;
+        for (var i = 0; i < first.Length; i++)
+        {
+            checksum += first[i] * (i + 1);
+        }
+
+        return checksum;
+    }
+
+    private static string FormatArg(string? arg) => arg == null ? "<missing>" : $"\"{arg}\"";
+}
+
+/// <summary>
 /// Dogfood benchmark for duplicate request-id validation in <c>nlc query batch</c>.
 /// </summary>
 [MemoryDiagnoser]

@@ -1,7 +1,7 @@
 # Compiler Dogfood Rewrite Plan
 
 Status: active goal
-Updated: 2026-06-04
+Updated: 2026-06-05
 
 This document tracks the rewrite of the N# compiler, compiler services, and CLI tooling in N#.
 It is not a straight port. The goal is to use the systems-oriented parts of N# to make the
@@ -886,6 +886,13 @@ Current CLI dogfood benchmarks:
   `CliBuildFirstOperandIndexInto`; it exits immediately for the common source-first path and falls
   back to an exact linked-list scratch routine when leading options require the existing stripping
   order.
+- `CliExportCSharpArgumentNormalizationBenchmarks` targets `nlc export csharp` input operand
+  discovery. The C# baseline mirrors the current export command shape: run three
+  option-with-value stripping passes for `--output`, `-o`, and `--project`, materialize each
+  intermediate array, then scan for the first positional operand. The accepted N# candidate returns
+  the first source operand index through `CliExportCSharpFirstOperandIndexInto`; it exits
+  immediately for the common source-first path and falls back to the same linked-list removal
+  strategy when leading options require exact ordered stripping.
 - `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
   The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
   `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
@@ -972,6 +979,16 @@ about 9,618x faster on the large generated source-first argument corpus (7.491 n
 0 B vs 489,152 B). This is acceptance-grade benchmark evidence for `nlc build Program.nl ...`
 single-file route selection; commands that need every normalized build operand remain covered by
 the all-positionals pressure note above.
+
+`CliExportCSharpFirstOperandIndexInto` passed parity and reported zero managed allocation in the
+short BenchmarkDotNet evidence tier for source-first `nlc export csharp` input operand discovery.
+The accepted N# path returns the first source operand index directly instead of materializing three
+stripped argument arrays; leading-option cases keep the exact ordered stripping behavior for
+`--output`, `-o`, and `--project`. It ran about 694x faster on the representative source-first
+argument corpus (4.423 ns vs 3.070 us, 0 B vs 27,712 B) and about 4,766x faster on the large
+generated source-first corpus (4.687 ns vs 22.338 us, 0 B vs 219,344 B). `ExportCommand` now routes
+input operand discovery through `NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand`, with the
+previous three-strip C# path retained as the exact fallback.
 
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path

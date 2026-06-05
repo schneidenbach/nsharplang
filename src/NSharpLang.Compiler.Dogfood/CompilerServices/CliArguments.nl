@@ -84,6 +84,104 @@ func CliBuildFirstOperandIndexInto(
     return resultIndices[0]
 }
 
+func CliExportCSharpFirstOperandIndexInto(
+    args: string[],
+    kindIds: int[],
+    nextIndices: int[],
+    previousIndices: int[],
+    nextOptionIndices: int[],
+    resultIndices: int[]): int {
+    if args.Length == 0 {
+        return -1
+    }
+
+    firstArg := args[0]
+    if firstArg.Length == 0 || firstArg[0] != '-' {
+        return 0
+    }
+
+    if kindIds.Length < args.Length
+        || nextIndices.Length < args.Length
+        || previousIndices.Length < args.Length
+        || nextOptionIndices.Length < args.Length
+        || (args.Length > 0 && resultIndices.Length < 1) {
+        return -2
+    }
+
+    first := -1
+    last := -1
+    outputHead := -1
+    outputTail := -1
+    shortOutputHead := -1
+    shortOutputTail := -1
+    projectHead := -1
+    projectTail := -1
+    count := 0
+    i := 0
+    while i < args.Length {
+        kind := CliBuildArgumentKind(args[i])
+        kindIds[i] = kind
+        nextIndices[i] = -1
+        previousIndices[i] = -1
+        nextOptionIndices[i] = -1
+
+        if last >= 0 {
+            nextIndices[last] = i
+            previousIndices[i] = last
+        } else {
+            first = i
+        }
+
+        last = i
+        count = count + 1
+
+        if kind == 1 {
+            if outputTail >= 0 {
+                nextOptionIndices[outputTail] = i
+            } else {
+                outputHead = i
+            }
+
+            outputTail = i
+        } else if kind == 2 {
+            if shortOutputTail >= 0 {
+                nextOptionIndices[shortOutputTail] = i
+            } else {
+                shortOutputHead = i
+            }
+
+            shortOutputTail = i
+        } else if kind == 4 {
+            if projectTail >= 0 {
+                nextOptionIndices[projectTail] = i
+            } else {
+                projectHead = i
+            }
+
+            projectTail = i
+        }
+
+        i = i + 1
+    }
+
+    resultIndices[0] = first
+    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, outputHead, 1, resultIndices, count)
+    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, shortOutputHead, 2, resultIndices, count)
+    count = CliBuildRemoveOptionKindPairs(kindIds, nextIndices, previousIndices, nextOptionIndices, projectHead, 4, resultIndices, count)
+
+    sourceIndex := resultIndices[0]
+    while sourceIndex >= 0 {
+        arg := args[sourceIndex]
+        if arg.Length == 0 || arg[0] != '-' {
+            return sourceIndex
+        }
+
+        sourceIndex = nextIndices[sourceIndex]
+    }
+
+    return -1
+}
+
 func CliBuildOperandSummaryInto(
     args: string[],
     kindIds: int[],
@@ -481,6 +579,34 @@ func CliPositionalArgChecksumInto(
 
         checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + length * 17
         i = i + 1
+    }
+
+    return checksum
+}
+
+func CliExportCSharpFirstOperandChecksumInto(
+    args: string[],
+    kindIds: int[],
+    nextIndices: int[],
+    previousIndices: int[],
+    nextOptionIndices: int[],
+    resultIndices: int[]): int {
+    sourceIndex := CliExportCSharpFirstOperandIndexInto(
+        args,
+        kindIds,
+        nextIndices,
+        previousIndices,
+        nextOptionIndices,
+        resultIndices)
+    checksum := sourceIndex + 1
+    if sourceIndex >= 0 && sourceIndex < args.Length {
+        arg := args[sourceIndex]
+        checksum = checksum + arg.Length * 31
+        i := 0
+        while i < arg.Length {
+            checksum = checksum + arg[i] * (i + 1)
+            i = i + 1
+        }
     }
 
     return checksum

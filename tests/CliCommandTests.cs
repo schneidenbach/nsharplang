@@ -680,6 +680,32 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommand_DogfoodAdapter_SelectsInputOperandAfterOrderedOptionStripping()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+            new[] { "Program.nl", "--output", "Program.cs" },
+            out var sourceFirst));
+        Assert.Equal("Program.nl", sourceFirst);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+            new[] { "--output", "dist", "Program.nl" },
+            out var outputFirst));
+        Assert.Equal("Program.nl", outputFirst);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+            new[] { "-o", "--output", "file" },
+            out var shortOutputConsumesLongOutput));
+        Assert.Null(shortOutputConsumesLongOutput);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(
+            new[] { "--output", "--project", "file" },
+            out var longOutputConsumesProject));
+        Assert.Equal("file", longOutputConsumesProject);
+    }
+
+    [Fact]
     public void CliDogfoodAdapter_FiltersCompilerErrorsBySeverity()
     {
         var errors = new[]

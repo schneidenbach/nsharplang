@@ -36,11 +36,7 @@ public static class ExportCommand
         var outputPath = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
         var projectOption = GetOptionValue(args, "--project");
 
-        args = StripOptionWithValue(args, "--output");
-        args = StripOptionWithValue(args, "-o");
-        args = StripOptionWithValue(args, "--project");
-
-        var firstPositional = GetFirstPositionalArg(args);
+        var firstPositional = GetExportCSharpInputOperand(args);
         if (!string.IsNullOrWhiteSpace(projectOption) && firstPositional != null)
         {
             return Error("Specify either a source path or --project, not both.");
@@ -256,15 +252,19 @@ Exit codes:
         return null;
     }
 
-    private static string? GetFirstPositionalArg(string[] args)
+    private static string? GetExportCSharpInputOperand(string[] args)
     {
-        return NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, Array.Empty<string>(), out var positional)
+        return NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(args, out var positional)
             ? positional
-            : GetFirstPositionalArgWithCSharp(args);
+            : GetExportCSharpInputOperandWithCSharp(args);
     }
 
-    private static string? GetFirstPositionalArgWithCSharp(string[] args)
+    private static string? GetExportCSharpInputOperandWithCSharp(string[] args)
     {
+        args = StripOptionWithValue(args, "--output");
+        args = StripOptionWithValue(args, "-o");
+        args = StripOptionWithValue(args, "--project");
+
         for (var i = 0; i < args.Length; i++)
         {
             if (!args[i].StartsWith("-", StringComparison.Ordinal))

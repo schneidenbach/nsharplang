@@ -100,6 +100,45 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryGetExportCSharpInputOperand(string[] args, out string? operand)
+    {
+        operand = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (args.Length == 0)
+            return true;
+
+        var scratch = t_buildOperandScratch ??= new BuildOperandScratch();
+        scratch.EnsureCapacity(args.Length);
+
+        try
+        {
+            var index = bindings.CliExportCSharpFirstOperandIndex(
+                args,
+                scratch.KindIds,
+                scratch.NextIndices,
+                scratch.PreviousIndices,
+                scratch.NextOptionIndices,
+                scratch.ResultIndices);
+            if (index == -1)
+                return true;
+
+            if (index < 0 || index >= args.Length)
+                return false;
+
+            operand = args[index];
+            return true;
+        }
+        catch
+        {
+            operand = null;
+            return false;
+        }
+    }
+
     internal static bool TryFindDuplicateBatchRequestIds(
         IReadOnlyList<BatchQueryRequest> requests,
         out string[] duplicateIds)
@@ -449,6 +488,7 @@ internal static class NSharpCliDogfoodAdapter
 
             return new Bindings(
                 CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
+                CreateDelegate<CliExportCSharpFirstOperandIndexInto>(programType, "CliExportCSharpFirstOperandIndexInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
@@ -489,6 +529,14 @@ internal static class NSharpCliDogfoodAdapter
     }
 
     private delegate int CliBuildFirstOperandIndexInto(
+        string[] args,
+        int[] kindIds,
+        int[] nextIndices,
+        int[] previousIndices,
+        int[] nextOptionIndices,
+        int[] resultIndices);
+
+    private delegate int CliExportCSharpFirstOperandIndexInto(
         string[] args,
         int[] kindIds,
         int[] nextIndices,
@@ -540,6 +588,7 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
+        CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
