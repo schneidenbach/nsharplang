@@ -382,6 +382,75 @@ func ReferenceFileSummaryChecksumInto(
     return checksum
 }
 
+func FirstDistinctRankIndicesInto(
+    ranks: int[],
+    uniqueRankCount: int,
+    seenRanks: int[],
+    resultIndices: int[]): int {
+    clearCount := uniqueRankCount + 1
+    if clearCount > seenRanks.Length {
+        clearCount = seenRanks.Length
+    }
+
+    i := 0
+    while i < clearCount {
+        seenRanks[i] = 0
+        i = i + 1
+    }
+
+    resultCount := 0
+    i = 0
+    while i < ranks.Length {
+        rank := ranks[i]
+        if rank > 0 && rank <= uniqueRankCount && rank < seenRanks.Length {
+            if seenRanks[rank] == 0 {
+                seenRanks[rank] = 1
+                if resultCount < resultIndices.Length {
+                    resultIndices[resultCount] = i
+                }
+
+                resultCount = resultCount + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    return resultCount
+}
+
+func FirstDistinctRankChecksumInto(
+    ranks: int[],
+    uniqueRankCount: int,
+    seenRanks: int[],
+    resultIndices: int[],
+    rankWeights: int[]): int {
+    resultCount := FirstDistinctRankIndicesInto(
+        ranks,
+        uniqueRankCount,
+        seenRanks,
+        resultIndices)
+
+    checksum := resultCount
+    i := 0
+    while i < resultCount && i < resultIndices.Length {
+        sourceIndex := resultIndices[i]
+        rank := 0
+        weight := 0
+        if sourceIndex >= 0 && sourceIndex < ranks.Length {
+            rank = ranks[sourceIndex]
+            if rank >= 0 && rank < rankWeights.Length {
+                weight = rankWeights[rank]
+            }
+        }
+
+        checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + rank * 17 + weight * 13
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func HashDiagnosticDeduplicationKey(
     codeId: int,
     fileId: int,

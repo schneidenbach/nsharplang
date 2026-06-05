@@ -8829,12 +8829,27 @@ public partial class ILCompiler
         // extends, so a type implementing `Shape : HasArea` also satisfies the
         // inherited `HasArea` members (the method-override wiring in DeclareMethod
         // matches against every interface returned here).
-        return implementedInterfaces
-            .SelectMany(EnumerateTypeWithBaseInterfaces)
-            .Where(type => type.IsInterface)
-            .GroupBy(GetTypeKey, StringComparer.Ordinal)
-            .Select(group => group.First())
-            .ToList();
+        var expandedInterfaces = new List<Type>();
+        foreach (var implementedInterface in implementedInterfaces)
+        {
+            foreach (var type in EnumerateTypeWithBaseInterfaces(implementedInterface))
+            {
+                if (type.IsInterface)
+                {
+                    expandedInterfaces.Add(type);
+                }
+            }
+        }
+
+        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys(
+            expandedInterfaces,
+            GetTypeKey,
+            out var dogfoodInterfaces)
+            ? dogfoodInterfaces
+            : expandedInterfaces
+                .GroupBy(GetTypeKey, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToList();
     }
 
     private Type ResolveRequiredRuntimeType(string fullName)

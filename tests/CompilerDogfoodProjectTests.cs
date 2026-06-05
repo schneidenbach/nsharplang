@@ -614,6 +614,48 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_DeduplicatesFirstTypeKeys()
+    {
+        var types = new[]
+        {
+            typeof(IList<string>),
+            typeof(IEnumerable<string>),
+            typeof(IList<string>),
+            typeof(IDictionary<string, int>),
+            typeof(IEnumerable<string>),
+            typeof(IDictionary<string, int>)
+        };
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryDeduplicateFirstTypeKeys = adapterType.GetMethod(
+                "TryDeduplicateFirstTypeKeys",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateFirstTypeKeys.");
+        var args = new object?[]
+        {
+            types,
+            (Func<Type, string>)(type => type.FullName ?? type.Name),
+            null
+        };
+        Assert.True((bool)(tryDeduplicateFirstTypeKeys.Invoke(null, args) ?? false));
+        var deduplicatedTypes = Assert.IsType<List<Type>>(args[2]);
+
+        Assert.Equal(new[]
+        {
+            typeof(IList<string>),
+            typeof(IEnumerable<string>),
+            typeof(IDictionary<string, int>)
+        }, deduplicatedTypes);
+    }
+
+    [Fact]
     public void LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer()
     {
         var repoRoot = FindRepoRoot();

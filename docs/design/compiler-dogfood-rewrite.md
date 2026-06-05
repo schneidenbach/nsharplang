@@ -487,6 +487,12 @@ Current compiler-performance dogfood benchmarks:
   ranks, flags, and the first three sorted construct ranks through `AotRequirementGroupsInto`.
   Public annotation strings and dictionaries remain explicit C# host boundaries until the broader
   AOT attribute-emission path is ported.
+- `CompilerServiceInterfaceDeduplicationBenchmarks` targets first-source implemented-interface
+  de-duplication in the IL compiler after direct and inherited interfaces have been expanded. The C#
+  baseline mirrors the fallback shape: group by ordinal type key, keep the first interface in each
+  group, and materialize the result. The accepted N# candidate runs after the host has assigned
+  dense type-key ranks, marks first-seen ranks in caller-owned buffers, and writes first-source
+  indices through `FirstDistinctRankIndicesInto`.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
@@ -846,6 +852,14 @@ on the representative blocker corpus (3.078 us vs 49.735 us, 0 B vs 154,824 B) a
 faster on the large generated blocker corpus (26.217 us vs 458.017 us, 0 B vs 1,237,176 B). This is
 acceptance-grade benchmark evidence for AOT requirement grouping after the host has assigned compact
 declaration ranks, construct ranks, and blocker-kind ids.
+
+`FirstDistinctRankIndicesInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for first-source implemented-interface de-duplication. It ran about
+36.2x faster on the representative interface corpus (1.081 us vs 39.119 us, 0 B vs 39,784 B) and
+about 46.7x faster on the large generated interface corpus (6.990 us vs 326.717 us, 0 B vs
+209,704 B). This is acceptance-grade benchmark evidence for the IL compiler's type-key
+de-duplication after the host has expanded direct/inherited interfaces and assigned compact ordinal
+type-key ranks.
 
 Current CLI dogfood benchmarks:
 
@@ -1207,6 +1221,10 @@ Public AOT requirement construction now routes `AotRequirements.FromBlockers` th
 `NSharpPerformanceDogfoodAdapter.TryBuildAotRequirements` when the dogfood assembly is available,
 preserving the previous public-surface filter, per-declaration flag combination, sorted construct
 names, and annotation message text, with the previous C# LINQ grouping path kept as the fallback.
+IL compiler implemented-interface expansion now routes first-source type-key de-duplication through
+`NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys` when the dogfood assembly is available,
+preserving direct/inherited interface expansion, ordinal type-key identity, and first-source
+selection, with the previous C# `GroupBy(GetTypeKey).Select(First)` path kept as the fallback.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 Clustered diagnostic output also routes group root/count/order selection through the compiled N#

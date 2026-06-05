@@ -11,6 +11,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings, isThreadSafe: true);
     [ThreadStatic]
     private static ParserTokenCompactionScratch? t_parserTokenCompactionScratch;
+    [ThreadStatic]
+    private static FirstDistinctTypeKeyScratch? t_firstDistinctTypeKeyScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -69,6 +71,71 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    internal static bool TryDeduplicateFirstTypeKeys(
+        IReadOnlyList<Type> types,
+        Func<Type, string> getTypeKey,
+        out List<Type> deduplicatedTypes)
+    {
+        deduplicatedTypes = [];
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var typeCount = types.Count;
+        if (typeCount == 0)
+            return true;
+
+        var scratch = t_firstDistinctTypeKeyScratch ??= new FirstDistinctTypeKeyScratch();
+        scratch.EnsureCapacity(typeCount);
+
+        try
+        {
+            scratch.ResetKeys();
+            for (var i = 0; i < typeCount; i++)
+            {
+                scratch.TypeRanks[i] = scratch.AddKey(getTypeKey(types[i]));
+            }
+
+            var deduplicatedCount = bindings.FirstDistinctRankIndices(
+                scratch.TypeRanks,
+                scratch.UniqueKeyCount,
+                scratch.SeenRanks,
+                scratch.ResultIndices);
+
+            if (deduplicatedCount < 0 || deduplicatedCount > typeCount || deduplicatedCount > scratch.ResultIndices.Length)
+            {
+                deduplicatedTypes = [];
+                return false;
+            }
+
+            var result = new List<Type>(deduplicatedCount);
+            for (var i = 0; i < deduplicatedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= typeCount)
+                {
+                    deduplicatedTypes = [];
+                    return false;
+                }
+
+                result.Add(types[sourceIndex]);
+            }
+
+            deduplicatedTypes = result;
+            return true;
+        }
+        catch
+        {
+            deduplicatedTypes = [];
+            return false;
+        }
+        finally
+        {
+            scratch.ResetKeys();
+        }
+    }
+
     private static Bindings? LoadBindings()
     {
         try
@@ -81,7 +148,10 @@ internal static class NSharpCompilerDogfoodAdapter
             return new Bindings(
                 CreateDelegate<ParserTokenCompactionIndicesInto>(
                     programType,
-                    "ParserTokenCompactionIndicesInto"));
+                    "ParserTokenCompactionIndicesInto"),
+                CreateDelegate<FirstDistinctRankIndicesInto>(
+                    programType,
+                    "FirstDistinctRankIndicesInto"));
         }
         catch
         {
@@ -116,8 +186,15 @@ internal static class NSharpCompilerDogfoodAdapter
     }
 
     private delegate int ParserTokenCompactionIndicesInto(int[] tokenKinds, int[] resultIndices);
+    private delegate int FirstDistinctRankIndicesInto(
+        int[] ranks,
+        int uniqueRankCount,
+        int[] seenRanks,
+        int[] resultIndices);
 
-    private sealed record Bindings(ParserTokenCompactionIndicesInto ParserTokenCompaction);
+    private sealed record Bindings(
+        ParserTokenCompactionIndicesInto ParserTokenCompaction,
+        FirstDistinctRankIndicesInto FirstDistinctRankIndices);
 
     private sealed class ParserTokenCompactionScratch
     {
@@ -131,6 +208,47 @@ internal static class NSharpCompilerDogfoodAdapter
                 TokenKinds = new int[count];
                 ResultIndices = new int[count];
             }
+        }
+    }
+
+    private sealed class FirstDistinctTypeKeyScratch
+    {
+        private readonly Dictionary<string, int> _keyRanks = new(StringComparer.Ordinal);
+
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SeenRanks = Array.Empty<int>();
+        public int[] TypeRanks = Array.Empty<int>();
+        public int UniqueKeyCount;
+
+        public void EnsureCapacity(int count)
+        {
+            if (TypeRanks.Length != count)
+            {
+                TypeRanks = new int[count];
+                ResultIndices = new int[count];
+            }
+
+            var rankCapacity = count + 1;
+            if (SeenRanks.Length != rankCapacity)
+            {
+                SeenRanks = new int[rankCapacity];
+            }
+        }
+
+        public int AddKey(string key)
+        {
+            if (_keyRanks.TryGetValue(key, out var rank))
+                return rank;
+
+            rank = ++UniqueKeyCount;
+            _keyRanks.Add(key, rank);
+            return rank;
+        }
+
+        public void ResetKeys()
+        {
+            _keyRanks.Clear();
+            UniqueKeyCount = 0;
         }
     }
 }
