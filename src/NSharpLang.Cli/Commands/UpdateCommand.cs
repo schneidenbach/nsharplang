@@ -19,7 +19,7 @@ public static class UpdateCommand
         if (!File.Exists(projectYml))
             return Error("No project.yml found.");
 
-        var targetPackage = args.FirstOrDefault(a => !a.StartsWith("-"));
+        var targetPackage = GetTargetPackage(args);
 
         try
         {
@@ -144,6 +144,16 @@ Exit codes:
 
         return 0;
     }
+
+    internal static string? GetTargetPackage(string[] args)
+    {
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, Array.Empty<string>(), out var positional)
+            ? positional
+            : GetTargetPackageWithCSharp(args);
+    }
+
+    private static string? GetTargetPackageWithCSharp(string[] args)
+        => args.FirstOrDefault(arg => !arg.StartsWith("-"));
 
     static int Error(string message)
     {

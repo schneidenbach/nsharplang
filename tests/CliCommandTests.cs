@@ -670,6 +670,15 @@ func Main() {
     }
 
     [Fact]
+    public void UpdateCommand_DogfoodAdapter_SelectsTargetPackage()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.Equal("Newtonsoft.Json", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "Newtonsoft.Json" }));
+        Assert.Equal("Serilog", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "-v", "Serilog" }));
+        Assert.Null(UpdateCommand.GetTargetPackage(new[] { "--dry-run" }));
+    }
+
+    [Fact]
     public void DocCommand_DogfoodAdapter_OrdersSymbolsForGeneration()
     {
         var symbols = new[]

@@ -830,7 +830,8 @@ Current CLI dogfood benchmarks:
   ranks, scans an unrolled rank array, and writes matching diagnostic indices through
   `DiagnosticSeverityFilterIndicesInto`.
 - `CliFirstPositionalArgumentBenchmarks` targets CLI commands that only need the first positional
-  operand, such as project-name/project-root discovery and `nlc export csharp` input discovery. The
+  operand, such as project-name/project-root discovery, `nlc update` target package selection, and
+  `nlc export csharp` input discovery. The
   C# baseline mirrors the previous shared helper shape: build every positional string, materialize
   the result array, then read index zero. The accepted N# candidate returns the first positional
   source index through `CliFirstPositionalArgIndex`, letting the host read only that string and skip
@@ -891,8 +892,9 @@ as soon as it finds the first operand instead of using the previous shared helpe
 and materialized every positional argument. A short validation run measured about 186x faster on the
 representative argument corpus (48.20 ns vs 8.991 us, 0 B vs 22,296 B) and about 1,678x faster on
 the large generated argument corpus (48.35 ns vs 81.122 us, 0 B vs 175,280 B). This is
-acceptance-grade benchmark evidence for `nlc new`, `nlc check`, `nlc fix`, and `nlc export csharp`
-first positional project/operand discovery when those commands do not need the full positional list.
+acceptance-grade benchmark evidence for `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and
+`nlc export csharp` first positional project/operand discovery when those commands do not need the
+full positional list.
 
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
@@ -980,10 +982,10 @@ dogfood assembly is available, with the previous C# LINQ counts kept as the fall
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
 severity filter when the dogfood assembly is available, with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
-`nlc new`, `nlc check`, `nlc fix`, and `nlc export csharp` now route first positional
-project/operand discovery through `NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which calls
-the compiled N# first-index scanner when the dogfood assembly is available, with the previous C#
-positional scan kept as the fallback.
+`nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp` now route first positional
+project/operand/package discovery through `NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which
+calls the compiled N# first-index scanner when the dogfood assembly is available, with the previous
+C# positional scan kept as the fallback.
 `nlc build` now routes source-file operand discovery through
 `NSharpCliDogfoodAdapter.TryGetBuildOperandSummary`, which calls the compiled N# first-operand
 scanner when the dogfood assembly is available, with the previous C# build-argument normalization
@@ -1063,8 +1065,9 @@ semantic scope index construction, scoped visible-variable selection, CLI batch 
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
-packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc doc` symbol/member
-ordering, `nlc tree` dependency deduplication, and `nlc query diagnostics --severity` filtering;
+packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
+selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
+`nlc query diagnostics --severity` filtering;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route;
 `CodeFixTests` verifies the production fix-applicator ordering route.
@@ -1086,9 +1089,9 @@ member-access completion plus reflected method overload grouping and grouped mem
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
 ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
-batch diagnostics, and daemon diagnostics, plus first positional project/operand discovery in
-`nlc new`, `nlc check`, `nlc fix`, and `nlc export csharp`, plus first source-file route selection
-in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`.
+batch diagnostics, and daemon diagnostics, plus first positional project/operand/package discovery in
+`nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
+route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
 Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are
