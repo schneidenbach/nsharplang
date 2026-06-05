@@ -9,6 +9,16 @@ using NSharpLang.Cli.Commands;
 
 namespace NSharpLang.Cli;
 
+internal readonly record struct PublishArgumentSummary(
+    string? ValidationError,
+    string? ProjectOption,
+    string? BackendOption,
+    string Configuration,
+    string? Output,
+    string? Runtime,
+    bool SelfContained,
+    bool Aot);
+
 partial class Program
 {
     private static readonly string[] NewProjectOptionsWithValues = ["--template", "--type"];
@@ -423,14 +433,14 @@ Exit codes:
             return 0;
         }
 
-        var validationError = ValidatePublishArguments(args);
-        if (validationError != null)
+        var publishArguments = GetPublishArgumentSummary(args);
+        if (publishArguments.ValidationError != null)
         {
-            return Error(validationError);
+            return Error(publishArguments.ValidationError);
         }
 
-        var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
-        var backendOption = GetOptionValue(args, "--backend");
+        var projectRoot = Path.GetFullPath(publishArguments.ProjectOption ?? Directory.GetCurrentDirectory());
+        var backendOption = publishArguments.BackendOption;
 
         try
         {
@@ -449,17 +459,15 @@ Exit codes:
                 throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
             }
 
-            var configuration = GetOptionValue(args, "--configuration") ?? GetOptionValue(args, "-c") ?? "Release";
-            var output = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-            var runtime = GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r");
-            var selfContained = args.Contains("--self-contained");
-            var aot = args.Contains("--aot");
-            if (selfContained)
+            var configuration = publishArguments.Configuration;
+            var output = publishArguments.Output;
+            var runtime = publishArguments.Runtime;
+            if (publishArguments.SelfContained)
             {
                 return Error(SelfContainedPublishUnsupportedMessage);
             }
 
-            if (aot)
+            if (publishArguments.Aot)
             {
                 Console.WriteLine(AotPublishAnalysisOnlyNotice);
             }
@@ -483,10 +491,10 @@ Exit codes:
                 configuration,
                 publishDir,
                 includeTests: false,
-                aotMode: aot);
+                aotMode: publishArguments.Aot);
             if (outputPath == null)
             {
-                return Error(aot
+                return Error(publishArguments.Aot
                     ? "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
                     : "Publish failed");
             }
@@ -604,6 +612,22 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         }
 
         return null;
+    }
+
+    internal static PublishArgumentSummary GetPublishArgumentSummary(string[] args)
+    {
+        if (NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary(args, out var summary))
+            return summary;
+
+        return new PublishArgumentSummary(
+            ValidatePublishArguments(args),
+            GetOptionValue(args, "--project"),
+            GetOptionValue(args, "--backend"),
+            GetOptionValue(args, "--configuration") ?? GetOptionValue(args, "-c") ?? "Release",
+            GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o"),
+            GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r"),
+            args.Contains("--self-contained"),
+            args.Contains("--aot"));
     }
 
     static int NewCommand(string[] args)

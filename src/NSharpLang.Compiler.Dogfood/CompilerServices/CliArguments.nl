@@ -68,6 +68,284 @@ func CliRunFirstOperandIndex(args: string[]): int {
     return -1
 }
 
+func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
+    if resultIndices.Length < 8 {
+        return -1
+    }
+
+    resultIndices[0] = -1
+    resultIndices[1] = -1
+    resultIndices[2] = -1
+    resultIndices[3] = -1
+    resultIndices[4] = -1
+    resultIndices[5] = 0
+    resultIndices[6] = 0
+    resultIndices[7] = -1
+
+    configurationLongIndex := -1
+    configurationShortIndex := -1
+    outputLongIndex := -1
+    outputShortIndex := -1
+    runtimeLongIndex := -1
+    runtimeShortIndex := -1
+
+    i := 0
+    while i < args.Length {
+        arg := args[i]
+        kind := CliPublishArgumentKind(arg)
+        if kind >= 1 && kind <= 8 {
+            if i + 1 >= args.Length {
+                resultIndices[7] = i
+                return 1
+            }
+
+            value := args[i + 1]
+            if value.Length > 0 && value[0] == '-' {
+                resultIndices[7] = i
+                return 1
+            }
+
+            valueIndex := i + 1
+            if kind == 1 {
+                if resultIndices[0] < 0 {
+                    resultIndices[0] = valueIndex
+                }
+            } else if kind == 2 {
+                if resultIndices[1] < 0 {
+                    resultIndices[1] = valueIndex
+                }
+            } else if kind == 3 {
+                if configurationLongIndex < 0 {
+                    configurationLongIndex = valueIndex
+                }
+            } else if kind == 4 {
+                if configurationShortIndex < 0 {
+                    configurationShortIndex = valueIndex
+                }
+            } else if kind == 5 {
+                if outputLongIndex < 0 {
+                    outputLongIndex = valueIndex
+                }
+            } else if kind == 6 {
+                if outputShortIndex < 0 {
+                    outputShortIndex = valueIndex
+                }
+            } else if kind == 7 {
+                if runtimeLongIndex < 0 {
+                    runtimeLongIndex = valueIndex
+                }
+            } else if kind == 8 {
+                if runtimeShortIndex < 0 {
+                    runtimeShortIndex = valueIndex
+                }
+            }
+
+            i = i + 2
+            continue
+        }
+
+        if kind == 9 {
+            resultIndices[5] = 1
+            i = i + 1
+            continue
+        }
+
+        if kind == 10 {
+            resultIndices[6] = 1
+            i = i + 1
+            continue
+        }
+
+        if kind == 11 {
+            resultIndices[7] = i
+            return 2
+        }
+
+        resultIndices[7] = i
+        if arg.Length > 0 && arg[0] == '-' {
+            return 3
+        }
+
+        return 4
+    }
+
+    if configurationLongIndex >= 0 {
+        resultIndices[2] = configurationLongIndex
+    } else {
+        resultIndices[2] = configurationShortIndex
+    }
+
+    if outputLongIndex >= 0 {
+        resultIndices[3] = outputLongIndex
+    } else {
+        resultIndices[3] = outputShortIndex
+    }
+
+    if runtimeLongIndex >= 0 {
+        resultIndices[4] = runtimeLongIndex
+    } else {
+        resultIndices[4] = runtimeShortIndex
+    }
+
+    return 0
+}
+
+func CliPublishArgumentKind(arg: string): int {
+    length := arg.Length
+    if length == 2 {
+        if arg[0] != '-' {
+            return 0
+        }
+
+        shortName := arg[1]
+        if shortName == 'c' {
+            return 4
+        }
+
+        if shortName == 'o' {
+            return 6
+        }
+
+        if shortName == 'r' {
+            return 8
+        }
+
+        return 0
+    }
+
+    if length < 5 || arg[0] != '-' || arg[1] != '-' {
+        return 0
+    }
+
+    first := arg[2]
+    if length == 5 {
+        if first == 'a' && arg[3] == 'o' && arg[4] == 't' {
+            return 10
+        }
+
+        return 0
+    }
+
+    if length == 8 {
+        if first == 'o'
+            && arg[3] == 'u'
+            && arg[4] == 't'
+            && arg[5] == 'p'
+            && arg[6] == 'u'
+            && arg[7] == 't' {
+            return 5
+        }
+
+        if first == 't'
+            && arg[3] == 'a'
+            && arg[4] == 'r'
+            && arg[5] == 'g'
+            && arg[6] == 'e'
+            && arg[7] == 't' {
+            return 11
+        }
+
+        return 0
+    }
+
+    if length == 9 {
+        if first == 'p'
+            && arg[3] == 'r'
+            && arg[4] == 'o'
+            && arg[5] == 'j'
+            && arg[6] == 'e'
+            && arg[7] == 'c'
+            && arg[8] == 't' {
+            return 1
+        }
+
+        if first == 'b'
+            && arg[3] == 'a'
+            && arg[4] == 'c'
+            && arg[5] == 'k'
+            && arg[6] == 'e'
+            && arg[7] == 'n'
+            && arg[8] == 'd' {
+            return 2
+        }
+
+        if first == 'r'
+            && arg[3] == 'u'
+            && arg[4] == 'n'
+            && arg[5] == 't'
+            && arg[6] == 'i'
+            && arg[7] == 'm'
+            && arg[8] == 'e' {
+            return 7
+        }
+
+        return 0
+    }
+
+    if length == 15 {
+        if first == 'c'
+            && arg[3] == 'o'
+            && arg[4] == 'n'
+            && arg[5] == 'f'
+            && arg[6] == 'i'
+            && arg[7] == 'g'
+            && arg[8] == 'u'
+            && arg[9] == 'r'
+            && arg[10] == 'a'
+            && arg[11] == 't'
+            && arg[12] == 'i'
+            && arg[13] == 'o'
+            && arg[14] == 'n' {
+            return 3
+        }
+
+        return 0
+    }
+
+    if length == 16 {
+        if first == 's'
+            && arg[3] == 'e'
+            && arg[4] == 'l'
+            && arg[5] == 'f'
+            && arg[6] == '-'
+            && arg[7] == 'c'
+            && arg[8] == 'o'
+            && arg[9] == 'n'
+            && arg[10] == 't'
+            && arg[11] == 'a'
+            && arg[12] == 'i'
+            && arg[13] == 'n'
+            && arg[14] == 'e'
+            && arg[15] == 'd' {
+            return 9
+        }
+
+        return 0
+    }
+
+    if length == 17 {
+        if first == 't'
+            && arg[3] == 'a'
+            && arg[4] == 'r'
+            && arg[5] == 'g'
+            && arg[6] == 'e'
+            && arg[7] == 't'
+            && arg[8] == '-'
+            && arg[9] == 'p'
+            && arg[10] == 'l'
+            && arg[11] == 'a'
+            && arg[12] == 't'
+            && arg[13] == 'f'
+            && arg[14] == 'o'
+            && arg[15] == 'r'
+            && arg[16] == 'm' {
+            return 11
+        }
+    }
+
+    return 0
+}
+
 func CliLintFileArgIndicesInto(
     args: string[],
     projectValueIndices: int[],

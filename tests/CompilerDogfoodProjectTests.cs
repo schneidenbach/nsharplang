@@ -1566,6 +1566,10 @@ class OtherZetaType {
                     "CliRunFirstOperandIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunFirstOperandIndex.");
+            var cliPublishOptionsInto = programType.GetMethod(
+                    "CliPublishOptionsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliPublishOptionsInto.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2229,6 +2233,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
+            AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -4241,6 +4246,153 @@ func main() {
 
         return -1;
     }
+
+    private static void AssertCliPublishOptionsLikeProduction(MethodInfo cliPublishOptionsInto)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[]
+            {
+                "-c", "Debug",
+                "--output", "dist",
+                "--runtime", "osx-arm64",
+                "--aot",
+                "--self-contained",
+                "--project", "samples/demo",
+                "--backend", "il",
+                "--configuration", "Release",
+                "-o", "ignored-output",
+                "-r", "ignored-runtime"
+            },
+            new[] { "-c", "Debug", "-o", "dist", "-r", "osx-arm64" },
+            new[] { "--project", "first", "--project", "second", "--backend", "il" },
+            new[] { "--project" },
+            new[] { "--project", "--backend", "il" },
+            new[] { "--target", "linux-x64" },
+            new[] { "--target-platform" },
+            new[] { "--bad" },
+            new[] { "Project.nl" },
+            new[] { string.Empty }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliPublishOptions(args);
+            var resultIndices = Enumerable.Repeat(-99, 8).ToArray();
+            var actualCode = (int)(cliPublishOptionsInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -2);
+
+            Assert.Equal(expected.Code, actualCode);
+            if (expected.Code == 0)
+            {
+                Assert.Equal(expected.Indices, resultIndices);
+            }
+            else
+            {
+                Assert.Equal(expected.ErrorIndex, resultIndices[7]);
+            }
+        }
+    }
+
+    private static (int Code, int[] Indices, int ErrorIndex) CreateExpectedCliPublishOptions(string[] args)
+    {
+        var indices = new[] { -1, -1, -1, -1, -1, 0, 0, -1 };
+        var configurationLongIndex = -1;
+        var configurationShortIndex = -1;
+        var outputLongIndex = -1;
+        var outputShortIndex = -1;
+        var runtimeLongIndex = -1;
+        var runtimeShortIndex = -1;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var kind = CliPublishArgumentKind(args[i]);
+            if (kind is >= 1 and <= 8)
+            {
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                {
+                    indices[7] = i;
+                    return (1, indices, i);
+                }
+
+                var valueIndex = i + 1;
+                switch (kind)
+                {
+                    case 1:
+                        if (indices[0] < 0) indices[0] = valueIndex;
+                        break;
+                    case 2:
+                        if (indices[1] < 0) indices[1] = valueIndex;
+                        break;
+                    case 3:
+                        if (configurationLongIndex < 0) configurationLongIndex = valueIndex;
+                        break;
+                    case 4:
+                        if (configurationShortIndex < 0) configurationShortIndex = valueIndex;
+                        break;
+                    case 5:
+                        if (outputLongIndex < 0) outputLongIndex = valueIndex;
+                        break;
+                    case 6:
+                        if (outputShortIndex < 0) outputShortIndex = valueIndex;
+                        break;
+                    case 7:
+                        if (runtimeLongIndex < 0) runtimeLongIndex = valueIndex;
+                        break;
+                    case 8:
+                        if (runtimeShortIndex < 0) runtimeShortIndex = valueIndex;
+                        break;
+                }
+
+                i++;
+                continue;
+            }
+
+            if (kind == 9)
+            {
+                indices[5] = 1;
+                continue;
+            }
+
+            if (kind == 10)
+            {
+                indices[6] = 1;
+                continue;
+            }
+
+            indices[7] = i;
+            if (kind == 11)
+                return (2, indices, i);
+
+            return args[i].StartsWith("-", StringComparison.Ordinal)
+                ? (3, indices, i)
+                : (4, indices, i);
+        }
+
+        indices[2] = configurationLongIndex >= 0 ? configurationLongIndex : configurationShortIndex;
+        indices[3] = outputLongIndex >= 0 ? outputLongIndex : outputShortIndex;
+        indices[4] = runtimeLongIndex >= 0 ? runtimeLongIndex : runtimeShortIndex;
+        return (0, indices, -1);
+    }
+
+    private static int CliPublishArgumentKind(string arg) =>
+        arg switch
+        {
+            "--project" => 1,
+            "--backend" => 2,
+            "--configuration" => 3,
+            "-c" => 4,
+            "--output" => 5,
+            "-o" => 6,
+            "--runtime" => 7,
+            "-r" => 8,
+            "--self-contained" => 9,
+            "--aot" => 10,
+            "--target" or "--target-platform" => 11,
+            _ => 0
+        };
 
     private static void AssertCliPositionalArgsLikeProduction(
         MethodInfo cliPositionalArgIndicesInto,

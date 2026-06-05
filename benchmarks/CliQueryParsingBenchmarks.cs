@@ -647,6 +647,223 @@ public class CliRunArgumentNormalizationBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for <c>nlc publish</c> option validation and option-value discovery. The C#
+/// baseline mirrors the previous command parser: allocate validation hash sets, scan for validation,
+/// rescan for each option value, and rescan for switch flags. The N# candidate validates once and
+/// returns all option value indices and flags through a caller-owned result buffer.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliPublishArgumentNormalizationBenchmarks
+{
+    private Func<string[], int[], int> _nsharpCliPublishOptionsInto =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _args = Array.Empty<string>();
+    private PublishBenchmarkSummary _csharpSummary;
+    private PublishBenchmarkSummary _nsharpSummary;
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+
+    [Params(0, 18, 64)]
+    public int ArgumentCount { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _nsharpCliPublishOptionsInto =
+            NSharpCompiledMethod.Bind<Func<string[], int[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliPublishOptionsInto");
+
+        _args = BuildPublishArguments(ArgumentCount);
+        _nsharpResultIndices = new int[8];
+
+        var expectedChecksum = CSharpPublishArgs_NormalizeOptions();
+        var actualChecksum = NSharpPublishArgs_NormalizeOptions();
+        if (expectedChecksum != actualChecksum || _csharpSummary != _nsharpSummary)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI publish argument mismatch for {ArgumentCount} arguments: " +
+                $"expected {_csharpSummary}, got {_nsharpSummary}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpPublishArgs_NormalizeOptions()
+    {
+        var validationCode = ValidatePublishArguments(_args);
+        _csharpSummary = new PublishBenchmarkSummary(
+            validationCode,
+            GetOptionValue(_args, "--project"),
+            GetOptionValue(_args, "--backend"),
+            GetOptionValue(_args, "--configuration") ?? GetOptionValue(_args, "-c") ?? "Release",
+            GetOptionValue(_args, "--output") ?? GetOptionValue(_args, "-o"),
+            GetOptionValue(_args, "--runtime") ?? GetOptionValue(_args, "-r"),
+            _args.Contains("--self-contained"),
+            _args.Contains("--aot"));
+        return Checksum(_csharpSummary);
+    }
+
+    [Benchmark]
+    public int NSharpPublishArgs_NormalizeOptions()
+    {
+        var validationCode = _nsharpCliPublishOptionsInto(_args, _nsharpResultIndices);
+        if (validationCode < 0 || validationCode > 4)
+            throw new InvalidOperationException($"N# CLI publish validation code out of range: {validationCode}.");
+
+        _nsharpSummary = new PublishBenchmarkSummary(
+            validationCode,
+            ArgAt(_nsharpResultIndices[0]),
+            ArgAt(_nsharpResultIndices[1]),
+            ArgAt(_nsharpResultIndices[2]) ?? "Release",
+            ArgAt(_nsharpResultIndices[3]),
+            ArgAt(_nsharpResultIndices[4]),
+            _nsharpResultIndices[5] != 0,
+            _nsharpResultIndices[6] != 0);
+        return Checksum(_nsharpSummary);
+    }
+
+    private string? ArgAt(int index)
+    {
+        if (index == -1)
+            return null;
+
+        if (index < 0 || index >= _args.Length)
+            throw new InvalidOperationException($"N# CLI publish result index out of range: {index}.");
+
+        return _args[index];
+    }
+
+    private static int ValidatePublishArguments(string[] args)
+    {
+        var optionsWithValues = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "--project",
+            "--backend",
+            "--configuration",
+            "-c",
+            "--output",
+            "-o",
+            "--runtime",
+            "-r"
+        };
+        var switchOptions = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "--self-contained",
+            "--aot"
+        };
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (optionsWithValues.Contains(arg))
+            {
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("-", StringComparison.Ordinal))
+                    return 1;
+
+                i++;
+                continue;
+            }
+
+            if (switchOptions.Contains(arg))
+                continue;
+
+            if (arg is "--target" or "--target-platform")
+                return 2;
+
+            if (arg.StartsWith("-", StringComparison.Ordinal))
+                return 3;
+
+            return 4;
+        }
+
+        return 0;
+    }
+
+    private static string? GetOptionValue(string[] args, string flag)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == flag)
+                return args[i + 1];
+        }
+
+        return null;
+    }
+
+    private static string[] BuildPublishArguments(int targetCount)
+    {
+        var groups = new[]
+        {
+            new[] { "-c", "Debug" },
+            new[] { "--output", "dist" },
+            new[] { "--runtime", "osx-arm64" },
+            new[] { "--aot" },
+            new[] { "--self-contained" },
+            new[] { "--project", "samples/demo" },
+            new[] { "--backend", "il" },
+            new[] { "--configuration", "Release" },
+            new[] { "-o", "ignored-output" },
+            new[] { "-r", "ignored-runtime" }
+        };
+
+        var args = new List<string>(targetCount);
+        var groupIndex = 0;
+        while (args.Count < targetCount)
+        {
+            var group = groups[groupIndex % groups.Length];
+            groupIndex++;
+            if (args.Count + group.Length <= targetCount)
+            {
+                args.AddRange(group);
+                continue;
+            }
+
+            args.Add("--aot");
+        }
+
+        return args.ToArray();
+    }
+
+    private static int Checksum(PublishBenchmarkSummary summary)
+    {
+        var checksum = summary.ValidationCode * 397
+            + (summary.SelfContained ? 31 : 0)
+            + (summary.Aot ? 17 : 0);
+        checksum += ChecksumString(summary.ProjectOption, 3);
+        checksum += ChecksumString(summary.BackendOption, 5);
+        checksum += ChecksumString(summary.Configuration, 7);
+        checksum += ChecksumString(summary.Output, 11);
+        checksum += ChecksumString(summary.Runtime, 13);
+        return checksum;
+    }
+
+    private static int ChecksumString(string? value, int weight)
+    {
+        if (value == null)
+            return weight;
+
+        var checksum = value.Length * weight;
+        for (var i = 0; i < value.Length; i++)
+        {
+            checksum += value[i] * (i + 1) * weight;
+        }
+
+        return checksum;
+    }
+
+    private readonly record struct PublishBenchmarkSummary(
+        int ValidationCode,
+        string? ProjectOption,
+        string? BackendOption,
+        string Configuration,
+        string? Output,
+        string? Runtime,
+        bool SelfContained,
+        bool Aot);
+}
+
+/// <summary>
 /// Dogfood benchmark for <c>nlc build</c> operand normalization. The C# baseline mirrors the
 /// current command parser: remove value-less build flags with LINQ, then run four
 /// option-with-value stripping passes that allocate intermediate arrays. The N# candidate returns

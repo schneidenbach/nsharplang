@@ -1179,6 +1179,11 @@ Current CLI dogfood benchmarks:
   read the first remaining argument. The accepted N# candidate returns the first source operand
   index through `CliRunFirstOperandIndex`, preserving dangling `--backend` and unknown-flag
   behavior without materializing a stripped argument array.
+- `CliPublishArgumentNormalizationBenchmarks` targets `nlc publish` option validation and option
+  value discovery. The accepted production route is intentionally limited to the default no-argument
+  publish path, where the N# candidate returns the default summary through `CliPublishOptionsInto`
+  without allocating validation sets. Option-bearing rows are pressure evidence only and stay on the
+  exact C# fallback because they do not clear the 5x speed gate yet.
 - `CliExportCSharpArgumentNormalizationBenchmarks` targets `nlc export csharp` input operand
   discovery. The C# baseline mirrors the current export command shape: run three
   option-with-value stripping passes for `--output`, `-o`, and `--project`, materialize each
@@ -1342,6 +1347,15 @@ about 358x faster on the representative argument corpus (4.988 ns vs 1,786.022 n
 168,056 B). `RunCommand` now routes source operand discovery through
 `NSharpCliDogfoodAdapter.TryGetRunSourceOperand`, with the previous C# strip path retained as the
 exact fallback.
+
+`CliPublishOptionsInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for the default no-argument `nlc publish` option summary. It ran
+about 12.0x faster than the previous C# parser shape (9.550 ns vs 114.938 ns, 0 B vs 936 B), which
+allocated validation sets before discovering there were no options. `PublishCommand` now routes only
+this no-argument path through `NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary`; option-bearing
+publish invocations remain on the exact C# fallback because the same benchmark measured only about
+4.1x for a realistic 18-token publish command (53.578 ns vs 220.507 ns) and about 2.6x at 64
+tokens (140.409 ns vs 368.786 ns), below the production speed gate.
 
 `CliExportCSharpFirstOperandIndexInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for source-first `nlc export csharp` input operand discovery.
@@ -1914,16 +1928,18 @@ application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc qu
 batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus first positional
 project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
-route selection in `nlc build` and `nlc run`, plus inspect-summary reference-file ordering in
+route selection in `nlc build` and `nlc run`, plus default no-option summary routing in
+`nlc publish`, plus inspect-summary reference-file ordering in
 `nlc query inspect`, plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output
 and applied-fix file grouping in `nlc fix --text`,
 plus wildcard and bare substring symbol-name filtering in `nlc query symbols --filter`, plus artifact directory
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
-Path matching, all-positionals CLI argument filtering, batch result counting through current C#
-object projection have parity and benchmark evidence but are not routed through production
-code-intelligence, query, batch, or daemon paths because they currently miss the 5x speed gate.
+Path matching, all-positionals CLI argument filtering, option-bearing `nlc publish` argument
+normalization, and batch result counting through current C# object projection have parity and
+benchmark evidence but are not routed through production code-intelligence, query, batch, daemon, or
+publish option-bearing paths because they currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in

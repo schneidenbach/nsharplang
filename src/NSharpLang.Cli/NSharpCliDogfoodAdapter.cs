@@ -41,6 +41,8 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static LintFileArgScratch? t_lintFileArgScratch;
     [ThreadStatic]
+    private static int[]? t_publishOptionIndices;
+    [ThreadStatic]
     private static TidyDependencyStatusFilterScratch? t_tidyDependencyStatusFilterScratch;
     [ThreadStatic]
     private static TidyRemovalLineScratch? t_tidyRemovalLineScratch;
@@ -118,6 +120,102 @@ internal static class NSharpCliDogfoodAdapter
             operand = null;
             return false;
         }
+    }
+
+    internal static bool TryGetPublishArgumentSummary(string[] args, out PublishArgumentSummary summary)
+    {
+        summary = default;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (args.Length != 0)
+            return false;
+
+        var resultIndices = t_publishOptionIndices ??= new int[8];
+        try
+        {
+            var code = bindings.CliPublishOptionsInto(args, resultIndices);
+            if (code < 0 || code > 4)
+                return false;
+
+            var validationError = GetPublishValidationError(args, code, resultIndices[7]);
+            if (validationError != null)
+            {
+                summary = new PublishArgumentSummary(
+                    validationError,
+                    null,
+                    null,
+                    "Release",
+                    null,
+                    null,
+                    false,
+                    false);
+                return true;
+            }
+
+            if (!TryGetOptionalArg(args, resultIndices[0], out var projectOption)
+                || !TryGetOptionalArg(args, resultIndices[1], out var backendOption)
+                || !TryGetOptionalArg(args, resultIndices[2], out var configuration)
+                || !TryGetOptionalArg(args, resultIndices[3], out var output)
+                || !TryGetOptionalArg(args, resultIndices[4], out var runtime))
+            {
+                summary = default;
+                return false;
+            }
+
+            summary = new PublishArgumentSummary(
+                null,
+                projectOption,
+                backendOption,
+                configuration ?? "Release",
+                output,
+                runtime,
+                resultIndices[5] != 0,
+                resultIndices[6] != 0);
+            return true;
+        }
+        catch
+        {
+            summary = default;
+            return false;
+        }
+    }
+
+    private static string? GetPublishValidationError(string[] args, int code, int errorArgIndex)
+    {
+        if (code == 0)
+            return null;
+
+        if (code == 2)
+        {
+            return "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet.";
+        }
+
+        if (errorArgIndex < 0 || errorArgIndex >= args.Length)
+            return null;
+
+        return code switch
+        {
+            1 => $"Option '{args[errorArgIndex]}' requires a value.",
+            3 => $"Unknown publish option '{args[errorArgIndex]}'. Run 'nlc publish --help' for supported options.",
+            4 => $"Unexpected publish argument '{args[errorArgIndex]}'. Run 'nlc publish --help' for usage.",
+            _ => null
+        };
+    }
+
+    private static bool TryGetOptionalArg(string[] args, int index, out string? value)
+    {
+        value = null;
+        if (index == -1)
+            return true;
+
+        if (index < 0 || index >= args.Length)
+            return false;
+
+        value = args[index];
+        return true;
     }
 
     internal static bool TryGetFirstPositionalArg(
@@ -1635,6 +1733,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
                 CreateDelegate<CliExportCSharpFirstOperandIndexInto>(programType, "CliExportCSharpFirstOperandIndexInto"),
                 CreateDelegate<CliRunFirstOperandIndex>(programType, "CliRunFirstOperandIndex"),
+                CreateDelegate<CliPublishOptionsInto>(programType, "CliPublishOptionsInto"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliLintFileArgIndicesInto>(programType, "CliLintFileArgIndicesInto"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
@@ -1708,6 +1807,8 @@ internal static class NSharpCliDogfoodAdapter
         int[] resultIndices);
 
     private delegate int CliRunFirstOperandIndex(string[] args);
+
+    private delegate int CliPublishOptionsInto(string[] args, int[] resultIndices);
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -1856,6 +1957,7 @@ internal static class NSharpCliDogfoodAdapter
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
         CliRunFirstOperandIndex CliRunFirstOperandIndex,
+        CliPublishOptionsInto CliPublishOptionsInto,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliLintFileArgIndicesInto CliLintFileArgIndices,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,

@@ -885,6 +885,63 @@ func Main() {
     }
 
     [Fact]
+    public void PublishCommand_DogfoodAdapter_NormalizesDefaultOptionsAndFallbackValidation()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary(
+            Array.Empty<string>(),
+            out var defaultSummary));
+        Assert.Null(defaultSummary.ValidationError);
+        Assert.Null(defaultSummary.ProjectOption);
+        Assert.Null(defaultSummary.BackendOption);
+        Assert.Equal("Release", defaultSummary.Configuration);
+        Assert.Null(defaultSummary.Output);
+        Assert.Null(defaultSummary.Runtime);
+        Assert.False(defaultSummary.SelfContained);
+        Assert.False(defaultSummary.Aot);
+
+        var args = new[]
+        {
+            "-c", "Debug",
+            "--output", "dist",
+            "--runtime", "osx-arm64",
+            "--aot",
+            "--self-contained",
+            "--project", "samples/demo",
+            "--backend", "il",
+            "--configuration", "Release",
+            "-o", "ignored-output",
+            "-r", "ignored-runtime"
+        };
+
+        var summary = Program.GetPublishArgumentSummary(args);
+        Assert.Null(summary.ValidationError);
+        Assert.Equal("samples/demo", summary.ProjectOption);
+        Assert.Equal("il", summary.BackendOption);
+        Assert.Equal("Release", summary.Configuration);
+        Assert.Equal("dist", summary.Output);
+        Assert.Equal("osx-arm64", summary.Runtime);
+        Assert.True(summary.SelfContained);
+        Assert.True(summary.Aot);
+
+        var missingValue = Program.GetPublishArgumentSummary(new[] { "--project", "--backend", "il" });
+        Assert.Equal("Option '--project' requires a value.", missingValue.ValidationError);
+
+        var targetPlatform = Program.GetPublishArgumentSummary(new[] { "--target", "linux-x64" });
+        Assert.Equal(
+            "Target-platform publishing is expressed as --runtime <rid>, and nlc publish does not support cross-runtime publishing yet.",
+            targetPlatform.ValidationError);
+
+        var unknown = Program.GetPublishArgumentSummary(new[] { "--mystery" });
+        Assert.Equal("Unknown publish option '--mystery'. Run 'nlc publish --help' for supported options.", unknown.ValidationError);
+
+        Assert.Equal(
+            "Debug",
+            Program.GetPublishArgumentSummary(new[] { "-c", "Debug" }).Configuration);
+    }
+
+    [Fact]
     public void CliDogfoodAdapter_FiltersReferenceValuesByType()
     {
         var references = new[]
