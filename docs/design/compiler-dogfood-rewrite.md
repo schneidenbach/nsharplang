@@ -922,10 +922,11 @@ the all-positionals pressure note above.
 normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path
 uses compact case-insensitive severity ranks, an eight-wide unrolled scan for caller-owned result
 buffers, and a single-pass checksum wrapper. It ran about 7.2x faster on the representative
-diagnostic corpus (371.7 ns vs 2.687 us, 0 B vs 2,840 B) and about 6.4x faster on the large
-generated diagnostic corpus (3.438 us vs 21.874 us, 0 B vs 21,944 B). This is acceptance-grade
-benchmark evidence for `nlc query diagnostics`, batch diagnostics, and daemon diagnostics after the
-host has assigned compact case-insensitive severity ranks.
+diagnostic corpus in the latest short validation run (380.5 ns vs 2.666 us, 0 B vs 2,840 B) and
+about 7.0x faster on the large generated diagnostic corpus (3.125 us vs 21.990 us, 0 B vs
+21,944 B). This is acceptance-grade benchmark evidence for `nlc query diagnostics`, batch
+diagnostics, daemon diagnostics, and strict build lint error filtering after the host has assigned
+compact case-insensitive severity ranks.
 
 `CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster
@@ -1003,6 +1004,9 @@ dogfood assembly is available, with the previous C# LINQ counts kept as the fall
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
 severity filter when the dogfood assembly is available, with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
+Strict `nlc build` lint gating now routes its error-only diagnostic filter through the same
+adapter-backed formatter path before the accepted diagnostic deduplication/order route, instead of
+running a local C# LINQ severity filter.
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp` now route first positional
 project/operand/package discovery through `NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which
 calls the compiled N# first-index scanner when the dogfood assembly is available, with the previous
@@ -1110,7 +1114,8 @@ member-access completion plus reflected method overload grouping and grouped mem
 output, plus batch duplicate-id validation in `nlc query batch` and generated doc symbol/member
 ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
-batch diagnostics, and daemon diagnostics, plus first positional project/operand/package discovery in
+batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus first positional
+project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
 route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
