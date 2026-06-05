@@ -3257,6 +3257,48 @@ func CliStableDistinctRankChecksumInto(
     return checksum
 }
 
+func CliReferenceResolutionBestScoreIndex(scores: int[], count: int): int {
+    if count <= 0 {
+        return -1
+    }
+
+    if count > scores.Length {
+        return -2
+    }
+
+    bestIndex := -1
+    bestScore := -1
+    i := 0
+    while i < count {
+        score := scores[i]
+        if score >= 0 && score > bestScore {
+            bestScore = score
+            bestIndex = i
+        }
+
+        i = i + 1
+    }
+
+    return bestIndex
+}
+
+func CliReferenceResolutionBestScoreChecksum(
+    scores: int[],
+    weights: int[],
+    count: int): int {
+    bestIndex := CliReferenceResolutionBestScoreIndex(scores, count)
+    if bestIndex < 0 {
+        return bestIndex
+    }
+
+    weight := 0
+    if bestIndex < weights.Length {
+        weight = weights[bestIndex]
+    }
+
+    return (bestIndex + 1) * 97 + scores[bestIndex] * 31 + weight * 17
+}
+
 func CliPositionalArgChecksumInto(
     args: string[],
     optionsWithValues: string[],

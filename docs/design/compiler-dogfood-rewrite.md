@@ -1236,6 +1236,13 @@ Current CLI dogfood benchmarks:
   ordinal-ignore-case `Distinct` plus array materialization. The accepted N# candidate reuses the
   compact equality-rank stable distinct kernel and writes first-source indices through
   `CliStableDistinctRankIndicesInto`.
+- `CliReferenceResolutionBestScoreBenchmarks` targets the score-selection kernel inside CLI
+  compilation reference resolution. The C# baseline mirrors the current asset-directory candidate
+  shape: filter candidates with non-negative compatibility scores, sort by descending score, and
+  take the first candidate. The N# pressure candidate runs after the host has projected compatibility
+  scores into primitive arrays and selects the first highest-scoring candidate through
+  `CliReferenceResolutionBestScoreIndex`, but it remains benchmark-only because representative
+  timings missed the production gate.
 - `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
   The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
   `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
@@ -2212,6 +2219,14 @@ produce a production-shaped win:
   C# `Any` baseline exits after the first early match. Do not route `AddPackageReferenceIfMissing`
   through a one-off adapter call; revisit this only as part of a retained package-name index or
   broader reference-resolution port.
+- CLI reference-resolution best-score selection: selecting the first highest non-negative
+  compatibility score through a compact N# score-array scan removed the current LINQ
+  `Where`/`OrderByDescending` allocation and reached about 5.35x on the large generated corpus
+  (`379.292 us` N# vs `2.029 ms` C#), but the representative 128-candidate row only reached about
+  1.15x (`88.708 us` N# vs `102.208 us` C#). Do not route `SelectBestAssetAssemblies` or NuGet
+  dependency-group selection through this adapter slice; reference resolution needs to own a broader
+  retained compatibility table or more of package metadata parsing in N# before this can clear the
+  gate.
 - CLI batch result counting through current result objects: the packed N# popcount kernel cleared
   the speed gate once ok flags were already represented as compact `ulong` words, but the
   production-shaped C# projection from `BatchQueryItemResult.Ok` into that bitset failed immediately

@@ -1690,6 +1690,14 @@ class OtherZetaType {
                     "CliReferenceTypeFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliReferenceTypeFilterChecksumInto.");
+            var cliReferenceResolutionBestScoreIndex = programType.GetMethod(
+                    "CliReferenceResolutionBestScoreIndex",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliReferenceResolutionBestScoreIndex.");
+            var cliReferenceResolutionBestScoreChecksum = programType.GetMethod(
+                    "CliReferenceResolutionBestScoreChecksum",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliReferenceResolutionBestScoreChecksum.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2302,6 +2310,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliReferenceTypeFilteringLikeProduction(
                 cliReferenceTypeFilterIndicesInto,
                 cliReferenceTypeFilterChecksumInto);
+            AssertCliReferenceResolutionBestScoreSelectionLikeProduction(
+                cliReferenceResolutionBestScoreIndex,
+                cliReferenceResolutionBestScoreChecksum);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
@@ -5756,6 +5767,47 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliReferenceResolutionBestScoreSelectionLikeProduction(
+        MethodInfo cliReferenceResolutionBestScoreIndex,
+        MethodInfo cliReferenceResolutionBestScoreChecksum)
+    {
+        var scores = new[] { -1, 40, 900, 120, 900, 30, -1 };
+        var weights = new[] { 0, 11, 19, 23, 31, 37, 0 };
+        var expected = Enumerable.Range(0, scores.Length)
+            .Where(index => scores[index] >= 0)
+            .OrderByDescending(index => scores[index])
+            .First();
+
+        var actual = (int)(cliReferenceResolutionBestScoreIndex.Invoke(
+            null,
+            new object[] { scores, scores.Length }) ?? -1);
+
+        Assert.Equal(expected, actual);
+
+        var actualChecksum = (int)(cliReferenceResolutionBestScoreChecksum.Invoke(
+            null,
+            new object[] { scores, weights, scores.Length }) ?? -1);
+        var expectedChecksum = (expected + 1) * 97 + scores[expected] * 31 + weights[expected] * 17;
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+
+        var noMatchScores = new[] { -1, -1, -1 };
+        var noMatch = (int)(cliReferenceResolutionBestScoreIndex.Invoke(
+            null,
+            new object[] { noMatchScores, noMatchScores.Length }) ?? 0);
+        Assert.Equal(-1, noMatch);
+
+        var empty = (int)(cliReferenceResolutionBestScoreIndex.Invoke(
+            null,
+            new object[] { scores, 0 }) ?? 0);
+        Assert.Equal(-1, empty);
+
+        var invalidCount = (int)(cliReferenceResolutionBestScoreIndex.Invoke(
+            null,
+            new object[] { scores, scores.Length + 1 }) ?? 0);
+        Assert.Equal(-2, invalidCount);
     }
 
     private static void AssertCliSymbolNameGlobFilteringLikeProduction(
