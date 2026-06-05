@@ -2319,3 +2319,22 @@ produce a production-shaped win:
   rows (`468.334 us` N# vs `205.167 us` C# representative and `2.452 ms` N# vs `1.853 ms` C# large).
   Keep this as benchmark-only evidence until a broader format-discovery port owns path enumeration
   and segment classification together.
+- Formatter `FormatSafe` reparse-error safety scan: `Formatter.FormatSafe` reparses formatted output
+  and rejects the formatting when any reparse diagnostic has `ErrorSeverity.Error`
+  (`reparseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error)`), then collects the matching
+  error messages for a `string.Join("; ", ...)` warning. `ErrorSeverity` has only two values
+  (`Warning = 0`, `Error = 1`), so the gate is a trivially cheap linear scan and the C# `Any`
+  short-circuits on the first error. A compact severity-flag kernel
+  (`FormatterSafetyScan.nl`: `FormatterSafetyHasError` plus `FormatterSafetyErrorIndicesInto`, which
+  writes error-severity indices into a caller-owned `int[]` and defers all string materialization)
+  passed parity and reported zero managed allocation, but the normal BenchmarkDotNet run measured
+  only `707.8 ns` N# vs `2,066.0 ns` C# on the representative corpus (about 2.9x) and `6,184.7 ns` N#
+  vs `16,446.6 ns` C# on the large generated corpus (about 2.7x). Both rows miss the 5x gate. The
+  benchmark deliberately excludes the public `string.Join` message materialization (the host
+  boundary) to give the kernel its best case, and the only reason the C# baseline is even ~2.7-2.9x
+  slower is the `Enumerable.Range().Where().ToArray()` allocation in the error-collection path — the
+  severity scan itself is essentially free. In production the dominant cost is the message
+  `string.Join`, which this kernel cannot remove. Keep `FormatSafe` on the current C# path; the
+  `FormatterSafetyScan.nl` kernel, benchmark
+  (`CompilerServiceFormatterSafetyScanBenchmarks`), and `CompilerDogfoodProjectTests` parity
+  coverage are retained as rejection evidence only.
