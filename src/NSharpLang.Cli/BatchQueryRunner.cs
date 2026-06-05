@@ -137,6 +137,7 @@ internal static class BatchQueryRunner
         CompletionEngine completionEngine)
     {
         var items = new List<BatchQueryItemResult>(requests.Count);
+        var okWords = new ulong[(requests.Count + 63) >> 6];
 
         for (int i = 0; i < requests.Count; i++)
         {
@@ -146,11 +147,18 @@ internal static class BatchQueryRunner
             var response = responseDocument.RootElement.Clone();
             var ok = response.TryGetProperty("ok", out var okElement) &&
                      okElement.ValueKind == JsonValueKind.True;
+            if (ok)
+                okWords[i >> 6] |= 1UL << (i & 63);
 
             items.Add(new BatchQueryItemResult(i, request, ok, response));
         }
 
-        var successCount = items.Count(item => item.Ok);
+        var successCount = NSharpCliDogfoodAdapter.TryCountBatchResultSuccesses(
+            okWords,
+            items.Count,
+            out var dogfoodSuccessCount)
+            ? dogfoodSuccessCount
+            : items.Count(item => item.Ok);
         var failureCount = items.Count - successCount;
         var envelope = new
         {

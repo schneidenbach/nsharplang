@@ -1014,10 +1014,10 @@ Current CLI dogfood benchmarks:
   public error-order through `CliBatchDuplicateIdRanksInto`.
 - `CliQueryBatchResultCountBenchmarks` targets success/failure summary counting after `nlc query
   batch` has executed each request. The C# baseline mirrors the current command shape:
-  `items.Count(item => item.Ok)` followed by derived failure count. The N# packed kernel runs after
-  successful-item flags are already stored in compact `ulong` words and counts set bits through
-  `CliBatchResultPackedSuccessCount`; the production-shaped projected row measures the current C#
-  object-to-bitset adapter cost separately and is not routed.
+  `items.Count(item => item.Ok)` followed by derived failure count. The accepted N# route retains
+  successful-item flags in compact `ulong` words while public result objects are created, then
+  counts set bits through `CliBatchResultPackedSuccessCount`; the projected row measures the old
+  object-to-bitset adapter shape separately and is not routed.
 - `CliTestOutcomeSummaryBenchmarks` targets `nlc test` text/JSON summary counting after the native
   test runner has produced public result objects. The C# baseline mirrors the current text-output
   shape: one `All(...)` pass for `ok`, then three `Count(...)` passes for passed/failed/skipped.
@@ -1225,14 +1225,19 @@ representative command batches and 77.516 us vs 77.920 us on large batches, so t
 
 `CliBatchResultPackedSuccessCount` passed parity and reported zero managed allocation for the
 packed-flag kernel once successful-item flags are already represented as `ulong` words. A short
-validation run measured the N# packed kernel about 10.2x-11.7x faster than the C#
-`items.Count(item => item.Ok)` baseline across representative mixed/all-success/all-failure rows
-(about 25.9 ns-26.1 ns vs 264.2 ns-304.0 ns) and about 11.0x-11.3x faster across large generated
-rows (about 212 ns-213 ns vs 2.350 us-2.406 us). The production-shaped projected adapter row
-failed the gate immediately because packing current C# `BatchQueryItemResult` objects into the
-bitset cost 1.452 us on the representative mixed corpus versus 300 ns for the existing C# count.
-`BatchQueryRunner` therefore keeps the existing C# count until batch execution/result storage moves
-to a compact N# representation that can maintain the packed ok flags directly.
+validation run on 2026-06-05 measured the N# packed kernel about 18.0x faster on the representative
+mixed corpus (26.435 ns vs 476.825 ns), about 11.4x faster on representative all-success
+(26.431 ns vs 300.052 ns), and about 10.0x faster on representative all-failure
+(26.436 ns vs 264.257 ns). On the large generated corpus it ran about 10.6x faster for mixed
+results (220.545 ns vs 2.349 us), about 10.7x faster for all-success
+(219.933 ns vs 2.355 us), and about 10.2x faster for all-failure (219.062 ns vs 2.237 us).
+The projected adapter row remains intentionally unrouted because packing current C#
+`BatchQueryItemResult` objects after the fact measured slower than the existing C# count on every
+row in that run.
+`BatchQueryRunner` therefore retains the packed ok flags as each public result object is created and
+routes success/failure summary counting through the N# packed kernel. It keeps the existing C#
+`items.Count(item => item.Ok)` count as the fallback when the dogfood assembly is unavailable or
+returns invalid data.
 
 `CliTestOutcomeSummaryInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for `nlc test` summary calculation after the runner has retained
@@ -1730,6 +1735,10 @@ final completion item construction still handled by the C# host boundary.
 `nlc query batch` duplicate request-id validation now routes through the compiled N# compact-rank
 duplicate detector when the dogfood assembly is available, preserving the previous sorted ordinal
 duplicate-id error output, with the previous LINQ grouping path kept as the fallback.
+`nlc query batch` result summary counting now retains compact ok bitsets while public item results
+are created, then routes success-count calculation through the compiled N# packed popcount kernel
+when the dogfood assembly is available, with the previous C# `items.Count(item => item.Ok)` count
+kept as the fallback.
 `nlc doc` symbol filtering and kind/name ordering now routes through the compiled N# stable
 counting-sort kernel when the dogfood assembly is available, preserving the previous
 `SymbolKind.ToString()`/ordinal name order and variable/parameter filtering, with the previous LINQ

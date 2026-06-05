@@ -294,6 +294,42 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryCountBatchResultSuccesses(ulong[] okWords, int itemCount, out int successCount)
+    {
+        successCount = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (itemCount < 0)
+            return false;
+
+        if (itemCount == 0)
+            return true;
+
+        if (okWords.Length == 0 || itemCount > (long)okWords.Length * 64)
+            return false;
+
+        try
+        {
+            var count = bindings.CliBatchResultPackedSuccessCount(okWords, itemCount);
+            if (count < 0 || count > itemCount)
+            {
+                successCount = 0;
+                return false;
+            }
+
+            successCount = count;
+            return true;
+        }
+        catch
+        {
+            successCount = 0;
+            return false;
+        }
+    }
+
     internal static bool TryOrderDocSymbolsForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         out List<SymbolResult> orderedSymbols)
@@ -1567,6 +1603,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliLintFileArgIndicesInto>(programType, "CliLintFileArgIndicesInto"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
+                CreateDelegate<CliBatchResultPackedSuccessCount>(programType, "CliBatchResultPackedSuccessCount"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
                 CreateDelegate<CliDocSlugsInto>(programType, "CliDocSlugsInto"),
                 CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
@@ -1648,6 +1685,10 @@ internal static class NSharpCliDogfoodAdapter
         int uniqueIdCount,
         int[] countsByRank,
         int[] resultRanks);
+
+    private delegate int CliBatchResultPackedSuccessCount(
+        ulong[] okWords,
+        int itemCount);
 
     private delegate int CliDocSymbolOrderCountingIndicesInto(
         int[] kindRanks,
@@ -1773,6 +1814,7 @@ internal static class NSharpCliDogfoodAdapter
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliLintFileArgIndicesInto CliLintFileArgIndices,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
+        CliBatchResultPackedSuccessCount CliBatchResultPackedSuccessCount,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
         CliDocSlugsInto CliDocSlugs,
         CliSymbolNameGlobFilterIndicesInto CliSymbolNameGlobFilterIndices,
