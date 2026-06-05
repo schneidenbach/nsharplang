@@ -340,11 +340,11 @@ Exit codes:
         }
 
         var backendOption = GetOptionValue(args, "--backend");
-        args = StripOptionWithValue(args, "--backend");
+        var sourceFile = GetRunSourceOperand(args);
 
         try
         {
-            if (args.Length == 0)
+            if (sourceFile == null)
             {
                 var projectRoot = Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
@@ -357,7 +357,6 @@ Exit codes:
                 return RunWithIlBackend(projectRoot);
             }
 
-            var sourceFile = args[0];
             if (!File.Exists(sourceFile))
             {
                 return Error($"File not found: {sourceFile}");
@@ -1351,6 +1350,15 @@ Exit codes:
         args = StripOptionWithValue(args, "--backend");
         args = StripOptionWithValue(args, "--project");
         return args;
+    }
+
+    internal static string? GetRunSourceOperand(string[] args)
+    {
+        if (NSharpCliDogfoodAdapter.TryGetRunSourceOperand(args, out var operand))
+            return operand;
+
+        var strippedArgs = StripOptionWithValue(args, "--backend");
+        return strippedArgs.Length > 0 ? strippedArgs[0] : null;
     }
 
     static int? ParseDurationToMs(string duration)

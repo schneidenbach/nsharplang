@@ -93,6 +93,33 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryGetRunSourceOperand(string[] args, out string? operand)
+    {
+        operand = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        try
+        {
+            var index = bindings.CliRunFirstOperandIndex(args);
+            if (index == -1)
+                return true;
+
+            if (index < 0 || index >= args.Length)
+                return false;
+
+            operand = args[index];
+            return true;
+        }
+        catch
+        {
+            operand = null;
+            return false;
+        }
+    }
+
     internal static bool TryGetFirstPositionalArg(
         string[] args,
         string[] optionsWithValues,
@@ -1607,6 +1634,7 @@ internal static class NSharpCliDogfoodAdapter
             return new Bindings(
                 CreateDelegate<CliBuildFirstOperandIndexInto>(programType, "CliBuildFirstOperandIndexInto"),
                 CreateDelegate<CliExportCSharpFirstOperandIndexInto>(programType, "CliExportCSharpFirstOperandIndexInto"),
+                CreateDelegate<CliRunFirstOperandIndex>(programType, "CliRunFirstOperandIndex"),
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliLintFileArgIndicesInto>(programType, "CliLintFileArgIndicesInto"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
@@ -1678,6 +1706,8 @@ internal static class NSharpCliDogfoodAdapter
         int[] previousIndices,
         int[] nextOptionIndices,
         int[] resultIndices);
+
+    private delegate int CliRunFirstOperandIndex(string[] args);
 
     private delegate int CliFirstPositionalArgIndex(
         string[] args,
@@ -1825,6 +1855,7 @@ internal static class NSharpCliDogfoodAdapter
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
+        CliRunFirstOperandIndex CliRunFirstOperandIndex,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliLintFileArgIndicesInto CliLintFileArgIndices,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,

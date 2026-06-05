@@ -850,6 +850,41 @@ func Main() {
     }
 
     [Fact]
+    public void RunCommand_DogfoodAdapter_SelectsSourceOperandAfterBackendStripping()
+    {
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+            Array.Empty<string>(),
+            out var empty));
+        Assert.Null(empty);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+            new[] { "--backend", "il" },
+            out var projectRun));
+        Assert.Null(projectRun);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+            new[] { "--backend", "il", "Program.nl" },
+            out var backendFirst));
+        Assert.Equal("Program.nl", backendFirst);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+            new[] { "Program.nl", "--backend", "il" },
+            out var sourceFirst));
+        Assert.Equal("Program.nl", sourceFirst);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryGetRunSourceOperand(
+            new[] { "--backend" },
+            out var danglingBackend));
+        Assert.Equal("--backend", danglingBackend);
+
+        Assert.Equal(
+            "Program.nl",
+            Program.GetRunSourceOperand(new[] { "--backend", "--unknown", "Program.nl" }));
+    }
+
+    [Fact]
     public void CliDogfoodAdapter_FiltersReferenceValuesByType()
     {
         var references = new[]

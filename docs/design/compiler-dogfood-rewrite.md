@@ -1174,6 +1174,11 @@ Current CLI dogfood benchmarks:
   `CliBuildFirstOperandIndexInto`; it exits immediately for the common source-first path and falls
   back to an exact linked-list scratch routine when leading options require the existing stripping
   order.
+- `CliRunArgumentNormalizationBenchmarks` targets `nlc run` source-file operand discovery. The C#
+  baseline mirrors the previous run command shape: strip `--backend <value>` into a new array, then
+  read the first remaining argument. The accepted N# candidate returns the first source operand
+  index through `CliRunFirstOperandIndex`, preserving dangling `--backend` and unknown-flag
+  behavior without materializing a stripped argument array.
 - `CliExportCSharpArgumentNormalizationBenchmarks` targets `nlc export csharp` input operand
   discovery. The C# baseline mirrors the current export command shape: run three
   option-with-value stripping passes for `--output`, `-o`, and `--project`, materialize each
@@ -1327,6 +1332,16 @@ about 9,618x faster on the large generated source-first argument corpus (7.491 n
 0 B vs 489,152 B). This is acceptance-grade benchmark evidence for `nlc build Program.nl ...`
 single-file route selection; commands that need every normalized build operand remain covered by
 the all-positionals pressure note above.
+
+`CliRunFirstOperandIndex` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc run` source-file operand discovery. The accepted N# path
+returns the first source operand index directly instead of materializing a `--backend`-stripped
+argument array, while preserving the current dangling `--backend` and unknown-flag behavior. It ran
+about 358x faster on the representative argument corpus (4.988 ns vs 1,786.022 ns, 0 B vs
+21,216 B) and about 2,701x faster on the large generated corpus (5.152 ns vs 13,915.787 ns, 0 B vs
+168,056 B). `RunCommand` now routes source operand discovery through
+`NSharpCliDogfoodAdapter.TryGetRunSourceOperand`, with the previous C# strip path retained as the
+exact fallback.
 
 `CliExportCSharpFirstOperandIndexInto` passed parity and reported zero managed allocation in the
 short BenchmarkDotNet evidence tier for source-first `nlc export csharp` input operand discovery.
@@ -1899,9 +1914,9 @@ application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc qu
 batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus first positional
 project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
-route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
-plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output and applied-fix
-file grouping in `nlc fix --text`,
+route selection in `nlc build` and `nlc run`, plus inspect-summary reference-file ordering in
+`nlc query inspect`, plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output
+and applied-fix file grouping in `nlc fix --text`,
 plus wildcard and bare substring symbol-name filtering in `nlc query symbols --filter`, plus artifact directory
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are

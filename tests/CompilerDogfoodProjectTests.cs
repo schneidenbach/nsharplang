@@ -1562,6 +1562,10 @@ class OtherZetaType {
                     "CliExportCSharpFirstOperandChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliExportCSharpFirstOperandChecksumInto.");
+            var cliRunFirstOperandIndex = programType.GetMethod(
+                    "CliRunFirstOperandIndex",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunFirstOperandIndex.");
             var cliFirstPositionalArgIndex = programType.GetMethod(
                     "CliFirstPositionalArgIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2224,6 +2228,7 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliExportCSharpInputOperandLikeProduction(
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
+            AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
                 cliFirstPositionalArgIndex,
@@ -4192,6 +4197,49 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliRunSourceOperandLikeProduction(MethodInfo cliRunFirstOperandIndex)
+    {
+        var cases = new[]
+        {
+            Array.Empty<string>(),
+            new[] { "Program.nl" },
+            new[] { "--backend", "il" },
+            new[] { "--backend", "il", "Program.nl" },
+            new[] { "Program.nl", "--backend", "il" },
+            new[] { "--backend" },
+            new[] { "--backend", "--unknown", "Program.nl" },
+            new[] { "--unknown", "Program.nl" },
+            new[] { "--backend", "il", "--backend" },
+            new[] { "--backend", "il", "--backend", "native", "Program.nl" }
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliRunSourceOperandIndex(args);
+            var actual = (int)(cliRunFirstOperandIndex.Invoke(
+                null,
+                new object[] { args }) ?? -2);
+
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    private static int CreateExpectedCliRunSourceOperandIndex(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--backend" && i + 1 < args.Length)
+            {
+                i++;
+                continue;
+            }
+
+            return i;
+        }
+
+        return -1;
     }
 
     private static void AssertCliPositionalArgsLikeProduction(

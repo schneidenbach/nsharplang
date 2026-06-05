@@ -499,6 +499,154 @@ public class CliFirstPositionalArgumentBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for <c>nlc run</c> source-file operand discovery. The C# baseline mirrors
+/// the previous command parser: strip <c>--backend &lt;value&gt;</c> into a new array, then read
+/// the first remaining argument. The N# candidate returns the first source operand index directly
+/// while preserving dangling-flag and unknown-flag behavior.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliRunArgumentNormalizationBenchmarks
+{
+    private const int LargeArgumentCount = 8192;
+    private const int RepresentativeArgumentCount = 1024;
+
+    private Func<string[], int> _nsharpCliRunFirstOperandIndex =
+        _ => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _args = Array.Empty<string>();
+    private string? _csharpFirstOperand;
+    private string? _nsharpFirstOperand;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        var argumentCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeArgumentCount
+            : LargeArgumentCount;
+        _nsharpCliRunFirstOperandIndex =
+            NSharpCompiledMethod.Bind<Func<string[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliRunFirstOperandIndex");
+
+        _args = BuildRunArguments(argumentCount, backendFirst: Corpus == CompilerLexerCorpus.LargeGenerated);
+
+        var expectedChecksum = CSharpRunArgs_FindSourceOperand();
+        var actualChecksum = NSharpRunArgs_FindSourceOperand();
+        if (expectedChecksum != actualChecksum || _csharpFirstOperand != _nsharpFirstOperand)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI run argument mismatch for {Corpus}: " +
+                $"expected {FormatArg(_csharpFirstOperand)}, got {FormatArg(_nsharpFirstOperand)}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpRunArgs_FindSourceOperand()
+    {
+        var args = StripOptionWithValue(_args, "--backend");
+        _csharpFirstOperand = args.Length > 0 ? args[0] : null;
+        return ChecksumFirst(_csharpFirstOperand);
+    }
+
+    [Benchmark]
+    public int NSharpRunArgs_FindSourceOperand()
+    {
+        var sourceIndex = _nsharpCliRunFirstOperandIndex(_args);
+        if (sourceIndex < -1 || sourceIndex >= _args.Length)
+            throw new InvalidOperationException($"N# CLI run argument source index out of range: {sourceIndex}.");
+
+        _nsharpFirstOperand = sourceIndex >= 0 ? _args[sourceIndex] : null;
+        return ChecksumFirst(_nsharpFirstOperand);
+    }
+
+    private static string[] StripOptionWithValue(string[] args, string flag)
+    {
+        var result = new List<string>();
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == flag && i + 1 < args.Length)
+            {
+                i++;
+                continue;
+            }
+
+            result.Add(args[i]);
+        }
+
+        return result.ToArray();
+    }
+
+    private static string[] BuildRunArguments(int count, bool backendFirst)
+    {
+        var args = new string[count];
+        var seeds = new[]
+        {
+            "--backend",
+            "il",
+            "--unknown",
+            "value-after-unknown",
+            "src/Feature.nl",
+            "--backend",
+            "native",
+            "generated/Other.nl",
+            "--backend"
+        };
+
+        for (var i = 0; i < count; i++)
+        {
+            if (backendFirst && i == 0)
+            {
+                args[i] = "--backend";
+                continue;
+            }
+
+            if (backendFirst && i == 1)
+            {
+                args[i] = "il";
+                continue;
+            }
+
+            if (i == 0 || (backendFirst && i == 2))
+            {
+                args[i] = "Program.nl";
+                continue;
+            }
+
+            if (i % 53 == 0)
+            {
+                args[i] = $"generated/File{i}.nl";
+                continue;
+            }
+
+            args[i] = seeds[i % seeds.Length];
+        }
+
+        return args;
+    }
+
+    private static int ChecksumFirst(string? first)
+    {
+        var checksum = first == null ? 0 : 1;
+        if (first == null)
+            return checksum;
+
+        checksum += first.Length * 31;
+        for (var i = 0; i < first.Length; i++)
+        {
+            checksum += first[i] * (i + 1);
+        }
+
+        return checksum;
+    }
+
+    private static string FormatArg(string? arg) => arg == null ? "<none>" : $"\"{arg}\"";
+}
+
+/// <summary>
 /// Dogfood benchmark for <c>nlc build</c> operand normalization. The C# baseline mirrors the
 /// current command parser: remove value-less build flags with LINQ, then run four
 /// option-with-value stripping passes that allocate intermediate arrays. The N# candidate returns

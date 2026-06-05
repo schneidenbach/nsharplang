@@ -54,6 +54,20 @@ func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): in
     return -1
 }
 
+func CliRunFirstOperandIndex(args: string[]): int {
+    i := 0
+    while i < args.Length {
+        if args[i] == "--backend" && i + 1 < args.Length {
+            i = i + 2
+            continue
+        }
+
+        return i
+    }
+
+    return -1
+}
+
 func CliLintFileArgIndicesInto(
     args: string[],
     projectValueIndices: int[],
