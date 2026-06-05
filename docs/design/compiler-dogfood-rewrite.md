@@ -1126,6 +1126,9 @@ about 24.3x faster on the representative project-reference corpus (1.156 us vs 2
 192.416 us, 0 B vs 185,722 B). This is acceptance-grade benchmark evidence for replacing restore's
 post-resolution project-reference `Distinct` pass while preserving ordinal-ignore-case identity and
 first-source output order.
+The compiler-service `DocQuery` reference-pack assembly-name discovery now reuses the same accepted
+stable distinct kernel after the host has projected non-empty assembly names, preserving
+ordinal-ignore-case identity and first-source discovery order.
 
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path
@@ -1376,6 +1379,9 @@ CLI stale generated-output cleanup and `nlc tree` target-framework summaries als
 de-duplication through `NSharpCliDogfoodAdapter.TryDeduplicateStable` when the dogfood assembly is
 available, preserving ordinal generated-directory identity, ordinal-ignore-case framework identity,
 and first-source output order, with the previous C# `Distinct` paths kept as the fallback.
+`DocQuery` reference-pack assembly-name discovery routes stable ordinal-ignore-case de-duplication
+through `NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableStringsOrdinalIgnoreCase`, with the
+previous C# `Distinct(StringComparer.OrdinalIgnoreCase)` path kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -1469,7 +1475,7 @@ text-edit ordering, skipped-fix selection, clean artifact directory ordering, up
 AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
-add/remove package operand discovery,
+add/remove package operand discovery, DocQuery reference-pack assembly-name de-duplication,
 and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package

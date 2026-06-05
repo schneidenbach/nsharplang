@@ -43,6 +43,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static ReferenceDeduplicationScratch? t_referenceDeduplicationScratch;
     [ThreadStatic]
+    private static StableDistinctStringScratch? t_stableDistinctStringScratch;
+    [ThreadStatic]
     private static SymbolKindFilterScratch? t_symbolKindFilterScratch;
     [ThreadStatic]
     private static TextEditOrderingScratch? t_textEditOrderingScratch;
@@ -671,6 +673,84 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         {
             filteredSymbols = [];
             return false;
+        }
+    }
+
+    internal static bool TryDeduplicateStableStringsOrdinalIgnoreCase(
+        IReadOnlyList<string> values,
+        out string[] deduplicatedValues)
+    {
+        deduplicatedValues = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var valueCount = values.Count;
+        if (valueCount == 0)
+            return true;
+
+        var scratch = t_stableDistinctStringScratch ??= new StableDistinctStringScratch();
+        scratch.EnsureCapacity(valueCount);
+
+        try
+        {
+            scratch.Reset();
+            for (var i = 0; i < valueCount; i++)
+            {
+                var value = values[i];
+                if (value == null)
+                {
+                    deduplicatedValues = Array.Empty<string>();
+                    return false;
+                }
+
+                if (!scratch.RanksByValue.TryGetValue(value, out var rank))
+                {
+                    rank = ++scratch.UniqueRankCount;
+                    scratch.RanksByValue.Add(value, rank);
+                }
+
+                scratch.Ranks[i] = rank;
+            }
+
+            scratch.EnsureRankCapacity(scratch.UniqueRankCount);
+            var resultCount = bindings.CliStableDistinctRankIndices(
+                scratch.Ranks,
+                scratch.UniqueRankCount,
+                scratch.SeenRanks,
+                scratch.ResultIndices);
+
+            if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
+            {
+                deduplicatedValues = Array.Empty<string>();
+                return false;
+            }
+
+            var result = new string[resultCount];
+            for (var i = 0; i < resultCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= valueCount)
+                {
+                    deduplicatedValues = Array.Empty<string>();
+                    return false;
+                }
+
+                result[i] = values[sourceIndex];
+            }
+
+            deduplicatedValues = result;
+            return true;
+        }
+        catch
+        {
+            deduplicatedValues = Array.Empty<string>();
+            return false;
+        }
+        finally
+        {
+            scratch.Reset();
         }
     }
 
@@ -1641,6 +1721,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<SymbolKindFilterIndicesInto>(programType, "SymbolKindFilterIndicesInto"),
+                CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"),
                 CreateDelegate<DocQueryBestTypeIndexInto>(programType, "DocQueryBestTypeIndex"),
                 CreateDelegate<DocQueryMemberOrderIndicesInto>(programType, "DocQueryMemberOrderIndicesInto"),
                 CreateDelegate<DiagnosticClusterTraitsInto>(programType, "DiagnosticClusterTraitsInto"),
@@ -1926,6 +2007,12 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         int[] countsByRank,
         int[] resultRanks);
 
+    private delegate int CliStableDistinctRankIndicesInto(
+        int[] valueRanks,
+        int uniqueRankCount,
+        int[] seenRanks,
+        int[] resultIndices);
+
     private delegate int TextEditOrderIndicesInto(
         int[] startPositionRanks,
         int[] endPositionRanks,
@@ -2068,6 +2155,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         SymbolKindFilterIndicesInto SymbolKindFilter,
+        CliStableDistinctRankIndicesInto CliStableDistinctRankIndices,
         DocQueryBestTypeIndexInto DocQueryBestTypeIndex,
         DocQueryMemberOrderIndicesInto DocQueryMemberOrderIndices,
         DiagnosticClusterTraitsInto DiagnosticClusterTraits,
@@ -2433,6 +2521,39 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 KindIds = new int[count];
                 ResultIndices = new int[count];
             }
+        }
+    }
+
+    private sealed class StableDistinctStringScratch
+    {
+        public readonly Dictionary<string, int> RanksByValue = new(StringComparer.OrdinalIgnoreCase);
+        public int[] Ranks = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SeenRanks = Array.Empty<int>();
+        public int UniqueRankCount;
+
+        public void EnsureCapacity(int count)
+        {
+            if (Ranks.Length != count)
+            {
+                Ranks = new int[count];
+                ResultIndices = new int[count];
+            }
+        }
+
+        public void EnsureRankCapacity(int uniqueRankCount)
+        {
+            var rankCapacity = uniqueRankCount + 1;
+            if (SeenRanks.Length != rankCapacity)
+            {
+                SeenRanks = new int[rankCapacity];
+            }
+        }
+
+        public void Reset()
+        {
+            RanksByValue.Clear();
+            UniqueRankCount = 0;
         }
     }
 

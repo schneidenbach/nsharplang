@@ -579,6 +579,39 @@ func documented(): int {
     }
 
     [Fact]
+    public void CodeIntelligenceDogfoodAdapter_DeduplicatesStableStringsOrdinalIgnoreCase()
+    {
+        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
+                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
+            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryDeduplicateStableStrings = adapterType.GetMethod(
+                "TryDeduplicateStableStringsOrdinalIgnoreCase",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateStableStringsOrdinalIgnoreCase.");
+        var names = new[]
+        {
+            "System.Console",
+            "system.console",
+            "System.Text.Json",
+            "SYSTEM.TEXT.JSON",
+            "Custom.Library"
+        };
+        var args = new object?[] { names, null };
+
+        Assert.True((bool)(tryDeduplicateStableStrings.Invoke(null, args) ?? false));
+        Assert.Equal(
+            new[] { "System.Console", "System.Text.Json", "Custom.Library" },
+            Assert.IsType<string[]>(args[1]));
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_CompactsParserTokens()
     {
         var source = """
