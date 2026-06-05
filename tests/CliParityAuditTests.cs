@@ -507,6 +507,16 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommand_ProjectAndSourceOperand_AreRejected()
+    {
+        var (exitCode, _, stderr) = CaptureConsole(() =>
+            ExecuteProgram("export", "csharp", "--project", "demo", "Program.nl"));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Specify either a source path or --project", stderr);
+    }
+
+    [Fact]
     public void TranspileCommand_PointsToExportCommand()
     {
         var (exitCode, _, stderr) = CaptureConsole(() => ExecuteProgram("transpile", "Program.nl"));

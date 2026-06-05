@@ -830,11 +830,11 @@ Current CLI dogfood benchmarks:
   ranks, scans an unrolled rank array, and writes matching diagnostic indices through
   `DiagnosticSeverityFilterIndicesInto`.
 - `CliFirstPositionalArgumentBenchmarks` targets CLI commands that only need the first positional
-  operand, such as project-name/project-root discovery. The C# baseline mirrors the previous shared
-  helper shape: build every positional string, materialize the result array, then read index zero.
-  The accepted N# candidate returns the first positional source index through
-  `CliFirstPositionalArgIndex`, letting the host read only that string and skip the rest of the
-  positional materialization.
+  operand, such as project-name/project-root discovery and `nlc export csharp` input discovery. The
+  C# baseline mirrors the previous shared helper shape: build every positional string, materialize
+  the result array, then read index zero. The accepted N# candidate returns the first positional
+  source index through `CliFirstPositionalArgIndex`, letting the host read only that string and skip
+  the rest of the positional materialization.
 - `CliBuildArgumentNormalizationBenchmarks` targets `nlc build` source-file operand discovery. The
   C# baseline mirrors the current build command shape: remove value-less build flags with LINQ, run
   four option-with-value stripping passes, materialize the normalized operand array, then read the
@@ -888,11 +888,11 @@ comparison/helper-call overhead clears the 5x gate.
 `CliFirstPositionalArgIndex` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for first positional-operand discovery. The accepted N# path returns
 as soon as it finds the first operand instead of using the previous shared helper shape that scanned
-and materialized every positional argument. It ran about 184x faster on the representative argument
-corpus (48.34 ns vs 8.872 us, 0 B vs 22,296 B) and about 1,676x faster on the large generated
-argument corpus (48.22 ns vs 80.838 us, 0 B vs 175,280 B). This is acceptance-grade benchmark
-evidence for `nlc new`, `nlc check`, and `nlc fix` first positional project/operand discovery when
-those commands do not need the full positional list.
+and materialized every positional argument. A short validation run measured about 186x faster on the
+representative argument corpus (48.20 ns vs 8.991 us, 0 B vs 22,296 B) and about 1,678x faster on
+the large generated argument corpus (48.35 ns vs 81.122 us, 0 B vs 175,280 B). This is
+acceptance-grade benchmark evidence for `nlc new`, `nlc check`, `nlc fix`, and `nlc export csharp`
+first positional project/operand discovery when those commands do not need the full positional list.
 
 `CliBuildFirstOperandIndexInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for source-first `nlc build` operand discovery. The accepted N# path
@@ -980,9 +980,10 @@ dogfood assembly is available, with the previous C# LINQ counts kept as the fall
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
 severity filter when the dogfood assembly is available, with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
-`nlc new`, `nlc check`, and `nlc fix` now route first positional project/operand discovery through
-`NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which calls the compiled N# first-index scanner
-when the dogfood assembly is available, with the previous C# positional scan kept as the fallback.
+`nlc new`, `nlc check`, `nlc fix`, and `nlc export csharp` now route first positional
+project/operand discovery through `NSharpCliDogfoodAdapter.TryGetFirstPositionalArg`, which calls
+the compiled N# first-index scanner when the dogfood assembly is available, with the previous C#
+positional scan kept as the fallback.
 `nlc build` now routes source-file operand discovery through
 `NSharpCliDogfoodAdapter.TryGetBuildOperandSummary`, which calls the compiled N# first-operand
 scanner when the dogfood assembly is available, with the previous C# build-argument normalization
@@ -1086,8 +1087,8 @@ output, plus batch duplicate-id validation in `nlc query batch` and generated do
 ordering in `nlc doc`, plus dependency deduplication and ordering in `nlc tree`, plus text-edit
 application ordering in `nlc fix`, plus diagnostic severity filtering in `nlc query diagnostics`,
 batch diagnostics, and daemon diagnostics, plus first positional project/operand discovery in
-`nlc new`, `nlc check`, and `nlc fix`, plus first source-file route selection in `nlc build`,
-plus inspect-summary reference-file ordering in `nlc query inspect`.
+`nlc new`, `nlc check`, `nlc fix`, and `nlc export csharp`, plus first source-file route selection
+in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
 Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are

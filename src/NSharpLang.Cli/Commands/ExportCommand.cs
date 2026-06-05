@@ -40,8 +40,8 @@ public static class ExportCommand
         args = StripOptionWithValue(args, "-o");
         args = StripOptionWithValue(args, "--project");
 
-        var positional = args.Where(arg => !arg.StartsWith("-", StringComparison.Ordinal)).ToArray();
-        if (!string.IsNullOrWhiteSpace(projectOption) && positional.Length > 0)
+        var firstPositional = GetFirstPositionalArg(args);
+        if (!string.IsNullOrWhiteSpace(projectOption) && firstPositional != null)
         {
             return Error("Specify either a source path or --project, not both.");
         }
@@ -53,9 +53,9 @@ public static class ExportCommand
                 return ExportProjectBundle(Path.GetFullPath(projectOption), outputPath);
             }
 
-            if (positional.Length > 0)
+            if (firstPositional != null)
             {
-                var inputPath = Path.GetFullPath(positional[0]);
+                var inputPath = Path.GetFullPath(firstPositional);
                 if (File.Exists(inputPath))
                 {
                     return ExportSingleFile(inputPath, outputPath);
@@ -66,7 +66,7 @@ public static class ExportCommand
                     return ExportProjectBundle(inputPath, outputPath);
                 }
 
-                return Error($"Path not found: {positional[0]}");
+                return Error($"Path not found: {firstPositional}");
             }
 
             var currentDirectory = Directory.GetCurrentDirectory();
@@ -251,6 +251,24 @@ Exit codes:
             {
                 return args[i + 1];
             }
+        }
+
+        return null;
+    }
+
+    private static string? GetFirstPositionalArg(string[] args)
+    {
+        return NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, Array.Empty<string>(), out var positional)
+            ? positional
+            : GetFirstPositionalArgWithCSharp(args);
+    }
+
+    private static string? GetFirstPositionalArgWithCSharp(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
         }
 
         return null;
