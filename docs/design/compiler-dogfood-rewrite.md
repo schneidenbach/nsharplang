@@ -77,6 +77,11 @@ Current lexer dogfood benchmarks:
   the current C# `Lexer.Tokenize()` result on the same corpora. This is closer to the compact token
   table needed by a production rewrite, but it still does not model comment trivia, diagnostics, or
   indentation-token insertion for indentation-only source.
+- `CompilerServiceParserTokenCompactionBenchmarks` targets parser constructor newline-token
+  compaction. The C# baseline mirrors `tokens.Where(t => t.Type != TokenType.Newline).ToList()`.
+  The N# candidate runs after the host projects token kinds into compact ids and writes kept source
+  indices through `ParserTokenCompactionIndicesInto`. Token objects and the final parser token list
+  remain C# host boundaries until the compact parser token table is ported.
 
 The lexer scanner candidate now lives in `src/NSharpLang.Compiler.Dogfood` as an ordinary N# SDK
 project. Benchmarks embed `CompilerServices/LexerTokenKindScanner.nl` as source input and compile it
@@ -942,6 +947,13 @@ corpus (2.337 us vs 14.567 us, 0 B vs 8,936 B). This is acceptance-grade benchma
 `nlc query symbols --kind`, batch symbol queries, and daemon symbol queries after the host has
 projected symbol kinds into compact integer ids.
 
+`ParserTokenCompactionIndicesInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for parser newline-token compaction. It ran about 7.3x faster on the
+representative token corpus (96.771 ns vs 706.742 ns, 0 B vs 1,560 B) and about 8.6x faster on the
+large generated token corpus (31.250 us vs 268.324 us, 0 B vs 468,667 B). This is
+acceptance-grade benchmark evidence for newline compaction after the host has projected token kinds
+into compact integer ids.
+
 `CliBatchDuplicateIdRanksInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for the compact rank duplicate-id kernel. It ran about 21.8x faster
 on the representative batch corpus (1.075 us vs 23.400 us, 0 B vs 59,592 B) and about 23.2x faster
@@ -989,6 +1001,10 @@ Parser diagnostic source snippets now route through the same source-only cached 
 with the previous `source.Split('\n')` helper kept as the fallback when the dogfood assembly is not
 available; this preserves the parser's LF-split semantics, including CRLF lines retaining a trailing
 carriage return in the snippet.
+`Parser` construction now routes newline-token compaction through
+`NSharpCompilerDogfoodAdapter.TryCompactParserTokens` when the dogfood assembly is available, with
+the previous LINQ `Where(...).ToList()` path kept as the fallback. This is a temporary compact-token
+bridge: token objects and broader parser state remain C# until the parser is ported.
 `CompletionEngine` member-access result grouping now routes through the compiled N# completion-item
 grouping kernel when the dogfood assembly is available, preserving the previous pluralized group
 keys and first-seen item-kind ordering, with the previous LINQ `GroupBy`/`ToList` path kept as the
@@ -1106,7 +1122,8 @@ diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
-discovery, CLI build first source-operand discovery, text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
+discovery, CLI build first source-operand discovery, parser newline-token compaction,
+text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
@@ -1212,6 +1229,12 @@ representative source-map build/query still misses the acceptance gate. To reach
 needs lower-overhead source-map query batches after construction, a faster native/string scanning
 primitive, and more bounds-check-friendly indexed-array/span lowering for batches, without relying on
 hand-unrolled compiler-service loops as the normal programming model.
+
+Current parser pressure point: newline-token compaction is dogfooded through a compact token-kind
+index kernel, but production parsing still projects C# `Token` records into the N# buffer and then
+materializes a C# `List<Token>`. The real parser rewrite needs a compact token table owned by N# so
+constructor filtering, cursor movement, token trivia, recovery boundaries, and recursive descent all
+operate on the same allocation-light representation.
 
 Current typo-suggestion pressure point: even after removing lowercase string allocation and
 edit-distance matrix allocation, the N# row-buffer Levenshtein candidate is slower than the current

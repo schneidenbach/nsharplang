@@ -246,6 +246,94 @@ public class CompilerServiceLexerReusableTokenKindBenchmarks
 }
 
 /// <summary>
+/// Parser-token compaction benchmark for removing newline tokens before parsing.
+///
+/// The C# baseline mirrors the current parser constructor shape:
+/// <c>tokens.Where(t => t.Type != TokenType.Newline).ToList()</c>. The N# candidate runs after
+/// the host has projected token kinds into compact integer ids and writes kept token source indices
+/// into caller-owned storage. The host still owns <see cref="Token" /> objects until the parser
+/// token table itself is ported to N#.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceParserTokenCompactionBenchmarks
+{
+    private ParserTokenCompactionChecksumInto _nsharpParserTokenCompactionChecksumInto =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+    private string _source = string.Empty;
+    private int[] _tokenKinds = Array.Empty<int>();
+    private List<Token> _tokens = new();
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus);
+        _nsharpParserTokenCompactionChecksumInto =
+            NSharpCompiledMethod.Bind<ParserTokenCompactionChecksumInto>(
+                CompilerServiceLexerScannerBenchmarks.NSharpScannerSource,
+                "ParserTokenCompactionChecksumInto");
+
+        _tokens = new Lexer(_source, $"{Corpus}.nl").Tokenize();
+        _tokenKinds = new int[_tokens.Count];
+        _nsharpResultIndices = new int[_tokens.Count];
+        for (var i = 0; i < _tokens.Count; i++)
+        {
+            _tokenKinds[i] = (int)_tokens[i].Type;
+        }
+
+        var expectedChecksum = CSharpParser_RemoveNewlines();
+        var actualChecksum = NSharpParser_RemoveNewlines();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# parser token compaction checksum mismatch for {Corpus}: expected {expectedChecksum}, got {actualChecksum}.");
+        }
+
+        var expectedIndices = _tokens
+            .Select((token, index) => (token, index))
+            .Where(item => item.token.Type != TokenType.Newline)
+            .Select(item => item.index)
+            .ToArray();
+        for (var i = 0; i < expectedIndices.Length; i++)
+        {
+            if (_nsharpResultIndices[i] != expectedIndices[i])
+            {
+                throw new InvalidOperationException(
+                    $"N# parser token compaction mismatch for {Corpus} at result {i}: " +
+                    $"expected source index {expectedIndices[i]}, got {_nsharpResultIndices[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpParser_RemoveNewlines()
+    {
+        var filtered = _tokens
+            .Where(token => token.Type != TokenType.Newline)
+            .ToList();
+
+        var checksum = filtered.Count;
+        for (var i = 0; i < filtered.Count; i++)
+        {
+            checksum += (i + 1) * 97 + (int)filtered[i].Type * 17;
+        }
+
+        return checksum;
+    }
+
+    [Benchmark]
+    public int NSharpParser_RemoveNewlines() =>
+        _nsharpParserTokenCompactionChecksumInto(_tokenKinds, _nsharpResultIndices);
+
+    private delegate int ParserTokenCompactionChecksumInto(int[] tokenKinds, int[] resultIndices);
+}
+
+/// <summary>
 /// Production-shaped lexer metadata benchmark for the N# scanner candidate.
 ///
 /// This advances beyond token-kind parity: the N# path writes token kind, source start, token value

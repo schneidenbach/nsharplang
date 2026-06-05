@@ -579,6 +579,41 @@ func documented(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_CompactsParserTokens()
+    {
+        var source = """
+package CompilerDogfood.Tests
+
+func main(): int {
+    value := 1
+    return value
+}
+""";
+        var tokens = new Lexer(source, "test.nl").Tokenize();
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryCompactParserTokens = adapterType.GetMethod(
+                "TryCompactParserTokens",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryCompactParserTokens.");
+        var compactArgs = new object?[] { tokens, null };
+        Assert.True((bool)(tryCompactParserTokens.Invoke(null, compactArgs) ?? false));
+        var compactedTokens = Assert.IsType<List<Token>>(compactArgs[1]);
+
+        var expectedTokens = tokens.Where(static token => token.Type != TokenType.Newline).ToList();
+        Assert.Equal(expectedTokens.Select(static token => token.Type), compactedTokens.Select(static token => token.Type));
+        Assert.Equal(expectedTokens.Select(static token => token.Value), compactedTokens.Select(static token => token.Value));
+        Assert.DoesNotContain(compactedTokens, static token => token.Type == TokenType.Newline);
+    }
+
+    [Fact]
     public void LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer()
     {
         var repoRoot = FindRepoRoot();
@@ -615,6 +650,14 @@ func documented(): int {
                     "TokenizeMetadataInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataInto.");
+            var parserTokenCompactionIndicesInto = programType.GetMethod(
+                    "ParserTokenCompactionIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParserTokenCompactionIndicesInto.");
+            var parserTokenCompactionChecksumInto = programType.GetMethod(
+                    "ParserTokenCompactionChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParserTokenCompactionChecksumInto.");
             var splitLogicalLines = programType.GetMethod(
                     "SplitLogicalLines",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1067,6 +1110,10 @@ world
 """";
             AssertTokenizesLikeProductionLexer(source, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
             AssertTokenMetadataLikeProductionLexer(source, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                source,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
 
             const string keywordSource = """
 func class struct interface duck union record enum namespace using import package let must const readonly
@@ -1078,6 +1125,10 @@ throws
 """;
             AssertTokenizesLikeProductionLexer(keywordSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
             AssertTokenMetadataLikeProductionLexer(keywordSource, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                keywordSource,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
 
             const string metadataSource = """
 package CompilerDogfood.Metadata
@@ -1093,6 +1144,10 @@ func values(): int {
 }
 """;
             AssertTokenMetadataLikeProductionLexer(metadataSource, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                metadataSource,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
 
             AssertSourceTextLineMapLikeProduction(
                 "",
@@ -1451,6 +1506,50 @@ func main() {
             Assert.Equal(token.Line, lines[i]);
             Assert.Equal(token.Column, columns[i]);
         }
+    }
+
+    private static void AssertParserTokenCompactionLikeProduction(
+        string source,
+        MethodInfo parserTokenCompactionIndicesInto,
+        MethodInfo parserTokenCompactionChecksumInto)
+    {
+        var tokenKinds = new Lexer(source, "dogfood-test.nl")
+            .Tokenize()
+            .Select(static token => (int)token.Type)
+            .ToArray();
+        var expectedIndices = tokenKinds
+            .Select((kind, index) => (kind, index))
+            .Where(static item => item.kind != (int)TokenType.Newline)
+            .Select(static item => item.index)
+            .ToArray();
+
+        var actualIndices = new int[tokenKinds.Length];
+        var actualCount = (int)(parserTokenCompactionIndicesInto.Invoke(
+            null,
+            new object[] { tokenKinds, actualIndices }) ?? -1);
+
+        Assert.Equal(expectedIndices.Length, actualCount);
+        Assert.Equal(expectedIndices, actualIndices.Take(actualCount).ToArray());
+
+        var checksumIndices = new int[tokenKinds.Length];
+        var actualChecksum = (int)(parserTokenCompactionChecksumInto.Invoke(
+            null,
+            new object[] { tokenKinds, checksumIndices }) ?? -1);
+        var expectedChecksum = ParserTokenCompactionChecksum(expectedIndices, tokenKinds);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedIndices, checksumIndices.Take(expectedIndices.Length).ToArray());
+    }
+
+    private static int ParserTokenCompactionChecksum(int[] orderedIndices, int[] tokenKinds)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            checksum += (i + 1) * 97 + tokenKinds[orderedIndices[i]] * 17;
+        }
+
+        return checksum;
     }
 
     private static int[] BuildLineStarts(string source)
