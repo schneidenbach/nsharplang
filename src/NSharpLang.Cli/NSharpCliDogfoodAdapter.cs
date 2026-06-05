@@ -28,6 +28,8 @@ internal static class NSharpCliDogfoodAdapter
     private static CleanArtifactDirectoryScratch? t_cleanArtifactDirectoryScratch;
     [ThreadStatic]
     private static UpdateDependencyFilterScratch? t_updateDependencyFilterScratch;
+    [ThreadStatic]
+    private static StableDistinctScratch? t_stableDistinctScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -562,6 +564,80 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryDeduplicateExportReferences<T>(
+        IReadOnlyList<T> values,
+        IEqualityComparer<T>? comparer,
+        out List<T> deduplicatedValues)
+        where T : notnull
+    {
+        deduplicatedValues = new List<T>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var valueCount = values.Count;
+        if (valueCount == 0)
+            return true;
+
+        var scratch = t_stableDistinctScratch ??= new StableDistinctScratch();
+        scratch.EnsureCapacity(valueCount);
+
+        try
+        {
+            var ranksByValue = comparer == null
+                ? new Dictionary<T, int>()
+                : new Dictionary<T, int>(comparer);
+            var uniqueRankCount = 0;
+
+            for (var i = 0; i < valueCount; i++)
+            {
+                var value = values[i];
+                if (!ranksByValue.TryGetValue(value, out var rank))
+                {
+                    rank = ++uniqueRankCount;
+                    ranksByValue.Add(value, rank);
+                }
+
+                scratch.Ranks[i] = rank;
+            }
+
+            scratch.EnsureRankCapacity(uniqueRankCount);
+            var resultCount = bindings.CliStableDistinctRankIndices(
+                scratch.Ranks,
+                uniqueRankCount,
+                scratch.SeenRanks,
+                scratch.ResultIndices);
+
+            if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
+            {
+                deduplicatedValues = new List<T>();
+                return false;
+            }
+
+            var result = new List<T>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= valueCount)
+                {
+                    deduplicatedValues = new List<T>();
+                    return false;
+                }
+
+                result.Add(values[sourceIndex]);
+            }
+
+            deduplicatedValues = result;
+            return true;
+        }
+        catch
+        {
+            deduplicatedValues = new List<T>();
+            return false;
+        }
+    }
+
     internal static bool TryFilterFixesBySafety(
         IReadOnlyList<CodeAction> fixes,
         bool includeReviewNeeded,
@@ -774,7 +850,8 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliFixSkippedIndicesInto>(programType, "CliFixSkippedIndicesInto"),
                 CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(programType, "CliCleanArtifactDirectoryIndicesInto"),
                 CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
-                CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"));
+                CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
+                CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
         }
         catch
         {
@@ -891,6 +968,12 @@ internal static class NSharpCliDogfoodAdapter
         int targetNameRank,
         int[] resultIndices);
 
+    private delegate int CliStableDistinctRankIndicesInto(
+        int[] ranks,
+        int uniqueRankCount,
+        int[] seenRanks,
+        int[] resultIndices);
+
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
@@ -903,7 +986,8 @@ internal static class NSharpCliDogfoodAdapter
         CliFixSkippedIndicesInto CliFixSkippedIndices,
         CliCleanArtifactDirectoryIndicesInto CliCleanArtifactDirectoryIndices,
         CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
-        CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices);
+        CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
+        CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -1274,6 +1358,31 @@ internal static class NSharpCliDogfoodAdapter
         {
             _nameRanks.Clear();
             UniqueNameCount = 0;
+        }
+    }
+
+    private sealed class StableDistinctScratch
+    {
+        public int[] Ranks = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SeenRanks = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (Ranks.Length != count || ResultIndices.Length != count)
+            {
+                Ranks = new int[count];
+                ResultIndices = new int[count];
+            }
+        }
+
+        public void EnsureRankCapacity(int uniqueRankCount)
+        {
+            var rankCapacity = uniqueRankCount + 1;
+            if (SeenRanks.Length != rankCapacity)
+            {
+                SeenRanks = new int[rankCapacity];
+            }
         }
     }
 }

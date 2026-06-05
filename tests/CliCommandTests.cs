@@ -774,6 +774,52 @@ func Main() {
     }
 
     [Fact]
+    public void ExportCommand_DogfoodAdapter_DeduplicatesReferenceValues()
+    {
+        var projectReferences = new[]
+        {
+            "../Shared/Shared.csproj",
+            "../shared/shared.csproj",
+            "../Models/Models.csproj",
+            "../Shared/SHARED.csproj",
+            "../Utilities/Utilities.csproj",
+            "../models/models.csproj"
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(
+            projectReferences,
+            StringComparer.OrdinalIgnoreCase,
+            out var distinctProjectReferences));
+        Assert.Equal(new[]
+        {
+            "../Shared/Shared.csproj",
+            "../Models/Models.csproj",
+            "../Utilities/Utilities.csproj"
+        }, distinctProjectReferences);
+
+        var packageReferences = new[]
+        {
+            new ExportReferenceValue("Newtonsoft.Json", "13.0.3"),
+            new ExportReferenceValue("Serilog", "3.1.1"),
+            new ExportReferenceValue("Newtonsoft.Json", "13.0.3"),
+            new ExportReferenceValue("Newtonsoft.Json", "14.0.0"),
+            new ExportReferenceValue("Serilog", "3.1.1")
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(
+            packageReferences,
+            comparer: null,
+            out var distinctPackageReferences));
+        Assert.Equal(new[]
+        {
+            packageReferences[0],
+            packageReferences[1],
+            packageReferences[3]
+        }, distinctPackageReferences);
+    }
+
+    [Fact]
     public void CliDogfoodAdapter_FiltersCompilerErrorsBySeverity()
     {
         var errors = new[]
@@ -2043,4 +2089,6 @@ func Main() {
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    private sealed record ExportReferenceValue(string Name, string Version);
 }

@@ -945,6 +945,12 @@ Current CLI dogfood benchmarks:
   the first source operand index through `CliExportCSharpFirstOperandIndexInto`; it exits
   immediately for the common source-first path and falls back to the same linked-list removal
   strategy when leading options require exact ordered stripping.
+- `CliExportReferenceDeduplicationBenchmarks` targets stable first-source reference de-duplication
+  in `nlc export csharp` after project, framework, DLL, and package references have been resolved
+  to host values. The C# baseline mirrors the command fallback shape for string references:
+  ordinal-ignore-case `Distinct` plus materialization. The accepted N# candidate runs after the host
+  has assigned compact equality ranks and writes first-source indices through
+  `CliStableDistinctRankIndicesInto`.
 - `CliDocOrderingBenchmarks` targets symbol filtering and ordering before `nlc doc` page generation.
   The C# baseline mirrors the previous CLI LINQ shape: filter variable/parameter symbols, order by
   `SymbolKind.ToString()` with ordinal string comparison, then order by symbol name and materialize
@@ -1048,6 +1054,15 @@ argument corpus (4.423 ns vs 3.070 us, 0 B vs 27,712 B) and about 4,766x faster 
 generated source-first corpus (4.687 ns vs 22.338 us, 0 B vs 219,344 B). `ExportCommand` now routes
 input operand discovery through `NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand`, with the
 previous three-strip C# path retained as the exact fallback.
+
+`CliStableDistinctRankIndicesInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc export csharp` stable reference de-duplication after the host
+has assigned compact equality ranks. It ran about 18.8x faster on the representative export-reference
+corpus (1.184 us vs 22.252 us, 0 B vs 30,256 B) and about 22.2x faster on the large generated
+export-reference corpus (6.956 us vs 154.107 us, 0 B vs 186,066 B). This is acceptance-grade
+benchmark evidence for replacing the export command's post-resolution reference `Distinct` passes
+while preserving first-source order and the host-owned project path, package metadata, DLL metadata,
+and XML emission boundaries.
 
 `DiagnosticSeverityFilterIndicesInto` passed parity and reported zero managed allocation in the
 normal BenchmarkDotNet evidence tier for CLI diagnostic severity filtering. The accepted N# path
@@ -1259,6 +1274,10 @@ C# positional scan kept as the fallback.
 `NSharpCliDogfoodAdapter.TryGetBuildOperandSummary`, which calls the compiled N# first-operand
 scanner when the dogfood assembly is available, with the previous C# build-argument normalization
 kept as the fallback.
+`nlc export csharp` now routes stable post-resolution reference de-duplication for project,
+framework, package, and DLL references through `NSharpCliDogfoodAdapter.TryDeduplicateExportReferences`,
+which calls the compiled N# compact-rank stable distinct kernel when the dogfood assembly is
+available, with the previous C# `Distinct` paths kept as the fallback.
 `nlc check` and strict build lint now route duplicate diagnostic removal and file/line/column
 ordering through `OutputFormatter.DeduplicateAndSortDiagnostics`, which calls the compiled N#
 deduplication kernel when the dogfood assembly is available and keeps the previous LINQ `GroupBy`
@@ -1354,7 +1373,7 @@ path-matching and all-positionals CLI argument kernels through the compiled N# m
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
-selection, clean artifact directory ordering, and `nlc update` dependency
+selection, clean artifact directory ordering, `nlc export csharp` reference de-duplication, and `nlc update` dependency
 filtering;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through

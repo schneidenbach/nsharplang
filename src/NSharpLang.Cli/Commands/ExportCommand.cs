@@ -463,9 +463,7 @@ Exit codes:
                 projectReferences.Add(NormalizePath(Path.GetRelativePath(outputDirectory, exportedReference.ProjectFilePath)));
             }
 
-            return projectReferences
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
         }
 
         private List<DllReferenceInfo> ResolveDllReferences(IEnumerable<Reference> dependencies, string projectRoot, string outputDirectory)
@@ -498,27 +496,27 @@ Exit codes:
                     NormalizePath(Path.GetRelativePath(outputDirectory, copiedReferencePath))));
             }
 
-            return dllReferences
-                .Distinct()
-                .ToList();
+            return DeduplicateExportReferences(dllReferences);
         }
 
         private static List<PackageReferenceInfo> ResolvePackageReferences(IEnumerable<Reference> dependencies)
         {
-            return dependencies
+            var packageReferences = dependencies
                 .Where(reference => reference.Type == ReferenceType.NuGet)
                 .Select(reference => new PackageReferenceInfo(reference.Nuget!, reference.Version))
-                .Distinct()
                 .ToList();
+
+            return DeduplicateExportReferences(packageReferences);
         }
 
         private static List<string> ResolveFrameworkReferences(IEnumerable<Reference> dependencies)
         {
-            return dependencies
+            var frameworkReferences = dependencies
                 .Where(reference => reference.Type == ReferenceType.Framework)
                 .Select(reference => reference.Framework!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            return DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
         }
 
         private static string GenerateMainProjectFile(
@@ -583,10 +581,11 @@ Exit codes:
             List<string> projectReferences,
             List<DllReferenceInfo> dllReferences)
         {
-            if (packageReferences.Count > 0)
+            var distinctPackageReferences = DeduplicateExportReferences(packageReferences);
+            if (distinctPackageReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var packageReference in packageReferences.Distinct())
+                foreach (var packageReference in distinctPackageReferences)
                 {
                     if (string.IsNullOrWhiteSpace(packageReference.Version))
                     {
@@ -610,30 +609,33 @@ Exit codes:
                 sb.AppendLine("  </ItemGroup>");
             }
 
-            if (frameworkReferences.Count > 0)
+            var distinctFrameworkReferences = DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
+            if (distinctFrameworkReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var frameworkReference in frameworkReferences.Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var frameworkReference in distinctFrameworkReferences)
                 {
                     sb.AppendLine($"    <FrameworkReference Include=\"{EscapeXml(frameworkReference)}\" />");
                 }
                 sb.AppendLine("  </ItemGroup>");
             }
 
-            if (projectReferences.Count > 0)
+            var distinctProjectReferences = DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
+            if (distinctProjectReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var projectReference in projectReferences.Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var projectReference in distinctProjectReferences)
                 {
                     sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
                 }
                 sb.AppendLine("  </ItemGroup>");
             }
 
-            if (dllReferences.Count > 0)
+            var distinctDllReferences = DeduplicateExportReferences(dllReferences);
+            if (distinctDllReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var dllReference in dllReferences.Distinct())
+                foreach (var dllReference in distinctDllReferences)
                 {
                     sb.AppendLine($"    <Reference Include=\"{EscapeXml(dllReference.Name)}\">");
                     sb.AppendLine($"      <HintPath>{EscapeXml(dllReference.HintPath)}</HintPath>");
@@ -641,6 +643,16 @@ Exit codes:
                 }
                 sb.AppendLine("  </ItemGroup>");
             }
+        }
+
+        private static List<T> DeduplicateExportReferences<T>(
+            IReadOnlyList<T> references,
+            IEqualityComparer<T>? comparer = null)
+            where T : notnull
+        {
+            return NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(references, comparer, out var dogfoodReferences)
+                ? dogfoodReferences
+                : references.Distinct(comparer).ToList();
         }
 
         private static List<PackageReferenceInfo> GetTestFrameworkPackages(string testFramework)
