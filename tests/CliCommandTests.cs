@@ -1226,6 +1226,34 @@ dependencies:
         Assert.Equal(2, summary.PossiblyUnusedCount);
         Assert.Equal(1, summary.UnknownCount);
 
+        var references = new[]
+        {
+            new Reference { Nuget = "Newtonsoft.Json", Version = "13.0.3" },
+            new Reference { Nuget = "Serilog.Sinks.Console", Version = "5.0.1" },
+            new Reference { Nuget = "Polly", Version = "8.0.0" },
+            new Reference { Nuget = "Microsoft.Extensions.Logging", Version = "10.0.0" }
+        };
+        var imports = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Newtonsoft.Json.Linq",
+            "Microsoft.Extensions.Logging"
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.TryClassifyTidyDependencyStatusRanks(
+            references,
+            imports,
+            out var statusRanks));
+        Assert.Equal(new[] { 2, 1, 3, 2 }, statusRanks);
+
+        var nonAsciiReferences = new[]
+        {
+            new Reference { Nuget = "Résumé.Json", Version = "1.0.0" }
+        };
+        Assert.False(NSharpCliDogfoodAdapter.TryClassifyTidyDependencyStatusRanks(
+            nonAsciiReferences,
+            imports,
+            out _));
+
         static TidyDependency NewDependency(string name, string status) => new(name, status);
     }
 

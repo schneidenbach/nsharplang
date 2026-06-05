@@ -1484,6 +1484,14 @@ class OtherZetaType {
                     "CliLintFileArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliLintFileArgChecksumInto.");
+            var cliTidyDependencyStatusRanksInto = programType.GetMethod(
+                    "CliTidyDependencyStatusRanksInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyDependencyStatusRanksInto.");
+            var cliTidyDependencyStatusRankChecksumInto = programType.GetMethod(
+                    "CliTidyDependencyStatusRankChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTidyDependencyStatusRankChecksumInto.");
             var cliPositionalArgChecksumInto = programType.GetMethod(
                     "CliPositionalArgChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2109,6 +2117,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliLintFileArgsLikeProduction(
                 cliLintFileArgIndicesInto,
                 cliLintFileArgChecksumInto);
+            AssertCliTidyDependencyClassificationLikeProduction(
+                cliTidyDependencyStatusRanksInto,
+                cliTidyDependencyStatusRankChecksumInto);
             AssertCliFixSafetyFilteringLikeProduction(
                 cliFixSafetyFilterIndicesInto,
                 cliFixSafetyFilterChecksumInto,
@@ -4180,6 +4191,87 @@ func main() {
         {
             var index = orderedIndices[i];
             checksum += (i + 1) * 97 + (index + 1) * 31 + args[index].Length * 17;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertCliTidyDependencyClassificationLikeProduction(
+        MethodInfo cliTidyDependencyStatusRanksInto,
+        MethodInfo cliTidyDependencyStatusRankChecksumInto)
+    {
+        var packageNames = new[]
+        {
+            "Newtonsoft.Json",
+            "Serilog.Sinks.Console",
+            "Polly",
+            "Microsoft.Extensions.Logging",
+            "Contoso.Feature.Client",
+            "Unused.Package.Library",
+            "ACME.Tools"
+        };
+        var importNamespaces = new[]
+        {
+            "Newtonsoft.Json.Linq",
+            "Microsoft.Extensions.Logging",
+            "Contoso.Feature0",
+            "Acme.Tools.Runtime"
+        };
+        var expected = packageNames
+            .Select(packageName => CreateExpectedCliTidyDependencyStatusRank(packageName, importNamespaces))
+            .ToArray();
+
+        var resultStatusRanks = new int[packageNames.Length];
+        var actualCount = (int)(cliTidyDependencyStatusRanksInto.Invoke(
+            null,
+            new object[] { packageNames, importNamespaces, resultStatusRanks }) ?? -1);
+
+        Assert.Equal(packageNames.Length, actualCount);
+        Assert.Equal(expected, resultStatusRanks);
+
+        Array.Clear(resultStatusRanks);
+        var actualChecksum = (int)(cliTidyDependencyStatusRankChecksumInto.Invoke(
+            null,
+            new object[] { packageNames, importNamespaces, resultStatusRanks }) ?? -1);
+
+        Assert.Equal(CliTidyDependencyStatusRankChecksum(expected, packageNames), actualChecksum);
+        Assert.Equal(expected, resultStatusRanks);
+
+        var failedCount = (int)(cliTidyDependencyStatusRanksInto.Invoke(
+            null,
+            new object[] { packageNames, importNamespaces, new int[packageNames.Length - 1] }) ?? 0);
+
+        Assert.Equal(-1, failedCount);
+    }
+
+    private static int CreateExpectedCliTidyDependencyStatusRank(
+        string packageName,
+        IReadOnlyCollection<string> importNamespaces)
+    {
+        var segments = packageName.Split('.');
+        if (segments.Length < 2)
+            return 3;
+
+        var prefix1 = segments[0];
+        var prefix2 = string.Join(".", segments.Take(2));
+
+        var matched = importNamespaces.Any(ns =>
+            ns.StartsWith(prefix1 + ".", StringComparison.OrdinalIgnoreCase) ||
+            ns.Equals(prefix1, StringComparison.OrdinalIgnoreCase) ||
+            ns.StartsWith(prefix2 + ".", StringComparison.OrdinalIgnoreCase) ||
+            ns.Equals(prefix2, StringComparison.OrdinalIgnoreCase));
+
+        return matched ? 2 : 1;
+    }
+
+    private static int CliTidyDependencyStatusRankChecksum(
+        int[] statusRanks,
+        string[] packageNames)
+    {
+        var checksum = statusRanks.Length;
+        for (var i = 0; i < statusRanks.Length; i++)
+        {
+            checksum += (i + 1) * 97 + statusRanks[i] * 31 + packageNames[i].Length * 17;
         }
 
         return checksum;

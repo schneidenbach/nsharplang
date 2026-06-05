@@ -72,16 +72,7 @@ public static class TidyCommand
         // Collect all import namespaces from .nl source files
         var importedNamespaces = CollectImportedNamespaces(projectRoot);
 
-        // Analyse each NuGet dependency
-        var results = new List<DependencyStatus>();
-        foreach (var dep in config.Dependencies)
-        {
-            if (dep.Nuget == null)
-                continue; // Only analyse NuGet packages
-
-            var status = ClassifyDependency(dep.Nuget, dep.Version, importedNamespaces);
-            results.Add(status);
-        }
+        var results = ClassifyDependencies(config.Dependencies, importedNamespaces);
 
         var summary = SummarizeDependencies(results);
         var ok = summary.PossiblyUnusedCount == 0;
@@ -211,6 +202,86 @@ public static class TidyCommand
 
         return new DependencyStatus(packageName, version, "possibly-unused",
             $"No import statement found referencing '{prefix1}' or '{prefix2}'.");
+    }
+
+    private static List<DependencyStatus> ClassifyDependencies(
+        IReadOnlyList<Reference> dependencies,
+        HashSet<string> importedNamespaces)
+    {
+        var nugetDependencies = new List<Reference>();
+        foreach (var dep in dependencies)
+        {
+            if (dep.Nuget != null)
+                nugetDependencies.Add(dep);
+        }
+
+        if (NSharpCliDogfoodAdapter.TryClassifyTidyDependencyStatusRanks(
+                nugetDependencies,
+                importedNamespaces,
+                out var statusRanks))
+        {
+            var results = new List<DependencyStatus>(nugetDependencies.Count);
+            for (var i = 0; i < nugetDependencies.Count; i++)
+            {
+                var dep = nugetDependencies[i];
+                var status = CreateDependencyStatusFromRank(dep.Nuget!, dep.Version, statusRanks[i]);
+                if (status == null)
+                    return ClassifyDependenciesWithCSharp(nugetDependencies, importedNamespaces);
+
+                results.Add(status);
+            }
+
+            return results;
+        }
+
+        return ClassifyDependenciesWithCSharp(nugetDependencies, importedNamespaces);
+    }
+
+    private static List<DependencyStatus> ClassifyDependenciesWithCSharp(
+        IReadOnlyList<Reference> dependencies,
+        HashSet<string> importedNamespaces)
+    {
+        var results = new List<DependencyStatus>();
+        foreach (var dep in dependencies)
+        {
+            if (dep.Nuget == null)
+                continue;
+
+            results.Add(ClassifyDependency(dep.Nuget, dep.Version, importedNamespaces));
+        }
+
+        return results;
+    }
+
+    private static DependencyStatus? CreateDependencyStatusFromRank(
+        string packageName,
+        string? version,
+        int statusRank)
+    {
+        var firstDot = packageName.IndexOf('.');
+        if (statusRank == 3 && firstDot < 0)
+        {
+            return new DependencyStatus(packageName, version, "unknown",
+                "Cannot determine namespace for single-segment package name; manual review required.");
+        }
+
+        if (firstDot <= 0)
+            return null;
+
+        var secondDot = packageName.IndexOf('.', firstDot + 1);
+        var prefix1 = packageName[..firstDot];
+        var prefix2 = secondDot > firstDot
+            ? packageName[..secondDot]
+            : packageName;
+
+        return statusRank switch
+        {
+            2 => new DependencyStatus(packageName, version, "used",
+                $"Import statement references namespace matching '{prefix2}'."),
+            1 => new DependencyStatus(packageName, version, "possibly-unused",
+                $"No import statement found referencing '{prefix1}' or '{prefix2}'."),
+            _ => null
+        };
     }
 
     // ── Fix ───────────────────────────────────────────────────────────────

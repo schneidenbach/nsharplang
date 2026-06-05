@@ -1032,6 +1032,11 @@ Current CLI dogfood benchmarks:
   compute the JSON `ok` value, then two `Count(...)` passes for the text summary's possibly-unused
   and unknown counts. The accepted N# candidate scans compact tidy status ranks once through
   `CliTidyDependencyStatusSummaryInto` and writes summary counts into caller-owned storage.
+- `CliTidyDependencyClassificationBenchmarks` targets `nlc tidy` dependency usage classification.
+  The C# baseline mirrors the current command shape: split the package name, join the first two
+  segments, then scan imports with case-insensitive prefix checks. The accepted N# candidate scans
+  ASCII package/import strings directly, writes compact status ranks through
+  `CliTidyDependencyStatusRanksInto`, and leaves non-ASCII names on the exact C# fallback.
 - `CliFixEditFlattenBenchmarks` targets safe-edit flattening in `nlc fix` after the safety gate has
   selected applicable actions. The C# baseline mirrors the current CLI shape:
   `safeActions.SelectMany(action => action.Edits).ToList()`. The N# pressure candidate runs after
@@ -1280,6 +1285,15 @@ on the representative tidy status corpus (420.8 ns vs 2.667 us) and about 5.8x f
 generated corpus (3.526 us vs 20.613 us). This is acceptance-grade benchmark evidence for replacing
 the command's previous `All(...)` plus two `Count(...)` status scans after the host has projected
 status strings into compact integer ranks.
+
+`CliTidyDependencyStatusRanksInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc tidy` dependency usage classification. The accepted N# path
+uses the current command semantics that a first-segment namespace match determines the final status,
+so it avoids the C# baseline's split/join allocation while preserving the same public status and
+reason text in the host. It ran about 10.9x faster on the representative dependency/import corpus
+(17.414 us vs 199.280 us, 0 B vs 1,485,616 B) and about 7.5x faster on the large generated corpus
+(665.013 us vs 5.001 ms, 0 B vs 38,533,472 B). The production adapter guards the ASCII-specialized
+fast path and keeps the C# classifier for non-ASCII package or import names.
 
 `CliFixSafetyFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for `nlc fix` safety filtering. The accepted N# path uses compact
@@ -1680,6 +1694,11 @@ targets, with the previous C# filter kept as the fallback.
 `nlc tidy` status summary calculation now routes through the compiled N# tidy summary kernel when
 the dogfood assembly is available, preserving exact status matching for JSON `ok` and text summary
 counts, with equivalent C# status-count scans kept as the fallback.
+`nlc tidy` dependency usage classification now routes through the compiled N#
+`CliTidyDependencyStatusRanksInto` kernel for ASCII package and import names, preserving the current
+single-segment unknown rule, first-segment namespace match semantics, public status strings, and
+reason text, with the previous C# classifier kept as the fallback for non-ASCII names or unavailable
+dogfood.
 `nlc tidy --fix` possibly-unused dependency selection now routes through the compiled N# compact
 rank filter when the dogfood assembly is available, preserving exact status matching and source
 order after dependency classification, with the previous C# `Where(...).ToList()` path kept as the

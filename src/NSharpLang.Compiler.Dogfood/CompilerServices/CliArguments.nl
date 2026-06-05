@@ -141,6 +141,94 @@ func CliLintIsProjectOptionValue(
     return false
 }
 
+func CliTidyDependencyStatusRanksInto(
+    packageNames: string[],
+    importNamespaces: string[],
+    resultStatusRanks: int[]): int {
+    if resultStatusRanks.Length < packageNames.Length {
+        return -1
+    }
+
+    i := 0
+    while i < packageNames.Length {
+        resultStatusRanks[i] = CliTidyDependencyStatusRank(packageNames[i], importNamespaces)
+        i = i + 1
+    }
+
+    return packageNames.Length
+}
+
+func CliTidyDependencyStatusRank(packageName: string, importNamespaces: string[]): int {
+    firstDot := packageName.IndexOf('.')
+    if firstDot < 0 {
+        return 3
+    }
+
+    i := 0
+    while i < importNamespaces.Length {
+        namespaceName := importNamespaces[i]
+        if CliTidyNamespaceMatchesPrefix(namespaceName, packageName, firstDot) {
+            return 2
+        }
+
+        i = i + 1
+    }
+
+    return 1
+}
+
+func CliTidyNamespaceMatchesPrefix(namespaceName: string, packageName: string, prefixLength: int): bool {
+    if prefixLength <= 0 || namespaceName.Length < prefixLength || packageName.Length < prefixLength {
+        return false
+    }
+
+    if namespaceName.Length > prefixLength && namespaceName[prefixLength] != '.' {
+        return false
+    }
+
+    i := 0
+    while i < prefixLength {
+        if !CliTidyCharsEqualAsciiIgnoreCase(namespaceName[i], packageName[i]) {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
+func CliTidyCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
+    leftCode := (int)left
+    rightCode := (int)right
+
+    if leftCode >= 65 && leftCode <= 90 {
+        leftCode = leftCode + 32
+    }
+
+    if rightCode >= 65 && rightCode <= 90 {
+        rightCode = rightCode + 32
+    }
+
+    return leftCode == rightCode
+}
+
+func CliTidyDependencyStatusRankChecksumInto(
+    packageNames: string[],
+    importNamespaces: string[],
+    resultStatusRanks: int[]): int {
+    count := CliTidyDependencyStatusRanksInto(packageNames, importNamespaces, resultStatusRanks)
+    checksum := count
+    i := 0
+    while i < count && i < resultStatusRanks.Length {
+        rank := resultStatusRanks[i]
+        checksum = checksum + (i + 1) * 97 + rank * 31 + packageNames[i].Length * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func CliSymbolNameGlobFilterIndicesInto(
     names: string[],
     pattern: string,

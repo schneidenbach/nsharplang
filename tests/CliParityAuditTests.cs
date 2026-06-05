@@ -861,6 +861,57 @@ func Main() {
     }
 
     [Fact]
+    public void TidyCommand_Json_ClassifiesDependencyUsage()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TidyClassification
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+
+dependencies:
+  - nuget: Newtonsoft.Json
+    version: 13.0.3
+  - nuget: Serilog.Sinks.Console
+    version: 5.0.1
+  - nuget: Polly
+    version: 8.0.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import Newtonsoft.Json.Linq
+
+func Main() {
+    print "ok"
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TidyCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var dependencies = doc.RootElement.GetProperty("dependencies")
+                .EnumerateArray()
+                .ToDictionary(
+                    dependency => dependency.GetProperty("name").GetString()!,
+                    dependency => dependency.GetProperty("status").GetString()!);
+
+            Assert.Equal("used", dependencies["Newtonsoft.Json"]);
+            Assert.Equal("possibly-unused", dependencies["Serilog.Sinks.Console"]);
+            Assert.Equal("unknown", dependencies["Polly"]);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void AddCommand_Help_ShowsPathOption()
     {
         var (exitCode, stdout, stderr) = CaptureConsole(() =>

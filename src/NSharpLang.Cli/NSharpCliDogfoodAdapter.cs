@@ -1259,6 +1259,81 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryClassifyTidyDependencyStatusRanks(
+        IReadOnlyList<Reference> dependencies,
+        IReadOnlyCollection<string> importedNamespaces,
+        out int[] statusRanks)
+    {
+        statusRanks = Array.Empty<int>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var dependencyCount = dependencies.Count;
+        if (dependencyCount == 0)
+            return true;
+
+        var scratch = t_tidyDependencyStatusFilterScratch ??= new TidyDependencyStatusFilterScratch();
+        scratch.EnsureClassificationCapacity(dependencyCount, importedNamespaces.Count);
+
+        try
+        {
+            for (var i = 0; i < dependencyCount; i++)
+            {
+                var packageName = dependencies[i].Nuget;
+                if (packageName == null || !IsAscii(packageName))
+                    return false;
+
+                scratch.PackageNames[i] = packageName;
+            }
+
+            var importIndex = 0;
+            foreach (var importedNamespace in importedNamespaces)
+            {
+                if (!IsAscii(importedNamespace))
+                    return false;
+
+                scratch.ImportNamespaces[importIndex] = importedNamespace;
+                importIndex++;
+            }
+
+            var classifiedCount = bindings.CliTidyDependencyStatusRanks(
+                scratch.PackageNames,
+                scratch.ImportNamespaces,
+                scratch.StatusRanks);
+
+            if (classifiedCount != dependencyCount)
+            {
+                return false;
+            }
+
+            statusRanks = new int[dependencyCount];
+            for (var i = 0; i < dependencyCount; i++)
+            {
+                var rank = scratch.StatusRanks[i];
+                if (rank is < 1 or > 3)
+                {
+                    statusRanks = Array.Empty<int>();
+                    return false;
+                }
+
+                statusRanks[i] = rank;
+            }
+
+            return true;
+        }
+        catch
+        {
+            statusRanks = Array.Empty<int>();
+            return false;
+        }
+        finally
+        {
+            scratch.ClearClassificationInputs(dependencyCount, importedNamespaces.Count);
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -1363,6 +1438,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
                 CreateDelegate<CliReferenceTypeFilterIndicesInto>(programType, "CliReferenceTypeFilterIndicesInto"),
                 CreateDelegate<CliTidyDependencyStatusSummaryInto>(programType, "CliTidyDependencyStatusSummaryInto"),
+                CreateDelegate<CliTidyDependencyStatusRanksInto>(programType, "CliTidyDependencyStatusRanksInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"));
         }
         catch
@@ -1531,6 +1607,11 @@ internal static class NSharpCliDogfoodAdapter
         int[] statusRanks,
         int[] resultCounts);
 
+    private delegate int CliTidyDependencyStatusRanksInto(
+        string[] packageNames,
+        string[] importNamespaces,
+        int[] resultStatusRanks);
+
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliExportCSharpFirstOperandIndexInto CliExportCSharpFirstOperandIndex,
@@ -1551,6 +1632,7 @@ internal static class NSharpCliDogfoodAdapter
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
         CliReferenceTypeFilterIndicesInto CliReferenceTypeFilterIndices,
         CliTidyDependencyStatusSummaryInto CliTidyDependencyStatusSummary,
+        CliTidyDependencyStatusRanksInto CliTidyDependencyStatusRanks,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
@@ -2152,6 +2234,8 @@ internal static class NSharpCliDogfoodAdapter
 
     private sealed class TidyDependencyStatusFilterScratch
     {
+        public string[] ImportNamespaces = Array.Empty<string>();
+        public string[] PackageNames = Array.Empty<string>();
         public int[] ResultIndices = Array.Empty<int>();
         public int[] StatusRanks = Array.Empty<int>();
         public int[] SummaryCounts = Array.Empty<int>();
@@ -2168,6 +2252,27 @@ internal static class NSharpCliDogfoodAdapter
             {
                 SummaryCounts = new int[2];
             }
+        }
+
+        public void EnsureClassificationCapacity(int dependencyCount, int importCount)
+        {
+            if (PackageNames.Length != dependencyCount)
+                PackageNames = new string[dependencyCount];
+
+            if (StatusRanks.Length != dependencyCount)
+                StatusRanks = new int[dependencyCount];
+
+            if (ImportNamespaces.Length != importCount)
+                ImportNamespaces = new string[importCount];
+        }
+
+        public void ClearClassificationInputs(int dependencyCount, int importCount)
+        {
+            if (dependencyCount > 0 && dependencyCount <= PackageNames.Length)
+                Array.Clear(PackageNames, 0, dependencyCount);
+
+            if (importCount > 0 && importCount <= ImportNamespaces.Length)
+                Array.Clear(ImportNamespaces, 0, importCount);
         }
     }
 }
