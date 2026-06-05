@@ -74,8 +74,13 @@ public static class QueryCommand
         // Apply fuzzy/glob filter: * = wildcard, bare string = substring match
         if (!string.IsNullOrWhiteSpace(filterPattern))
         {
-            var regex = BuildSymbolFilterRegex(filterPattern);
-            results = results.Where(s => regex.IsMatch(s.Name)).Take(200).ToList();
+            results = NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+                    results,
+                    filterPattern,
+                    200,
+                    out var dogfoodResults)
+                ? dogfoodResults
+                : FilterSymbolsByNamePatternWithRegex(results, filterPattern);
         }
 
         if (options.UseText)
@@ -88,6 +93,14 @@ public static class QueryCommand
         }
 
         return 0;
+    }
+
+    private static List<SymbolResult> FilterSymbolsByNamePatternWithRegex(
+        IReadOnlyList<SymbolResult> symbols,
+        string pattern)
+    {
+        var regex = BuildSymbolFilterRegex(pattern);
+        return symbols.Where(s => regex.IsMatch(s.Name)).Take(200).ToList();
     }
 
     private static Regex BuildSymbolFilterRegex(string pattern)

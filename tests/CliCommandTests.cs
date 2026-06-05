@@ -1039,6 +1039,62 @@ dependencies:
     }
 
     [Fact]
+    public void CliDogfoodAdapter_FiltersSymbolsByNamePattern()
+    {
+        var symbols = new[]
+        {
+            NewSymbol("UserService"),
+            NewSymbol("OrderService"),
+            NewSymbol("UserQuery"),
+            NewSymbol("RenderPipeline"),
+            NewSymbol("CurrentUser")
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.False(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+            symbols,
+            "user",
+            200,
+            out _));
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+            symbols,
+            "*Service",
+            200,
+            out var globMatches));
+        Assert.Equal(
+            new[] { "UserService", "OrderService" },
+            globMatches.Select(symbol => symbol.Name));
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+            symbols,
+            "*",
+            2,
+            out var limitedMatches));
+        Assert.Equal(
+            new[] { "UserService", "OrderService" },
+            limitedMatches.Select(symbol => symbol.Name));
+
+        Assert.False(NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+            new[] { NewSymbol("café") },
+            "caf*",
+            200,
+            out _));
+
+        static SymbolResult NewSymbol(string name) =>
+            new(
+                name,
+                SymbolKind.Function,
+                "Program.nl",
+                1,
+                1,
+                null,
+                null,
+                null,
+                null);
+    }
+
+    [Fact]
     public void CliDogfoodAdapter_FiltersFixesBySafety()
     {
         var fixes = new[]

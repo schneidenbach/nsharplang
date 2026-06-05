@@ -1031,6 +1031,12 @@ Current CLI dogfood benchmarks:
   shape: enum comparison, list materialization, and stable source-order results. The N# candidate
   runs after the host has projected symbol kinds into compact integer ids, scans an unrolled kind-id
   array, and writes matching symbol indices through `SymbolKindFilterIndicesInto`.
+- `CliSymbolNameFilterBenchmarks` targets wildcard name filtering in `nlc query symbols --filter`.
+  The C# baseline mirrors the current CLI regex path for `*` patterns: build a case-insensitive
+  regex, filter symbol names, stop at 200 matches, and materialize the result. The accepted N#
+  candidate handles ASCII glob patterns in systems code, specializes prefix/suffix globs, and
+  writes matching symbol indices through `CliSymbolNameGlobFilterIndicesInto`; bare substring
+  filters stay on the C# regex fallback until that path clears the 5x gate.
 - `CompilerServiceDocQueryBestTypeBenchmarks` targets candidate selection in `nlc query doc` type
   lookup. The C# baseline mirrors the current post-scoring LINQ selection shape: order by descending
   match score, then namespace length, then full name with ordinal-ignore-case comparison, and take
@@ -1281,6 +1287,17 @@ corpus (2.337 us vs 14.567 us, 0 B vs 8,936 B). This is acceptance-grade benchma
 `nlc query symbols --kind`, batch symbol queries, and daemon symbol queries after the host has
 projected symbol kinds into compact integer ids.
 
+`CliSymbolNameGlobFilterIndicesInto` passed parity in the short BenchmarkDotNet evidence tier for
+`nlc query symbols --filter` wildcard name filters. The accepted N# path handles ASCII glob matching
+with caller-owned result-index buffers and prefix/suffix specializations, preserving source order
+and the 200-result cap while leaving bare substring filters on the C# fallback. It ran about 15.0x
+faster on the representative prefix-glob corpus (3.972 us vs 59.672 us), about 74.4x faster on the
+representative suffix-glob corpus (4.764 us vs 354.534 us), about 14.9x faster on the large
+generated prefix-glob corpus (7.948 us vs 118.153 us), and about 71.9x faster on the large
+generated suffix-glob corpus (8.986 us vs 645.672 us). This is acceptance-grade benchmark evidence
+for wildcard name filtering in `nlc query symbols --filter` after the host has projected public
+symbol names into a string array and the pattern is ASCII.
+
 `DocQueryBestTypeIndex` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence run for `nlc query doc` candidate selection. The accepted N# path uses
 caller-owned score, namespace-length, and full-name arrays plus an eight-wide unrolled scan that
@@ -1492,6 +1509,11 @@ previous C# LINQ `Where(e => e.Severity == ...).ToList()` path kept as the fallb
 N# compact kind-id filter when the dogfood assembly is available, covering `nlc query symbols
 --kind`, batch symbol queries, and daemon symbol queries, with the previous C# LINQ
 `Where(s => s.Kind == kind).ToList()` path kept as the fallback.
+`nlc query symbols --filter` now routes ASCII wildcard name filters through
+`NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern`, which calls the compiled N# glob matcher
+when the dogfood assembly is available, preserving case-insensitive `*` semantics, source order, and
+the 200-result cap. Non-ASCII patterns/names and bare substring filters keep the previous C# regex
+fallback because the substring N# prototype did not clear the 5x gate.
 Strict `nlc build` lint gating now routes its error-only diagnostic filter through the same
 adapter-backed formatter path before the accepted diagnostic deduplication/order route, instead of
 running a local C# LINQ severity filter.
@@ -1622,7 +1644,7 @@ cluster file-list ordering, diagnostic shadow suppression, diagnostic deduplicat
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
-ordering and slug generation, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
+ordering and slug generation, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, wildcard symbol-name filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
@@ -1669,12 +1691,13 @@ project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
 route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
 plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output in `nlc fix --text`,
-plus artifact directory selection in `nlc clean`.
+plus wildcard symbol-name filtering in `nlc query symbols --filter`, plus artifact directory
+selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
-Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are
-not routed through production code-intelligence, query, batch, or daemon paths because they
-currently miss the 5x speed gate.
+Path matching, all-positionals CLI argument filtering, and bare substring symbol-name filtering have
+parity and benchmark evidence but are not routed through production code-intelligence, query, batch,
+or daemon paths because they currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using NSharpLang.Cli;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
@@ -1547,6 +1548,10 @@ class OtherZetaType {
                     "CliDocSlugsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliDocSlugsInto.");
+            var cliSymbolNameGlobFilterIndicesInto = programType.GetMethod(
+                    "CliSymbolNameGlobFilterIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliSymbolNameGlobFilterIndicesInto.");
             var symbolKindFilterIndicesInto = programType.GetMethod(
                     "SymbolKindFilterIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2103,6 +2108,7 @@ func main(customer: Customer, résumé: Profile) {
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
             AssertCliDocSlugsLikeProduction(cliDocSlugsInto);
+            AssertCliSymbolNameGlobFilteringLikeProduction(cliSymbolNameGlobFilterIndicesInto);
             AssertSymbolKindFilteringLikeProduction(
                 symbolKindFilterIndicesInto,
                 symbolKindFilterChecksumInto);
@@ -4473,6 +4479,70 @@ func main() {
         }
 
         return checksum;
+    }
+
+    private static void AssertCliSymbolNameGlobFilteringLikeProduction(
+        MethodInfo cliSymbolNameGlobFilterIndicesInto)
+    {
+        var names = new[]
+        {
+            "UserService",
+            "OrderService",
+            "UserQuery",
+            "RenderPipeline",
+            "CurrentUser",
+            "DataSet",
+            "DataQuerySet",
+            "BuildGraph",
+            "queryRunner",
+            "USER_INDEX"
+        };
+        var cases = new[]
+        {
+            (Pattern: "*Service", Limit: 200),
+            (Pattern: "User*", Limit: 200),
+            (Pattern: "*Query*", Limit: 200),
+            (Pattern: "Data*Set", Limit: 200),
+            (Pattern: "*", Limit: 3),
+            (Pattern: "No*Match", Limit: 200)
+        };
+
+        foreach (var (pattern, limit) in cases)
+        {
+            var expectedIndices = ExpectedCliSymbolNameGlobFilterIndices(names, pattern, limit);
+            var actualIndices = new int[Math.Min(limit, names.Length)];
+            var actualCount = (int)(cliSymbolNameGlobFilterIndicesInto.Invoke(
+                null,
+                new object[] { names, pattern, limit, actualIndices }) ?? -1);
+
+            Assert.Equal(expectedIndices.Length, actualCount);
+            Assert.Equal(expectedIndices, actualIndices.Take(actualCount).ToArray());
+        }
+    }
+
+    private static int[] ExpectedCliSymbolNameGlobFilterIndices(
+        string[] names,
+        string pattern,
+        int limit)
+    {
+        var regex = BuildCliSymbolNameFilterRegex(pattern);
+        return names
+            .Select((name, index) => (name, index))
+            .Where(item => regex.IsMatch(item.name))
+            .Take(limit)
+            .Select(item => item.index)
+            .ToArray();
+    }
+
+    private static Regex BuildCliSymbolNameFilterRegex(string pattern)
+    {
+        if (pattern.Contains('*'))
+        {
+            var regexPattern = "^" + Regex.Escape(pattern).Replace("\\*", ".*") + "$";
+            return new Regex(regexPattern, RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
+        }
+
+        return new Regex(Regex.Escape(pattern), RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(200));
     }
 
     private static void AssertCliDocSymbolOrderingLikeProduction(

@@ -54,6 +54,175 @@ func CliFirstPositionalArgIndex(args: string[], optionsWithValues: string[]): in
     return -1
 }
 
+func CliSymbolNameGlobFilterIndicesInto(
+    names: string[],
+    pattern: string,
+    limit: int,
+    resultIndices: int[]): int {
+    if limit <= 0 || resultIndices.Length == 0 {
+        return 0
+    }
+
+    maxCount := limit
+    if maxCount > resultIndices.Length {
+        maxCount = resultIndices.Length
+    }
+
+    matchCount := 0
+    i := 0
+    while i < names.Length && matchCount < maxCount {
+        name := names[i]
+        if CliSymbolNameGlobMatchesAsciiIgnoreCase(name, pattern) {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return matchCount
+}
+
+func CliSymbolNameGlobMatchesAsciiIgnoreCase(text: string, pattern: string): bool {
+    if pattern.Length == 1 && pattern[0] == '*' {
+        return true
+    }
+
+    if pattern.Length > 1
+        && pattern[0] == '*'
+        && !CliSymbolNamePatternHasWildcardFrom(pattern, 1) {
+        return CliSymbolNameEndsWithAsciiIgnoreCase(text, pattern, 1, pattern.Length - 1)
+    }
+
+    if pattern.Length > 1
+        && pattern[pattern.Length - 1] == '*'
+        && !CliSymbolNamePatternHasWildcardBefore(pattern, pattern.Length - 1) {
+        return CliSymbolNameStartsWithAsciiIgnoreCase(text, pattern, 0, pattern.Length - 1)
+    }
+
+    textIndex := 0
+    patternIndex := 0
+    starIndex := -1
+    retryTextIndex := 0
+
+    while textIndex < text.Length {
+        if patternIndex < pattern.Length {
+            patternChar := pattern[patternIndex]
+            if patternChar == '*' {
+                starIndex = patternIndex
+                patternIndex = patternIndex + 1
+                retryTextIndex = textIndex
+                continue
+            }
+
+            if CliSymbolNameCharsEqualAsciiIgnoreCase(text[textIndex], patternChar) {
+                textIndex = textIndex + 1
+                patternIndex = patternIndex + 1
+                continue
+            }
+        }
+
+        if starIndex >= 0 {
+            patternIndex = starIndex + 1
+            retryTextIndex = retryTextIndex + 1
+            textIndex = retryTextIndex
+            continue
+        }
+
+        return false
+    }
+
+    while patternIndex < pattern.Length && pattern[patternIndex] == '*' {
+        patternIndex = patternIndex + 1
+    }
+
+    return patternIndex == pattern.Length
+}
+
+func CliSymbolNamePatternHasWildcardFrom(pattern: string, start: int): bool {
+    i := start
+    while i < pattern.Length {
+        if pattern[i] == '*' {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
+}
+
+func CliSymbolNamePatternHasWildcardBefore(pattern: string, end: int): bool {
+    i := 0
+    while i < end {
+        if pattern[i] == '*' {
+            return true
+        }
+
+        i = i + 1
+    }
+
+    return false
+}
+
+func CliSymbolNameStartsWithAsciiIgnoreCase(
+    text: string,
+    pattern: string,
+    patternStart: int,
+    patternLength: int): bool {
+    if patternLength > text.Length {
+        return false
+    }
+
+    i := 0
+    while i < patternLength {
+        if !CliSymbolNameCharsEqualAsciiIgnoreCase(text[i], pattern[patternStart + i]) {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
+func CliSymbolNameEndsWithAsciiIgnoreCase(
+    text: string,
+    pattern: string,
+    patternStart: int,
+    patternLength: int): bool {
+    if patternLength > text.Length {
+        return false
+    }
+
+    textStart := text.Length - patternLength
+    i := 0
+    while i < patternLength {
+        if !CliSymbolNameCharsEqualAsciiIgnoreCase(text[textStart + i], pattern[patternStart + i]) {
+            return false
+        }
+
+        i = i + 1
+    }
+
+    return true
+}
+
+func CliSymbolNameCharsEqualAsciiIgnoreCase(left: char, right: char): bool {
+    leftCode := (int)left
+    rightCode := (int)right
+
+    if leftCode >= 65 && leftCode <= 90 {
+        leftCode = leftCode + 32
+    }
+
+    if rightCode >= 65 && rightCode <= 90 {
+        rightCode = rightCode + 32
+    }
+
+    return leftCode == rightCode
+}
+
 func CliBuildFirstOperandIndexInto(
     args: string[],
     kindIds: int[],

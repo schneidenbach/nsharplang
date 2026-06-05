@@ -19,6 +19,8 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static DocSymbolOrderScratch? t_docSymbolOrderScratch;
     [ThreadStatic]
+    private static SymbolNameFilterScratch? t_symbolNameFilterScratch;
+    [ThreadStatic]
     private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
     [ThreadStatic]
     private static CompilerErrorSeverityFilterScratch? t_compilerErrorSeverityFilterScratch;
@@ -264,6 +266,77 @@ internal static class NSharpCliDogfoodAdapter
         catch
         {
             slugs = Array.Empty<string>();
+            return false;
+        }
+    }
+
+    internal static bool TryFilterSymbolsByNamePattern(
+        IReadOnlyList<SymbolResult> symbols,
+        string pattern,
+        int limit,
+        out List<SymbolResult> filteredSymbols)
+    {
+        filteredSymbols = new List<SymbolResult>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (limit <= 0 || symbols.Count == 0)
+            return true;
+
+        if (!pattern.Contains('*') || !IsAscii(pattern))
+            return false;
+
+        var symbolCount = symbols.Count;
+        var resultCapacity = Math.Min(symbolCount, limit);
+        var scratch = t_symbolNameFilterScratch ??= new SymbolNameFilterScratch();
+        scratch.EnsureCapacity(symbolCount, resultCapacity);
+
+        try
+        {
+            for (var i = 0; i < symbolCount; i++)
+            {
+                var name = symbols[i].Name;
+                if (!IsAscii(name))
+                {
+                    filteredSymbols = new List<SymbolResult>();
+                    return false;
+                }
+
+                scratch.Names[i] = name;
+            }
+
+            var filteredCount = bindings.CliSymbolNameGlobFilterIndices(
+                scratch.Names,
+                pattern,
+                resultCapacity,
+                scratch.ResultIndices);
+
+            if (filteredCount < 0 || filteredCount > resultCapacity || filteredCount > scratch.ResultIndices.Length)
+            {
+                filteredSymbols = new List<SymbolResult>();
+                return false;
+            }
+
+            filteredSymbols = new List<SymbolResult>(filteredCount);
+            for (var i = 0; i < filteredCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= symbolCount)
+                {
+                    filteredSymbols = new List<SymbolResult>();
+                    return false;
+                }
+
+                filteredSymbols.Add(symbols[sourceIndex]);
+            }
+
+            return true;
+        }
+        catch
+        {
+            filteredSymbols = new List<SymbolResult>();
             return false;
         }
     }
@@ -1057,6 +1130,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
                 CreateDelegate<CliDocSlugsInto>(programType, "CliDocSlugsInto"),
+                CreateDelegate<CliSymbolNameGlobFilterIndicesInto>(programType, "CliSymbolNameGlobFilterIndicesInto"),
                 CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"),
@@ -1139,6 +1213,12 @@ internal static class NSharpCliDogfoodAdapter
 
     private delegate int CliDocSlugsInto(string[] rawSlugs, string[] resultSlugs);
 
+    private delegate int CliSymbolNameGlobFilterIndicesInto(
+        string[] names,
+        string pattern,
+        int limit,
+        int[] resultIndices);
+
     private delegate int CliTreeDependencyDeduplicateIndicesInto(
         int[] kindRanks,
         int[] nameRanks,
@@ -1207,6 +1287,7 @@ internal static class NSharpCliDogfoodAdapter
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
         CliDocSlugsInto CliDocSlugs,
+        CliSymbolNameGlobFilterIndicesInto CliSymbolNameGlobFilterIndices,
         CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         CliFixSafetyFilterIndicesInto CliFixSafetyFilter,
@@ -1242,6 +1323,17 @@ internal static class NSharpCliDogfoodAdapter
             SymbolKind.Variable => 16,
             _ => 100
         };
+
+    private static bool IsAscii(string value)
+    {
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (value[i] > 0x7f)
+                return false;
+        }
+
+        return true;
+    }
 
     private static int GetReferenceTypeRank(ReferenceType type) =>
         type switch
@@ -1440,6 +1532,21 @@ internal static class NSharpCliDogfoodAdapter
                 Array.Clear(UniqueNames, 0, UniqueNameCount);
                 UniqueNameCount = 0;
             }
+        }
+    }
+
+    private sealed class SymbolNameFilterScratch
+    {
+        public string[] Names = Array.Empty<string>();
+        public int[] ResultIndices = Array.Empty<int>();
+
+        public void EnsureCapacity(int symbolCount, int resultCapacity)
+        {
+            if (Names.Length != symbolCount)
+                Names = new string[symbolCount];
+
+            if (ResultIndices.Length != resultCapacity)
+                ResultIndices = new int[resultCapacity];
         }
     }
 
