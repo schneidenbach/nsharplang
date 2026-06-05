@@ -736,6 +736,298 @@ func CliCleanArtifactDirectoryChecksumInto(
     return checksum
 }
 
+func CliUpdateAllNuGetDependencyIndicesInto(
+    nugetFlags: int[],
+    resultIndices: int[]): int {
+    length := nugetFlags.Length
+    resultCount := 0
+    i := 0
+    if resultIndices.Length >= length {
+        unrolledLimit := length - 16
+        while i <= unrolledLimit {
+            if nugetFlags[i] != 0 {
+                resultIndices[resultCount] = i
+                resultCount = resultCount + 1
+            }
+
+            next := i + 1
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 2
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 3
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 4
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 5
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 6
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 7
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 8
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 9
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 10
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 11
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 12
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 13
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 14
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            next = i + 15
+            if nugetFlags[next] != 0 {
+                resultIndices[resultCount] = next
+                resultCount = resultCount + 1
+            }
+
+            i = i + 16
+        }
+
+        while i < length {
+            if nugetFlags[i] != 0 {
+                resultIndices[resultCount] = i
+                resultCount = resultCount + 1
+            }
+
+            i = i + 1
+        }
+
+        return resultCount
+    }
+
+    while i < length {
+        if nugetFlags[i] != 0 {
+            if resultCount < resultIndices.Length {
+                resultIndices[resultCount] = i
+            }
+
+            resultCount = resultCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return resultCount
+}
+
+func CliUpdateAllNuGetDependencyChecksumInto(
+    nugetFlags: int[],
+    resultIndices: int[]): int {
+    length := nugetFlags.Length
+    if resultIndices.Length < length {
+        matchCount := CliUpdateAllNuGetDependencyIndicesInto(nugetFlags, resultIndices)
+        if matchCount < 0 {
+            return matchCount
+        }
+
+        checksum := matchCount
+        i := 0
+        while i < matchCount && i < resultIndices.Length {
+            sourceIndex := resultIndices[i]
+            flag := 0
+            if sourceIndex >= 0 && sourceIndex < length {
+                flag = nugetFlags[sourceIndex]
+            }
+
+            checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + flag * 17
+            i = i + 1
+        }
+
+        return checksum
+    }
+
+    matchCount := 0
+    checksum := 0
+    i := 0
+    unrolledLimit := length - 16
+    while i <= unrolledLimit {
+        if nugetFlags[i] != 0 {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (i + 1) * 31 + 17
+        }
+
+        next := i + 1
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 2
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 3
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 4
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 5
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 6
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 7
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 8
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 9
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 10
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 11
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 12
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 13
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 14
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        next = i + 15
+        if nugetFlags[next] != 0 {
+            resultIndices[matchCount] = next
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (next + 1) * 31 + 17
+        }
+
+        i = i + 16
+    }
+
+    while i < length {
+        if nugetFlags[i] != 0 {
+            resultIndices[matchCount] = i
+            matchCount = matchCount + 1
+            checksum = checksum + matchCount * 97 + (i + 1) * 31 + 17
+        }
+
+        i = i + 1
+    }
+
+    return checksum + matchCount
+}
+
 func CliUpdateTargetNuGetDependencyIndicesInto(
     nameRanks: int[],
     targetNameRank: int,

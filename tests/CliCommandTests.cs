@@ -240,6 +240,12 @@ func Main() {
 
         Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
 
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterUpdateNuGetDependencies(
+            dependencies,
+            out var adapterAllNuGet));
+        Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
+            adapterAllNuGet.Select(reference => reference.Nuget));
+
         var allNuGet = UpdateCommand.FilterNuGetDependencies(dependencies, targetPackage: null);
         Assert.Equal(new[] { "Serilog", "Newtonsoft.Json", "serilog", "System.Text.Json" },
             allNuGet.Select(reference => reference.Nuget));

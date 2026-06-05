@@ -7,6 +7,93 @@ using BenchmarkDotNet.Order;
 namespace NSharpLang.Benchmarks;
 
 /// <summary>
+/// Dogfood benchmark for no-target NuGet dependency selection in <c>nlc update</c>.
+/// The C# baseline mirrors the command fallback shape: keep dependencies with a NuGet package name
+/// and materialize the list. The N# candidate runs after the host has projected compact
+/// NuGet-present flags.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliUpdateAllDependencyFilterBenchmarks
+{
+    private const int LargeDependencyCount = 8192;
+    private const int RepresentativeDependencyCount = 1024;
+
+    private Func<int[], int[], int> _nsharpUpdateAllNuGetDependencyChecksumInto =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private BenchmarkDependency[] _dependencies = Array.Empty<BenchmarkDependency>();
+    private int[] _nugetFlags = Array.Empty<int>();
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+    private int _dependencyCount;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _dependencyCount = Corpus == CompilerLexerCorpus.Representative
+            ? RepresentativeDependencyCount
+            : LargeDependencyCount;
+        _nsharpUpdateAllNuGetDependencyChecksumInto =
+            NSharpCompiledMethod.Bind<Func<int[], int[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliUpdateAllNuGetDependencyChecksumInto");
+
+        _dependencies = CliUpdateDependencyCorpus.BuildDependencies(_dependencyCount);
+        _nugetFlags = new int[_dependencyCount];
+        _nsharpResultIndices = new int[_dependencyCount];
+        BuildNuGetFlags();
+
+        var expectedChecksum = CSharpUpdateDependencies_FilterAllNuGet();
+        var actualChecksum = NSharpUpdateDependencies_FilterAllNuGet();
+        if (expectedChecksum != actualChecksum)
+        {
+            throw new InvalidOperationException(
+                $"N# update all dependency checksum mismatch for {Corpus}: " +
+                $"expected {expectedChecksum}, got {actualChecksum}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpUpdateDependencies_FilterAllNuGet()
+    {
+        var nugetDeps = _dependencies
+            .Where(dependency => dependency.Nuget != null)
+            .ToList();
+
+        return ChecksumDependencies(nugetDeps);
+    }
+
+    [Benchmark]
+    public int NSharpUpdateDependencies_FilterAllNuGet() =>
+        _nsharpUpdateAllNuGetDependencyChecksumInto(
+            _nugetFlags,
+            _nsharpResultIndices);
+
+    private void BuildNuGetFlags()
+    {
+        for (var i = 0; i < _dependencies.Length; i++)
+            _nugetFlags[i] = _dependencies[i].Nuget == null ? 0 : 1;
+    }
+
+    private int ChecksumDependencies(IReadOnlyList<BenchmarkDependency> dependencies)
+    {
+        var checksum = dependencies.Count;
+        for (var i = 0; i < dependencies.Count; i++)
+        {
+            var index = dependencies[i].Index;
+            checksum += (i + 1) * 97
+                + (index + 1) * 31
+                + _nugetFlags[index] * 17;
+        }
+
+        return checksum;
+    }
+}
+
+/// <summary>
 /// Dogfood benchmark for target-package NuGet dependency selection in <c>nlc update</c>.
 /// The C# baseline mirrors the command fallback shape for a named package: filter NuGet
 /// dependencies with a case-insensitive package-name comparison. The N# candidate runs after the
@@ -47,7 +134,7 @@ public class CliUpdateDependencyFilterBenchmarks
                 DogfoodCompilerSources.CliArguments,
                 "CliUpdateTargetNuGetDependencyChecksumInto");
 
-        _dependencies = BuildDependencies(_dependencyCount);
+        _dependencies = CliUpdateDependencyCorpus.BuildDependencies(_dependencyCount);
         _nameRanks = new int[_dependencyCount];
         _nsharpResultIndices = new int[_dependencyCount];
         BuildCompactRanks();
@@ -137,7 +224,11 @@ public class CliUpdateDependencyFilterBenchmarks
         return checksum;
     }
 
-    private static BenchmarkDependency[] BuildDependencies(int count)
+}
+
+internal static class CliUpdateDependencyCorpus
+{
+    public static BenchmarkDependency[] BuildDependencies(int count)
     {
         var packages = new[]
         {
@@ -183,15 +274,15 @@ public class CliUpdateDependencyFilterBenchmarks
 
         return dependencies;
     }
-
-    private sealed record BenchmarkDependency(
-        int Index,
-        string? Nuget,
-        string? Version,
-        string? Framework,
-        string? Dll,
-        string? Project);
 }
+
+internal sealed record BenchmarkDependency(
+    int Index,
+    string? Nuget,
+    string? Version,
+    string? Framework,
+    string? Dll,
+    string? Project);
 
 public enum CliUpdateTargetMode
 {

@@ -25,7 +25,7 @@ public static class UpdateCommand
         try
         {
             var config = ProjectFileParser.Parse(projectYml);
-            var allNuGetDeps = FilterNuGetDependenciesWithCSharp(config.Dependencies, targetPackage: null);
+            var allNuGetDeps = FilterNuGetDependencies(config.Dependencies, targetPackage: null);
 
             if (allNuGetDeps.Count == 0)
             {
@@ -161,7 +161,13 @@ Exit codes:
         string? targetPackage)
     {
         if (targetPackage == null)
-            return FilterNuGetDependenciesWithCSharp(dependencies, targetPackage);
+        {
+            return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterUpdateNuGetDependencies(
+                dependencies,
+                out var allNuGetDependencies)
+                ? allNuGetDependencies
+                : FilterNuGetDependenciesWithCSharp(dependencies, targetPackage);
+        }
 
         return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterUpdateTargetNuGetDependencies(
             dependencies,

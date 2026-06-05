@@ -882,6 +882,14 @@ func main(): int {
                     "CliCleanArtifactDirectoryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanArtifactDirectoryChecksumInto.");
+            var cliUpdateAllNuGetDependencyIndicesInto = programType.GetMethod(
+                    "CliUpdateAllNuGetDependencyIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateAllNuGetDependencyIndicesInto.");
+            var cliUpdateAllNuGetDependencyChecksumInto = programType.GetMethod(
+                    "CliUpdateAllNuGetDependencyChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliUpdateAllNuGetDependencyChecksumInto.");
             var cliUpdateTargetNuGetDependencyIndicesInto = programType.GetMethod(
                     "CliUpdateTargetNuGetDependencyIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1404,6 +1412,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertCliCleanArtifactDirectoryOrderingLikeProduction(
                 cliCleanArtifactDirectoryIndicesInto,
                 cliCleanArtifactDirectoryChecksumInto);
+            AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
+                cliUpdateAllNuGetDependencyIndicesInto,
+                cliUpdateAllNuGetDependencyChecksumInto);
             AssertCliUpdateTargetNuGetDependencyFilteringLikeProduction(
                 cliUpdateTargetNuGetDependencyIndicesInto,
                 cliUpdateTargetNuGetDependencyChecksumInto);
@@ -3582,6 +3593,50 @@ func main() {
             Assert.Equal(expectedChecksum, actualChecksum);
             Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
         }
+    }
+
+    private static void AssertCliUpdateAllNuGetDependencyFilteringLikeProduction(
+        MethodInfo cliUpdateAllNuGetDependencyIndicesInto,
+        MethodInfo cliUpdateAllNuGetDependencyChecksumInto)
+    {
+        var nugetFlags = new[]
+        {
+            1, 0, 1, 1, 0, 0, 1, 0
+        };
+        var expected = new[] { 0, 2, 3, 6 };
+
+        var resultIndices = new int[nugetFlags.Length];
+        var actualCount = (int)(cliUpdateAllNuGetDependencyIndicesInto.Invoke(
+            null,
+            new object[] { nugetFlags, resultIndices }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[nugetFlags.Length];
+        var actualChecksum = (int)(cliUpdateAllNuGetDependencyChecksumInto.Invoke(
+            null,
+            new object[] { nugetFlags, checksumResultIndices }) ?? -1);
+        var expectedChecksum = CliUpdateAllNuGetDependencyChecksum(expected, nugetFlags);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static int CliUpdateAllNuGetDependencyChecksum(
+        int[] orderedIndices,
+        int[] nugetFlags)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97
+                + (index + 1) * 31
+                + nugetFlags[index] * 17;
+        }
+
+        return checksum;
     }
 
     private static int CliUpdateTargetNuGetDependencyChecksum(

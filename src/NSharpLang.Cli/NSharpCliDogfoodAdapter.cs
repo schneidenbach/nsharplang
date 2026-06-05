@@ -504,6 +504,64 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryFilterUpdateNuGetDependencies(
+        IReadOnlyList<Reference> dependencies,
+        out List<Reference> filteredDependencies)
+    {
+        filteredDependencies = new List<Reference>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var dependencyCount = dependencies.Count;
+        if (dependencyCount == 0)
+            return true;
+
+        var scratch = t_updateDependencyFilterScratch ??= new UpdateDependencyFilterScratch();
+        scratch.EnsureCapacity(dependencyCount);
+
+        try
+        {
+            for (var i = 0; i < dependencyCount; i++)
+                scratch.NuGetFlags[i] = dependencies[i].Nuget == null ? 0 : 1;
+
+            var filteredCount = bindings.CliUpdateAllNuGetDependencyIndices(
+                scratch.NuGetFlags,
+                scratch.ResultIndices);
+
+            if (filteredCount < 0 || filteredCount > dependencyCount || filteredCount > scratch.ResultIndices.Length)
+                return false;
+
+            filteredDependencies = new List<Reference>(filteredCount);
+            for (var i = 0; i < filteredCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= dependencyCount)
+                {
+                    filteredDependencies = new List<Reference>();
+                    return false;
+                }
+
+                var dependency = dependencies[sourceIndex];
+                if (dependency.Nuget == null)
+                {
+                    filteredDependencies = new List<Reference>();
+                    return false;
+                }
+
+                filteredDependencies.Add(dependency);
+            }
+
+            return true;
+        }
+        catch
+        {
+            filteredDependencies = new List<Reference>();
+            return false;
+        }
+    }
+
     internal static bool TryFilterFixesBySafety(
         IReadOnlyList<CodeAction> fixes,
         bool includeReviewNeeded,
@@ -715,6 +773,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"),
                 CreateDelegate<CliFixSkippedIndicesInto>(programType, "CliFixSkippedIndicesInto"),
                 CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(programType, "CliCleanArtifactDirectoryIndicesInto"),
+                CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"));
         }
         catch
@@ -823,6 +882,10 @@ internal static class NSharpCliDogfoodAdapter
         int[] tempIndices,
         int[] resultIndices);
 
+    private delegate int CliUpdateAllNuGetDependencyIndicesInto(
+        int[] nugetFlags,
+        int[] resultIndices);
+
     private delegate int CliUpdateTargetNuGetDependencyIndicesInto(
         int[] nameRanks,
         int targetNameRank,
@@ -839,6 +902,7 @@ internal static class NSharpCliDogfoodAdapter
         CliFixSafetyFilterIndicesInto CliFixSafetyFilter,
         CliFixSkippedIndicesInto CliFixSkippedIndices,
         CliCleanArtifactDirectoryIndicesInto CliCleanArtifactDirectoryIndices,
+        CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
@@ -1176,14 +1240,18 @@ internal static class NSharpCliDogfoodAdapter
     {
         private readonly Dictionary<string, int> _nameRanks = new(StringComparer.OrdinalIgnoreCase);
 
+        public int[] NuGetFlags = Array.Empty<int>();
         public int[] NameRanks = Array.Empty<int>();
         public int[] ResultIndices = Array.Empty<int>();
         public int UniqueNameCount;
 
         public void EnsureCapacity(int dependencyCount)
         {
-            if (NameRanks.Length != dependencyCount)
+            if (NuGetFlags.Length != dependencyCount
+                || NameRanks.Length != dependencyCount
+                || ResultIndices.Length != dependencyCount)
             {
+                NuGetFlags = new int[dependencyCount];
                 NameRanks = new int[dependencyCount];
                 ResultIndices = new int[dependencyCount];
             }
