@@ -68,6 +68,51 @@ func CliRunFirstOperandIndex(args: string[]): int {
     return -1
 }
 
+func CliWatchForwardedArgIndicesInto(args: string[], resultIndices: int[]): int {
+    resultCount := 0
+    i := 1
+
+    while i < args.Length {
+        arg := args[i]
+        if CliWatchArgumentIsOptionWithValue(arg) {
+            i = i + 2
+            continue
+        }
+
+        if arg == "--help" || arg == "-h" {
+            i = i + 1
+            continue
+        }
+
+        if resultCount < resultIndices.Length {
+            resultIndices[resultCount] = i
+        }
+
+        resultCount = resultCount + 1
+        i = i + 1
+    }
+
+    return resultCount
+}
+
+func CliWatchForwardedArgChecksumInto(args: string[], resultIndices: int[]): int {
+    resultCount := CliWatchForwardedArgIndicesInto(args, resultIndices)
+    checksum := resultCount
+    i := 0
+
+    while i < resultCount && i < resultIndices.Length {
+        sourceIndex := resultIndices[i]
+        checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + args[sourceIndex].Length * 17
+        i = i + 1
+    }
+
+    return checksum
+}
+
+func CliWatchArgumentIsOptionWithValue(arg: string): bool {
+    return arg == "--project" || arg == "--debounce-ms" || arg == "--max-runs"
+}
+
 func CliPublishOptionsInto(args: string[], resultIndices: int[]): int {
     if resultIndices.Length < 8 {
         return -1

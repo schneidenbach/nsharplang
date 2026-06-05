@@ -1566,6 +1566,14 @@ class OtherZetaType {
                     "CliRunFirstOperandIndex",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliRunFirstOperandIndex.");
+            var cliWatchForwardedArgIndicesInto = programType.GetMethod(
+                    "CliWatchForwardedArgIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchForwardedArgIndicesInto.");
+            var cliWatchForwardedArgChecksumInto = programType.GetMethod(
+                    "CliWatchForwardedArgChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliWatchForwardedArgChecksumInto.");
             var cliPublishOptionsInto = programType.GetMethod(
                     "CliPublishOptionsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2241,6 +2249,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliExportCSharpFirstOperandIndexInto,
                 cliExportCSharpFirstOperandChecksumInto);
             AssertCliRunSourceOperandLikeProduction(cliRunFirstOperandIndex);
+            AssertCliWatchForwardedArgsLikeProduction(
+                cliWatchForwardedArgIndicesInto,
+                cliWatchForwardedArgChecksumInto);
             AssertCliPublishOptionsLikeProduction(cliPublishOptionsInto);
             AssertCliPositionalArgsLikeProduction(
                 cliPositionalArgIndicesInto,
@@ -4256,6 +4267,118 @@ func main() {
         }
 
         return -1;
+    }
+
+    private static void AssertCliWatchForwardedArgsLikeProduction(
+        MethodInfo cliWatchForwardedArgIndicesInto,
+        MethodInfo cliWatchForwardedArgChecksumInto)
+    {
+        var cases = new[]
+        {
+            new[]
+            {
+                "test",
+                "--project",
+                "samples/demo",
+                "--filter",
+                "AddPerson",
+                "--debounce-ms",
+                "50",
+                "--json",
+                "--max-runs",
+                "2",
+                "--coverage",
+                "--backend",
+                "il",
+                "--help",
+                "SpecificTest",
+                "-h",
+                "--",
+                "literal",
+                "--max-runs",
+                "--project",
+                "--filter",
+                "value-after-missing-project",
+                "--unknown",
+                "unknown-value"
+            },
+            new[] { "check" },
+            new[] { "lint", "--project" },
+            new[] { "format", "--max-runs", "--project", "--diff" },
+            Array.Empty<string>()
+        };
+
+        foreach (var args in cases)
+        {
+            var expected = CreateExpectedCliWatchForwardedArgIndices(args);
+
+            var resultIndices = new int[args.Length];
+            var actualCount = (int)(cliWatchForwardedArgIndicesInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -1);
+
+            Assert.Equal(expected.Length, actualCount);
+            Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+            Array.Clear(resultIndices);
+            var actualChecksum = (int)(cliWatchForwardedArgChecksumInto.Invoke(
+                null,
+                new object[] { args, resultIndices }) ?? -1);
+
+            Assert.Equal(CliWatchForwardedArgChecksum(expected, args, expected.Length), actualChecksum);
+            Assert.Equal(expected, resultIndices.Take(expected.Length).ToArray());
+
+            if (args.Length > 2)
+            {
+                var shortBuffer = new int[2];
+                var shortCount = (int)(cliWatchForwardedArgIndicesInto.Invoke(
+                    null,
+                    new object[] { args, shortBuffer }) ?? -1);
+
+                Assert.Equal(expected.Length, shortCount);
+                var writtenCount = Math.Min(expected.Length, shortBuffer.Length);
+                Assert.Equal(
+                    expected.Take(writtenCount).ToArray(),
+                    shortBuffer.Take(writtenCount).ToArray());
+            }
+        }
+    }
+
+    private static int[] CreateExpectedCliWatchForwardedArgIndices(string[] args)
+    {
+        var forwarded = new List<int>();
+
+        for (var i = 1; i < args.Length; i++)
+        {
+            if (args[i] is "--project" or "--debounce-ms" or "--max-runs")
+            {
+                i++;
+                continue;
+            }
+
+            if (args[i] is "--help" or "-h")
+                continue;
+
+            forwarded.Add(i);
+        }
+
+        return forwarded.ToArray();
+    }
+
+    private static int CliWatchForwardedArgChecksum(
+        int[] orderedIndices,
+        string[] args,
+        int resultBufferLength)
+    {
+        var checksum = orderedIndices.Length;
+        var count = Math.Min(orderedIndices.Length, resultBufferLength);
+        for (var i = 0; i < count; i++)
+        {
+            var sourceIndex = orderedIndices[i];
+            checksum += (i + 1) * 97 + (sourceIndex + 1) * 31 + args[sourceIndex].Length * 17;
+        }
+
+        return checksum;
     }
 
     private static void AssertCliPublishOptionsLikeProduction(MethodInfo cliPublishOptionsInto)
