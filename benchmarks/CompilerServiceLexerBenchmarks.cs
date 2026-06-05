@@ -712,6 +712,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.CliTreeDependencies.nl";
     private const string ErrorSuggestionsResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.ErrorSuggestions.nl";
+    private const string LinterImportsResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.LinterImports.nl";
     private const string AnalyzerExhaustivenessResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.AnalyzerExhaustiveness.nl";
     private const string AotRequirementsResourceName =
@@ -741,6 +743,7 @@ internal static class DogfoodCompilerSources
     public static string CodeIntelligenceDocQuery => ReadResource(DocQueryResourceName);
     public static string CliTreeDependencies => ReadResource(CliTreeDependenciesResourceName);
     public static string ErrorSuggestions => ReadResource(ErrorSuggestionsResourceName);
+    public static string LinterImports => ReadResource(LinterImportsResourceName);
     public static string AnalyzerExhaustiveness => ReadResource(AnalyzerExhaustivenessResourceName);
     public static string AotRequirements => ReadResource(AotRequirementsResourceName);
     public static string AnonymousUnionShims => ReadResource(AnonymousUnionShimsResourceName);

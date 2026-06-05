@@ -1883,6 +1883,9 @@ string-count summary kept as the fallback.
 `nlc test --filter` test-case selection remains on the current C# predicates: N# filter matching has
 parity and zero-allocation pressure evidence, but the best measured candidate only reached about
 1.3x-2.0x and therefore misses the 5x production route gate.
+NL010 namespace unused-import checking also remains on the current C# path: the dense N# ranked
+kernel has parity and strong large-batch pressure evidence, but the production-shaped route that must
+project linter identifiers/member names into namespace ranks does not clear the 5x gate.
 `nlc tidy` dependency usage classification now routes through the compiled N#
 `CliTidyDependencyStatusRanksInto` kernel for ASCII package and import names, preserving the current
 single-segment unknown rule, first-segment namespace match semantics, public status strings, and
@@ -2169,3 +2172,12 @@ produce a production-shaped win:
   Keep the compact semantic-scope kernels for batched/caller-owned routes, but do not route
   `SemanticModel.GetVisibleVariablesAtPosition`, `SemanticModel.LookupIdentifierAtPosition`, or
   completion's single-query calls through this adapter bridge.
+- NL010 namespace unused-import checking: the dense-rank N# kernel removes the repeated
+  known-type/member scans and allocations from the C# `Any(...Contains...)` loop, but it only clears
+  the gate when ranks are already available. The optimized dry probe measured ranked-core rows at
+  `69.833 us` N# vs `179.708 us` C# representative (about 2.6x) and `124.334 us` N# vs `3.102 ms` C#
+  large (about 25x). Once the production-shaped C# projection from collected identifiers/member names
+  into namespace ranks is included, the rows were `97.666 us` N# vs `179.708 us` C# representative
+  (about 1.8x) and `796.084 us` N# vs `3.102 ms` C# large (about 3.9x). Keep `CheckUnusedImports` on
+  the current C# route until the linter tracks compact namespace usage during AST visitation or a
+  broader linter rewrite moves import analysis into N#.
