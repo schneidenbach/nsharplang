@@ -161,8 +161,9 @@ Current source-text dogfood benchmarks:
 - `CompilerServiceSourceTextLineMapCachedQueryBenchmarks` separates the steady-state query path after
   a document line map has already been built. The validating N# query API keeps the external
   line/column checks; the trusted N# query API is a separate internal-batch contract for positions
-  already proven valid by the caller. Equal-length trusted offset and line/column batches use one
-  fused eight-wide N# hot loop over both query streams.
+  already proven valid by the caller. Equal-length validating offset and line/column batches use a
+  fused four-wide N# loop with a valid-batch fast path and scalar fallback for invalid batches.
+  Equal-length trusted batches use one fused eight-wide N# hot loop over both query streams.
 
 The dogfood project also includes `CompilerServices/SourceTextLines.nl`; `CompilerDogfoodProjectTests`
 compiles it through the SDK project and verifies both returned strings and range buffers against the
@@ -231,6 +232,16 @@ representative and 61.390 us large, so the same N# helper is about 2.7x faster o
 trusted inputs and about 10.8x faster on large trusted inputs. This is acceptance evidence for callers
 that can semantically prove valid query batches before entering the source-map hot path; it is not yet
 acceptance evidence for the full external validating query API.
+
+On 2026-06-05, the validating cached-query batch gained the same equal-length query-stream fusion and
+a four-wide valid-batch fast path: offset batches that are already within the source extent skip
+per-item clamping, and line/column batches that are already valid skip scalar fallback while retaining
+the external invalid-input behavior. The short BenchmarkDotNet cached-query run measured the
+validating N# path at 4.850 us vs 22.246 us on the representative corpus (about 4.6x) and 8.042 us vs
+207.191 us on the large mixed-newline corpus (about 25.8x), with no managed allocation reported. This
+is a strong large-corpus pass and a meaningful representative pressure reduction, but the external
+validating representative path still misses the 5x gate; callers that can prove valid query batches
+should continue to use the trusted internal contract.
 
 Current code-intelligence dogfood benchmarks:
 
