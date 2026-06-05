@@ -906,6 +906,14 @@ func main(): int {
                     "TypoSuggestionChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TypoSuggestionChecksumInto.");
+            var aotRequirementGroupsInto = programType.GetMethod(
+                    "AotRequirementGroupsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit AotRequirementGroupsInto.");
+            var aotRequirementGroupChecksumInto = programType.GetMethod(
+                    "AotRequirementGroupChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit AotRequirementGroupChecksumInto.");
             var cliBatchDuplicateIdRanksInto = programType.GetMethod(
                     "CliBatchDuplicateIdRanksInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1385,6 +1393,9 @@ func main(customer: Customer, résumé: Profile) {
             AssertTypoSuggestionsLikeProduction(
                 typoSuggestionIndicesInto,
                 typoSuggestionChecksumInto);
+            AssertAotRequirementGroupingLikeProduction(
+                aotRequirementGroupsInto,
+                aotRequirementGroupChecksumInto);
             AssertCliBatchDuplicateIdsLikeProduction(
                 cliBatchDuplicateIdRanksInto,
                 cliBatchDuplicateIdRankChecksumInto);
@@ -4040,6 +4051,138 @@ func main() {
             for (var j = 0; j < count; j++)
             {
                 checksum += indices[start + j] * 31 + (j + 1) * 17;
+            }
+        }
+
+        return checksum;
+    }
+
+    private static void AssertAotRequirementGroupingLikeProduction(
+        MethodInfo aotRequirementGroupsInto,
+        MethodInfo aotRequirementGroupChecksumInto)
+    {
+        var declarationRanks = new[] { 1, 1, 0, 2, 1, 3, 2, 3, 2, 1 };
+        var kindIds = new[] { 1, 2, 1, 3, 1, 2, 1, 0, 2, 3 };
+        var constructRanks = new[] { 4, 2, 0, 5, 1, 3, 2, 4, 1, 5 };
+        const int uniqueDeclarationCount = 3;
+        const int uniqueConstructCount = 5;
+
+        var expectedDeclarationRanks = new[] { 1, 2, 3 };
+        var expectedRequiresUnreferenced = new[] { 1, 1, 0 };
+        var expectedRequiresDynamic = new[] { 1, 1, 1 };
+        var expectedConstructStarts = new[] { 0, 3, 6 };
+        var expectedConstructCounts = new[] { 3, 3, 2 };
+        var expectedConstructRanks = new[] { 1, 2, 4, 1, 2, 5, 3, 4, 0 };
+
+        var declarationCounts = new int[uniqueDeclarationCount + 1];
+        var requiresUnreferencedByRank = new int[uniqueDeclarationCount + 1];
+        var requiresDynamicByRank = new int[uniqueDeclarationCount + 1];
+        var constructSeen = new int[(uniqueDeclarationCount + 1) * (uniqueConstructCount + 1)];
+        var resultDeclarationRanks = new int[uniqueDeclarationCount];
+        var resultRequiresUnreferenced = new int[uniqueDeclarationCount];
+        var resultRequiresDynamic = new int[uniqueDeclarationCount];
+        var resultConstructStarts = new int[uniqueDeclarationCount];
+        var resultConstructCounts = new int[uniqueDeclarationCount];
+        var resultConstructRanks = new int[uniqueDeclarationCount * 3];
+        var actualCount = (int)(aotRequirementGroupsInto.Invoke(
+            null,
+            new object[]
+            {
+                declarationRanks,
+                kindIds,
+                constructRanks,
+                uniqueDeclarationCount,
+                uniqueConstructCount,
+                declarationCounts,
+                requiresUnreferencedByRank,
+                requiresDynamicByRank,
+                constructSeen,
+                resultDeclarationRanks,
+                resultRequiresUnreferenced,
+                resultRequiresDynamic,
+                resultConstructStarts,
+                resultConstructCounts,
+                resultConstructRanks
+            }) ?? -1);
+
+        Assert.Equal(expectedDeclarationRanks.Length, actualCount);
+        Assert.Equal(expectedDeclarationRanks, resultDeclarationRanks);
+        Assert.Equal(expectedRequiresUnreferenced, resultRequiresUnreferenced);
+        Assert.Equal(expectedRequiresDynamic, resultRequiresDynamic);
+        Assert.Equal(expectedConstructStarts, resultConstructStarts);
+        Assert.Equal(expectedConstructCounts, resultConstructCounts);
+        Assert.Equal(expectedConstructRanks, resultConstructRanks);
+
+        Array.Clear(declarationCounts);
+        Array.Clear(requiresUnreferencedByRank);
+        Array.Clear(requiresDynamicByRank);
+        Array.Clear(constructSeen);
+        Array.Clear(resultDeclarationRanks);
+        Array.Clear(resultRequiresUnreferenced);
+        Array.Clear(resultRequiresDynamic);
+        Array.Clear(resultConstructStarts);
+        Array.Clear(resultConstructCounts);
+        Array.Clear(resultConstructRanks);
+        var actualChecksum = (int)(aotRequirementGroupChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                declarationRanks,
+                kindIds,
+                constructRanks,
+                uniqueDeclarationCount,
+                uniqueConstructCount,
+                declarationCounts,
+                requiresUnreferencedByRank,
+                requiresDynamicByRank,
+                constructSeen,
+                resultDeclarationRanks,
+                resultRequiresUnreferenced,
+                resultRequiresDynamic,
+                resultConstructStarts,
+                resultConstructCounts,
+                resultConstructRanks
+            }) ?? -1);
+
+        Assert.Equal(
+            AotRequirementGroupingChecksum(
+                expectedDeclarationRanks,
+                expectedRequiresUnreferenced,
+                expectedRequiresDynamic,
+                expectedConstructStarts,
+                expectedConstructCounts,
+                expectedConstructRanks),
+            actualChecksum);
+        Assert.Equal(expectedDeclarationRanks, resultDeclarationRanks);
+        Assert.Equal(expectedRequiresUnreferenced, resultRequiresUnreferenced);
+        Assert.Equal(expectedRequiresDynamic, resultRequiresDynamic);
+        Assert.Equal(expectedConstructStarts, resultConstructStarts);
+        Assert.Equal(expectedConstructCounts, resultConstructCounts);
+        Assert.Equal(expectedConstructRanks, resultConstructRanks);
+    }
+
+    private static int AotRequirementGroupingChecksum(
+        int[] declarationRanks,
+        int[] requiresUnreferenced,
+        int[] requiresDynamic,
+        int[] constructStarts,
+        int[] constructCounts,
+        int[] constructRanks)
+    {
+        var checksum = declarationRanks.Length;
+        for (var groupIndex = 0; groupIndex < declarationRanks.Length; groupIndex++)
+        {
+            var start = constructStarts[groupIndex];
+            var count = constructCounts[groupIndex];
+            checksum += (groupIndex + 1) * 97
+                + declarationRanks[groupIndex] * 31
+                + requiresUnreferenced[groupIndex] * 17
+                + requiresDynamic[groupIndex] * 13
+                + count * 7;
+
+            for (var offset = 0; offset < count; offset++)
+            {
+                checksum += constructRanks[start + offset] * (offset + 1) * 11;
             }
         }
 

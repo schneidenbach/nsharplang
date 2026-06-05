@@ -49,6 +49,7 @@ dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceLexer*'
 dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligence*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceSemanticScope*'
+dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequirementGrouping*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -475,13 +476,26 @@ Current code-intelligence dogfood benchmarks:
   lowercase string allocation. This benchmark is currently pressure evidence only because the N#
   dynamic-programming loop is slower than the C# baseline.
 
+Current compiler-performance dogfood benchmarks:
+
+- `CompilerServiceAotRequirementGroupingBenchmarks` targets AOT requirement construction before
+  public AOT/trimming compatibility attributes are emitted. The C# baseline mirrors
+  `AotRequirements.FromBlockers`: filter public blockers, group by enclosing declaration, combine
+  unreferenced-code and dynamic-code flags, distinct/order construct names, and build the annotation
+  inputs. The accepted N# candidate runs after the host has projected blockers to dense declaration
+  ranks, sorted construct ranks, and compact blocker-kind ids, then writes grouped declaration
+  ranks, flags, and the first three sorted construct ranks through `AotRequirementGroupsInto`.
+  Public annotation strings and dictionaries remain explicit C# host boundaries until the broader
+  AOT attribute-emission path is ported.
+
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
 `CompilerServices/DiagnosticDeduplication.nl`, `CompilerServices/BindingLookup.nl`,
 `CompilerServices/SemanticScopes.nl`, `CompilerServices/CliQueryParsing.nl`,
 `CompilerServices/CliArguments.nl`, `CompilerServices/CliDocOrdering.nl`,
 `CompilerServices/CompletionGrouping.nl`, `CompilerServices/PathMatching.nl`,
-`CompilerServices/TextEditOrdering.nl`, and `CompilerServices/ErrorSuggestions.nl`.
+`CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`, and
+`CompilerServices/ErrorSuggestions.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -826,6 +840,13 @@ acceptance evidence. The production compiler must keep the current C# `SmartSugg
 N# has faster bounds-check elimination, row-buffer access, or a better systems-memory primitive for
 small dynamic-programming tables.
 
+`AotRequirementGroupsInto` passed parity and reported zero managed allocation in the normal
+BenchmarkDotNet evidence tier for public AOT blocker requirement grouping. It ran about 16.2x faster
+on the representative blocker corpus (3.078 us vs 49.735 us, 0 B vs 154,824 B) and about 17.5x
+faster on the large generated blocker corpus (26.217 us vs 458.017 us, 0 B vs 1,237,176 B). This is
+acceptance-grade benchmark evidence for AOT requirement grouping after the host has assigned compact
+declaration ranks, construct ranks, and blocker-kind ids.
+
 Current CLI dogfood benchmarks:
 
 - `CliQueryPositionParsingBenchmarks` targets `nlc query --pos line:col` parsing and daemon query
@@ -1122,6 +1143,10 @@ as `nlc lint` and IDE open-buffer utilities that do not carry a `ProjectSnapshot
 `MultiFileCompiler` circular-import and AOT diagnostic snippets now route LF-only source texts
 through the same source-only cached raw-line adapter, with the previous CR/CRLF split fallback kept
 for files where the raw-line LF semantics would otherwise preserve carriage returns.
+Public AOT requirement construction now routes `AotRequirements.FromBlockers` through
+`NSharpPerformanceDogfoodAdapter.TryBuildAotRequirements` when the dogfood assembly is available,
+preserving the previous public-surface filter, per-declaration flag combination, sorted construct
+names, and annotation message text, with the previous C# LINQ grouping path kept as the fallback.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 Clustered diagnostic output also routes group root/count/order selection through the compiled N#
@@ -1230,7 +1255,7 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, inspect-summary reference-file summaries, and the pressure-only
+text-edit ordering, AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
@@ -1238,6 +1263,9 @@ selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route;
 `CodeFixTests` verifies the production fix-applicator ordering route.
+`AotBlockerAnalyzerTests` verifies the production AOT requirement route combines public blockers,
+ignores private/internal blockers, preserves both requirement flags, and emits sorted construct
+names in the public annotation message.
 `QueryIntegrationTests` exercises the public query surface with the adapter-enabled output,
 including trimmed reference contexts and hover documentation. This is swap evidence for the
 identifier-span, member-receiver, reference source-context, diagnostic/lint raw source-line,
@@ -1267,8 +1295,9 @@ Path matching and all-positionals CLI argument filtering have parity and benchma
 not routed through production code-intelligence, query, batch, or daemon paths because they
 currently miss the 5x speed gate.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
-table construction, remaining semantic-scope name/symbol table materialization, and CLI command logic still
-contain C# implementation code and remain in scope for the dogfood rewrite.
+table construction, remaining semantic-scope name/symbol table materialization, AOT public
+annotation materialization, and CLI command logic still contain C# implementation code and remain in
+scope for the dogfood rewrite.
 
 ## Rewrite Order
 

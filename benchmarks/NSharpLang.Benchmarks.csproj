@@ -83,6 +83,9 @@
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ErrorSuggestions.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ErrorSuggestions.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/AotRequirements.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.AotRequirements.nl" />
   </ItemGroup>
 
 </Project>
