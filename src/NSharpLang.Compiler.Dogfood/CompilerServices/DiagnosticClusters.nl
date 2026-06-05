@@ -273,6 +273,78 @@ func DiagnosticSeverityFilterChecksumInto(
     return checksum + matchCount
 }
 
+func DiagnosticShadowSuppressionIndicesInto(
+    codeIds: int[],
+    fileRanks: int[],
+    targetCodeId: int,
+    shadowFileFlags: int[],
+    resultIndices: int[]): int {
+    count := MinInt(codeIds.Length, fileRanks.Length)
+    if count == 0 {
+        return 0
+    }
+
+    keptCount := 0
+    i := 0
+    while i < count {
+        fileRank := fileRanks[i]
+        suppress := targetCodeId > 0 &&
+            codeIds[i] == targetCodeId &&
+            fileRank > 0 &&
+            fileRank < shadowFileFlags.Length &&
+            shadowFileFlags[fileRank] != 0
+
+        if !suppress {
+            if keptCount < resultIndices.Length {
+                resultIndices[keptCount] = i
+            }
+
+            keptCount = keptCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return keptCount
+}
+
+func DiagnosticShadowSuppressionChecksumInto(
+    codeIds: int[],
+    fileRanks: int[],
+    targetCodeId: int,
+    shadowFileFlags: int[],
+    resultIndices: int[]): int {
+    count := MinInt(codeIds.Length, fileRanks.Length)
+    if count == 0 {
+        return 0
+    }
+
+    keptCount := 0
+    checksum := 0
+    i := 0
+    while i < count {
+        fileRank := fileRanks[i]
+        suppress := targetCodeId > 0 &&
+            codeIds[i] == targetCodeId &&
+            fileRank > 0 &&
+            fileRank < shadowFileFlags.Length &&
+            shadowFileFlags[fileRank] != 0
+
+        if !suppress {
+            if keptCount < resultIndices.Length {
+                resultIndices[keptCount] = i
+            }
+
+            checksum = checksum + (keptCount + 1) * 97 + (i + 1) * 31 + codeIds[i] * 17 + fileRank * 13
+            keptCount = keptCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return checksum + keptCount
+}
+
 func DiagnosticClusterTraitsInto(
     codes: string[],
     messages: string[],

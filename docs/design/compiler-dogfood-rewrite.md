@@ -426,6 +426,12 @@ Current code-intelligence dogfood benchmarks:
   C# baseline models the formatter's previous shape: three LINQ count passes over diagnostic
   severities. The N# candidate counts error/warning/info severities in one compiled loop and writes
   the stable summary counts into caller-owned storage.
+- `CompilerServiceDiagnosticShadowSuppressionBenchmarks` targets the `GetDiagnostics` suppression of
+  linter `NL020` shadowing diagnostics for files that already have compiler shadowing errors. The C#
+  baseline mirrors the previous service shape: a case-insensitive shadowed-file set and LINQ list
+  materialization. The N# candidate runs after the host has assigned compact ordinal code ids,
+  case-insensitive file ranks, and shadowed-file flags, then writes kept diagnostic indices through
+  caller-owned storage while preserving source order.
 - `CompilerServiceDiagnosticClusterFileListBenchmarks` targets the distinct ordered file list inside
   each clustered diagnostic payload. The C# baseline mirrors `CreateDiagnosticCluster`: select
   diagnostic files, apply case-insensitive `Distinct`, case-insensitive `OrderBy`, and materialize
@@ -779,6 +785,14 @@ BenchmarkDotNet evidence tier for diagnostic summary counting. It ran about 5.64
 representative diagnostic corpus (783.4 ns vs 4.420 us) and about 5.46x faster on the large
 generated diagnostic corpus (6.222 us vs 33.998 us). This is acceptance-grade benchmark evidence for
 the diagnostic/check/lint severity-summary pass.
+
+`DiagnosticShadowSuppressionIndicesInto` passed parity and reported zero managed allocation in the
+short BenchmarkDotNet evidence tier for `GetDiagnostics` lint-shadowing suppression. The accepted N#
+path uses compact ordinal diagnostic-code ids, case-insensitive file ranks, and a caller-owned
+shadowed-file flag table. It ran about 5.75x faster on the representative diagnostic corpus
+(1.335 us vs 7.673 us, 0 B vs 7,368 B) and about 6.97x faster on the large generated diagnostic
+corpus (10.696 us vs 74.597 us, 0 B vs 57,736 B). This is acceptance-grade benchmark evidence for
+the source-order-preserving `NL020` suppression pass before combined diagnostic deduplication.
 
 `ReferenceFileSummaryRanksInto` also passed parity for clustered diagnostic file-list materialization
 after the host has assigned compact case-insensitive file ranks. In the normal BenchmarkDotNet
@@ -1350,6 +1364,10 @@ with the previous LINQ `Distinct`/`OrderBy` path kept as the fallback.
 Diagnostic, clustered diagnostic, check, and lint JSON envelopes, Elm-style diagnostic text
 summaries, and CLI diagnostic exit decisions now use the compiled N# severity summary pass when the
 dogfood assembly is available, with the previous C# LINQ counts kept as the fallback.
+`CodeIntelligenceService.GetDiagnostics` now routes lint `NL020` shadowing suppression for files
+that already have compiler shadowing errors through the compiled N# compact code/file-rank filter
+when the dogfood assembly is available, with the previous C# case-insensitive `HashSet`/LINQ filter
+kept as the fallback.
 `nlc query diagnostics`, batch diagnostics, and daemon diagnostics now route `--severity` filtering
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
 severity filter when the dogfood assembly is available, with the previous C# LINQ
@@ -1472,7 +1490,7 @@ completion-prefix, completion receiver-context, completion item grouping, reflec
 grouping, doc-comment, strict editor identifier, declaration-name match, scoped visible-variable,
 scoped identifier-lookup, and variable-declaration-name queries, plus diagnostic cluster trait
 classifications and diagnostic severity summaries, compact diagnostic cluster grouping, diagnostic
-cluster file-list ordering, diagnostic deduplication, reference result deduplication, stable
+cluster file-list ordering, diagnostic shadow suppression, diagnostic deduplication, reference result deduplication, stable
 diagnostic deduplication, binding
 candidate-column ordering, strict binding lookup, nearest declaration index construction, nearest declaration lookup,
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
@@ -1504,7 +1522,7 @@ completion-prefix, completion receiver-context, completion item grouping, reflec
 grouping, hover doc-comment, strict reference/rename
 declaration-name guard, analyzer declaration-name column lookup, variable declaration name extraction, diagnostic severity summary across
 JSON/text/CLI exit surfaces, diagnostic cluster grouping, check/build diagnostic deduplication, and
-clustered diagnostic file-list ordering, `GetDiagnostics` stable diagnostic deduplication, and
+clustered diagnostic file-list ordering, `GetDiagnostics` lint shadow suppression, `GetDiagnostics` stable diagnostic deduplication, and
 semantic reference result deduplication/order slices, plus strict binding candidate-column ordering,
 strict semantic binding lookup, and LSP
 editor word/span lookup for hover, definition, references, and rename entry points, nearest
@@ -1627,7 +1645,7 @@ lookup, and completion item construction remain in C#. Strict editor
 identifier lookup uses a separate N# helper because editor hover/rename semantics must not inherit
 the query engine's snap-to-nearby-identifier behavior. Broader hover/diagnostic/completion output
 shaping still needs N# implementations. Diagnostic cluster trait classification, diagnostic
-severity summary counting and filtering, compact diagnostic cluster grouping, strict semantic binding lookup, and
+severity summary counting and filtering, compact diagnostic cluster grouping, lint shadow suppression, strict semantic binding lookup, and
 nearest same-file declaration index construction and lookup, semantic scope index construction, scoped visible-variable
 selection, and reference result deduplication/order are now dogfooded.
 Message-pattern materialization, cluster id materialization, and next-command materialization remain

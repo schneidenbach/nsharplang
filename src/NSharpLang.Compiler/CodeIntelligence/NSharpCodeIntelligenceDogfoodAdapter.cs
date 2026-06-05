@@ -29,6 +29,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static DiagnosticSeverityFilterScratch? t_diagnosticSeverityFilterScratch;
     [ThreadStatic]
+    private static DiagnosticShadowSuppressionScratch? t_diagnosticShadowSuppressionScratch;
+    [ThreadStatic]
     private static DiagnosticClusterGroupingScratch? t_diagnosticClusterGroupingScratch;
     [ThreadStatic]
     private static ReferenceFileSummaryScratch? t_diagnosticClusterFileSummaryScratch;
@@ -615,6 +617,89 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         }
         finally
         {
+            scratch.Reset();
+        }
+    }
+
+    internal static bool TrySuppressLintShadowingDiagnostics(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        IReadOnlyList<string> shadowedFiles,
+        out int[] resultIndices,
+        out int count)
+    {
+        resultIndices = Array.Empty<int>();
+        count = 0;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var diagnosticCount = diagnostics.Count;
+        if (diagnosticCount == 0)
+            return true;
+
+        var scratch = t_diagnosticShadowSuppressionScratch ??= new DiagnosticShadowSuppressionScratch();
+        scratch.EnsureCapacity(diagnosticCount, shadowedFiles.Count);
+
+        try
+        {
+            scratch.Reset();
+            var targetCodeId = scratch.GetCodeId("NL020");
+            for (var i = 0; i < diagnosticCount; i++)
+            {
+                var diagnostic = diagnostics[i];
+                var file = diagnostic.File ?? string.Empty;
+                scratch.CodeIds[i] = scratch.GetCodeId(diagnostic.Code ?? string.Empty);
+                scratch.Files[i] = file;
+                scratch.AddFile(file);
+            }
+
+            for (var i = 0; i < shadowedFiles.Count; i++)
+            {
+                scratch.AddFile(shadowedFiles[i] ?? string.Empty);
+            }
+
+            scratch.BuildFileRanks();
+            for (var i = 0; i < diagnosticCount; i++)
+            {
+                scratch.FileRanks[i] = scratch.GetFileRank(scratch.Files[i]);
+            }
+
+            scratch.ClearShadowFileFlags();
+            for (var i = 0; i < shadowedFiles.Count; i++)
+            {
+                var rank = scratch.GetFileRank(shadowedFiles[i] ?? string.Empty);
+                if (rank >= 0 && rank < scratch.ShadowFileFlags.Length)
+                {
+                    scratch.ShadowFileFlags[rank] = 1;
+                }
+            }
+
+            count = bindings.DiagnosticShadowSuppression(
+                scratch.CodeIds,
+                scratch.FileRanks,
+                targetCodeId,
+                scratch.ShadowFileFlags,
+                scratch.ResultIndices);
+
+            if (count < 0 || count > diagnosticCount)
+            {
+                count = 0;
+                return false;
+            }
+
+            resultIndices = scratch.ResultIndices;
+            return true;
+        }
+        catch
+        {
+            resultIndices = Array.Empty<int>();
+            count = 0;
+            return false;
+        }
+        finally
+        {
+            scratch.ClearFiles(diagnosticCount);
             scratch.Reset();
         }
     }
@@ -1800,6 +1885,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
                 CreateDelegate<CompletionMethodOverloadGroupsInto>(programType, "CompletionMethodOverloadGroupsInto"),
                 CreateDelegate<DiagnosticSeveritySummaryInto>(programType, "DiagnosticSeveritySummaryInto"),
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
+                CreateDelegate<DiagnosticShadowSuppressionIndicesInto>(programType, "DiagnosticShadowSuppressionIndicesInto"),
                 CreateDelegate<SymbolKindFilterIndicesInto>(programType, "SymbolKindFilterIndicesInto"),
                 CreateDelegate<CliStableDistinctRankIndicesInto>(programType, "CliStableDistinctRankIndicesInto"),
                 CreateDelegate<DocQueryBestTypeIndexInto>(programType, "DocQueryBestTypeIndex"),
@@ -2006,6 +2092,13 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private delegate int DiagnosticSeverityFilterIndicesInto(
         int[] severityRanks,
         int targetRank,
+        int[] resultIndices);
+
+    private delegate int DiagnosticShadowSuppressionIndicesInto(
+        int[] codeIds,
+        int[] fileRanks,
+        int targetCodeId,
+        int[] shadowFileFlags,
         int[] resultIndices);
 
     private delegate int SymbolKindFilterIndicesInto(
@@ -2234,6 +2327,7 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         CompletionMethodOverloadGroupsInto CompletionMethodOverloadGroups,
         DiagnosticSeveritySummaryInto DiagnosticSeveritySummary,
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
+        DiagnosticShadowSuppressionIndicesInto DiagnosticShadowSuppression,
         SymbolKindFilterIndicesInto SymbolKindFilter,
         CliStableDistinctRankIndicesInto CliStableDistinctRankIndices,
         DocQueryBestTypeIndexInto DocQueryBestTypeIndex,
@@ -2586,6 +2680,101 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
             rank = _severityRanks.Count + 1;
             _severityRanks.Add(severity, rank);
             return rank;
+        }
+    }
+
+    private sealed class DiagnosticShadowSuppressionScratch
+    {
+        private readonly Dictionary<string, int> _codeIds = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _fileRanks = new(StringComparer.OrdinalIgnoreCase);
+
+        public int[] CodeIds = Array.Empty<int>();
+        public int[] FileRanks = Array.Empty<int>();
+        public string[] Files = Array.Empty<string>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] ShadowFileFlags = Array.Empty<int>();
+        public string[] UniqueFiles = Array.Empty<string>();
+        public int UniqueFileCount;
+
+        public void EnsureCapacity(int diagnosticCount, int shadowedFileCount)
+        {
+            if (CodeIds.Length != diagnosticCount)
+            {
+                CodeIds = new int[diagnosticCount];
+                FileRanks = new int[diagnosticCount];
+                Files = new string[diagnosticCount];
+                ResultIndices = new int[diagnosticCount];
+            }
+
+            var uniqueFileCapacity = diagnosticCount + shadowedFileCount;
+            if (UniqueFiles.Length < uniqueFileCapacity)
+            {
+                UniqueFiles = new string[uniqueFileCapacity];
+            }
+
+            var shadowFlagCapacity = uniqueFileCapacity + 1;
+            if (ShadowFileFlags.Length < shadowFlagCapacity)
+            {
+                ShadowFileFlags = new int[shadowFlagCapacity];
+            }
+        }
+
+        public int GetCodeId(string text)
+        {
+            if (_codeIds.TryGetValue(text, out var id))
+                return id;
+
+            id = _codeIds.Count + 1;
+            _codeIds.Add(text, id);
+            return id;
+        }
+
+        public void AddFile(string text)
+        {
+            if (_fileRanks.ContainsKey(text))
+                return;
+
+            _fileRanks.Add(text, 0);
+            UniqueFiles[UniqueFileCount] = text;
+            UniqueFileCount++;
+        }
+
+        public void BuildFileRanks()
+        {
+            Array.Sort(UniqueFiles, 0, UniqueFileCount, StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < UniqueFileCount; i++)
+            {
+                _fileRanks[UniqueFiles[i]] = i + 1;
+            }
+        }
+
+        public int GetFileRank(string text) => _fileRanks.TryGetValue(text, out var rank) ? rank : -1;
+
+        public void ClearFiles(int count)
+        {
+            if (count > 0)
+            {
+                Array.Clear(Files, 0, count);
+            }
+        }
+
+        public void ClearShadowFileFlags()
+        {
+            if (ShadowFileFlags.Length > 0)
+            {
+                Array.Clear(ShadowFileFlags);
+            }
+        }
+
+        public void Reset()
+        {
+            _codeIds.Clear();
+            _fileRanks.Clear();
+            if (UniqueFileCount > 0)
+            {
+                Array.Clear(UniqueFiles, 0, UniqueFileCount);
+                UniqueFileCount = 0;
+            }
         }
     }
 

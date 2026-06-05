@@ -565,6 +565,19 @@ func documented(): int {
         Assert.Equal(1, summary.Warnings);
         Assert.Equal(2, summary.Info);
 
+        var trySuppressLintShadowingDiagnostics = adapterType.GetMethod(
+                "TrySuppressLintShadowingDiagnostics",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySuppressLintShadowingDiagnostics.");
+        var shadowDiagnostics = BuildDiagnosticShadowSuppressionDiagnostics();
+        var shadowedFiles = new[] { "SRC/a.nl", "src/c.nl", "src/c.nl" };
+        var shadowArgs = new object?[] { shadowDiagnostics, shadowedFiles, null, 0 };
+        Assert.True((bool)(trySuppressLintShadowingDiagnostics.Invoke(null, shadowArgs) ?? false));
+        var shadowIndices = Assert.IsType<int[]>(shadowArgs[2]);
+        var shadowCount = Assert.IsType<int>(shadowArgs[3]);
+        var expectedShadowIndices = ExpectedDiagnosticShadowSuppressionIndices(shadowDiagnostics, shadowedFiles);
+        Assert.Equal(expectedShadowIndices, shadowIndices.Take(shadowCount).ToArray());
+
         var tryFilterSymbolsByKind = adapterType.GetMethod(
                 "TryFilterSymbolsByKind",
                 BindingFlags.Static | BindingFlags.NonPublic)
@@ -1474,6 +1487,14 @@ class OtherZetaType {
                     "DiagnosticSeverityFilterChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticSeverityFilterChecksumInto.");
+            var diagnosticShadowSuppressionIndicesInto = programType.GetMethod(
+                    "DiagnosticShadowSuppressionIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticShadowSuppressionIndicesInto.");
+            var diagnosticShadowSuppressionChecksumInto = programType.GetMethod(
+                    "DiagnosticShadowSuppressionChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DiagnosticShadowSuppressionChecksumInto.");
             var diagnosticClusterTraitsInto = programType.GetMethod(
                     "DiagnosticClusterTraitsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2029,6 +2050,9 @@ func main() {
             AssertDiagnosticSeverityFilteringLikeProduction(
                 diagnosticSeverityFilterIndicesInto,
                 diagnosticSeverityFilterChecksumInto);
+            AssertDiagnosticShadowSuppressionLikeProduction(
+                diagnosticShadowSuppressionIndicesInto,
+                diagnosticShadowSuppressionChecksumInto);
         }
         finally
         {
@@ -5380,6 +5404,140 @@ func main() {
         {
             var index = orderedIndices[i];
             checksum += (i + 1) * 97 + (index + 1) * 31 + severityRanks[index] * 17;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertDiagnosticShadowSuppressionLikeProduction(
+        MethodInfo diagnosticShadowSuppressionIndicesInto,
+        MethodInfo diagnosticShadowSuppressionChecksumInto)
+    {
+        var diagnostics = BuildDiagnosticShadowSuppressionDiagnostics();
+        var shadowedFiles = new[] { "SRC/a.nl", "src/c.nl", "src/c.nl" };
+        var expectedIndices = ExpectedDiagnosticShadowSuppressionIndices(diagnostics, shadowedFiles);
+        var (codeIds, fileRanks, targetCodeId, shadowFileFlags) =
+            BuildDiagnosticShadowSuppressionRanks(diagnostics, shadowedFiles);
+
+        var actualIndices = new int[diagnostics.Count];
+        var actualCount = (int)(diagnosticShadowSuppressionIndicesInto.Invoke(
+            null,
+            new object[] { codeIds, fileRanks, targetCodeId, shadowFileFlags, actualIndices }) ?? -1);
+
+        Assert.Equal(expectedIndices.Length, actualCount);
+        Assert.Equal(expectedIndices, actualIndices.Take(actualCount).ToArray());
+
+        var checksumIndices = new int[diagnostics.Count];
+        var actualChecksum = (int)(diagnosticShadowSuppressionChecksumInto.Invoke(
+            null,
+            new object[] { codeIds, fileRanks, targetCodeId, shadowFileFlags, checksumIndices }) ?? -1);
+        var expectedChecksum = DiagnosticShadowSuppressionChecksum(expectedIndices, codeIds, fileRanks);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedIndices, checksumIndices.Take(expectedIndices.Length).ToArray());
+
+        var missingTargetIndices = new int[diagnostics.Count];
+        var missingTargetCount = (int)(diagnosticShadowSuppressionIndicesInto.Invoke(
+            null,
+            new object[] { codeIds, fileRanks, 0, shadowFileFlags, missingTargetIndices }) ?? -1);
+
+        Assert.Equal(diagnostics.Count, missingTargetCount);
+        Assert.Equal(Enumerable.Range(0, diagnostics.Count), missingTargetIndices.Take(missingTargetCount));
+    }
+
+    private static List<DiagnosticResult> BuildDiagnosticShadowSuppressionDiagnostics()
+    {
+        return new List<DiagnosticResult>
+        {
+            BuildDiagnosticWithSeverity("warning", 1) with { Code = "NL020", File = "src/A.nl" },
+            BuildDiagnosticWithSeverity("warning", 2) with { Code = "NL020", File = "src/B.nl" },
+            BuildDiagnosticWithSeverity("warning", 3) with { Code = "NL021", File = "src/A.nl" },
+            BuildDiagnosticWithSeverity("warning", 4) with { Code = "NL020", File = "src/c.nl" },
+            BuildDiagnosticWithSeverity("warning", 5) with { Code = "NL0200", File = "src/c.nl" },
+            BuildDiagnosticWithSeverity("warning", 6) with { Code = "NL020", File = "src/D.nl" },
+            BuildDiagnosticWithSeverity("warning", 7) with { Code = "NL020", File = "SRC/A.NL" }
+        };
+    }
+
+    private static int[] ExpectedDiagnosticShadowSuppressionIndices(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        IReadOnlyList<string> shadowedFiles)
+    {
+        var shadowedFileSet = shadowedFiles.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return diagnostics
+            .Select((diagnostic, index) => (diagnostic, index))
+            .Where(item => item.diagnostic.Code != "NL020" || !shadowedFileSet.Contains(item.diagnostic.File))
+            .Select(item => item.index)
+            .ToArray();
+    }
+
+    private static (int[] CodeIds, int[] FileRanks, int TargetCodeId, int[] ShadowFileFlags)
+        BuildDiagnosticShadowSuppressionRanks(
+            IReadOnlyList<DiagnosticResult> diagnostics,
+            IReadOnlyList<string> shadowedFiles)
+    {
+        var codeRanks = new Dictionary<string, int>(StringComparer.Ordinal);
+        var fileRanks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var uniqueFiles = new List<string>();
+
+        int GetCodeId(string code)
+        {
+            if (codeRanks.TryGetValue(code, out var id))
+                return id;
+
+            id = codeRanks.Count + 1;
+            codeRanks.Add(code, id);
+            return id;
+        }
+
+        void AddFile(string file)
+        {
+            if (fileRanks.ContainsKey(file))
+                return;
+
+            fileRanks.Add(file, 0);
+            uniqueFiles.Add(file);
+        }
+
+        var targetCodeId = GetCodeId("NL020");
+        foreach (var diagnostic in diagnostics)
+        {
+            GetCodeId(diagnostic.Code);
+            AddFile(diagnostic.File);
+        }
+
+        foreach (var shadowedFile in shadowedFiles)
+        {
+            AddFile(shadowedFile);
+        }
+
+        uniqueFiles.Sort(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < uniqueFiles.Count; i++)
+        {
+            fileRanks[uniqueFiles[i]] = i + 1;
+        }
+
+        var codeIds = diagnostics.Select(diagnostic => codeRanks[diagnostic.Code]).ToArray();
+        var diagnosticFileRanks = diagnostics.Select(diagnostic => fileRanks[diagnostic.File]).ToArray();
+        var shadowFileFlags = new int[uniqueFiles.Count + 1];
+        foreach (var shadowedFile in shadowedFiles)
+        {
+            shadowFileFlags[fileRanks[shadowedFile]] = 1;
+        }
+
+        return (codeIds, diagnosticFileRanks, targetCodeId, shadowFileFlags);
+    }
+
+    private static int DiagnosticShadowSuppressionChecksum(
+        int[] orderedIndices,
+        int[] codeIds,
+        int[] fileRanks)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97 + (index + 1) * 31 + codeIds[index] * 17 + fileRanks[index] * 13;
         }
 
         return checksum;

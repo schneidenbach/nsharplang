@@ -194,10 +194,7 @@ public class CodeIntelligenceService
         var sourceTexts = snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
 
         var results = new List<DiagnosticResult>();
-        var filesWithCompilerShadowingErrors = snapshot.AllErrors
-            .Where(error => error.Code == ErrorCode.ShadowedDeclaration && !string.IsNullOrWhiteSpace(error.FileName))
-            .Select(error => GetRelativePath(snapshot.ProjectRoot, error.FileName!))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var filesWithCompilerShadowingErrors = GetCompilerShadowingErrorFiles(snapshot);
 
         foreach (var error in snapshot.AllErrors)
         {
@@ -240,9 +237,7 @@ public class CodeIntelligenceService
         var lintDiagnostics = GetLintDiagnostics(snapshot.ProjectRoot, snapshot.SourceFiles, snapshot.CompilationUnits, sourceTexts, file);
         if (filesWithCompilerShadowingErrors.Count > 0)
         {
-            lintDiagnostics = lintDiagnostics
-                .Where(diagnostic => diagnostic.Code != "NL020" || !filesWithCompilerShadowingErrors.Contains(diagnostic.File))
-                .ToList();
+            lintDiagnostics = SuppressLintShadowingDiagnostics(lintDiagnostics, filesWithCompilerShadowingErrors);
         }
 
         results.AddRange(lintDiagnostics);
@@ -291,6 +286,56 @@ public class CodeIntelligenceService
         }
 
         return GetLintDiagnostics(projectRoot, sourceFiles, compilationUnits, sourceTexts, file);
+    }
+
+    private static List<string> GetCompilerShadowingErrorFiles(ProjectSnapshot snapshot)
+    {
+        var files = new List<string>();
+        foreach (var error in snapshot.AllErrors)
+        {
+            if (error.Code == ErrorCode.ShadowedDeclaration && !string.IsNullOrWhiteSpace(error.FileName))
+            {
+                files.Add(GetRelativePath(snapshot.ProjectRoot, error.FileName!));
+            }
+        }
+
+        return files;
+    }
+
+    private static List<DiagnosticResult> SuppressLintShadowingDiagnostics(
+        List<DiagnosticResult> lintDiagnostics,
+        IReadOnlyList<string> filesWithCompilerShadowingErrors)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySuppressLintShadowingDiagnostics(
+                lintDiagnostics,
+                filesWithCompilerShadowingErrors,
+                out var resultIndices,
+                out var resultCount))
+        {
+            var filtered = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= lintDiagnostics.Count)
+                    return SuppressLintShadowingDiagnosticsWithLinq(lintDiagnostics, filesWithCompilerShadowingErrors);
+
+                filtered.Add(lintDiagnostics[diagnosticIndex]);
+            }
+
+            return filtered;
+        }
+
+        return SuppressLintShadowingDiagnosticsWithLinq(lintDiagnostics, filesWithCompilerShadowingErrors);
+    }
+
+    private static List<DiagnosticResult> SuppressLintShadowingDiagnosticsWithLinq(
+        List<DiagnosticResult> lintDiagnostics,
+        IReadOnlyList<string> filesWithCompilerShadowingErrors)
+    {
+        var shadowedFiles = filesWithCompilerShadowingErrors.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return lintDiagnostics
+            .Where(diagnostic => diagnostic.Code != "NL020" || !shadowedFiles.Contains(diagnostic.File))
+            .ToList();
     }
 
     public static DiagnosticResult ToDiagnosticResult(
