@@ -692,6 +692,43 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_DistinctOrdersStringsOrdinal()
+    {
+        var names = new[]
+        {
+            "Zeta",
+            "Alpha",
+            "Zeta",
+            "Beta",
+            "alpha"
+        };
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryDistinctOrderStringsOrdinal = adapterType.GetMethod(
+                "TryDistinctOrderStringsOrdinal",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDistinctOrderStringsOrdinal.");
+        var args = new object?[] { names, null };
+        Assert.True((bool)(tryDistinctOrderStringsOrdinal.Invoke(null, args) ?? false));
+        var orderedNames = Assert.IsType<string[]>(args[1]);
+
+        Assert.Equal(new[]
+        {
+            "Alpha",
+            "Beta",
+            "Zeta",
+            "alpha"
+        }, orderedNames);
+    }
+
+    [Fact]
     public void MultiFileCompiler_DeduplicatesSourceFilesOrdinalIgnoreCase()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-dogfood-source-dedup-{Guid.NewGuid():N}");
@@ -734,6 +771,51 @@ func helper(): int {
                 new[] { sourceFile, sourceFile });
 
             Assert.Equal(1, CountOccurrences(stub, "internal static int helper("));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompilationStubEmitter_UsesDogfoodNamespaceImportOrdering()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-dogfood-stub-namespace-order-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var zetaFile = Path.Combine(tempDir, "Zeta.nl");
+            File.WriteAllText(zetaFile, """
+namespace Zeta
+
+class ZetaType {
+}
+""");
+            var alphaFile = Path.Combine(tempDir, "Alpha.nl");
+            File.WriteAllText(alphaFile, """
+namespace Alpha
+
+class AlphaType {
+}
+""");
+            var duplicateZetaFile = Path.Combine(tempDir, "DuplicateZeta.nl");
+            File.WriteAllText(duplicateZetaFile, """
+namespace Zeta
+
+class OtherZetaType {
+}
+""");
+
+            var stub = CompilationStubEmitter.Generate(
+                ProjectFileParser.CreateDefault(),
+                new[] { zetaFile, alphaFile, duplicateZetaFile });
+
+            Assert.Equal(1, CountOccurrences(stub, "using Alpha;"));
+            Assert.Equal(1, CountOccurrences(stub, "using Zeta;"));
+            Assert.True(
+                stub.IndexOf("using Alpha;", StringComparison.Ordinal)
+                    < stub.IndexOf("using Zeta;", StringComparison.Ordinal));
         }
         finally
         {

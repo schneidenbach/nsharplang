@@ -17,6 +17,8 @@ internal static class NSharpCompilerDogfoodAdapter
     [ThreadStatic]
     private static FirstDistinctStringScratch? t_firstDistinctStringScratch;
     [ThreadStatic]
+    private static DistinctOrderedStringScratch? t_distinctOrderedStringScratch;
+    [ThreadStatic]
     private static DeclaredTypeSuffixLookupScratch? t_declaredTypeSuffixLookupScratch;
     [ThreadStatic]
     private static DeclaredTypeNameCandidateScratch? t_declaredTypeNameCandidateScratch;
@@ -216,6 +218,85 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    internal static bool TryDistinctOrderStringsOrdinal(
+        IReadOnlyList<string> values,
+        out string[] orderedValues)
+    {
+        orderedValues = Array.Empty<string>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var valueCount = values.Count;
+        if (valueCount == 0)
+            return true;
+
+        var scratch = t_distinctOrderedStringScratch ??= new DistinctOrderedStringScratch();
+        scratch.EnsureCapacity(valueCount);
+
+        try
+        {
+            scratch.ResetValues();
+            for (var i = 0; i < valueCount; i++)
+            {
+                var value = values[i];
+                if (value == null)
+                {
+                    orderedValues = Array.Empty<string>();
+                    return false;
+                }
+
+                scratch.Values[i] = value;
+                scratch.AddValue(value);
+            }
+
+            scratch.BuildRanks();
+            for (var i = 0; i < valueCount; i++)
+            {
+                scratch.ValueRanks[i] = scratch.GetRank(scratch.Values[i]);
+            }
+
+            var orderedCount = bindings.ReferenceFileSummaryRanks(
+                scratch.ValueRanks,
+                scratch.UniqueValueCount,
+                scratch.CountsByRank,
+                scratch.ResultRanks);
+
+            if (orderedCount < 0 || orderedCount > scratch.UniqueValueCount || orderedCount > scratch.ResultRanks.Length)
+            {
+                orderedValues = Array.Empty<string>();
+                return false;
+            }
+
+            var result = new string[orderedCount];
+            for (var i = 0; i < orderedCount; i++)
+            {
+                var rank = scratch.ResultRanks[i];
+                if (rank <= 0 || rank > scratch.UniqueValueCount)
+                {
+                    orderedValues = Array.Empty<string>();
+                    return false;
+                }
+
+                result[i] = scratch.UniqueValues[rank - 1];
+            }
+
+            orderedValues = result;
+            return true;
+        }
+        catch
+        {
+            orderedValues = Array.Empty<string>();
+            return false;
+        }
+        finally
+        {
+            scratch.ClearValues(valueCount);
+            scratch.ResetValues();
+        }
+    }
+
     internal static bool TryLookupUniqueDeclaredTypeBySuffix<TType>(
         IReadOnlyDictionary<string, TType> types,
         string typeName,
@@ -407,7 +488,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "DeclaredTypeNameCandidateIndex"),
                 CreateDelegate<TypeCreationOrderIndicesInto>(
                     programType,
-                    "TypeCreationOrderIndicesInto"));
+                    "TypeCreationOrderIndicesInto"),
+                CreateDelegate<ReferenceFileSummaryRanksInto>(
+                    programType,
+                    "ReferenceFileSummaryRanksInto"));
         }
         catch
         {
@@ -468,13 +552,19 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] depthCounts,
         int[] depthOffsets,
         int[] resultIndices);
+    private delegate int ReferenceFileSummaryRanksInto(
+        int[] fileRanks,
+        int uniqueFileCount,
+        int[] countsByRank,
+        int[] resultRanks);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
         FirstDistinctRankIndicesInto FirstDistinctRankIndices,
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
         DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex,
-        TypeCreationOrderIndicesInto TypeCreationOrderIndices);
+        TypeCreationOrderIndicesInto TypeCreationOrderIndices,
+        ReferenceFileSummaryRanksInto ReferenceFileSummaryRanks);
 
     private sealed class ParserTokenCompactionScratch
     {
@@ -570,6 +660,68 @@ internal static class NSharpCompilerDogfoodAdapter
         {
             _keyRanks.Clear();
             UniqueKeyCount = 0;
+        }
+    }
+
+    private sealed class DistinctOrderedStringScratch
+    {
+        private readonly Dictionary<string, int> _valueRanks = new(StringComparer.Ordinal);
+
+        public int[] CountsByRank = Array.Empty<int>();
+        public int[] ResultRanks = Array.Empty<int>();
+        public string[] UniqueValues = Array.Empty<string>();
+        public int[] ValueRanks = Array.Empty<int>();
+        public string[] Values = Array.Empty<string>();
+        public int UniqueValueCount;
+
+        public void EnsureCapacity(int count)
+        {
+            if (ValueRanks.Length != count)
+            {
+                ValueRanks = new int[count];
+                Values = new string[count];
+                ResultRanks = new int[count];
+                UniqueValues = new string[count];
+            }
+
+            var rankCapacity = count + 1;
+            if (CountsByRank.Length != rankCapacity)
+            {
+                CountsByRank = new int[rankCapacity];
+            }
+        }
+
+        public void AddValue(string value)
+        {
+            if (_valueRanks.ContainsKey(value))
+                return;
+
+            _valueRanks.Add(value, 0);
+            UniqueValues[UniqueValueCount] = value;
+            UniqueValueCount++;
+        }
+
+        public void BuildRanks()
+        {
+            Array.Sort(UniqueValues, 0, UniqueValueCount, StringComparer.Ordinal);
+            for (var i = 0; i < UniqueValueCount; i++)
+            {
+                _valueRanks[UniqueValues[i]] = i + 1;
+            }
+        }
+
+        public int GetRank(string value) => _valueRanks[value];
+
+        public void ClearValues(int count) => Array.Clear(Values, 0, count);
+
+        public void ResetValues()
+        {
+            _valueRanks.Clear();
+            if (UniqueValueCount > 0)
+            {
+                Array.Clear(UniqueValues, 0, UniqueValueCount);
+                UniqueValueCount = 0;
+            }
         }
     }
 

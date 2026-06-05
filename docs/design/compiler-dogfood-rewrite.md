@@ -1309,6 +1309,11 @@ Compiler source-file list construction now routes first-source ordinal-ignore-ca
 accepted compact-rank `FirstDistinctRankIndicesInto` kernel after the host has normalized or
 filtered source paths, with the previous C# `Distinct(StringComparer.OrdinalIgnoreCase)` path kept
 as the fallback.
+Compiler stub namespace import construction now routes ordinal distinct/order selection through
+`NSharpCompilerDogfoodAdapter.TryDistinctOrderStringsOrdinal`, which calls the accepted
+`ReferenceFileSummaryRanksInto` rank-summary kernel after the host has collected namespace names,
+with the previous C# `Distinct(StringComparer.Ordinal).OrderBy(StringComparer.Ordinal)` path kept as
+the fallback.
 IL compiler declared project-type suffix resolution now routes
 `TryLookupUniqueDeclaredTypeBySuffix` through
 `NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix` when the dogfood assembly is
@@ -1461,7 +1466,8 @@ ordering, CLI tree dependency deduplication, diagnostic severity filtering, symb
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
-inspect-summary reference-file summaries, CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
+compiler stub namespace import ordering, inspect-summary reference-file summaries,
+CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
 and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package

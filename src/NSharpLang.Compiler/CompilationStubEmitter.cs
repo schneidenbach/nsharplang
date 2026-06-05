@@ -156,11 +156,28 @@ public static class CompilationStubEmitter
                 }
             }
 
-            foreach (var namespaceName in _compilationUnits
-                         .Select(GetNamespaceName)
-                         .Where(namespaceName => !string.IsNullOrWhiteSpace(namespaceName))
-                         .Distinct(StringComparer.Ordinal)
-                         .OrderBy(namespaceName => namespaceName, StringComparer.Ordinal))
+            var namespaceNames = new List<string>(_compilationUnits.Count);
+            foreach (var unit in _compilationUnits)
+            {
+                var namespaceName = GetNamespaceName(unit);
+                if (!string.IsNullOrWhiteSpace(namespaceName))
+                {
+                    namespaceNames.Add(namespaceName);
+                }
+            }
+
+            IEnumerable<string> orderedNamespaceNames;
+            if (NSharpCompilerDogfoodAdapter.TryDistinctOrderStringsOrdinal(namespaceNames, out var dogfoodNamespaceNames))
+            {
+                orderedNamespaceNames = dogfoodNamespaceNames;
+            }
+            else
+            {
+                orderedNamespaceNames = namespaceNames
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(namespaceName => namespaceName, StringComparer.Ordinal);
+            }
+            foreach (var namespaceName in orderedNamespaceNames)
             {
                 usingDirectives.Add($"using {namespaceName};");
             }
