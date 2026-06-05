@@ -1797,17 +1797,13 @@ The same compact `BindingMap` cache now routes sorted nearest-declaration index 
 the compiled N# dense name-id counting builder when the dogfood assembly is available, with the
 previous C# `Array.Sort(order, CompareDeclarationOrder)` builder kept as the fallback for unavailable,
 invalid, or out-of-order same-name N# output.
-CLI/daemon identifier completion now routes scoped visible-variable selection through a compact
-`SemanticModel` cache and the compiled N# semantic-scope kernel when the dogfood assembly is
-available, with the previous `SemanticModel.GetVisibleVariablesAtPosition` path kept as the
-fallback.
-The same compact `SemanticModel` cache now routes sorted scope-start index construction through the
-compiled N# source-order/primitive-sort builder when the dogfood assembly is available, with the
-previous C# `Array.Sort` index builder kept as the fallback.
-CLI/daemon member-access completion now routes position-aware receiver identifier lookup through the
-same compact `SemanticModel` cache and the compiled N# semantic-scope lookup kernel when the dogfood
-assembly is available, with the previous `SemanticModel.LookupIdentifierAtPosition` path kept as the
-fallback and the existing flat lookup still used as the last receiver fallback.
+The compact `SemanticModel` cache for semantic-scope kernels now lives in
+`NSharpCompilerDogfoodAdapter` rather than the code-intelligence adapter, but CLI/daemon completion
+does not route its single-query visible-variable or receiver identifier lookups through that bridge.
+Production-shaped dry probes missed the 5x gate once the public dictionary/`TypeInfo` boundary and
+per-call adapter overhead were included, so `CompletionEngine` keeps the current
+`SemanticModel.GetVisibleVariablesAtPosition` and `SemanticModel.LookupIdentifierAtPosition` paths
+until a wider batched or caller-owned completion route lands.
 CLI/daemon member-access completion also routes public completion-item kind grouping through the
 compiled N# grouping kernel when the dogfood assembly is available, with the previous LINQ
 `GroupBy`/`ToList` shape kept as the fallback.
@@ -2143,3 +2139,13 @@ produce a production-shaped win:
   `641.5 ns` C#), and about 1.09x on the large rows (`4.518 us`/`4.503 us` N# vs
   `4.916 us`/`4.899 us` C#). Keep `GetEntryPointMethod` on the current C# path until N# owns the
   broader method table or entry-point diagnostics instead of just this one scan.
+- Semantic-scope single-query/public API bridge: moving the compact semantic-scope cache to the
+  compiler adapter and routing public `SemanticModel`/completion calls through it failed the
+  production-shaped dry probes once dictionary materialization, `TypeInfo` lookup, and per-call
+  adapter overhead were included. `CompilerServiceSemanticScopeVisibleVariablesBenchmarks --job Dry`
+  reported `22.261 ms` N# vs `51.869 ms` C# on the representative row (about 2.3x) and
+  `129.700 ms` N# vs `48.833 ms` C# on the large row (slower). The lookup bridge reported
+  `33.502 ms` N# vs `30.026 ms` C# representative and `186.249 ms` N# vs `140.916 ms` C# large.
+  Keep the compact semantic-scope kernels for batched/caller-owned routes, but do not route
+  `SemanticModel.GetVisibleVariablesAtPosition`, `SemanticModel.LookupIdentifierAtPosition`, or
+  completion's single-query calls through this adapter bridge.

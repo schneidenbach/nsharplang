@@ -286,16 +286,6 @@ public class CompletionEngine
 
     private static TypeInfo? LookupIdentifierAtPosition(SemanticModel semanticModel, string name, int line, int column)
     {
-        if (NSharpCodeIntelligenceDogfoodAdapter.TryLookupIdentifierAtPosition(
-                semanticModel,
-                name,
-                line,
-                column,
-                out var dogfoodTypeInfo))
-        {
-            return dogfoodTypeInfo;
-        }
-
         return semanticModel.LookupIdentifierAtPosition(name, line, column);
     }
 
@@ -312,13 +302,7 @@ public class CompletionEngine
             Dictionary<string, TypeInfo> visibleVars;
             if (line > 0 && semanticModel.Scopes.Count > 0)
             {
-                visibleVars = NSharpCodeIntelligenceDogfoodAdapter.TryGetVisibleVariablesAtPosition(
-                    semanticModel,
-                    line,
-                    col,
-                    out var dogfoodVisibleVars)
-                    ? dogfoodVisibleVars
-                    : semanticModel.GetVisibleVariablesAtPosition(line, col);
+                visibleVars = semanticModel.GetVisibleVariablesAtPosition(line, col);
             }
             else
             {

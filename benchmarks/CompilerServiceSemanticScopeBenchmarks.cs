@@ -9,7 +9,7 @@ namespace NSharpLang.Benchmarks;
 /// <summary>
 /// Dogfood benchmark for scoped visible-symbol lookup used by CLI completion.
 ///
-/// The C# baseline uses the production <see cref="SemanticModel.GetVisibleVariablesAtPosition"/>
+/// The C# baseline mirrors the production <see cref="SemanticModel.GetVisibleVariablesAtPosition"/>
 /// scan/sort/dictionary path. The N# candidate performs the hot scope selection and shadowing
 /// pass over compact arrays, leaving final TypeInfo object ownership at the host boundary.
 /// </summary>
@@ -82,7 +82,7 @@ public class CompilerServiceSemanticScopeVisibleVariablesBenchmarks
 
         for (var i = 0; i < _queryLines.Length; i++)
         {
-            var visible = _model.GetVisibleVariablesAtPosition(_queryLines[i], _queryColumns[i]);
+            var visible = GetVisibleVariablesAtPositionWithCSharp(_queryLines[i], _queryColumns[i]);
             total += visible.Count;
             checksum += (_expectedScopeIds[i] + 1) * 31;
 
@@ -126,6 +126,57 @@ public class CompilerServiceSemanticScopeVisibleVariablesBenchmarks
             _resultSymbolIndices,
             _slotNameIds,
             _touchedSlots);
+
+    private Dictionary<string, TypeInfo> GetVisibleVariablesAtPositionWithCSharp(int line, int column)
+    {
+        if (_model.Scopes.Count == 0)
+            return new Dictionary<string, TypeInfo>(_model.Variables);
+
+        var containingScopes = new List<ScopeInfo>();
+        foreach (var scope in _model.Scopes)
+        {
+            if (scope.ContainsPosition(line, column))
+                containingScopes.Add(scope);
+        }
+
+        if (containingScopes.Count == 0)
+            return new Dictionary<string, TypeInfo>(_model.Variables);
+
+        containingScopes.Sort((a, b) => GetScopeDepthWithCSharp(b.Id).CompareTo(GetScopeDepthWithCSharp(a.Id)));
+
+        var result = new Dictionary<string, TypeInfo>();
+        foreach (var scope in containingScopes)
+        {
+            foreach (var (name, type) in scope.Variables)
+            {
+                result.TryAdd(name, type);
+            }
+
+            foreach (var (name, type) in scope.Functions)
+            {
+                result.TryAdd(name, type);
+            }
+        }
+
+        return result;
+    }
+
+    private int GetScopeDepthWithCSharp(int scopeId)
+    {
+        var depth = 0;
+        var current = scopeId;
+        while (current >= 0 && current < _model.Scopes.Count)
+        {
+            var parent = _model.Scopes[current].ParentId;
+            if (parent < 0 || parent == current)
+                break;
+
+            depth++;
+            current = parent;
+        }
+
+        return depth;
+    }
 
     private void BuildScopeCorpus(int chainCount, int depthPerChain, int symbolsPerScope, int queryCount)
     {
@@ -766,7 +817,7 @@ public class CompilerServiceSemanticScopeLookupBenchmarks
 
         for (var i = 0; i < _queryNames.Length; i++)
         {
-            var type = _model.LookupIdentifierAtPosition(_queryNames[i], _queryLines[i], _queryColumns[i]);
+            var type = LookupIdentifierAtPositionWithCSharp(_queryNames[i], _queryLines[i], _queryColumns[i]);
             checksum += (_expectedScopeIds[i] + 1) * 31;
             if (type != null)
             {
@@ -802,6 +853,65 @@ public class CompilerServiceSemanticScopeLookupBenchmarks
             _queryColumns,
             _resultScopeIds,
             _resultSymbolIndices);
+
+    private TypeInfo? LookupIdentifierAtPositionWithCSharp(string name, int line, int column)
+    {
+        if (_model.Scopes.Count == 0)
+            return _model.LookupIdentifier(name);
+
+        TypeInfo? best = null;
+        var bestDepth = -1;
+
+        foreach (var scope in _model.Scopes)
+        {
+            if (!scope.ContainsPosition(line, column))
+                continue;
+
+            var depth = GetScopeDepthWithCSharp(scope.Id);
+            if (depth <= bestDepth)
+                continue;
+
+            if (scope.Variables.TryGetValue(name, out var varType))
+            {
+                best = varType;
+                bestDepth = depth;
+            }
+            else if (scope.Functions.TryGetValue(name, out var funcType))
+            {
+                best = funcType;
+                bestDepth = depth;
+            }
+        }
+
+        if (best != null)
+            return best;
+
+        if (_model.Properties.TryGetValue(name, out var propType))
+            return propType;
+        if (_model.Fields.TryGetValue(name, out var fieldType))
+            return fieldType;
+        if (_model.Types.TryGetValue(name, out var type))
+            return type;
+
+        return null;
+    }
+
+    private int GetScopeDepthWithCSharp(int scopeId)
+    {
+        var depth = 0;
+        var current = scopeId;
+        while (current >= 0 && current < _model.Scopes.Count)
+        {
+            var parent = _model.Scopes[current].ParentId;
+            if (parent < 0 || parent == current)
+                break;
+
+            depth++;
+            current = parent;
+        }
+
+        return depth;
+    }
 
     private void BuildScopeCorpus(int chainCount, int depthPerChain, int symbolsPerScope, int queryCount)
     {
