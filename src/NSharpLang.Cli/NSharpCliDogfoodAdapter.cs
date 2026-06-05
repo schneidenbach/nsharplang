@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli;
@@ -18,6 +19,8 @@ internal static class NSharpCliDogfoodAdapter
     private static DocSymbolOrderScratch? t_docSymbolOrderScratch;
     [ThreadStatic]
     private static TreeDependencyDeduplicateScratch? t_treeDependencyDeduplicateScratch;
+    [ThreadStatic]
+    private static CompilerErrorSeverityFilterScratch? t_compilerErrorSeverityFilterScratch;
 
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
 
@@ -238,6 +241,68 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryFilterCompilerErrorsBySeverity(
+        IReadOnlyList<CompilerError> errors,
+        ErrorSeverity severity,
+        out List<CompilerError> filteredErrors)
+    {
+        filteredErrors = new List<CompilerError>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var targetRank = GetCompilerErrorSeverityRank(severity);
+        if (targetRank == 0)
+            return false;
+
+        var errorCount = errors.Count;
+        if (errorCount == 0)
+            return true;
+
+        var scratch = t_compilerErrorSeverityFilterScratch ??= new CompilerErrorSeverityFilterScratch();
+        scratch.EnsureCapacity(errorCount);
+
+        try
+        {
+            for (var i = 0; i < errorCount; i++)
+            {
+                scratch.SeverityRanks[i] = GetCompilerErrorSeverityRank(errors[i].Severity);
+            }
+
+            var filteredCount = bindings.DiagnosticSeverityFilter(
+                scratch.SeverityRanks,
+                targetRank,
+                scratch.ResultIndices);
+
+            if (filteredCount < 0 || filteredCount > errorCount || filteredCount > scratch.ResultIndices.Length)
+            {
+                filteredErrors = new List<CompilerError>();
+                return false;
+            }
+
+            filteredErrors = new List<CompilerError>(filteredCount);
+            for (var i = 0; i < filteredCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= errorCount)
+                {
+                    filteredErrors = new List<CompilerError>();
+                    return false;
+                }
+
+                filteredErrors.Add(errors[sourceIndex]);
+            }
+
+            return true;
+        }
+        catch
+        {
+            filteredErrors = new List<CompilerError>();
+            return false;
+        }
+    }
+
     private static bool TryOrderDocEntriesForGeneration(
         IReadOnlyList<SymbolResult> symbols,
         bool includeAllKinds,
@@ -327,7 +392,8 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<CliFirstPositionalArgIndex>(programType, "CliFirstPositionalArgIndex"),
                 CreateDelegate<CliBatchDuplicateIdRanksInto>(programType, "CliBatchDuplicateIdRanksInto"),
                 CreateDelegate<CliDocSymbolOrderCountingIndicesInto>(programType, "CliDocSymbolOrderCountingIndicesInto"),
-                CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"));
+                CreateDelegate<CliTreeDependencyDeduplicateIndicesInto>(programType, "CliTreeDependencyDeduplicateIndicesInto"),
+                CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"));
         }
         catch
         {
@@ -401,12 +467,18 @@ internal static class NSharpCliDogfoodAdapter
         int[] sortedIndices,
         int[] resultIndices);
 
+    private delegate int DiagnosticSeverityFilterIndicesInto(
+        int[] severityRanks,
+        int targetRank,
+        int[] resultIndices);
+
     private sealed record Bindings(
         CliBuildFirstOperandIndexInto CliBuildFirstOperandIndex,
         CliFirstPositionalArgIndex CliFirstPositionalArgIndex,
         CliBatchDuplicateIdRanksInto CliBatchDuplicateIdRanks,
         CliDocSymbolOrderCountingIndicesInto CliDocSymbolOrderCountingIndices,
-        CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices);
+        CliTreeDependencyDeduplicateIndicesInto CliTreeDependencyDeduplicateIndices,
+        DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter);
 
     private static bool IsDocumentedSymbolKind(SymbolKind kind) =>
         kind is not SymbolKind.Variable and not SymbolKind.Parameter;
@@ -431,6 +503,14 @@ internal static class NSharpCliDogfoodAdapter
             SymbolKind.Union => 15,
             SymbolKind.Variable => 16,
             _ => 100
+        };
+
+    private static int GetCompilerErrorSeverityRank(ErrorSeverity severity) =>
+        severity switch
+        {
+            ErrorSeverity.Error => 1,
+            ErrorSeverity.Warning => 2,
+            _ => 0
         };
 
     private sealed class BuildOperandScratch
@@ -617,6 +697,21 @@ internal static class NSharpCliDogfoodAdapter
             {
                 NameCounts = new int[nameBucketCapacity];
                 NameOffsets = new int[nameBucketCapacity];
+            }
+        }
+    }
+
+    private sealed class CompilerErrorSeverityFilterScratch
+    {
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SeverityRanks = Array.Empty<int>();
+
+        public void EnsureCapacity(int errorCount)
+        {
+            if (SeverityRanks.Length != errorCount)
+            {
+                SeverityRanks = new int[errorCount];
+                ResultIndices = new int[errorCount];
             }
         }
     }

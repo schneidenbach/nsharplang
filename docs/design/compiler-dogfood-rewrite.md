@@ -845,6 +845,11 @@ Current CLI dogfood benchmarks:
   candidate runs after the host has assigned compact `StringComparer.OrdinalIgnoreCase` severity
   ranks, scans an unrolled rank array, and writes matching diagnostic indices through
   `DiagnosticSeverityFilterIndicesInto`.
+- `CliCompilerErrorSeverityFilterBenchmarks` targets compiler-error severity filtering in
+  `nlc check` backend verification and `nlc lint` parse-error reporting. The C# baseline mirrors the
+  current CLI LINQ shape: enum severity comparison and list materialization over `CompilerError`
+  objects. The N# candidate reuses the compact severity-rank scanner after the host has projected
+  `ErrorSeverity` values into small integer ranks.
 - `CliSymbolKindFilteringBenchmarks` targets symbol-kind filtering in `nlc query symbols --kind`,
   batch symbol queries, and daemon symbol queries. The C# baseline mirrors the current query LINQ
   shape: enum comparison, list materialization, and stable source-order results. The N# candidate
@@ -937,6 +942,14 @@ about 7.0x faster on the large generated diagnostic corpus (3.125 us vs 21.990 u
 21,944 B). This is acceptance-grade benchmark evidence for `nlc query diagnostics`, batch
 diagnostics, daemon diagnostics, and strict build lint error filtering after the host has assigned
 compact case-insensitive severity ranks.
+
+The same compact severity filter passed parity for `CompilerError` enum-severity filtering and
+reported zero managed allocation in the normal BenchmarkDotNet evidence tier. It ran about 6.4x
+faster on the representative compiler-error corpus (399.7 ns vs 2.577 us, 0 B vs 3,384 B) and about
+6.8x faster on the large generated compiler-error corpus (3.180 us vs 21.625 us, 0 B vs 26,312 B).
+This is acceptance-grade benchmark evidence for `nlc check` backend-verification error filtering
+and `nlc lint` parse-error filtering after the host has projected `ErrorSeverity` values into compact
+integer ranks.
 
 `SymbolKindFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for symbol-kind filtering. The accepted N# path uses compact symbol
@@ -1034,6 +1047,10 @@ dogfood assembly is available, with the previous C# LINQ counts kept as the fall
 through `OutputFormatter.FilterDiagnosticsBySeverity`, which calls the compiled N# compact-rank
 severity filter when the dogfood assembly is available, with the previous C# LINQ
 `Where(...Equals(..., OrdinalIgnoreCase)).ToList()` path kept as the fallback.
+`nlc check` backend verification and `nlc lint` parse-error reporting now route compiler-error
+severity filtering through `NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity`, which calls
+the same compiled N# compact-rank severity filter when the dogfood assembly is available, with the
+previous C# LINQ `Where(e => e.Severity == ...).ToList()` path kept as the fallback.
 `CodeIntelligenceService.GetSymbols` now routes optional `SymbolKind` filtering through the compiled
 N# compact kind-id filter when the dogfood assembly is available, covering `nlc query symbols
 --kind`, batch symbol queries, and daemon symbol queries, with the previous C# LINQ
@@ -1127,7 +1144,7 @@ text-edit ordering, inspect-summary reference-file summaries, and the pressure-o
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
-`nlc query diagnostics --severity` filtering;
+`nlc query diagnostics --severity` filtering plus compiler-error severity filtering;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route;
 `CodeFixTests` verifies the production fix-applicator ordering route.

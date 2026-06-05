@@ -130,7 +130,7 @@ public static class CheckCommand
 
             if (!compileResult.Success)
             {
-                foreach (var error in compileResult.Errors.Where(e => e.Severity == ErrorSeverity.Error))
+                foreach (var error in FilterCompilerErrorsBySeverity(compileResult.Errors, ErrorSeverity.Error))
                 {
                     results.Add(CodeIntelligenceService.ToDiagnosticResult(error, projectDir));
                 }
@@ -142,6 +142,19 @@ public static class CheckCommand
         }
 
         return results;
+    }
+
+    private static List<CompilerError> FilterCompilerErrorsBySeverity(
+        IEnumerable<CompilerError> errors,
+        ErrorSeverity severity)
+    {
+        var errorList = errors as IReadOnlyList<CompilerError> ?? errors.ToList();
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+            errorList,
+            severity,
+            out var filteredErrors)
+            ? filteredErrors
+            : errorList.Where(error => error.Severity == severity).ToList();
     }
 
     /// <summary>

@@ -93,14 +93,15 @@ public static class LintCommand
                     var tokens = lexer.Tokenize();
                     var parser = new Parser(tokens, file, source);
                     var parseResult = parser.ParseCompilationUnit();
+                    var parseErrors = FilterCompilerErrorsBySeverity(parseResult.Errors, ErrorSeverity.Error);
 
-                    if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
+                    if (parseErrors.Count > 0)
                     {
                         hadErrors = true;
                         var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
                         if (useJson)
                         {
-                            foreach (var err in parseResult.Errors.Where(e => e.Severity == ErrorSeverity.Error))
+                            foreach (var err in parseErrors)
                             {
                                 allDiagnostics.Add(new DiagnosticResult(
                                     "PARSE", "error", err.Message,
@@ -277,6 +278,18 @@ Exit codes:
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    private static List<CompilerError> FilterCompilerErrorsBySeverity(
+        IReadOnlyList<CompilerError> errors,
+        ErrorSeverity severity)
+    {
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+            errors,
+            severity,
+            out var filteredErrors)
+            ? filteredErrors
+            : errors.Where(error => error.Severity == severity).ToList();
+    }
 
     private static string? ExtractSourceLine(string source, int line) =>
         CodeIntelligenceService.ExtractSourceLineForDiagnostics(source, line);

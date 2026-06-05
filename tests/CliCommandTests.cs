@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
+using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
 
@@ -676,6 +677,39 @@ func Main() {
         Assert.Equal("Newtonsoft.Json", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "Newtonsoft.Json" }));
         Assert.Equal("Serilog", UpdateCommand.GetTargetPackage(new[] { "--dry-run", "-v", "Serilog" }));
         Assert.Null(UpdateCommand.GetTargetPackage(new[] { "--dry-run" }));
+    }
+
+    [Fact]
+    public void CliDogfoodAdapter_FiltersCompilerErrorsBySeverity()
+    {
+        var errors = new[]
+        {
+            NewError("parse warning", ErrorSeverity.Warning),
+            NewError("parse error", ErrorSeverity.Error),
+            NewError("backend error", ErrorSeverity.Error),
+            NewError("lint warning", ErrorSeverity.Warning),
+            NewError("aot error", ErrorSeverity.Error)
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+            errors,
+            ErrorSeverity.Error,
+            out var actualErrors));
+        Assert.Equal(
+            errors.Where(error => error.Severity == ErrorSeverity.Error),
+            actualErrors);
+
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+            errors,
+            ErrorSeverity.Warning,
+            out var actualWarnings));
+        Assert.Equal(
+            errors.Where(error => error.Severity == ErrorSeverity.Warning),
+            actualWarnings);
+
+        static CompilerError NewError(string message, ErrorSeverity severity) =>
+            new(ErrorCode.InvalidSyntax, message, 1, 1, severity);
     }
 
     [Fact]
