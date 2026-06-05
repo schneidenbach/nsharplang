@@ -864,6 +864,187 @@ public class CliPublishArgumentNormalizationBenchmarks
 }
 
 /// <summary>
+/// Dogfood benchmark for <c>nlc test</c> option discovery. The C# baseline mirrors the current
+/// command parser: rescan argv for help, four option values, and six switches. The N# candidate
+/// classifies each argument once and returns option-value indices plus switch bits through a
+/// caller-owned buffer.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CliTestOptionSummaryBenchmarks
+{
+    private Func<string[], int[], int> _nsharpCliTestOptionSummaryInto =
+        (_, _) => throw new InvalidOperationException("Benchmark not initialized.");
+
+    private string[] _args = Array.Empty<string>();
+    private TestOptionSummary _csharpSummary;
+    private TestOptionSummary _nsharpSummary;
+    private int[] _nsharpResultIndices = Array.Empty<int>();
+
+    [Params(18, 64, 1024)]
+    public int ArgumentCount { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _nsharpCliTestOptionSummaryInto =
+            NSharpCompiledMethod.Bind<Func<string[], int[], int>>(
+                DogfoodCompilerSources.CliArguments,
+                "CliTestOptionSummaryInto");
+
+        _args = BuildTestArguments(ArgumentCount);
+        _nsharpResultIndices = new int[10];
+
+        var expectedChecksum = CSharpTestArgs_ParseOptions();
+        var actualChecksum = NSharpTestArgs_ParseOptions();
+        if (expectedChecksum != actualChecksum || _csharpSummary != _nsharpSummary)
+        {
+            throw new InvalidOperationException(
+                $"N# CLI test option summary mismatch for {ArgumentCount} arguments: " +
+                $"expected {_csharpSummary}, got {_nsharpSummary}.");
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpTestArgs_ParseOptions()
+    {
+        var help = _args.Contains("--help")
+            || _args.Contains("-h")
+            || (_args.Length > 0 && _args[0] == "help");
+        _csharpSummary = new TestOptionSummary(
+            help,
+            GetOptionValue(_args, "--project"),
+            GetOptionValue(_args, "--filter"),
+            GetOptionValue(_args, "--timeout"),
+            GetOptionValue(_args, "--backend"),
+            _args.Contains("--verbose"),
+            _args.Contains("--json"),
+            _args.Contains("--coverage-report"),
+            _args.Contains("--coverage"),
+            _args.Contains("--no-cache"));
+        return Checksum(_csharpSummary);
+    }
+
+    [Benchmark]
+    public int NSharpTestArgs_ParseOptions()
+    {
+        var code = _nsharpCliTestOptionSummaryInto(_args, _nsharpResultIndices);
+        if (code != 0)
+            throw new InvalidOperationException($"N# CLI test option summary returned {code}.");
+
+        _nsharpSummary = new TestOptionSummary(
+            _nsharpResultIndices[9] != 0,
+            ArgAt(_nsharpResultIndices[0]),
+            ArgAt(_nsharpResultIndices[1]),
+            ArgAt(_nsharpResultIndices[2]),
+            ArgAt(_nsharpResultIndices[3]),
+            _nsharpResultIndices[4] != 0,
+            _nsharpResultIndices[5] != 0,
+            _nsharpResultIndices[6] != 0,
+            _nsharpResultIndices[7] != 0,
+            _nsharpResultIndices[8] != 0);
+        return Checksum(_nsharpSummary);
+    }
+
+    private string? ArgAt(int index)
+    {
+        if (index == -1)
+            return null;
+
+        if (index < 0 || index >= _args.Length)
+            throw new InvalidOperationException($"N# CLI test result index out of range: {index}.");
+
+        return _args[index];
+    }
+
+    private static string? GetOptionValue(string[] args, string flag)
+    {
+        for (var i = 0; i < args.Length - 1; i++)
+        {
+            if (args[i] == flag)
+                return args[i + 1];
+        }
+
+        return null;
+    }
+
+    private static string[] BuildTestArguments(int targetCount)
+    {
+        var groups = new[]
+        {
+            new[] { "--project", "samples/test-suite" },
+            new[] { "--filter", "Parser" },
+            new[] { "--verbose" },
+            new[] { "--json" },
+            new[] { "--coverage-report" },
+            new[] { "--coverage" },
+            new[] { "--timeout", "30s" },
+            new[] { "--no-cache" },
+            new[] { "--backend", "il" },
+            new[] { "--unknown", "value" },
+            new[] { "tail-operand" }
+        };
+
+        var args = new List<string>(targetCount);
+        var groupIndex = 0;
+        while (args.Count < targetCount)
+        {
+            var group = groups[groupIndex % groups.Length];
+            groupIndex++;
+            for (var i = 0; i < group.Length && args.Count < targetCount; i++)
+            {
+                args.Add(Copy(group[i]));
+            }
+        }
+
+        return args.ToArray();
+    }
+
+    private static string Copy(string value) => new(value.ToCharArray());
+
+    private static int Checksum(TestOptionSummary summary)
+    {
+        var checksum = summary.Help ? 31 : 17;
+        checksum += summary.Verbose ? 37 : 19;
+        checksum += summary.Json ? 41 : 23;
+        checksum += summary.CoverageReport ? 43 : 29;
+        checksum += summary.Coverage ? 47 : 31;
+        checksum += summary.NoCache ? 53 : 37;
+        checksum += ChecksumString(summary.ProjectOption, 3);
+        checksum += ChecksumString(summary.Filter, 5);
+        checksum += ChecksumString(summary.Timeout, 7);
+        checksum += ChecksumString(summary.BackendOption, 11);
+        return checksum;
+    }
+
+    private static int ChecksumString(string? value, int weight)
+    {
+        if (value == null)
+            return weight;
+
+        var checksum = value.Length * weight;
+        for (var i = 0; i < value.Length; i++)
+        {
+            checksum += value[i] * (i + 1) * weight;
+        }
+
+        return checksum;
+    }
+
+    private readonly record struct TestOptionSummary(
+        bool Help,
+        string? ProjectOption,
+        string? Filter,
+        string? Timeout,
+        string? BackendOption,
+        bool Verbose,
+        bool Json,
+        bool CoverageReport,
+        bool Coverage,
+        bool NoCache);
+}
+
+/// <summary>
 /// Dogfood benchmark for <c>nlc build</c> operand normalization. The C# baseline mirrors the
 /// current command parser: remove value-less build flags with LINQ, then run four
 /// option-with-value stripping passes that allocate intermediate arrays. The N# candidate returns

@@ -1327,6 +1327,17 @@ faster on large no-match filters (911.166 us vs 1.556 ms). A raw filter-segment 
 probed first and was slower than C# on every row, so the native xUnit/reflection filter predicates
 remain in C# until N# has a faster string-search primitive or a filter automaton that can clear 5x.
 
+`CliTestOptionSummaryInto` preserves the current `nlc test` command-parser behavior for help,
+`--project`, `--filter`, `--timeout`, `--backend`, and the verbose/json/coverage/cache switches, but
+also missed the speed gate and is not routed through production. The accepted-shaped probe scans argv
+once, writes original value indexes and switch bits into a caller-owned buffer, and inlines its
+length/character classifier to avoid a per-argument helper call. A dry run still measured slower on
+18 arguments (`84.667 us` N# vs `62.834 us` C#), roughly parity on 64 arguments (`64.250 us` N# vs
+`66.084 us` C#), and slower on 1024 arguments (`91.667 us` N# vs `70.208 us` C#). Keep `nlc test`
+option parsing in C# until CLI command orchestration can move as a broader parser/argv
+representation, or until N# string/branch lowering makes one-pass option classification clearly beat
+the repeated `Contains`/`GetOptionValue` shape.
+
 `CliFixEditFlattenIndicesInto` was reintroduced as a benchmark-only pressure kernel and remains
 unrouted. The revised caller-owned shape projects each safe `nlc fix` action's edit count, writes
 flattened action/edit index pairs into caller-owned buffers, and uses explicit fast paths for one-
@@ -1969,7 +1980,8 @@ also routed through the compiled N# doc-ordering kernel.
 Path matching, all-positionals CLI argument filtering, and option-bearing `nlc publish` argument
 normalization have parity and benchmark evidence but are not routed through production
 code-intelligence, query, daemon, or publish option-bearing paths because they currently miss the 5x
-speed gate.
+speed gate. `nlc test` option summary parsing also has parity evidence but remains C# because the
+inlined N# argv classifier is slower or only parity on dry rows.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in
@@ -2134,6 +2146,12 @@ produce a production-shaped win:
   corpus (`7.829 us` N# vs `9.937 us` C#) and about 1.23x on the large corpus (`67.073 us` N# vs
   `82.426 us` C#). Keep `nlc test --timeout` on the C# parser until N# has a faster tiny-string
   parse path or the surrounding test-command option parsing moves into one N# batch.
+- CLI test option summary parsing: a one-pass N# argv classifier for `nlc test` preserved current
+  help, option-value, and switch semantics without allocation, and the final probe inlined the
+  classifier into the scan, but dry timings still missed the gate (`84.667 us` N# vs `62.834 us` C#
+  on 18 args, `64.250 us` N# vs `66.084 us` C# on 64 args, and `91.667 us` N# vs `70.208 us` C# on
+  1024 args). Do not route `Program.TestCommand` through this adapter; revisit only with a broader
+  CLI parser representation or lower-overhead string/branch lowering.
 - Union exhaustiveness through a late C# set-to-flag adapter: the compact N# kernel cleared the
   gate, but projecting `HashSet<string>` coverage into flags at the tail of
   `CheckMatchExhaustiveness` missed the 5x bar on the corrected benchmark rows (`10.482 us` N# vs
