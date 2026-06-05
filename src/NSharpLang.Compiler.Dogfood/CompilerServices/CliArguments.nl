@@ -3238,6 +3238,70 @@ func CliTestOutcomeSummaryInto(outcomeRanks: int[], count: int, resultCounts: in
     return count
 }
 
+func CliTestFilterMatchIndicesInto(
+    filterParts: string[],
+    primaryNames: string[],
+    secondaryNames: string[],
+    tertiaryNames: string[],
+    count: int,
+    resultIndices: int[]): int {
+    if count < 0
+        || count > primaryNames.Length
+        || count > secondaryNames.Length
+        || count > resultIndices.Length {
+        return -1
+    }
+
+    if tertiaryNames.Length != 0 && count > tertiaryNames.Length {
+        return -1
+    }
+
+    matchedCount := 0
+    i := 0
+    while i < count {
+        if CliTestFilterMatchesAnyName(filterParts, primaryNames[i], secondaryNames[i], tertiaryNames, i) {
+            resultIndices[matchedCount] = i
+            matchedCount = matchedCount + 1
+        }
+
+        i = i + 1
+    }
+
+    return matchedCount
+}
+
+func CliTestFilterMatchesAnyName(
+    filterParts: string[],
+    primaryName: string,
+    secondaryName: string,
+    tertiaryNames: string[],
+    index: int): bool {
+    partIndex := 0
+    while partIndex < filterParts.Length {
+        part := filterParts[partIndex]
+        if part.Length > 0 {
+            if CliTestFilterContainsPart(primaryName, part)
+                || CliTestFilterContainsPart(secondaryName, part) {
+                return true
+            }
+
+            if tertiaryNames.Length > index
+                && tertiaryNames[index].Length > 0
+                && CliTestFilterContainsPart(tertiaryNames[index], part) {
+                return true
+            }
+        }
+
+        partIndex = partIndex + 1
+    }
+
+    return false
+}
+
+func CliTestFilterContainsPart(text: string, part: string): bool {
+    return text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0
+}
+
 func CliTestOutcomeSummaryChecksumInto(outcomeRanks: int[], count: int, resultCounts: int[]): int {
     count = CliTestOutcomeSummaryInto(outcomeRanks, count, resultCounts)
     if count < 0 {

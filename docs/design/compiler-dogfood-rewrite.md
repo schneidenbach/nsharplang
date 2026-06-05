@@ -1068,6 +1068,12 @@ Current CLI dogfood benchmarks:
   results are created, then computes `ok`, passed, failed, and skipped in one pass through
   `CliTestOutcomeSummaryInto`. The benchmark also keeps a projected string-to-rank row to prove
   late projection is not the accepted production shape.
+- `CliTestFilterMatchingBenchmarks` targets `nlc test --filter` test-case selection. The C# baseline
+  mirrors the current per-candidate predicate: split the public filter on `|`, trim/remove empty
+  parts, and run ordinal-ignore-case contains checks against display and fully-qualified names. The
+  N# pressure candidate scans pre-trimmed filter parts over projected candidate-name arrays and
+  writes selected source indices through `CliTestFilterMatchIndicesInto`; it is intentionally not
+  routed because the measured speedup misses the 5x production gate.
 - `CliDiagnosticSeverityFilterBenchmarks` targets diagnostic severity filtering in
   `nlc query diagnostics`, batch diagnostics, and daemon diagnostics. The C# baseline mirrors the
   current CLI LINQ shape: case-insensitive severity comparison and list materialization. The N#
@@ -1309,6 +1315,17 @@ string-to-rank projection rows only reached about 4.1x-5.2x and missed the 5x ga
 all-passed and mixed/unknown corpora. The production xUnit/reflection runners therefore keep the
 public result objects for JSON output but also retain compact ranks as each result is created, then
 route text and JSON summary counts through the N# kernel.
+
+`CliTestFilterMatchIndicesInto` passed parity and reported zero managed allocation in a dry
+BenchmarkDotNet probe for `nlc test --filter`, but missed the speed gate and is not routed through
+production. The pre-trimmed-filter-parts candidate measured only about 1.4x faster on representative
+single-part filters (143.333 us vs 205.166 us), about 1.3x faster on representative multipart
+filters (298.792 us vs 373.542 us), about 1.3x faster on representative no-match filters
+(149.417 us vs 191.084 us), about 1.7x faster on large single-part filters (1.020 ms vs
+1.692 ms), about 2.0x faster on large multipart filters (1.579 ms vs 3.080 ms), and about 1.7x
+faster on large no-match filters (911.166 us vs 1.556 ms). A raw filter-segment scanner was also
+probed first and was slower than C# on every row, so the native xUnit/reflection filter predicates
+remain in C# until N# has a faster string-search primitive or a filter automaton that can clear 5x.
 
 `CliFixEditFlattenIndicesInto` was reintroduced as a benchmark-only pressure kernel and remains
 unrouted. The revised caller-owned shape projects each safe `nlc fix` action's edit count, writes
@@ -1863,6 +1880,9 @@ are created, then route text and JSON summary calculation through the compiled N
 `CliTestOutcomeSummaryInto` kernel when the dogfood assembly is available, preserving `ok` as
 passed-or-skipped-only and preserving public passed/failed/skipped counts, with the previous C#
 string-count summary kept as the fallback.
+`nlc test --filter` test-case selection remains on the current C# predicates: N# filter matching has
+parity and zero-allocation pressure evidence, but the best measured candidate only reached about
+1.3x-2.0x and therefore misses the 5x production route gate.
 `nlc tidy` dependency usage classification now routes through the compiled N#
 `CliTidyDependencyStatusRanksInto` kernel for ASCII package and import names, preserving the current
 single-segment unknown rule, first-segment namespace match semantics, public status strings, and
