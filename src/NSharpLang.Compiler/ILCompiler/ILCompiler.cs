@@ -1492,6 +1492,19 @@ public partial class ILCompiler
             yield return $"{import.Namespace}.{typeName}";
         }
 
+        if (NSharpCompilerDogfoodAdapter.TrySelectDeclaredTypeNameCandidate(
+            _compilationUnit,
+            typeName,
+            out var dogfoodDeclaredNameCandidate))
+        {
+            if (dogfoodDeclaredNameCandidate != null)
+            {
+                yield return dogfoodDeclaredNameCandidate;
+            }
+
+            yield break;
+        }
+
         var declaredNames = EnumerateDeclaredTypes()
             .Select(info => info.Name)
             .Where(name => !string.IsNullOrWhiteSpace(name))

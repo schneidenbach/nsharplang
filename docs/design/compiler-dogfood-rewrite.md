@@ -499,6 +499,13 @@ Current compiler-performance dogfood benchmarks:
   and materialize the result. The accepted N# candidate scans compact key/value-rank/query-width
   tail-hash arrays and returns a unique value rank, no-match sentinel, or ambiguous sentinel through
   `DeclaredTypeUniqueSuffixValueRank`.
+- `CompilerServiceDeclaredTypeNameCandidateBenchmarks` targets declared type-name disambiguation in
+  `GetDeclaredTypeNameCandidates`. The C# baseline mirrors the fallback shape: enumerate declared
+  type names, filter null/whitespace, distinct by ordinal name, materialize exact-or-dotted-suffix
+  matches, materialize imported-namespace matches, then select the unique imported match or unique
+  total match. The accepted N# candidate scans compact unique declared-name/import-flag/query-width
+  tail-hash arrays and returns a 1-based selected name index, no-match/ambiguous sentinel, or invalid
+  input sentinel through `DeclaredTypeNameCandidateIndex`.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
@@ -521,11 +528,12 @@ the current split/`int.TryParse` behavior for valid, invalid, signed, whitespace
 inputs. It verifies typo-suggestion candidate index ordering against the current
 `SmartSuggester.SuggestSimilarNames` score/filter/order contract. It verifies CLI doc symbol
 ordering against the current `SymbolKind.ToString()` ordinal kind ordering, ordinal name ordering,
-variable/parameter filtering, and stable equal-key behavior. Raw source-line span parity now covers
-invalid lines, empty lines, whitespace-only lines, Unicode line text, and CRLF-preserved trailing
-`\r` characters. Completion-prefix span parity covers invalid lines, empty lines, zero columns,
-in-range columns, exact end columns, past-end columns, Unicode line text, and CRLF-preserved line
-content.
+variable/parameter filtering, and stable equal-key behavior. It verifies declared type-name
+candidate selection for imported-namespace preference, unique suffixes, exact full names, ambiguous
+suffixes, and missing suffixes. Raw source-line span parity now covers invalid lines, empty lines,
+whitespace-only lines, Unicode line text, and CRLF-preserved trailing `\r` characters.
+Completion-prefix span parity covers invalid lines, empty lines, zero columns, in-range columns,
+exact end columns, past-end columns, Unicode line text, and CRLF-preserved line content.
 Completion receiver parity covers direct dots, partial member names, normalized method-call
 receivers, string/interpolated/raw/char/numeric/bool literal receivers, Unicode identifiers, comment
 text, and the current C# edge where some generated comment prefixes fall back to expression-suffix
@@ -881,6 +889,15 @@ vs 72.668 us, 0 B vs 852,496 B), about 10.2x faster for missing lookup (6.050 us
 vs 524,656 B), and about 8.4x faster for ambiguous lookup (36.31 ns vs 305.61 ns, 0 B vs 2,312 B).
 This is acceptance-grade benchmark evidence for suffix lookup after the host has projected declared
 type dictionaries into compact ordinal key/value-rank/query-width tail-hash arrays.
+
+`DeclaredTypeNameCandidateIndex` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for declared type-name candidate selection. It ran about 88x faster on
+representative imported, unique, tiny, ambiguous, and missing suffix lookups (roughly 488-515 ns vs
+43.102-45.028 us, 0 B vs 114,312-146,760 B), about 93.6x faster on representative exact full-name
+lookup (511.9 ns vs 47.894 us, 0 B vs 203,808 B), and about 93x-105x faster on the large generated
+corpus (3.920-4.065 us vs 376.646-411.503 us, 0 B vs 650,538-1,370,818 B). This is
+acceptance-grade benchmark evidence for declared-name disambiguation after the host has projected
+declared names and imported-namespace membership into compact ordinal arrays.
 
 Current CLI dogfood benchmarks:
 
@@ -1266,6 +1283,11 @@ IL compiler declared project-type suffix resolution now routes
 `NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix` when the dogfood assembly is
 available, preserving exact-or-dotted-suffix ordinal matching, distinct `Type` result uniqueness,
 and no-match/ambiguous false behavior, with the previous C# LINQ scan kept as the fallback.
+IL compiler declared type-name candidate selection now routes the declared-name exact/suffix and
+imported-namespace disambiguation tail of `GetDeclaredTypeNameCandidates` through
+`NSharpCompilerDogfoodAdapter.TrySelectDeclaredTypeNameCandidate` when the dogfood assembly is
+available, preserving unique imported match, unique total match, no-match, and ambiguous behavior,
+with the previous C# LINQ scan kept as the fallback.
 Clustered diagnostic output now uses the compiled N# trait classifier for category/source-construct
 ids when the dogfood assembly is available, then materializes schema strings in the formatter.
 Clustered diagnostic output also routes group root/count/order selection through the compiled N#

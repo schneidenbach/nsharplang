@@ -707,6 +707,79 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_SelectsDeclaredTypeNameCandidate()
+    {
+        static ClassDeclaration TypeDeclaration(string name) => new(
+            name,
+            TypeParameters: null,
+            BaseClass: null,
+            Interfaces: new List<TypeReference>(),
+            Members: new List<Declaration>(),
+            PrimaryConstructorParameters: null,
+            Modifiers: Modifiers.Public,
+            Attributes: new List<AttributeNode>(),
+            Line: 1,
+            Column: 1);
+
+        var compilationUnit = new CompilationUnit(
+            Namespace: null,
+            Imports: new List<ImportDirective>
+            {
+                new("Demo.Imported", Alias: null, Line: 1, Column: 1)
+            },
+            FileImports: new List<Statement>(),
+            Package: null,
+            Declarations: new List<Declaration>
+            {
+                TypeDeclaration("Demo.Imported.Customer"),
+                TypeDeclaration("Demo.Other.Customer"),
+                TypeDeclaration("Demo.Local.Invoice"),
+                TypeDeclaration("Demo.Tiny.Foo"),
+                TypeDeclaration("Demo.Alpha.Shared"),
+                TypeDeclaration("Demo.Beta.Shared")
+            },
+            Line: 1,
+            Column: 1);
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var trySelectDeclaredTypeNameCandidate = adapterType.GetMethod(
+                "TrySelectDeclaredTypeNameCandidate",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TrySelectDeclaredTypeNameCandidate.");
+
+        var importedSuffixArgs = new object?[] { compilationUnit, "Customer", null };
+        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, importedSuffixArgs) ?? false));
+        Assert.Equal("Demo.Imported.Customer", importedSuffixArgs[2]);
+
+        var uniqueSuffixArgs = new object?[] { compilationUnit, "Invoice", null };
+        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, uniqueSuffixArgs) ?? false));
+        Assert.Equal("Demo.Local.Invoice", uniqueSuffixArgs[2]);
+
+        var tinySuffixArgs = new object?[] { compilationUnit, "Foo", null };
+        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, tinySuffixArgs) ?? false));
+        Assert.Equal("Demo.Tiny.Foo", tinySuffixArgs[2]);
+
+        var exactArgs = new object?[] { compilationUnit, "Demo.Local.Invoice", null };
+        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, exactArgs) ?? false));
+        Assert.Equal("Demo.Local.Invoice", exactArgs[2]);
+
+        var ambiguousArgs = new object?[] { compilationUnit, "Shared", null };
+        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, ambiguousArgs) ?? false));
+        Assert.Null(ambiguousArgs[2]);
+
+        var missingArgs = new object?[] { compilationUnit, "Missing", null };
+        Assert.True((bool)(trySelectDeclaredTypeNameCandidate.Invoke(null, missingArgs) ?? false));
+        Assert.Null(missingArgs[2]);
+    }
+
+    [Fact]
     public void LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer()
     {
         var repoRoot = FindRepoRoot();
@@ -1255,6 +1328,22 @@ func main(): int {
                     "SemanticScopeLookupSymbolChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit SemanticScopeLookupSymbolChecksumInto.");
+            var declaredTypeUniqueSuffixValueRank = programType.GetMethod(
+                    "DeclaredTypeUniqueSuffixValueRank",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DeclaredTypeUniqueSuffixValueRank.");
+            var declaredTypeUniqueSuffixValueRankChecksum = programType.GetMethod(
+                    "DeclaredTypeUniqueSuffixValueRankChecksum",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DeclaredTypeUniqueSuffixValueRankChecksum.");
+            var declaredTypeNameCandidateIndex = programType.GetMethod(
+                    "DeclaredTypeNameCandidateIndex",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DeclaredTypeNameCandidateIndex.");
+            var declaredTypeNameCandidateChecksum = programType.GetMethod(
+                    "DeclaredTypeNameCandidateChecksum",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit DeclaredTypeNameCandidateChecksum.");
 
             const string source = """"
 import System
