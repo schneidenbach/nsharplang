@@ -2205,6 +2205,24 @@ produce a production-shaped win:
   on 18 args, `64.250 us` N# vs `66.084 us` C# on 64 args, and `91.667 us` N# vs `70.208 us` C# on
   1024 args). Do not route `Program.TestCommand` through this adapter; revisit only with a broader
   CLI parser representation or lower-overhead string/branch lowering.
+- Analyzer overload parameter-signature distinctness via compact type-rank rows: the N# kernel
+  (`AnalyzerOverloadSignatureDistinct` / `AnalyzerOverloadSignatureDistinctChecksumInto` in
+  `CompilerServices/AnalyzerExhaustiveness.nl`) reframes `Analyzer.HasDistinctParameterSignature` /
+  `ParameterSignaturesMatch` as an integer rank-row scan instead of `GetParameterTypeSignature`
+  string build + ordinal string compare. It passed parity exactly (single-shot distinct/duplicate
+  verdicts, batched checksum, and malformed-request guards in `CompilerDogfoodProjectTests`) and
+  allocated zero managed bytes, but missed the gate: the `CompilerServiceAnalyzerOverloadSignature`
+  rows measured `2.665 us` N# vs `2.339 us` C# on the representative corpus (about 0.88x — N# is
+  SLOWER) and `184.146 us` N# vs `261.051 us` C# on the large generated corpus (about 1.42x). The
+  string-signature comparison is the wrong shape for a compact kernel: once the analyzer has the
+  per-parameter type signatures in hand, the C# baseline's per-parameter `string.Equals` over short
+  interned signatures JITs to fast length/reference checks with no per-call allocation, so the
+  rank-row scan only wins marginally at large arity and loses on the representative few-overload
+  shape. Per the unit-4 guardrail, `HasDistinctParameterSignature` stays on the C# string path; do
+  not route it. Revisit only if overload resolution adopts a retained type-interning rank table that
+  removes signature-string construction across a broader slice (so the rank rows are already
+  materialized and the win is amortized over many checks), and never on the large generated row
+  alone.
 - Union exhaustiveness through a late C# set-to-flag adapter: the compact N# kernel cleared the
   gate, but projecting `HashSet<string>` coverage into flags at the tail of
   `CheckMatchExhaustiveness` missed the 5x bar on the corrected benchmark rows (`10.482 us` N# vs
