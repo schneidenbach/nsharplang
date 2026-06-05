@@ -241,7 +241,12 @@ func OverloadSelectBatchInto(
         candidateCount := callCounts[c]
         bestIndex := -1
 
-        if offset >= 0 && candidateCount >= 0 && offset + candidateCount <= validFlags.Length {
+        if offset >= 0 && candidateCount >= 0
+            && offset <= validFlags.Length - candidateCount
+            && offset <= scores.Length - candidateCount
+            && offset <= genericFlags.Length - candidateCount
+            && offset <= paramsFlags.Length - candidateCount
+            && offset <= defaultsUsed.Length - candidateCount {
             bestScore := -1
             bestIsGeneric := 1
             bestUsesParams := 1
