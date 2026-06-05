@@ -3804,7 +3804,7 @@ public class Analyzer : IDisposable
     {
         var type = expr switch
         {
-            IntLiteralExpression => BuiltInTypes.Int,
+            IntLiteralExpression intLiteral => GetIntLiteralType(intLiteral.Value),
             FloatLiteralExpression floatLiteral => GetFloatLiteralType(floatLiteral.Value),
             CharLiteralExpression => BuiltInTypes.Char,
             StringLiteralExpression strExpr => AnalyzeStringLiteral(strExpr),
@@ -10932,6 +10932,155 @@ public class Analyzer : IDisposable
         if (trimmed.EndsWith("f", StringComparison.OrdinalIgnoreCase))
             return BuiltInTypes.Float;
         return BuiltInTypes.Double;
+    }
+
+    private TypeInfo GetIntLiteralType(string value)
+    {
+        if (!NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(value, out var magnitude))
+        {
+            return BuiltInTypes.Int;
+        }
+
+        var suffix = NumericLiteralFacts.GetIntegerSuffix(value);
+        if (suffix.HasUnsigned && suffix.HasLong)
+        {
+            return BuiltInTypes.ULong;
+        }
+
+        if (suffix.HasUnsigned)
+        {
+            return magnitude <= uint.MaxValue ? BuiltInTypes.UInt : BuiltInTypes.ULong;
+        }
+
+        if (suffix.HasLong)
+        {
+            return magnitude <= long.MaxValue ? BuiltInTypes.Long : BuiltInTypes.ULong;
+        }
+
+        if (_currentExpectedType != null
+            && TryGetExpectedIntegerLiteralType(_currentExpectedType, magnitude, out var targetType))
+        {
+            return targetType;
+        }
+
+        return BuiltInTypes.Int;
+    }
+
+    private bool TryGetExpectedIntegerLiteralType(TypeInfo expectedType, ulong magnitude, out TypeInfo targetType)
+    {
+        var resolved = ResolveTypeAlias(expectedType);
+        if (resolved is NullableTypeInfo nullable)
+        {
+            resolved = ResolveTypeAlias(nullable.InnerType);
+        }
+
+        if (resolved is SimpleTypeInfo simple
+            && TryGetUnsignedIntegerLiteralMaxValue(simple.Name, out var simpleMaxValue)
+            && magnitude <= simpleMaxValue)
+        {
+            targetType = simple;
+            return true;
+        }
+
+        if (resolved is ReflectionTypeInfo reflection
+            && TryGetIntegerLiteralTypeInfo(reflection.Type, out var reflectionType)
+            && TryGetUnsignedIntegerLiteralMaxValue(reflectionType.Name, out var reflectionMaxValue)
+            && magnitude <= reflectionMaxValue)
+        {
+            targetType = reflectionType;
+            return true;
+        }
+
+        targetType = BuiltInTypes.Int;
+        return false;
+    }
+
+    private static bool TryGetIntegerLiteralTypeInfo(Type type, out SimpleTypeInfo typeInfo)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        if (type == typeof(byte))
+        {
+            typeInfo = BuiltInTypes.Byte;
+            return true;
+        }
+        if (type == typeof(sbyte))
+        {
+            typeInfo = BuiltInTypes.SByte;
+            return true;
+        }
+        if (type == typeof(short))
+        {
+            typeInfo = BuiltInTypes.Short;
+            return true;
+        }
+        if (type == typeof(ushort))
+        {
+            typeInfo = BuiltInTypes.UShort;
+            return true;
+        }
+        if (type == typeof(int))
+        {
+            typeInfo = BuiltInTypes.Int;
+            return true;
+        }
+        if (type == typeof(uint))
+        {
+            typeInfo = BuiltInTypes.UInt;
+            return true;
+        }
+        if (type == typeof(long))
+        {
+            typeInfo = BuiltInTypes.Long;
+            return true;
+        }
+        if (type == typeof(ulong))
+        {
+            typeInfo = BuiltInTypes.ULong;
+            return true;
+        }
+        if (type == typeof(char))
+        {
+            typeInfo = BuiltInTypes.Char;
+            return true;
+        }
+
+        typeInfo = BuiltInTypes.Int;
+        return false;
+    }
+
+    private static bool TryGetUnsignedIntegerLiteralMaxValue(string typeName, out ulong maxValue)
+    {
+        switch (typeName)
+        {
+            case "byte":
+                maxValue = byte.MaxValue;
+                return true;
+            case "sbyte":
+                maxValue = (ulong)sbyte.MaxValue;
+                return true;
+            case "short":
+                maxValue = (ulong)short.MaxValue;
+                return true;
+            case "ushort":
+            case "char":
+                maxValue = ushort.MaxValue;
+                return true;
+            case "int":
+                maxValue = int.MaxValue;
+                return true;
+            case "uint":
+                maxValue = uint.MaxValue;
+                return true;
+            case "long":
+                maxValue = long.MaxValue;
+                return true;
+            case "ulong":
+                maxValue = ulong.MaxValue;
+                return true;
+            default:
+                maxValue = 0;
+                return false;
+        }
     }
 
     private bool IsKnownGenericTypeAssignable(TypeInfo target, TypeInfo source)

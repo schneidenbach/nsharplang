@@ -5944,6 +5944,30 @@ func Main() {
         ");
     }
 
+    [Fact]
+    public void IntegerLiteralTypes_UnsignedSuffixesAndTargetTypes_NoError()
+    {
+        AssertNoErrors(@"
+            import System.Numerics
+
+            func ReturnUlongMax(): ulong {
+                return 0xFFFFFFFFFFFFFFFFUL
+            }
+
+            func ReturnUintHighBit(): uint {
+                return 0x80000000
+            }
+
+            func CountMasked(value: ulong): int {
+                return BitOperations.PopCount(value & 0xF0F0F0F0F0F0F0F0UL)
+            }
+
+            func CountLiteral(): int {
+                return BitOperations.PopCount(0xF0F0F0F0F0F0F0F0UL)
+            }
+        ");
+    }
+
     // ===== char widening =====
     [Fact]
     public void NumericWidening_CharToInt()

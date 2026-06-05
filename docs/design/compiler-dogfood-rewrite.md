@@ -2026,8 +2026,9 @@ cache materialization around the N# lookup kernels are still C# host logic.
 The batch result packed-count probe shows the same representation boundary:
 `BitOperations.PopCount` gives a fast N# systems kernel over compact `ulong` words, but current C#
 object-to-bitset projection overwhelms the win. A manual N# popcount using large unsigned mask
-constants also exposed an IL-emission overflow, so a production-quality systems rewrite needs
-reliable unsigned literal lowering and intrinsic-friendly bit operations.
+constants exposed an IL-emission overflow; unsigned integer literal lowering now preserves `U`/`L`
+suffix types through analysis, overload binding, and IL emission, so the remaining systems work is
+intrinsic-friendly bit operations plus earlier compact bitset materialization.
 The `nlc test` outcome summary slice is the positive version of the same lesson: late projection of
 public outcome strings misses the gate, but retaining compact ranks while result objects are created
 lets the N# summary kernel clear 5x comfortably.

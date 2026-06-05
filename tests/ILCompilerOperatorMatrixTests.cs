@@ -252,6 +252,45 @@ func unsignedComparisonScore(): int {
     }
 
     [Fact]
+    public void ILCompiler_UnsignedIntegerLiteralSuffixes_ExecuteExpectedResults()
+    {
+        var source = """
+import System.Numerics
+
+func returnUlongMax(): ulong {
+    return 0xFFFFFFFFFFFFFFFFUL
+}
+
+func returnUintHighBit(): uint {
+    return 0x80000000U
+}
+
+func popCountLargeMask(value: ulong): int {
+    return BitOperations.PopCount(value & 0xF0F0F0F0F0F0F0F0UL)
+}
+
+func passLiteralToPopCount(): int {
+    return BitOperations.PopCount(0xF0F0F0F0F0F0F0F0UL)
+}
+""";
+
+        CompileAndInspect(source, assembly =>
+        {
+            Assert.Equal(ulong.MaxValue, InvokeStatic<ulong>(assembly, "returnUlongMax"));
+            Assert.Equal(0x80000000u, InvokeStatic<uint>(assembly, "returnUintHighBit"));
+
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+            var popCountLargeMask = programType!.GetMethod("popCountLargeMask", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(popCountLargeMask);
+
+            Assert.Equal(32, Assert.IsType<int>(popCountLargeMask!.Invoke(null, new object[] { ulong.MaxValue })));
+            Assert.Equal(32, InvokeStatic<int>(assembly, "passLiteralToPopCount"));
+            return true;
+        });
+    }
+
+    [Fact]
     public void ILCompiler_LogicalOperatorsShortCircuit()
     {
         var source = """

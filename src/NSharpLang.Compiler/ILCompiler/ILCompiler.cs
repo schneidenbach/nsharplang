@@ -8935,6 +8935,12 @@ public partial class ILCompiler
                 return;
             }
 
+            if (expression is IntLiteralExpression intLiteral
+                && TryEmitIntLiteralWithExpectedIntegralType(intLiteral, _expectedExpressionType))
+            {
+                return;
+            }
+
             var actualType = GetExpressionType(expression);
             EmitExpression(expression);
             EmitValueCoercion(actualType, _expectedExpressionType, allowExplicitUserDefinedConversions: false);
@@ -12532,7 +12538,20 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        var literalType = GetIntLiteralRuntimeType(intLit.Value);
+        if (literalType != typeof(int))
+        {
+            EmitUnsignedIntegerLiteralMagnitude(NumericLiteralFacts.ParseUnsignedIntegerMagnitude(intLit.Value), literalType);
+            return;
+        }
+
         var value = ParseIntLiteralValue(intLit.Value);
+        EmitInt32Constant(value);
+    }
+
+    private void EmitInt32Constant(int value)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
         // Use optimized opcodes for small values
         switch (value)
@@ -12558,6 +12577,93 @@ public partial class ILCompiler
                 }
                 break;
         }
+    }
+
+    private bool TryEmitIntLiteralWithExpectedIntegralType(IntLiteralExpression intLit, Type expectedType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (Nullable.GetUnderlyingType(expectedType) != null)
+        {
+            return false;
+        }
+
+        var targetType = TryGetEnumUnderlyingType(expectedType) ?? expectedType;
+        if (!TryGetUnsignedIntegerLiteralMaxValue(targetType, out var maxValue))
+        {
+            return false;
+        }
+
+        var magnitude = NumericLiteralFacts.ParseUnsignedIntegerMagnitude(intLit.Value);
+        if (magnitude > maxValue)
+        {
+            throw new OverflowException($"Integer literal '{intLit.Value}' is too large for target type '{expectedType}'.");
+        }
+
+        EmitUnsignedIntegerLiteralMagnitude(magnitude, targetType);
+        return true;
+    }
+
+    private void EmitUnsignedIntegerLiteralMagnitude(ulong magnitude, Type targetType)
+    {
+        targetType = TryGetEnumUnderlyingType(targetType) ?? targetType;
+
+        if (targetType == typeof(long) || targetType == typeof(ulong))
+        {
+            _currentIL!.Emit(OpCodes.Ldc_I8, unchecked((long)magnitude));
+            return;
+        }
+
+        EmitInt32Constant(unchecked((int)magnitude));
+    }
+
+    private static bool TryGetUnsignedIntegerLiteralMaxValue(Type type, out ulong maxValue)
+    {
+        type = TryGetEnumUnderlyingType(type) ?? type;
+
+        if (type == typeof(byte))
+        {
+            maxValue = byte.MaxValue;
+            return true;
+        }
+        if (type == typeof(sbyte))
+        {
+            maxValue = (ulong)sbyte.MaxValue;
+            return true;
+        }
+        if (type == typeof(short))
+        {
+            maxValue = (ulong)short.MaxValue;
+            return true;
+        }
+        if (type == typeof(ushort) || type == typeof(char))
+        {
+            maxValue = ushort.MaxValue;
+            return true;
+        }
+        if (type == typeof(int))
+        {
+            maxValue = int.MaxValue;
+            return true;
+        }
+        if (type == typeof(uint))
+        {
+            maxValue = uint.MaxValue;
+            return true;
+        }
+        if (type == typeof(long))
+        {
+            maxValue = long.MaxValue;
+            return true;
+        }
+        if (type == typeof(ulong))
+        {
+            maxValue = ulong.MaxValue;
+            return true;
+        }
+
+        maxValue = 0;
+        return false;
     }
 
     // ==================== match/switch dispatch lowering ====================
@@ -13146,24 +13252,30 @@ public partial class ILCompiler
 
     private static long ParseIntLiteralMagnitude(string text)
     {
-        // Strip trailing suffixes (u, l, ul, lu, etc.)
-        var span = text.AsSpan();
-        while (span.Length > 0 && (span[^1] == 'u' || span[^1] == 'U' || span[^1] == 'l' || span[^1] == 'L'))
+        var magnitude = NumericLiteralFacts.ParseUnsignedIntegerMagnitude(text);
+        return checked((long)magnitude);
+    }
+
+    private static Type GetIntLiteralRuntimeType(string text)
+    {
+        var suffix = NumericLiteralFacts.GetIntegerSuffix(text);
+        if (!suffix.HasUnsigned && !suffix.HasLong)
         {
-            span = span[..^1];
+            return typeof(int);
         }
 
-        // Remove underscore separators
-        var clean = span.ToString().Replace("_", "");
+        var magnitude = NumericLiteralFacts.ParseUnsignedIntegerMagnitude(text);
+        if (suffix.HasUnsigned && suffix.HasLong)
+        {
+            return typeof(ulong);
+        }
 
-        if (clean.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return long.Parse(clean[2..], System.Globalization.NumberStyles.HexNumber);
-        if (clean.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
-            return Convert.ToInt64(clean[2..], 2);
-        if (clean.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
-            return Convert.ToInt64(clean[2..], 8);
+        if (suffix.HasUnsigned)
+        {
+            return magnitude <= uint.MaxValue ? typeof(uint) : typeof(ulong);
+        }
 
-        return long.Parse(clean);
+        return magnitude <= long.MaxValue ? typeof(long) : typeof(ulong);
     }
 
     /// <summary>
@@ -17498,7 +17610,7 @@ public partial class ILCompiler
     {
         return expression switch
         {
-            IntLiteralExpression => typeof(int),
+            IntLiteralExpression intLiteral => GetIntLiteralRuntimeType(intLiteral.Value),
             FloatLiteralExpression floatLiteral when IsDecimalLiteral(floatLiteral.Value) => typeof(decimal),
             FloatLiteralExpression floatLiteral when IsSingleLiteral(floatLiteral.Value) => typeof(float),
             FloatLiteralExpression => typeof(double),
