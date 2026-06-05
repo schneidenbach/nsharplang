@@ -658,6 +658,59 @@ func documented(): int {
     }
 
     [Fact]
+    public void PerformanceDogfoodAdapter_ChecksStructCopyFieldReadonlyShape()
+    {
+        var adapterType = typeof(NSharpLang.Compiler.Performance.StructCopyAnalysis).Assembly.GetType(
+                "NSharpLang.Compiler.Performance.NSharpPerformanceDogfoodAdapter")
+            ?? throw new InvalidOperationException("Performance dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryAllInstanceFieldsAreInitOnly = adapterType.GetMethod(
+                "TryAllInstanceFieldsAreInitOnly",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryAllInstanceFieldsAreInitOnly.");
+
+        var readonlyFields = new[]
+        {
+            new NSharpLang.Compiler.Performance.StructCopyAnalysis.StructFieldDescriptor(
+                typeof(double),
+                IsInitOnly: false,
+                IsStatic: true),
+            new NSharpLang.Compiler.Performance.StructCopyAnalysis.StructFieldDescriptor(
+                typeof(double),
+                IsInitOnly: true,
+                IsStatic: false),
+            new NSharpLang.Compiler.Performance.StructCopyAnalysis.StructFieldDescriptor(
+                typeof(double),
+                IsInitOnly: true,
+                IsStatic: false)
+        };
+        var readonlyArgs = new object?[] { readonlyFields, false };
+        Assert.True((bool)(tryAllInstanceFieldsAreInitOnly.Invoke(null, readonlyArgs) ?? false));
+        Assert.Equal(true, readonlyArgs[1]);
+
+        var mutableFields = new[]
+        {
+            new NSharpLang.Compiler.Performance.StructCopyAnalysis.StructFieldDescriptor(
+                typeof(double),
+                IsInitOnly: true,
+                IsStatic: false),
+            new NSharpLang.Compiler.Performance.StructCopyAnalysis.StructFieldDescriptor(
+                typeof(double),
+                IsInitOnly: false,
+                IsStatic: false)
+        };
+        var mutableArgs = new object?[] { mutableFields, true };
+        Assert.True((bool)(tryAllInstanceFieldsAreInitOnly.Invoke(null, mutableArgs) ?? false));
+        Assert.Equal(false, mutableArgs[1]);
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_CompactsParserTokens()
     {
         var source = """

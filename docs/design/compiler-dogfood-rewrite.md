@@ -8,6 +8,16 @@ It is not a straight port. The goal is to use the systems-oriented parts of N# t
 toolchain materially faster than the current C# implementation while exposing the language gaps
 that prevent that result.
 
+## End State
+
+The compiler core libraries, compiler-service core libraries, and CLI command logic are expected to
+move to N#. C# is acceptable only for CLR/BCL host boundaries, bootstrap loading, public .NET object
+materialization, or measured fallback while a function has not yet cleared parity and speed gates.
+Adapter names such as `NSharpPerformanceDogfoodAdapter`,
+`NSharpCompilerDogfoodAdapter`, `NSharpCliDogfoodAdapter`, and
+`NSharpCodeIntelligenceDogfoodAdapter` are temporary transition boundaries; they are not the target
+architecture and must shrink as N# slices land.
+
 ## Acceptance Standard
 
 The rewrite is complete only when current evidence proves all of these:
@@ -50,6 +60,7 @@ dotnet run -c Release --project benchmarks -- --filter '*SourceTextLine*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeIntelligence*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceSemanticScope*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequirementGrouping*'
+dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -493,6 +504,14 @@ Current compiler-performance dogfood benchmarks:
   ranks, flags, and the first three sorted construct ranks through `AotRequirementGroupsInto`.
   Public annotation strings and dictionaries remain explicit C# host boundaries until the broader
   AOT attribute-emission path is ported.
+- `CompilerServiceStructCopyFieldAnalysisBenchmarks` targets the declared-field readonly gate used
+  by struct-copy analysis before deciding whether a large value type can be passed by `in`
+  reference. The C# baseline mirrors the previous `Where(...).ToList().All(...)` shape. The
+  accepted N# candidate runs after the host has projected static-or-readonly field readiness into
+  compact 0/1 integer flags, then scans those flags through
+  `StructCopyAllInstanceFieldsInitOnly`. Reflection over CLR fields, type-size calculation, and
+  public descriptor construction remain explicit C# host boundaries until the full struct-copy
+  optimizer is ported.
 - `CompilerServiceInterfaceDeduplicationBenchmarks` targets first-source implemented-interface
   de-duplication in the IL compiler after direct and inherited interfaces have been expanded. The C#
   baseline mirrors the fallback shape: group by ordinal type key, keep the first interface in each
@@ -524,7 +543,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CliArguments.nl`, `CompilerServices/CliDocOrdering.nl`,
 `CompilerServices/CompletionGrouping.nl`, `CompilerServices/PathMatching.nl`,
 `CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`,
-`CompilerServices/ErrorSuggestions.nl`, and `CompilerServices/TypeLookup.nl`.
+`CompilerServices/StructCopyAnalysis.nl`, `CompilerServices/ErrorSuggestions.nl`, and
+`CompilerServices/TypeLookup.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -884,6 +904,16 @@ on the representative blocker corpus (3.078 us vs 49.735 us, 0 B vs 154,824 B) a
 faster on the large generated blocker corpus (26.217 us vs 458.017 us, 0 B vs 1,237,176 B). This is
 acceptance-grade benchmark evidence for AOT requirement grouping after the host has assigned compact
 declaration ranks, construct ranks, and blocker-kind ids.
+
+`StructCopyAllInstanceFieldsInitOnly` passed parity and reported zero managed allocation in the
+short BenchmarkDotNet evidence tier for declared-field readonly gating. It ran about 7.2x faster on
+the representative all-readonly field corpus (164.3 ns vs 1,175.9 ns, 0 B vs 7,120 B), about 7.4x
+faster when the last instance field was mutable (164.5 ns vs 1,213.2 ns, 0 B vs 7,120 B), about
+7.2x faster on the large generated all-readonly field corpus (1.274 us vs 9.115 us, 0 B vs
+56,272 B), and about 7.2x faster on the large generated last-instance-mutable field corpus
+(1.274 us vs 9.155 us, 0 B vs 56,272 B). This is acceptance-grade benchmark evidence for replacing
+the C# `Where(...).ToList().All(...)` readonly-field gate after the host has projected compact
+static-or-readonly field flags.
 
 `FirstDistinctRankIndicesInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for first-source implemented-interface de-duplication. It ran about
@@ -1335,6 +1365,10 @@ Public AOT requirement construction now routes `AotRequirements.FromBlockers` th
 `NSharpPerformanceDogfoodAdapter.TryBuildAotRequirements` when the dogfood assembly is available,
 preserving the previous public-surface filter, per-declaration flag combination, sorted construct
 names, and annotation message text, with the previous C# LINQ grouping path kept as the fallback.
+Struct-copy declared-field readonly gating now routes `AllInstanceFieldsAreInitOnly` through
+`NSharpPerformanceDogfoodAdapter.TryAllInstanceFieldsAreInitOnly` when the dogfood assembly is
+available, preserving static-field exclusion and instance init-only semantics, with the previous C#
+LINQ `Where(...).ToList().All(...)` path kept as the fallback.
 IL compiler implemented-interface expansion now routes first-source type-key de-duplication through
 `NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys` when the dogfood assembly is available,
 preserving direct/inherited interface expansion, ordinal type-key identity, and first-source
@@ -1513,7 +1547,7 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
+text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
 AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,

@@ -12,7 +12,50 @@ internal static class NSharpPerformanceDogfoodAdapter
     [ThreadStatic]
     private static AotRequirementScratch? t_aotRequirementScratch;
 
+    [ThreadStatic]
+    private static StructCopyScratch? t_structCopyScratch;
+
     private static readonly Lazy<Bindings?> s_bindings = new(LoadBindings);
+
+    internal static bool IsAvailable => s_bindings.Value != null;
+
+    internal static bool TryAllInstanceFieldsAreInitOnly(
+        IReadOnlyList<StructCopyAnalysis.StructFieldDescriptor> fields,
+        out bool allInitOnly)
+    {
+        allInitOnly = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var fieldCount = fields.Count;
+        var scratch = t_structCopyScratch ??= new StructCopyScratch();
+        scratch.EnsureFieldCapacity(fieldCount);
+
+        try
+        {
+            for (var i = 0; i < fieldCount; i++)
+            {
+                var field = fields[i];
+                scratch.FieldReadonlyFlags[i] = field.IsStatic || field.IsInitOnly ? 1 : 0;
+            }
+
+            var result = bindings.StructCopyAllInstanceFieldsInitOnly(
+                scratch.FieldReadonlyFlags,
+                fieldCount);
+            if (result is not 0 and not 1)
+                return false;
+
+            allInitOnly = result != 0;
+            return true;
+        }
+        catch
+        {
+            allInitOnly = false;
+            return false;
+        }
+    }
 
     internal static bool TryBuildAotRequirements(
         IReadOnlyList<AotBlocker> blockers,
@@ -141,7 +184,10 @@ internal static class NSharpPerformanceDogfoodAdapter
                 return null;
 
             return new Bindings(
-                CreateDelegate<AotRequirementGroupsInto>(programType, "AotRequirementGroupsInto"));
+                CreateDelegate<AotRequirementGroupsInto>(programType, "AotRequirementGroupsInto"),
+                CreateDelegate<StructCopyAllInstanceFieldsInitOnly>(
+                    programType,
+                    "StructCopyAllInstanceFieldsInitOnly"));
         }
         catch
         {
@@ -201,7 +247,24 @@ internal static class NSharpPerformanceDogfoodAdapter
         int[] resultConstructCounts,
         int[] resultConstructRanks);
 
-    private sealed record Bindings(AotRequirementGroupsInto AotRequirementGroups);
+    private delegate int StructCopyAllInstanceFieldsInitOnly(int[] fieldFlags, int count);
+
+    private sealed record Bindings(
+        AotRequirementGroupsInto AotRequirementGroups,
+        StructCopyAllInstanceFieldsInitOnly StructCopyAllInstanceFieldsInitOnly);
+
+    private sealed class StructCopyScratch
+    {
+        public int[] FieldReadonlyFlags = Array.Empty<int>();
+
+        public void EnsureFieldCapacity(int fieldCount)
+        {
+            if (FieldReadonlyFlags.Length < fieldCount)
+            {
+                FieldReadonlyFlags = new int[fieldCount];
+            }
+        }
+    }
 
     private sealed class AotRequirementScratch
     {

@@ -714,6 +714,8 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.ErrorSuggestions.nl";
     private const string AotRequirementsResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.AotRequirements.nl";
+    private const string StructCopyAnalysisResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.StructCopyAnalysis.nl";
     private const string TypeLookupResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.TypeLookup.nl";
 
@@ -736,6 +738,7 @@ internal static class DogfoodCompilerSources
     public static string CliTreeDependencies => ReadResource(CliTreeDependenciesResourceName);
     public static string ErrorSuggestions => ReadResource(ErrorSuggestionsResourceName);
     public static string AotRequirements => ReadResource(AotRequirementsResourceName);
+    public static string StructCopyAnalysis => ReadResource(StructCopyAnalysisResourceName);
     public static string TypeLookup => ReadResource(TypeLookupResourceName);
 
     private static string ReadResource(string resourceName)
