@@ -25,6 +25,20 @@ This is a product being built for millions of users. Treat every feature, every 
 - **Semantic correctness**: Symbol resolution is semantic, not string matching. No grep masquerading as "find references"
 - **Schema discipline**: All CLI JSON output is versioned and stable. Breaking changes get new schema versions
 
+## Compiler Dogfood Architecture
+
+The compiler core libraries, compiler-service core libraries, and CLI command logic are not intended
+to remain in C#. The target implementation language for those hot paths is N#, using the systems
+portion of the language where it buys real speed.
+
+C# is acceptable only for CLR/BCL host boundaries, bootstrap loading, MSBuild/VS Code/LSP glue,
+public .NET object materialization, or a measured fallback while an N# implementation has not yet
+cleared parity and the 5x benchmark gate.
+
+Treat `*DogfoodAdapter` types as temporary transition boundaries, not product architecture. Do not
+expand them into permanent service layers; shrink or remove them as accepted N# slices are routed
+directly into production paths.
+
 ## Memory lookup
 
 The memory/README.md is the table of contents for your documentation - if you need to look something up, start in the memory/README.md and then find the file that could answer your question.
