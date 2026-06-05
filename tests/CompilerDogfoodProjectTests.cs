@@ -1504,6 +1504,14 @@ class OtherZetaType {
                     "CliFixSkippedChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSkippedChecksumInto.");
+            var cliFixAppliedFileGroupsInto = programType.GetMethod(
+                    "CliFixAppliedFileGroupsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixAppliedFileGroupsInto.");
+            var cliFixAppliedFileGroupChecksumInto = programType.GetMethod(
+                    "CliFixAppliedFileGroupChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixAppliedFileGroupChecksumInto.");
             var cliCleanArtifactDirectoryIndicesInto = programType.GetMethod(
                     "CliCleanArtifactDirectoryIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2089,6 +2097,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliFixEditFlattenChecksumInto,
                 cliFixSkippedIndicesInto,
                 cliFixSkippedChecksumInto);
+            AssertCliFixAppliedFileGroupingLikeProduction(
+                cliFixAppliedFileGroupsInto,
+                cliFixAppliedFileGroupChecksumInto);
             AssertCliCleanArtifactDirectoryOrderingLikeProduction(
                 cliCleanArtifactDirectoryIndicesInto,
                 cliCleanArtifactDirectoryChecksumInto);
@@ -4136,6 +4147,122 @@ func main() {
         AssertCliFixEditFlatteningLikeProduction(
             cliFixEditFlattenIndicesInto,
             cliFixEditFlattenChecksumInto);
+    }
+
+    private static void AssertCliFixAppliedFileGroupingLikeProduction(
+        MethodInfo cliFixAppliedFileGroupsInto,
+        MethodInfo cliFixAppliedFileGroupChecksumInto)
+    {
+        var files = new[]
+        {
+            "src/B.nl",
+            "src/A.nl",
+            "src/B.nl",
+            "src/C.nl",
+            "src/A.nl",
+            "src/B.nl",
+            "src/D.nl",
+            "src/C.nl",
+            "src/A.nl"
+        };
+        var ranksByFile = new Dictionary<string, int>(StringComparer.Ordinal);
+        var fileRanks = new int[files.Length];
+        for (var i = 0; i < files.Length; i++)
+        {
+            if (!ranksByFile.TryGetValue(files[i], out var rank))
+            {
+                rank = ranksByFile.Count + 1;
+                ranksByFile.Add(files[i], rank);
+            }
+
+            fileRanks[i] = rank;
+        }
+
+        var expectedGroups = Enumerable.Range(0, files.Length)
+            .GroupBy(i => files[i])
+            .ToArray();
+        var expectedRanks = expectedGroups
+            .Select(group => ranksByFile[group.Key])
+            .ToArray();
+        var expectedStarts = new int[expectedGroups.Length];
+        var expectedCounts = new int[expectedGroups.Length];
+        var expectedIndices = new int[files.Length];
+        var offset = 0;
+        for (var groupIndex = 0; groupIndex < expectedGroups.Length; groupIndex++)
+        {
+            var members = expectedGroups[groupIndex].ToArray();
+            expectedStarts[groupIndex] = offset;
+            expectedCounts[groupIndex] = members.Length;
+            Array.Copy(members, 0, expectedIndices, offset, members.Length);
+            offset += members.Length;
+        }
+
+        var expectedChecksum = expectedGroups.Length;
+        for (var groupIndex = 0; groupIndex < expectedGroups.Length; groupIndex++)
+        {
+            var rank = expectedRanks[groupIndex];
+            var start = expectedStarts[groupIndex];
+            var count = expectedCounts[groupIndex];
+            expectedChecksum += (groupIndex + 1) * 97 + rank * 31 + (start + 1) * 17 + count * 13;
+
+            for (var i = 0; i < count; i++)
+            {
+                var sourceIndex = expectedIndices[start + i];
+                expectedChecksum += (sourceIndex + 1) * 11 + fileRanks[sourceIndex] * 7 + (i + 1) * 5;
+            }
+        }
+
+        var checksumCountsByRank = new int[ranksByFile.Count + 1];
+        var checksumOffsetsByRank = new int[ranksByFile.Count + 1];
+        var checksumWriteOffsetsByRank = new int[ranksByFile.Count + 1];
+        var checksumResultRanks = new int[files.Length];
+        var checksumResultStarts = new int[files.Length];
+        var checksumResultCounts = new int[files.Length];
+        var checksumResultIndices = new int[files.Length];
+        var actualChecksum = (int)(cliFixAppliedFileGroupChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                fileRanks,
+                ranksByFile.Count,
+                checksumCountsByRank,
+                checksumOffsetsByRank,
+                checksumWriteOffsetsByRank,
+                checksumResultRanks,
+                checksumResultStarts,
+                checksumResultCounts,
+                checksumResultIndices
+            }) ?? -1);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+
+        var countsByRank = new int[ranksByFile.Count + 1];
+        var offsetsByRank = new int[ranksByFile.Count + 1];
+        var writeOffsetsByRank = new int[ranksByFile.Count + 1];
+        var resultRanks = new int[files.Length];
+        var resultStarts = new int[files.Length];
+        var resultCounts = new int[files.Length];
+        var resultIndices = new int[files.Length];
+        var actualGroupCount = (int)(cliFixAppliedFileGroupsInto.Invoke(
+            null,
+            new object[]
+            {
+                fileRanks,
+                ranksByFile.Count,
+                countsByRank,
+                offsetsByRank,
+                writeOffsetsByRank,
+                resultRanks,
+                resultStarts,
+                resultCounts,
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expectedGroups.Length, actualGroupCount);
+        Assert.Equal(expectedRanks, resultRanks.Take(actualGroupCount).ToArray());
+        Assert.Equal(expectedStarts, resultStarts.Take(actualGroupCount).ToArray());
+        Assert.Equal(expectedCounts, resultCounts.Take(actualGroupCount).ToArray());
+        Assert.Equal(expectedIndices, resultIndices);
     }
 
     private static void AssertCliFixEditFlatteningLikeProduction(

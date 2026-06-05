@@ -25,6 +25,8 @@ internal static class NSharpCliDogfoodAdapter
     [ThreadStatic]
     private static CompilerErrorSeverityFilterScratch? t_compilerErrorSeverityFilterScratch;
     [ThreadStatic]
+    private static FixAppliedFileGroupingScratch? t_fixAppliedFileGroupingScratch;
+    [ThreadStatic]
     private static FixSafetyFilterScratch? t_fixSafetyFilterScratch;
     [ThreadStatic]
     private static CleanArtifactDirectoryScratch? t_cleanArtifactDirectoryScratch;
@@ -927,6 +929,99 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
+    internal static bool TryGroupAppliedFixEntriesByFile(
+        IReadOnlyList<FixEntry> applied,
+        out FixAppliedFileGrouping grouping)
+    {
+        grouping = FixAppliedFileGrouping.Empty;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var appliedCount = applied.Count;
+        if (appliedCount == 0)
+            return true;
+
+        var scratch = t_fixAppliedFileGroupingScratch ??= new FixAppliedFileGroupingScratch();
+        scratch.EnsureCapacity(appliedCount);
+
+        try
+        {
+            scratch.Reset();
+            for (var i = 0; i < appliedCount; i++)
+            {
+                var fileRank = scratch.GetOrAddFileRank(applied[i].File);
+                scratch.FileRanks[i] = fileRank;
+            }
+
+            var groupCount = bindings.CliFixAppliedFileGroups(
+                scratch.FileRanks,
+                scratch.UniqueFileRankCount,
+                scratch.CountsByRank,
+                scratch.OffsetsByRank,
+                scratch.WriteOffsetsByRank,
+                scratch.ResultRanks,
+                scratch.ResultStarts,
+                scratch.ResultCounts,
+                scratch.ResultIndices);
+
+            if (groupCount < 0
+                || groupCount > scratch.UniqueFileRankCount
+                || groupCount > appliedCount)
+            {
+                return false;
+            }
+
+            var files = new string[groupCount];
+            var starts = new int[groupCount];
+            var counts = new int[groupCount];
+            var indices = new int[appliedCount];
+
+            for (var groupIndex = 0; groupIndex < groupCount; groupIndex++)
+            {
+                var rank = scratch.ResultRanks[groupIndex];
+                var start = scratch.ResultStarts[groupIndex];
+                var count = scratch.ResultCounts[groupIndex];
+                if (rank <= 0
+                    || rank > scratch.UniqueFileRankCount
+                    || start < 0
+                    || count < 0
+                    || start + count > appliedCount)
+                {
+                    return false;
+                }
+
+                files[groupIndex] = scratch.FilesByRank[rank] ?? string.Empty;
+                starts[groupIndex] = start;
+                counts[groupIndex] = count;
+            }
+
+            for (var i = 0; i < appliedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= appliedCount)
+                {
+                    return false;
+                }
+
+                indices[i] = sourceIndex;
+            }
+
+            grouping = new FixAppliedFileGrouping(files, starts, counts, indices);
+            return true;
+        }
+        catch
+        {
+            grouping = FixAppliedFileGrouping.Empty;
+            return false;
+        }
+        finally
+        {
+            scratch.Reset();
+        }
+    }
+
     internal static bool TrySelectTidyPossiblyUnusedDependencies<T>(
         IReadOnlyList<T> results,
         Func<T, string> statusSelector,
@@ -1135,6 +1230,7 @@ internal static class NSharpCliDogfoodAdapter
                 CreateDelegate<DiagnosticSeverityFilterIndicesInto>(programType, "DiagnosticSeverityFilterIndicesInto"),
                 CreateDelegate<CliFixSafetyFilterIndicesInto>(programType, "CliFixSafetyFilterIndicesInto"),
                 CreateDelegate<CliFixSkippedIndicesInto>(programType, "CliFixSkippedIndicesInto"),
+                CreateDelegate<CliFixAppliedFileGroupsInto>(programType, "CliFixAppliedFileGroupsInto"),
                 CreateDelegate<CliCleanArtifactDirectoryIndicesInto>(programType, "CliCleanArtifactDirectoryIndicesInto"),
                 CreateDelegate<CliUpdateAllNuGetDependencyIndicesInto>(programType, "CliUpdateAllNuGetDependencyIndicesInto"),
                 CreateDelegate<CliUpdateTargetNuGetDependencyIndicesInto>(programType, "CliUpdateTargetNuGetDependencyIndicesInto"),
@@ -1245,6 +1341,17 @@ internal static class NSharpCliDogfoodAdapter
         int includeReviewNeeded,
         int[] resultIndices);
 
+    private delegate int CliFixAppliedFileGroupsInto(
+        int[] fileRanks,
+        int uniqueFileRankCount,
+        int[] countsByRank,
+        int[] offsetsByRank,
+        int[] writeOffsetsByRank,
+        int[] resultRanks,
+        int[] resultStarts,
+        int[] resultCounts,
+        int[] resultIndices);
+
     private delegate int CliCleanArtifactDirectoryIndicesInto(
         int[] kindRanks,
         int[] nodeModuleFlags,
@@ -1292,6 +1399,7 @@ internal static class NSharpCliDogfoodAdapter
         DiagnosticSeverityFilterIndicesInto DiagnosticSeverityFilter,
         CliFixSafetyFilterIndicesInto CliFixSafetyFilter,
         CliFixSkippedIndicesInto CliFixSkippedIndices,
+        CliFixAppliedFileGroupsInto CliFixAppliedFileGroups,
         CliCleanArtifactDirectoryIndicesInto CliCleanArtifactDirectoryIndices,
         CliUpdateAllNuGetDependencyIndicesInto CliUpdateAllNuGetDependencyIndices,
         CliUpdateTargetNuGetDependencyIndicesInto CliUpdateTargetNuGetDependencyIndices,
@@ -1547,6 +1655,88 @@ internal static class NSharpCliDogfoodAdapter
 
             if (ResultIndices.Length != resultCapacity)
                 ResultIndices = new int[resultCapacity];
+        }
+    }
+
+    internal sealed class FixAppliedFileGrouping
+    {
+        internal static readonly FixAppliedFileGrouping Empty = new(
+            Array.Empty<string>(),
+            Array.Empty<int>(),
+            Array.Empty<int>(),
+            Array.Empty<int>());
+
+        internal FixAppliedFileGrouping(string[] files, int[] starts, int[] counts, int[] indices)
+        {
+            Files = files;
+            Starts = starts;
+            Counts = counts;
+            Indices = indices;
+        }
+
+        internal string[] Files { get; }
+        internal int GroupCount => Files.Length;
+        internal int[] Starts { get; }
+        internal int[] Counts { get; }
+        internal int[] Indices { get; }
+    }
+
+    private sealed class FixAppliedFileGroupingScratch
+    {
+        private readonly Dictionary<string, int> _fileRanks = new(StringComparer.Ordinal);
+
+        public int[] CountsByRank = Array.Empty<int>();
+        public int[] FileRanks = Array.Empty<int>();
+        public string?[] FilesByRank = Array.Empty<string?>();
+        public int[] OffsetsByRank = Array.Empty<int>();
+        public int[] ResultCounts = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] ResultRanks = Array.Empty<int>();
+        public int[] ResultStarts = Array.Empty<int>();
+        public int UniqueFileRankCount;
+        public int[] WriteOffsetsByRank = Array.Empty<int>();
+
+        public void EnsureCapacity(int appliedCount)
+        {
+            if (FileRanks.Length != appliedCount)
+            {
+                FileRanks = new int[appliedCount];
+                ResultCounts = new int[appliedCount];
+                ResultIndices = new int[appliedCount];
+                ResultRanks = new int[appliedCount];
+                ResultStarts = new int[appliedCount];
+            }
+
+            var rankCapacity = appliedCount + 1;
+            if (CountsByRank.Length != rankCapacity)
+            {
+                CountsByRank = new int[rankCapacity];
+                FilesByRank = new string?[rankCapacity];
+                OffsetsByRank = new int[rankCapacity];
+                WriteOffsetsByRank = new int[rankCapacity];
+            }
+        }
+
+        public int GetOrAddFileRank(string file)
+        {
+            if (_fileRanks.TryGetValue(file, out var rank))
+                return rank;
+
+            rank = UniqueFileRankCount + 1;
+            _fileRanks.Add(file, rank);
+            FilesByRank[rank] = file;
+            UniqueFileRankCount = rank;
+            return rank;
+        }
+
+        public void Reset()
+        {
+            _fileRanks.Clear();
+            if (UniqueFileRankCount > 0)
+            {
+                Array.Clear(FilesByRank, 0, UniqueFileRankCount + 1);
+                UniqueFileRankCount = 0;
+            }
         }
     }
 

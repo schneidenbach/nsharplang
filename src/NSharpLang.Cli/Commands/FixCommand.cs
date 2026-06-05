@@ -227,13 +227,31 @@ Examples:
             var fileWord = filesModified == 1 ? "file" : "files";
             Console.Error.WriteLine($"{verb} {applied.Count} issue{(applied.Count == 1 ? "" : "s")} in {filesModified} {fileWord}:");
 
-            var byFile = applied.GroupBy(f => f.File);
-            foreach (var group in byFile)
+            if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGroupAppliedFixEntriesByFile(applied, out var groupedApplied))
             {
-                Console.Error.WriteLine($"  {group.Key}:");
-                foreach (var fix in group)
+                for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
                 {
-                    Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                    Console.Error.WriteLine($"  {groupedApplied.Files[groupIndex]}:");
+                    var start = groupedApplied.Starts[groupIndex];
+                    var count = groupedApplied.Counts[groupIndex];
+                    for (var i = 0; i < count; i++)
+                    {
+                        var sourceIndex = groupedApplied.Indices[start + i];
+                        var fix = applied[sourceIndex];
+                        Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                    }
+                }
+            }
+            else
+            {
+                var byFile = applied.GroupBy(f => f.File);
+                foreach (var group in byFile)
+                {
+                    Console.Error.WriteLine($"  {group.Key}:");
+                    foreach (var fix in group)
+                    {
+                        Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                    }
                 }
             }
         }

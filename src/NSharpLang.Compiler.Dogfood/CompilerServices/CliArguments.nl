@@ -951,6 +951,134 @@ func CliFixSkippedChecksumInto(
     return checksum
 }
 
+func CliFixAppliedFileGroupsInto(
+    fileRanks: int[],
+    uniqueFileRankCount: int,
+    countsByRank: int[],
+    offsetsByRank: int[],
+    writeOffsetsByRank: int[],
+    resultRanks: int[],
+    resultStarts: int[],
+    resultCounts: int[],
+    resultIndices: int[]): int {
+    if uniqueFileRankCount < 0 {
+        return -1
+    }
+
+    if fileRanks.Length == 0 {
+        return 0
+    }
+
+    if uniqueFileRankCount == 0 {
+        return -1
+    }
+
+    rankCapacity := uniqueFileRankCount + 1
+    if countsByRank.Length < rankCapacity
+        || offsetsByRank.Length < rankCapacity
+        || writeOffsetsByRank.Length < rankCapacity
+        || resultRanks.Length < uniqueFileRankCount
+        || resultStarts.Length < uniqueFileRankCount
+        || resultCounts.Length < uniqueFileRankCount
+        || resultIndices.Length < fileRanks.Length {
+        return -1
+    }
+
+    rank := 0
+    while rank < rankCapacity {
+        countsByRank[rank] = 0
+        offsetsByRank[rank] = 0
+        writeOffsetsByRank[rank] = 0
+        rank = rank + 1
+    }
+
+    i := 0
+    while i < fileRanks.Length {
+        fileRank := fileRanks[i]
+        if fileRank <= 0 || fileRank > uniqueFileRankCount {
+            return -1
+        }
+
+        countsByRank[fileRank] = countsByRank[fileRank] + 1
+        i = i + 1
+    }
+
+    offset := 0
+    rank = 1
+    while rank <= uniqueFileRankCount {
+        groupIndex := rank - 1
+        count := countsByRank[rank]
+        resultRanks[groupIndex] = rank
+        resultStarts[groupIndex] = offset
+        resultCounts[groupIndex] = count
+        offsetsByRank[rank] = offset
+        writeOffsetsByRank[rank] = offset
+        offset = offset + count
+        rank = rank + 1
+    }
+
+    if offset > resultIndices.Length {
+        return -1
+    }
+
+    i = 0
+    while i < fileRanks.Length {
+        fileRank := fileRanks[i]
+        writeIndex := writeOffsetsByRank[fileRank]
+        if writeIndex < 0 || writeIndex >= resultIndices.Length {
+            return -1
+        }
+
+        resultIndices[writeIndex] = i
+        writeOffsetsByRank[fileRank] = writeIndex + 1
+        i = i + 1
+    }
+
+    return uniqueFileRankCount
+}
+
+func CliFixAppliedFileGroupChecksumInto(
+    fileRanks: int[],
+    uniqueFileRankCount: int,
+    countsByRank: int[],
+    offsetsByRank: int[],
+    writeOffsetsByRank: int[],
+    resultRanks: int[],
+    resultStarts: int[],
+    resultCounts: int[],
+    resultIndices: int[]): int {
+    groupCount := CliFixAppliedFileGroupsInto(
+        fileRanks,
+        uniqueFileRankCount,
+        countsByRank,
+        offsetsByRank,
+        writeOffsetsByRank,
+        resultRanks,
+        resultStarts,
+        resultCounts,
+        resultIndices)
+
+    checksum := groupCount
+    groupIndex := 0
+    while groupIndex < groupCount {
+        rank := resultRanks[groupIndex]
+        start := resultStarts[groupIndex]
+        count := resultCounts[groupIndex]
+        checksum = checksum + (groupIndex + 1) * 97 + rank * 31 + (start + 1) * 17 + count * 13
+
+        i := 0
+        while i < count {
+            sourceIndex := resultIndices[start + i]
+            checksum = checksum + (sourceIndex + 1) * 11 + fileRanks[sourceIndex] * 7 + (i + 1) * 5
+            i = i + 1
+        }
+
+        groupIndex = groupIndex + 1
+    }
+
+    return checksum
+}
+
 func CliCleanArtifactDirectoryIndicesInto(
     kindRanks: int[],
     nodeModuleFlags: int[],

@@ -1162,6 +1162,43 @@ dependencies:
     }
 
     [Fact]
+    public void CliDogfoodAdapter_GroupsAppliedFixEntriesByFile()
+    {
+        var entries = new[]
+        {
+            NewEntry("src/B.nl", "NL001", "first b"),
+            NewEntry("src/A.nl", "NL002", "first a"),
+            NewEntry("src/B.nl", "NL003", "second b"),
+            NewEntry("src/C.nl", "NL004", "first c"),
+            NewEntry("src/A.nl", "NL005", "second a")
+        };
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryGroupAppliedFixEntriesByFile(entries, out var grouping));
+
+        var actual = new List<(string File, string Code, string Title)>();
+        for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
+        {
+            var start = grouping.Starts[groupIndex];
+            var count = grouping.Counts[groupIndex];
+            for (var i = 0; i < count; i++)
+            {
+                var entry = entries[grouping.Indices[start + i]];
+                actual.Add((grouping.Files[groupIndex], entry.DiagnosticCode, entry.Title));
+            }
+        }
+
+        var expected = entries
+            .GroupBy(entry => entry.File)
+            .SelectMany(group => group.Select(entry => (group.Key, entry.DiagnosticCode, entry.Title)))
+            .ToArray();
+        Assert.Equal(expected, actual);
+
+        static FixEntry NewEntry(string file, string code, string title) =>
+            new(file, code, title, new List<TextEdit>(), "safe");
+    }
+
+    [Fact]
     public void CliDogfoodAdapter_SelectsTidyPossiblyUnusedDependencies()
     {
         var dependencies = new[]

@@ -1011,6 +1011,11 @@ Current CLI dogfood benchmarks:
   host has projected fix safety strings into compact ranks, preserves the default
   safe-only/include-review-needed behavior, treats unknown safety values as skipped, and writes
   skipped source indices through `CliFixSkippedIndicesInto`.
+- `CliFixAppliedFileGroupingBenchmarks` targets applied-fix grouping in `nlc fix --text` output.
+  The C# baseline mirrors the current text-output shape: `applied.GroupBy(f => f.File)` plus
+  per-group materialization. The accepted N# candidate runs after the host has assigned first-seen
+  dense file ranks, then writes group ranks, group spans, and grouped source indices through
+  `CliFixAppliedFileGroupsInto`.
 - `CliTidyDependencyFilterBenchmarks` targets `nlc tidy --fix` dependency removal selection after
   dependencies have been classified. The C# baseline mirrors the command fallback shape:
   `results.Where(r => r.Status == "possibly-unused").ToList()`. The accepted N# candidate reuses
@@ -1277,6 +1282,15 @@ about 1,523x faster on the large generated safe-only corpus (9.459 us vs 14.410 
 45,008 B), and about 5,972x faster on the large generated include-review-needed corpus (6.523 us vs
 38.953 ms, 0 B vs 24,304 B). This is acceptance-grade benchmark evidence for `nlc fix --text`
 skipped-fix output after the host has projected safety strings into compact integer ranks.
+
+`CliFixAppliedFileGroupsInto` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for `nlc fix --text` applied-fix file grouping. The accepted N# path
+uses first-seen dense file ranks, caller-owned count/offset buffers, and grouped source-index
+output instead of the previous `applied.GroupBy(f => f.File)` materialization. It ran about 13.1x
+faster on the representative applied-fix corpus (2.081 us vs 27.244 us, 0 B vs 42,976 B) and about
+12.8x faster on the large generated corpus (15.710 us vs 200.511 us, 0 B vs 233,952 B). This is
+acceptance-grade benchmark evidence for `nlc fix --text` applied-fix output after the host has
+projected file names into compact integer ranks.
 
 `SymbolKindFilterIndicesInto` passed parity and reported zero managed allocation in the normal
 BenchmarkDotNet evidence tier for symbol-kind filtering. The accepted N# path uses compact symbol
@@ -1616,6 +1630,9 @@ previous LINQ ordering path kept as the fallback.
 the dogfood assembly is available, preserving the default safe-only behavior,
 include-review-needed behavior, suggestion-only exclusion, unknown-safety exclusion, and source-order
 output, with the previous `Contains`-based C# path kept as the fallback.
+`nlc fix --text` applied-fix file grouping now routes through the compiled N# file-group kernel when
+the dogfood assembly is available, preserving first-file-seen group order and per-file source order,
+with the previous LINQ `GroupBy` output path kept as the fallback.
 `nlc clean` artifact directory selection now routes through the compiled N# clean-ordering kernel
 when the dogfood assembly is available, preserving ordinal first-source de-duplication,
 node_modules exclusion, `bin`/`obj`/`.nlc` filtering, and stable descending-length deletion order,
@@ -1646,7 +1663,7 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering and slug generation, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, wildcard symbol-name filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
+text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, applied-fix file grouping, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
 AOT requirement grouping, anonymous-union overload-shim eligibility, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
@@ -1657,7 +1674,7 @@ path-matching and all-positionals CLI argument kernels through the compiled N# m
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering and slug generation, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
-selection, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
+selection, applied-fix file grouping, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
 CLI reference-type filtering,
 `nlc restore` project-reference de-duplication, `nlc update` dependency filtering, `nlc tidy`
 status summaries, and `nlc tidy --fix` possibly-unused dependency selection;
@@ -1690,7 +1707,8 @@ batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus 
 project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
 route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
-plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output in `nlc fix --text`,
+plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output and applied-fix
+file grouping in `nlc fix --text`,
 plus wildcard symbol-name filtering in `nlc query symbols --filter`, plus artifact directory
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
