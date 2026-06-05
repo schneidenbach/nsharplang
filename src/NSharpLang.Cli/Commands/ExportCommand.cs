@@ -522,7 +522,7 @@ Exit codes:
             ReferenceType referenceType)
         {
             var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
-            return NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(dependencyList, referenceType, out var dogfoodReferences)
+            return NSharpCliDogfoodAdapter.TryFilterReferencesByType(dependencyList, referenceType, out var dogfoodReferences)
                 ? dogfoodReferences
                 : dependencyList.Where(reference => reference.Type == referenceType).ToList();
         }

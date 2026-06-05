@@ -128,9 +128,7 @@ internal static class CompilationReferenceResolver
             }
         }
 
-        foreach (var projectReference in config.Dependencies
-                     .Where(reference => reference.Type == ReferenceType.Project)
-                     .ToArray())
+        foreach (var projectReference in FilterReferencesByType(config.Dependencies, ReferenceType.Project))
         {
             if (!options.BuildProjectReferences)
             {
@@ -215,7 +213,7 @@ internal static class CompilationReferenceResolver
 
     private static IEnumerable<Reference> EnumerateNuGetReferences(ProjectConfig config, ReferenceResolutionOptions options)
     {
-        foreach (var reference in config.Dependencies.Where(reference => reference.Type == ReferenceType.NuGet).ToArray())
+        foreach (var reference in FilterReferencesByType(config.Dependencies, ReferenceType.NuGet))
         {
             yield return reference;
         }
@@ -225,7 +223,7 @@ internal static class CompilationReferenceResolver
             yield break;
         }
 
-        foreach (var reference in config.TestDependencies.Where(reference => reference.Type == ReferenceType.NuGet).ToArray())
+        foreach (var reference in FilterReferencesByType(config.TestDependencies, ReferenceType.NuGet))
         {
             yield return reference;
         }
@@ -280,7 +278,7 @@ internal static class CompilationReferenceResolver
             frameworkNames.Add("Microsoft.AspNetCore.App");
         }
 
-        foreach (var reference in config.Dependencies.Where(reference => reference.Type == ReferenceType.Framework).ToArray())
+        foreach (var reference in FilterReferencesByType(config.Dependencies, ReferenceType.Framework))
         {
             frameworkNames.Add(reference.Framework!);
         }
@@ -559,6 +557,15 @@ internal static class CompilationReferenceResolver
         {
             config.Dependencies.Add(new Reference { Dll = fullPath });
         }
+    }
+
+    private static List<Reference> FilterReferencesByType(
+        IReadOnlyList<Reference> references,
+        ReferenceType referenceType)
+    {
+        return NSharpCliDogfoodAdapter.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
+            ? dogfoodReferences
+            : references.Where(reference => reference.Type == referenceType).ToList();
     }
 
     private static string GetGlobalPackagesFolder()

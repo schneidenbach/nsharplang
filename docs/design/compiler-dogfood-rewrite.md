@@ -1283,14 +1283,14 @@ measured 0.401 ns vs 15.558 us. This is acceptance-grade benchmark evidence for 
 reserved for non-NuGet dependencies.
 
 `CliReferenceTypeFilterIndicesInto` passed parity and reported zero managed allocation in the short
-BenchmarkDotNet evidence tier for `nlc export csharp` dependency reference-type selection. The
-compact-rank route ran about 7.3x faster for representative NuGet references (473.821 ns vs
-3.465 us), 7.8x faster for representative DLL references (278.041 ns vs 2.182 us), 8.1x faster for
-representative project references (280.557 ns vs 2.276 us), and 8.1x faster for representative
-framework references (280.672 ns vs 2.263 us). On the large generated corpus it ran about 7.1x
-faster for NuGet references (3.873 us vs 27.315 us), 8.1x faster for DLL references (2.205 us vs
-17.919 us), 8.2x faster for project references (2.218 us vs 18.181 us), and 8.1x faster for
-framework references (2.233 us vs 18.155 us). This is acceptance-grade benchmark evidence for
+BenchmarkDotNet evidence tier for CLI dependency reference-type selection. The
+compact-rank route ran about 7.1x faster for representative NuGet references (473.963 ns vs
+3.365 us), 8.0x faster for representative DLL references (282.690 ns vs 2.248 us), 8.3x faster for
+representative project references (283.925 ns vs 2.358 us), and 8.1x faster for representative
+framework references (283.614 ns vs 2.308 us). On the large generated corpus it ran about 7.1x
+faster for NuGet references (3.868 us vs 27.584 us), 8.1x faster for DLL references (2.212 us vs
+17.885 us), 8.1x faster for project references (2.239 us vs 18.082 us), and 8.2x faster for
+framework references (2.244 us vs 18.335 us). This is acceptance-grade benchmark evidence for
 reference-kind selection after the host has projected compact reference-type ranks with rank 0
 reserved for invalid/non-selected values.
 
@@ -1404,11 +1404,11 @@ fallback.
 `NSharpCliDogfoodAdapter.TryGetBuildOperandSummary`, which calls the compiled N# first-operand
 scanner when the dogfood assembly is available, with the previous C# build-argument normalization
 kept as the fallback.
-`nlc export csharp` now routes dependency reference-type selection for project, DLL, NuGet package,
-and framework references through `NSharpCliDogfoodAdapter.TryFilterExportReferencesByType`, which
-calls the compiled N# compact-rank filter when the dogfood assembly is available, preserving source
-order and invalid-reference fallback behavior, with the previous C# `Where(...).ToList()` filters
-kept as the fallback.
+`nlc export csharp`, `nlc restore`, and native CLI compilation reference resolution now route
+dependency reference-type selection for project, DLL, NuGet package, and framework references through
+`NSharpCliDogfoodAdapter.TryFilterReferencesByType`, which calls the compiled N# compact-rank filter
+when the dogfood assembly is available, preserving source order and invalid-reference fallback
+behavior, with the previous C# `Where(...).ToList()` filters kept as the fallback.
 `nlc export csharp` now routes stable post-resolution reference de-duplication for project,
 framework, package, and DLL references through `NSharpCliDogfoodAdapter.TryDeduplicateExportReferences`,
 which calls the compiled N# compact-rank stable distinct kernel when the dogfood assembly is
@@ -1514,7 +1514,7 @@ semantic scope index construction, scoped visible-variable selection, CLI batch 
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
-export reference-type filtering,
+CLI reference-type filtering,
 AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
@@ -1525,7 +1525,7 @@ packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
 `nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
 selection, clean artifact directory ordering, `nlc export csharp` reference de-duplication,
-`nlc export csharp` reference-type filtering,
+CLI reference-type filtering,
 `nlc restore` project-reference de-duplication, and `nlc update` dependency filtering;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
 option through the first-positional route and `nlc clean` removes build artifact directories through

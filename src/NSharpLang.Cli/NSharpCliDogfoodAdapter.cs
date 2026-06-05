@@ -566,7 +566,7 @@ internal static class NSharpCliDogfoodAdapter
         }
     }
 
-    internal static bool TryFilterExportReferencesByType(
+    internal static bool TryFilterReferencesByType(
         IReadOnlyList<Reference> dependencies,
         ReferenceType targetType,
         out List<Reference> filteredDependencies)

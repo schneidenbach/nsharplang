@@ -843,7 +843,7 @@ func Main() {
     }
 
     [Fact]
-    public void ExportCommand_DogfoodAdapter_FiltersReferenceValuesByType()
+    public void CliDogfoodAdapter_FiltersReferenceValuesByType()
     {
         var references = new[]
         {
@@ -856,25 +856,25 @@ func Main() {
         };
 
         Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
             references,
             ReferenceType.NuGet,
             out var packageReferences));
         Assert.Equal(new[] { "Serilog", "YamlDotNet" }, packageReferences.Select(reference => reference.Nuget).ToArray());
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
             references,
             ReferenceType.Framework,
             out var frameworkReferences));
         Assert.Equal(new[] { "Microsoft.AspNetCore.App", "Microsoft.WindowsDesktop.App" }, frameworkReferences.Select(reference => reference.Framework).ToArray());
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
             references,
             ReferenceType.Dll,
             out var dllReferences));
         Assert.Equal(new[] { "lib/Analyzer.dll" }, dllReferences.Select(reference => reference.Dll).ToArray());
 
-        Assert.True(NSharpCliDogfoodAdapter.TryFilterExportReferencesByType(
+        Assert.True(NSharpCliDogfoodAdapter.TryFilterReferencesByType(
             references,
             ReferenceType.Project,
             out var projectReferences));
@@ -985,6 +985,9 @@ outputType: exe
 targetFramework: net10.0
 
 dependencies:
+  - nuget: Serilog
+    version: 3.1.1
+  - framework: Microsoft.AspNetCore.App
   - project: ../Shared/project.yml
   - project: ../Shared/Shared.csproj
   - project: ../Shared/project.yml
