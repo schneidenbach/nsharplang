@@ -107,6 +107,9 @@
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ProjectSourceFilter.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ProjectSourceFilter.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/OverloadCandidates.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.OverloadCandidates.nl" />
   </ItemGroup>
 
 </Project>

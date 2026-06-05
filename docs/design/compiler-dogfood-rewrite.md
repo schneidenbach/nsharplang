@@ -573,6 +573,27 @@ Current compiler-performance dogfood benchmarks:
   diagnostic case names through `TrySelectMissingUnionCasesFromFlags`. The benchmark also keeps a
   projected C# set-to-flag row as rejection evidence; do not regress production back to that late
   adapter shape.
+- `CompilerServiceOverloadSelectionBenchmarks` targets the IL compiler declared-method
+  overload/candidate ranking in `ILCompiler.BindDeclaredMethodCall`, which runs on every
+  declared-method/constructor call during IL emission. The C# baseline mirrors the previous binder
+  shape: `.ToList()` materialization of the overload set, a per-candidate
+  `GetParameters().Select(...).ToArray()` parameter-type projection, and the four-level tie-break
+  (score > non-generic > non-params > fewer-defaults, first-wins-on-tie) that allocates a bound-call
+  record per improving candidate. The accepted N# candidate represents the overload set as compact
+  primitive columns (per-candidate validity, score, generic/params flags, defaults-used, plus a
+  flattened parameter-type-id table with per-candidate offsets/counts) computed once by the host,
+  then runs the exact ranking over those columns through `OverloadSelectBestCandidate` /
+  `OverloadSelectBatchInto`. The production binder now binds each surviving candidate once into a
+  compact candidate list and routes winner selection through `OverloadSelectBestCandidate` via
+  `NSharpCompilerDogfoodAdapter.TrySelectOverloadCandidate`, preserving the exact selection and
+  emitted IL with an identical inline C# tie-break fallback when the dogfood assembly is absent.
+  On 2026-06-05 the normal BenchmarkDotNet run passed checksum and per-call index parity and reported
+  zero managed allocation on the N# path. It ran about 11.3x faster on the representative corpus
+  (11.07 us vs 124.95 us, 0 B vs 417,112 B) and about 10.9x faster on the large generated corpus
+  (95.91 us vs 1,042.99 us, 0 B vs 3,337,272 B). This is acceptance-grade evidence for the compact
+  overload-candidate ranking after the host has projected the per-candidate rank columns; the final
+  `BoundDeclaredMethodCall` materialization and per-candidate parameter binding remain C# host
+  boundaries.
 
 The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionReceivers.nl`, `CompilerServices/DiagnosticClusters.nl`,
@@ -582,8 +603,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CompletionGrouping.nl`, `CompilerServices/PathMatching.nl`,
 `CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`,
 `CompilerServices/StructCopyAnalysis.nl`, `CompilerServices/AnonymousUnionShims.nl`,
-`CompilerServices/ErrorSuggestions.nl`, `CompilerServices/AnalyzerExhaustiveness.nl`, and
-`CompilerServices/TypeLookup.nl`.
+`CompilerServices/ErrorSuggestions.nl`, `CompilerServices/AnalyzerExhaustiveness.nl`,
+`CompilerServices/TypeLookup.nl`, and `CompilerServices/OverloadCandidates.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,

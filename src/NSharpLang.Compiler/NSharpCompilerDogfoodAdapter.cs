@@ -36,6 +36,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private static FormatterImportOrderingScratch? t_formatterImportOrderingScratch;
     [ThreadStatic]
     private static ProjectSourceFilterScratch? t_projectSourceFilterScratch;
+    [ThreadStatic]
+    private static OverloadCandidateScratch? t_overloadCandidateScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -739,6 +741,76 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    /// <summary>
+    /// Selects the winning declared-method overload index from a compact candidate table using the
+    /// N# ranking kernel. The caller fills the rank columns for each surviving candidate through
+    /// <paramref name="fillColumns"/> (writing one entry per candidate into the supplied buffers and
+    /// returning the candidate count), and this routine runs the exact four-level tie-break
+    /// (score &gt; non-generic &gt; non-params &gt; fewer-defaults, first-wins-on-tie) over those
+    /// columns. <paramref name="selectedIndex"/> is the zero-based index of the winning candidate in
+    /// fill order, or -1 when no candidate is valid.
+    /// </summary>
+    internal static bool TrySelectOverloadCandidate(
+        int candidateCapacity,
+        OverloadColumnFiller fillColumns,
+        out int selectedIndex)
+    {
+        selectedIndex = -1;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        if (candidateCapacity < 0)
+            return false;
+
+        var scratch = t_overloadCandidateScratch ??= new OverloadCandidateScratch();
+        scratch.EnsureCapacity(candidateCapacity);
+
+        try
+        {
+            var count = fillColumns(
+                scratch.ValidFlags,
+                scratch.Scores,
+                scratch.GenericFlags,
+                scratch.ParamsFlags,
+                scratch.DefaultsUsed);
+
+            if (count < 0 || count > candidateCapacity)
+                return false;
+
+            var index = bindings.OverloadSelectBestCandidate(
+                scratch.ValidFlags,
+                scratch.Scores,
+                scratch.GenericFlags,
+                scratch.ParamsFlags,
+                scratch.DefaultsUsed,
+                count);
+
+            if (index < -1 || index >= count)
+                return false;
+
+            selectedIndex = index;
+            return true;
+        }
+        catch
+        {
+            selectedIndex = -1;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Fills the compact overload-candidate rank columns for surviving candidates and returns the
+    /// candidate count.
+    /// </summary>
+    internal delegate int OverloadColumnFiller(
+        int[] validFlags,
+        int[] scores,
+        int[] genericFlags,
+        int[] paramsFlags,
+        int[] defaultsUsed);
+
     internal static bool TrySelectMissingEnumMembers(
         IReadOnlyList<EnumMember> members,
         ISet<string> coveredMembers,
@@ -946,7 +1018,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "SemanticScopeVisibleSymbolIndicesInto"),
                 CreateDelegate<SemanticScopeLookupSymbolIndicesInto>(
                     programType,
-                    "SemanticScopeLookupSymbolIndicesInto"));
+                    "SemanticScopeLookupSymbolIndicesInto"),
+                CreateDelegate<OverloadSelectBestCandidate>(
+                    programType,
+                    "OverloadSelectBestCandidate"));
         }
         catch
         {
@@ -1026,6 +1101,13 @@ internal static class NSharpCompilerDogfoodAdapter
         int includeTests,
         int[] resultIndices);
     private delegate int AnonymousUnionDeclaresPublicShim(int[] parameterFlags, int count);
+    private delegate int OverloadSelectBestCandidate(
+        int[] validFlags,
+        int[] scores,
+        int[] genericFlags,
+        int[] paramsFlags,
+        int[] defaultsUsed,
+        int count);
     private delegate int AnalyzerMissingMemberIndicesInto(int[] coveredFlags, int count, int[] resultIndices);
     private delegate int AnalyzerUnionMissingCaseIndicesInto(
         int[] coveredFlags,
@@ -1106,7 +1188,8 @@ internal static class NSharpCompilerDogfoodAdapter
         SemanticScopeBuildSortedIndexInto SemanticScopeBuildSortedIndex,
         SemanticScopeBuildDepthsInto SemanticScopeBuildDepths,
         SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices,
-        SemanticScopeLookupSymbolIndicesInto SemanticScopeLookupSymbolIndices);
+        SemanticScopeLookupSymbolIndicesInto SemanticScopeLookupSymbolIndices,
+        OverloadSelectBestCandidate OverloadSelectBestCandidate);
 
     private sealed class SemanticScopeCache
     {
@@ -1623,6 +1706,27 @@ internal static class NSharpCompilerDogfoodAdapter
             if (ParameterFlags.Length < count)
             {
                 ParameterFlags = new int[count];
+            }
+        }
+    }
+
+    private sealed class OverloadCandidateScratch
+    {
+        public int[] ValidFlags = Array.Empty<int>();
+        public int[] Scores = Array.Empty<int>();
+        public int[] GenericFlags = Array.Empty<int>();
+        public int[] ParamsFlags = Array.Empty<int>();
+        public int[] DefaultsUsed = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (ValidFlags.Length < count)
+            {
+                ValidFlags = new int[count];
+                Scores = new int[count];
+                GenericFlags = new int[count];
+                ParamsFlags = new int[count];
+                DefaultsUsed = new int[count];
             }
         }
     }

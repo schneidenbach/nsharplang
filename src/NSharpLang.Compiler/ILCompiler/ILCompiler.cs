@@ -7308,11 +7308,11 @@ public partial class ILCompiler
             return null;
         }
 
-        BoundDeclaredMethodCall? best = null;
-        var bestScore = -1;
-        var bestUsesParams = true;
-        var bestDefaultsUsed = int.MaxValue;
-        var bestIsGeneric = true;
+        // First pass: bind each surviving candidate once and collect its rank columns. The N#
+        // compact-candidate ranking kernel then selects the winning index over those columns,
+        // replacing the inline four-level tie-break. The collected candidate data feeds the final
+        // BoundDeclaredMethodCall so binding work is never repeated.
+        var candidates = new List<BoundDeclaredMethodCandidate>(overloadList.Count);
 
         foreach (var overload in overloadList)
         {
@@ -7358,19 +7358,88 @@ public partial class ILCompiler
             }
 
             var isGeneric = overload.Declaration.TypeParameters is { Count: > 0 };
-            if (best == null
+            candidates.Add(new BoundDeclaredMethodCandidate(
+                overload.Declaration,
+                candidateMethod,
+                boundArguments,
+                candidateTypeArguments,
+                score,
+                isGeneric,
+                usesParams,
+                defaultsUsed));
+        }
+
+        var bestIndex = SelectBestDeclaredMethodCandidate(candidates);
+        if (bestIndex < 0)
+        {
+            return null;
+        }
+
+        var bestCandidate = candidates[bestIndex];
+        return new BoundDeclaredMethodCall(
+            bestCandidate.Declaration,
+            bestCandidate.CandidateMethod,
+            bestCandidate.BoundArguments,
+            implicitReceiver != null,
+            targetType,
+            bestCandidate.CandidateTypeArguments);
+    }
+
+    /// <summary>
+    /// Selects the winning declared-method candidate index using the exact four-level tie-break
+    /// (score &gt; non-generic &gt; non-params &gt; fewer-defaults, first-wins-on-tie). When the N#
+    /// dogfood ranking kernel is available it runs the ranking over compact primitive columns;
+    /// otherwise it falls back to the equivalent inline C# scan.
+    /// </summary>
+    private static int SelectBestDeclaredMethodCandidate(List<BoundDeclaredMethodCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return -1;
+        }
+
+        if (NSharpCompilerDogfoodAdapter.TrySelectOverloadCandidate(
+                candidates.Count,
+                (validFlags, scores, genericFlags, paramsFlags, defaultsUsed) =>
+                {
+                    for (var i = 0; i < candidates.Count; i++)
+                    {
+                        var candidate = candidates[i];
+                        validFlags[i] = 1;
+                        scores[i] = candidate.Score;
+                        genericFlags[i] = candidate.IsGeneric ? 1 : 0;
+                        paramsFlags[i] = candidate.UsesParams ? 1 : 0;
+                        defaultsUsed[i] = candidate.DefaultsUsed;
+                    }
+
+                    return candidates.Count;
+                },
+                out var selectedIndex))
+        {
+            return selectedIndex;
+        }
+
+        var bestIndex = -1;
+        var bestScore = -1;
+        var bestUsesParams = true;
+        var bestDefaultsUsed = int.MaxValue;
+        var bestIsGeneric = true;
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            var score = candidate.Score;
+            var isGeneric = candidate.IsGeneric;
+            var usesParams = candidate.UsesParams;
+            var defaultsUsed = candidate.DefaultsUsed;
+
+            if (bestIndex < 0
                 || score > bestScore
                 || (score == bestScore && bestIsGeneric && !isGeneric)
                 || (score == bestScore && bestIsGeneric == isGeneric && bestUsesParams && !usesParams)
                 || (score == bestScore && bestIsGeneric == isGeneric && bestUsesParams == usesParams && defaultsUsed < bestDefaultsUsed))
             {
-                best = new BoundDeclaredMethodCall(
-                    overload.Declaration,
-                    candidateMethod,
-                    boundArguments,
-                    implicitReceiver != null,
-                    targetType,
-                    candidateTypeArguments);
+                bestIndex = i;
                 bestScore = score;
                 bestUsesParams = usesParams;
                 bestDefaultsUsed = defaultsUsed;
@@ -7378,8 +7447,18 @@ public partial class ILCompiler
             }
         }
 
-        return best;
+        return bestIndex;
     }
+
+    private readonly record struct BoundDeclaredMethodCandidate(
+        FunctionDeclaration Declaration,
+        MethodInfo CandidateMethod,
+        IReadOnlyList<BoundCallArgument> BoundArguments,
+        IReadOnlyList<Type>? CandidateTypeArguments,
+        int Score,
+        bool IsGeneric,
+        bool UsesParams,
+        int DefaultsUsed);
 
     private BoundDeclaredMethodCall? BindDeclaredExtensionMethodCall(
         string methodName,
