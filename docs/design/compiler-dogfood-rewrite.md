@@ -956,6 +956,10 @@ through the compiled N# whole-identifier scanner when the dogfood assembly is av
 old split-based helper kept as the fallback. Completion receiver-context classification also routes
 through the compiled N# classifier
 when the dogfood assembly is available, with the old C# helper kept as the fallback.
+Parser diagnostic source snippets now route through the same source-only cached raw-line adapter,
+with the previous `source.Split('\n')` helper kept as the fallback when the dogfood assembly is not
+available; this preserves the parser's LF-split semantics, including CRLF lines retaining a trailing
+carriage return in the snippet.
 `CompletionEngine` member-access result grouping now routes through the compiled N# completion-item
 grouping kernel when the dogfood assembly is available, preserving the previous pluralized group
 keys and first-seen item-kind ordering, with the previous LINQ `GroupBy`/`ToList` path kept as the
