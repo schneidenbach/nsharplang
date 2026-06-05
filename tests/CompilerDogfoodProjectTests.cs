@@ -1750,6 +1750,14 @@ class OtherZetaType {
                     "CliTestOutcomeSummaryChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliTestOutcomeSummaryChecksumInto.");
+            var cliShouldFormatDiscoveredPath = programType.GetMethod(
+                    "CliShouldFormatDiscoveredPath",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliShouldFormatDiscoveredPath.");
+            var cliFormatDiscoveredPathChecksumInto = programType.GetMethod(
+                    "CliFormatDiscoveredPathChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFormatDiscoveredPathChecksumInto.");
             var cliTreeDependencyDeduplicateIndicesInto = programType.GetMethod(
                     "CliTreeDependencyDeduplicateIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2301,6 +2309,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliBatchDuplicateIdRankChecksumInto);
             AssertCliBatchResultCountsLikeProduction(cliBatchResultPackedCountChecksum);
             AssertCliTestOutcomeSummaryLikeProduction(cliTestOutcomeSummaryChecksumInto);
+            AssertCliFormatDiscoveryLikeProduction(
+                cliShouldFormatDiscoveredPath,
+                cliFormatDiscoveredPathChecksumInto);
             AssertCliTreeDependencyDeduplicationLikeProduction(
                 cliTreeDependencyDeduplicateIndicesInto,
                 cliTreeDependencyDeduplicateChecksumInto);
@@ -6564,6 +6575,95 @@ func main() {
             Assert.Equal(expectedChecksum, actualChecksum);
             Assert.Equal(new[] { passed, failed, skipped, nonOk }, counts);
         }
+    }
+
+    private static void AssertCliFormatDiscoveryLikeProduction(
+        MethodInfo cliShouldFormatDiscoveredPath,
+        MethodInfo cliFormatDiscoveredPathChecksumInto)
+    {
+        var paths = new[]
+        {
+            "src/Feature/Program.nl",
+            "tests/Unit/Spec.nl",
+            "test/fixtures/parser/case.nl",
+            "Tests/FIXTURES/format/case.nl",
+            "bin/Debug/net10.0/generated.nl",
+            "src/binocular/File.nl",
+            "node_modules/pkg/index.nl",
+            ".nlc/cache/file.nl",
+            "src/.git/hooks/file.nl",
+            "src/obj/Generated/file.nl",
+            "src/test//fixtures/case.nl",
+            "src/tests/fixturesExtra/case.nl",
+            "src/.worktrees/tmp/file.nl",
+            "src/.hermes/cache/file.nl",
+            "src/.hg/store/file.nl",
+            "src/.svn/tmp/file.nl",
+            "src\\test\\fixtures\\case.nl"
+        };
+        var expectedFlags = paths
+            .Select(path => ExpectedShouldFormatDiscoveredPath(path) ? 1 : 0)
+            .ToArray();
+
+        for (var i = 0; i < paths.Length; i++)
+        {
+            var actual = (int)(cliShouldFormatDiscoveredPath.Invoke(
+                null,
+                new object[] { paths[i] }) ?? -1);
+            Assert.Equal(expectedFlags[i], actual);
+        }
+
+        var resultFlags = new int[paths.Length];
+        var actualChecksum = (int)(cliFormatDiscoveredPathChecksumInto.Invoke(
+            null,
+            new object[] { paths, resultFlags }) ?? -1);
+        var expectedChecksum = CliFormatDiscoveredPathChecksum(paths, expectedFlags);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expectedFlags, resultFlags);
+    }
+
+    private static bool ExpectedShouldFormatDiscoveredPath(string relativePath)
+    {
+        var segments = relativePath
+            .Replace('\\', '/')
+            .Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Any(segment => segment.Equals(".git", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".hg", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".svn", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".worktrees", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".hermes", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals(".nlc", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("bin", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("obj", StringComparison.OrdinalIgnoreCase)
+            || segment.Equals("node_modules", StringComparison.OrdinalIgnoreCase)))
+        {
+            return false;
+        }
+
+        for (var i = 0; i <= segments.Length - 2; i++)
+        {
+            var isFixtureRoot = string.Equals(segments[i], "test", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(segments[i], "tests", StringComparison.OrdinalIgnoreCase);
+            if (isFixtureRoot && string.Equals(segments[i + 1], "fixtures", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static int CliFormatDiscoveredPathChecksum(string[] paths, int[] flags)
+    {
+        var count = Math.Min(paths.Length, flags.Length);
+        var checksum = count;
+        for (var i = 0; i < count; i++)
+        {
+            checksum += (i + 1) * 31 + flags[i] * 17 + paths[i].Length * 7;
+        }
+
+        return checksum;
     }
 
     private static void AssertDocCommentsLikeProduction(

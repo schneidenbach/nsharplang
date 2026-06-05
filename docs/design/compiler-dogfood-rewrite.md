@@ -1068,6 +1068,12 @@ Current CLI dogfood benchmarks:
   results are created, then computes `ok`, passed, failed, and skipped in one pass through
   `CliTestOutcomeSummaryInto`. The benchmark also keeps a projected string-to-rank row to prove
   late projection is not the accepted production shape.
+- `CliFormatDiscoveryBenchmarks` targets `nlc format` discovered-file filtering after filesystem
+  traversal has produced normalized project-relative paths. The C# baseline mirrors the current
+  split/segment helper that excludes VCS/build/cache/tooling directories and `test(s)/fixtures`.
+  The N# candidates scan path segments without allocation through `CliShouldFormatDiscoveredPath`
+  and `CliFormatDiscoveredPathFlagsInto`, but they remain benchmark-only because measured wall-clock
+  speed missed the production gate.
 - `CliTestFilterMatchingBenchmarks` targets `nlc test --filter` test-case selection. The C# baseline
   mirrors the current per-candidate predicate: split the public filter on `|`, trim/remove empty
   parts, and run ordinal-ignore-case contains checks against display and fully-qualified names. The
@@ -1337,6 +1343,16 @@ length/character classifier to avoid a per-argument helper call. A dry run still
 option parsing in C# until CLI command orchestration can move as a broader parser/argv
 representation, or until N# string/branch lowering makes one-pass option classification clearly beat
 the repeated `Contains`/`GetOptionValue` shape.
+
+`CliShouldFormatDiscoveredPath` and `CliFormatDiscoveredPathFlagsInto` preserve the current
+`nlc format` discovered-file skip semantics for VCS/build/cache/tooling segments and
+`test(s)/fixtures`, and they eliminate the C# split allocation. They still missed the speed gate in
+the 2026-06-05 dry probe: the per-path candidate measured `468.334 us` vs `205.167 us` on the
+representative corpus and `2.452 ms` vs `1.853 ms` on the large generated corpus; the batched
+upper-bound row measured `425.000 us` vs `205.167 us` representative and `2.505 ms` vs `1.853 ms`
+large. Keep `ShouldFormatDiscoveredFile` on the current C# split helper until path segment scanning
+is either owned by a broader N# format-discovery pipeline or N# string/indexing overhead drops enough
+to beat the BCL split/segment path by at least 5x.
 
 `CliFixEditFlattenIndicesInto` was reintroduced as a benchmark-only pressure kernel and remains
 unrouted. The revised caller-owned shape projects each safe `nlc fix` action's edit count, writes
@@ -1977,11 +1993,12 @@ plus wildcard and bare substring symbol-name filtering in `nlc query symbols --f
 selection in `nlc clean`.
 `nlc doc` symbol filtering/order, symbol-page member ordering, and symbol-page slug generation are
 also routed through the compiled N# doc-ordering kernel.
-Path matching, all-positionals CLI argument filtering, and option-bearing `nlc publish` argument
-normalization have parity and benchmark evidence but are not routed through production
-code-intelligence, query, daemon, or publish option-bearing paths because they currently miss the 5x
-speed gate. `nlc test` option summary parsing also has parity evidence but remains C# because the
-inlined N# argv classifier is slower or only parity on dry rows.
+Path matching, all-positionals CLI argument filtering, option-bearing `nlc publish` argument
+normalization, and `nlc format` discovered-file filtering have parity and benchmark evidence but are
+not routed through production code-intelligence, query, daemon, publish option-bearing, or format
+discovery paths because they currently miss the 5x speed gate. `nlc test` option summary parsing
+also has parity evidence but remains C# because the inlined N# argv classifier is slower or only
+parity on dry rows.
 Broader query, hover, definition, diagnostic, completion candidate construction, semantic binding
 table construction, remaining semantic-scope name/symbol table materialization, AOT public
 annotation materialization, and CLI command logic still contain C# implementation code and remain in
@@ -2199,3 +2216,8 @@ produce a production-shaped win:
   (about 1.8x) and `796.084 us` N# vs `3.102 ms` C# large (about 3.9x). Keep `CheckUnusedImports` on
   the current C# route until the linter tracks compact namespace usage during AST visitation or a
   broader linter rewrite moves import analysis into N#.
+- CLI format discovered-file path scanning: direct N# segment scanning removed split allocations for
+  `nlc format` recursive file discovery but was slower than the current C# split helper on both dry
+  rows (`468.334 us` N# vs `205.167 us` C# representative and `2.452 ms` N# vs `1.853 ms` C# large).
+  Keep this as benchmark-only evidence until a broader format-discovery port owns path enumeration
+  and segment classification together.
