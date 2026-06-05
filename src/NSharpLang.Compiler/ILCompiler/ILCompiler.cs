@@ -9944,6 +9944,14 @@ public partial class ILCompiler
             return false;
         }
 
+        if (NSharpCompilerDogfoodAdapter.TryDeclaresAnonymousUnionShims(
+                function.Parameters,
+                IsTwoArmAnonymousUnion,
+                out var dogfoodResult))
+        {
+            return dogfoodResult;
+        }
+
         var unionParameters = function.Parameters
             .Where(parameter => TryGetTwoArmAnonymousUnion(parameter.Type) != null)
             .ToList();
@@ -10037,6 +10045,36 @@ public partial class ILCompiler
 
         var arms = FlattenUnionTypeReference(union).ToList();
         return arms.Count == 2 ? arms : null;
+    }
+
+    private static bool IsTwoArmAnonymousUnion(TypeReference typeReference)
+    {
+        if (typeReference is not UnionTypeReference)
+            return false;
+
+        var count = 0;
+        CountFlattenedUnionArms(typeReference, ref count);
+        return count == 2;
+    }
+
+    private static void CountFlattenedUnionArms(TypeReference typeReference, ref int count)
+    {
+        if (count > 2)
+            return;
+
+        if (typeReference is UnionTypeReference union)
+        {
+            foreach (var arm in union.Arms)
+            {
+                CountFlattenedUnionArms(arm, ref count);
+                if (count > 2)
+                    return;
+            }
+
+            return;
+        }
+
+        count++;
     }
 
     private static IEnumerable<Dictionary<int, TypeReference>> EnumerateAnonymousUnionArmChoices(

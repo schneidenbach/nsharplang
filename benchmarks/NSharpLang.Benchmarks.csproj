@@ -87,6 +87,9 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/AotRequirements.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.AotRequirements.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/AnonymousUnionShims.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.AnonymousUnionShims.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/StructCopyAnalysis.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.StructCopyAnalysis.nl" />
     <EmbeddedResource

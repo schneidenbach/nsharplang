@@ -746,6 +746,109 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_ChecksAnonymousUnionShimEligibility()
+    {
+        static SimpleTypeReference Simple(string name) => new(name);
+        static UnionTypeReference Union(params TypeReference[] arms) => new(arms.ToList());
+
+        static bool IsTwoArmAnonymousUnion(TypeReference typeReference)
+        {
+            if (typeReference is not UnionTypeReference)
+                return false;
+
+            var count = 0;
+            CountFlattenedUnionArms(typeReference, ref count);
+            return count == 2;
+        }
+
+        static void CountFlattenedUnionArms(TypeReference typeReference, ref int count)
+        {
+            if (count > 2)
+                return;
+
+            if (typeReference is UnionTypeReference union)
+            {
+                foreach (var arm in union.Arms)
+                {
+                    CountFlattenedUnionArms(arm, ref count);
+                    if (count > 2)
+                        return;
+                }
+
+                return;
+            }
+
+            count++;
+        }
+
+        static Parameter Parameter(
+            string name,
+            TypeReference type,
+            NSharpLang.Compiler.Ast.ParameterModifier modifier = NSharpLang.Compiler.Ast.ParameterModifier.None) =>
+            new(name, type, DefaultValue: null, IsThis: false, modifier);
+
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryDeclaresAnonymousUnionShims = adapterType.GetMethod(
+                "TryDeclaresAnonymousUnionShims",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeclaresAnonymousUnionShims.");
+
+        var eligibleUnion = Union(Simple("int"), Simple("string"));
+        var threeArmUnion = Union(Simple("int"), Union(Simple("string"), Simple("bool")));
+
+        var eligibleParameters = new[]
+        {
+            Parameter("prefix", Simple("int")),
+            Parameter("value", eligibleUnion),
+            Parameter("suffix", Simple("string"))
+        };
+        var eligibleArgs = new object?[]
+        {
+            eligibleParameters,
+            (Func<TypeReference, bool>)IsTwoArmAnonymousUnion,
+            false
+        };
+        Assert.True((bool)(tryDeclaresAnonymousUnionShims.Invoke(null, eligibleArgs) ?? false));
+        Assert.Equal(true, eligibleArgs[2]);
+
+        var disallowedParameters = new[]
+        {
+            Parameter("value", eligibleUnion),
+            Parameter("output", eligibleUnion, NSharpLang.Compiler.Ast.ParameterModifier.Out)
+        };
+        var disallowedArgs = new object?[]
+        {
+            disallowedParameters,
+            (Func<TypeReference, bool>)IsTwoArmAnonymousUnion,
+            true
+        };
+        Assert.True((bool)(tryDeclaresAnonymousUnionShims.Invoke(null, disallowedArgs) ?? false));
+        Assert.Equal(false, disallowedArgs[2]);
+
+        var noShimParameters = new[]
+        {
+            Parameter("value", Simple("int")),
+            Parameter("wide", threeArmUnion)
+        };
+        var noShimArgs = new object?[]
+        {
+            noShimParameters,
+            (Func<TypeReference, bool>)IsTwoArmAnonymousUnion,
+            true
+        };
+        Assert.True((bool)(tryDeclaresAnonymousUnionShims.Invoke(null, noShimArgs) ?? false));
+        Assert.Equal(false, noShimArgs[2]);
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_DeduplicatesFirstTypeKeys()
     {
         var types = new[]

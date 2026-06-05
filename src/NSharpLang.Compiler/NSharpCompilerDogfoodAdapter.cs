@@ -24,6 +24,8 @@ internal static class NSharpCompilerDogfoodAdapter
     private static DeclaredTypeNameCandidateScratch? t_declaredTypeNameCandidateScratch;
     [ThreadStatic]
     private static TypeCreationOrderScratch? t_typeCreationOrderScratch;
+    [ThreadStatic]
+    private static AnonymousUnionShimScratch? t_anonymousUnionShimScratch;
 
     internal static bool IsAvailable => s_bindings.Value != null;
 
@@ -464,6 +466,57 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    internal static bool TryDeclaresAnonymousUnionShims(
+        IReadOnlyList<Parameter> parameters,
+        Func<TypeReference, bool> isTwoArmAnonymousUnion,
+        out bool declaresShims)
+    {
+        declaresShims = false;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var parameterCount = parameters.Count;
+        if (parameterCount == 0)
+            return true;
+
+        var scratch = t_anonymousUnionShimScratch ??= new AnonymousUnionShimScratch();
+        scratch.EnsureCapacity(parameterCount);
+
+        try
+        {
+            var unionParameterCount = 0;
+            for (var i = 0; i < parameterCount; i++)
+            {
+                var parameter = parameters[i];
+                if (!isTwoArmAnonymousUnion(parameter.Type))
+                {
+                    continue;
+                }
+
+                var hasDisallowedModifier =
+                    parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out or Ast.ParameterModifier.Params;
+                scratch.ParameterFlags[unionParameterCount] = hasDisallowedModifier ? 2 : 1;
+                unionParameterCount++;
+            }
+
+            var result = bindings.AnonymousUnionDeclaresPublicShim(
+                scratch.ParameterFlags,
+                unionParameterCount);
+            if (result is not 0 and not 1)
+                return false;
+
+            declaresShims = result != 0;
+            return true;
+        }
+        catch
+        {
+            declaresShims = false;
+            return false;
+        }
+    }
+
     private static Bindings? LoadBindings()
     {
         try
@@ -491,7 +544,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "TypeCreationOrderIndicesInto"),
                 CreateDelegate<ReferenceFileSummaryRanksInto>(
                     programType,
-                    "ReferenceFileSummaryRanksInto"));
+                    "ReferenceFileSummaryRanksInto"),
+                CreateDelegate<AnonymousUnionDeclaresPublicShim>(
+                    programType,
+                    "AnonymousUnionDeclaresPublicShim"));
         }
         catch
         {
@@ -557,6 +613,7 @@ internal static class NSharpCompilerDogfoodAdapter
         int uniqueFileCount,
         int[] countsByRank,
         int[] resultRanks);
+    private delegate int AnonymousUnionDeclaresPublicShim(int[] parameterFlags, int count);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -564,7 +621,8 @@ internal static class NSharpCompilerDogfoodAdapter
         DeclaredTypeUniqueSuffixValueRank DeclaredTypeUniqueSuffixValueRank,
         DeclaredTypeNameCandidateIndex DeclaredTypeNameCandidateIndex,
         TypeCreationOrderIndicesInto TypeCreationOrderIndices,
-        ReferenceFileSummaryRanksInto ReferenceFileSummaryRanks);
+        ReferenceFileSummaryRanksInto ReferenceFileSummaryRanks,
+        AnonymousUnionDeclaresPublicShim AnonymousUnionDeclaresPublicShim);
 
     private sealed class ParserTokenCompactionScratch
     {
@@ -577,6 +635,19 @@ internal static class NSharpCompilerDogfoodAdapter
             {
                 TokenKinds = new int[count];
                 ResultIndices = new int[count];
+            }
+        }
+    }
+
+    private sealed class AnonymousUnionShimScratch
+    {
+        public int[] ParameterFlags = Array.Empty<int>();
+
+        public void EnsureCapacity(int count)
+        {
+            if (ParameterFlags.Length < count)
+            {
+                ParameterFlags = new int[count];
             }
         }
     }

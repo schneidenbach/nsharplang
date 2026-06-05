@@ -61,6 +61,7 @@ dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceCodeInte
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceSemanticScope*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAotRequirementGrouping*'
 dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceStructCopyFieldAnalysis*'
+dotnet run -c Release --project benchmarks -- --filter '*CompilerServiceAnonymousUnionShim*'
 ```
 
 Current lexer dogfood benchmarks:
@@ -512,6 +513,13 @@ Current compiler-performance dogfood benchmarks:
   `StructCopyAllInstanceFieldsInitOnly`. Reflection over CLR fields, type-size calculation, and
   public descriptor construction remain explicit C# host boundaries until the full struct-copy
   optimizer is ported.
+- `CompilerServiceAnonymousUnionShimBenchmarks` targets IL compiler anonymous-union overload-shim
+  eligibility before overload materialization and struct-copy elision. The C# baseline mirrors the
+  previous `Where(...).ToList().All(...)` shape over two-arm anonymous-union parameters. The accepted
+  N# candidate runs after the host has packed only exactly-two-arm anonymous-union parameter flags,
+  then scans those flags through `AnonymousUnionDeclaresPublicShim`. Function public-surface checks,
+  modifier/type-parameter preconditions, exact union-arm recognition, and final overload-shim
+  materialization remain explicit C# host boundaries until the broader IL compiler port lands.
 - `CompilerServiceInterfaceDeduplicationBenchmarks` targets first-source implemented-interface
   de-duplication in the IL compiler after direct and inherited interfaces have been expanded. The C#
   baseline mirrors the fallback shape: group by ordinal type key, keep the first interface in each
@@ -543,8 +551,8 @@ The dogfood project now includes `CompilerServices/IdentifierSpans.nl`,
 `CompilerServices/CliArguments.nl`, `CompilerServices/CliDocOrdering.nl`,
 `CompilerServices/CompletionGrouping.nl`, `CompilerServices/PathMatching.nl`,
 `CompilerServices/TextEditOrdering.nl`, `CompilerServices/AotRequirements.nl`,
-`CompilerServices/StructCopyAnalysis.nl`, `CompilerServices/ErrorSuggestions.nl`, and
-`CompilerServices/TypeLookup.nl`.
+`CompilerServices/StructCopyAnalysis.nl`, `CompilerServices/AnonymousUnionShims.nl`,
+`CompilerServices/ErrorSuggestions.nl`, and `CompilerServices/TypeLookup.nl`.
 `CompilerDogfoodProjectTests`
 compiles it through the SDK project and checks returned spans against the production snap rules for
 valid selections, nearby punctuation/whitespace selections, invalid lines, empty lines, CRLF input,
@@ -914,6 +922,18 @@ faster when the last instance field was mutable (164.5 ns vs 1,213.2 ns, 0 B vs 
 (1.274 us vs 9.155 us, 0 B vs 56,272 B). This is acceptance-grade benchmark evidence for replacing
 the C# `Where(...).ToList().All(...)` readonly-field gate after the host has projected compact
 static-or-readonly field flags.
+
+`AnonymousUnionDeclaresPublicShim` passed parity and reported zero managed allocation in the short
+BenchmarkDotNet evidence tier for anonymous-union overload-shim eligibility. It ran about 9.0x
+faster on representative dense two-arm-union parameters (148.51 ns vs 1,332.68 ns, 0 B vs 8,296 B)
+and about 9.0x faster when the last dense union parameter was disallowed (153.04 ns vs
+1,376.06 ns, 0 B vs 8,296 B). With sparse two-arm-union parameters, it ran about 16.8x faster on the
+representative eligible corpus (30.22 ns vs 508.17 ns, 0 B vs 1,744 B) and about 18.2x faster when
+the last sparse union parameter was disallowed (28.34 ns vs 517.05 ns, 0 B vs 1,744 B). The large
+generated rows stayed above the gate: about 9.4x and 9.3x faster on dense shapes, and about 16.0x
+and 15.5x faster on sparse shapes. This is acceptance-grade benchmark evidence for replacing the
+C# `Where(...).ToList().All(...)` eligibility gate after the host has projected compact
+anonymous-union parameter flags.
 
 `FirstDistinctRankIndicesInto` passed parity and reported zero managed allocation in the short
 BenchmarkDotNet evidence tier for first-source implemented-interface de-duplication. It ran about
@@ -1369,6 +1389,11 @@ Struct-copy declared-field readonly gating now routes `AllInstanceFieldsAreInitO
 `NSharpPerformanceDogfoodAdapter.TryAllInstanceFieldsAreInitOnly` when the dogfood assembly is
 available, preserving static-field exclusion and instance init-only semantics, with the previous C#
 LINQ `Where(...).ToList().All(...)` path kept as the fallback.
+Anonymous-union overload-shim eligibility now routes `DeclaresAnonymousUnionShims` through
+`NSharpCompilerDogfoodAdapter.TryDeclaresAnonymousUnionShims` when the dogfood assembly is
+available, preserving public method/type preconditions, modifier/type-parameter exclusions,
+flattened exactly-two-arm anonymous-union recognition, and ref/out/params exclusion, with the
+previous C# LINQ `Where(...).ToList().All(...)` path kept as the fallback.
 IL compiler implemented-interface expansion now routes first-source type-key de-duplication through
 `NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys` when the dogfood assembly is available,
 preserving direct/inherited interface expansion, ordinal type-key identity, and first-source
@@ -1549,7 +1574,7 @@ ordering, CLI tree dependency deduplication, diagnostic severity filtering, symb
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, struct-copy readonly-field gating, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
 CLI reference-type filtering,
-AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
+AOT requirement grouping, anonymous-union overload-shim eligibility, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
 add/remove package operand discovery, DocQuery reference-pack assembly-name and type-candidate de-duplication,
