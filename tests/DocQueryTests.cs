@@ -112,4 +112,31 @@ public class DocQueryTests
             "System.Runtime"
         }, actual);
     }
+
+    [Fact]
+    public void DeduplicateTypeCandidates_PreservesFirstSourceOrder()
+    {
+        var method = typeof(DocQuery).GetMethod(
+                "DeduplicateTypeCandidates",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("DocQuery did not emit DeduplicateTypeCandidates.");
+
+        var candidates = new[]
+        {
+            typeof(string),
+            typeof(int),
+            typeof(string),
+            typeof(Console),
+            typeof(int)
+        };
+
+        var actual = Assert.IsType<Type[]>(method.Invoke(null, new object[] { candidates }));
+
+        Assert.Equal(new[]
+        {
+            typeof(string),
+            typeof(int),
+            typeof(Console)
+        }, actual);
+    }
 }

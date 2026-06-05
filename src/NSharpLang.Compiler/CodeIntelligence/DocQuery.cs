@@ -685,7 +685,8 @@ public class DocQuery
 
     private static Type? SelectBestType(string query, IEnumerable<Type> candidates)
     {
-        var distinctCandidates = candidates.Distinct().ToArray();
+        var candidateList = candidates as IReadOnlyList<Type> ?? candidates.ToArray();
+        var distinctCandidates = DeduplicateTypeCandidates(candidateList);
         if (NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType(
             query,
             distinctCandidates,
@@ -700,6 +701,15 @@ public class DocQuery
             .ThenBy(t => t.Namespace?.Length ?? int.MaxValue)
             .ThenBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
+    }
+
+    private static Type[] DeduplicateTypeCandidates(IReadOnlyList<Type> candidates)
+    {
+        return NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableTypes(
+            candidates,
+            out var dogfoodCandidates)
+            ? dogfoodCandidates
+            : candidates.Distinct().ToArray();
     }
 
     private static int ScoreTypeMatch(string query, Type type)

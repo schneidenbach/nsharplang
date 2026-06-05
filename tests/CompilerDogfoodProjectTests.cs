@@ -612,6 +612,39 @@ func documented(): int {
     }
 
     [Fact]
+    public void CodeIntelligenceDogfoodAdapter_DeduplicatesStableTypes()
+    {
+        var adapterType = typeof(CodeIntelligenceService).Assembly.GetType(
+                "NSharpLang.Compiler.CodeIntelligence.NSharpCodeIntelligenceDogfoodAdapter")
+            ?? throw new InvalidOperationException("Dogfood code-intelligence adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryDeduplicateStableTypes = adapterType.GetMethod(
+                "TryDeduplicateStableTypes",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateStableTypes.");
+        var types = new[]
+        {
+            typeof(string),
+            typeof(int),
+            typeof(string),
+            typeof(Console),
+            typeof(int)
+        };
+        var args = new object?[] { types, null };
+
+        Assert.True((bool)(tryDeduplicateStableTypes.Invoke(null, args) ?? false));
+        Assert.Equal(
+            new[] { typeof(string), typeof(int), typeof(Console) },
+            Assert.IsType<Type[]>(args[1]));
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_CompactsParserTokens()
     {
         var source = """

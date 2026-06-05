@@ -45,6 +45,8 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     [ThreadStatic]
     private static StableDistinctStringScratch? t_stableDistinctStringScratch;
     [ThreadStatic]
+    private static StableDistinctTypeScratch? t_stableDistinctTypeScratch;
+    [ThreadStatic]
     private static SymbolKindFilterScratch? t_symbolKindFilterScratch;
     [ThreadStatic]
     private static TextEditOrderingScratch? t_textEditOrderingScratch;
@@ -746,6 +748,84 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
         catch
         {
             deduplicatedValues = Array.Empty<string>();
+            return false;
+        }
+        finally
+        {
+            scratch.Reset();
+        }
+    }
+
+    internal static bool TryDeduplicateStableTypes(
+        IReadOnlyList<Type> values,
+        out Type[] deduplicatedValues)
+    {
+        deduplicatedValues = Array.Empty<Type>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var valueCount = values.Count;
+        if (valueCount == 0)
+            return true;
+
+        var scratch = t_stableDistinctTypeScratch ??= new StableDistinctTypeScratch();
+        scratch.EnsureCapacity(valueCount);
+
+        try
+        {
+            scratch.Reset();
+            for (var i = 0; i < valueCount; i++)
+            {
+                var value = values[i];
+                if (value == null)
+                {
+                    deduplicatedValues = Array.Empty<Type>();
+                    return false;
+                }
+
+                if (!scratch.RanksByValue.TryGetValue(value, out var rank))
+                {
+                    rank = ++scratch.UniqueRankCount;
+                    scratch.RanksByValue.Add(value, rank);
+                }
+
+                scratch.Ranks[i] = rank;
+            }
+
+            scratch.EnsureRankCapacity(scratch.UniqueRankCount);
+            var resultCount = bindings.CliStableDistinctRankIndices(
+                scratch.Ranks,
+                scratch.UniqueRankCount,
+                scratch.SeenRanks,
+                scratch.ResultIndices);
+
+            if (resultCount < 0 || resultCount > valueCount || resultCount > scratch.ResultIndices.Length)
+            {
+                deduplicatedValues = Array.Empty<Type>();
+                return false;
+            }
+
+            var result = new Type[resultCount];
+            for (var i = 0; i < resultCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= valueCount)
+                {
+                    deduplicatedValues = Array.Empty<Type>();
+                    return false;
+                }
+
+                result[i] = values[sourceIndex];
+            }
+
+            deduplicatedValues = result;
+            return true;
+        }
+        catch
+        {
+            deduplicatedValues = Array.Empty<Type>();
             return false;
         }
         finally
@@ -2527,6 +2607,39 @@ internal static class NSharpCodeIntelligenceDogfoodAdapter
     private sealed class StableDistinctStringScratch
     {
         public readonly Dictionary<string, int> RanksByValue = new(StringComparer.OrdinalIgnoreCase);
+        public int[] Ranks = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SeenRanks = Array.Empty<int>();
+        public int UniqueRankCount;
+
+        public void EnsureCapacity(int count)
+        {
+            if (Ranks.Length != count)
+            {
+                Ranks = new int[count];
+                ResultIndices = new int[count];
+            }
+        }
+
+        public void EnsureRankCapacity(int uniqueRankCount)
+        {
+            var rankCapacity = uniqueRankCount + 1;
+            if (SeenRanks.Length != rankCapacity)
+            {
+                SeenRanks = new int[rankCapacity];
+            }
+        }
+
+        public void Reset()
+        {
+            RanksByValue.Clear();
+            UniqueRankCount = 0;
+        }
+    }
+
+    private sealed class StableDistinctTypeScratch
+    {
+        public readonly Dictionary<Type, int> RanksByValue = new();
         public int[] Ranks = Array.Empty<int>();
         public int[] ResultIndices = Array.Empty<int>();
         public int[] SeenRanks = Array.Empty<int>();

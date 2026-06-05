@@ -1186,9 +1186,11 @@ preserves the C# ordering contract: score descending, namespace length ascending
 `StringComparer.OrdinalIgnoreCase` full-name order for ties. It ran about 5.1x faster on the
 representative type-candidate corpus (437.7 ns vs 2.248 us, 0 B vs 440 B) and about 5.2x faster on
 the large generated corpus (3.282 us vs 17.028 us, 0 B vs 440 B). `DocQuery.SelectBestType` now
-routes distinct candidate arrays through `NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType`
-when the dogfood assembly is available, with the previous LINQ ordering retained as the exact
-fallback; the adapter also falls back for non-ASCII CLR full names so the public
+routes candidate-array de-duplication through the accepted stable distinct rank kernel and routes
+the resulting distinct candidate arrays through
+`NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType` when the dogfood assembly is available,
+with the previous LINQ distinct/order path retained as the exact fallback; the adapter also falls
+back for non-ASCII CLR full names so the public
 `StringComparer.OrdinalIgnoreCase` tie-break contract is not approximated.
 
 `DocQueryMemberOrderIndicesInto` passed parity and reported zero managed allocation in the short
@@ -1475,7 +1477,7 @@ text-edit ordering, skipped-fix selection, clean artifact directory ordering, up
 AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
 compiler stub namespace import ordering, inspect-summary reference-file summaries,
 CLI stable string de-duplication for stale generated cleanup and target-framework summaries,
-add/remove package operand discovery, DocQuery reference-pack assembly-name de-duplication,
+add/remove package operand discovery, DocQuery reference-pack assembly-name and type-candidate de-duplication,
 and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
