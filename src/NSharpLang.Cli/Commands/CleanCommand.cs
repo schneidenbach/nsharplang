@@ -61,18 +61,20 @@ public static class CleanCommand
     private static List<string> RemoveArtifacts(string projectRoot)
     {
         var removed = new List<string>();
-        var directories = Directory.EnumerateDirectories(projectRoot, "*", SearchOption.AllDirectories)
+        var existingDirectories = Directory.EnumerateDirectories(projectRoot, "*", SearchOption.AllDirectories)
             .Concat(ArtifactDirectories.Select(name => Path.Combine(projectRoot, name)))
             .Where(Directory.Exists)
-            .Distinct(StringComparer.Ordinal)
-            .Where(dir =>
-            {
-                var normalized = NormalizePath(dir);
-                return !normalized.Contains("/node_modules/", StringComparison.Ordinal);
-            })
-            .Where(dir => ArtifactDirectories.Contains(Path.GetFileName(dir), StringComparer.Ordinal))
-            .OrderByDescending(dir => dir.Length)
             .ToArray();
+        var directories = NSharpLang.Cli.NSharpCliDogfoodAdapter.TryOrderCleanArtifactDirectories(
+            existingDirectories,
+            out var dogfoodDirectories)
+            ? dogfoodDirectories
+            : existingDirectories
+                .Distinct(StringComparer.Ordinal)
+                .Where(dir => !IsUnderNodeModulesDirectory(dir))
+                .Where(dir => IsArtifactDirectoryName(Path.GetFileName(dir)))
+                .OrderByDescending(dir => dir.Length)
+                .ToArray();
 
         foreach (var dir in directories)
         {
@@ -145,4 +147,10 @@ Exit codes:
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
+
+    internal static bool IsArtifactDirectoryName(string name) =>
+        ArtifactDirectories.Contains(name, StringComparer.Ordinal);
+
+    internal static bool IsUnderNodeModulesDirectory(string dir) =>
+        NormalizePath(dir).Contains("/node_modules/", StringComparison.Ordinal);
 }

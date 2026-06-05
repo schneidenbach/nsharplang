@@ -196,6 +196,34 @@ func Main() {
             $"{dependency.Kind}:{dependency.Name}:{dependency.Version}";
     }
 
+    [Fact]
+    public void CleanCommand_DogfoodAdapter_OrdersArtifactDirectories()
+    {
+        var directories = new[]
+        {
+            "/repo/bin",
+            "/repo/src/obj",
+            "/repo/src/tmp",
+            "/repo/src/.nlc",
+            "/repo/node_modules/pkg/bin",
+            "/repo/src/obj",
+            "/repo/deep/nested/bin",
+            "/repo/deep/nested/.nlc",
+            "/repo/obj"
+        };
+
+        var expected = directories
+            .Distinct(StringComparer.Ordinal)
+            .Where(dir => !CleanCommand.IsUnderNodeModulesDirectory(dir))
+            .Where(dir => CleanCommand.IsArtifactDirectoryName(Path.GetFileName(dir)))
+            .OrderByDescending(dir => dir.Length)
+            .ToArray();
+
+        Assert.True(NSharpCliDogfoodAdapter.IsAvailable);
+        Assert.True(NSharpCliDogfoodAdapter.TryOrderCleanArtifactDirectories(directories, out var actual));
+        Assert.Equal(expected, actual);
+    }
+
     [Theory]
     [MemberData(nameof(QueryJsonContractCases))]
     public void QueryCommand_EmitsStableJsonEnvelope(string contractName, string[] args)

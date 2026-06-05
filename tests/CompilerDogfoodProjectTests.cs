@@ -874,6 +874,14 @@ func main(): int {
                     "CliFixSkippedChecksumInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit CliFixSkippedChecksumInto.");
+            var cliCleanArtifactDirectoryIndicesInto = programType.GetMethod(
+                    "CliCleanArtifactDirectoryIndicesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanArtifactDirectoryIndicesInto.");
+            var cliCleanArtifactDirectoryChecksumInto = programType.GetMethod(
+                    "CliCleanArtifactDirectoryChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CliCleanArtifactDirectoryChecksumInto.");
             var cliDocSymbolOrderCountingIndicesInto = programType.GetMethod(
                     "CliDocSymbolOrderCountingIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -1385,6 +1393,9 @@ func main(customer: Customer, résumé: Profile) {
                 cliFixSafetyFilterChecksumInto,
                 cliFixSkippedIndicesInto,
                 cliFixSkippedChecksumInto);
+            AssertCliCleanArtifactDirectoryOrderingLikeProduction(
+                cliCleanArtifactDirectoryIndicesInto,
+                cliCleanArtifactDirectoryChecksumInto);
             AssertCliDocSymbolOrderingLikeProduction(
                 cliDocSymbolOrderCountingIndicesInto,
                 cliDocSymbolOrderCountingChecksumInto);
@@ -3438,6 +3449,88 @@ func main() {
         {
             var index = orderedIndices[i];
             checksum += (i + 1) * 97 + (index + 1) * 31 + safetyRanks[index] * 17;
+        }
+
+        return checksum;
+    }
+
+    private static void AssertCliCleanArtifactDirectoryOrderingLikeProduction(
+        MethodInfo cliCleanArtifactDirectoryIndicesInto,
+        MethodInfo cliCleanArtifactDirectoryChecksumInto)
+    {
+        var kindRanks = new[]
+        {
+            1, 2, 0, 3, 1, 2, 1, 3, 2, 1
+        };
+        var nodeModuleFlags = new[]
+        {
+            0, 0, 0, 0, 1, 0, 0, 0, 0, 0
+        };
+        var pathRanks = new[]
+        {
+            1, 2, 3, 4, 5, 6, 1, 7, 8, 9
+        };
+        var pathLengths = new[]
+        {
+            30, 35, 20, 42, 50, 25, 30, 42, 35, 10
+        };
+        var expected = new[] { 3, 7, 1, 8, 0, 5, 9 };
+
+        var resultIndices = new int[kindRanks.Length];
+        var actualCount = (int)(cliCleanArtifactDirectoryIndicesInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nodeModuleFlags,
+                pathRanks,
+                pathLengths,
+                new int[pathRanks.Max() + 1],
+                new int[pathLengths.Max() + 1],
+                new int[pathLengths.Max() + 1],
+                new int[kindRanks.Length],
+                resultIndices
+            }) ?? -1);
+
+        Assert.Equal(expected.Length, actualCount);
+        Assert.Equal(expected, resultIndices.Take(actualCount).ToArray());
+
+        var checksumResultIndices = new int[kindRanks.Length];
+        var actualChecksum = (int)(cliCleanArtifactDirectoryChecksumInto.Invoke(
+            null,
+            new object[]
+            {
+                kindRanks,
+                nodeModuleFlags,
+                pathRanks,
+                pathLengths,
+                new int[pathRanks.Max() + 1],
+                new int[pathLengths.Max() + 1],
+                new int[pathLengths.Max() + 1],
+                new int[kindRanks.Length],
+                checksumResultIndices
+            }) ?? -1);
+        var expectedChecksum = CliCleanArtifactDirectoryChecksum(expected, kindRanks, pathRanks, pathLengths);
+
+        Assert.Equal(expectedChecksum, actualChecksum);
+        Assert.Equal(expected, checksumResultIndices.Take(expected.Length).ToArray());
+    }
+
+    private static int CliCleanArtifactDirectoryChecksum(
+        int[] orderedIndices,
+        int[] kindRanks,
+        int[] pathRanks,
+        int[] pathLengths)
+    {
+        var checksum = orderedIndices.Length;
+        for (var i = 0; i < orderedIndices.Length; i++)
+        {
+            var index = orderedIndices[i];
+            checksum += (i + 1) * 97
+                + (index + 1) * 31
+                + kindRanks[index] * 17
+                + pathRanks[index] * 13
+                + pathLengths[index] * 7;
         }
 
         return checksum;

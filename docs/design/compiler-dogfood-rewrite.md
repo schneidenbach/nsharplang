@@ -938,6 +938,13 @@ Current CLI dogfood benchmarks:
   group, then order by kind and name. The accepted N# candidate runs after the host has assigned
   compact kind/name ranks, uses stable counting passes to preserve first-source dependency
   selection, and returns ordered source indices through `CliTreeDependencyDeduplicateIndicesInto`.
+- `CliCleanArtifactDirectoryBenchmarks` targets artifact directory selection in `nlc clean` after
+  filesystem enumeration has identified existing directories. The C# baseline mirrors the previous
+  post-IO LINQ shape: ordinal `Distinct`, exclude `node_modules`, keep `bin`/`obj`/`.nlc`, then
+  stably `OrderByDescending` path length before deletion. The accepted N# candidate runs after the
+  host has projected artifact-kind flags, node_modules flags, ordinal path ranks, and path lengths,
+  then uses caller-owned buffers for first-source de-duplication and stable descending-length order
+  through `CliCleanArtifactDirectoryIndicesInto`.
   Both MSBuild-derived tree output and pure `project.yml` tree output now route through the accepted
   `TreeCommand.Deduplicate` helper before rendering.
   A focused 2026-06-04 validation run measured 4.598 us vs 155.891 us on the representative corpus
@@ -1123,6 +1130,14 @@ about 61.5x faster on the large generated dependency corpus (35.635 us vs 2,192.
 1,168,344 B). This is acceptance-grade benchmark evidence for `nlc tree` dependency deduplication
 after the host has assigned compact ordinal kind ranks and case-insensitive name ranks.
 
+`CliCleanArtifactDirectoryIndicesInto` passed parity and reported zero managed allocation in the
+short BenchmarkDotNet evidence tier for `nlc clean` artifact directory selection after directory IO.
+It ran about 19.4x faster on the representative directory corpus (2.703 us vs 52.389 us, 0 B vs
+114,464 B) and about 21.3x faster on the large generated directory corpus (23.487 us vs
+501.349 us, 0 B vs 644,415 B). This is acceptance-grade benchmark evidence for `nlc clean`
+post-enumeration artifact de-duplication and deletion order after the host has projected compact
+path facts.
+
 The production swap slice for these extraction helpers now ships the dogfood assembly beside the CLI,
 language server, and test host through `NSharpLang.Compiler.Dogfood.targets`, while
 `CodeIntelligenceService` dynamically binds the compiled N# methods when the assembly is present.
@@ -1264,6 +1279,10 @@ previous LINQ ordering path kept as the fallback.
 the dogfood assembly is available, preserving the default safe-only behavior,
 include-review-needed behavior, suggestion-only exclusion, unknown-safety exclusion, and source-order
 output, with the previous `Contains`-based C# path kept as the fallback.
+`nlc clean` artifact directory selection now routes through the compiled N# clean-ordering kernel
+when the dogfood assembly is available, preserving ordinal first-source de-duplication,
+node_modules exclusion, `bin`/`obj`/`.nlc` filtering, and stable descending-length deletion order,
+with the previous LINQ selection/order path kept as the fallback after directory-existence IO.
 `CompilerDogfoodProjectTests` verifies the packaged adapter can load
 `NSharpLang.Compiler.Dogfood.dll` and answer identifier, receiver, source-context, raw source-line,
 completion-prefix, completion receiver-context, completion item grouping, reflected method overload
@@ -1276,14 +1295,15 @@ candidate-column ordering, strict binding lookup, nearest declaration index cons
 semantic scope index construction, scoped visible-variable selection, CLI batch duplicate-id validation, CLI doc symbol/member
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
-text-edit ordering, skipped-fix selection, AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
+text-edit ordering, skipped-fix selection, clean artifact directory ordering, AOT requirement grouping, inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and
-`nlc query diagnostics --severity` filtering plus compiler-error severity filtering and skipped-fix
-selection;
+`nlc query diagnostics --severity` filtering plus compiler-error severity filtering, skipped-fix
+selection, and clean artifact directory ordering;
 `CliParityAuditTests` verifies `nlc new` accepts the project name after a value-taking template
-option through the first-positional route;
+option through the first-positional route and `nlc clean` removes build artifact directories through
+the production route;
 `CodeFixTests` verifies the production fix-applicator ordering route.
 `AotBlockerAnalyzerTests` verifies the production AOT requirement route combines public blockers,
 ignores private/internal blockers, preserves both requirement flags, and emits sorted construct
@@ -1310,7 +1330,8 @@ batch diagnostics, daemon diagnostics, and strict `nlc build` lint gating, plus 
 project/operand/package discovery in
 `nlc new`, `nlc check`, `nlc fix`, `nlc update`, and `nlc export csharp`, plus first source-file
 route selection in `nlc build`, plus inspect-summary reference-file ordering in `nlc query inspect`,
-plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output in `nlc fix --text`.
+plus symbol-kind filtering in `nlc query symbols`, plus skipped-fix text output in `nlc fix --text`,
+plus artifact directory selection in `nlc clean`.
 `nlc doc` symbol filtering/order and symbol-page member ordering are also routed through the
 compiled N# doc-ordering kernel.
 Path matching and all-positionals CLI argument filtering have parity and benchmark evidence but are

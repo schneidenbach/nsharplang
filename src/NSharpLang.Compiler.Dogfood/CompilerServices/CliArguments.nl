@@ -612,6 +612,130 @@ func CliFixSkippedChecksumInto(
     return checksum
 }
 
+func CliCleanArtifactDirectoryIndicesInto(
+    kindRanks: int[],
+    nodeModuleFlags: int[],
+    pathRanks: int[],
+    pathLengths: int[],
+    seenPathRanks: int[],
+    lengthCounts: int[],
+    lengthOffsets: int[],
+    tempIndices: int[],
+    resultIndices: int[]): int {
+    length := kindRanks.Length
+    if nodeModuleFlags.Length < length
+        || pathRanks.Length < length
+        || pathLengths.Length < length
+        || tempIndices.Length < length
+        || resultIndices.Length < length {
+        return -1
+    }
+
+    i := 0
+    while i < seenPathRanks.Length {
+        seenPathRanks[i] = 0
+        i = i + 1
+    }
+
+    i = 0
+    while i < lengthCounts.Length {
+        lengthCounts[i] = 0
+        lengthOffsets[i] = 0
+        i = i + 1
+    }
+
+    selectedCount := 0
+    i = 0
+    while i < length {
+        kindRank := kindRanks[i]
+        if kindRank > 0 && nodeModuleFlags[i] == 0 {
+            pathRank := pathRanks[i]
+            if pathRank <= 0 || pathRank >= seenPathRanks.Length {
+                return -1
+            }
+
+            if seenPathRanks[pathRank] == 0 {
+                pathLength := pathLengths[i]
+                if pathLength < 0 || pathLength >= lengthCounts.Length {
+                    return -1
+                }
+
+                seenPathRanks[pathRank] = 1
+                tempIndices[selectedCount] = i
+                lengthCounts[pathLength] = lengthCounts[pathLength] + 1
+                selectedCount = selectedCount + 1
+            }
+        }
+
+        i = i + 1
+    }
+
+    running := 0
+    lengthRank := lengthCounts.Length - 1
+    while lengthRank >= 0 {
+        count := lengthCounts[lengthRank]
+        lengthOffsets[lengthRank] = running
+        running = running + count
+        lengthRank = lengthRank - 1
+    }
+
+    i = 0
+    while i < selectedCount {
+        sourceIndex := tempIndices[i]
+        pathLength := pathLengths[sourceIndex]
+        outputIndex := lengthOffsets[pathLength]
+        resultIndices[outputIndex] = sourceIndex
+        lengthOffsets[pathLength] = outputIndex + 1
+        i = i + 1
+    }
+
+    return selectedCount
+}
+
+func CliCleanArtifactDirectoryChecksumInto(
+    kindRanks: int[],
+    nodeModuleFlags: int[],
+    pathRanks: int[],
+    pathLengths: int[],
+    seenPathRanks: int[],
+    lengthCounts: int[],
+    lengthOffsets: int[],
+    tempIndices: int[],
+    resultIndices: int[]): int {
+    orderedCount := CliCleanArtifactDirectoryIndicesInto(
+        kindRanks,
+        nodeModuleFlags,
+        pathRanks,
+        pathLengths,
+        seenPathRanks,
+        lengthCounts,
+        lengthOffsets,
+        tempIndices,
+        resultIndices)
+    if orderedCount < 0 {
+        return orderedCount
+    }
+
+    checksum := orderedCount
+    i := 0
+    while i < orderedCount && i < resultIndices.Length {
+        sourceIndex := resultIndices[i]
+        kindRank := 0
+        pathRank := 0
+        pathLength := 0
+        if sourceIndex >= 0 && sourceIndex < kindRanks.Length {
+            kindRank = kindRanks[sourceIndex]
+            pathRank = pathRanks[sourceIndex]
+            pathLength = pathLengths[sourceIndex]
+        }
+
+        checksum = checksum + (i + 1) * 97 + (sourceIndex + 1) * 31 + kindRank * 17 + pathRank * 13 + pathLength * 7
+        i = i + 1
+    }
+
+    return checksum
+}
+
 func CliPositionalArgChecksumInto(
     args: string[],
     optionsWithValues: string[],
