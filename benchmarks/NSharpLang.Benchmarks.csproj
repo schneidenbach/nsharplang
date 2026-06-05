@@ -101,6 +101,9 @@
     <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/TypeLookup.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.TypeLookup.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/OverloadCandidates.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.OverloadCandidates.nl" />
   </ItemGroup>
 
 </Project>

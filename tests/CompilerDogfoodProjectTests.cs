@@ -9783,6 +9783,239 @@ func main() {
         }
     }
 
+    [Fact]
+    public void OverloadCandidates_SelectsSameIndexAsCSharpTieBreak()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"NSharpLang.Compiler.Dogfood.Overloads.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var compiler = new MultiFileCompiler(projectRoot, config);
+            var result = compiler.CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+
+            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            var programType = assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var selectBest = programType.GetMethod(
+                    "OverloadSelectBestCandidate",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit OverloadSelectBestCandidate.");
+            var batchChecksum = programType.GetMethod(
+                    "OverloadSelectBatchChecksumInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit OverloadSelectBatchChecksumInto.");
+
+            int InvokeSelect(OverloadRankRow[] rows)
+            {
+                var count = rows.Length;
+                var valid = new int[count];
+                var scores = new int[count];
+                var generic = new int[count];
+                var paramsFlags = new int[count];
+                var defaults = new int[count];
+                for (var i = 0; i < count; i++)
+                {
+                    valid[i] = rows[i].Valid ? 1 : 0;
+                    scores[i] = rows[i].Score;
+                    generic[i] = rows[i].IsGeneric ? 1 : 0;
+                    paramsFlags[i] = rows[i].UsesParams ? 1 : 0;
+                    defaults[i] = rows[i].DefaultsUsed;
+                }
+
+                return (int)(selectBest.Invoke(null, new object[]
+                {
+                    valid, scores, generic, paramsFlags, defaults, count
+                }) ?? -1);
+            }
+
+            // Each scenario exercises one tie-break level. The expected index comes from the exact
+            // C# four-level tie-break (score > non-generic > non-params > fewer-defaults, first-wins).
+            var scenarios = new[]
+            {
+                // Single valid candidate.
+                new[] { Row(true, 3, false, false, 0) },
+                // No valid candidate.
+                new[] { Row(false, 9, false, false, 0), Row(false, 9, false, false, 0) },
+                // Higher score wins regardless of order.
+                new[] { Row(true, 2, false, false, 0), Row(true, 5, true, true, 3), Row(true, 4, false, false, 0) },
+                // Equal score: non-generic preferred over generic.
+                new[] { Row(true, 5, true, false, 0), Row(true, 5, false, false, 0) },
+                // Equal score and generic: non-params preferred.
+                new[] { Row(true, 5, false, true, 0), Row(true, 5, false, false, 0) },
+                // Equal score/generic/params: fewer defaults preferred.
+                new[] { Row(true, 5, false, false, 2), Row(true, 5, false, false, 1) },
+                // Full tie keeps the first candidate.
+                new[] { Row(true, 5, false, false, 1), Row(true, 5, false, false, 1) },
+                // Invalid candidate skipped even with the best columns.
+                new[] { Row(false, 9, false, false, 0), Row(true, 1, false, false, 0) },
+                // Generic preference only applies at equal score; lower-score non-generic loses.
+                new[] { Row(true, 6, true, false, 0), Row(true, 4, false, false, 0) },
+            };
+
+            foreach (var rows in scenarios)
+            {
+                Assert.Equal(ReferenceSelectBestIndex(rows), InvokeSelect(rows));
+            }
+
+            // Batch over many call sites with mixed group sizes: kernel checksum must equal the C#
+            // reference batch checksum, and the per-call selected index must match.
+            const int callCount = 257;
+            var validFlags = new List<int>();
+            var scoresList = new List<int>();
+            var genericList = new List<int>();
+            var paramsList = new List<int>();
+            var defaultsList = new List<int>();
+            var callOffsets = new int[callCount];
+            var callCounts = new int[callCount];
+            var expectedIndices = new int[callCount];
+
+            for (var c = 0; c < callCount; c++)
+            {
+                var offset = validFlags.Count;
+                var groupSize = 1 + ((c * 7) % 5);
+                var rows = new OverloadRankRow[groupSize];
+                for (var k = 0; k < groupSize; k++)
+                {
+                    var valid = ((c + k) % 9) != 0;
+                    var score = ((c * 3) + (k * 2)) % 7;
+                    var isGeneric = ((c + k) % 3) == 0;
+                    var usesParams = ((c + 2 * k) % 4) == 0;
+                    var defaultsUsed = (c + k) % 3;
+                    rows[k] = Row(valid, score, isGeneric, usesParams, defaultsUsed);
+                    validFlags.Add(valid ? 1 : 0);
+                    scoresList.Add(score);
+                    genericList.Add(isGeneric ? 1 : 0);
+                    paramsList.Add(usesParams ? 1 : 0);
+                    defaultsList.Add(defaultsUsed);
+                }
+
+                callOffsets[c] = offset;
+                callCounts[c] = groupSize;
+                expectedIndices[c] = ReferenceSelectBestIndex(rows);
+            }
+
+            var resultIndices = new int[callCount];
+            var actualChecksum = (int)(batchChecksum.Invoke(null, new object[]
+            {
+                validFlags.ToArray(),
+                scoresList.ToArray(),
+                genericList.ToArray(),
+                paramsList.ToArray(),
+                defaultsList.ToArray(),
+                callOffsets,
+                callCounts,
+                callCount,
+                resultIndices
+            }) ?? int.MinValue);
+
+            var expectedChecksum = ReferenceBatchChecksum(
+                validFlags, scoresList, genericList, paramsList, defaultsList,
+                callOffsets, callCounts, callCount, expectedIndices);
+
+            Assert.Equal(expectedChecksum, actualChecksum);
+            Assert.Equal(expectedIndices, resultIndices);
+        }
+        finally
+        {
+            if (File.Exists(outputPath))
+            {
+                File.Delete(outputPath);
+            }
+        }
+    }
+
+    private static OverloadRankRow Row(bool valid, int score, bool isGeneric, bool usesParams, int defaultsUsed) =>
+        new(valid, score, isGeneric, usesParams, defaultsUsed);
+
+    private static int ReferenceSelectBestIndex(OverloadRankRow[] rows)
+    {
+        var bestIndex = -1;
+        var bestScore = -1;
+        var bestUsesParams = true;
+        var bestDefaultsUsed = int.MaxValue;
+        var bestIsGeneric = true;
+
+        for (var i = 0; i < rows.Length; i++)
+        {
+            if (!rows[i].Valid)
+            {
+                continue;
+            }
+
+            var score = rows[i].Score;
+            var isGeneric = rows[i].IsGeneric;
+            var usesParams = rows[i].UsesParams;
+            var defaultsUsed = rows[i].DefaultsUsed;
+
+            if (bestIndex < 0
+                || score > bestScore
+                || (score == bestScore && bestIsGeneric && !isGeneric)
+                || (score == bestScore && bestIsGeneric == isGeneric && bestUsesParams && !usesParams)
+                || (score == bestScore && bestIsGeneric == isGeneric && bestUsesParams == usesParams && defaultsUsed < bestDefaultsUsed))
+            {
+                bestIndex = i;
+                bestScore = score;
+                bestUsesParams = usesParams;
+                bestDefaultsUsed = defaultsUsed;
+                bestIsGeneric = isGeneric;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    private static int ReferenceBatchChecksum(
+        List<int> validFlags,
+        List<int> scores,
+        List<int> genericFlags,
+        List<int> paramsFlags,
+        List<int> defaultsUsed,
+        int[] callOffsets,
+        int[] callCounts,
+        int callCount,
+        int[] expectedIndices)
+    {
+        var resolved = 0;
+        for (var c = 0; c < callCount; c++)
+        {
+            if (expectedIndices[c] >= 0)
+            {
+                resolved++;
+            }
+        }
+
+        var checksum = resolved;
+        for (var c = 0; c < callCount; c++)
+        {
+            var localIndex = expectedIndices[c];
+            if (localIndex >= 0)
+            {
+                var slot = callOffsets[c] + localIndex;
+                checksum += (c + 1) * 97
+                    + (localIndex + 1) * 31
+                    + scores[slot] * 17
+                    + genericFlags[slot] * 13
+                    + paramsFlags[slot] * 7
+                    + defaultsUsed[slot] * 3;
+            }
+        }
+
+        return checksum;
+    }
+
+    private readonly record struct OverloadRankRow(
+        bool Valid,
+        int Score,
+        bool IsGeneric,
+        bool UsesParams,
+        int DefaultsUsed);
+
     private static string FindRepoRoot()
     {
         var dir = AppContext.BaseDirectory;
