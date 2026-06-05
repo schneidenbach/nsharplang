@@ -15,6 +15,8 @@ internal static class NSharpCompilerDogfoodAdapter
     [ThreadStatic]
     private static FirstDistinctTypeKeyScratch? t_firstDistinctTypeKeyScratch;
     [ThreadStatic]
+    private static FirstDistinctStringScratch? t_firstDistinctStringScratch;
+    [ThreadStatic]
     private static DeclaredTypeSuffixLookupScratch? t_declaredTypeSuffixLookupScratch;
     [ThreadStatic]
     private static DeclaredTypeNameCandidateScratch? t_declaredTypeNameCandidateScratch;
@@ -135,6 +137,77 @@ internal static class NSharpCompilerDogfoodAdapter
         catch
         {
             deduplicatedTypes = [];
+            return false;
+        }
+        finally
+        {
+            scratch.ResetKeys();
+        }
+    }
+
+    internal static bool TryDeduplicateFirstStringsOrdinalIgnoreCase(
+        IReadOnlyList<string> values,
+        out List<string> deduplicatedValues)
+    {
+        deduplicatedValues = [];
+
+        var bindings = s_bindings.Value;
+        if (bindings == null)
+            return false;
+
+        var valueCount = values.Count;
+        if (valueCount == 0)
+            return true;
+
+        var scratch = t_firstDistinctStringScratch ??= new FirstDistinctStringScratch(StringComparer.OrdinalIgnoreCase);
+        scratch.EnsureCapacity(valueCount);
+
+        try
+        {
+            scratch.ResetKeys();
+            for (var i = 0; i < valueCount; i++)
+            {
+                var value = values[i];
+                if (value == null)
+                {
+                    deduplicatedValues = [];
+                    return false;
+                }
+
+                scratch.Ranks[i] = scratch.AddKey(value);
+            }
+
+            var deduplicatedCount = bindings.FirstDistinctRankIndices(
+                scratch.Ranks,
+                scratch.UniqueKeyCount,
+                scratch.SeenRanks,
+                scratch.ResultIndices);
+
+            if (deduplicatedCount < 0 || deduplicatedCount > valueCount || deduplicatedCount > scratch.ResultIndices.Length)
+            {
+                deduplicatedValues = [];
+                return false;
+            }
+
+            var result = new List<string>(deduplicatedCount);
+            for (var i = 0; i < deduplicatedCount; i++)
+            {
+                var sourceIndex = scratch.ResultIndices[i];
+                if (sourceIndex < 0 || sourceIndex >= valueCount)
+                {
+                    deduplicatedValues = [];
+                    return false;
+                }
+
+                result.Add(values[sourceIndex]);
+            }
+
+            deduplicatedValues = result;
+            return true;
+        }
+        catch
+        {
+            deduplicatedValues = [];
             return false;
         }
         finally
@@ -432,6 +505,47 @@ internal static class NSharpCompilerDogfoodAdapter
             if (TypeRanks.Length != count)
             {
                 TypeRanks = new int[count];
+                ResultIndices = new int[count];
+            }
+
+            var rankCapacity = count + 1;
+            if (SeenRanks.Length != rankCapacity)
+            {
+                SeenRanks = new int[rankCapacity];
+            }
+        }
+
+        public int AddKey(string key)
+        {
+            if (_keyRanks.TryGetValue(key, out var rank))
+                return rank;
+
+            rank = ++UniqueKeyCount;
+            _keyRanks.Add(key, rank);
+            return rank;
+        }
+
+        public void ResetKeys()
+        {
+            _keyRanks.Clear();
+            UniqueKeyCount = 0;
+        }
+    }
+
+    private sealed class FirstDistinctStringScratch(IEqualityComparer<string> comparer)
+    {
+        private readonly Dictionary<string, int> _keyRanks = new(comparer);
+
+        public int[] Ranks = Array.Empty<int>();
+        public int[] ResultIndices = Array.Empty<int>();
+        public int[] SeenRanks = Array.Empty<int>();
+        public int UniqueKeyCount;
+
+        public void EnsureCapacity(int count)
+        {
+            if (Ranks.Length != count)
+            {
+                Ranks = new int[count];
                 ResultIndices = new int[count];
             }
 

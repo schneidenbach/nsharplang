@@ -1303,6 +1303,12 @@ IL compiler implemented-interface expansion now routes first-source type-key de-
 `NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys` when the dogfood assembly is available,
 preserving direct/inherited interface expansion, ordinal type-key identity, and first-source
 selection, with the previous C# `GroupBy(GetTypeKey).Select(First)` path kept as the fallback.
+Compiler source-file list construction now routes first-source ordinal-ignore-case de-duplication in
+`MultiFileCompiler` and `CompilationStubEmitter` through
+`NSharpCompilerDogfoodAdapter.TryDeduplicateFirstStringsOrdinalIgnoreCase`, which calls the same
+accepted compact-rank `FirstDistinctRankIndicesInto` kernel after the host has normalized or
+filtered source paths, with the previous C# `Distinct(StringComparer.OrdinalIgnoreCase)` path kept
+as the fallback.
 IL compiler declared project-type suffix resolution now routes
 `TryLookupUniqueDeclaredTypeBySuffix` through
 `NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix` when the dogfood assembly is
@@ -1450,7 +1456,8 @@ semantic scope index construction, scoped visible-variable selection, CLI batch 
 ordering, CLI tree dependency deduplication, diagnostic severity filtering, symbol-kind filtering, CLI first positional-argument
 discovery, CLI build first source-operand discovery, parser newline-token compaction,
 text-edit ordering, skipped-fix selection, clean artifact directory ordering, update all-NuGet and target-package dependency filtering,
-AOT requirement grouping, declared-type suffix lookup, type-creation ordering, inspect-summary reference-file summaries, and the pressure-only
+AOT requirement grouping, declared-type suffix lookup, type-creation ordering, compiler source-file de-duplication,
+inspect-summary reference-file summaries, and the pressure-only
 path-matching and all-positionals CLI argument kernels through the compiled N# methods; `CliCommandTests` verifies both
 packaged CLI dogfood adapter routes for duplicate batch request ids, `nlc update` target package
 selection, `nlc doc` symbol/member ordering, `nlc tree` dependency deduplication, and

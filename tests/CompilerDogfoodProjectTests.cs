@@ -656,6 +656,92 @@ func main(): int {
     }
 
     [Fact]
+    public void CompilerDogfoodAdapter_DeduplicatesFirstStringsOrdinalIgnoreCase()
+    {
+        var paths = new[]
+        {
+            "/repo/src/App.nl",
+            "/repo/src/Shared.nl",
+            "/REPO/SRC/app.nl",
+            "/repo/src/Feature.nl",
+            "/repo/src/shared.nl"
+        };
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var tryDeduplicateFirstStringsOrdinalIgnoreCase = adapterType.GetMethod(
+                "TryDeduplicateFirstStringsOrdinalIgnoreCase",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryDeduplicateFirstStringsOrdinalIgnoreCase.");
+        var args = new object?[] { paths, null };
+        Assert.True((bool)(tryDeduplicateFirstStringsOrdinalIgnoreCase.Invoke(null, args) ?? false));
+        var deduplicatedPaths = Assert.IsType<List<string>>(args[1]);
+
+        Assert.Equal(new[]
+        {
+            "/repo/src/App.nl",
+            "/repo/src/Shared.nl",
+            "/repo/src/Feature.nl"
+        }, deduplicatedPaths);
+    }
+
+    [Fact]
+    public void MultiFileCompiler_DeduplicatesSourceFilesOrdinalIgnoreCase()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-dogfood-source-dedup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var sourceFile = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourceFile, "func main(): int { return 0 }");
+
+            var compiler = new MultiFileCompiler(
+                new[] { sourceFile, sourceFile.ToUpperInvariant(), sourceFile },
+                tempDir,
+                ProjectFileParser.CreateDefault());
+
+            var source = Assert.Single(compiler.SourceFiles);
+            Assert.Equal(Path.GetFullPath(sourceFile), source);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void CompilationStubEmitter_DeduplicatesSourceFilesBeforeParsing()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-dogfood-stub-dedup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var sourceFile = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourceFile, """
+func helper(): int {
+    return 1
+}
+""");
+
+            var stub = CompilationStubEmitter.Generate(
+                ProjectFileParser.CreateDefault(),
+                new[] { sourceFile, sourceFile });
+
+            Assert.Equal(1, CountOccurrences(stub, "internal static int helper("));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CompilerDogfoodAdapter_LooksUpUniqueDeclaredTypeBySuffix()
     {
         var declaredTypes = new Dictionary<string, Type>(StringComparer.Ordinal)
@@ -7426,6 +7512,21 @@ func main() {
         }
 
         return starts.ToArray();
+    }
+
+    private static int CountOccurrences(string text, string value)
+    {
+        var count = 0;
+        var startIndex = 0;
+        while (true)
+        {
+            var index = text.IndexOf(value, startIndex, StringComparison.Ordinal);
+            if (index < 0)
+                return count;
+
+            count++;
+            startIndex = index + value.Length;
+        }
     }
 
     private static string FindRepoRoot()

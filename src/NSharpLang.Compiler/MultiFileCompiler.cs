@@ -101,11 +101,10 @@ public class MultiFileCompiler
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
         _sourceTextOverrides = NormalizeSourceTextOverrides(sourceTextOverrides);
-        _sourceFiles = sourceFiles
+        _sourceFiles = DeduplicateSourceFilesOrdinalIgnoreCase(sourceFiles
             .Select(Path.GetFullPath)
             .Concat(_sourceTextOverrides.Keys)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .ToList());
         _debugLoggingEnabled = IsDebugLoggingEnabled();
 
         // Initialize shared analyzer ONCE with system assemblies and project config
@@ -116,10 +115,16 @@ public class MultiFileCompiler
 
     private static List<string> BuildSourceFiles(string projectRoot, ProjectConfig config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
     {
-        return DiscoverSourceFiles(projectRoot, config)
+        return DeduplicateSourceFilesOrdinalIgnoreCase(DiscoverSourceFiles(projectRoot, config)
             .Concat(NormalizeSourceTextOverrides(sourceTextOverrides).Keys)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .ToList());
+    }
+
+    private static List<string> DeduplicateSourceFilesOrdinalIgnoreCase(IReadOnlyList<string> sourceFiles)
+    {
+        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstStringsOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
+            ? dogfoodSourceFiles
+            : sourceFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private static IReadOnlyDictionary<string, string> NormalizeSourceTextOverrides(IReadOnlyDictionary<string, string>? sourceTextOverrides)

@@ -15,9 +15,10 @@ public static class CompilationStubEmitter
         ArgumentNullException.ThrowIfNull(sourceFiles);
 
         var compilationUnits = new List<CompilationUnit>();
-        foreach (var sourceFile in sourceFiles
-                     .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        var existingSourceFiles = sourceFiles
+            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            .ToList();
+        foreach (var sourceFile in DeduplicateSourceFilesOrdinalIgnoreCase(existingSourceFiles))
         {
             var source = File.ReadAllText(sourceFile);
             var lexer = new Lexer(source, sourceFile);
@@ -30,6 +31,13 @@ public static class CompilationStubEmitter
         }
 
         return new Writer(config, compilationUnits).Write();
+    }
+
+    private static List<string> DeduplicateSourceFilesOrdinalIgnoreCase(IReadOnlyList<string> sourceFiles)
+    {
+        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstStringsOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
+            ? dogfoodSourceFiles
+            : sourceFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private sealed class Writer(ProjectConfig config, IReadOnlyList<CompilationUnit> compilationUnits)
