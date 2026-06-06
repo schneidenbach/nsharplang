@@ -16,12 +16,15 @@
 //   CallExpression          -> kind 9   ( callee(args) -- slice 12; children [callee, arg0, arg1, ...] )
 //   IndexAccessExpression   -> kind 10  ( obj[index] -- slice 11; children [object, index] )
 //   UnaryExpression         -> kind 11  ( prefix !/-/~/++/--/^ -- slice 13; operator token in value span )
-// Deferred (refused with -1): `?.`/`?[` null-conditional access, generic method calls (callee<T>(...)),
-//   named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`; the BINARY precedence chain
-//   (next slice); every other primary (this/base/default/new/alloc/match/tuple/array-literal/object-
-//   initializer/interpolated string/lambda/cast/...). A tuple `(a, b)` or named element `(x: e)` is refused
-//   (the parenthesized branch requires a lone `)` after the inner expression). Literal VALUE materialization
-//   (unescaping strings/chars) is the host's job; this kernel records the value token's byte span only.
+//   BinaryExpression        -> kind 12  ( left OP right -- slice 14; operator token in value span; the full
+//                                         left-associative precedence chain ?? || && | ^ & ==/!= rel << >> +- */% )
+// Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
+//   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
+//   `is`/`as` type tests, range `..`, assignment and ternary (the levels ABOVE this chain); every other
+//   primary (this/base/default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/
+//   lambda/cast/...). A tuple `(a, b)` or named element `(x: e)` is refused (the parenthesized branch
+//   requires a lone `)` after the inner expression). Literal VALUE materialization (unescaping strings/
+//   chars) is the host's job; this kernel records the value token's byte span only.
 //
 // Node-table columns (caller-allocated to capacity >= count+1; outChildIndices likewise):
 //   outNodeKinds[i]    : 0..7 per the list above
@@ -112,7 +115,7 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     if kind == 127 {
         parenStart := tokenStart
         st[0] = pos + 1
-        inner := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        inner := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
         if inner < 0 {
             return -1
         }
@@ -157,7 +160,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         } else if pos < count && tokenKinds[pos] == 131 {
             objSpanStart := outSpanStarts[expr]
             st[0] = pos + 1
-            index := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            index := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
             if index < 0 {
                 return -1
             }
@@ -189,7 +192,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                     return -1
                 }
 
-                firstArg := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                firstArg := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
                 if firstArg < 0 {
                     st[3] = argBase
                     return -1
@@ -205,7 +208,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                         return -1
                     }
 
-                    nextArg := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                    nextArg := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
                     if nextArg < 0 {
                         st[3] = argBase
                         return -1
@@ -272,6 +275,94 @@ func ParseUnaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
     return ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
 }
 
+// Precedence level (higher binds tighter) for a left-associative binary operator token, or 0 if the token
+// is not a binary operator. Mirrors the C# precedence chain (Parser.cs:3940-4185), low->high:
+// ?? (NullCoalesce) < || < && < | < ^ < & < ==,!= < <,<=,>,>= < <<,>> < +,- < *,/,%.
+// `is`/`as` (type tests), range `..`, and assignment are intentionally NOT binary operators here (deferred).
+func BinaryOpPrecedence(kind: int): int {
+    if kind == 116 {
+        return 1
+    }
+    if kind == 105 {
+        return 2
+    }
+    if kind == 104 {
+        return 3
+    }
+    if kind == 108 {
+        return 4
+    }
+    if kind == 109 {
+        return 5
+    }
+    if kind == 107 {
+        return 6
+    }
+    if kind == 98 || kind == 99 {
+        return 7
+    }
+    if kind == 100 || kind == 101 || kind == 102 || kind == 103 {
+        return 8
+    }
+    if kind == 111 || kind == 112 {
+        return 9
+    }
+    if kind == 88 || kind == 89 {
+        return 10
+    }
+    if kind == 90 || kind == 91 || kind == 92 {
+        return 11
+    }
+    return 0
+}
+
+// ParseBinaryExpression: precedence climbing over the C# binary chain (Parser.cs:3940-4185). Parses a unary
+// operand, then while the next token is a binary operator whose precedence >= minPrec, consumes it and
+// parses the right operand at (precedence + 1) -- the left-associative formulation, producing the same
+// left-leaning BinaryExpression trees as the C# while-loop levels. Each BinaryExpression (kind 12) records
+// the operator token in the value span and has children [left, right] (fixed arity -> contiguous, no
+// arg-stack). `minPrec == 1` is the full-expression entry.
+func ParseBinaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], minPrec: int, depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    left := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    if left < 0 {
+        return -1
+    }
+
+    keepGoing := true
+    while keepGoing {
+        opKind := -1
+        if st[0] < count {
+            opKind = tokenKinds[st[0]]
+        }
+
+        prec := BinaryOpPrecedence(opKind)
+        if prec == 0 || prec < minPrec {
+            keepGoing = false
+        } else {
+            opStart := tokenStarts[st[0]]
+            opLength := tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            right := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, prec + 1, depth + 1)
+            if right < 0 {
+                return -1
+            }
+
+            leftSpanStart := outSpanStarts[left]
+            rightSpanEnd := outSpanStarts[right] + outSpanLengths[right]
+            childRunStart := st[2]
+            AppendExpressionChild(st, outChildIndices, left)
+            AppendExpressionChild(st, outChildIndices, right)
+            left = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 12, opStart, opLength, childRunStart, 2, leftSpanStart, rightSpanEnd - leftSpanStart)
+        }
+    }
+
+    return left
+}
+
 func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     st := new int[](4)
     st[0] = start
@@ -280,7 +371,7 @@ func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
     st[3] = 0
     argStack := new int[](count + 1)
 
-    root := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+    root := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, 0)
     if root < 0 {
         return -1
     }

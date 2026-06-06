@@ -913,11 +913,12 @@ class B
         _ => false,
     };
 
-    // Parser slices 10-13: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
-    // primary expressions (literals / identifiers / parenthesized -- slice 10), the postfix chain --
-    // member access (.name) and index access ([expr]) (slice 11) and calls (callee(args)) (slice 12) -- and
-    // prefix unary operators (slice 13) into a columnar node table, pinned against the production parser's
-    // Expression AST (extracted from a `return <expr>` statement). The binary precedence chain is next.
+    // Parser slices 10-14: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
+    // primary expressions (slice 10), the postfix chain -- member/index (slice 11), calls (slice 12) --
+    // prefix unary operators (slice 13), and the full left-associative binary-operator precedence chain
+    // (slice 14) into a columnar node table, pinned against the production parser's Expression AST (extracted
+    // from a `return <expr>` statement), including operator precedence and associativity. Deferred: is/as,
+    // range, assignment, ternary, and the remaining primaries.
     [Fact]
     public void Parser_Expression_MatchesProductionParser()
     {
@@ -960,6 +961,11 @@ class B
                 "f(g(x))", "f(a)(b)", "f(x)[i]", "compute(a, b, c).result", "outer(inner(z), w)",
                 // Unary prefix (slice 13): wraps a recursively-parsed operand; composes with postfix.
                 "-x", "!flag", "~bits", "-arr[i]", "!a.b", "-f(x)", "++i", "--count", "!!x", "-(value)",
+                // Binary precedence chain (slice 14): precedence + left-associativity + composition.
+                "a + b", "a - b - c", "1 + 2 * 3", "a * b + c", "i < count", "x == y", "a != b",
+                "a && b || c", "x | y & z", "a == b && c != d", "i < count && tokenKinds[pos] == 102",
+                "a + b * c - d / e", "n % 2 == 0", "left << 4 | right", "(a + b) * c", "f(x) + g(y) * 2",
+                "arr[i] + arr[j]", "a.b.c + d.e", "-a * b", "!found && i < n",
             };
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
@@ -1124,6 +1130,13 @@ class B
                 Assert.Equal(1, childCount[idx]);
                 AssertExprNode(e.Operand, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case BinaryExpression e:
+                Assert.True(kinds[idx] == 12, $"Expected Binary (12) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(BinaryOperatorText(e.Operator), source.Substring(valueStarts[idx], valueLengths[idx]));
+                Assert.Equal(2, childCount[idx]);
+                AssertExprNode(e.Left, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                AssertExprNode(e.Right, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
             case CallExpression e:
                 Assert.True(kinds[idx] == 9, $"Expected Call (9) at node {idx} for '{label}', got {kinds[idx]}.");
                 Assert.True(e.TypeArguments == null || e.TypeArguments.Count == 0, $"Slice-12 kernel does not handle generic calls for '{label}'.");
@@ -1150,6 +1163,30 @@ class B
         UnaryOperator.PreDecrement => "--",
         UnaryOperator.IndexFromEnd => "^",
         _ => "<unsupported>", // PostIncrement/PostDecrement are postfix -- not produced by the slice-13 kernel
+    };
+
+    private static string BinaryOperatorText(BinaryOperator op) => op switch
+    {
+        BinaryOperator.Add => "+",
+        BinaryOperator.Subtract => "-",
+        BinaryOperator.Multiply => "*",
+        BinaryOperator.Divide => "/",
+        BinaryOperator.Modulo => "%",
+        BinaryOperator.Equal => "==",
+        BinaryOperator.NotEqual => "!=",
+        BinaryOperator.Less => "<",
+        BinaryOperator.LessOrEqual => "<=",
+        BinaryOperator.Greater => ">",
+        BinaryOperator.GreaterOrEqual => ">=",
+        BinaryOperator.And => "&&",
+        BinaryOperator.Or => "||",
+        BinaryOperator.BitwiseAnd => "&",
+        BinaryOperator.BitwiseOr => "|",
+        BinaryOperator.BitwiseXor => "^",
+        BinaryOperator.LeftShift => "<<",
+        BinaryOperator.RightShift => ">>",
+        BinaryOperator.NullCoalesce => "??",
+        _ => "<unsupported>", // Range is deferred (not produced by the slice-14 binary chain)
     };
 
     [Fact]

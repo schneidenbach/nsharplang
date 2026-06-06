@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 14: binary-operator precedence chain (expression core complete)
+
+Adds the full left-associative binary precedence chain via **precedence climbing**
+(`ParseBinaryExpressionNode` + `BinaryOpPrecedence`, mirroring the C# levels
+ParseNullCoalescing..ParseMultiplicative, Parser.cs:3940-4185): `??` < `||` < `&&` < `|` < `^` < `&` <
+`==`/`!=` < relational(`<` `<=` `>` `>=`) < shift(`<<` `>>`) < `+`/`-` < `*`/`/`/`%`. Each
+`BinaryExpression` (kind 12) records the operator token in the value span with children `[left, right]`
+(fixed arity → contiguous, no arg-stack). The left-associative formulation (parse RHS at `precedence + 1`)
+reproduces the same left-leaning trees as the C# while-loop levels; the "full expression" entry is
+`minPrec == 1`. Operators above this chain (`is`/`as`, range `..`, assignment, ternary) correctly STOP the
+loop (deferred). Verified against the production parser's BinaryExpression on precedence boundaries
+(`1 + 2 * 3`, `a == b && c != d`, `x | y & z`), left-associativity (`a - b - c`), and composition with
+postfix/unary (`i < count && tokenKinds[pos] == 102`, `f(x) + g(y) * 2`, `!found && i < n`), then a focused
+adversarial-refutation pass (precedence/associativity + safety/dual-use lenses).
+
+**Milestone:** the N# expression kernel now covers the core expression grammar — primaries, full postfix
+(member/index/call), prefix unary, and the complete binary precedence chain — enough to parse the bulk of
+real dogfood expression shapes. Remaining for full expression parity: `is`/`as`, range, assignment,
+ternary, and the less-common primaries (new/alloc/match/tuple/array&object literals/interpolated strings/
+lambda/cast). Next natural step: a real-corpus expression pin over the dogfood kernel bodies (supported-form
+filtered), then statements. No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 13: prefix unary expressions
 
 Adds the unary level (`ParseUnaryExpressionNode`, mirroring `ParseUnaryExpression` Parser.cs:4223):
