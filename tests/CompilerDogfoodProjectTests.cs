@@ -2476,6 +2476,30 @@ func gen<'a>(x: scoped 'a): int
 """;
             AssertTokenMetadataWithIndentationLikeProductionLexer(indentLifetimeSource, tokenizeMetadataWithIndentationInto);
 
+            // Real-corpus dogfood: run the COMPLETE N# lexer (composed metadata-with-indentation +
+            // comment trivia) against the C# production lexer over every real .nl file in examples/ and
+            // the dogfood compiler-service kernels themselves. This exercises the full token + comment
+            // stream on diverse, real systems-N# source (lifetimes, scoped/unsafe keywords, raw/
+            // interpolated strings, comments, indentation) -- the strongest correctness check that the
+            // N# lexer matches C# on the code the compiler is actually written in.
+            var realCorpusDirs = new[]
+            {
+                Path.Combine(repoRoot, "examples"),
+                Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices"),
+            };
+            var realCorpusFiles = realCorpusDirs
+                .Where(Directory.Exists)
+                .SelectMany(dir => Directory.EnumerateFiles(dir, "*.nl", SearchOption.AllDirectories))
+                .OrderBy(path => path, StringComparer.Ordinal)
+                .ToArray();
+            Assert.NotEmpty(realCorpusFiles);
+            foreach (var file in realCorpusFiles)
+            {
+                var realSource = File.ReadAllText(file);
+                AssertTokenMetadataWithIndentationLikeProductionLexer(realSource, tokenizeMetadataWithIndentationInto);
+                AssertCommentsLikeProductionLexer(realSource, commentsInto);
+            }
+
             AssertSourceTextLineMapLikeProduction(
                 "",
                 splitLogicalLines,

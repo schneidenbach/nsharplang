@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Lexer real-corpus dogfood parity (108 real .nl files) + CommentsInto benchmark
+
+**What:** Two consolidation slices proving the now-complete N# lexer on real code.
+
+1. **Real-corpus parity.** Extended `LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer`
+   to run the COMPLETE N# lexer (`TokenizeMetadataWithIndentationInto` + `CommentsInto`) against the C#
+   production lexer (`Lexer.Tokenize()` / `Lexer.Comments`) over **every real `.nl` file** — 81 in
+   `examples/` + 27 dogfood compiler-service kernels = **108 files**, including the systems source the
+   compiler is written in (lifetimes, `scoped`/`unsafe`, raw/interpolated strings, comments,
+   indentation). Full token-stream parity (kind/start/valueLength/line/column) AND comment-trivia
+   parity hold on all 108 — the strongest available correctness evidence that the N# lexer matches C#
+   on the code that matters. (This is the "use the compiler on itself to ensure correctness" mandate.)
+
+2. **CommentsInto benchmark** (`CompilerServiceLexerCommentBenchmarks`, see
+   [`compiler-benchmark-metrics.md`](compiler-benchmark-metrics.md)): N#'s zero-alloc comment scan vs
+   C#'s tokenize-byproduct comment collection — 4.7× representative (0 B vs 33.9 KB), 18× large
+   (0 B vs 10.7 MB). Framed honestly there (C# has no dedicated comment scanner).
+
+**Status:** the N# lexer is feature-complete AND validated correct on the real compiler/example corpus.
+The remaining self-host work is the large subsystem migration (parser → N#, consuming N# tokens
+in-assembly) needed to actually delete the `*DogfoodAdapter` bridge — a multi-slice Phase 2/3 effort.
+
 ## 2026-06-06 — Phase 1 lexer: comment-trivia collection (N# lexer feature-complete vs C#)
 
 **What:** Added the `CommentsInto` N# kernel — the last lexer feature gap. The C# `Lexer.Tokenize`
