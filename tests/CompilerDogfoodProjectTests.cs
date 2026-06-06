@@ -1484,6 +1484,10 @@ class OtherZetaType {
                     "TokenizeMetadataWithIndentationInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
+            var commentsInto = programType.GetMethod(
+                    "CommentsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit CommentsInto.");
             var parserTokenCompactionIndicesInto = programType.GetMethod(
                     "ParserTokenCompactionIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2305,6 +2309,26 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionChecksumInto);
 
+            // Comment trivia: the N# CommentsInto kernel must reproduce C# Lexer.Comments. This corpus
+            // mixes line/doc/block comments (incl. a multi-line block and a trailing comment with no
+            // final newline) with comment-looking sequences INSIDE string and char literals that must
+            // NOT be collected as comments.
+            const string commentSource = """
+// line comment
+/// doc comment
+let s = "not // a comment"
+let t = "not /* still */ a comment"
+let x = 1 /* trailing block */ + 2
+/* multi
+   line
+   block */
+let c = '/'
+func f(): int /* eol */
+""" + "\n// final comment, no trailing newline";
+            AssertCommentsLikeProductionLexer(commentSource, commentsInto);
+            AssertCommentsLikeProductionLexer(source, commentsInto);
+            AssertCommentsLikeProductionLexer(lifetimeSource, commentsInto);
+
             const string metadataSource = """
 package CompilerDogfood.Metadata
 
@@ -2360,6 +2384,8 @@ func classify(value: int, name: string): string {
                 representativeSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionChecksumInto);
+            AssertCommentsLikeProductionLexer(representativeSource, commentsInto);
+            AssertCommentsLikeProductionLexer(metadataSource, commentsInto);
 
             // Self-host Phase 1: the composed N# lexer entry point (TokenizeMetadataWithIndentationInto)
             // must reach full token-stream parity with the C# production lexer including the virtual
@@ -2925,6 +2951,40 @@ func main() {
             Assert.Equal(token.Value.Length, valueLengths[i]);
             Assert.Equal(token.Line, lines[i]);
             Assert.Equal(token.Column, columns[i]);
+        }
+    }
+
+    private static void AssertCommentsLikeProductionLexer(string source, MethodInfo commentsInto)
+    {
+        // The N# comment-trivia kernel must reproduce the C# production lexer's Lexer.Comments exactly
+        // (line, column, start offset, text length, and isMultiLine), including NOT treating // or /*
+        // inside string/char/lifetime literals as comments.
+        var lexer = new Lexer(source, "dogfood-test.nl");
+        lexer.Tokenize();
+        var expected = lexer.Comments;
+
+        var capacity = source.Length + 1;
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+        var starts = new int[capacity];
+        var lengths = new int[capacity];
+        var isMultiLine = new int[capacity];
+
+        var count = (int)(commentsInto.Invoke(
+            null,
+            new object[] { source, lines, columns, starts, lengths, isMultiLine }) ?? -1);
+
+        Assert.Equal(expected.Count, count);
+
+        var lineStarts = BuildLineStarts(source);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            var c = expected[i];
+            Assert.Equal(c.Line, lines[i]);
+            Assert.Equal(c.Column, columns[i]);
+            Assert.Equal(TokenStartFromLineColumn(lineStarts, c.Line, c.Column, source.Length), starts[i]);
+            Assert.Equal(c.Text.Length, lengths[i]);
+            Assert.Equal(c.IsMultiLine ? 1 : 0, isMultiLine[i]);
         }
     }
 

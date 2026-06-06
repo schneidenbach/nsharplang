@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Phase 1 lexer: comment-trivia collection (N# lexer feature-complete vs C#)
+
+**What:** Added the `CommentsInto` N# kernel — the last lexer feature gap. The C# `Lexer.Tokenize`
+collects line/doc/block comments into `Lexer.Comments` (consumed by the formatter) while excluding them
+from the token stream. `CommentsInto` reproduces it exactly: for each comment it records line, column,
+start offset, length, and `isMultiLine` (1 = block `/* */`, 0 = line `//` or doc `///`). C#'s stored
+text is the full span for line/doc comments and `"/*" + inner + "*/"` for block comments — both equal
+`end - start`, so `length` = `end - start` uniformly. The kernel mirrors `TokenizeMetadataInto`'s token
+dispatch (consuming string / raw-string / char / lifetime / number / identifier / operator runs as
+units), so a `//` or `/*` INSIDE a literal is never misread as a comment and line/column tracking
+through multi-line raw strings stays exact.
+
+**Verified:** `AssertCommentsLikeProductionLexer` compares `CommentsInto` to `new Lexer(src).Comments`
+(line/column/start/length/isMultiLine) on a dedicated `commentSource` (line + doc + single-line block +
+multi-line block + trailing comment with no final newline + `//`/`/*` inside string and char literals
+that must NOT be collected) plus the representative/metadata/source/lifetime corpora. Targeted test
+green.
+
+**Milestone — the N# lexer is now feature-complete vs the C# production lexer:** token kind, source
+position (start/line/column), value length, indentation braces, Unicode classification, lifetimes,
+malformed-number Unknown tokens, AND comment trivia all match `Lexer.Tokenize()`/`Lexer.Comments`.
+Token-text is host-derivable from start+length (not a kernel gap). The Phase 0/1 lexer beachhead's
+correctness work is done; what remains for the lexer is the **architecture** (Phase 2): an N#-native
+Token representation + an in-assembly N#→N# consumer (parser) so the `*DogfoodAdapter` delegate
+boundary can actually be deleted — the dogfood kernels remain behind that bridge until their caller is
+also N#.
+
 ## 2026-06-06 — Phase 1 lexer: malformed-number Unknown tokens (raw-tokenizer kind-stream parity complete)
 
 **What:** Closed the last raw-tokenizer kind divergence — malformed numbers. The C# `ReadNumber`
