@@ -11908,6 +11908,267 @@ public partial class ILCompiler
     /// <summary>
     /// Emit IL for an if statement
     /// </summary>
+    /// <summary>
+    /// Emits a short-circuiting conditional branch: jumps to <paramref name="target"/> exactly when
+    /// <paramref name="condition"/> evaluates to <paramref name="branchIfTrue"/>. Logical
+    /// <c>&amp;&amp;</c>/<c>||</c>/<c>!</c> are lowered to branches taken directly against the target
+    /// labels rather than materializing an intermediate boolean. This preserves short-circuit
+    /// semantics (the right operand is only evaluated when the left does not decide the result) while
+    /// matching the compact IL shape an optimizing C# compiler emits for the same condition — avoiding
+    /// the <c>ldc.i4.0</c>/<c>ldc.i4.1</c>/<c>br</c> boolean-materialization that
+    /// <see cref="EmitLogicalAnd"/>/<see cref="EmitLogicalOr"/> must produce in value context.
+    /// </summary>
+    private void EmitConditionBranch(Expression condition, Label target, bool branchIfTrue)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        while (condition is ParenthesizedExpression parenthesized)
+        {
+            condition = parenthesized.Inner;
+        }
+
+        switch (condition)
+        {
+            case UnaryExpression { Operator: UnaryOperator.Not } negation:
+                EmitConditionBranch(negation.Operand, target, !branchIfTrue);
+                return;
+
+            case BinaryExpression { Operator: BinaryOperator.And } conjunction:
+                if (TryEmitEagerLogicalBranch(conjunction, OpCodes.And, target, branchIfTrue))
+                {
+                    return;
+                }
+
+                if (branchIfTrue)
+                {
+                    // Branch only if (left && right) is true → both must hold. If the left is false
+                    // the whole expression is false, so skip straight past the branch.
+                    var fallThrough = _currentIL.DefineLabel();
+                    EmitConditionBranch(conjunction.Left, fallThrough, branchIfTrue: false);
+                    EmitConditionBranch(conjunction.Right, target, branchIfTrue: true);
+                    _currentIL.MarkLabel(fallThrough);
+                }
+                else
+                {
+                    // Branch if (left && right) is false → either operand being false is sufficient.
+                    EmitConditionBranch(conjunction.Left, target, branchIfTrue: false);
+                    EmitConditionBranch(conjunction.Right, target, branchIfTrue: false);
+                }
+                return;
+
+            case BinaryExpression { Operator: BinaryOperator.Or } disjunction:
+                if (TryEmitEagerLogicalBranch(disjunction, OpCodes.Or, target, branchIfTrue))
+                {
+                    return;
+                }
+
+                if (branchIfTrue)
+                {
+                    // Branch if (left || right) is true → either operand being true is sufficient.
+                    EmitConditionBranch(disjunction.Left, target, branchIfTrue: true);
+                    EmitConditionBranch(disjunction.Right, target, branchIfTrue: true);
+                }
+                else
+                {
+                    // Branch only if (left || right) is false → both must be false. If the left is
+                    // true the whole expression is true, so skip straight past the branch.
+                    var fallThrough = _currentIL.DefineLabel();
+                    EmitConditionBranch(disjunction.Left, fallThrough, branchIfTrue: true);
+                    EmitConditionBranch(disjunction.Right, target, branchIfTrue: false);
+                    _currentIL.MarkLabel(fallThrough);
+                }
+                return;
+
+            default:
+                if (TryEmitFusedComparisonBranch(condition, target, branchIfTrue))
+                {
+                    return;
+                }
+
+                EmitExpression(condition);
+                _currentIL.Emit(branchIfTrue ? OpCodes.Brtrue : OpCodes.Brfalse, target);
+                return;
+        }
+    }
+
+    /// <summary>
+    /// Eagerly evaluates a logical <c>&amp;&amp;</c>/<c>||</c> as <c>left; right; and/or; br</c> (a single
+    /// branch) instead of short-circuiting branches — but only when BOTH operands are provably pure and
+    /// non-throwing, so eager evaluation is observably identical to short-circuit. The conservative
+    /// safe set is an integer relational comparison whose two leaves are integer locals/parameters or
+    /// integer/char literals: those never throw, never allocate, and have no side effects, so always
+    /// evaluating the right operand cannot change observable behavior. This recovers the single-branch
+    /// IL shape (which the JIT further folds into a range check) that strict short-circuit lowering
+    /// would split into two branches. Anything with a call, member access, index, division, or other
+    /// potentially-faulting/side-effecting operand falls through to short-circuit lowering. Returns
+    /// false when the eager form is not provably safe.
+    /// </summary>
+    private bool TryEmitEagerLogicalBranch(BinaryExpression binary, OpCode combineOpcode, Label target, bool branchIfTrue)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (!IsEagerSafeConditionOperand(binary.Left) || !IsEagerSafeConditionOperand(binary.Right))
+        {
+            return false;
+        }
+
+        EmitExpression(binary.Left);
+        EmitExpression(binary.Right);
+        _currentIL.Emit(combineOpcode);
+        _currentIL.Emit(branchIfTrue ? OpCodes.Brtrue : OpCodes.Brfalse, target);
+        return true;
+    }
+
+    private bool IsEagerSafeConditionOperand(Expression expression)
+    {
+        while (expression is ParenthesizedExpression parenthesized)
+        {
+            expression = parenthesized.Inner;
+        }
+
+        if (expression is not BinaryExpression comparison)
+        {
+            return false;
+        }
+
+        switch (comparison.Operator)
+        {
+            case BinaryOperator.Less:
+            case BinaryOperator.Greater:
+            case BinaryOperator.LessOrEqual:
+            case BinaryOperator.GreaterOrEqual:
+            case BinaryOperator.Equal:
+            case BinaryOperator.NotEqual:
+                return IsPureIntegralLeaf(comparison.Left) && IsPureIntegralLeaf(comparison.Right);
+            default:
+                return false;
+        }
+    }
+
+    private bool IsPureIntegralLeaf(Expression expression)
+    {
+        while (expression is ParenthesizedExpression parenthesized)
+        {
+            expression = parenthesized.Inner;
+        }
+
+        switch (expression)
+        {
+            case IntLiteralExpression:
+            case CharLiteralExpression:
+                return true;
+            case IdentifierExpression identifier
+                when (_locals?.ContainsKey(identifier.Name) == true || _parameters?.ContainsKey(identifier.Name) == true):
+                return IsIntegralBranchOperandType(GetExpressionType(identifier));
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Fuses an integer relational comparison and its branch into a single conditional-branch opcode
+    /// (<c>blt</c>/<c>bgt</c>/<c>ble</c>/<c>bge</c>/<c>beq</c>/<c>bne.un</c>) instead of emitting the
+    /// comparison opcode and then testing the pushed 0/1 with <c>brtrue</c>/<c>brfalse</c>. This is the
+    /// IL shape an optimizing C# compiler produces and removes the per-comparison
+    /// <c>clt</c>/<c>cgt</c>+test overhead in hot loops. Only integral operands are fused: their
+    /// relational inverse is exact (integers have no unordered/NaN case), so branching on the inverted
+    /// operator when <paramref name="branchIfTrue"/> is false is always correct. Floating-point and
+    /// other operands fall back to the materialize-then-test path, which keeps the existing ordered
+    /// comparison semantics. Returns false when fusion does not apply (caller emits the fallback).
+    /// </summary>
+    private bool TryEmitFusedComparisonBranch(Expression condition, Label target, bool branchIfTrue)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (condition is not BinaryExpression comparison)
+        {
+            return false;
+        }
+
+        switch (comparison.Operator)
+        {
+            case BinaryOperator.Less:
+            case BinaryOperator.Greater:
+            case BinaryOperator.LessOrEqual:
+            case BinaryOperator.GreaterOrEqual:
+            case BinaryOperator.Equal:
+            case BinaryOperator.NotEqual:
+                break;
+            default:
+                return false;
+        }
+
+        var leftType = GetExpressionType(comparison.Left);
+        var rightType = GetExpressionType(comparison.Right);
+        var promote = TryGetBinaryNumericPromotionType(comparison.Operator, leftType, rightType, out var promotedType);
+        var operandType = promote ? promotedType : leftType;
+
+        // Without promotion the raw opcode compares the two operands directly, so they must already be
+        // the same stack type. Require all of left/right/operand to be integral so the fused branch and
+        // its inverse are exact.
+        if (!promote && leftType != rightType)
+        {
+            return false;
+        }
+
+        if (!IsIntegralBranchOperandType(operandType)
+            || !IsIntegralBranchOperandType(leftType)
+            || !IsIntegralBranchOperandType(rightType))
+        {
+            return false;
+        }
+
+        if (promote)
+        {
+            EmitExpression(comparison.Left);
+            EmitValueCoercion(leftType, promotedType, allowExplicitUserDefinedConversions: false);
+            EmitExpression(comparison.Right);
+            EmitValueCoercion(rightType, promotedType, allowExplicitUserDefinedConversions: false);
+        }
+        else
+        {
+            EmitExpression(comparison.Left);
+            EmitExpression(comparison.Right);
+        }
+
+        var effectiveOperator = branchIfTrue ? comparison.Operator : InvertRelationalOperator(comparison.Operator);
+        var unsigned = UsesUnsignedNumericOpcode(operandType);
+        _currentIL.Emit(SelectIntegerBranchOpcode(effectiveOperator, unsigned), target);
+        return true;
+    }
+
+    private static BinaryOperator InvertRelationalOperator(BinaryOperator op) => op switch
+    {
+        BinaryOperator.Less => BinaryOperator.GreaterOrEqual,
+        BinaryOperator.Greater => BinaryOperator.LessOrEqual,
+        BinaryOperator.LessOrEqual => BinaryOperator.Greater,
+        BinaryOperator.GreaterOrEqual => BinaryOperator.Less,
+        BinaryOperator.Equal => BinaryOperator.NotEqual,
+        BinaryOperator.NotEqual => BinaryOperator.Equal,
+        _ => throw new InvalidOperationException($"Operator {op} is not relational.")
+    };
+
+    private static OpCode SelectIntegerBranchOpcode(BinaryOperator op, bool unsigned) => op switch
+    {
+        BinaryOperator.Less => unsigned ? OpCodes.Blt_Un : OpCodes.Blt,
+        BinaryOperator.Greater => unsigned ? OpCodes.Bgt_Un : OpCodes.Bgt,
+        BinaryOperator.LessOrEqual => unsigned ? OpCodes.Ble_Un : OpCodes.Ble,
+        BinaryOperator.GreaterOrEqual => unsigned ? OpCodes.Bge_Un : OpCodes.Bge,
+        BinaryOperator.Equal => OpCodes.Beq,
+        BinaryOperator.NotEqual => OpCodes.Bne_Un,
+        _ => throw new InvalidOperationException($"Operator {op} is not relational.")
+    };
+
+    private bool IsIntegralBranchOperandType(Type type)
+    {
+        type = NormalizeOverflowCheckedType(type);
+        return type == typeof(int) || type == typeof(uint)
+            || type == typeof(long) || type == typeof(ulong)
+            || type == typeof(short) || type == typeof(ushort)
+            || type == typeof(byte) || type == typeof(sbyte)
+            || type == typeof(char);
+    }
+
     private void EmitIf(IfStatement ifStmt)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
@@ -11915,9 +12176,8 @@ public partial class ILCompiler
         var elseLabel = _currentIL.DefineLabel();
         var endLabel = _currentIL.DefineLabel();
 
-        // Emit condition
-        EmitExpression(ifStmt.Condition);
-        _currentIL.Emit(OpCodes.Brfalse, elseLabel);
+        // Emit condition as a short-circuiting branch to the else target.
+        EmitConditionBranch(ifStmt.Condition, elseLabel, branchIfTrue: false);
 
         // Emit then branch
         EmitStatement(ifStmt.ThenStatement);
@@ -11990,8 +12250,7 @@ public partial class ILCompiler
         _currentIL.MarkLabel(conditionLabel);
         if (forStmt.Condition != null)
         {
-            EmitExpression(forStmt.Condition);
-            _currentIL.Emit(OpCodes.Brtrue, bodyLabel);
+            EmitConditionBranch(forStmt.Condition, bodyLabel, branchIfTrue: true);
         }
         else
         {
@@ -12150,8 +12409,7 @@ public partial class ILCompiler
         _currentIL.MarkLabel(conditionLabel);
 
         // Emit condition
-        EmitExpression(whileStmt.Condition);
-        _currentIL.Emit(OpCodes.Brfalse, endLabel);
+        EmitConditionBranch(whileStmt.Condition, endLabel, branchIfTrue: false);
 
         // Emit body
         _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
