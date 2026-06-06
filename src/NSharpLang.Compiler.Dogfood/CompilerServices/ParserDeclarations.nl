@@ -12,6 +12,56 @@
 // Interface=10, Union=12, Record=13, Enum=14, Type=72, Test=73. (The contextual `setup`/`teardown`
 // declarations and preprocessor declarations are intentionally out of scope for this first slice;
 // corpora that exercise this kernel avoid them.)
+// Parser slice 3: the file's package name span. The C# parser's CompilationUnit.Package is the dotted
+// name after a top-level `package` keyword (`package A.B.C`); a file has at most one. This records the
+// span covering the dotted name (first identifier start through the last identifier's end, so the host
+// materializes "A.B.C"). Returns 1 and fills outResult[0]=start, outResult[1]=length when a package is
+// present; returns 0 otherwise (matching CompilationUnit.Package == null). The package keyword is only
+// recognized at depth 0, before any declaration body.
+func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outResult: int[]): int {
+    braceDepth := 0
+    i := 0
+    while i < count {
+        kind := tokenKinds[i]
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if braceDepth == 0 && kind == 18 {
+            // `package` keyword: collect the dotted name that follows (identifier (. identifier)*).
+            j := i + 1
+            nameStart := -1
+            nameEnd := -1
+            while j < count && (tokenKinds[j] == 0 || tokenKinds[j] == 124) {
+                if tokenKinds[j] == 0 {
+                    if nameStart < 0 {
+                        nameStart = tokenStarts[j]
+                    }
+
+                    nameEnd = tokenStarts[j] + tokenValueLengths[j]
+                }
+
+                j = j + 1
+            }
+
+            if nameStart >= 0 {
+                outResult[0] = nameStart
+                outResult[1] = nameEnd - nameStart
+                return 1
+            }
+
+            return 0
+        }
+
+        i = i + 1
+    }
+
+    return 0
+}
+
 func IsTopLevelDeclarationKeyword(kind: int): bool {
     return kind == 7 || kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72 || kind == 73
 }

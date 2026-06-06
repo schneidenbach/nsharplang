@@ -11,6 +11,14 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 3: package name
+
+`PackageNameSpanInto` (ParserDeclarations.nl) records the file's `package A.B.C` dotted-name span (or
+returns 0 when absent), matching the C# parser's `CompilationUnit.Package?.Name`. Verified on the
+controlled/indentation corpora and all 27 dogfood kernels. The N# parser now extracts a coherent
+file-structure index — package + top-level declaration kinds + names — from the lexer's tokens,
+in-assembly. (Imports' namespace-vs-file-import distinction is deferred to a later careful slice.)
+
 ## 2026-06-06 — N# parser slice 2: top-level declaration names
 
 `TopLevelDeclarationNameSpansInto` (ParserDeclarations.nl) extends slice 1 to also record each

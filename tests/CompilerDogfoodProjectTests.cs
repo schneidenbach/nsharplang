@@ -69,6 +69,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelDeclarationNameSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationNameSpansInto.");
+            var packageNameSpan = programType.GetMethod(
+                    "PackageNameSpanInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit PackageNameSpanInto.");
 
             const string controlledCorpus = """
 import System
@@ -111,7 +115,7 @@ record Person {
 }
 """;
 
-            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames);
+            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan);
 
             // Indentation-style declarations: the composed lexer inserts virtual braces, and the kernel
             // tracks depth through them identically to explicit braces, so nested members are excluded.
@@ -126,14 +130,14 @@ class B
     struct N
         z: int
 """;
-            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames);
+            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan);
 
             // The dogfood compiler-service kernels themselves (all top-level funcs) -- real code.
             foreach (var file in Directory
                 .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
                 .OrderBy(p => p, StringComparer.Ordinal))
             {
-                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, file);
+                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, file);
             }
         }
         finally
@@ -147,6 +151,7 @@ class B
         MethodInfo tokenizeWithIndentation,
         MethodInfo topLevelDecls,
         MethodInfo topLevelDeclNames,
+        MethodInfo packageNameSpan,
         string? label = null)
     {
         var expected = ExpectedDeclarations(source);
@@ -191,6 +196,25 @@ class B
                 $"Top-level declaration name mismatch{labelSuffix} at {i} (kind {nameKinds[i]}): " +
                 $"expected '{expectedName ?? "<null>"}', actual '{actualName ?? "<null>"}'");
         }
+
+        // Slice 3: package name.
+        var packageResult = new int[2];
+        var hasPackage = (int)(packageNameSpan.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, packageResult }) ?? -1);
+        var actualPackage = hasPackage == 1 ? source.Substring(packageResult[0], packageResult[1]) : null;
+        var expectedPackage = ExpectedPackage(source);
+        Assert.True(
+            expectedPackage == actualPackage,
+            $"Package name mismatch{labelSuffix}: expected '{expectedPackage ?? "<null>"}', " +
+            $"actual '{actualPackage ?? "<null>"}'");
+    }
+
+    private static string? ExpectedPackage(string source)
+    {
+        var tokens = new Lexer(source, "decl-test.nl").Tokenize();
+        var compilationUnit = new Parser(tokens, "decl-test.nl").ParseCompilationUnit().CompilationUnit;
+        return compilationUnit?.Package?.Name;
     }
 
     private static (int Kind, string? Name)[] ExpectedDeclarations(string source)
