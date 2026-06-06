@@ -2386,3 +2386,70 @@ produce a production-shaped win:
   `FormatterSafetyScan.nl` kernel, benchmark
   (`CompilerServiceFormatterSafetyScanBenchmarks`), and `CompilerDogfoodProjectTests` parity
   coverage are retained as rejection evidence only.
+
+## Code-Intelligence Output Construction Audit (Unit 7)
+
+This audit inventories the remaining hover/definition/diagnostic/completion *output construction*
+C# in the non-LSP compiler-side `CodeIntelligence` library
+(`src/NSharpLang.Compiler/CodeIntelligence/CodeIntelligenceService.cs`, `Models.cs`,
+`OutputFormatter.cs`). The verdict is **REJECT / audit-only**: the remaining pieces are pure string
+materialization with no compact integer-domain kernel, so they cannot clear the 5x gate over a late
+one-off adapter call. The pieces with a genuine compact-array shape (grouping, dedup, clustering,
+ranking, span/offset math) have *already* been routed — see the accepted code-intel kernels
+(`IdentifierSpans.nl`, `CompletionGrouping.nl`, `CompletionReceivers.nl`, `DiagnosticClusters.nl`,
+`DiagnosticDeduplication.nl`, `SemanticScopes.nl`, etc.) and their benchmark entries above. What
+remains below is the residue: the per-call string assembly that wraps those kernels.
+
+Recent rejected probes (Rejected Probes section; semantic-scope public-API bridge, NL010 namespace
+checking, format path scanning) all confirm the same boundary cost: once the production-shaped C#
+projection into-and-out-of the N# kernel and the public string/object materialization are included,
+the 5x gate is lost even when the integer core is 2-25x faster. Crossing the C# boundary over public
+strings/objects per call is the failure mode for every piece below.
+
+Per-piece inventory and routing verdict:
+
+- `GetHoverInfo` (`CodeIntelligenceService.cs:725`) — orchestration only: it calls
+  `GetTypeAtPosition`, `FindDefinition`, `FindCompilationUnit`, `BuildSignature`, and
+  `ExtractDocComment`, then allocates one `HoverResult` record. The position/lookup work is already
+  served by routed span/scope kernels; the residue is a single record construction. **REJECT** — no
+  array, no hot loop, one allocation per on-demand hover. Dogfooding this would mean N# owning the
+  whole hover *result type* and its construction, not a one-off adapter call.
+- `BuildSignature` / `FormatFunctionSignature` / `FormatTypeRef`
+  (`CodeIntelligenceService.cs:749-803`) and the parallel `FormatTypeReference` family
+  (`:2411` and the `FormatTypeReferencePublic`/inner switch around it) — recursive
+  `StringBuilder`/string-interpolation/`string.Join` over a single `FunctionDeclaration` or
+  `TypeReference`. This is the canonical string-materialization-dominated shape: the cost *is* the
+  string building, there is no separable integer kernel to extract. A compact route would have to
+  pre-intern every type-name fragment into ids and re-materialize the exact same string, paying the
+  boundary twice for zero arithmetic. **REJECT** — pure materialization; mirrors the rejected
+  diagnostic cluster *trait+pattern* probe
+  (`...DiagnosticClusterTraitPatternBenchmarks`), which was kept as pressure evidence precisely
+  because the public string materialization sank the gate.
+- `DiagnosticResult` construction in `GetDiagnostics` (`CodeIntelligenceService.cs:214-234`) and the
+  two `ToDiagnosticResult` overloads (`:341`, `:376`) — per-error record construction with a severity
+  switch, relative-path computation, and optional source-snippet extraction. The *structural* parts
+  of this path that had compact shape are already routed: shadow suppression
+  (`CompilerServiceDiagnosticShadowSuppressionBenchmarks`), dedup
+  (`CompilerServiceCodeIntelligenceDiagnosticStableDeduplicationBenchmarks`), severity summary
+  (`CompilerServiceCodeIntelligenceDiagnosticSummaryBenchmarks`), and cluster file lists
+  (`CompilerServiceDiagnosticClusterFileListBenchmarks`). What is left is the record allocation +
+  string field copy per diagnostic. **REJECT** — string/object materialization over the public
+  `DiagnosticResult` boundary; the routed kernels already proved the only gate-clearing work here is
+  the integer rank/dedup core, which is done.
+- `OutputFormatter` text/JSON emitters: `HoverToText`/`HoverToJson` (`:569-603`),
+  `CompletionsToText` (`:463`), and the `InspectToText`/`DefinitionToText`-style `AppendLine`
+  builders — line-oriented `StringBuilder.AppendLine` over already-materialized result records.
+  These are terminal presentation buffers with no arithmetic. **REJECT** — pure formatting; identical
+  in shape to the rejected `nlc format` path-scanning probe where direct N# string scanning was
+  *slower* than the C# helper.
+
+Recommendation (broader N#-owned representations that would be required to ever route these):
+None of the above is dogfood-able as a late adapter call over public strings/objects. The only path
+that would change the verdict is **broader N# ownership of the result representations themselves** —
+i.e. N# owning the `HoverResult`/`DiagnosticResult`/signature value types and the buffer that backs
+their string fields, so signature/diagnostic text is assembled in N#-owned `char`/offset buffers as
+part of a larger compiled emission stage (the same way the IL-compiler and formatter ports are gated
+on N# owning the surrounding emission, per the `GetEntryPointMethod` and CLI-format rejected probes).
+Absent that broader port, signature and diagnostic string assembly must stay on the C# route. No new
+kernel or benchmark is warranted for this unit; the achievable compact-array code-intel routes are
+already landed and benchmarked above.
