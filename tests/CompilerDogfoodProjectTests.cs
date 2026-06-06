@@ -73,9 +73,14 @@ public class CompilerDogfoodProjectTests
                     "PackageNameSpanInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit PackageNameSpanInto.");
+            var namespaceImportSpans = programType.GetMethod(
+                    "NamespaceImportSpansInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit NamespaceImportSpansInto.");
 
             const string controlledCorpus = """
 import System
+import A.B.C as Alias
 
 package Demo.Declarations
 
@@ -115,7 +120,7 @@ record Person {
 }
 """;
 
-            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan);
+            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans);
 
             // Indentation-style declarations: the composed lexer inserts virtual braces, and the kernel
             // tracks depth through them identically to explicit braces, so nested members are excluded.
@@ -130,14 +135,14 @@ class B
     struct N
         z: int
 """;
-            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan);
+            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans);
 
             // The dogfood compiler-service kernels themselves (all top-level funcs) -- real code.
             foreach (var file in Directory
                 .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
                 .OrderBy(p => p, StringComparer.Ordinal))
             {
-                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, file);
+                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, file);
             }
         }
         finally
@@ -152,6 +157,7 @@ class B
         MethodInfo topLevelDecls,
         MethodInfo topLevelDeclNames,
         MethodInfo packageNameSpan,
+        MethodInfo namespaceImportSpans,
         string? label = null)
     {
         var expected = ExpectedDeclarations(source);
@@ -208,6 +214,27 @@ class B
             expectedPackage == actualPackage,
             $"Package name mismatch{labelSuffix}: expected '{expectedPackage ?? "<null>"}', " +
             $"actual '{actualPackage ?? "<null>"}'");
+
+        // Slice 4: namespace imports (namespace + optional alias).
+        var nsStartsOut = new int[count + 1];
+        var nsLengthsOut = new int[count + 1];
+        var aliasStartsOut = new int[count + 1];
+        var aliasLengthsOut = new int[count + 1];
+        var importCount = (int)(namespaceImportSpans.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, nsStartsOut, nsLengthsOut, aliasStartsOut, aliasLengthsOut }) ?? -1);
+        var expectedImports = ExpectedImports(source);
+        Assert.Equal(expectedImports.Length, importCount);
+        for (var i = 0; i < expectedImports.Length; i++)
+        {
+            var actualNs = source.Substring(nsStartsOut[i], nsLengthsOut[i]);
+            var actualAlias = aliasStartsOut[i] < 0 ? null : source.Substring(aliasStartsOut[i], aliasLengthsOut[i]);
+            Assert.True(
+                expectedImports[i].Namespace == actualNs && expectedImports[i].Alias == actualAlias,
+                $"Namespace import mismatch{labelSuffix} at {i}: expected " +
+                $"'{expectedImports[i].Namespace}'/'{expectedImports[i].Alias ?? "<null>"}', actual " +
+                $"'{actualNs}'/'{actualAlias ?? "<null>"}'");
+        }
     }
 
     private static string? ExpectedPackage(string source)
@@ -215,6 +242,14 @@ class B
         var tokens = new Lexer(source, "decl-test.nl").Tokenize();
         var compilationUnit = new Parser(tokens, "decl-test.nl").ParseCompilationUnit().CompilationUnit;
         return compilationUnit?.Package?.Name;
+    }
+
+    private static (string Namespace, string? Alias)[] ExpectedImports(string source)
+    {
+        var tokens = new Lexer(source, "decl-test.nl").Tokenize();
+        var compilationUnit = new Parser(tokens, "decl-test.nl").ParseCompilationUnit().CompilationUnit;
+        if (compilationUnit == null) return Array.Empty<(string, string?)>();
+        return compilationUnit.Imports.Select(import => (import.Namespace, import.Alias)).ToArray();
     }
 
     private static (int Kind, string? Name)[] ExpectedDeclarations(string source)

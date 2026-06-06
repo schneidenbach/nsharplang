@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 4: namespace imports (file-structure index complete)
+
+`NamespaceImportSpansInto` (ParserDeclarations.nl) walks the `package`/`import` header prefix linearly
+(matching `Parser.cs:52-81`), recording each `import A.B.C [as X]` namespace import's dotted-name span +
+optional alias span, and skipping file imports (string after `import`, which the C# parser routes to
+FileImports). Verified against `CompilationUnit.Imports` (namespace + alias) on the controlled corpus
+(`import System`; `import A.B.C as Alias`), the indentation corpus, and all 27 dogfood kernels.
+
+**Milestone:** the N# parser now extracts a complete top-level file-structure index — namespace imports,
+package, and the ordered declaration kind+name list — entirely in-assembly from the lexer's tokens, each
+piece verified against the C# parser. Next rungs deepen into declarations (modifiers, signatures) and
+then statements/expressions toward a full N# parser. No new language gaps surfaced in slices 1-4.
+
 ## 2026-06-06 — N# parser slice 3: package name
 
 `PackageNameSpanInto` (ParserDeclarations.nl) records the file's `package A.B.C` dotted-name span (or

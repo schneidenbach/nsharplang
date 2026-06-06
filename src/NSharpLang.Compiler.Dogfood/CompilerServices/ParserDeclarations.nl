@@ -62,6 +62,76 @@ func PackageNameSpanInto(tokenKinds: int[], tokenStarts: int[], tokenValueLength
     return 0
 }
 
+// Parser slice 4: namespace imports. The C# parser processes a prefix of `package`/`import` lines
+// before declarations (Parser.cs:52-81); an `import` whose first token is an Identifier is a
+// NamespaceImport (`import A.B.C [as X]`) routed to CompilationUnit.Imports, while one followed by a
+// string is a FileImport routed elsewhere and skipped here. This walks that header prefix linearly
+// (imports/package are at depth 0, before any brace) and records each namespace import's dotted-name
+// span and optional alias span (alias start = -1 when none). The host materializes the strings.
+func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, outNsStarts: int[], outNsLengths: int[], outAliasStarts: int[], outAliasLengths: int[]): int {
+    outCount := 0
+    i := 0
+    while i < count {
+        kind := tokenKinds[i]
+
+        if kind == 136 {
+            i = i + 1
+            continue
+        }
+
+        if kind == 18 {
+            i = i + 1
+            while i < count && (tokenKinds[i] == 0 || tokenKinds[i] == 124) {
+                i = i + 1
+            }
+            continue
+        }
+
+        if kind == 17 {
+            i = i + 1
+            if i < count && tokenKinds[i] == 0 {
+                nsStart := tokenStarts[i]
+                nsEnd := tokenStarts[i] + tokenValueLengths[i]
+                i = i + 1
+                while i < count && (tokenKinds[i] == 0 || tokenKinds[i] == 124) {
+                    if tokenKinds[i] == 0 {
+                        nsEnd = tokenStarts[i] + tokenValueLengths[i]
+                    }
+
+                    i = i + 1
+                }
+
+                aliasStart := -1
+                aliasLength := 0
+                if i < count && tokenKinds[i] == 48 {
+                    i = i + 1
+                    if i < count && tokenKinds[i] == 0 {
+                        aliasStart = tokenStarts[i]
+                        aliasLength = tokenValueLengths[i]
+                        i = i + 1
+                    }
+                }
+
+                outNsStarts[outCount] = nsStart
+                outNsLengths[outCount] = nsEnd - nsStart
+                outAliasStarts[outCount] = aliasStart
+                outAliasLengths[outCount] = aliasLength
+                outCount = outCount + 1
+                continue
+            }
+
+            while i < count && tokenKinds[i] != 136 {
+                i = i + 1
+            }
+            continue
+        }
+
+        break
+    }
+
+    return outCount
+}
+
 func IsTopLevelDeclarationKeyword(kind: int): bool {
     return kind == 7 || kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72 || kind == 73
 }
