@@ -65,6 +65,10 @@ public class CompilerDogfoodProjectTests
                     "TopLevelDeclarationKindsInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationKindsInto.");
+            var topLevelDeclNames = programType.GetMethod(
+                    "TopLevelDeclarationNameSpansInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationNameSpansInto.");
 
             const string controlledCorpus = """
 import System
@@ -107,7 +111,7 @@ record Person {
 }
 """;
 
-            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls);
+            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames);
 
             // Indentation-style declarations: the composed lexer inserts virtual braces, and the kernel
             // tracks depth through them identically to explicit braces, so nested members are excluded.
@@ -122,14 +126,14 @@ class B
     struct N
         z: int
 """;
-            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls);
+            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames);
 
             // The dogfood compiler-service kernels themselves (all top-level funcs) -- real code.
             foreach (var file in Directory
                 .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
                 .OrderBy(p => p, StringComparer.Ordinal))
             {
-                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, file);
+                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, file);
             }
         }
         finally
@@ -142,9 +146,12 @@ class B
         string source,
         MethodInfo tokenizeWithIndentation,
         MethodInfo topLevelDecls,
+        MethodInfo topLevelDeclNames,
         string? label = null)
     {
-        var expected = ExpectedDeclarationKinds(source);
+        var expected = ExpectedDeclarations(source);
+        var expectedKinds = expected.Select(d => d.Kind).ToArray();
+        var labelSuffix = label != null ? $" for {label}" : string.Empty;
 
         var capacity = 3 * (source.Length + 1) + 8;
         var kinds = new int[capacity];
@@ -156,23 +163,58 @@ class B
             null,
             new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
 
+        // Slice 1: kind sequence.
         var outKinds = new int[count + 1];
         var declCount = (int)(topLevelDecls.Invoke(null, new object[] { kinds, count, outKinds }) ?? -1);
-        var actual = outKinds.Take(declCount).ToArray();
-
+        var actualKinds = outKinds.Take(declCount).ToArray();
         Assert.True(
-            expected.SequenceEqual(actual),
-            $"Top-level declaration kind mismatch{(label != null ? $" for {label}" : string.Empty)}.\n" +
-            $"expected: [{string.Join(", ", expected)}]\nactual:   [{string.Join(", ", actual)}]");
+            expectedKinds.SequenceEqual(actualKinds),
+            $"Top-level declaration kind mismatch{labelSuffix}.\n" +
+            $"expected: [{string.Join(", ", expectedKinds)}]\nactual:   [{string.Join(", ", actualKinds)}]");
+
+        // Slice 2: kind + name sequence (name = null for `test` string-named declarations).
+        var nameKinds = new int[count + 1];
+        var nameStarts = new int[count + 1];
+        var nameLengths = new int[count + 1];
+        var nameCount = (int)(topLevelDeclNames.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, nameKinds, nameStarts, nameLengths }) ?? -1);
+        Assert.Equal(expected.Length, nameCount);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(expected[i].Kind, nameKinds[i]);
+            var actualName = nameStarts[i] < 0 ? null : source.Substring(nameStarts[i], nameLengths[i]);
+            // `test` declarations have string names the kernel does not extract; C# side is null too.
+            var expectedName = expected[i].Kind == (int)TokenType.Test ? null : expected[i].Name;
+            Assert.True(
+                expectedName == actualName,
+                $"Top-level declaration name mismatch{labelSuffix} at {i} (kind {nameKinds[i]}): " +
+                $"expected '{expectedName ?? "<null>"}', actual '{actualName ?? "<null>"}'");
+        }
     }
 
-    private static int[] ExpectedDeclarationKinds(string source)
+    private static (int Kind, string? Name)[] ExpectedDeclarations(string source)
     {
         var tokens = new Lexer(source, "decl-test.nl").Tokenize();
         var compilationUnit = new Parser(tokens, "decl-test.nl").ParseCompilationUnit().CompilationUnit;
-        if (compilationUnit == null) return Array.Empty<int>();
-        return compilationUnit.Declarations.Select(DeclarationKeywordKind).ToArray();
+        if (compilationUnit == null) return Array.Empty<(int, string?)>();
+        return compilationUnit.Declarations
+            .Select(d => (DeclarationKeywordKind(d), DeclarationName(d)))
+            .ToArray();
     }
+
+    private static string? DeclarationName(Declaration declaration) => declaration switch
+    {
+        FunctionDeclaration f => f.Name,
+        ClassDeclaration c => c.Name,
+        StructDeclaration s => s.Name,
+        RecordDeclaration r => r.Name,
+        InterfaceDeclaration i => i.Name,
+        UnionDeclaration u => u.Name,
+        EnumDeclaration e => e.Name,
+        TypeAliasDeclaration t => t.Name,
+        _ => null
+    };
 
     private static int DeclarationKeywordKind(Declaration declaration) => declaration switch
     {

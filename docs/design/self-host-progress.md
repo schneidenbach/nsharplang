@@ -11,6 +11,16 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 2: top-level declaration names
+
+`TopLevelDeclarationNameSpansInto` (ParserDeclarations.nl) extends slice 1 to also record each
+top-level declaration's NAME span. A declaration's name is the token immediately after its keyword
+(modifiers precede the keyword), so `name = next token when it is an Identifier` is exact for all eight
+keyword declaration kinds and correctly yields no-name for `test "..."` (string-named, out of scope
+this slice). Verified against the C# parser's `Declaration.Name` (kind + name pairs) on the controlled
+corpus, the indentation-style corpus, and all 27 dogfood kernels. The N# parser now extracts a
+top-level declaration index (kind + name) from the lexer's tokens, all in-assembly.
+
 ## 2026-06-06 — Phase 2 begins: first N#-native parser slice (top-level declaration extraction) + nlc query ast
 
 **What:** Two slices that open the parser-migration phase (the path to actually deleting the
