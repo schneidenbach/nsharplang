@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using NSharpLang.Cli;
 using NSharpLang.Compiler;
@@ -25,6 +26,50 @@ public class CompilerDogfoodProjectTests
     public void ParserTokenCompactionParityRespectsTokenTypeLayout()
     {
         Assert.Equal(136, (int)TokenType.Newline);
+    }
+
+    // Dogfood the C# parser + the `nlc query ast` serializer (OutputFormatter.AstToJson) over every
+    // real .nl file in examples/ and the dogfood kernels: parsing must not crash, must yield a
+    // CompilationUnit, and the AST JSON must be valid, carry the stable envelope, and be deterministic
+    // (byte-identical on repeat) so the schema is stable. This hardens the canonical-AST harness that a
+    // future N# parser will be verified against, and catches parser/serializer regressions on real code.
+    [Fact]
+    public void Parser_RealCorpus_AstSerializesDeterministically()
+    {
+        var repoRoot = FindRepoRoot();
+        var dirs = new[]
+        {
+            Path.Combine(repoRoot, "examples"),
+            Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices"),
+        };
+        var files = dirs
+            .Where(Directory.Exists)
+            .SelectMany(dir => Directory.EnumerateFiles(dir, "*.nl", SearchOption.AllDirectories))
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToArray();
+        Assert.NotEmpty(files);
+
+        foreach (var file in files)
+        {
+            var source = File.ReadAllText(file);
+            var tokens = new Lexer(source, file).Tokenize();
+            var parseResult = new Parser(tokens, file).ParseCompilationUnit();
+            Assert.True(parseResult.CompilationUnit != null, $"Parser returned no CompilationUnit for {file}");
+
+            var units = new[] { (file, parseResult.CompilationUnit!) };
+            var json = OutputFormatter.AstToJson(units);
+
+            using (var doc = JsonDocument.Parse(json))
+            {
+                Assert.Equal(1, doc.RootElement.GetProperty("schemaVersion").GetInt32());
+                Assert.Equal("query.ast", doc.RootElement.GetProperty("command").GetString());
+                var ast = doc.RootElement.GetProperty("files")[0].GetProperty("ast");
+                Assert.Equal("CompilationUnit", ast.GetProperty("node").GetString());
+            }
+
+            // Stable schema: identical input must serialize byte-identically.
+            Assert.Equal(json, OutputFormatter.AstToJson(units));
+        }
     }
 
     [Fact]
