@@ -1219,6 +1219,127 @@ class B
         _ => "<unsupported>",
     };
 
+    // Parser slice 18: real-corpus expression pin. Validates the slice 10-15 expression kernel against the
+    // production parser on REAL dogfood code (the anti-overfitting discipline the lexer's 108-file pin
+    // established): every `return <expr>` value in the dogfood kernels whose expression stays within the
+    // supported forms is parsed by ParseExpressionNodesInto and compared structurally to the C# AST. Files
+    // whose recursively-collected return count does not match the `return` token count are skipped (a safety
+    // net against an incomplete statement-container walk), so the pin never silently mis-pairs.
+    [Fact]
+    public void Parser_RealCorpusExpressions_MatchProductionParser()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"NSharpLang.Compiler.Dogfood.RealExpr.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            var programType = assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod("TokenizeMetadataWithIndentationInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            var parseExpr = programType.GetMethod("ParseExpressionNodesInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var verified = 0;
+            var skippedExprs = 0;
+            var skippedFiles = 0;
+            foreach (var file in Directory
+                .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
+                .OrderBy(p => p, StringComparer.Ordinal))
+            {
+                var src = File.ReadAllText(file);
+                var cu = new Parser(new Lexer(src, file).Tokenize(), file).ParseCompilationUnit().CompilationUnit;
+                if (cu == null) continue;
+
+                var returns = new List<ReturnStatement>();
+                foreach (var decl in cu.Declarations.OfType<FunctionDeclaration>())
+                    if (decl.Body != null)
+                        CollectReturnStatements(decl.Body, returns);
+
+                var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(src, tokenize);
+                var returnTokenIndices = new List<int>();
+                for (var i = 0; i < count; i++)
+                    if (kinds[i] == 29) returnTokenIndices.Add(i);
+
+                // Safety net: if our statement-container walk and the token scan disagree on the number of
+                // returns, skip the whole file rather than risk mis-pairing.
+                if (returnTokenIndices.Count != returns.Count) { skippedFiles++; continue; }
+
+                for (var r = 0; r < returns.Count; r++)
+                {
+                    var value = returns[r].Value;
+                    if (value == null || !IsSupportedExpr(value)) { skippedExprs++; continue; }
+
+                    var (nodeCount, k, vs, vl, cstart, ccount, ci, ss, sl, res) =
+                        InvokeParseExpr(parseExpr, kinds, starts, valueLengths, count, returnTokenIndices[r] + 1);
+                    Assert.True(nodeCount > 0, $"Kernel refused real return expression in {file}.");
+                    AssertExprNode(value, res[0], k, vs, vl, cstart, ccount, ci, source, $"{file}#return{r}");
+                    verified++;
+                }
+            }
+
+            // Meaningful coverage: the dogfood kernels contain many supported-form return expressions.
+            Assert.True(verified > 50, $"Expected to verify >50 real return expressions, only verified {verified} (skipped {skippedExprs} exprs, {skippedFiles} files).");
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    // Recursively collect ReturnStatements in source order, descending into the statement containers the
+    // dogfood kernels use. Containers not handled here cause a per-file count mismatch (then the file is
+    // skipped), so a missed container can never silently mis-pair returns.
+    private static void CollectReturnStatements(Statement statement, List<ReturnStatement> acc)
+    {
+        switch (statement)
+        {
+            case ReturnStatement r:
+                acc.Add(r);
+                break;
+            case BlockStatement b:
+                foreach (var s in b.Statements) CollectReturnStatements(s, acc);
+                break;
+            case IfStatement i:
+                CollectReturnStatements(i.ThenStatement, acc);
+                if (i.ElseStatement != null) CollectReturnStatements(i.ElseStatement, acc);
+                break;
+            case WhileStatement w:
+                CollectReturnStatements(w.Body, acc);
+                break;
+            case ForStatement f:
+                if (f.Initializer != null) CollectReturnStatements(f.Initializer, acc);
+                CollectReturnStatements(f.Body, acc);
+                break;
+            case ForeachStatement fe:
+                CollectReturnStatements(fe.Body, acc);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private static bool IsSupportedExpr(Expression expr) => expr switch
+    {
+        IntLiteralExpression or FloatLiteralExpression or CharLiteralExpression or StringLiteralExpression
+            or BoolLiteralExpression or NullLiteralExpression or IdentifierExpression => true,
+        ParenthesizedExpression p => IsSupportedExpr(p.Inner),
+        MemberAccessExpression m => !m.IsNullConditional && IsSupportedExpr(m.Object),
+        IndexAccessExpression ix => !ix.IsNullConditional && IsSupportedExpr(ix.Object) && IsSupportedExpr(ix.Index),
+        CallExpression c => (c.TypeArguments == null || c.TypeArguments.Count == 0)
+            && IsSupportedExpr(c.Callee)
+            && c.Arguments.All(a => a.Name == null && a.Modifier == ArgumentModifier.None && IsSupportedExpr(a.Value)),
+        UnaryExpression u => u.Operator != UnaryOperator.PostIncrement && u.Operator != UnaryOperator.PostDecrement && IsSupportedExpr(u.Operand),
+        BinaryExpression b => b.Operator != BinaryOperator.Range && IsSupportedExpr(b.Left) && IsSupportedExpr(b.Right),
+        TernaryExpression t => IsSupportedExpr(t.Condition) && IsSupportedExpr(t.ThenExpression) && IsSupportedExpr(t.ElseExpression),
+        AssignmentExpression a => IsSupportedExpr(a.Target) && IsSupportedExpr(a.Value),
+        _ => false,
+    };
+
     // Parser slices 16-17: the STATEMENT kernel. ParseStatementNodesInto (ParserStatements.nl) parses one
     // statement -- return / break / continue / expression-statement / `:=` declaration (slice 16) plus
     // blocks, while, and if/else (slice 17) -- composing the expression kernel into a shared node table

@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 18: real-corpus expression pin (anti-overfitting)
+
+Validates the slice 10-15 expression kernel against the production parser on REAL dogfood code — the
+anti-overfitting discipline the lexer's 108-file pin established. For each dogfood `.nl` kernel, every
+`return <expr>` value whose expression stays within the supported forms (recursively: literals/identifiers/
+parenthesized/member/index/call/prefix-unary/binary/ternary/assignment) is parsed by
+`ParseExpressionNodesInto` and compared structurally to the C# AST (50+ real return expressions verified).
+A per-file safety net — skip the file if the recursively-collected return count disagrees with the `return`
+token count — means a missed statement-container in the harvest can never silently mis-pair returns. No
+language gaps surfaced; the expression kernel reproduces the C# expression AST on real compiler code.
+
+**Next-step architectural note:** parsing whole dogfood function bodies (the natural real-corpus *statement*
+pin) is blocked on `new int[](...)` array-allocation, which is ubiquitous in the kernels. A `NewExpression`
+composes the TYPE kernel (its element type) with the EXPRESSION kernel (its arguments) in one node tree, but
+the two kernels currently use incompatible `st` slot layouts (type: pos/splitDepth/nodeCursor/childCursor/
+owedGreaterByteEnd/argStackTop; expr: pos/nodeCursor/childCursor/argStackTop). The clean unblock is to unify
+the `st` layout (expr already matches slots 0-3; renumber the type kernel's slots and let both use a 6-slot
+`st`, with the New node bridging a type child + expression-argument children positionally). That is the next
+deliberate slice; the type parity test (`Parser_TypeReferenceTree_MatchesProductionParser`) is a fast safety
+net for the renumber.
+
 ## 2026-06-06 — N# parser slice 17: control flow — blocks, while, if/else
 
 Restructures the statement kernel into a recursive dispatcher (`ParseStatementCoreNode`) and adds
