@@ -11,6 +11,45 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-05 — Phase 1 lexer: lifetime tokens ported to N# (blocker closed)
+
+**What:** Closed the lifetime-token blocker from the prior entry's audit. The C# lexer
+(`Lexer.cs:325-328`, `IsLifetimeStart`/`IsLifetimeContext`/`ReadLifetime` at `Lexer.cs:903-958`) emits
+a single `Lifetime` token (ordinal 142) — instead of a char literal — when an apostrophe begins an
+identifier (next char letter/`_`, and the char after that is not a closing quote, so `'a` vs the char
+literal `'a'`) AND it sits in a lifetime *context*: the nearest preceding non-whitespace char is `<`
+or `,`, or the identifier word immediately before it is `scoped`/`returns`. The N# scanner had no
+lifetime handling, so it lexed `'a` as a char literal — wrong kind, and for multi-char lifetimes
+(`'a1`) even the wrong token *count*.
+
+**Port** (`CompilerServices/LexerTokenKindScanner.nl`): added `IsLifetimeStartAt`,
+`IsLifetimeContextAt`, `MatchesScopedOrReturns`, `ScanLifetime`, and `IsAsciiWhitespace`, mirroring the
+C# methods statement-for-statement, and inserted a lifetime branch **before the char-literal branch in
+all three tokenizers** (`TokenizeKindsInto`, `TokenizeMetadataInto`, `TokenizeCount`) so every parity
+path agrees. The backward context scan (skip whitespace incl. newlines → `<`/`,` early-true → else read
+the preceding identifier word and match `scoped`/`returns`) reuses the scanner's existing ASCII
+classification helpers (`IsIdentifierStart` ≡ `char.IsLetter||'_'`, `IsIdentifierPart` ≡
+`char.IsLetterOrDigit||'_'`, `IsAsciiWhitespace` ≡ `char.IsWhiteSpace` — exact on ASCII), keeping the
+scanner uniformly ASCII; the scanner-wide ASCII-vs-Unicode gap (next slice) will upgrade all helpers
+together. The systems-keyword recognition landed in the prior slice is what makes the `scoped` context
+word resolve correctly.
+
+**Verified:** added a brace-style `lifetimeSource` corpus (so `InsertIndentationBraces` is a no-op and
+it exercises ALL three raw tokenizers + the composed path against `Lexer.Tokenize()`) mixing every
+lifetime context (`<'a>`, `<'a, 'b>`, `scoped 'a`, `returns 'a`) with char literals that must STAY char
+literals (`'x'`, `'\n'`, escaped quote, and `name 'a` whose preceding word is not scoped/returns), plus
+an indentation-style `indentLifetimeSource` (lifetimes + virtual braces + a char literal in one stream).
+Full token-stream parity (kind/start/valueLength/line/column + count) holds; targeted test green. An
+adversarial differential-fuzz workflow (compiled dogfood DLL vs the real C# `Lexer.Tokenize()` over
+many ASCII lifetime/char-literal inputs) confirmed no divergence.
+
+**Remaining lexer gaps:** (a) ASCII-vs-Unicode character classification (whitespace/digits/letters);
+(b) a pre-existing `ScanCharLiteral` edge case surfaced by this slice's adversarial fuzz — a char
+literal whose body is a backslash immediately followed by a line break (`'\<CR>`): C# `ReadCharLiteral`
+guards the escaped-char consumption against EOL, the N# `ScanCharLiteral` does not (pre-existing, from
+commits d636e3a2/ff921348, NOT a lifetime-port regression). Both fold into the char-classification /
+char-literal parity slice. Then comment-trivia + token-text for a full production N# lexer.
+
 ## 2026-06-05 — Phase 1 lexer: indentation tokens + systems-keyword recognition ported to N#
 
 **What:** Two cohesive N# lexer kind-stream parity improvements, plus an adversarial audit that
@@ -87,7 +126,9 @@ because no in-tree corpus exercised them):**
 
 **Remaining gaps (the immediate next slices):**
 
-1. **Lifetime tokens (blocker).** `TokenizeMetadataInto` has no lifetime handling; C# `NextToken`
+> ✅ Gap 1 (lifetime tokens) was closed in the next-dated entry above.
+
+1. **Lifetime tokens (blocker) — CLOSED (see entry above).** `TokenizeMetadataInto` has no lifetime handling; C# `NextToken`
    (`Lexer.cs:325-328`) calls `IsLifetimeStart()`/`ReadLifetime()` (`Lexer.cs:903-960`) to emit a
    single `Lifetime(142)` token (e.g. `,'a`→`Lifetime`, `,'b1`→`Lifetime`). `IsLifetimeStart` is
    context-sensitive: apostrophe, next char letter/`_`, char-after-next not `'`, AND the nearest

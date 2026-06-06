@@ -273,6 +273,13 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
             continue
         }
 
+        if ch == '\'' && IsLifetimeStartAt(source, position, length) {
+            buffer[count] = 142
+            count = count + 1
+            position = ScanLifetime(source, position, length)
+            continue
+        }
+
         if ch == '\'' {
             buffer[count] = 3
             count = count + 1
@@ -509,6 +516,19 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
                 column = column + (nextPosition - start)
                 position = nextPosition
             }
+            continue
+        }
+
+        if ch == '\'' && IsLifetimeStartAt(source, position, length) {
+            nextPosition := ScanLifetime(source, position, length)
+            kinds[count] = 142
+            starts[count] = start
+            valueLengths[count] = nextPosition - start
+            lines[count] = tokenLine
+            columns[count] = tokenColumn
+            count = count + 1
+            column = column + (nextPosition - start)
+            position = nextPosition
             continue
         }
 
@@ -836,6 +856,12 @@ func TokenizeCount(source: string): int {
             continue
         }
 
+        if ch == '\'' && IsLifetimeStartAt(source, position, length) {
+            count = count + 1
+            position = ScanLifetime(source, position, length)
+            continue
+        }
+
         if ch == '\'' {
             count = count + 1
             position = ScanCharLiteral(source, position, length)
@@ -959,6 +985,83 @@ func ScanCharLiteral(source: string, position: int, length: int): int {
     }
 
     if position < length && source[position] == '\'' {
+        position = position + 1
+    }
+
+    return position
+}
+
+// Lifetime token support, mirroring the C# production lexer (Lexer.cs:325-328, 903-960). At an
+// apostrophe, the lexer emits a single Lifetime token (ordinal 142) -- instead of a char literal --
+// when the apostrophe begins an identifier (next char letter/'_', and the char after that is not a
+// closing quote, distinguishing `'a` from the char literal `'a'`) AND it appears in a lifetime
+// CONTEXT: the nearest preceding non-whitespace character is `<` or `,`, or the identifier word
+// immediately before it is `scoped` or `returns`. These checks intentionally use the scanner's
+// existing ASCII character classification (consistent with IsDigit/IsIdentifierStart elsewhere);
+// the scanner-wide ASCII-vs-Unicode classification gap is tracked separately in self-host-progress.md.
+func IsAsciiWhitespace(ch: char): bool {
+    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v'
+}
+
+func MatchesScopedOrReturns(source: string, start: int, length: int): bool {
+    if length == 6 {
+        return source[start] == 's' && source[start + 1] == 'c' && source[start + 2] == 'o' && source[start + 3] == 'p' && source[start + 4] == 'e' && source[start + 5] == 'd'
+    }
+
+    if length == 7 {
+        return source[start] == 'r' && source[start + 1] == 'e' && source[start + 2] == 't' && source[start + 3] == 'u' && source[start + 4] == 'r' && source[start + 5] == 'n' && source[start + 6] == 's'
+    }
+
+    return false
+}
+
+func IsLifetimeContextAt(source: string, position: int): bool {
+    index := position - 1
+    while index >= 0 && IsAsciiWhitespace(source[index]) {
+        index = index - 1
+    }
+
+    if index < 0 {
+        return false
+    }
+
+    previous := source[index]
+    if previous == '<' || previous == ',' {
+        return true
+    }
+
+    if !IsIdentifierPart(previous) {
+        return false
+    }
+
+    end := index + 1
+    while index >= 0 && IsIdentifierPart(source[index]) {
+        index = index - 1
+    }
+
+    wordStart := index + 1
+    return MatchesScopedOrReturns(source, wordStart, end - wordStart)
+}
+
+func IsLifetimeStartAt(source: string, position: int, length: int): bool {
+    if position + 1 >= length {
+        return false
+    }
+
+    if !IsIdentifierStart(source[position + 1]) {
+        return false
+    }
+
+    if position + 2 < length && source[position + 2] == '\'' {
+        return false
+    }
+
+    return IsLifetimeContextAt(source, position)
+}
+
+func ScanLifetime(source: string, position: int, length: int): int {
+    position = position + 1
+    while position < length && IsIdentifierPart(source[position]) {
         position = position + 1
     }
 
