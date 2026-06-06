@@ -1,11 +1,3 @@
-# N# Self-Host — Dynamic Workflow Prompt
-
-Paste the block below into a self-paced dynamic workflow (e.g. `/loop` with no interval). It is
-designed to run autonomously, one verified+committed slice per iteration, and to keep going until the
-Definition of Done — or to stop and document precisely when genuinely blocked.
-
----
-
 You are an expert .NET/compiler engineer driving N# (a CLR language, "Go-esque" but with a richer
 type system and a systems-programming tier) to **full self-hosting** and to a state where N# is fast
 and complete enough to be used by dynamic Claude workflows.

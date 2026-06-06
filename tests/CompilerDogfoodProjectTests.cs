@@ -1480,6 +1480,10 @@ class OtherZetaType {
                     "TokenizeMetadataInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataInto.");
+            var tokenizeMetadataWithIndentationInto = programType.GetMethod(
+                    "TokenizeMetadataWithIndentationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
             var parserTokenCompactionIndicesInto = programType.GetMethod(
                     "ParserTokenCompactionIndicesInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
@@ -2228,6 +2232,24 @@ throws
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionChecksumInto);
 
+            // Systems-language keywords: the N# scanner's KeywordKind must recognize the five systems
+            // keywords the C# lexer emits (alloc/allow/stackalloc/unsafe/scoped -> ordinals 143/144/145/
+            // 146/147), not fall back to Identifier. (Apostrophe-free so this stays orthogonal to the
+            // separate lifetime-token gap.) Each appears alone and adjacent to a near-miss prefix to pin
+            // the length-gated dispatch (e.g. "all"/"scope"/"alloca" must stay Identifiers).
+            const string systemsKeywordSource = """
+alloc allow stackalloc unsafe scoped
+all scope alloca scopes unsaf
+let a = alloc
+struct unsafe scoped
+""";
+            AssertTokenizesLikeProductionLexer(systemsKeywordSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+            AssertTokenMetadataLikeProductionLexer(systemsKeywordSource, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                systemsKeywordSource,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
+
             const string metadataSource = """
 package CompilerDogfood.Metadata
 
@@ -2283,6 +2305,80 @@ func classify(value: int, name: string): string {
                 representativeSource,
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionChecksumInto);
+
+            // Self-host Phase 1: the composed N# lexer entry point (TokenizeMetadataWithIndentationInto)
+            // must reach full token-stream parity with the C# production lexer including the virtual
+            // indentation braces. First confirm it is a correct SUPERSET on the explicit-brace corpora
+            // above (InsertIndentationBraces is a no-op there, so it must equal the raw stream + EOF).
+            AssertTokenMetadataWithIndentationLikeProductionLexer(source, tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer(keywordSource, tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer(systemsKeywordSource, tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer(metadataSource, tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer(representativeSource, tokenizeMetadataWithIndentationInto);
+
+            // Then prove it on indentation-style (brace-free) source, where InsertIndentationBraces
+            // actively inserts virtual { } tokens -- the remaining lexer kind-stream gap this slice closes.
+            // Simple single indent + EOF close.
+            const string indentSimpleSource = """
+func main(): void
+    print("hi")
+""";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentSimpleSource, tokenizeMetadataWithIndentationInto);
+
+            // Nested indentation, multi-level dedent at once, and a sibling block (open/close in the middle).
+            const string indentNestedSource = """
+func outer(): int
+    if cond
+        first := 1
+        if inner
+            deep := 2
+    second := 3
+    return second
+""";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentNestedSource, tokenizeMetadataWithIndentationInto);
+
+            // Globally-indented source (the leading whitespace becomes the base indent, common in test
+            // strings) plus blank lines inside a block (must not perturb indentation tracking).
+            const string indentGloballyIndentedSource = "    func g(): void\n        a := 1\n\n        b := 2\n    return\n";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentGloballyIndentedSource, tokenizeMetadataWithIndentationInto);
+
+            // Parentheses spanning lines (a continuation inside parens must NOT open an indentation block)
+            // mixed with an explicit-brace block (explicit braces suppress indentation insertion).
+            const string indentParenContinuationSource = """
+func h(): int
+    total := add(
+        1,
+        2)
+    if total > 0 {
+        total = total + 1
+    }
+    return total
+""";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentParenContinuationSource, tokenizeMetadataWithIndentationInto);
+
+            // CRLF line endings on indentation-style source (line/column parity through \r\n).
+            const string indentCrlfSource = "func c(): void\r\n    print(1)\r\n";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentCrlfSource, tokenizeMetadataWithIndentationInto);
+
+            // Tab-indented source (each tab counts as one column, matching the C# lexer's Advance()).
+            const string indentTabSource = "func t(): void\n\tprint(1)\n\t\tnested := 2\n";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentTabSource, tokenizeMetadataWithIndentationInto);
+
+            // Inconsistent ("halfway") dedent: a dedent that lands between two stack levels pops to the
+            // nearest enclosing level WITHOUT re-opening, then a later line re-indents -- the exact
+            // deterministic behavior of the C# InsertIndentationBraces stack walk.
+            const string indentHalfwayDedentSource = """
+func k(): int
+        deep := 1
+    mid := 2
+    return mid
+""";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentHalfwayDedentSource, tokenizeMetadataWithIndentationInto);
+
+            // Degenerate inputs: empty source (only EOF) and whitespace/newline-only source (no blocks
+            // ever open, so no braces are inserted and nothing under/overflows).
+            AssertTokenMetadataWithIndentationLikeProductionLexer("", tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer("   \n  \n", tokenizeMetadataWithIndentationInto);
 
             AssertSourceTextLineMapLikeProduction(
                 "",
@@ -2711,6 +2807,40 @@ func main() {
         var columns = new int[capacity];
 
         var count = (int)(tokenizeMetadataInto.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+
+        Assert.Equal(expectedTokens.Count, count);
+
+        var lineStarts = BuildLineStarts(source);
+        for (var i = 0; i < expectedTokens.Count; i++)
+        {
+            var token = expectedTokens[i];
+            Assert.Equal((int)token.Type, kinds[i]);
+            Assert.Equal(TokenStartFromLineColumn(lineStarts, token.Line, token.Column, source.Length), starts[i]);
+            Assert.Equal(token.Value.Length, valueLengths[i]);
+            Assert.Equal(token.Line, lines[i]);
+            Assert.Equal(token.Column, columns[i]);
+        }
+    }
+
+    private static void AssertTokenMetadataWithIndentationLikeProductionLexer(
+        string source,
+        MethodInfo tokenizeMetadataWithIndentationInto)
+    {
+        // The composed N# entry point (raw tokenize + indentation-brace post-pass) must reproduce the
+        // production C# lexer's full token stream -- including the virtual { } tokens InsertIndentationBraces
+        // inserts -- on BOTH explicit-brace and indentation-style source. Buffers are sized to the safe
+        // upper bound for the grown stream (<= 3x the raw token count).
+        var expectedTokens = new Lexer(source, "dogfood-test.nl").Tokenize();
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+
+        var count = (int)(tokenizeMetadataWithIndentationInto.Invoke(
             null,
             new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
 

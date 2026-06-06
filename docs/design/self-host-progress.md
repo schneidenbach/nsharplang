@@ -11,6 +11,105 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-05 — Phase 1 lexer: indentation tokens + systems-keyword recognition ported to N#
+
+**What:** Two cohesive N# lexer kind-stream parity improvements, plus an adversarial audit that
+surfaced (and this slice partly closes) several pre-existing raw-tokenizer gaps.
+
+1. **Indentation tokens.** Ported `Lexer.InsertIndentationBraces` (`src/NSharpLang.Compiler/Lexer.cs:167-266`)
+   — the virtual `{`/`}` insertion for indentation-style (brace-free) source — to N#. Until now the N#
+   scanner emitted only the *raw* token stream (`TokenizeMetadataInto`), so metadata parity was pinned
+   only on explicit-brace corpora where `InsertIndentationBraces` is a no-op.
+2. **Systems keywords.** `KeywordKind` now recognizes the five systems keywords the C# lexer emits
+   (`Lexer.cs:97-101`): `alloc`→`Alloc(143)`, `allow`→`Allow(144)`, `stackalloc`→`Stackalloc(145)`,
+   `unsafe`→`Unsafe(146)`, `scoped`→`Scoped(147)` — appended to the length-gated first-char dispatch,
+   so near-miss prefixes (`all`/`scope`/`alloca`) stay `Identifier`. Previously the scanner returned
+   `Identifier(0)` for these, so it could not even tokenize the dogfood's own systems-N# source.
+
+**Adversarial audit:** a 4-agent workflow (line-by-line + edge-case + metadata lenses + synthesis,
+with 400k-program structural fuzzing and a differential harness against the compiled C# lexer)
+confirmed the **indentation post-pass port is faithful** (zero divergences across all fuzz + 92
+hand-built cases) and drove out the gap list below. Systems keywords are closed here; the rest are the
+next slices.
+
+Added two N# kernels to `CompilerServices/LexerTokenKindScanner.nl`:
+- `InsertIndentationBracesInto(...)` — a faithful, zero-alloc (caller-owned-buffer) port of
+  `InsertIndentationBraces`, operating purely over the raw metadata arrays
+  (kind/start/valueLength/line/column). It tracks an indent stack, explicit-brace depth, and
+  paren/bracket depth; opens a virtual `LeftBrace` (ordinal 129) on indentation increase and closes
+  virtual `RightBrace` (130) tokens on dedent and at EOF, with the base-indent capture, the
+  `Math.Max(0, …)` clamps, the "halfway dedent pops without re-opening" stack walk, and the
+  brace-vs-indentation suppression rules matching the C# source statement-for-statement. A virtual
+  brace's start offset is derived as `tokenStart - (tokenColumn - 1)` (the trigger token's line start)
+  with column fixed to 1 — exactly what the parity test's `TokenStartFromLineColumn` expects.
+- `TokenizeMetadataWithIndentationInto(source, …)` — the composed entry: tokenize raw, then run the
+  brace post-pass, producing the exact stream `Lexer.Tokenize()` yields on any source **whose tokens
+  are already correctly recognized by the raw scanner** (i.e. excluding the gaps below).
+
+**Verification (parity, not a perf-routing slice):** extended
+`LexerTokenKindScanner_ProjectCompilesAndMatchesProductionLexer` with
+`AssertTokenMetadataWithIndentationLikeProductionLexer`, asserting full token-stream parity (kind +
+start + valueLength + line + column, count included) against `new Lexer(src).Tokenize()`. Coverage:
+the composed entry is first proven a correct **superset** on all four existing explicit-brace corpora
+(it must equal the raw stream there), then proven on indentation-style corpora that genuinely trigger
+insertion — simple single indent, nested indents with multi-level dedent and sibling blocks,
+globally-indented source with interior blank lines, paren-continuation + explicit-brace suppression,
+CRLF endings, tab indentation, an inconsistent "halfway" dedent, and degenerate empty / whitespace-
+only inputs. The count assertion makes the tests non-trivial: if the port inserted nothing while C#
+did (or vice-versa) the token counts would differ and the test would fail. For systems keywords, added
+a `systemsKeywordSource` corpus asserted three ways (raw kinds, raw metadata, composed) that exercises
+each of the five keywords plus near-miss prefixes (`all`/`scope`/`alloca`/`scopes`/`unsaf` must stay
+`Identifier`). Targeted test passes; full `CompilerDogfoodProjectTests` class green, including the
+`Newline == 136` ordinal-layout pin. Full `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` gate run
+for the commit.
+
+**Language/compiler findings (Phase 0 audit):** the port compiled on today's N# with **no new gaps** —
+confirming the audit's "lexer port is feasible" finding extends to the control-heavy indentation
+logic. Specifically exercised and confirmed working: an 11-array-parameter function signature
+(previously the widest kernel was 7 arrays), intra-assembly N#→N# calls with internal `new int[](…)`
+allocation, `bool` locals with reassignment and logical `!`/`&&`/`||`, nested `while` with `continue`,
+mid-loop `return`, and `else if` chains. No principled compiler change was required this slice.
+
+**Architecture note (honest framing):** this is a correctness/parity slice that **advances the N#
+lexer's kind-stream** (indentation post-pass), not a production-routing slice. Per the
+boundary-profiling finding, the lexer adapter bridge cannot be deleted until its *caller* (the parser)
+is also N# and the call inlines in-assembly; routing tokenization through this kernel today would only
+add another ~1.2 ns delegate boundary. The indentation logic is written in the fast canonical style
+(counted loops, manual int stack, zero per-call allocation in the pure kernel) so it is ready to be
+the production lexer once the in-assembly N#→N# parser path lands (Phase 2). No adapter added/removed.
+
+**Audit findings (pre-existing raw-tokenizer parity bugs, NOT in the new indentation code; latent
+because no in-tree corpus exercised them):**
+
+- ✅ **Systems keywords (blocker) — CLOSED this slice.** `KeywordKind` returned `Identifier(0)` for
+  `alloc`/`allow`/`stackalloc`/`unsafe`/`scoped`; now emits `143/144/145/146/147`. Empirically
+  confirmed against the compiled C# lexer and pinned by `systemsKeywordSource`.
+
+**Remaining gaps (the immediate next slices):**
+
+1. **Lifetime tokens (blocker).** `TokenizeMetadataInto` has no lifetime handling; C# `NextToken`
+   (`Lexer.cs:325-328`) calls `IsLifetimeStart()`/`ReadLifetime()` (`Lexer.cs:903-960`) to emit a
+   single `Lifetime(142)` token (e.g. `,'a`→`Lifetime`, `,'b1`→`Lifetime`). `IsLifetimeStart` is
+   context-sensitive: apostrophe, next char letter/`_`, char-after-next not `'`, AND the nearest
+   preceding non-whitespace char is `<` or `,` or the word `scoped`/`returns`. The N# scanner instead
+   lexes `'a` as a char literal, diverging on kind AND count. Fix: port `IsLifetimeStart`/`ReadLifetime`
+   into the scanner before the char-literal branch — its own slice given the source lookback. **Note:**
+   the systems-keyword recognition landed here is a prerequisite for the `scoped`/`returns` lookback.
+2. **ASCII-vs-Unicode character classification (major).** The scanner's `IsWhitespaceExceptNewline`,
+   `IsDigit`, and `IsIdentifierStart` are ASCII-only, but the C# lexer uses the Unicode-aware BCL
+   predicates `char.IsWhiteSpace` (`Lexer.cs:1084`), `char.IsDigit` (`Lexer.cs:336`), and
+   `char.IsLetter` (`Lexer.cs:342`). So non-ASCII whitespace (NBSP/NEL/U+2028/U+2029/U+2000–U+200A/
+   U+202F/U+205F/U+1680/U+3000 — note C# treats U+0085/U+2028/U+2029 as inline whitespace, not line
+   breaks, since `IsAtLineBreak` is `\n`/`\r` only), Unicode letters in identifiers, and Unicode
+   decimal digits all diverge (the scanner emits `Unknown(137)` / wrong kinds/columns/count). Fix as
+   one coherent slice: ASCII fast-path + BCL-predicate fallback for ch > 127 in all three helpers
+   (parity guaranteed by sharing the BCL predicate), with Unicode corpora. **Open audit question:**
+   confirm the kernel compile path supports `char.IsWhiteSpace`/`char.IsLetter`/`char.IsDigit` interop
+   (the Phase 0 probe verified `char.IsDigit`/`char.IsLetter` standalone; no dogfood kernel calls them
+   today — they all hand-roll ASCII checks).
+3. **Comment-trivia + token-text** for the formatter (`Lexer.Comments`) and token-text materialization
+   (derivable from start+length by the host) — the last pieces to a full production N# lexer.
+
 ## 2026-06-05 — Consolidation: dogfood work merged onto `systems-language`
 
 **What:** Consolidated all scattered dogfood worktrees/branches onto the canonical working branch
@@ -178,6 +277,12 @@ insertion for indentation-style (brace-free) source, comment-trivia collection f
 Next slice: cover indentation-token insertion in the N# scanner (the main remaining kind-stream gap),
 or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume N# tokens directly
 (removing the host materialization boundary). Record any language gap here and close it principled.
+
+> **Update (newest entry above):** indentation-token insertion is now DONE and verified faithful.
+> BUT the adversarial audit of that slice surfaced three pre-existing raw-tokenizer parity gaps
+> (systems keywords, lifetime tokens, Unicode whitespace) that the old "kind/position parity is
+> already met on realistic code" claim missed — they were latent only because no corpus exercised
+> them. See the newest entry's "Gaps surfaced" list; those are the immediate next slices.
 
 ## Bootstrap coverage
 

@@ -577,6 +577,182 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
     return count
 }
 
+// Insert the virtual indentation braces that the C# production lexer's InsertIndentationBraces
+// post-pass produces, operating purely over the raw token metadata stream (kind/start/value
+// length/line/column) emitted by TokenizeMetadataInto. Indentation-based blocks open a virtual
+// LeftBrace (129) when a line's indentation increases and close virtual RightBrace (130) tokens on
+// dedent and at EOF, exactly matching Lexer.cs so the N# lexer reaches full token-stream parity on
+// brace-free (indentation-style) source as well as explicit-brace source.
+//
+// Caller-owned buffers (zero-alloc): out* must be sized for the grown stream (raw count plus the
+// inserted braces; <= 3x the raw count is always safe) and indentStack must hold the maximum block
+// depth (raw count + 1 is always safe). A virtual brace's start offset is derived as
+// (triggerStart - (triggerColumn - 1)), i.e. the start offset of the trigger token's line, with
+// column fixed to 1 -- identical to how the production lexer positions the inserted braces.
+func InsertIndentationBracesInto(
+    rawKinds: int[],
+    rawStarts: int[],
+    rawValueLengths: int[],
+    rawLines: int[],
+    rawColumns: int[],
+    rawCount: int,
+    outKinds: int[],
+    outStarts: int[],
+    outValueLengths: int[],
+    outLines: int[],
+    outColumns: int[],
+    indentStack: int[]): int {
+    outCount := 0
+    stackTop := 0
+    indentStack[0] = 0
+    atLineStart := true
+    explicitBraceDepth := 0
+    parenBracketDepth := 0
+    hasBaseIndent := false
+    baseIndent := 0
+
+    i := 0
+    while i < rawCount {
+        kind := rawKinds[i]
+        tokenStart := rawStarts[i]
+        tokenValueLength := rawValueLengths[i]
+        tokenLine := rawLines[i]
+        tokenColumn := rawColumns[i]
+        lineStart := tokenStart - (tokenColumn - 1)
+
+        if kind == 136 {
+            outKinds[outCount] = kind
+            outStarts[outCount] = tokenStart
+            outValueLengths[outCount] = tokenValueLength
+            outLines[outCount] = tokenLine
+            outColumns[outCount] = tokenColumn
+            outCount = outCount + 1
+            atLineStart = true
+            i = i + 1
+            continue
+        }
+
+        if kind == 135 {
+            while stackTop > 0 {
+                stackTop = stackTop - 1
+                outKinds[outCount] = 130
+                outStarts[outCount] = lineStart
+                outValueLengths[outCount] = 1
+                outLines[outCount] = tokenLine
+                outColumns[outCount] = 1
+                outCount = outCount + 1
+            }
+
+            outKinds[outCount] = kind
+            outStarts[outCount] = tokenStart
+            outValueLengths[outCount] = tokenValueLength
+            outLines[outCount] = tokenLine
+            outColumns[outCount] = tokenColumn
+            outCount = outCount + 1
+            return outCount
+        }
+
+        if atLineStart {
+            rawIndent := tokenColumn - 1
+            if rawIndent < 0 {
+                rawIndent = 0
+            }
+
+            if !hasBaseIndent && stackTop == 0 {
+                baseIndent = rawIndent
+                hasBaseIndent = true
+            }
+
+            currentIndent := rawIndent - baseIndent
+            if currentIndent < 0 {
+                currentIndent = 0
+            }
+
+            if parenBracketDepth == 0 && explicitBraceDepth == 0 {
+                previousIndent := indentStack[stackTop]
+                if currentIndent > previousIndent {
+                    stackTop = stackTop + 1
+                    indentStack[stackTop] = currentIndent
+                    outKinds[outCount] = 129
+                    outStarts[outCount] = lineStart
+                    outValueLengths[outCount] = 1
+                    outLines[outCount] = tokenLine
+                    outColumns[outCount] = 1
+                    outCount = outCount + 1
+                } else if currentIndent < previousIndent {
+                    while stackTop > 0 && currentIndent < indentStack[stackTop] {
+                        stackTop = stackTop - 1
+                        outKinds[outCount] = 130
+                        outStarts[outCount] = lineStart
+                        outValueLengths[outCount] = 1
+                        outLines[outCount] = tokenLine
+                        outColumns[outCount] = 1
+                        outCount = outCount + 1
+                    }
+                }
+            }
+
+            atLineStart = false
+        }
+
+        if kind == 129 {
+            explicitBraceDepth = explicitBraceDepth + 1
+        } else if kind == 130 {
+            explicitBraceDepth = explicitBraceDepth - 1
+            if explicitBraceDepth < 0 {
+                explicitBraceDepth = 0
+            }
+        } else if kind == 127 || kind == 131 {
+            parenBracketDepth = parenBracketDepth + 1
+        } else if kind == 128 || kind == 132 {
+            parenBracketDepth = parenBracketDepth - 1
+            if parenBracketDepth < 0 {
+                parenBracketDepth = 0
+            }
+        }
+
+        outKinds[outCount] = kind
+        outStarts[outCount] = tokenStart
+        outValueLengths[outCount] = tokenValueLength
+        outLines[outCount] = tokenLine
+        outColumns[outCount] = tokenColumn
+        outCount = outCount + 1
+        i = i + 1
+    }
+
+    return outCount
+}
+
+// Full N# lexer token stream including the virtual indentation braces: tokenize the source into raw
+// metadata and then run the indentation-brace post-pass. This reproduces the C# production lexer's
+// (Lexer.Tokenize) token stream for both explicit-brace and indentation-style source, EXCEPT where
+// the underlying raw scanner still diverges from C# -- lifetime tokens and Unicode character
+// classification (see self-host-progress.md "Remaining gaps"); those are tracked, separate slices.
+// The out buffers must be sized for the grown stream (<= 3x (source.Length + 1) is always safe).
+func TokenizeMetadataWithIndentationInto(source: string, kinds: int[], starts: int[], valueLengths: int[], lines: int[], columns: int[]): int {
+    length := source.Length
+    rawKinds := new int[](length + 1)
+    rawStarts := new int[](length + 1)
+    rawValueLengths := new int[](length + 1)
+    rawLines := new int[](length + 1)
+    rawColumns := new int[](length + 1)
+    rawCount := TokenizeMetadataInto(source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns)
+    indentStack := new int[](length + 2)
+    return InsertIndentationBracesInto(
+        rawKinds,
+        rawStarts,
+        rawValueLengths,
+        rawLines,
+        rawColumns,
+        rawCount,
+        kinds,
+        starts,
+        valueLengths,
+        lines,
+        columns,
+        indentStack)
+}
+
 func CopyKinds(buffer: int[], count: int): int[] {
     result := new int[](count)
     i := 0
@@ -1329,6 +1505,12 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 'w' && source[start + 2] == 'a' && source[start + 3] == 'i' && source[start + 4] == 't' {
                 return 69
             }
+            if source[start + 1] == 'l' && source[start + 2] == 'l' && source[start + 3] == 'o' && source[start + 4] == 'c' {
+                return 143
+            }
+            if source[start + 1] == 'l' && source[start + 2] == 'l' && source[start + 3] == 'o' && source[start + 4] == 'w' {
+                return 144
+            }
         }
         if ch0 == 'p' && source[start + 1] == 'r' && source[start + 2] == 'i' && source[start + 3] == 'n' && source[start + 4] == 't' {
             return 52
@@ -1352,6 +1534,12 @@ func KeywordKind(source: string, start: int, length: int): int {
             if source[start + 1] == 't' && source[start + 2] == 'a' && source[start + 3] == 't' && source[start + 4] == 'i' && source[start + 5] == 'c' {
                 return 63
             }
+            if source[start + 1] == 'c' && source[start + 2] == 'o' && source[start + 3] == 'p' && source[start + 4] == 'e' && source[start + 5] == 'd' {
+                return 147
+            }
+        }
+        if ch0 == 'u' && source[start + 1] == 'n' && source[start + 2] == 's' && source[start + 3] == 'a' && source[start + 4] == 'f' && source[start + 5] == 'e' {
+            return 146
         }
         if ch0 == 'r' {
             if source[start + 1] == 'e' && source[start + 2] == 'c' && source[start + 3] == 'o' && source[start + 4] == 'r' && source[start + 5] == 'd' {
@@ -1470,6 +1658,12 @@ func KeywordKind(source: string, start: int, length: int): int {
         }
         if ch0 == 'u' && source[start + 1] == 'n' && source[start + 2] == 'c' && source[start + 3] == 'h' && source[start + 4] == 'e' && source[start + 5] == 'c' && source[start + 6] == 'k' && source[start + 7] == 'e' && source[start + 8] == 'd' {
             return 84
+        }
+    }
+
+    if length == 10 {
+        if ch0 == 's' && source[start + 1] == 't' && source[start + 2] == 'a' && source[start + 3] == 'c' && source[start + 4] == 'k' && source[start + 5] == 'a' && source[start + 6] == 'l' && source[start + 7] == 'l' && source[start + 8] == 'o' && source[start + 9] == 'c' {
+            return 145
         }
     }
 
