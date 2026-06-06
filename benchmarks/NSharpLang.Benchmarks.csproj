@@ -36,6 +36,15 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/LexerTokenKindScanner.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.LexerTokenKindScanner.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ParserTypeReferences.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserTypeReferences.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ParserExpressions.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserExpressions.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ParserStatements.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserStatements.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/SourceTextLines.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl" />
     <EmbeddedResource

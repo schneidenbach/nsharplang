@@ -123,6 +123,26 @@ The lexer kernels remain behind the `*DogfoodAdapter` bridge; routing the whole 
 because the parser consumes C# `Token` objects, so materialization re-incurs the string allocations
 — bridge deletion awaits an N# parser (Phase 2/3).
 
+## 2026-06-06 — Parser front-end: N# statement kernel vs C# Parser (clears 5× on both rows)
+
+The N#-native recursive-descent front-end (lexer→type→expression→statement kernels composed in-assembly
+over one shared columnar node table) parses a supported-form function body vs the production C# `Parser`.
+`CompilerServiceParserBenchmarks`, `--job short`, parse phase only (tokenization done once in setup),
+node-for-node parity proven by `CompilerDogfoodProjectTests.Parser_RealCorpusFunctionBodies_MatchProductionParser`:
+
+| Corpus | N# statement kernel | C# `Parser` | Speedup | N# alloc | C# alloc | Alloc ratio |
+|--------|---------------------|-------------|---------|----------|----------|-------------|
+| Representative | 550 ns | 3,266 ns | **5.9×** | 400 B | 5,688 B | 0.07 |
+| LargeGenerated | 15.9 µs | 83.3 µs | **5.2×** | 8,608 B | 148,224 B | 0.06 |
+
+Clears the ≥5× gate on BOTH rows. **Honest framing:** the C# parser allocates a record per AST node +
+`List`s; the N# kernel writes a flat columnar table into caller-pre-allocated arrays (only the small
+`st`/`argStack` scratch allocates — 400 B / 8,608 B). The columnar design is the win (the systems-tier
+thesis). The C# baseline also parses the trivial `func benchBody() {…}` wrapper (signature + constructor
+token-compaction); negligible on the body-dominated LargeGenerated row, so 5.2× is the conservative number.
+Not yet routed: routing requires materializing the columnar table into the host `CompilationUnit` (or
+N# consumers) — the swap-evidence criterion, a later phase.
+
 ## Prior accepted/rejected evidence (pre-this-batch)
 
 Earlier dogfood slices already recorded in [`compiler-dogfood-rewrite.md`](compiler-dogfood-rewrite.md)

@@ -833,6 +833,12 @@ internal static class DogfoodCompilerSources
 {
     private const string LexerTokenKindScannerResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.LexerTokenKindScanner.nl";
+    private const string ParserTypeReferencesResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserTypeReferences.nl";
+    private const string ParserExpressionsResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserExpressions.nl";
+    private const string ParserStatementsResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserStatements.nl";
     private const string SourceTextLinesResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl";
     private const string IdentifierSpansResourceName =
@@ -887,6 +893,18 @@ internal static class DogfoodCompilerSources
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.OverloadCandidates.nl";
 
     public static string LexerTokenKindScanner => ReadResource(LexerTokenKindScannerResourceName);
+    public static string ParserTypeReferences => ReadResource(ParserTypeReferencesResourceName);
+    public static string ParserExpressions => ReadResource(ParserExpressionsResourceName);
+    public static string ParserStatements => ReadResource(ParserStatementsResourceName);
+
+    // The N# statement kernel composes the lexer (for tokenization), type-reference, expression, and
+    // statement kernels -- concatenate them into one source so the single-source benchmark compiler emits a
+    // Program with all of them (the .nl files are pure function files with no package/import headers).
+    public static string ParserFrontEnd =>
+        LexerTokenKindScanner + Environment.NewLine +
+        ParserTypeReferences + Environment.NewLine +
+        ParserExpressions + Environment.NewLine +
+        ParserStatements;
     public static string SourceTextLines => ReadResource(SourceTextLinesResourceName);
     public static string CodeIntelligenceIdentifierSpans =>
         ReadResource(IdentifierSpansResourceName) + Environment.NewLine + SourceTextLines;

@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 21: front-end perf benchmark — the N# parser is ~5-6x faster than C# (clears the 5x gate)
+
+The perf answer for the parser front-end (benchmark-first, per the loop). `CompilerServiceParserBenchmarks`
+(benchmarks/CompilerServiceParserBenchmarks.cs) parses the SAME supported-form function body with the
+N#-native statement kernel (`ParseStatementNodesInto`, composed lexer→type→expression→statement, compiled
+from the concatenated kernel sources) vs the production C# `Parser`. Tokenization is done once in setup;
+the benchmark measures the PARSE phase only. `[MemoryDiagnoser]` captures allocation.
+
+Results (`--job short`, this machine):
+
+| Corpus         | N# kernel | C# parser | Speedup | N# alloc | C# alloc | Alloc ratio |
+|----------------|-----------|-----------|---------|----------|----------|-------------|
+| Representative | 550 ns    | 3,266 ns  | **5.9x**| 400 B    | 5,688 B  | 14x less    |
+| LargeGenerated | 15.9 us   | 83.3 us   | **5.2x**| 8,608 B  | 148,224 B| 17x less    |
+
+The N# columnar parser is **~5-6x faster and allocates 14-17x less**, and **clears the acceptance standard's
+5x gate** (3266/550 = 5.94x; 83259/15887 = 5.24x) on both corpora. This is the first hard evidence that the
+N# parser approach meets the "at least as fast as C#, ideally faster" bar — decisively.
+
+**Honest framing of the comparison.** The two implementations are behaviorally equivalent (the kernel's tree
+is parity-verified node-for-node against the C# parser by slice 20's whole-body pin) but represented
+differently: the C# parser allocates a record per AST node + `List`s; the N# kernel writes a flat columnar
+node table into caller-pre-allocated arrays (its only per-call allocation is the small `st`/`argStack`
+scratch — hence 400 B / 8,608 B). The columnar design IS the source of the win; this is exactly the
+"systems-tier N# beats allocating C#" thesis. The C# baseline also parses the trivial `func benchBody() {…}`
+wrapper (signature + constructor token-compaction); for the body-dominated LargeGenerated corpus that
+overhead is negligible, so the 5.2x there is the conservative, representative number.
+
+This is the acceptance-standard speed gate met for the front-end parse path. Remaining toward full
+acceptance: (1) complete parser parity for the deferred language forms, and (2) production routing of the
+in-assembly N# front-end (materialize the columnar table into the host's `CompilationUnit`, or route N#
+consumers) so the CLI/LSP path actually uses it — the swap-evidence criterion.
+
 ## 2026-06-06 — N# parser slice 20: real-corpus WHOLE-BODY pin (capstone — the N# parser parses real compiler code)
 
 The capstone dogfood validation. Runs the full N#-native front-end statement kernel — which composes the
