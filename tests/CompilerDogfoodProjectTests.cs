@@ -1414,6 +1414,89 @@ class B
         }
     }
 
+    // Slice 23: whole-FUNCTION-DECLARATION materialization. Composes the fnsig kernel (name + parameter
+    // names/types + return type) and the statement kernel (body) and materializes both into a C#
+    // FunctionDeclaration, then confirms the function's shape (name, parameter names + types, return type,
+    // body) matches the production parser on every dogfood function within the supported forms. This is the
+    // declaration-level unit the whole-file CompilationUnit materialization (and routing) is built from.
+    [Fact]
+    public void Materializer_FunctionDeclaration_MatchesProductionParserAst()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"NSharpLang.Compiler.Dogfood.MatFn.{Guid.NewGuid():N}.dll");
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config).CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+            var programType = Assembly.Load(File.ReadAllBytes(outputPath)).GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod("TokenizeMetadataWithIndentationInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            var parseSig = programType.GetMethod("ParseFunctionSignatureInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            var parseStmt = programType.GetMethod("ParseStatementNodesInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var verified = 0;
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl").OrderBy(p => p, StringComparer.Ordinal))
+            {
+                var src = File.ReadAllText(file);
+                var cu = new Parser(new Lexer(src, file).Tokenize(), file).ParseCompilationUnit().CompilationUnit;
+                if (cu == null) continue;
+                var funcs = cu.Declarations.OfType<FunctionDeclaration>().ToList();
+                var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(src, tokenize);
+                var funcIndices = TopLevelFuncIndices(kinds, count);
+                if (funcIndices.Count != funcs.Count) continue;
+
+                for (var fi = 0; fi < funcs.Count; fi++)
+                {
+                    var fn = funcs[fi];
+                    if (!FunctionSignatureFullySupported(fn) || fn.Body == null || !IsSupportedStatement(fn.Body)) continue;
+
+                    // --- signature kernel + materialize params/return from the fnsig node table ---
+                    var cap = count + 1;
+                    var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+                    var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+                    var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap]; var sres = new int[5];
+                    var paramCount = (int)(parseSig.Invoke(null, new object[] { kinds, starts, valueLengths, count, funcIndices[fi], sk, sns, snl, scs, scc, sci, sss, ssl, pNameStart, pNameLen, pTypeRoot, sres }) ?? -2);
+                    Assert.True(paramCount >= 0, $"fnsig refused {file}#{fn.Name}");
+                    var sigMat = new ColumnarAstMaterializer(sk, sns, snl, scs, scc, sci, sss, source);
+                    var materializedParams = new List<Parameter>();
+                    for (var p = 0; p < paramCount; p++)
+                        materializedParams.Add(new Parameter(source.Substring(pNameStart[p], pNameLen[p]), sigMat.MaterializeTypeReference(pTypeRoot[p]), null, false));
+                    var materializedReturn = sres[1] >= 0 ? sigMat.MaterializeTypeReference(sres[1]) : null;
+                    var materializedName = sres[3] < 0 ? null : source.Substring(sres[3], sres[4]);
+
+                    // --- statement kernel + materialize the body ---
+                    var bodyBrace = -1;
+                    for (var t = funcIndices[fi] + 1; t < count; t++) { if (kinds[t] == 129) { bodyBrace = t; break; } }
+                    Assert.True(bodyBrace > 0);
+                    var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+                    var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap]; var bres = new int[2];
+                    var bnodes = (int)(parseStmt.Invoke(null, new object[] { kinds, starts, valueLengths, count, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres }) ?? -2);
+                    Assert.True(bnodes > 0, $"stmt kernel refused body {file}#{fn.Name}");
+                    var materializedBody = (BlockStatement)new ColumnarAstMaterializer(bk, bvs, bvl, bcs, bcc, bci, bss, source).MaterializeStatement(bres[0]);
+
+                    // --- focused shape parity vs the production FunctionDeclaration ---
+                    Assert.Equal(fn.Name, materializedName);
+                    Assert.Equal(fn.Parameters.Count, materializedParams.Count);
+                    for (var p = 0; p < fn.Parameters.Count; p++)
+                    {
+                        Assert.Equal(fn.Parameters[p].Name, materializedParams[p].Name);
+                        Assert.Equal(StructuralJson(fn.Parameters[p].Type), StructuralJson(materializedParams[p].Type));
+                    }
+                    Assert.Equal(StructuralJson(fn.ReturnType), StructuralJson(materializedReturn));
+                    Assert.Equal(StructuralJson(fn.Body), StructuralJson(materializedBody));
+                    verified++;
+                }
+            }
+            Assert.True(verified > 30, $"Expected to materialize >30 real dogfood function declarations, only did {verified}.");
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
     // Reflection serialization of an AST node identical to OutputFormatter's AstValueToJson, but SKIPPING
     // Line/Column (source positions differ for operator-keyed nodes between the materializer's span-start and
     // the C# parser's operator-token position; structural equivalence is what matters for the bridge).

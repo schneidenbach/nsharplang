@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Slice 23: whole-function-declaration materialization (the routing unit)
+
+Composes the fnsig kernel (name + parameter names/types + return type) and the statement kernel (body) and
+materializes both into a C# `FunctionDeclaration` via `ColumnarAstMaterializer`. Verified
+(`Materializer_FunctionDeclaration_MatchesProductionParserAst`) on every dogfood function within the
+supported forms (>30 real functions): name, each parameter's name + type tree, return type tree, and the
+whole body all match the production parser's `FunctionDeclaration` shape. So the full pipeline
+**tokenize → parse signature + body (N# kernels) → materialize (C#) → FunctionDeclaration** now round-trips
+real compiler functions. This is the declaration-level unit the whole-file `CompilationUnit` materialization
+and the production routing are built from. Next: assemble imports + declarations → `CompilationUnit`, then
+wire it into an actual production parse path (behind an engine flag, C# fallback for unsupported forms) so
+the N# front-end is demonstrably USED in production — then drive coverage up and shrink the C# parser/adapter
+surface.
+
 ## 2026-06-06 — Slice 22: MATERIALIZATION — columnar front-end → production C# AST (the routing bridge)
 
 The first real step beyond "verified-but-unrouted": `ColumnarAstMaterializer`
