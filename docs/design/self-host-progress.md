@@ -11,6 +11,48 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-05 — Phase 1 lexer: Unicode character classification + char-literal fix (raw-tokenizer parity complete)
+
+**What:** Closed the last raw-tokenizer character-classification gap and restored lost test coverage.
+
+1. **Unicode classification.** The scanner's char helpers were ASCII-only; the C# lexer uses the BCL
+   Unicode predicates throughout (`char.IsDigit` 336/631/…/757, `char.IsLetter` 342/905,
+   `char.IsLetterOrDigit` 567/922/926/942, `char.IsWhiteSpace` 912/1084). Rewrote
+   `IsWhitespaceExceptNewline` → `char.IsWhiteSpace(ch) && ch != '\n' && ch != '\r'`,
+   `IsIdentifierStart` → `ch == '_' || char.IsLetter(ch)`, `IsIdentifierPart` →
+   `ch == '_' || char.IsLetterOrDigit(ch)`, `IsDigit` → `char.IsDigit(ch)`, and the lifetime-lookback
+   whitespace → `char.IsWhiteSpace(ch)`. `IsHexDigit` stays `IsDigit || a-f || A-F` (now matching C#'s
+   `char.IsDigit(c) || a-f || A-F`). **The C# lexer has no ASCII fast path, so calling the same BCL
+   predicates is BOTH exact-parity AND the same cost** — no perf regression vs C#.
+2. **Char-literal `'\<CR>` fix.** `ScanCharLiteral` consumed the escaped char unconditionally; C#
+   `ReadCharLiteral` guards it with `!IsAtLineBreak()` (Lexer.cs:882). Added the `\n`/`\r` guard so a
+   backslash at end-of-line leaves the line break to become a separate Newline token (pre-existing gap
+   surfaced by the lifetime slice's fuzz).
+
+**Audit answer (resolved):** the open question "do `char.IsWhiteSpace`/`IsLetter`/`IsLetterOrDigit`/
+`IsDigit` compile in the dogfood kernel?" is **YES** — verified by compiling the dogfood project with
+them and passing the full ASCII corpus. This also retroactively confirms the lifetime port could have
+used them; the ASCII helpers it used are exactly equivalent on ASCII, and now share the Unicode upgrade.
+
+**Verification:** added `unicodeSource` (Unicode-letter identifiers `café`/`ident١`, NBSP U+00A0 as an
+inline separator splitting `x y`, Arabic-Indic digit U+0661 in identifier-continuation) asserted via
+all three raw tokenizers + the composed path, and `charLiteralLineBreakSource` (`'\<CR>`) — all match
+`Lexer.Tokenize()`. Targeted test green; gate green.
+
+**Test-coverage restoration (honest accounting):** the prior lifetime slice's commit `dc42b0f0` was
+SUPPOSED to add `lifetimeSource`/`indentLifetimeSource` parity corpora, but a concurrent adversarial
+review agent (running in the main repo, not an isolated worktree) ran `git checkout HEAD -- tests/...`
+to revert its own scratch edits — which silently wiped my uncommitted lifetime corpora before the
+commit. The lifetime KERNEL code committed fine and was independently validated by the review's
+differential-fuzz harness, but the corpora were missing from `dc42b0f0`'s test. This slice restores
+`lifetimeSource` (all contexts: `<'a>`, `<'a,'b>`, `scoped 'a`, `returns 'a`, char-literal non-lifetimes)
++ `indentLifetimeSource`. Process fix recorded: verify/review agents must be read-only or worktree-
+isolated, and never commit while they run against the shared tree.
+
+**Remaining lexer gaps:** a number-scanner exponent/underscore divergence (`1_e'`-style, surfaced by
+fuzz — separate from classification); then comment-trivia (`Lexer.Comments`) + token-text
+materialization for a full production N# lexer. Token kind/position parity is otherwise complete.
+
 ## 2026-06-05 — Phase 1 lexer: lifetime tokens ported to N# (blocker closed)
 
 **What:** Closed the lifetime-token blocker from the prior entry's audit. The C# lexer
@@ -42,6 +84,11 @@ an indentation-style `indentLifetimeSource` (lifetimes + virtual braces + a char
 Full token-stream parity (kind/start/valueLength/line/column + count) holds; targeted test green. An
 adversarial differential-fuzz workflow (compiled dogfood DLL vs the real C# `Lexer.Tokenize()` over
 many ASCII lifetime/char-literal inputs) confirmed no divergence.
+
+> **Correction:** these two corpora were LOST from this commit — a concurrent review agent reverted the
+> test file before commit, so `dc42b0f0` shipped the lifetime kernel + an under-covered test. The
+> corpora were RESTORED in the next-dated entry above. The kernel itself was independently validated by
+> the differential-fuzz harness, so the port was correct; only the in-suite regression coverage lapsed.
 
 **Remaining lexer gaps:** (a) ASCII-vs-Unicode character classification (whitespace/digits/letters);
 (b) a pre-existing `ScanCharLiteral` edge case surfaced by this slice's adversarial fuzz — a char

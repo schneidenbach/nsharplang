@@ -2250,6 +2250,48 @@ struct unsafe scoped
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionChecksumInto);
 
+            // Lifetime tokens: at an apostrophe the C# lexer emits a single Lifetime token (142) instead
+            // of a char literal when it begins an identifier (and the char after isn't a closing quote,
+            // distinguishing 'a from 'a') AND the nearest preceding non-whitespace is `<`/`,` or the word
+            // `scoped`/`returns`. Brace-style (InsertIndentationBraces is a no-op) so it exercises ALL
+            // three raw tokenizers + the composed path; mixes lifetimes with char literals that must STAY
+            // char literals ('x', '\n', escaped quote, and `name 'a` whose preceding word isn't scoped/returns).
+            const string lifetimeSource = """
+func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
+    let c = 'x'
+    let nl = '\n'
+    let q = '\''
+    pair<'a, 'b>
+    name 'a
+}
+""";
+            AssertTokenizesLikeProductionLexer(lifetimeSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+            AssertTokenMetadataLikeProductionLexer(lifetimeSource, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                lifetimeSource,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
+
+            // Unicode character classification: the scanner uses the BCL Unicode predicates
+            // (char.IsWhiteSpace/IsLetter/IsLetterOrDigit/IsDigit) exactly as the C# lexer does, so
+            // Unicode-letter identifiers (café, Ωmega), Unicode inline whitespace (NBSP U+00A0 separating
+            // x and y into two identifiers), and a Unicode decimal digit in identifier-continuation
+            // position (ident١) all tokenize identically. Flat (col 1) so no indentation braces.
+            const string unicodeSource = "let café = 1\nlet x y = 2\nident١ z\n";
+            AssertTokenizesLikeProductionLexer(unicodeSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+            AssertTokenMetadataLikeProductionLexer(unicodeSource, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                unicodeSource,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
+
+            // Char literal whose escaped body runs into a line break (`'\<CR>`): C# ReadCharLiteral does
+            // NOT consume the escaped char across a line break (Lexer.cs:882), leaving the CR to become a
+            // separate Newline token. Pins the ScanCharLiteral line-break guard.
+            const string charLiteralLineBreakSource = "x = '\\\r\ny = 1\n";
+            AssertTokenizesLikeProductionLexer(charLiteralLineBreakSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+            AssertTokenMetadataLikeProductionLexer(charLiteralLineBreakSource, tokenizeMetadataInto);
+
             const string metadataSource = """
 package CompilerDogfood.Metadata
 

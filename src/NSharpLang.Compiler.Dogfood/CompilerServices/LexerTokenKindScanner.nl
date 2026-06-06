@@ -977,7 +977,9 @@ func ScanCharLiteral(source: string, position: int, length: int): int {
 
     if source[position] == '\\' {
         position = position + 1
-        if position < length {
+        // Match C# ReadCharLiteral (Lexer.cs:882): do not consume the escaped char across a line
+        // break, so e.g. `'\<CR>` leaves the CR to become a separate Newline token.
+        if position < length && source[position] != '\n' && source[position] != '\r' {
             position = position + 1
         }
     } else {
@@ -999,8 +1001,10 @@ func ScanCharLiteral(source: string, position: int, length: int): int {
 // immediately before it is `scoped` or `returns`. These checks intentionally use the scanner's
 // existing ASCII character classification (consistent with IsDigit/IsIdentifierStart elsewhere);
 // the scanner-wide ASCII-vs-Unicode classification gap is tracked separately in self-host-progress.md.
-func IsAsciiWhitespace(ch: char): bool {
-    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v'
+// Whitespace for the lifetime-context lookback. C# IsLifetimeContext (Lexer.cs:912) skips back over
+// char.IsWhiteSpace (Unicode, including newlines), so this matches it directly.
+func IsLifetimeLookbackWhitespace(ch: char): bool {
+    return char.IsWhiteSpace(ch)
 }
 
 func MatchesScopedOrReturns(source: string, start: int, length: int): bool {
@@ -1017,7 +1021,7 @@ func MatchesScopedOrReturns(source: string, start: int, length: int): bool {
 
 func IsLifetimeContextAt(source: string, position: int): bool {
     index := position - 1
-    while index >= 0 && IsAsciiWhitespace(source[index]) {
+    while index >= 0 && IsLifetimeLookbackWhitespace(source[index]) {
         index = index - 1
     }
 
@@ -1850,21 +1854,27 @@ func ScanOperator(source: string, position: int, length: int): int {
 }
 
 func IsWhitespaceExceptNewline(ch: char): bool {
-    return ch == ' ' || ch == '\t' || ch == '\f' || ch == '\v'
+    return char.IsWhiteSpace(ch) && ch != '\n' && ch != '\r'
 }
 
+// Character classification mirrors the C# production lexer's use of the BCL Unicode predicates
+// (Lexer.cs: char.IsLetter at 342/905, char.IsLetterOrDigit at 567/922/926/942, char.IsDigit at
+// 336/631/647/653/681/686/757, char.IsWhiteSpace at 912/1084). The C# lexer has no ASCII fast path,
+// so calling the same BCL predicates here is both exact-parity AND the same cost as C#.
 func IsIdentifierStart(ch: char): bool {
-    return ch == '_' || (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+    return ch == '_' || char.IsLetter(ch)
 }
 
 func IsIdentifierPart(ch: char): bool {
-    return IsIdentifierStart(ch) || IsDigit(ch)
+    return ch == '_' || char.IsLetterOrDigit(ch)
 }
 
 func IsDigit(ch: char): bool {
-    return ch >= '0' && ch <= '9'
+    return char.IsDigit(ch)
 }
 
+// Hex digits are ASCII-only letters plus any Unicode decimal digit, matching C# IsHexDigit
+// (Lexer.cs:757 = char.IsDigit(c) || a-f || A-F).
 func IsHexDigit(ch: char): bool {
     return IsDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
 }
