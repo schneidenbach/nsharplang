@@ -242,14 +242,19 @@ public class SetupLocalScriptTests
         process.Start();
         var stdoutTask = process.StandardOutput.ReadToEndAsync();
         var stderrTask = process.StandardError.ReadToEndAsync();
-        if (!process.WaitForExit(30_000))
+        // Generous timeout: the dry-run/help scripts finish in well under a second normally, so this is
+        // only a safety net. A tight 30s cap intermittently tripped under the full product gate's
+        // concurrent load (process spawn + login-shell init slow under contention), failing these
+        // process-spawning tests though they pass in isolation. 180s gives ample headroom without
+        // masking a genuine hang.
+        if (!process.WaitForExit(180_000))
         {
             try { process.Kill(entireProcessTree: true); }
             catch { /* best-effort cleanup */ }
 
             var timedOutStdout = stdoutTask.IsCompleted ? stdoutTask.Result : string.Empty;
             var timedOutStderr = stderrTask.IsCompleted ? stderrTask.Result : string.Empty;
-            return new ProcessResult(124, timedOutStdout, timedOutStderr + "\nTimed out after 30 seconds.");
+            return new ProcessResult(124, timedOutStdout, timedOutStderr + "\nTimed out after 180 seconds.");
         }
 
         var stdout = stdoutTask.GetAwaiter().GetResult();
