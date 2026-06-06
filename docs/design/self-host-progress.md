@@ -11,7 +11,38 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
-## 2026-06-05 — Phase 1 lexer: Unicode character classification + char-literal fix (raw-tokenizer parity complete)
+## 2026-06-06 — Phase 1 lexer: malformed-number Unknown tokens (raw-tokenizer kind-stream parity complete)
+
+**What:** Closed the last raw-tokenizer kind divergence — malformed numbers. The C# `ReadNumber`
+emits an `Unknown` token (137) for: a `0x`/`0b` prefix with no valid digit immediately after (a leading
+`_` counts as "no digit", `Lexer.cs:592/614`), a second decimal point (`Lexer.cs:650-659`), and an
+exponent `e`/`E[+/-]` with no following digit (`Lexer.cs:681-684`). The N# `ScanNumberInfo` had no
+error path — it returned `IntLiteral`/`FloatLiteral` and (for a leading `_` after `0x`/`0b`)
+over-consumed the span. Added the four error branches: `ScanNumberInfo` now returns a kind-`3` sentinel
+(Unknown) with the exact span C# consumes, and the two metadata/kind callers map `3`→`137`. Because
+the error branches return C#'s consumed span and `NumberValueLength` counts non-`_` chars, the Unknown
+token's value text/length matches C#'s `sb` automatically (`1_e'`→"1e", `0x`→"0x", `1.2.3`→"1.2.3").
+
+**Cleanup:** consolidated the duplicate number scanner — `TokenizeCount` now uses
+`ScanNumberInfo(...) >> 2` for the end offset, and the redundant `ScanNumber` function was removed
+(single source of truth for number consumption).
+
+**Coverage completion (honest accounting):** also added `indentLifetimeSource` (the indentation-style
+lifetime corpus the `5c793e57` entry claimed to restore but missed) and composed-path asserts for the
+flat lifetime/unicode/char-literal/malformed-number corpora — closing the two coverage gaps from the
+earlier agent-revert incident.
+
+**Verified:** `malformedNumberSource` (`0x`, `0b`, `1e`, `1.2.3`, `0x_F`, `1e+`) asserted across all
+three raw tokenizers + the composed path vs `Lexer.Tokenize()` (kind/start/valueLength/line/column +
+count). Targeted test green. With this, **N# raw-tokenizer kind-stream parity with the C# production
+lexer is complete** — identifiers, keywords (incl. systems), literals (incl. raw/interpolated/char),
+lifetimes, operators, delimiters, comments-excluded, indentation braces, Unicode classification, and
+now malformed-number Unknown tokens all match.
+
+**Remaining lexer gaps:** comment-trivia collection for the formatter (`Lexer.Comments`) and token-text
+materialization (host-derivable from start+length) — neither is a *kind/position* parity gap.
+
+## 2026-06-05 — Phase 1 lexer: Unicode character classification + char-literal fix
 
 **What:** Closed the last raw-tokenizer character-classification gap and restored lost test coverage.
 
@@ -50,8 +81,8 @@ differential-fuzz harness, but the corpora were missing from `dc42b0f0`'s test. 
 isolated, and never commit while they run against the shared tree.
 
 **Remaining lexer gaps:** a number-scanner exponent/underscore divergence (`1_e'`-style, surfaced by
-fuzz — separate from classification); then comment-trivia (`Lexer.Comments`) + token-text
-materialization for a full production N# lexer. Token kind/position parity is otherwise complete.
+fuzz — separate from classification; **closed in the next-dated entry above**); then comment-trivia
+(`Lexer.Comments`) + token-text materialization for a full production N# lexer.
 
 ## 2026-06-05 — Phase 1 lexer: lifetime tokens ported to N# (blocker closed)
 

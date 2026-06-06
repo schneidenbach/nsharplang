@@ -2292,6 +2292,19 @@ func NextFrame<'a>(reader: scoped 'a): Result returns 'a {
             AssertTokenizesLikeProductionLexer(charLiteralLineBreakSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
             AssertTokenMetadataLikeProductionLexer(charLiteralLineBreakSource, tokenizeMetadataInto);
 
+            // Malformed numbers: the C# lexer emits an Unknown token (137) for a hex/binary prefix with
+            // no valid digit immediately after (a leading '_' counts as "no digit"), a second decimal
+            // point, and an exponent e/E[+/-] with no following digit. The N# scanner must produce the
+            // same Unknown token (kind AND consumed span / value text) instead of an Int/Float literal.
+            // Flat (col 1) so no indentation braces; each malformed number is the last token on its line.
+            const string malformedNumberSource = "let a = 0x\nlet b = 0b\nlet c = 1e\nlet d = 1.2.3\nlet e = 0x_F\nlet f = 1e+\n";
+            AssertTokenizesLikeProductionLexer(malformedNumberSource, tokenizeCount, tokenizeKinds, tokenizeKindsInto);
+            AssertTokenMetadataLikeProductionLexer(malformedNumberSource, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                malformedNumberSource,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
+
             const string metadataSource = """
 package CompilerDogfood.Metadata
 
@@ -2421,6 +2434,21 @@ func k(): int
             // ever open, so no braces are inserted and nothing under/overflows).
             AssertTokenMetadataWithIndentationLikeProductionLexer("", tokenizeMetadataWithIndentationInto);
             AssertTokenMetadataWithIndentationLikeProductionLexer("   \n  \n", tokenizeMetadataWithIndentationInto);
+
+            // Composed-path coverage for the flat lifetime/unicode/char-literal/malformed-number corpora
+            // (InsertIndentationBraces is a no-op on them, so the composed entry must equal the raw stream).
+            AssertTokenMetadataWithIndentationLikeProductionLexer(lifetimeSource, tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer(unicodeSource, tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer(charLiteralLineBreakSource, tokenizeMetadataWithIndentationInto);
+            AssertTokenMetadataWithIndentationLikeProductionLexer(malformedNumberSource, tokenizeMetadataWithIndentationInto);
+
+            // Indentation-style source containing lifetimes + a char literal (virtual braces interleaved
+            // with Lifetime(142)/CharLiteral(3) tokens in one stream).
+            const string indentLifetimeSource = """
+func gen<'a>(x: scoped 'a): int
+    return uses<'a>('x')
+""";
+            AssertTokenMetadataWithIndentationLikeProductionLexer(indentLifetimeSource, tokenizeMetadataWithIndentationInto);
 
             AssertSourceTextLineMapLikeProduction(
                 "",

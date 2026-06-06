@@ -289,7 +289,12 @@ func TokenizeKindsInto(source: string, buffer: int[]): int {
 
         if IsDigit(ch) {
             numberInfo := ScanNumberInfo(source, position, length)
-            buffer[count] = numberInfo & 3
+            numberKind := numberInfo & 3
+            if numberKind == 3 {
+                numberKind = 137
+            }
+
+            buffer[count] = numberKind
             count = count + 1
             position = numberInfo >> 2
             continue
@@ -548,7 +553,12 @@ func TokenizeMetadataInto(source: string, kinds: int[], starts: int[], valueLeng
         if IsDigit(ch) {
             numberInfo := ScanNumberInfo(source, position, length)
             nextPosition := numberInfo >> 2
-            kinds[count] = numberInfo & 3
+            numberKind := numberInfo & 3
+            if numberKind == 3 {
+                numberKind = 137
+            }
+
+            kinds[count] = numberKind
             starts[count] = start
             valueLengths[count] = NumberValueLength(source, start, nextPosition)
             lines[count] = tokenLine
@@ -870,7 +880,7 @@ func TokenizeCount(source: string): int {
 
         if IsDigit(ch) {
             count = count + 1
-            position = ScanNumber(source, position, length)
+            position = ScanNumberInfo(source, position, length) >> 2
             continue
         }
 
@@ -1072,69 +1082,21 @@ func ScanLifetime(source: string, position: int, length: int): int {
     return position
 }
 
-func ScanNumber(source: string, position: int, length: int): int {
-    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'x' || source[position + 1] == 'X') {
-        position = position + 2
-        while position < length && (IsHexDigit(source[position]) || source[position] == '_') {
-            position = position + 1
-        }
-
-        return ConsumeIntegerSuffix(source, position, length)
-    }
-
-    if source[position] == '0' && position + 1 < length && (source[position + 1] == 'b' || source[position + 1] == 'B') {
-        position = position + 2
-        while position < length && (source[position] == '0' || source[position] == '1' || source[position] == '_') {
-            position = position + 1
-        }
-
-        return ConsumeIntegerSuffix(source, position, length)
-    }
-
-    isFloat := false
-    while position < length && (IsDigit(source[position]) || source[position] == '.' || source[position] == '_') {
-        if source[position] == '.' {
-            if position + 1 < length && source[position + 1] == '.' {
-                break
-            }
-
-            if position + 1 >= length || !IsDigit(source[position + 1]) {
-                break
-            }
-
-            isFloat = true
-        }
-
-        position = position + 1
-    }
-
-    if position < length && (source[position] == 'e' || source[position] == 'E') {
-        isFloat = true
-        position = position + 1
-        if position < length && (source[position] == '+' || source[position] == '-') {
-            position = position + 1
-        }
-
-        while position < length && (IsDigit(source[position]) || source[position] == '_') {
-            position = position + 1
-        }
-    }
-
-    if isFloat {
-        return ConsumeFloatSuffix(source, position, length)
-    }
-
-    if position < length && (source[position] == 'm' || source[position] == 'M') {
-        return position + 1
-    }
-
-    return ConsumeIntegerSuffix(source, position, length)
-}
-
-// Encodes the exclusive end offset and token kind as end * 4 + kind.
+// Returns ((exclusive end offset) << 2) | kind, where kind is 1 = IntLiteral, 2 = FloatLiteral, and
+// 3 = Unknown (the malformed-number error token C# ReadNumber emits). The 1/2 values double as the
+// TokenType ordinals; callers map the sentinel 3 to Unknown (137). Each error branch returns the same
+// span C# consumes (so NumberValueLength, which counts non-'_' chars, reproduces C#'s token text):
+//   - 0x / 0b with no valid digit immediately after the prefix (a leading '_' counts as "no digit",
+//     matching C# Lexer.cs:592/614) -> Unknown ending right after the prefix;
+//   - a second decimal point (Lexer.cs:650-659) -> Unknown after consuming the remaining digits/dots;
+//   - an exponent e/E[+/-] with no digit after it (Lexer.cs:681-684) -> Unknown ending after the sign.
 func ScanNumberInfo(source: string, position: int, length: int): int {
     if source[position] == '0' && position + 1 < length && (source[position + 1] == 'x' || source[position + 1] == 'X') {
         position = position + 2
+        if position >= length || !IsHexDigit(source[position]) {
+            return (position << 2) | 3
+        }
+
         while position < length && (IsHexDigit(source[position]) || source[position] == '_') {
             position = position + 1
         }
@@ -1144,6 +1106,10 @@ func ScanNumberInfo(source: string, position: int, length: int): int {
 
     if source[position] == '0' && position + 1 < length && (source[position + 1] == 'b' || source[position + 1] == 'B') {
         position = position + 2
+        if position >= length || (source[position] != '0' && source[position] != '1') {
+            return (position << 2) | 3
+        }
+
         while position < length && (source[position] == '0' || source[position] == '1' || source[position] == '_') {
             position = position + 1
         }
@@ -1162,6 +1128,14 @@ func ScanNumberInfo(source: string, position: int, length: int): int {
                 break
             }
 
+            if isFloat {
+                while position < length && (IsDigit(source[position]) || source[position] == '.') {
+                    position = position + 1
+                }
+
+                return (position << 2) | 3
+            }
+
             isFloat = true
         }
 
@@ -1173,6 +1147,10 @@ func ScanNumberInfo(source: string, position: int, length: int): int {
         position = position + 1
         if position < length && (source[position] == '+' || source[position] == '-') {
             position = position + 1
+        }
+
+        if position >= length || !IsDigit(source[position]) {
+            return (position << 2) | 3
         }
 
         while position < length && (IsDigit(source[position]) || source[position] == '_') {
