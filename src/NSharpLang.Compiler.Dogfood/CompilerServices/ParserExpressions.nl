@@ -13,30 +13,33 @@
 //   IdentifierExpression    -> kind 6   (Identifier 0)
 //   ParenthesizedExpression -> kind 7   ( ( expr ) -- a single non-tuple parenthesized expression )
 //   MemberAccessExpression  -> kind 8   ( obj.member -- slice 11; member name in the value span )
+//   CallExpression          -> kind 9   ( callee(args) -- slice 12; children [callee, arg0, arg1, ...] )
 //   IndexAccessExpression   -> kind 10  ( obj[index] -- slice 11; children [object, index] )
-// Deferred (refused with -1): CallExpression (kind 9, reserved -- needs the variable-arity arg-stack, a
-//   later slice), `?.`/`?[` null-conditional access, generic method calls, `++`/`--`, `with`; every other
-//   primary (this/base/default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/
-//   lambda/cast/...); and all unary/binary structure. A tuple `(a, b)` or named element `(x: e)` is refused
-//   (the parenthesized branch requires a lone `)` after the inner expression). Literal VALUE materialization
-//   (unescaping strings/chars) is the host's job; this kernel records the value token's byte span only.
+// Deferred (refused with -1): `?.`/`?[` null-conditional access, generic method calls (callee<T>(...)),
+//   named (`name:`) and ref/out call arguments, `++`/`--`, `with`; every other primary (this/base/default/
+//   new/alloc/match/tuple/array-literal/object-initializer/interpolated string/lambda/cast/...); and all
+//   unary/binary structure. A tuple `(a, b)` or named element `(x: e)` is refused (the parenthesized branch
+//   requires a lone `)` after the inner expression). Literal VALUE materialization (unescaping strings/
+//   chars) is the host's job; this kernel records the value token's byte span only.
 //
 // Node-table columns (caller-allocated to capacity >= count+1; outChildIndices likewise):
 //   outNodeKinds[i]    : 0..7 per the list above
 //   outValueStarts[i]  : byte offset of the literal/identifier value token; -1 for Null/Parenthesized
 //   outValueLengths[i] : value byte length; 0 when none
 //   outChildStart[i]   : index into outChildIndices for children; -1 when none
-//   outChildCount[i]   : Parenthesized/MemberAccess = 1; IndexAccess = 2; others = 0 (until later slices)
+//   outChildCount[i]   : Parenthesized/MemberAccess = 1; IndexAccess = 2; Call = 1 + #args; others = 0
 //   outChildIndices[]  : flattened child node-id edges (post-order; root is the last node)
 //   outSpanStarts[i] / outSpanLengths[i] : full source byte span of the node
 //   outResult[0] = root node id (== nodeCount-1), outResult[1] = token index past the consumed expression
 // Returns the node count, or -1 on refusal / depth > 200.
 //
-// State array `st`: st[0]=pos, st[1]=nodeCursor, st[2]=childCursor.
+// State array `st`: st[0]=pos, st[1]=nodeCursor, st[2]=childCursor, st[3]=argStackTop. Calls gather the
+// callee + argument node ids on the caller-owned LIFO `argStack` (recursion is LIFO) and append the
+// contiguous child run after the closing `)`, exactly as the type kernel does for generic arguments.
 //
 // For MemberAccess/IndexAccess the value name span (member) or the two children (object, index) are appended
 // directly after the object and index are fully parsed -- both are fixed-arity, so their child runs are
-// contiguous without an arg-stack (unlike the variable-arity CallExpression deferred to a later slice).
+// contiguous without the arg-stack.
 //
 // TokenType ordinals (Token.cs): Identifier 0, IntLiteral 1, FloatLiteral 2, CharLiteral 3, StringLiteral 4,
 // True 44, False 45, Null 46, LeftParen 127, RightParen 128, Dot 124, LeftBracket 131, RightBracket 132.
@@ -63,7 +66,7 @@ func AppendExpressionChild(st: int[], outChildIndices: int[], childId: int): int
 
 // ParsePrimaryExpression (Parser.cs:4525) restricted to literals, identifiers, and ( expr ). Returns the
 // emitted node id, or -1 on refusal/failure. Advances st[0] past the consumed tokens.
-func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
     if depth > 200 {
         return -1
     }
@@ -108,7 +111,7 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     if kind == 127 {
         parenStart := tokenStart
         st[0] = pos + 1
-        inner := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        inner := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if inner < 0 {
             return -1
         }
@@ -131,8 +134,8 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 // A primary expression followed by any run of `.member` and `[index]` suffixes. The member name and the
 // two index children are appended right after the object/index are fully parsed (fixed arity => contiguous
 // child runs, no arg-stack). Index expressions recurse to this postfix level (the current expression top).
-func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
-    expr := ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    expr := ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
     if expr < 0 {
         return -1
     }
@@ -153,7 +156,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         } else if pos < count && tokenKinds[pos] == 131 {
             objSpanStart := outSpanStarts[expr]
             st[0] = pos + 1
-            index := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            index := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
             if index < 0 {
                 return -1
             }
@@ -168,6 +171,66 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
             AppendExpressionChild(st, outChildIndices, expr)
             AppendExpressionChild(st, outChildIndices, index)
             expr = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 10, -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
+        } else if pos < count && tokenKinds[pos] == 127 {
+            // Call `callee(args)`: children = [callee, arg0, arg1, ...]. Like generic type arguments, the
+            // callee + arg node ids are gathered on the LIFO arg-stack (each arg is a full expression that
+            // appends its own descendants) and the contiguous child run is appended only after the closing
+            // `)`. Named (`name:`) and ref/out arguments are deferred -> refuse.
+            objSpanStart := outSpanStarts[expr]
+            st[0] = pos + 1
+            argBase := st[3]
+            argStack[st[3]] = expr
+            st[3] = st[3] + 1
+
+            if st[0] < count && tokenKinds[st[0]] != 128 {
+                if tokenKinds[st[0]] == 78 || tokenKinds[st[0]] == 79 {
+                    st[3] = argBase
+                    return -1
+                }
+
+                firstArg := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if firstArg < 0 {
+                    st[3] = argBase
+                    return -1
+                }
+
+                argStack[st[3]] = firstArg
+                st[3] = st[3] + 1
+
+                while st[0] < count && tokenKinds[st[0]] == 134 {
+                    st[0] = st[0] + 1
+                    if st[0] < count && (tokenKinds[st[0]] == 78 || tokenKinds[st[0]] == 79) {
+                        st[3] = argBase
+                        return -1
+                    }
+
+                    nextArg := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                    if nextArg < 0 {
+                        st[3] = argBase
+                        return -1
+                    }
+
+                    argStack[st[3]] = nextArg
+                    st[3] = st[3] + 1
+                }
+            }
+
+            if st[0] >= count || tokenKinds[st[0]] != 128 {
+                st[3] = argBase
+                return -1
+            }
+
+            rightParenEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            childCount := st[3] - argBase
+            childRunStart := st[2]
+            a := argBase
+            while a < st[3] {
+                AppendExpressionChild(st, outChildIndices, argStack[a])
+                a = a + 1
+            }
+            st[3] = argBase
+            expr = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 9, -1, 0, childRunStart, childCount, objSpanStart, rightParenEnd - objSpanStart)
         } else {
             matched = false
         }
@@ -177,12 +240,14 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 }
 
 func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
-    st := new int[](3)
+    st := new int[](4)
     st[0] = start
     st[1] = 0
     st[2] = 0
+    st[3] = 0
+    argStack := new int[](count + 1)
 
-    root := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+    root := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
     if root < 0 {
         return -1
     }

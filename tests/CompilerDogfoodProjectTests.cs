@@ -913,11 +913,11 @@ class B
         _ => false,
     };
 
-    // Parser slices 10-11: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
-    // primary expressions (literals / identifiers / parenthesized -- slice 10) plus member access (.name) and
-    // index access ([expr]) postfix chains (slice 11) into a columnar node table, pinned against the
-    // production parser's Expression AST (extracted from a `return <expr>` statement). Later slices add
-    // calls, unary, and the binary precedence chain.
+    // Parser slices 10-12: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
+    // primary expressions (literals / identifiers / parenthesized -- slice 10) plus the postfix chain --
+    // member access (.name) and index access ([expr]) (slice 11) and calls (callee(args)) (slice 12) --
+    // into a columnar node table, pinned against the production parser's Expression AST (extracted from a
+    // `return <expr>` statement). Later slices add unary and the binary precedence chain.
     [Fact]
     public void Parser_Expression_MatchesProductionParser()
     {
@@ -955,12 +955,15 @@ class B
                 // Postfix (slice 11): member access + index access chains.
                 "x.y", "a.b.c", "obj.Length", "arr[i]", "arr[0]", "m[key]",
                 "a.b[c]", "arr[i].field", "a[b][c]", "(x).y", "x.y[z].w", "data[i].next.value",
+                // Calls (slice 12): variable-arity arguments via the arg-stack.
+                "f()", "g(x)", "h(a, b)", "obj.method(x)", "a.b.c(1, 2, 3)", "arr[i].foo(y)",
+                "f(g(x))", "f(a)(b)", "f(x)[i]", "compute(a, b, c).result", "outer(inner(z), w)",
             };
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
 
-            // Refused (-1): deferred primaries / non-primary leads / tuples.
-            foreach (var bad in new[] { "(1, 2)", "(x: 1)", "+5", ".x", ")" })
+            // Refused (-1): deferred primaries / non-primary leads / tuples / named & ref-out call args.
+            foreach (var bad in new[] { "(1, 2)", "(x: 1)", "+5", ".x", ")", "f(x: 1)", "g(ref y)" })
                 AssertExpressionRefused(bad, tokenize, parseExpr);
         }
         finally
@@ -1112,6 +1115,17 @@ class B
                 Assert.Equal(2, childCount[idx]);
                 AssertExprNode(e.Object, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 AssertExprNode(e.Index, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case CallExpression e:
+                Assert.True(kinds[idx] == 9, $"Expected Call (9) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.True(e.TypeArguments == null || e.TypeArguments.Count == 0, $"Slice-12 kernel does not handle generic calls for '{label}'.");
+                Assert.Equal(1 + e.Arguments.Count, childCount[idx]);
+                AssertExprNode(e.Callee, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                for (var ai = 0; ai < e.Arguments.Count; ai++)
+                {
+                    Assert.True(e.Arguments[ai].Name == null && e.Arguments[ai].Modifier == ArgumentModifier.None, $"Slice-12 kernel handles positional args only for '{label}'.");
+                    AssertExprNode(e.Arguments[ai].Value, childIndices[childStart[idx] + 1 + ai], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                }
                 break;
             default:
                 Assert.Fail($"Unexpected production expression node {expected.GetType().Name} for '{label}' (out of slice-10/11 scope).");

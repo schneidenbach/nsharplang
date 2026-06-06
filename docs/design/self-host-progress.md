@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 12: call expressions (postfix level complete)
+
+Adds `CallExpression` (kind 9) to the postfix loop: `callee(args)` with children `[callee, arg0, arg1, ...]`.
+Arguments are variable-arity, so the callee + argument node ids are gathered on a caller-owned LIFO
+arg-stack (the exact pattern the type kernel uses for generic arguments — recursion is LIFO, append the
+contiguous child run after the closing `)`) — the expression kernel's `st` gains `st[3]=argStackTop` and an
+`argStack` array. Composes with member/index: `obj.method(x)`, `f(g(x))`, `f(a)(b)` (curried), `f(x)[i]`,
+`compute(a, b, c).result`. Verified against the production parser's CallExpression (callee + positional
+argument trees, no type arguments) on empty/single/multi/nested/curried/mixed calls, plus refusals (-1) for
+named (`f(x: 1)`) and ref/out (`g(ref y)`) arguments (deferred), plus determinism, root-span, and
+full-consumption invariants.
+
+The N# expression kernel now covers the full primary + postfix level (literals, identifiers, parenthesized,
+member access, indexing, calls). Deferred: `?.`/`?[`, generic calls, `++`/`--`, `with`, then unary and the
+binary precedence chain (after which a real-corpus expression pin over the dogfood kernel bodies becomes
+possible). No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 11: postfix expressions (member + index access)
 
 Extends the expression kernel with the postfix level (`ParsePostfixExpressionNode`, mirroring
