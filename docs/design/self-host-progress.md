@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 17: control flow — blocks, while, if/else
+
+Restructures the statement kernel into a recursive dispatcher (`ParseStatementCoreNode`) and adds
+`BlockStatement` (kind 25, `{ stmt* }` — children gathered on the LIFO arg-stack), `WhileStatement`
+(kind 26, children [condition, body]), and `IfStatement` (kind 27, children [cond, then, else?]). Following
+the C# parser, if/while bodies are ANY statement (a `{ }` block or a single statement), so they recurse
+through the dispatcher; `else if` chains as a nested if in the else child. This lets the kernel parse whole
+function bodies. Verified against the production parser's Statement AST on blocks, while, if/else, else-if
+chains, break/continue in loops, and **deep nesting** (`while i < n { if arr[i] == target { return i }
+i = i + 1 }`) which stresses the block arg-stack under recursion (nested blocks push/append/pop within their
+own region, LIFO). Followed by a focused adversarial-refutation pass (structure + bounds/arg-stack lenses).
+
+**Language feature exercised:** the N# compiler's own unused-parameter lint (NL012) caught a dead `depth`
+parameter in `ParseSimpleStatementNode` during this slice — a nice dogfood signal that the analyzer works on
+real kernel code. Fixed by dropping the parameter.
+
+Deferred: for/foreach, let/const/readonly + typed `name: Type = init` declarations, tuple deconstruction,
+throw/try/using/lock/switch/yield/print/assert/local-functions, and `new`/`alloc` initializers. Next: those
+remaining statement/expression forms as needed, then a real-corpus pin over whole dogfood function bodies.
+
 ## 2026-06-06 — N# parser slice 16: simple statements (statement subsystem begins)
 
 Starts the last major parser subsystem — function bodies, the critical path for parsing the dogfood kernels

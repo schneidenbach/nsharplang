@@ -1219,10 +1219,12 @@ class B
         _ => "<unsupported>",
     };
 
-    // Parser slice 16: the first STATEMENT kernel. ParseStatementNodesInto (ParserStatements.nl) parses one
-    // simple statement (return / break / continue / expression-statement / `:=` declaration), composing the
-    // expression kernel into a shared node table (statement kinds 20+), pinned against the production
-    // parser's Statement AST (extracted from a `func f() { <stmt> }` body). Control flow + blocks are next.
+    // Parser slices 16-17: the STATEMENT kernel. ParseStatementNodesInto (ParserStatements.nl) parses one
+    // statement -- return / break / continue / expression-statement / `:=` declaration (slice 16) plus
+    // blocks, while, and if/else (slice 17) -- composing the expression kernel into a shared node table
+    // (statement kinds 20-27), pinned against the production parser's Statement AST (from a `func f() {...}`
+    // body). if/while bodies recurse through the statement dispatcher (braceless or `{ }` block); else-if
+    // chains as a nested if. Deferred: for/foreach, typed/let declarations, and the less-common statements.
     [Fact]
     public void Parser_Statement_MatchesProductionParser()
     {
@@ -1258,6 +1260,15 @@ class B
                 "x := 0", "count := a + b", "result := f(x)", "node := arr[i].next",
                 "total = total + 1", "arr[i] = value", "x += 1", "obj.field = y",
                 "f(x)", "obj.method(a, b)", "queue.Enqueue(item)",
+                // Control flow (slice 17): blocks, while, if/else, else-if, and nesting.
+                "{ x = 1 }", "{ x = 1 y = 2 }",
+                "while i < count { i = i + 1 }", "while x > 0 { x = x - 1 }",
+                "if a { b = 1 }", "if cond { x = 1 } else { x = 2 }",
+                "if a { return 1 } else { return 2 }",
+                "if x < 0 { return -1 } else if x > 0 { return 1 } else { return 0 }",
+                "while c { break }", "while c { if d { continue } x = 1 }",
+                // Nested if inside a multi-statement while body -- stresses the block arg-stack under recursion.
+                "while i < n { if arr[i] == target { return i } i = i + 1 }",
             };
             foreach (var stmt in statements)
                 AssertStatementLikeProduction(stmt, tokenize, parseStmt);
@@ -1351,8 +1362,28 @@ class B
                 Assert.Equal(1, childCount[idx]);
                 AssertExprNode(s.Initializer!, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case BlockStatement s:
+                Assert.True(kinds[idx] == 25, $"Expected Block (25) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(s.Statements.Count, childCount[idx]);
+                for (var bi = 0; bi < s.Statements.Count; bi++)
+                    AssertStmtNode(s.Statements[bi], childIndices[childStart[idx] + bi], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case WhileStatement s:
+                Assert.True(kinds[idx] == 26, $"Expected While (26) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(2, childCount[idx]);
+                AssertExprNode(s.Condition, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                AssertStmtNode(s.Body, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case IfStatement s:
+                Assert.True(kinds[idx] == 27, $"Expected If (27) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(s.ElseStatement == null ? 2 : 3, childCount[idx]);
+                AssertExprNode(s.Condition, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                AssertStmtNode(s.ThenStatement, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                if (s.ElseStatement != null)
+                    AssertStmtNode(s.ElseStatement, childIndices[childStart[idx] + 2], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
             default:
-                Assert.Fail($"Unexpected production statement node {expected.GetType().Name} for '{label}' (out of slice-16 scope).");
+                Assert.Fail($"Unexpected production statement node {expected.GetType().Name} for '{label}' (out of slice-16/17 scope).");
                 break;
         }
     }
