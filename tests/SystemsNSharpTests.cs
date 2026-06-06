@@ -1982,9 +1982,15 @@ class Box {}
     {
         var results = new ConcurrentDictionary<string, SystemsProofBuildResult>(StringComparer.Ordinal);
         var uniqueProjects = projectDirs.Distinct(StringComparer.Ordinal).ToArray();
+        // Cap parallelism low (2): each task runs a full in-process N# compilation (MultiFileCompiler +
+        // Reflection.Emit + reference resolution). The N# compiler is single-project by design and not
+        // hardened for many concurrent compilations; the previous 8-way spike, layered on the already-
+        // loaded product gate, intermittently failed this proof-build test (and the in-process-compiling
+        // test that runs right after it in the serialized ProcessState collection) while both passed in
+        // isolation. Two-way keeps the test reasonably fast without the resource/contention spike.
         var options = new ParallelOptions
         {
-            MaxDegreeOfParallelism = Math.Max(1, Math.Min(8, Environment.ProcessorCount))
+            MaxDegreeOfParallelism = Math.Max(1, Math.Min(2, Environment.ProcessorCount))
         };
 
         Parallel.ForEach(uniqueProjects, options, projectDir =>
