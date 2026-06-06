@@ -913,12 +913,13 @@ class B
         _ => false,
     };
 
-    // Parser slice 10: the first EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
-    // primary expressions (literals / identifiers / parenthesized) into a columnar node table, pinned
-    // against the production parser's Expression AST (extracted from a `return <expr>` statement). This is
-    // the foundation of the expression subsystem; later slices add postfix, unary, and binary precedence.
+    // Parser slices 10-11: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
+    // primary expressions (literals / identifiers / parenthesized -- slice 10) plus member access (.name) and
+    // index access ([expr]) postfix chains (slice 11) into a columnar node table, pinned against the
+    // production parser's Expression AST (extracted from a `return <expr>` statement). Later slices add
+    // calls, unary, and the binary precedence chain.
     [Fact]
-    public void Parser_PrimaryExpression_MatchesProductionParser()
+    public void Parser_Expression_MatchesProductionParser()
     {
         var repoRoot = FindRepoRoot();
         var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
@@ -951,6 +952,9 @@ class B
                 "true", "false", "null",
                 "x", "value", "count",
                 "(5)", "(x)", "((42))", "(true)", "(null)", "(\"hi\")",
+                // Postfix (slice 11): member access + index access chains.
+                "x.y", "a.b.c", "obj.Length", "arr[i]", "arr[0]", "m[key]",
+                "a.b[c]", "arr[i].field", "a[b][c]", "(x).y", "x.y[z].w", "data[i].next.value",
             };
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
@@ -1095,8 +1099,22 @@ class B
                 Assert.Equal(1, childCount[idx]);
                 AssertExprNode(e.Inner, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case MemberAccessExpression e:
+                Assert.True(kinds[idx] == 8, $"Expected MemberAccess (8) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.False(e.IsNullConditional, $"Slice-11 kernel only handles non-null-conditional '.' for '{label}'.");
+                Assert.Equal(e.MemberName, source.Substring(valueStarts[idx], valueLengths[idx]));
+                Assert.Equal(1, childCount[idx]);
+                AssertExprNode(e.Object, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case IndexAccessExpression e:
+                Assert.True(kinds[idx] == 10, $"Expected IndexAccess (10) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.False(e.IsNullConditional, $"Slice-11 kernel only handles non-null-conditional '[' for '{label}'.");
+                Assert.Equal(2, childCount[idx]);
+                AssertExprNode(e.Object, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                AssertExprNode(e.Index, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
             default:
-                Assert.Fail($"Unexpected production expression node {expected.GetType().Name} for '{label}' (out of slice-10 scope).");
+                Assert.Fail($"Unexpected production expression node {expected.GetType().Name} for '{label}' (out of slice-10/11 scope).");
                 break;
         }
     }

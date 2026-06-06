@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 11: postfix expressions (member + index access)
+
+Extends the expression kernel with the postfix level (`ParsePostfixExpressionNode`, mirroring
+`ParsePostfixExpression` Parser.cs:4312): a primary followed by any run of `.member` (MemberAccess, kind 8 —
+member name in the value span) and `[index]` (IndexAccess, kind 10 — children [object, index]) suffixes. The
+entry and the parenthesized-inner now route through this postfix level, so chains compose:
+`arr[i].field`, `a[b][c]`, `(x).y`, `data[i].next.value`. Index expressions recurse to the postfix level.
+Both forms are fixed-arity, so their child runs stay contiguous by appending right after the object/index
+are fully parsed — no arg-stack needed (that is reserved for the variable-arity CallExpression in the next
+slice). Verified against the production parser's MemberAccess/IndexAccess (member name + recursive object/
+index trees, non-null-conditional) on member/index/mixed chains, plus the existing primary corpus, refusals,
+determinism, root-span, and full-consumption invariants.
+
+Deferred: CallExpression (kind 9, reserved — needs the arg-stack for variable arity), `?.`/`?[`
+null-conditional, generic method calls, `++`/`--`, `with`; then unary and the binary precedence chain. No
+language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 10: primary expressions (the expression subsystem begins)
 
 Starts the largest parser subsystem — the ~17-level expression precedence chain
