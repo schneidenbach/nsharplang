@@ -1325,6 +1325,138 @@ class B
         _ => false,
     };
 
+    // Slice 22: MATERIALIZATION — the routing bridge. ColumnarAstMaterializer turns the N# front-end's
+    // columnar node table into the production C# AST records. This proves the columnar parser output is
+    // convertible to the CompilationUnit/Expression tree the rest of the compiler consumes (the prerequisite
+    // for routing the N# front-end into production and deleting the C# Parser bridge). Verified by
+    // materializing each corpus expression's columnar output and confirming it is STRUCTURALLY identical
+    // (ignoring source positions, which differ for operator nodes) to the C# parser's Expression.
+    [Fact]
+    public void Materializer_Expression_MatchesProductionParserAst()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"NSharpLang.Compiler.Dogfood.Materializer.{Guid.NewGuid():N}.dll");
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config).CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+            var programType = Assembly.Load(File.ReadAllBytes(outputPath)).GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod("TokenizeMetadataWithIndentationInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            var parseExpr = programType.GetMethod("ParseExpressionNodesInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            string[] expressions =
+            {
+                "5", "3.14", "true", "null", "x", "\"hi\"", "'a'",
+                "a + b * c", "i < count && tokenKinds[pos] == 102", "arr[i].field", "f(g(x), y)",
+                "-arr[i]", "!found", "a ? b : c", "total = total + 1", "x ??= y",
+                "new int[](count + 1)", "obj.method(a, b)", "data[i].next.value", "(a + b) * c",
+            };
+            foreach (var e in expressions)
+            {
+                var src = "func e() { return " + e + " }";
+                var cu = new Parser(new Lexer(src, "m.nl").Tokenize(), "m.nl").ParseCompilationUnit().CompilationUnit;
+                var expected = cu!.Declarations.OfType<FunctionDeclaration>().Single().Body!.Statements.OfType<ReturnStatement>().Single().Value!;
+
+                var (count, kinds, starts, valueLengths, start, source) = TokenizeReturnExpression(e, tokenize);
+                var (nodeCount, k, vs, vl, cstart, ccount, ci, ss, _, res) = InvokeParseExpr(parseExpr, kinds, starts, valueLengths, count, start);
+                Assert.True(nodeCount > 0, $"kernel refused '{e}'");
+
+                var materialized = new ColumnarAstMaterializer(k, vs, vl, cstart, ccount, ci, ss, source).MaterializeExpression(res[0]);
+                Assert.Equal(StructuralJson(expected), StructuralJson(materialized));
+            }
+
+            // Whole-body materialization: every dogfood function body within the supported forms is parsed by
+            // the statement kernel, materialized into a C# BlockStatement, and structurally compared to the
+            // production parser's FunctionDeclaration.Body. This is the columnar-front-end -> production-AST
+            // bridge working on real compiler code.
+            var parseStmt = programType.GetMethod("ParseStatementNodesInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            var bodiesVerified = 0;
+            foreach (var file in Directory.EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl").OrderBy(p => p, StringComparer.Ordinal))
+            {
+                var src = File.ReadAllText(file);
+                var cu = new Parser(new Lexer(src, file).Tokenize(), file).ParseCompilationUnit().CompilationUnit;
+                if (cu == null) continue;
+                var funcs = cu.Declarations.OfType<FunctionDeclaration>().ToList();
+                var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(src, tokenize);
+                var funcIndices = TopLevelFuncIndices(kinds, count);
+                if (funcIndices.Count != funcs.Count) continue;
+
+                for (var fi = 0; fi < funcs.Count; fi++)
+                {
+                    var body = funcs[fi].Body;
+                    if (body == null || !IsSupportedStatement(body)) continue;
+                    var bodyBrace = -1;
+                    for (var t = funcIndices[fi] + 1; t < count; t++) { if (kinds[t] == 129) { bodyBrace = t; break; } }
+                    if (bodyBrace < 0) continue;
+
+                    var cap = count + 1;
+                    var k = new int[cap]; var vs = new int[cap]; var vl = new int[cap];
+                    var cs = new int[cap]; var cc = new int[cap]; var ci = new int[cap];
+                    var sst = new int[cap]; var sl = new int[cap]; var res = new int[2];
+                    var nodeCount = (int)(parseStmt.Invoke(null, new object[] { kinds, starts, valueLengths, count, bodyBrace, k, vs, vl, cs, cc, ci, sst, sl, res }) ?? -2);
+                    Assert.True(nodeCount > 0, $"kernel refused supported body {file}#{funcs[fi].Name}");
+
+                    var materializedBody = new ColumnarAstMaterializer(k, vs, vl, cs, cc, ci, sst, source).MaterializeStatement(res[0]);
+                    Assert.True(
+                        StructuralJson(body) == StructuralJson(materializedBody),
+                        $"Materialized body diverges from production AST for {file}#{funcs[fi].Name}");
+                    bodiesVerified++;
+                }
+            }
+            Assert.True(bodiesVerified > 30, $"Expected to materialize >30 real dogfood bodies, only did {bodiesVerified}.");
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    // Reflection serialization of an AST node identical to OutputFormatter's AstValueToJson, but SKIPPING
+    // Line/Column (source positions differ for operator-keyed nodes between the materializer's span-start and
+    // the C# parser's operator-token position; structural equivalence is what matters for the bridge).
+    private static string StructuralJson(object? node)
+    {
+        var sb = new System.Text.StringBuilder();
+        WriteStructural(sb, node);
+        return sb.ToString();
+    }
+
+    private static void WriteStructural(System.Text.StringBuilder sb, object? value)
+    {
+        switch (value)
+        {
+            case null: sb.Append("null"); return;
+            case string s: sb.Append('"').Append(s.Replace("\\", "\\\\").Replace("\"", "\\\"")).Append('"'); return;
+            case bool b: sb.Append(b ? "true" : "false"); return;
+            case Enum e: sb.Append(e.ToString()); return;
+            case int i: sb.Append(i); return;
+            case char c: sb.Append('\'').Append(c).Append('\''); return;
+        }
+        if (value is System.Collections.IEnumerable seq && value is not string)
+        {
+            sb.Append('[');
+            var first = true;
+            foreach (var item in seq) { if (!first) sb.Append(','); first = false; WriteStructural(sb, item); }
+            sb.Append(']');
+            return;
+        }
+        var type = value.GetType();
+        sb.Append("{node:").Append(type.Name);
+        foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.GetIndexParameters().Length == 0 && p.Name != "EqualityContract" && p.Name != "Line" && p.Name != "Column" && p.Name != "Span" && p.Name != "NameSpan")
+            .OrderBy(p => p.MetadataToken))
+        {
+            object? pv;
+            try { pv = p.GetValue(value); } catch { continue; }
+            sb.Append(',').Append(p.Name).Append(':');
+            WriteStructural(sb, pv);
+        }
+        sb.Append('}');
+    }
+
     // Parser slice 18: real-corpus expression pin. Validates the slice 10-15 expression kernel against the
     // production parser on REAL dogfood code (the anti-overfitting discipline the lexer's 108-file pin
     // established): every `return <expr>` value in the dogfood kernels whose expression stays within the

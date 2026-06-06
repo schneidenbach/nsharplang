@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Slice 22: MATERIALIZATION — columnar front-end → production C# AST (the routing bridge)
+
+The first real step beyond "verified-but-unrouted": `ColumnarAstMaterializer`
+(src/NSharpLang.Compiler/ColumnarAstMaterializer.cs) turns the N# front-end's columnar node table (the flat
+int[] forest the kernels emit) into the production C# AST records (`Expression`/`Statement`/`TypeReference`)
+the rest of the compiler consumes. This is the bridge between the fast columnar parser output and a usable
+`CompilationUnit` — the prerequisite for routing the N# front-end into production and deleting the C#
+`Parser`. Dispatches by node kind, disambiguating shared type/expr kind ranges positionally (e.g. a New
+node's child[0] is a type subtree, the rest are argument expressions), and derives Line/Column from byte
+spans via a line map.
+
+Verified by `Materializer_Expression_MatchesProductionParserAst`: each corpus expression's columnar output
+is materialized and **structurally identical** (positions aside — operator nodes key off different tokens)
+to the C# parser's `Expression`; AND every dogfood function body within the supported forms (>30 real bodies)
+is materialized into a C# `BlockStatement` matching the production parser's `FunctionDeclaration.Body`. Found
++ matched a real fact: the C# parser keeps char/string `Value` as the verbatim source token (quotes
+included, no unescape), so the materializer uses the raw span.
+
+This is the honest answer to "is the bridge eliminated?" advancing from "no, nothing" toward "the bridge now
+EXISTS and round-trips real code." Remaining to actually delete `Parser.cs`: (1) whole-FILE materialization
+(imports + function declarations w/ signatures + bodies → `CompilationUnit`), (2) full language-form parity
+(handle arbitrary N#, not just the supported subset), (3) route the production parse path through
+tokenize→parse→materialize and delete/shrink the C# parser + `*DogfoodAdapter` surface.
+
 ## 2026-06-06 — Systems N# vs Rust vs C head-to-head + direction decision
 
 Ran the `systems-nsharp-vs-rust-c` workflow (5 phases, adversarial fairness). Full report:
