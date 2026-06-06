@@ -139,6 +139,30 @@ meeting the "never slower than C#" bar, with smaller and canonical IL. 537 array
 loop tests pass; parity is guaranteed (same value). Benefits every `array.Length`-bounded loop,
 including the array-heavy dogfood kernels.
 
+## 2026-06-05 — Phase 0 audit kickoff: lexer feature surface + N# interop readiness
+
+Per [`self-host-roadmap.md`](self-host-roadmap.md), began the language-completeness audit by scoping
+the **lexer** beachhead (`src/NSharpLang.Compiler/Lexer.cs`, 1150 LOC). Its dependency surface:
+`string` indexing, one `Dictionary<string,TokenType>` (keywords), `List<Token>` (output), 13
+`StringBuilder` uses (token text), one `Stack`/indentation, 15 `char.Is*` calls, 14 `switch`, the
+`Token` record, the `TokenType` enum. No LINQ.
+
+**Finding — a correct lexer port is feasible on today's N#.** N#'s C# interop already covers every BCL
+dependency. Verified by compiling AND running an N# probe that uses `new StringBuilder()` +
+`Append`/`ToString`, `new Stack<int>()` + `Push`/`Pop`, `char.IsDigit`/`char.IsLetter`, and
+`new Dictionary<string,int>()` + indexer + `ContainsKey` (output `hi 2 True True True`). Examples
+already use `List<T>`, nested `Dictionary<...>`, collection expressions, records, enums, and `switch`.
+
+**Open work for the port (not feasibility, but the "super fast" bar):**
+- Decide BCL collections (mechanical, allocates) vs **systems-native pooled/zero-alloc** `Token`/
+  `TokenStream` for the hot path — the latter is what makes the migrated lexer dramatically faster.
+- Confirm full trivia / indentation-token / diagnostic / source-position parity in N#.
+- The keyword table: prefer the existing first-character dispatch (already proven in the dogfood
+  scanner) over a `Dictionary` lookup on the hot path.
+
+Next slice: stand up the N#-native `Token`/`TokenStream` representation + a tokenizer reaching parity
+on a first corpus, recording any new language gap here and closing it with a principled compiler change.
+
 ## Bootstrap coverage
 
 - **0%** — no compiler source is yet compiled by the N# compiler itself. The dogfood kernels are
