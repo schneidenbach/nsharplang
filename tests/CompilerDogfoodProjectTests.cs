@@ -621,6 +621,298 @@ class B
         }
     }
 
+    // Parser slice 9: the first declaration-level recursive-descent kernel. ParseFunctionSignatureInto
+    // (ParserFunctionSignatures.nl) COMPOSES the slice 6-8 type kernel to parse a function's signature --
+    // name, parameter names + parameter type trees, and the return type tree -- and is pinned against the
+    // production parser's FunctionDeclaration (Name, Parameters[].Name/.Type, ReturnType) on a synthetic
+    // corpus exercising every supported parameter/return type form plus modifiers, defaults, `this`, and
+    // type-parameter skipping, and on every top-level function in the real dogfood kernels whose signature
+    // stays within the supported type forms.
+    [Fact]
+    public void Parser_FunctionSignature_MatchesProductionParser()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"NSharpLang.Compiler.Dogfood.ParserFnSig.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+
+            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            var programType = assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod(
+                    "TokenizeMetadataWithIndentationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
+            var parseSig = programType.GetMethod(
+                    "ParseFunctionSignatureInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseFunctionSignatureInto.");
+
+            string[] functions =
+            {
+                "func a(): int { }",
+                "func noRet() { }",
+                "func one(x: int): string { }",
+                "func two(x: int, y: string): bool { }",
+                "func gen(items: List<int>): Dictionary<string, int> { }",
+                "func nul(x: int?, y: string[]): void { }",
+                "func uni(x: int | string): int { }",
+                "func arr(data: int[][]): List<int>[] { }",
+                "func byref(p: &int): void { }",
+                "func mods(ref x: int, out y: string): void { }",
+                "func ext(this self: int): int { }",
+                "func deflt(x: int = 5, y: string): int { }",
+                "func gfn(x: List<int | string>, y: A.B.C): Dictionary<string, List<int>> { }",
+            };
+            foreach (var fn in functions)
+                AssertFunctionSignatureLikeProduction(fn, tokenize, parseSig);
+
+            // Malformed signatures must REFUSE cleanly (-1), never silently mis-parse. A default value with
+            // unbalanced brackets would otherwise let the depth tracking consume past the parameter list's
+            // `)`; the post-parameter terminator check rejects it. (Full error recovery is deferred.)
+            foreach (var bad in new[]
+            {
+                "func bad1(x: int = {): void { }",
+                "func bad2(x: int = (, y: int): void { }",
+                "func bad3(x: int = [): int { }",
+            })
+                AssertFunctionSignatureRefused(bad, tokenize, parseSig);
+
+            // Real-corpus pin: every top-level function in the dogfood kernels whose entire signature stays
+            // within the supported type forms (Simple/Generic/Array/Nullable/Union/ByRef). Functions with a
+            // deferred form (tuple/Func/scoped/lifetime/`->`) in their signature are skipped and counted.
+            var verified = 0;
+            var skipped = 0;
+            foreach (var file in Directory
+                .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
+                .OrderBy(p => p, StringComparer.Ordinal))
+            {
+                var (v, s) = VerifyDogfoodFileFunctionSignatures(File.ReadAllText(file), file, tokenize, parseSig);
+                verified += v;
+                skipped += s;
+            }
+            Assert.True(verified > 100, $"Expected to verify >100 real dogfood function signatures, only verified {verified} (skipped {skipped}).");
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static (int Count, int[] Kinds, int[] Starts, int[] ValueLengths, string Source)
+        TokenizeSourceViaKernel(string source, MethodInfo tokenize)
+    {
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+        var count = (int)(tokenize.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+
+        // The C# Parser drops every Newline token before parsing (Parser.cs:24-26); N# is not
+        // newline-significant at the parse level (indentation was already turned into virtual braces by the
+        // lexer). Compact the stream identically so multi-line signatures parse. Byte offsets are unchanged
+        // since removing tokens does not move source positions.
+        var ck = new int[count];
+        var cs = new int[count];
+        var cv = new int[count];
+        var n = 0;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == 136) continue;
+            ck[n] = kinds[i];
+            cs[n] = starts[i];
+            cv[n] = valueLengths[i];
+            n++;
+        }
+
+        return (n, ck, cs, cv, source);
+    }
+
+    private static void AssertFunctionSignatureLikeProduction(string funcSource, MethodInfo tokenize, MethodInfo parseSig)
+    {
+        var tokens = new Lexer(funcSource, "fn.nl").Tokenize();
+        var compilationUnit = new Parser(tokens, "fn.nl").ParseCompilationUnit().CompilationUnit;
+        Assert.NotNull(compilationUnit);
+        var fn = compilationUnit!.Declarations.OfType<FunctionDeclaration>().Single();
+
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{funcSource}'.");
+
+        VerifyFunctionSignature(source, kinds, starts, valueLengths, count, funcIndex, fn, parseSig, funcSource);
+    }
+
+    private static void AssertFunctionSignatureRefused(string funcSource, MethodInfo tokenize, MethodInfo parseSig)
+    {
+        var (count, kinds, starts, valueLengths, _) = TokenizeSourceViaKernel(funcSource, tokenize);
+        var funcIndex = FirstTopLevelFuncIndex(kinds, count);
+        Assert.True(funcIndex >= 0, $"Could not locate `func` keyword for '{funcSource}'.");
+
+        var cap = count + 1;
+        var paramCount = (int)(parseSig.Invoke(
+            null,
+            new object[]
+            {
+                kinds, starts, valueLengths, count, funcIndex,
+                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
+                new int[cap], new int[cap], new int[cap], new int[5],
+            }) ?? -2);
+
+        Assert.True(paramCount == -1, $"Kernel should refuse malformed signature '{funcSource}' with -1, got {paramCount}.");
+    }
+
+    private static (int Verified, int Skipped) VerifyDogfoodFileFunctionSignatures(
+        string source, string file, MethodInfo tokenize, MethodInfo parseSig)
+    {
+        var tokens = new Lexer(source, file).Tokenize();
+        var compilationUnit = new Parser(tokens, file).ParseCompilationUnit().CompilationUnit;
+        Assert.NotNull(compilationUnit);
+        var funcs = compilationUnit!.Declarations.OfType<FunctionDeclaration>().ToList();
+
+        var (count, kinds, starts, valueLengths, src) = TokenizeSourceViaKernel(source, tokenize);
+        var funcIndices = TopLevelFuncIndices(kinds, count);
+
+        // The dogfood kernels are flat top-level functions, so each depth-0 `func` keyword corresponds 1:1
+        // (in order) with a FunctionDeclaration.
+        Assert.Equal(funcs.Count, funcIndices.Count);
+
+        var verified = 0;
+        var skipped = 0;
+        for (var i = 0; i < funcs.Count; i++)
+        {
+            if (!FunctionSignatureFullySupported(funcs[i]))
+            {
+                skipped++;
+                continue;
+            }
+
+            VerifyFunctionSignature(src, kinds, starts, valueLengths, count, funcIndices[i], funcs[i], parseSig, $"{file}#{funcs[i].Name}");
+            verified++;
+        }
+
+        return (verified, skipped);
+    }
+
+    private static void VerifyFunctionSignature(
+        string source, int[] kinds, int[] starts, int[] valueLengths, int count, int funcIndex,
+        FunctionDeclaration expected, MethodInfo parseSig, string label)
+    {
+        var cap = count + 1;
+        var k = new int[cap];
+        var ns = new int[cap];
+        var nl = new int[cap];
+        var cs = new int[cap];
+        var cc = new int[cap];
+        var ci = new int[cap];
+        var ss = new int[cap];
+        var sl = new int[cap];
+        var paramNameStarts = new int[cap];
+        var paramNameLengths = new int[cap];
+        var paramTypeRoots = new int[cap];
+        var res = new int[5];
+
+        var paramCount = (int)(parseSig.Invoke(
+            null,
+            new object[]
+            {
+                kinds, starts, valueLengths, count, funcIndex,
+                k, ns, nl, cs, cc, ci, ss, sl,
+                paramNameStarts, paramNameLengths, paramTypeRoots, res,
+            }) ?? -2);
+
+        Assert.True(paramCount >= 0, $"Kernel refused function signature for '{label}'.");
+        Assert.Equal(expected.Parameters.Count, paramCount);
+        Assert.Equal(expected.Parameters.Count, res[0]);
+
+        var actualName = res[3] < 0 ? null : source.Substring(res[3], res[4]);
+        Assert.Equal(expected.Name, actualName);
+
+        for (var p = 0; p < expected.Parameters.Count; p++)
+        {
+            var param = expected.Parameters[p];
+            var actualParamName = source.Substring(paramNameStarts[p], paramNameLengths[p]);
+            Assert.True(param.Name == actualParamName, $"Param {p} name mismatch for '{label}': expected '{param.Name}', got '{actualParamName}'.");
+            AssertTypeRefNode(param.Type, paramTypeRoots[p], k, ns, nl, cs, cc, ci, source, $"{label} param {p}");
+        }
+
+        if (expected.ReturnType == null)
+        {
+            Assert.True(res[1] == -1, $"Expected no return type for '{label}', kernel returned root {res[1]}.");
+        }
+        else
+        {
+            Assert.True(res[1] >= 0, $"Expected a return type for '{label}', kernel returned {res[1]}.");
+            AssertTypeRefNode(expected.ReturnType, res[1], k, ns, nl, cs, cc, ci, source, $"{label} return");
+        }
+    }
+
+    private static int FirstTopLevelFuncIndex(int[] kinds, int count)
+    {
+        var list = TopLevelFuncIndices(kinds, count);
+        return list.Count > 0 ? list[0] : -1;
+    }
+
+    // Depth-0 `func` keyword (TokenType.Func == 7) token indices, tracking brace/bracket/paren depth so a
+    // nested function (a method inside a type body) is not mistaken for a top-level declaration.
+    private static List<int> TopLevelFuncIndices(int[] kinds, int count)
+    {
+        var result = new List<int>();
+        var brace = 0;
+        var bracket = 0;
+        var paren = 0;
+        for (var i = 0; i < count; i++)
+        {
+            switch (kinds[i])
+            {
+                case 129: brace++; break;
+                case 130: if (brace > 0) brace--; break;
+                case 131: bracket++; break;
+                case 132: if (bracket > 0) bracket--; break;
+                case 127: paren++; break;
+                case 128: if (paren > 0) paren--; break;
+                case 7:
+                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    private static bool FunctionSignatureFullySupported(FunctionDeclaration fn)
+    {
+        foreach (var p in fn.Parameters)
+        {
+            if (p.IsScoped || p.Lifetime != null) return false;
+            if (!IsSupportedTypeForm(p.Type)) return false;
+        }
+
+        return fn.ReturnType == null || IsSupportedTypeForm(fn.ReturnType);
+    }
+
+    private static bool IsSupportedTypeForm(TypeReference type) => type switch
+    {
+        SimpleTypeReference => true,
+        GenericTypeReference g => g.TypeArguments.All(IsSupportedTypeForm),
+        ArrayTypeReference a => IsSupportedTypeForm(a.ElementType),
+        NullableTypeReference n => IsSupportedTypeForm(n.InnerType),
+        UnionTypeReference u => u.Arms.All(IsSupportedTypeForm),
+        ByRefTypeReference b => IsSupportedTypeForm(b.InnerType),
+        _ => false,
+    };
+
     [Fact]
     public void Parser_RealCorpus_AstSerializesDeterministically()
     {

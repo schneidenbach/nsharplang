@@ -11,6 +11,41 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 9: function signatures (first declaration-level kernel, composes the type kernel)
+
+The first slice that goes ABOVE type references: `ParseFunctionSignatureInto` (new
+`ParserFunctionSignatures.nl`) parses a function's signature — name, parameter names + parameter type
+trees, and the return type tree — mirroring C# `ParseFunctionDeclaration`/`ParseParameterList`
+(Parser.cs:405-535, 770-840). It COMPOSES the slice 6-8 type kernel: every parameter type and the return
+type are parsed by `ParseUnionTypeReferenceNode` and share ONE columnar node table (each is an independent
+root), with the shared parser-state array carrying the node/child cursors across the per-type parses while
+`st[0]` is repositioned to each type's start. This proves the kernels compose cleanly in-assembly
+(cross-file calls within the merged `Program` type) — the pattern the whole N# parser will use.
+
+Handles parameter modifiers (`ref`/`out`/`params`/`this`, skipped), attribute lists (skipped), `= default`
+values (skipped balanced, not parsed), and optional `<TypeParams>` between the name and `(` (skipped by
+scanning to the first `(`). Verified against the production parser's `FunctionDeclaration`
+(Name, Parameters[].Name/.Type, ReturnType) on a synthetic corpus exercising every supported param/return
+form plus modifiers/defaults/`this`/generic-function, AND on a real-corpus pin: **every top-level function
+in the dogfood kernels whose signature stays within the supported type forms (>100 verified)**, with
+deferred-form signatures filtered out and counted.
+
+**Adversarial pass found + fixed 2 real defects.** A focused refutation pass (signature-correctness +
+bounds-safety lenses) confirmed that on a MALFORMED default value with unbalanced brackets (e.g.
+`func f(x: int = {): void`), the default-value skip's single depth counter let a `)` close a `{`, so the
+scan ran past the parameter list's `)` and silently mis-parsed (wrong parameter count / dropped return
+type). Valid input was always correct (the corpus + real-corpus pin passed), but silent wrong output on
+malformed input violates the rock-solid bar. Fix: after skipping a parameter's optional default, require
+the next token to be `,` or `)` — otherwise refuse with -1 (fail-fast; full error recovery stays deferred).
+Locked with negative tests (`= {`, `= (,`, `= [` → -1).
+
+**Finding — the parser layer consumes a newline-compacted token stream.** The C# `Parser` drops every
+`Newline` token in its constructor (Parser.cs:24-26); N# is not newline-significant at the parse level
+(indentation already became virtual braces in the lexer). The single-line type-reference tests never hit
+this, but real multi-line signatures do, so the host now compacts the lexer's raw token arrays (removing
+ordinal 136) before invoking the parser kernels — matching production. Byte offsets are unaffected. No
+language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 8: by-ref type references + the source-access limit finding
 
 Adds `ByRefTypeReference` (`&T`, node kind 5) to the type kernel — `&` prefixing a postfix type, placed in
