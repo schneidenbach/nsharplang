@@ -20,6 +20,10 @@
 //                                         left-associative precedence chain ?? || && | ^ & ==/!= rel << >> +- */% )
 //   TernaryExpression       -> kind 13  ( cond ? then : else -- slice 15; children [cond, then, else] )
 //   AssignmentExpression    -> kind 14  ( target OP value -- slice 15; = += -= *= /= ??=; right-associative )
+//   NewExpression           -> kind 15  ( new <type> ( args ) -- slice 19; children [typeRoot, arg0, ...];
+//                                         the type child is a TYPE-kernel subtree (kinds 0-5), args are
+//                                         expression subtrees -- the host walks child[0] as a type and the
+//                                         rest as expressions. Composes the type kernel via the unified st. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -114,6 +118,86 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         st[0] = pos + 1
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
     }
+    if kind == 41 {
+        // `new <type> ( args )` -- the array/object construction form the dogfood kernels use
+        // (e.g. new int[](length + 1)). COMPOSES the type kernel (the element/constructed type, via the
+        // now-unified shared st + argStack) with the expression kernel (the positional constructor args).
+        // NewExpression (kind 15): children = [typeRoot, arg0, arg1, ...]. The `new <type> [size]` (sized
+        // array) and `new <type> { init }` (object initializer) and target-typed `new ( ... )` forms are
+        // deferred (refused). Named / ref / out constructor arguments are also refused.
+        newStart := tokenStart
+        st[0] = pos + 1
+        // The type kernel assumes splitGreaterDepth (st[4]) is 0 on entry (it is only set/cleared while
+        // closing generics within a single type parse). A balanced type always leaves it 0, but reset it
+        // explicitly before the call -- matching the function-signature kernel -- so the invariant never
+        // relies on the caller's prior state. (st[3]=argStackTop must NOT be reset here: the type's generic
+        // args nest on the shared LIFO arg-stack above the enclosing expression's current base.)
+        st[4] = 0
+        typeRoot := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        if typeRoot < 0 {
+            return -1
+        }
+
+        if st[0] >= count || tokenKinds[st[0]] != 127 {
+            return -1
+        }
+        st[0] = st[0] + 1
+
+        argBase := st[3]
+        argStack[st[3]] = typeRoot
+        st[3] = st[3] + 1
+
+        if st[0] < count && tokenKinds[st[0]] != 128 {
+            if tokenKinds[st[0]] == 78 || tokenKinds[st[0]] == 79 {
+                st[3] = argBase
+                return -1
+            }
+
+            firstArg := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if firstArg < 0 {
+                st[3] = argBase
+                return -1
+            }
+
+            argStack[st[3]] = firstArg
+            st[3] = st[3] + 1
+
+            while st[0] < count && tokenKinds[st[0]] == 134 {
+                st[0] = st[0] + 1
+                if st[0] < count && (tokenKinds[st[0]] == 78 || tokenKinds[st[0]] == 79) {
+                    st[3] = argBase
+                    return -1
+                }
+
+                nextArg := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if nextArg < 0 {
+                    st[3] = argBase
+                    return -1
+                }
+
+                argStack[st[3]] = nextArg
+                st[3] = st[3] + 1
+            }
+        }
+
+        if st[0] >= count || tokenKinds[st[0]] != 128 {
+            st[3] = argBase
+            return -1
+        }
+
+        newRightParenEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+        st[0] = st[0] + 1
+        newChildCount := st[3] - argBase
+        newChildRunStart := st[2]
+        na := argBase
+        while na < st[3] {
+            AppendExpressionChild(st, outChildIndices, argStack[na])
+            na = na + 1
+        }
+        st[3] = argBase
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 15, -1, 0, newChildRunStart, newChildCount, newStart, newRightParenEnd - newStart)
+    }
+
     if kind == 127 {
         parenStart := tokenStart
         st[0] = pos + 1
@@ -441,11 +525,13 @@ func ParseAssignmentExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenV
 }
 
 func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
-    st := new int[](4)
+    st := new int[](6)
     st[0] = start
     st[1] = 0
     st[2] = 0
     st[3] = 0
+    st[4] = 0
+    st[5] = 0
     argStack := new int[](count + 1)
 
     root := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)

@@ -913,13 +913,13 @@ class B
         _ => false,
     };
 
-    // Parser slices 10-15: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
+    // Parser slices 10-15, 19: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
     // primary expressions (slice 10), the postfix chain -- member/index (slice 11), calls (slice 12) --
-    // prefix unary (slice 13), the full left-associative binary precedence chain (slice 14), and the
-    // expression top -- ternary + right-associative assignment (slice 15) -- into a columnar node table,
-    // pinned against the production parser's Expression AST (extracted from a `return <expr>` statement),
-    // including operator precedence and associativity. Deferred: is/as, range, lambdas, and the remaining
-    // primaries (new/alloc/match/tuple/array&object literals/interpolated strings/cast).
+    // prefix unary (slice 13), the full left-associative binary precedence chain (slice 14), the expression
+    // top -- ternary + right-associative assignment (slice 15) -- and `new <type>(args)` (slice 19, composing
+    // the type kernel via the unified st) into a columnar node table, pinned against the production parser's
+    // Expression AST (extracted from a `return <expr>` statement), including operator precedence and
+    // associativity. Deferred: is/as, range, lambdas, new[size]/new{init}, and the remaining primaries.
     [Fact]
     public void Parser_Expression_MatchesProductionParser()
     {
@@ -971,6 +971,13 @@ class B
                 "a ? b : c", "x > 0 ? x : -x", "a ? b : c ? d : e", "x = 5", "a = b = c",
                 "arr[i] = value", "total = total + n", "count += 1", "x ??= y", "flag = a && b",
                 "result = cond ? f(x) : g(y)",
+                // New expressions (slice 19): composes the type kernel (element type) + expr kernel (args).
+                "new int[](n)", "new char[](length + 1)", "new Foo()", "new Bar(a, b)",
+                "new List<int>()", "buffer = new int[](count + 1)", "f(new int[](k))",
+                // Nested generics in the new-type exercise the >> split via the shared st (splitGreaterDepth);
+                // two news in sequence pin that the type parse leaves no leaked state behind.
+                "new List<List<int>>()", "new Dictionary<string, List<int>>(cap)",
+                "new List<List<int>>() == new List<int>()",
             };
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
@@ -1156,6 +1163,20 @@ class B
                 AssertExprNode(e.Target, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 AssertExprNode(e.Value, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case NewExpression e:
+                Assert.True(kinds[idx] == 15, $"Expected New (15) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.True(e.Type != null, $"Slice-19 kernel only handles typed `new <type>(args)` for '{label}'.");
+                Assert.True(e.Initializer == null, $"Slice-19 kernel does not handle object initializers for '{label}'.");
+                Assert.True(e.ArrayLengthExpression == null, $"Slice-19 kernel does not handle `new type[size]` for '{label}'.");
+                Assert.Equal(1 + e.ConstructorArguments.Count, childCount[idx]);
+                // child[0] is the constructed TYPE (a type-kernel subtree); the rest are the constructor args.
+                AssertTypeRefNode(e.Type!, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                for (var ai = 0; ai < e.ConstructorArguments.Count; ai++)
+                {
+                    Assert.True(e.ConstructorArguments[ai].Name == null && e.ConstructorArguments[ai].Modifier == ArgumentModifier.None, $"Slice-19 kernel handles positional constructor args only for '{label}'.");
+                    AssertExprNode(e.ConstructorArguments[ai].Value, childIndices[childStart[idx] + 1 + ai], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                }
+                break;
             case CallExpression e:
                 Assert.True(kinds[idx] == 9, $"Expected Call (9) at node {idx} for '{label}', got {kinds[idx]}.");
                 Assert.True(e.TypeArguments == null || e.TypeArguments.Count == 0, $"Slice-12 kernel does not handle generic calls for '{label}'.");
@@ -1337,6 +1358,9 @@ class B
         BinaryExpression b => b.Operator != BinaryOperator.Range && IsSupportedExpr(b.Left) && IsSupportedExpr(b.Right),
         TernaryExpression t => IsSupportedExpr(t.Condition) && IsSupportedExpr(t.ThenExpression) && IsSupportedExpr(t.ElseExpression),
         AssignmentExpression a => IsSupportedExpr(a.Target) && IsSupportedExpr(a.Value),
+        NewExpression n => n.Type != null && n.Initializer == null && n.ArrayLengthExpression == null
+            && IsSupportedTypeForm(n.Type)
+            && n.ConstructorArguments.All(a => a.Name == null && a.Modifier == ArgumentModifier.None && IsSupportedExpr(a.Value)),
         _ => false,
     };
 

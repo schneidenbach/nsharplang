@@ -11,6 +11,40 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 19: st-layout unification + `new` expressions (type/expr kernel composition)
+
+Unblocks whole-body parsing of the dogfood kernels, which use `new int[](...)` array allocation (20 sites).
+A `NewExpression` composes the TYPE kernel (the constructed element type) with the EXPRESSION kernel (the
+constructor arguments) in one node tree — which required the two kernels to share parser state. They had
+incompatible `st` slot layouts, so this slice **unified the `st` layout**: the type + function-signature
+kernels' slots were remapped (via a precise simultaneous regex remap, 75 + 16 refs) to match the expression
+layout — `st[0]=pos, st[1]=nodeCursor, st[2]=childCursor, st[3]=argStackTop, st[4]=splitGreaterDepth,
+st[5]=owedGreaterByteEnd` — and the expr/statement kernels now allocate a 6-slot `st`. The remap is a pure
+no-behavior-change refactor, verified by the type + fnsig parity tests passing unchanged.
+
+`new <type>(args)` (kind 15) then drops cleanly in: `ParsePrimaryExpressionNode` calls the type kernel for
+the element type (child[0]) and the expression kernel for the positional constructor args (children 1+),
+sharing the unified `st` + `argStack`. The type child is a type-kernel subtree (kinds 0-5) and the args are
+expression subtrees (kinds 0-14) in ONE table; the host walker disambiguates **positionally** (child[0] →
+type walker, rest → expression walker), so the overlapping kind numbers never conflict. The shared `argStack`
+stays LIFO-safe under nesting (`f(new List<int>(k))`: the type's generic-arg gathering pushes/pops within the
+new's arg region, which nests within the call's). Verified against the production parser's NewExpression on
+`new int[](n)`, `new char[](length + 1)`, `new Foo()`, `new List<int>()`, `new int[](count + 1)`, and
+nested `f(new int[](k))` / `buffer = new int[](count + 1)`, plus all five existing parser parity tests
+(type/fnsig/expr/statement/real-corpus) still green, then a focused adversarial-refutation pass
+(new-composition + shared-state-safety lenses).
+
+**Adversarial pass found + fixed 1 fragility:** the `new` branch called the type kernel without first
+resetting `st[4]` (splitGreaterDepth), inconsistent with the function-signature kernel which resets it
+before every type parse. Latent for valid input (a balanced generic always leaves `st[4]=0`), but the
+"`st[4]==0` entering a type parse" invariant should be explicit, not rely on the caller's prior state.
+Fixed by resetting `st[4]=0` before the call (NOT `st[3]`/argStackTop — that is the nested LIFO base);
+pinned with nested-generic `new` cases (`new List<List<int>>()`, two-news-in-sequence).
+
+Deferred: `new <type>[size]` (sized array), `new <type>{init}` (object initializer), target-typed `new(...)`,
+named/ref/out constructor args. Milestone: the front-end kernels (lexer → type → expression → statement)
+now compose in-assembly over one shared node table — the substrate for parsing whole dogfood function bodies.
+
 ## 2026-06-06 — N# parser slice 18: real-corpus expression pin (anti-overfitting)
 
 Validates the slice 10-15 expression kernel against the production parser on REAL dogfood code — the
