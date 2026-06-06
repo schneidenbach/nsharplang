@@ -58,6 +58,12 @@ Performance-focused compiler refactor plan for Bound IR, escape/capture/allocati
 ### [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md)
 Canonical Systems N# proposal and v1 implementation target for hot-path cost visibility, HotSummary facts, BCL seed summaries, `Result<T,E>`, restricted unsafe, ref/lifetime safety, pooling, AOT/readiness reporting, templates, and acceptance gauntlet examples.
 
+### [docs/design/self-host-roadmap.md](../docs/design/self-host-roadmap.md)
+Strategic roadmap from today's bridged dogfood state to full self-host: why bridge code (the `*DogfoodAdapter` delegate boundaries) can only be removed by whole-subsystem migration to N# (lexer beachhead → parser → binder → IL emit → CLI), the in-assembly N#-to-N# call path, the bootstrap milestone, the systems-language completion track, and the AOT/LLM-first-CLI packaging that makes N# fast enough for dynamic Claude workflows.
+
+### [docs/design/self-host-progress.md](../docs/design/self-host-progress.md)
+Running log of self-host/dogfood slices: what migrated, benchmark deltas, adapters removed, bootstrap coverage, and each language/compiler limitation found + the principled fix.
+
 ### [docs/design/compiler-dogfood-rewrite.md](../docs/design/compiler-dogfood-rewrite.md)
 Dogfood rewrite plan for moving the compiler, compiler services, and CLI tooling to N# with per-function parity and 5x BenchmarkDotNet speed gates.
 
