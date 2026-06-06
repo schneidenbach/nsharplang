@@ -18,13 +18,15 @@
 //   UnaryExpression         -> kind 11  ( prefix !/-/~/++/--/^ -- slice 13; operator token in value span )
 //   BinaryExpression        -> kind 12  ( left OP right -- slice 14; operator token in value span; the full
 //                                         left-associative precedence chain ?? || && | ^ & ==/!= rel << >> +- */% )
+//   TernaryExpression       -> kind 13  ( cond ? then : else -- slice 15; children [cond, then, else] )
+//   AssignmentExpression    -> kind 14  ( target OP value -- slice 15; = += -= *= /= ??=; right-associative )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
-//   `is`/`as` type tests, range `..`, assignment and ternary (the levels ABOVE this chain); every other
-//   primary (this/base/default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/
-//   lambda/cast/...). A tuple `(a, b)` or named element `(x: e)` is refused (the parenthesized branch
-//   requires a lone `)` after the inner expression). Literal VALUE materialization (unescaping strings/
-//   chars) is the host's job; this kernel records the value token's byte span only.
+//   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
+//   default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/cast/...). A tuple
+//   `(a, b)` or named element `(x: e)` is refused (the parenthesized branch requires a lone `)` after the
+//   inner expression). Literal VALUE materialization (unescaping strings/chars) is the host's job; this
+//   kernel records the value token's byte span only.
 //
 // Node-table columns (caller-allocated to capacity >= count+1; outChildIndices likewise):
 //   outNodeKinds[i]    : 0..7 per the list above
@@ -115,7 +117,7 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     if kind == 127 {
         parenStart := tokenStart
         st[0] = pos + 1
-        inner := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
+        inner := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if inner < 0 {
             return -1
         }
@@ -160,7 +162,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         } else if pos < count && tokenKinds[pos] == 131 {
             objSpanStart := outSpanStarts[expr]
             st[0] = pos + 1
-            index := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
+            index := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
             if index < 0 {
                 return -1
             }
@@ -192,7 +194,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                     return -1
                 }
 
-                firstArg := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
+                firstArg := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                 if firstArg < 0 {
                     st[3] = argBase
                     return -1
@@ -208,7 +210,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                         return -1
                     }
 
-                    nextArg := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth + 1)
+                    nextArg := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                     if nextArg < 0 {
                         st[3] = argBase
                         return -1
@@ -363,6 +365,81 @@ func ParseBinaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValue
     return left
 }
 
+// ParseTernaryExpression (Parser.cs:3916): a binary-chain condition, optionally followed by `? then : else`
+// (TernaryExpression, kind 13, children [condition, then, else]). The then/else branches are full
+// expressions (assignment level), making the ternary right-associative in the else branch.
+func ParseTernaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    condition := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, depth)
+    if condition < 0 {
+        return -1
+    }
+
+    if st[0] < count && tokenKinds[st[0]] == 115 {
+        conditionSpanStart := outSpanStarts[condition]
+        st[0] = st[0] + 1
+        thenNode := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if thenNode < 0 {
+            return -1
+        }
+
+        if st[0] >= count || tokenKinds[st[0]] != 122 {
+            return -1
+        }
+        st[0] = st[0] + 1
+
+        elseNode := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if elseNode < 0 {
+            return -1
+        }
+
+        elseSpanEnd := outSpanStarts[elseNode] + outSpanLengths[elseNode]
+        childRunStart := st[2]
+        AppendExpressionChild(st, outChildIndices, condition)
+        AppendExpressionChild(st, outChildIndices, thenNode)
+        AppendExpressionChild(st, outChildIndices, elseNode)
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 13, -1, 0, childRunStart, 3, conditionSpanStart, elseSpanEnd - conditionSpanStart)
+    }
+
+    return condition
+}
+
+// ParseAssignmentExpression (Parser.cs:3599): a ternary target, optionally followed by an assignment
+// operator (= += -= *= /= ??=) and a right-hand value (AssignmentExpression, kind 14, operator token in the
+// value span, children [target, value]). Right-associative: the value recurses to the assignment level, so
+// a = b = c parses as a = (b = c). This is the full-expression entry (minus lambdas, deferred).
+func ParseAssignmentExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    target := ParseTernaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    if target < 0 {
+        return -1
+    }
+
+    if st[0] < count {
+        op := tokenKinds[st[0]]
+        if op == 93 || op == 94 || op == 95 || op == 96 || op == 97 || op == 117 {
+            opStart := tokenStarts[st[0]]
+            opLength := tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            value := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if value < 0 {
+                return -1
+            }
+
+            targetSpanStart := outSpanStarts[target]
+            valueSpanEnd := outSpanStarts[value] + outSpanLengths[value]
+            childRunStart := st[2]
+            AppendExpressionChild(st, outChildIndices, target)
+            AppendExpressionChild(st, outChildIndices, value)
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 14, opStart, opLength, childRunStart, 2, targetSpanStart, valueSpanEnd - targetSpanStart)
+        }
+    }
+
+    return target
+}
+
 func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     st := new int[](4)
     st[0] = start
@@ -371,7 +448,7 @@ func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
     st[3] = 0
     argStack := new int[](count + 1)
 
-    root := ParseBinaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 1, 0)
+    root := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
     if root < 0 {
         return -1
     }

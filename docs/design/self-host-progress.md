@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 15: ternary + assignment (expression top)
+
+Adds the two levels above the binary chain (mirroring `ParseTernaryExpression` Parser.cs:3916 and
+`ParseAssignmentExpression` Parser.cs:3599): `TernaryExpression` (kind 13, `cond ? then : else`, children
+[cond, then, else]) and `AssignmentExpression` (kind 14, `target OP value` for `=`/`+=`/`-=`/`*=`/`/=`/`??=`,
+operator token in the value span, children [target, value]). Assignment is right-associative (`a = b = c`
+=> `a = (b = c)`) and the ternary else-branch is a full expression, so it nests right (`a ? b : c ? d : e`).
+The "full expression" entry now routes through assignment -> ternary -> binary -> unary -> postfix ->
+primary. Verified against the production parser's TernaryExpression/AssignmentExpression on nesting,
+right-associativity, compound assignments, and composition (`result = cond ? f(x) : g(y)`,
+`total = total + n`, `x ??= y`), plus the full expression corpus, refusals, determinism, root-span, and
+full-consumption invariants.
+
+**Milestone:** the N# expression kernel now covers the full common expression grammar — primaries, postfix
+(member/index/call), prefix unary, the binary precedence chain, ternary, and assignment. Remaining for full
+parity: `is`/`as`, range `..`, lambdas, and the less-common primaries (new/alloc/match/tuple/array&object
+literals/interpolated strings/cast). Next: statements (the function bodies — the last major piece for
+parsing the dogfood kernels), composing this expression kernel. No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 14: binary-operator precedence chain (expression core complete)
 
 Adds the full left-associative binary precedence chain via **precedence climbing**

@@ -913,12 +913,13 @@ class B
         _ => false,
     };
 
-    // Parser slices 10-14: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
+    // Parser slices 10-15: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
     // primary expressions (slice 10), the postfix chain -- member/index (slice 11), calls (slice 12) --
-    // prefix unary operators (slice 13), and the full left-associative binary-operator precedence chain
-    // (slice 14) into a columnar node table, pinned against the production parser's Expression AST (extracted
-    // from a `return <expr>` statement), including operator precedence and associativity. Deferred: is/as,
-    // range, assignment, ternary, and the remaining primaries.
+    // prefix unary (slice 13), the full left-associative binary precedence chain (slice 14), and the
+    // expression top -- ternary + right-associative assignment (slice 15) -- into a columnar node table,
+    // pinned against the production parser's Expression AST (extracted from a `return <expr>` statement),
+    // including operator precedence and associativity. Deferred: is/as, range, lambdas, and the remaining
+    // primaries (new/alloc/match/tuple/array&object literals/interpolated strings/cast).
     [Fact]
     public void Parser_Expression_MatchesProductionParser()
     {
@@ -966,6 +967,10 @@ class B
                 "a && b || c", "x | y & z", "a == b && c != d", "i < count && tokenKinds[pos] == 102",
                 "a + b * c - d / e", "n % 2 == 0", "left << 4 | right", "(a + b) * c", "f(x) + g(y) * 2",
                 "arr[i] + arr[j]", "a.b.c + d.e", "-a * b", "!found && i < n",
+                // Expression top (slice 15): ternary + right-associative assignment.
+                "a ? b : c", "x > 0 ? x : -x", "a ? b : c ? d : e", "x = 5", "a = b = c",
+                "arr[i] = value", "total = total + n", "count += 1", "x ??= y", "flag = a && b",
+                "result = cond ? f(x) : g(y)",
             };
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
@@ -1137,6 +1142,20 @@ class B
                 AssertExprNode(e.Left, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 AssertExprNode(e.Right, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case TernaryExpression e:
+                Assert.True(kinds[idx] == 13, $"Expected Ternary (13) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(3, childCount[idx]);
+                AssertExprNode(e.Condition, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                AssertExprNode(e.ThenExpression, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                AssertExprNode(e.ElseExpression, childIndices[childStart[idx] + 2], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case AssignmentExpression e:
+                Assert.True(kinds[idx] == 14, $"Expected Assignment (14) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(AssignmentOperatorText(e.Operator), source.Substring(valueStarts[idx], valueLengths[idx]));
+                Assert.Equal(2, childCount[idx]);
+                AssertExprNode(e.Target, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                AssertExprNode(e.Value, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
             case CallExpression e:
                 Assert.True(kinds[idx] == 9, $"Expected Call (9) at node {idx} for '{label}', got {kinds[idx]}.");
                 Assert.True(e.TypeArguments == null || e.TypeArguments.Count == 0, $"Slice-12 kernel does not handle generic calls for '{label}'.");
@@ -1187,6 +1206,17 @@ class B
         BinaryOperator.RightShift => ">>",
         BinaryOperator.NullCoalesce => "??",
         _ => "<unsupported>", // Range is deferred (not produced by the slice-14 binary chain)
+    };
+
+    private static string AssignmentOperatorText(AssignmentOperator op) => op switch
+    {
+        AssignmentOperator.Assign => "=",
+        AssignmentOperator.AddAssign => "+=",
+        AssignmentOperator.SubtractAssign => "-=",
+        AssignmentOperator.MultiplyAssign => "*=",
+        AssignmentOperator.DivideAssign => "/=",
+        AssignmentOperator.NullCoalesceAssign => "??=",
+        _ => "<unsupported>",
     };
 
     [Fact]
