@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Systems N# vs Rust vs C head-to-head + direction decision
+
+Ran the `systems-nsharp-vs-rust-c` workflow (5 phases, adversarial fairness). Full report:
+[`systems-vs-native.md`](systems-vs-native.md); reproducible harness: `benchmarks/native-comparison/`;
+deferred-bet backlog: [`systems-perf-backlog.md`](systems-perf-backlog.md). Headline: **systems-N# ties
+C#/RyuJIT (top-of-class among CLR languages) but trails Rust/C by 1.4×–10.5×**, entirely RyuJIT's missing
+auto-vectorization (N# ties C# everywhere → 100% of the native gap is RyuJIT codegen, not N#-specific). The
+adversarial pass caught + I fixed two `clang -O3` DCE'd C harnesses (per-iteration pointer-launder barrier);
+now 6-of-6 clean.
+
+**Decision (user, 2026-06-06):** finish self-host (the Roslyn-class N# entry point) and sharpen the evidence
+first; **backlog** the two big perf bets (auto-vectorization codegen; LLVM/NativeAOT backend) — see
+systems-perf-backlog.md. Key unblocker this gives the self-host work: since systems-N# is performance-neutral
+vs C#, porting compiler hot paths to N# carries NO speed regression, so the migration proceeds on
+correctness/ergonomics. Near-term order: (1) sharpen evidence (broaden the comparison corpus from synthetic
+i32 kernels to a real compiler hot path — token scan / symbol-table probe), (2) resume finishing the N#
+front-end + production routing (materialize the columnar AST into the host CompilationUnit / N# consumers,
+route CLI/LSP, delete C# `*DogfoodAdapter` surface — the still-untouched criteria 5-6).
+
 ## 2026-06-06 — N# parser slice 21: front-end perf benchmark — the N# parser is ~5-6x faster than C# (clears the 5x gate)
 
 The perf answer for the parser front-end (benchmark-first, per the loop). `CompilerServiceParserBenchmarks`
