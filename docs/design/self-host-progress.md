@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 5: top-level declaration modifiers
+
+`TopLevelDeclarationModifiersInto` + `ModifierFlag` (ParserDeclarations.nl) record, for each top-level
+declaration, the accumulated modifier-flag set from the modifier keywords appearing at depth 0 before
+its keyword — mirroring `ParseModifiers` (Parser.cs:330) and the `Modifiers` `[Flags]` enum
+(Declarations.cs:271). All twelve recognized declaration modifiers are mapped by TokenType ordinal to
+their flag bit (Public 1, Private 2, Internal 4, Protected 8, Static 16, Virtual 32, Abstract 64,
+Sealed 128, Partial 256, Async 2048, File 32768, Override 65536); attributes sit inside brackets so the
+depth tracking skips them, and member-level modifiers (Readonly/Const/Required/Init) are correctly
+excluded. Verified against `(int)Declaration.Modifiers` on a new modifier-rich corpus (every modifier
+singly and combined — `private static func`, `internal async func`, `public abstract class`,
+`internal partial struct`, `[Obsolete] public record`, `protected virtual`/`public override` funcs),
+plus the controlled/indentation corpora and all 27 dogfood kernels. `type`/`test` are skipped in the
+modifier check: their C# AST nodes (`TypeAliasDeclaration`/`TestDeclaration`) carry no `Modifiers`
+field, so the parser discards leading modifiers there while the kernel records raw leading modifiers
+for every declaration keyword — corpora intentionally do not modify `type`/`test` to avoid that one
+known C#-AST-vs-kernel divergence. No new language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 4: namespace imports (file-structure index complete)
 
 `NamespaceImportSpansInto` (ParserDeclarations.nl) walks the `package`/`import` header prefix linearly

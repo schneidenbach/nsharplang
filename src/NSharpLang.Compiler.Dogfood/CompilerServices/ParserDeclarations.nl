@@ -132,6 +132,103 @@ func NamespaceImportSpansInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
     return outCount
 }
 
+// Parser slice 5: per-top-level-declaration modifier flags. Mirrors the C# Modifiers flags enum
+// (Declarations.cs:271) and ParseModifiers (Parser.cs) which recognizes, before a declaration keyword,
+// Public/Private/Static/Internal/Protected/Virtual/Override/Abstract/Sealed/Partial/Async/File. Returns
+// 0 for non-modifier tokens. (Readonly/Const/Required/Init are member-level, not declaration modifiers.)
+func ModifierFlag(kind: int): int {
+    if kind == 64 {
+        return 1
+    }
+    if kind == 65 {
+        return 2
+    }
+    if kind == 66 {
+        return 4
+    }
+    if kind == 67 {
+        return 8
+    }
+    if kind == 63 {
+        return 16
+    }
+    if kind == 58 {
+        return 32
+    }
+    if kind == 60 {
+        return 64
+    }
+    if kind == 61 {
+        return 128
+    }
+    if kind == 62 {
+        return 256
+    }
+    if kind == 68 {
+        return 2048
+    }
+    if kind == 81 {
+        return 32768
+    }
+    if kind == 59 {
+        return 65536
+    }
+    return 0
+}
+
+// For each top-level declaration, record its keyword kind and its accumulated modifier flags (the
+// modifier keywords appearing at depth 0 between the previous declaration and this one's keyword;
+// attributes are inside brackets so they do not interfere). Matches (int)Declaration.Modifiers.
+func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: int[], outModifiers: int[]): int {
+    braceDepth := 0
+    bracketDepth := 0
+    parenDepth := 0
+    pending := 0
+    outCount := 0
+
+    i := 0
+    while i < count {
+        kind := tokenKinds[i]
+
+        if kind == 129 {
+            braceDepth = braceDepth + 1
+        } else if kind == 130 {
+            braceDepth = braceDepth - 1
+            if braceDepth < 0 {
+                braceDepth = 0
+            }
+        } else if kind == 131 {
+            bracketDepth = bracketDepth + 1
+        } else if kind == 132 {
+            bracketDepth = bracketDepth - 1
+            if bracketDepth < 0 {
+                bracketDepth = 0
+            }
+        } else if kind == 127 {
+            parenDepth = parenDepth + 1
+        } else if kind == 128 {
+            parenDepth = parenDepth - 1
+            if parenDepth < 0 {
+                parenDepth = 0
+            }
+        } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
+            flag := ModifierFlag(kind)
+            if flag != 0 {
+                pending = pending | flag
+            } else if IsTopLevelDeclarationKeyword(kind) {
+                outKinds[outCount] = kind
+                outModifiers[outCount] = pending
+                outCount = outCount + 1
+                pending = 0
+            }
+        }
+
+        i = i + 1
+    }
+
+    return outCount
+}
+
 func IsTopLevelDeclarationKeyword(kind: int): bool {
     return kind == 7 || kind == 8 || kind == 9 || kind == 10 || kind == 12 || kind == 13 || kind == 14 || kind == 72 || kind == 73
 }

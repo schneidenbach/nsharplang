@@ -77,6 +77,10 @@ public class CompilerDogfoodProjectTests
                     "NamespaceImportSpansInto",
                     BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit NamespaceImportSpansInto.");
+            var declModifiers = programType.GetMethod(
+                    "TopLevelDeclarationModifiersInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationModifiersInto.");
 
             const string controlledCorpus = """
 import System
@@ -120,7 +124,54 @@ record Person {
 }
 """;
 
-            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans);
+            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, declModifiers);
+
+            // Modifier-rich declarations: every recognized declaration modifier, singly and combined, plus
+            // attributes (which sit inside brackets and must not be mistaken for modifiers). Verifies the
+            // kernel accumulates the same flag set the C# parser records on Declaration.Modifiers.
+            const string modifierCorpus = """
+public func a(): int {
+    return 1
+}
+
+private static func b(): int {
+    return 2
+}
+
+internal async func c(): int {
+    return 3
+}
+
+public abstract class C {
+    func m(): void {}
+}
+
+public sealed class D {
+    value: int
+}
+
+internal partial struct S {
+    x: int
+}
+
+[Obsolete]
+public record R {
+    name: string
+}
+
+public interface I {
+    func area(): double
+}
+
+protected virtual func e(): int {
+    return 4
+}
+
+public override func f(): int {
+    return 5
+}
+""";
+            AssertTopLevelDeclarationKindsLikeProduction(modifierCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, declModifiers);
 
             // Indentation-style declarations: the composed lexer inserts virtual braces, and the kernel
             // tracks depth through them identically to explicit braces, so nested members are excluded.
@@ -135,14 +186,14 @@ class B
     struct N
         z: int
 """;
-            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans);
+            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, declModifiers);
 
             // The dogfood compiler-service kernels themselves (all top-level funcs) -- real code.
             foreach (var file in Directory
                 .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
                 .OrderBy(p => p, StringComparer.Ordinal))
             {
-                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, file);
+                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, topLevelDeclNames, packageNameSpan, namespaceImportSpans, declModifiers, file);
             }
         }
         finally
@@ -158,6 +209,7 @@ class B
         MethodInfo topLevelDeclNames,
         MethodInfo packageNameSpan,
         MethodInfo namespaceImportSpans,
+        MethodInfo declModifiers,
         string? label = null)
     {
         var expected = ExpectedDeclarations(source);
@@ -235,6 +287,24 @@ class B
                 $"'{expectedImports[i].Namespace}'/'{expectedImports[i].Alias ?? "<null>"}', actual " +
                 $"'{actualNs}'/'{actualAlias ?? "<null>"}'");
         }
+
+        // Slice 5: per-declaration modifier flags (mirrors (int)Declaration.Modifiers). The kernel records
+        // raw leading modifiers for every declaration keyword; we compare against the C# AST for the seven
+        // modifier-bearing node kinds and skip `type`/`test` (DeclarationModifiers == -1) which have no
+        // Modifiers field.
+        var modKinds = new int[count + 1];
+        var modFlags = new int[count + 1];
+        var modCount = (int)(declModifiers.Invoke(null, new object[] { kinds, count, modKinds, modFlags }) ?? -1);
+        Assert.Equal(expected.Length, modCount);
+        for (var i = 0; i < expected.Length; i++)
+        {
+            Assert.Equal(expected[i].Kind, modKinds[i]);
+            if (expected[i].Modifiers < 0) continue; // `type`/`test`: AST drops modifiers, kernel does not.
+            Assert.True(
+                expected[i].Modifiers == modFlags[i],
+                $"Top-level declaration modifier mismatch{labelSuffix} at {i} (kind {modKinds[i]}): " +
+                $"expected {expected[i].Modifiers}, actual {modFlags[i]}");
+        }
     }
 
     private static string? ExpectedPackage(string source)
@@ -252,15 +322,32 @@ class B
         return compilationUnit.Imports.Select(import => (import.Namespace, import.Alias)).ToArray();
     }
 
-    private static (int Kind, string? Name)[] ExpectedDeclarations(string source)
+    private static (int Kind, string? Name, int Modifiers)[] ExpectedDeclarations(string source)
     {
         var tokens = new Lexer(source, "decl-test.nl").Tokenize();
         var compilationUnit = new Parser(tokens, "decl-test.nl").ParseCompilationUnit().CompilationUnit;
-        if (compilationUnit == null) return Array.Empty<(int, string?)>();
+        if (compilationUnit == null) return Array.Empty<(int, string?, int)>();
         return compilationUnit.Declarations
-            .Select(d => (DeclarationKeywordKind(d), DeclarationName(d)))
+            .Select(d => (DeclarationKeywordKind(d), DeclarationName(d), DeclarationModifiers(d)))
             .ToArray();
     }
+
+    // (int)Declaration.Modifiers for the modifier-bearing declaration nodes. TypeAliasDeclaration and
+    // TestDeclaration have no Modifiers field (the C# parser discards leading modifiers for `type`/`test`),
+    // so they return -1 -- a "not tracked" sentinel the modifier verification skips. The N# kernel records
+    // raw leading modifiers for every declaration keyword (including `type`), so corpora intentionally do
+    // not put modifiers on `type`/`test`, where the C# AST and the kernel would otherwise diverge.
+    private static int DeclarationModifiers(Declaration declaration) => declaration switch
+    {
+        FunctionDeclaration f => (int)f.Modifiers,
+        ClassDeclaration c => (int)c.Modifiers,
+        StructDeclaration s => (int)s.Modifiers,
+        RecordDeclaration r => (int)r.Modifiers,
+        InterfaceDeclaration i => (int)i.Modifiers,
+        UnionDeclaration u => (int)u.Modifiers,
+        EnumDeclaration e => (int)e.Modifiers,
+        _ => -1
+    };
 
     private static string? DeclarationName(Declaration declaration) => declaration switch
     {
