@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Phase 2 begins: first N#-native parser slice (top-level declaration extraction) + nlc query ast
+
+**What:** Two slices that open the parser-migration phase (the path to actually deleting the
+`*DogfoodAdapter` bridge and, ultimately, bootstrap).
+
+1. **`nlc query ast`** (LLM-first CLI + verification harness). New `nlc query ast [--file F]`
+   subcommand emits the parsed `CompilationUnit` AST(s) as stable, node-typed JSON
+   (`OutputFormatter.AstToJson`: each node `{ "node": "<ConcreteType>", …declared props }`, recursing,
+   preserving the concrete kind through the polymorphic Declaration/Statement/Expression bases). This
+   is both an AGENTS LLM-first-CLI deliverable and the **canonical AST representation** for verifying an
+   N# parser against the C# parser. Hardened by `Parser_RealCorpus_AstSerializesDeterministically`
+   (parse + serialize all 108 real .nl files: valid, deterministic, no crashes).
+
+2. **First N#-native parser kernel** (`CompilerServices/ParserDeclarations.nl`):
+   `TopLevelDeclarationKindsInto` extracts the top-level declaration KIND sequence from the
+   brace-inserted token stream (output of the now-complete N# lexer), tracking brace/bracket/paren depth
+   so it captures declaration keywords (Func/Class/Struct/Interface/Union/Record/Enum/Type/Test) only at
+   depth 0 — naturally skipping modifiers, attributes, and NESTED declarations, and capturing
+   `ref struct`/`duck interface` at their `struct`/`interface` keyword exactly as the C# dispatch
+   (`Parser.cs:226-273`) produces. Verified by `Parser_TopLevelDeclarationKinds_MatchProductionParser`
+   against the C# parser's `CompilationUnit.Declarations` (mapped to keyword ordinals) on a controlled
+   corpus (all keyword kinds + nested-decl exclusion + modifiers + attributes), an indentation-style
+   corpus (virtual braces handled identically to explicit), and all 27 dogfood kernels (real code).
+
+**Significance:** the lexer is feature-complete and an N# consumer of its tokens now exists in-assembly
+(the kernel reads the lexer's token arrays). This is the first verified rung of the parser ladder.
+Building it surfaced no new language gaps. Bootstrap coverage remains 0% (these are services behind the
+adapter), but the verification harness (AstToJson) + the first parser rung are the scaffolding for
+growing an N# parser slice-by-slice against the C# parser.
+
 ## 2026-06-06 — Lexer real-corpus dogfood parity (108 real .nl files) + CommentsInto benchmark
 
 **What:** Two consolidation slices proving the now-complete N# lexer on real code.

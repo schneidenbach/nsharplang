@@ -33,6 +33,163 @@ public class CompilerDogfoodProjectTests
     // CompilationUnit, and the AST JSON must be valid, carry the stable envelope, and be deterministic
     // (byte-identical on repeat) so the schema is stable. This hardens the canonical-AST harness that a
     // future N# parser will be verified against, and catches parser/serializer regressions on real code.
+    // First N#-native parser slice: the TopLevelDeclarationKindsInto kernel must reproduce the C#
+    // parser's CompilationUnit.Declarations kind sequence (mapping each declaration to its keyword
+    // TokenType) from the brace-inserted token stream, on a controlled corpus exercising the keyword
+    // declaration kinds (incl. nested declarations that must be EXCLUDED, modifiers, attributes,
+    // ref struct, duck interface) and on the dogfood compiler-service kernels themselves.
+    [Fact]
+    public void Parser_TopLevelDeclarationKinds_MatchProductionParser()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"NSharpLang.Compiler.Dogfood.ParserDecls.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+
+            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            var programType = assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenizeWithIndentation = programType.GetMethod(
+                    "TokenizeMetadataWithIndentationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
+            var topLevelDecls = programType.GetMethod(
+                    "TopLevelDeclarationKindsInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TopLevelDeclarationKindsInto.");
+
+            const string controlledCorpus = """
+import System
+
+package Demo.Declarations
+
+func top(): int {
+    return 1
+}
+
+class Container {
+    value: int
+
+    func method(): int {
+        return value
+    }
+
+    struct Nested {
+        z: int
+    }
+}
+
+public struct Point {
+    x: int
+    y: int
+}
+
+enum Color {
+    Red,
+    Green
+}
+
+interface Shape {
+    func area(): double
+}
+
+record Person {
+    name: string
+    age: int
+}
+""";
+
+            AssertTopLevelDeclarationKindsLikeProduction(controlledCorpus, tokenizeWithIndentation, topLevelDecls);
+
+            // Indentation-style declarations: the composed lexer inserts virtual braces, and the kernel
+            // tracks depth through them identically to explicit braces, so nested members are excluded.
+            const string indentedCorpus = """
+func a(): int
+    return 1
+
+class B
+    value: int
+    func m(): int
+        return value
+    struct N
+        z: int
+""";
+            AssertTopLevelDeclarationKindsLikeProduction(indentedCorpus, tokenizeWithIndentation, topLevelDecls);
+
+            // The dogfood compiler-service kernels themselves (all top-level funcs) -- real code.
+            foreach (var file in Directory
+                .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
+                .OrderBy(p => p, StringComparer.Ordinal))
+            {
+                AssertTopLevelDeclarationKindsLikeProduction(File.ReadAllText(file), tokenizeWithIndentation, topLevelDecls, file);
+            }
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static void AssertTopLevelDeclarationKindsLikeProduction(
+        string source,
+        MethodInfo tokenizeWithIndentation,
+        MethodInfo topLevelDecls,
+        string? label = null)
+    {
+        var expected = ExpectedDeclarationKinds(source);
+
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+        var count = (int)(tokenizeWithIndentation.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+
+        var outKinds = new int[count + 1];
+        var declCount = (int)(topLevelDecls.Invoke(null, new object[] { kinds, count, outKinds }) ?? -1);
+        var actual = outKinds.Take(declCount).ToArray();
+
+        Assert.True(
+            expected.SequenceEqual(actual),
+            $"Top-level declaration kind mismatch{(label != null ? $" for {label}" : string.Empty)}.\n" +
+            $"expected: [{string.Join(", ", expected)}]\nactual:   [{string.Join(", ", actual)}]");
+    }
+
+    private static int[] ExpectedDeclarationKinds(string source)
+    {
+        var tokens = new Lexer(source, "decl-test.nl").Tokenize();
+        var compilationUnit = new Parser(tokens, "decl-test.nl").ParseCompilationUnit().CompilationUnit;
+        if (compilationUnit == null) return Array.Empty<int>();
+        return compilationUnit.Declarations.Select(DeclarationKeywordKind).ToArray();
+    }
+
+    private static int DeclarationKeywordKind(Declaration declaration) => declaration switch
+    {
+        FunctionDeclaration => (int)TokenType.Func,
+        ClassDeclaration => (int)TokenType.Class,
+        StructDeclaration => (int)TokenType.Struct,
+        RecordDeclaration => (int)TokenType.Record,
+        InterfaceDeclaration => (int)TokenType.Interface,
+        UnionDeclaration => (int)TokenType.Union,
+        EnumDeclaration => (int)TokenType.Enum,
+        TypeAliasDeclaration => (int)TokenType.Type,
+        TestDeclaration => (int)TokenType.Test,
+        // Any other declaration (setup/teardown/preprocessor/error placeholder) is out of scope for this
+        // first slice; -1 will not be produced by the kernel, so it surfaces as a clear mismatch.
+        _ => -1
+    };
+
     [Fact]
     public void Parser_RealCorpus_AstSerializesDeterministically()
     {
