@@ -14,6 +14,19 @@ namespace NSharpLang.Tests;
 
 public class CompilerDogfoodProjectTests
 {
+    // The production-routed parser token-compaction kernel
+    // (LexerTokenKindScanner.nl: ParserTokenCompactionIndicesInto) filters newline tokens by the
+    // hard-coded integer ordinal 136. The Parser constructor routes through it via
+    // NSharpCompilerDogfoodAdapter.TryCompactParserTokens. If a TokenType member is inserted in the
+    // middle of the enum, Newline's ordinal shifts, the kernel filters the wrong token type, and the
+    // parser silently sees stray newline tokens (every braced source then fails to parse). This pins
+    // the contract: new TokenType members must be appended at the END of the enum. See Token.cs.
+    [Fact]
+    public void ParserTokenCompactionParityRespectsTokenTypeLayout()
+    {
+        Assert.Equal(136, (int)TokenType.Newline);
+    }
+
     [Fact]
     public void CodeIntelligenceDogfoodAdapter_LoadsPackagedNSharpAssembly()
     {
