@@ -48,6 +48,7 @@ public static class CommandRegistry
         new CliCommandSpec("batch", "Execute multiple query requests from one JSON file"),
         new CliCommandSpec("symbols", "List all symbols in a file or project"),
         new CliCommandSpec("outline", "Structural outline of a file"),
+        new CliCommandSpec("ast", "Full parsed AST as stable JSON (whole project or --file)"),
         new CliCommandSpec("diagnostics", "Errors and warnings with rich context"),
         new CliCommandSpec("type", "Get type info at a position"),
         new CliCommandSpec("inspect", "One-shot symbol/type/refs/completions bundle"),

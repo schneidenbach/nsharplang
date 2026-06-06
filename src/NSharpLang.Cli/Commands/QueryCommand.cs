@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Daemon;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Cli.Commands;
@@ -34,6 +35,7 @@ public static class QueryCommand
             "batch" => BatchCommand(positionalArgs, options),
             "symbols" => SymbolsCommand(positionalArgs, options),
             "outline" => OutlineCommand(positionalArgs, options),
+            "ast" => AstCommand(positionalArgs, options),
             "diagnostics" => DiagnosticsCommand(positionalArgs, options),
             "type" => TypeCommand(positionalArgs, options),
             "inspect" => InspectCommand(positionalArgs, options),
@@ -94,6 +96,42 @@ public static class QueryCommand
             Console.Write(OutputFormatter.SymbolsToJson(results, snapshot.ProjectRoot));
         }
 
+        return 0;
+    }
+
+    private static int AstCommand(string[] args, QueryOptions options)
+    {
+        var snapshot = LoadProjectOrFail(options);
+        if (snapshot == null) return 1;
+
+        var fileFilter = GetOption(args, "--file") ?? options.File;
+        var normalizedFilter = fileFilter?.Replace('\\', '/');
+
+        var units = new List<(string File, CompilationUnit Unit)>();
+        foreach (var pair in snapshot.CompilationUnits.OrderBy(static kvp => kvp.Key, StringComparer.Ordinal))
+        {
+            if (normalizedFilter != null)
+            {
+                var normalizedPath = pair.Key.Replace('\\', '/');
+                var matches =
+                    string.Equals(normalizedPath, normalizedFilter, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedPath.EndsWith("/" + normalizedFilter, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(Path.GetFileName(normalizedPath), Path.GetFileName(normalizedFilter), StringComparison.OrdinalIgnoreCase);
+                if (!matches) continue;
+            }
+
+            units.Add((pair.Key, pair.Value));
+        }
+
+        if (units.Count == 0)
+        {
+            return fileFilter != null
+                ? QueryError($"No compilation unit found for --file {fileFilter}")
+                : QueryError("No compilation units in project.");
+        }
+
+        // The AST is structured data; `ast` always emits the stable JSON envelope (LLM-first).
+        Console.Write(OutputFormatter.AstToJson(units));
         return 0;
     }
 

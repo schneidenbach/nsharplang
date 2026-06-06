@@ -371,6 +371,65 @@ func Main() {
     }
 
     [Fact]
+    public void QueryCommand_Ast_EmitsStableNodeTypedJson()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-query-ast-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: AstQuery
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func add(x: int, y: int): int {
+    return x + y
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "ast",
+                "--file", "Program.nl",
+                "--project", tempDir
+            }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr), stderr);
+
+            using var doc = JsonDocument.Parse(stdout);
+            var root = doc.RootElement;
+            Assert.Equal(1, root.GetProperty("schemaVersion").GetInt32());
+            Assert.Equal("query.ast", root.GetProperty("command").GetString());
+            Assert.True(root.GetProperty("ok").GetBoolean());
+
+            var file = Assert.Single(root.GetProperty("files").EnumerateArray());
+            Assert.EndsWith("Program.nl", file.GetProperty("file").GetString());
+
+            var ast = file.GetProperty("ast");
+            Assert.Equal("CompilationUnit", ast.GetProperty("node").GetString());
+
+            var func = Assert.Single(ast.GetProperty("declarations").EnumerateArray());
+            Assert.Equal("FunctionDeclaration", func.GetProperty("node").GetString());
+            Assert.Equal("add", func.GetProperty("name").GetString());
+            Assert.Equal(2, func.GetProperty("parameters").GetArrayLength());
+            Assert.Equal("x", func.GetProperty("parameters")[0].GetProperty("name").GetString());
+
+            // Concrete node type is preserved through the polymorphic Statement base, with positions.
+            var body = func.GetProperty("body");
+            Assert.True(body.GetProperty("line").GetInt32() >= 1);
+            var returnStmt = Assert.Single(body.GetProperty("statements").EnumerateArray());
+            Assert.Equal("ReturnStatement", returnStmt.GetProperty("node").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void QueryCommand_Diagnostics_MalformedCode_EmitsStableHighSignalJson()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-malformed-diagnostics-{Guid.NewGuid():N}");

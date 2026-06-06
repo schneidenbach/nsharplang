@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
+using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.Performance;
 
 namespace NSharpLang.Compiler.CodeIntelligence;
@@ -229,6 +233,98 @@ public static class OutputFormatter
             outline = Normalize(result).Outline
         };
         return JsonSerializer.Serialize(envelope, JsonOptions);
+    }
+
+    /// <summary>
+    /// Serializes one or more parsed compilation-unit ASTs to the stable versioned JSON envelope.
+    /// Each AST node is emitted as { "node": "&lt;ConcreteNodeType&gt;", &lt;camelCased properties&gt; }, recursing
+    /// into child nodes and lists, so the concrete node kind (which a plain System.Text.Json polymorphic
+    /// serialization of the Declaration/Statement/Expression bases would drop) is always present. This is
+    /// the canonical AST representation for `nlc query ast` (LLM-first navigation) and for verifying a
+    /// future N# parser against the C# parser. Property order is declaration order (stable per node type).
+    /// </summary>
+    public static string AstToJson(IReadOnlyList<(string File, CompilationUnit Unit)> units)
+    {
+        var files = new JsonArray();
+        foreach (var (file, unit) in units)
+        {
+            files.Add(new JsonObject
+            {
+                ["file"] = NormalizePath(file),
+                ["ast"] = AstValueToJson(unit)
+            });
+        }
+
+        var envelope = new JsonObject
+        {
+            ["schemaVersion"] = SchemaVersion,
+            ["command"] = "query.ast",
+            ["ok"] = true,
+            ["files"] = files
+        };
+        return envelope.ToJsonString(JsonOptions);
+    }
+
+    private static JsonNode? AstValueToJson(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            case string s:
+                return JsonValue.Create(s);
+            case bool b:
+                return JsonValue.Create(b);
+            case char c:
+                return JsonValue.Create(c.ToString());
+            case Enum e:
+                return JsonValue.Create(e.ToString());
+            case int i:
+                return JsonValue.Create(i);
+            case long l:
+                return JsonValue.Create(l);
+            case double d:
+                return JsonValue.Create(d);
+        }
+
+        var type = value.GetType();
+        if (type.IsPrimitive)
+        {
+            return JsonValue.Create(Convert.ToString(value, CultureInfo.InvariantCulture));
+        }
+
+        if (value is System.Collections.IEnumerable sequence)
+        {
+            var array = new JsonArray();
+            foreach (var item in sequence)
+            {
+                array.Add(AstValueToJson(item));
+            }
+
+            return array;
+        }
+
+        // An AST record / node object: emit the concrete node type then its declared properties.
+        var obj = new JsonObject { ["node"] = type.Name };
+        foreach (var property in type
+            .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(static p => p.GetIndexParameters().Length == 0 && p.Name != "EqualityContract")
+            .OrderBy(static p => p.MetadataToken))
+        {
+            object? propertyValue;
+            try
+            {
+                propertyValue = property.GetValue(value);
+            }
+            catch
+            {
+                continue;
+            }
+
+            obj[JsonNamingPolicy.CamelCase.ConvertName(property.Name)] = AstValueToJson(propertyValue);
+        }
+
+        return obj;
     }
 
     public static string DiagnosticsToJson(List<DiagnosticResult> results, string? projectRoot = null)

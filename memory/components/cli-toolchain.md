@@ -54,6 +54,8 @@ All query commands output **JSON by default** with a versioned envelope (`schema
 | `nlc query symbols --kind K` | Filter by kind | `nlc query symbols --kind function` |
 | `nlc query symbols --filter P` | Filter by glob or substring | `nlc query symbols --filter '*Person*'` |
 | `nlc query outline <file>` | File structure (imports, declarations) | `nlc query outline Program.nl` |
+| `nlc query ast` | Full parsed AST as stable, node-typed JSON (whole project) | `nlc query ast` |
+| `nlc query ast --file F` | AST for one file | `nlc query ast --file Program.nl` |
 | `nlc query diagnostics` | Errors/warnings with Elm-level context | `nlc query diagnostics` |
 | `nlc query diagnostics --text` | Elm-style terminal output | `nlc query diagnostics --text` |
 | `nlc query batch --requests requests.json` | Execute multiple semantic queries in one JSON response | `nlc query batch --requests requests.json` |

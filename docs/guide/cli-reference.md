@@ -55,6 +55,7 @@ What the toolchain *does* provide is **deterministic IL-shape inspection** — t
 | `nlc query batch --requests <file>` | Execute multiple semantic queries in one response | `nlc query batch --requests requests.json` |
 | `nlc query symbols` | List project symbols | `nlc query symbols --kind function` |
 | `nlc query outline <file>` | File structure and imports | `nlc query outline Program.nl` |
+| `nlc query ast` | Full parsed AST as stable, node-typed JSON (whole project, or one `--file`) | `nlc query ast --file Program.nl` |
 | `nlc query diagnostics` | Rich diagnostics envelope; add the `--clusters` flag for versioned diagnostic-cluster JSON with `category`, `recipe`, `risk`, `files`, `relatedDiagnostics`, and `nextCommand` | `nlc query diagnostics --clusters` |
 | `nlc query type --file <file> --pos <line:col>` | Type at a position | `nlc query type --file Program.nl --pos 5:12` |
 | `nlc query inspect --file <file> --pos <line:col>` | Symbol, type, definition, refs, and completions in one call; add `--compact` for token-efficient agent context (`--summary` is kept as an alias) | `nlc query inspect --compact --file Program.nl --pos 5:12` |
