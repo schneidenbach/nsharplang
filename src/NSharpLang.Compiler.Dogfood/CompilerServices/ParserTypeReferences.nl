@@ -13,17 +13,22 @@
 //   NullableTypeReference -> kind 3   e.g. int?, int?[] (=> Array(Nullable(inner)))
 //   UnionTypeReference    -> kind 4   e.g. int | string, List<int> | string (slice 7; arms are postfix
 //                                     types, and a union may itself be a generic argument: List<int | T>)
-// Deferred to later rungs (the kernel REFUSES these with a -1 return -- their first token is not an
-// identifier): TupleTypeReference `(...)`, FunctionTypeReference (`Func<...>` is semantically a function
-// type in the C# AST, not a generic -- so Func is intentionally excluded from the corpus), and
-// ByRefTypeReference (`&T`).
+//   ByRefTypeReference    -> kind 5   e.g. &int, &List<int>, &int[] (slice 8; `&` prefixing a postfix type)
+// Deferred to later rungs:
+//   - TupleTypeReference `(...)` -- REFUSED with -1 (first token `(` is not a base-type start the kernel
+//     handles); also needs per-element name edge-metadata the columnar table does not yet carry.
+//   - FunctionTypeReference `Func<...>` -- the C# parser special-cases the *identifier text* "Func", but
+//     this kernel has no source string (only token offsets), so it cannot distinguish Func from any other
+//     generic name; Func is therefore excluded from the corpus and will parse as a Generic node. Resolving
+//     it needs the parser to gain source access (a later architectural step that also unlocks name-based
+//     contextual keywords).
 //
 // Node-table columns (all caller-allocated to capacity >= count+1; outChildIndices likewise):
-//   outNodeKinds[i]   : 0 Simple | 1 Generic | 2 Array | 3 Nullable | 4 Union
+//   outNodeKinds[i]   : 0 Simple | 1 Generic | 2 Array | 3 Nullable | 4 Union | 5 ByRef
 //   outNameStarts[i]  : source byte offset of the (dotted) name for Simple/Generic; -1 otherwise
 //   outNameLengths[i] : name byte length; 0 when no name
 //   outChildStart[i]  : index into outChildIndices where this node's child ids begin; -1 when no children
-//   outChildCount[i]  : Generic = #type args; Union = #arms (>= 2); Array/Nullable = 1; Simple = 0
+//   outChildCount[i]  : Generic = #type args; Union = #arms (>= 2); Array/Nullable/ByRef = 1; Simple = 0
 //   outChildIndices[] : flattened child node-id pointers (the tree edges); each node's children occupy a
 //                       CONTIGUOUS run (see the arg-stack note below)
 //   outSpanStarts[i]  : source byte offset where the node's full text begins
@@ -112,6 +117,23 @@ func ParseBaseTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     pos := st[0]
     if pos >= count {
         return -1
+    }
+
+    // ByRef `&T` (Parser.cs:1830-1840): `&` prefixing a postfix type. The C# parser puts this in
+    // ParseBaseTypeReference, so a byref can appear wherever a base type can (a union arm, a generic
+    // argument). depth+1 bounds the (degenerate) `& & T` chain even though the C# parser does not cap it.
+    if tokenKinds[pos] == 107 {
+        ampStart := tokenStarts[pos]
+        st[0] = pos + 1
+        inner := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if inner < 0 {
+            return -1
+        }
+
+        spanEnd := outSpanStarts[inner] + outSpanLengths[inner]
+        childRunStart := st[3]
+        AppendTypeReferenceChild(st, outChildIndices, inner)
+        return EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 5, -1, 0, childRunStart, 1, ampStart, spanEnd - ampStart)
     }
 
     if tokenKinds[pos] != 0 {

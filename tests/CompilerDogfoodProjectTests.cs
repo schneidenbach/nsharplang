@@ -378,13 +378,13 @@ class B
         _ => -1
     };
 
-    // Parser slices 6-7: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices
+    // Parser slices 6-8: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices
     // 1-5 produced flat top-level indices, ParseTypeReferenceNodesInto (ParserTypeReferences.nl) reproduces
-    // the C# parser's ParseTypeReference recursion for Simple / Generic / Array / Nullable (slice 6) and
-    // Union (slice 7) type references and emits a real parent->child AST as a flat columnar node table. This
-    // pins it structurally against the production parser's TypeReference tree (kind + name + children) plus
-    // byte-span, post-order-root, full-consumption, determinism, deferred-form-seam, and depth-cap
-    // invariants. Tuple / Func / ByRef remain deferred (refused with -1).
+    // the C# parser's ParseTypeReference recursion for Simple / Generic / Array / Nullable (slice 6), Union
+    // (slice 7), and ByRef (slice 8) type references and emits a real parent->child AST as a flat columnar
+    // node table. This pins it structurally against the production parser's TypeReference tree (kind + name
+    // + children) plus byte-span, post-order-root, full-consumption, determinism, deferred-form-seam, and
+    // depth-cap invariants. Tuple remains deferred (refused with -1); Func needs source access (see below).
     [Fact]
     public void Parser_TypeReferenceTree_MatchesProductionParser()
     {
@@ -433,6 +433,8 @@ class B
                 // Unions (slice 7): arms are postfix types; a union may itself be a generic argument.
                 "int | string", "int | string | bool", "List<int> | string", "int? | string[]",
                 "List<int | string>", "Dictionary<int | string, bool>", "int[] | List<int> | string?",
+                // ByRef (slice 8): `&` prefixing a postfix type; reachable as a union arm / generic arg too.
+                "&int", "&List<int>", "&int[]", "List<&int>", "&int | string",
             };
             foreach (var t in positives)
                 AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
@@ -442,8 +444,12 @@ class B
             foreach (var t in new[] { "int", "int[]", "string", "bool", "string[]" })
                 AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
 
-            // Deferred-form seam (REFUSED with -1): the first token is not an identifier.
-            foreach (var t in new[] { "(int, string)", "&int" })
+            // Deferred-form seam (REFUSED with -1): tuple/parenthesized types start with `(`, which the
+            // kernel does not yet handle (Tuple needs per-element name metadata). `Func<...>` is NOT in the
+            // refused set: without source access the kernel cannot detect the "Func" identifier text, so it
+            // parses as a Generic node -- it is simply excluded from the corpus until the parser gains
+            // source access.
+            foreach (var t in new[] { "(int, string)", "(int)" })
                 AssertTypeReferenceRefused(t, tokenize, parseTypeRefs);
 
             // Depth cap: generic nesting beyond 64 returns the -1 overflow sentinel (a tested, documented
@@ -603,6 +609,11 @@ class B
                 Assert.Equal(u.Arms.Count, childCount[idx]);
                 for (var ui = 0; ui < u.Arms.Count; ui++)
                     AssertTypeRefNode(u.Arms[ui], childIndices[childStart[idx] + ui], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case ByRefTypeReference b:
+                Assert.True(kinds[idx] == 5, $"Expected ByRef (5) at node {idx} for '{label}', got kind {kinds[idx]}.");
+                Assert.Equal(1, childCount[idx]);
+                AssertTypeRefNode(b.InnerType, childIndices[childStart[idx]], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
                 break;
             default:
                 Assert.Fail($"Unexpected production type node {expected.GetType().Name} for '{label}' (out of slice-6/7 scope).");

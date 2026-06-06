@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 8: by-ref type references + the source-access limit finding
+
+Adds `ByRefTypeReference` (`&T`, node kind 5) to the type kernel — `&` prefixing a postfix type, placed in
+`ParseBaseTypeReferenceNode` exactly as the C# parser (Parser.cs:1830-1840), so a by-ref is reachable as a
+union arm or generic argument too (`&int | string`, `List<&int>`). Verified against the production parser
+on `&int`, `&List<int>`, `&int[]`, by-ref-as-generic-arg, and by-ref-in-union.
+
+The N# type-reference parser now covers Simple / Generic / Array / Nullable / Union / ByRef — the
+overwhelming majority of real type references — each parity-verified against `Parser.cs`.
+
+**Finding (documented, not a hack): the two remaining type forms hit real design limits, not parser bugs.**
+- **`Func<...>`** — the C# parser special-cases the *identifier text* `"Func"` to produce a
+  `FunctionTypeReference` (Parser.cs:1849-1852). The kernel works on token kind/offset arrays and has **no
+  source string**, so it cannot distinguish `Func` from any other generic name; it would parse `Func<...>`
+  as a `GenericTypeReference`. Func is therefore excluded from the corpus. Resolving it requires giving the
+  parser kernels **source access** (a future architectural step that also unlocks name-based contextual
+  keywords like `duck`/`scoped` and on-the-fly name materialization).
+- **Tuple `(...)`** — needs per-tuple-element **name** edge-metadata (`(x: int, y: string)`) that the
+  current columnar node table does not carry, plus the single-unnamed-element `(T)` → parenthesized-type
+  collapse. Refused with -1 for now.
+
+These two limits — source access for text-based decisions, and richer edge-metadata — are the natural
+inputs to the next parser phase. No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 7: union type references (closes the first deferred form)
 
 Extends slice 6's recursive-descent type kernel with the top-of-grammar union level
