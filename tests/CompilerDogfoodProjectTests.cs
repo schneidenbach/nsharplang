@@ -913,11 +913,11 @@ class B
         _ => false,
     };
 
-    // Parser slices 10-12: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
-    // primary expressions (literals / identifiers / parenthesized -- slice 10) plus the postfix chain --
-    // member access (.name) and index access ([expr]) (slice 11) and calls (callee(args)) (slice 12) --
-    // into a columnar node table, pinned against the production parser's Expression AST (extracted from a
-    // `return <expr>` statement). Later slices add unary and the binary precedence chain.
+    // Parser slices 10-13: the EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
+    // primary expressions (literals / identifiers / parenthesized -- slice 10), the postfix chain --
+    // member access (.name) and index access ([expr]) (slice 11) and calls (callee(args)) (slice 12) -- and
+    // prefix unary operators (slice 13) into a columnar node table, pinned against the production parser's
+    // Expression AST (extracted from a `return <expr>` statement). The binary precedence chain is next.
     [Fact]
     public void Parser_Expression_MatchesProductionParser()
     {
@@ -958,6 +958,8 @@ class B
                 // Calls (slice 12): variable-arity arguments via the arg-stack.
                 "f()", "g(x)", "h(a, b)", "obj.method(x)", "a.b.c(1, 2, 3)", "arr[i].foo(y)",
                 "f(g(x))", "f(a)(b)", "f(x)[i]", "compute(a, b, c).result", "outer(inner(z), w)",
+                // Unary prefix (slice 13): wraps a recursively-parsed operand; composes with postfix.
+                "-x", "!flag", "~bits", "-arr[i]", "!a.b", "-f(x)", "++i", "--count", "!!x", "-(value)",
             };
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
@@ -1116,6 +1118,12 @@ class B
                 AssertExprNode(e.Object, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 AssertExprNode(e.Index, childIndices[childStart[idx] + 1], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case UnaryExpression e:
+                Assert.True(kinds[idx] == 11, $"Expected Unary (11) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(UnaryOperatorText(e.Operator), source.Substring(valueStarts[idx], valueLengths[idx]));
+                Assert.Equal(1, childCount[idx]);
+                AssertExprNode(e.Operand, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
             case CallExpression e:
                 Assert.True(kinds[idx] == 9, $"Expected Call (9) at node {idx} for '{label}', got {kinds[idx]}.");
                 Assert.True(e.TypeArguments == null || e.TypeArguments.Count == 0, $"Slice-12 kernel does not handle generic calls for '{label}'.");
@@ -1132,6 +1140,17 @@ class B
                 break;
         }
     }
+
+    private static string UnaryOperatorText(UnaryOperator op) => op switch
+    {
+        UnaryOperator.Negate => "-",
+        UnaryOperator.Not => "!",
+        UnaryOperator.BitwiseNot => "~",
+        UnaryOperator.PreIncrement => "++",
+        UnaryOperator.PreDecrement => "--",
+        UnaryOperator.IndexFromEnd => "^",
+        _ => "<unsupported>", // PostIncrement/PostDecrement are postfix -- not produced by the slice-13 kernel
+    };
 
     [Fact]
     public void Parser_RealCorpus_AstSerializesDeterministically()

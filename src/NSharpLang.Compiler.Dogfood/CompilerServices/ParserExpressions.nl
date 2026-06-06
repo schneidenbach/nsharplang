@@ -15,12 +15,13 @@
 //   MemberAccessExpression  -> kind 8   ( obj.member -- slice 11; member name in the value span )
 //   CallExpression          -> kind 9   ( callee(args) -- slice 12; children [callee, arg0, arg1, ...] )
 //   IndexAccessExpression   -> kind 10  ( obj[index] -- slice 11; children [object, index] )
+//   UnaryExpression         -> kind 11  ( prefix !/-/~/++/--/^ -- slice 13; operator token in value span )
 // Deferred (refused with -1): `?.`/`?[` null-conditional access, generic method calls (callee<T>(...)),
-//   named (`name:`) and ref/out call arguments, `++`/`--`, `with`; every other primary (this/base/default/
-//   new/alloc/match/tuple/array-literal/object-initializer/interpolated string/lambda/cast/...); and all
-//   unary/binary structure. A tuple `(a, b)` or named element `(x: e)` is refused (the parenthesized branch
-//   requires a lone `)` after the inner expression). Literal VALUE materialization (unescaping strings/
-//   chars) is the host's job; this kernel records the value token's byte span only.
+//   named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`; the BINARY precedence chain
+//   (next slice); every other primary (this/base/default/new/alloc/match/tuple/array-literal/object-
+//   initializer/interpolated string/lambda/cast/...). A tuple `(a, b)` or named element `(x: e)` is refused
+//   (the parenthesized branch requires a lone `)` after the inner expression). Literal VALUE materialization
+//   (unescaping strings/chars) is the host's job; this kernel records the value token's byte span only.
 //
 // Node-table columns (caller-allocated to capacity >= count+1; outChildIndices likewise):
 //   outNodeKinds[i]    : 0..7 per the list above
@@ -111,7 +112,7 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     if kind == 127 {
         parenStart := tokenStart
         st[0] = pos + 1
-        inner := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        inner := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if inner < 0 {
             return -1
         }
@@ -156,7 +157,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         } else if pos < count && tokenKinds[pos] == 131 {
             objSpanStart := outSpanStarts[expr]
             st[0] = pos + 1
-            index := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            index := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
             if index < 0 {
                 return -1
             }
@@ -188,7 +189,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                     return -1
                 }
 
-                firstArg := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                firstArg := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                 if firstArg < 0 {
                     st[3] = argBase
                     return -1
@@ -204,7 +205,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                         return -1
                     }
 
-                    nextArg := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                    nextArg := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                     if nextArg < 0 {
                         st[3] = argBase
                         return -1
@@ -239,6 +240,38 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     return expr
 }
 
+// ParseUnaryExpression (Parser.cs:4223) restricted to the prefix operators: ! (Not 106), - (Negate, Minus
+// 89), ~ (BitwiseNot 110), ++ (PreIncrement 113), -- (PreDecrement 114), ^ (IndexFromEnd, BitwiseXor 109).
+// A prefix operator wraps a (recursively-parsed) unary operand -> UnaryExpression (kind 11, operator token
+// in the value span); otherwise the operand is a postfix expression. (Prefix `+` is invalid in N# and is
+// refused via the postfix/primary fall-through. Postfix ++/-- and `must` are deferred.)
+func ParseUnaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    pos := st[0]
+    if pos < count {
+        k := tokenKinds[pos]
+        if k == 106 || k == 89 || k == 110 || k == 113 || k == 114 || k == 109 {
+            opStart := tokenStarts[pos]
+            opLength := tokenValueLengths[pos]
+            st[0] = pos + 1
+            operand := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if operand < 0 {
+                return -1
+            }
+
+            operandSpanEnd := outSpanStarts[operand] + outSpanLengths[operand]
+            childRunStart := st[2]
+            AppendExpressionChild(st, outChildIndices, operand)
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 11, opStart, opLength, childRunStart, 1, opStart, operandSpanEnd - opStart)
+        }
+    }
+
+    return ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+}
+
 func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     st := new int[](4)
     st[0] = start
@@ -247,7 +280,7 @@ func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
     st[3] = 0
     argStack := new int[](count + 1)
 
-    root := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+    root := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
     if root < 0 {
         return -1
     }

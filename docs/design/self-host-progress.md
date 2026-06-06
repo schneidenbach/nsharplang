@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 13: prefix unary expressions
+
+Adds the unary level (`ParseUnaryExpressionNode`, mirroring `ParseUnaryExpression` Parser.cs:4223):
+prefix `!` (Not), `-` (Negate), `~` (BitwiseNot), `++` (PreIncrement), `--` (PreDecrement), `^`
+(IndexFromEnd) wrapping a recursively-parsed unary operand -> `UnaryExpression` (kind 11, the operator
+token in the value span). The "full expression" recursion points (entry, parenthesized-inner, index, call
+arguments) now route through this unary level, so prefixes compose with postfix: `-arr[i]`, `!a.b`,
+`-f(x)`, `!!x`, `-(value)`. Verified against the production parser's UnaryExpression (operator + recursive
+operand) plus the full primary/postfix corpus, refusals, determinism, root-span, and full-consumption
+invariants. Prefix `+` is invalid in N# and is refused (fall-through to primary). Postfix `++`/`--` and
+`must` are deferred. Next: the binary-operator precedence chain (after which a real-corpus expression pin
+over the dogfood kernel bodies becomes possible). No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 12: call expressions (postfix level complete)
 
 Adds `CallExpression` (kind 9) to the postfix loop: `callee(args)` with children `[callee, arg0, arg1, ...]`.
