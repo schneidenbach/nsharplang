@@ -2247,6 +2247,43 @@ func values(): int {
                 parserTokenCompactionIndicesInto,
                 parserTokenCompactionChecksumInto);
 
+            // Self-host Phase 1 evidence: the N# metadata scanner must reach full token-stream parity
+            // (kind, start, value length, line, column) with the production C# lexer on a single
+            // representative source that exercises the broad token surface together — line/doc/block
+            // comments, string + interpolated + char literals, separated int/hex/binary/float numbers,
+            // a wide operator set, and a spread of keywords. This pins how production-ready the existing
+            // N# lexer scanner already is for the lexer-beachhead migration (see self-host-roadmap.md).
+            const string representativeSource = """
+package CompilerDogfood.Representative
+
+// line comment
+/// doc comment line
+/* block
+   comment */
+func classify(value: int, name: string): string {
+    label := $"item {name}={value}"
+    initial := 'x'
+    decimal := 1_000
+    hex := 0xFF_FF
+    binary := 0b1010_1010
+    ratio := 3.14_15e-2
+    if value <= 0 || value >= 100 && name != "" {
+        return label
+    } else {
+        total := value + decimal - hex * binary / 2 % 3
+        flag := value == 0
+        shifted := value << 2
+        masked := value & 7 | 1 ^ 4
+        return $"{label}:{total}:{flag}:{shifted}:{masked}:{initial}:{ratio}"
+    }
+}
+""";
+            AssertTokenMetadataLikeProductionLexer(representativeSource, tokenizeMetadataInto);
+            AssertParserTokenCompactionLikeProduction(
+                representativeSource,
+                parserTokenCompactionIndicesInto,
+                parserTokenCompactionChecksumInto);
+
             AssertSourceTextLineMapLikeProduction(
                 "",
                 splitLogicalLines,

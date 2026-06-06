@@ -160,8 +160,24 @@ already use `List<T>`, nested `Dictionary<...>`, collection expressions, records
 - The keyword table: prefer the existing first-character dispatch (already proven in the dogfood
   scanner) over a `Dictionary` lookup on the hot path.
 
-Next slice: stand up the N#-native `Token`/`TokenStream` representation + a tokenizer reaching parity
-on a first corpus, recording any new language gap here and closing it with a principled compiler change.
+**Finding 2 — the existing N# lexer scanner is production-close.** `LexerTokenKindScanner.nl`
+(1573 LOC) already emits full per-token metadata (kind, start, value length, line, column) for
+identifiers, separated int/hex/binary/float numbers, string/raw/interpolated/char literals, the full
+operator set, and keywords, and it excludes comments from the stream exactly as the C# lexer does.
+Pinned with a new representative-corpus parity test in `CompilerDogfoodProjectTests`
+(`AssertTokenMetadataLikeProductionLexer`) over a single source that combines line/doc/block comments,
+string + interpolated + char literals, separated numeric literals, a wide operator set, and keywords —
+it matches the production `Lexer.Tokenize()` token stream exactly (count + kind + start + length +
+line + column), and the compaction parity holds too.
+
+**Remaining gaps to a full production N# lexer** (narrower than first thought): indentation-token
+insertion for indentation-style (brace-free) source, comment-trivia collection for the formatter
+(`Lexer.Comments`), and token-text materialization (derivable from start+length by the host). Token
+*kind/position* parity — the hard part — is already met on realistic code.
+
+Next slice: cover indentation-token insertion in the N# scanner (the main remaining kind-stream gap),
+or stand up the N#-native pooled `Token`/`TokenStream` so the parser can consume N# tokens directly
+(removing the host materialization boundary). Record any language gap here and close it principled.
 
 ## Bootstrap coverage
 
