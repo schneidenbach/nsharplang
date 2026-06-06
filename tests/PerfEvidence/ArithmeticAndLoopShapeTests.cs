@@ -169,6 +169,49 @@ func sumArray(nums: int[]): int {
     }
 
     [Fact]
+    public void ExplicitForArrayLengthLoop_UsesLdlenAndFusedBranch()
+    {
+        // The explicit C-style counted loop `for i := 0; i < a.Length; i++ { a[i] }` must lower to the
+        // same bounds-check-elision-friendly shape as the foreach fast path:
+        //   * `a.Length` reads the array length via `ldlen; conv.i4` (NOT a `call get_Length`), and
+        //   * the `i < a.Length` test fuses into a single `blt` branch to the loop body (NOT a
+        //     `clt` that materializes a 0/1 then `brtrue`s on it).
+        // Together this is the canonical `... ldlen ; conv.i4 ; blt body` idiom RyuJIT proves
+        // `0 <= i < a.Length` for and elides the per-element bounds check on `a[i]`.
+        const string source = @"
+func sumIndexed(nums: int[]): int {
+    total := 0
+    for i := 0; i < nums.Length; i++ {
+        total = total + nums[i]
+    }
+    return total
+}";
+
+        var il = ILShapeInspector.DecodeProgramMethod(source, "sumIndexed");
+
+        AssertContainsSequence(
+            il,
+            "loop test reads array length via ldlen and fuses the i < length compare into one blt",
+            OpCodes.Ldlen, OpCodes.Conv_I4, OpCodes.Blt);
+
+        // Exactly one ldlen (the per-iteration loop test) and zero get_Length calls: `.Length` must
+        // not lower to a property call, which would be larger and weaken RyuJIT's BCE pattern match.
+        Assert.Equal(1, ILShapeInspector.CountOpcode(il, OpCodes.Ldlen));
+
+        // The element access still loads via ldelem.i4; its bounds check is what RyuJIT elides given
+        // the ldlen-bounded loop shape above.
+        AssertContainsSequence(
+            il,
+            "element loaded via ldelem.i4",
+            OpCodes.Ldelem_I4);
+
+        // No bare clt/cgt feeding a brtrue/brfalse: the comparison must be fused into the branch.
+        Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Clt));
+
+        Assert.Equal(0, CountOverflowOpcodes(il));
+    }
+
+    [Fact]
     public void ArithmeticCheckedExpression_EmitsOverflowOpcode()
     {
         const string source = @"
