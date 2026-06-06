@@ -12,6 +12,27 @@ finding), [`compiler-benchmark-metrics.md`](compiler-benchmark-metrics.md) (numb
 
 ## Where we are (measured)
 
+> **Update 2026-06-06 — Phase 1 lexer correctness COMPLETE.** The N# lexer kernels
+> (`LexerTokenKindScanner.nl`) now reach full feature parity with the C# production lexer, verified by
+> targeted parity tests + adversarial differential-fuzz reviews and committed across six slices:
+> indentation-brace insertion, systems keyword recognition (`alloc`/`allow`/`stackalloc`/`unsafe`/
+> `scoped`), lifetime tokens (`'a` with the `<`/`,`/`scoped`/`returns` context lookback), Unicode
+> character classification (`char.IsWhiteSpace`/`IsLetter`/`IsLetterOrDigit`/`IsDigit` — confirmed to
+> compile in the dogfood kernel), the `'\<CR>` char-literal edge, malformed-number `Unknown` tokens,
+> and comment-trivia collection (`CommentsInto` vs `Lexer.Comments`). Token kind, position
+> (start/line/column), value length, indentation, and comments all match `Lexer.Tokenize()`; token-text
+> is host-derivable. See `self-host-progress.md` for per-slice evidence.
+>
+> **What this does and does NOT do:** it proves the lexer CAN be N# and closes the Phase 0 language-gap
+> audit for the lexer (no compiler change was needed — today's N# + BCL interop expresses the whole
+> lexer). It does NOT delete a bridge: these kernels are still array-of-primitive services reached
+> through the `*DogfoodAdapter` delegate boundary. **Deleting the lexer bridge requires Phase 2/3** — an
+> N#-native `Token`/`TokenStream` plus an in-assembly N#→N# consumer (the parser) so the call inlines.
+> That subsystem migration (parser → N#, consuming N# tokens directly) is the next major phase and is
+> where real Definition-of-Done progress (bridge deletion, then bootstrap) happens. The gate is
+> reliable when run on a cool, idle machine (its marginal `HotResultCombinations` benchmark + cold-start
+> `ProcessState` tests are load/thermal-sensitive — see `self-host-progress.md`).
+
 - **Compiler:** ~97K LOC of C#. Lexer → Parser → Binder/Analyzer → ILCompiler (Reflection.Emit) → CLI.
 - **Bridge code:** 4 `*DogfoodAdapter` types, **18 `Delegate.CreateDelegate` boundaries** into the
   separately-loaded `NSharpLang.Compiler.Dogfood.dll`, called from ~10 production sites
