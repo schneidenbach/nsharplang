@@ -378,6 +378,243 @@ class B
         _ => -1
     };
 
+    // Parser slice 6: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices 1-5
+    // produced flat top-level indices, ParseTypeReferenceNodesInto (ParserTypeReferences.nl) reproduces the
+    // C# parser's ParseTypeReference recursion for Simple / Generic / Array / Nullable type references and
+    // emits a real parent->child AST as a flat columnar node table. This pins it structurally against the
+    // production parser's TypeReference tree (kind + name + children) plus byte-span, post-order-root,
+    // full-consumption, determinism, deferred-form-seam, and depth-cap invariants.
+    [Fact]
+    public void Parser_TypeReferenceTree_MatchesProductionParser()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"NSharpLang.Compiler.Dogfood.ParserTypeRefs.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+
+            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            var programType = assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod(
+                    "TokenizeMetadataWithIndentationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
+            var parseTypeRefs = programType.GetMethod(
+                    "ParseTypeReferenceNodesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseTypeReferenceNodesInto.");
+
+            // Positive corpus: every supported form, singly and recursively composed. Notably exercises the
+            // `>>` (RightShift) split (List<List<int>>, Foo<Bar<Baz<int>>>), postfix composition
+            // (List<int>[], List<int>[]?, int?[]), and dotted names (A.B.C, Outer.Inner<int>, List<A.B.C>).
+            // `Func<...>` is intentionally absent: the C# AST models it as FunctionTypeReference, not a
+            // generic, so it belongs to a later rung.
+            string[] positives =
+            {
+                "int", "string", "MyNs.Type", "A.B.C",
+                "int[]", "string[][]", "int[][][]", "int?", "string?", "int?[]",
+                "List<int>", "Dictionary<string, int>", "IEnumerable<int>", "Tuple<int, string, bool>",
+                "List<List<int>>", "List<Dictionary<string, int>>", "Foo<Bar<Baz<int>>>",
+                // Multi-arg generics whose args are THEMSELVES generic -- the exact interleaving case that
+                // requires gathering args on the LIFO arg-stack before appending the contiguous child run.
+                "Dictionary<List<int>, List<int>>", "Dictionary<List<int>, int>",
+                "Map<List<int>, Dictionary<string, int>>",
+                "List<int[]>", "List<int?>", "List<int>?", "List<int>[]", "List<int>[]?",
+                "Outer.Inner<int>", "List<A.B.C>",
+            };
+            foreach (var t in positives)
+                AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
+
+            // Real-corpus pins: the literal Simple/Array type annotations that appear in the dogfood kernel
+            // signatures, mirroring the lexer's real-corpus discipline.
+            foreach (var t in new[] { "int", "int[]", "string", "bool", "string[]" })
+                AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
+
+            // Deferred-form seam (REFUSED with -1): the first token is not an identifier.
+            foreach (var t in new[] { "(int, string)", "&int" })
+                AssertTypeReferenceRefused(t, tokenize, parseTypeRefs);
+
+            // Deferred-form seam (CLEAN STOP, not refusal): a union parses only its first arm and leaves the
+            // `|` (BitwiseOr 108) unconsumed -- the union-arm level is the next slice.
+            AssertTypeReferenceStopsAtUnionOperator("int | string", tokenize, parseTypeRefs);
+
+            // Depth cap: generic nesting beyond 64 returns the -1 overflow sentinel (a tested, documented
+            // limit -- the kernel never blows the real stack).
+            AssertTypeReferenceRefused(DeeplyNestedGeneric(70), tokenize, parseTypeRefs);
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static string DeeplyNestedGeneric(int depth)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (var i = 0; i < depth; i++) sb.Append("List<");
+        sb.Append("int");
+        for (var i = 0; i < depth; i++) sb.Append('>');
+        return sb.ToString();
+    }
+
+    private static (int Count, int[] Kinds, int[] Starts, int[] ValueLengths, int Start, string Source)
+        TokenizeTypeAnnotation(string typeString, MethodInfo tokenize)
+    {
+        var source = "class T { v: " + typeString + " }";
+        var capacity = 3 * (source.Length + 1) + 8;
+        var kinds = new int[capacity];
+        var starts = new int[capacity];
+        var valueLengths = new int[capacity];
+        var lines = new int[capacity];
+        var columns = new int[capacity];
+        var count = (int)(tokenize.Invoke(
+            null,
+            new object[] { source, kinds, starts, valueLengths, lines, columns }) ?? -1);
+
+        // The type annotation begins one token after the field's `:` (Colon == 122); type references in this
+        // slice contain no colons, so the first Colon is unambiguously the field separator.
+        var start = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == 122) { start = i + 1; break; }
+        }
+        Assert.True(start > 0, $"Could not locate field colon for type '{typeString}'.");
+        return (count, kinds, starts, valueLengths, start, source);
+    }
+
+    private static void AssertTypeReferenceTreeLikeProduction(string typeString, MethodInfo tokenize, MethodInfo parseTypeRefs)
+    {
+        // Ground truth: parse `class T { v: S }` with the production lexer+parser and pull the field's type.
+        var tokens = new Lexer("class T { v: " + typeString + " }", "decl-test.nl").Tokenize();
+        var compilationUnit = new Parser(tokens, "decl-test.nl").ParseCompilationUnit().CompilationUnit;
+        Assert.NotNull(compilationUnit);
+        var cls = compilationUnit!.Declarations.OfType<ClassDeclaration>().Single();
+        var field = cls.Members.OfType<FieldDeclaration>().Single();
+        var expected = field.Type;
+        Assert.True(expected != null, $"Production parser produced no field type for '{typeString}'.");
+
+        var (count, kinds, starts, valueLengths, start, source) = TokenizeTypeAnnotation(typeString, tokenize);
+
+        var (nodeCount, k, ns, nl, cs, cc, ci, ss, sl, res) = InvokeParseTypeRefs(parseTypeRefs, kinds, starts, valueLengths, count, start);
+        Assert.True(nodeCount > 0, $"Kernel refused valid type '{typeString}' (returned {nodeCount}).");
+
+        var root = res[0];
+        Assert.Equal(nodeCount - 1, root); // post-order: the root is the last node emitted
+
+        AssertTypeRefNode(expected!, root, k, ns, nl, cs, cc, ci, source, typeString);
+
+        // Byte-span pin: the root node's span is exactly the type annotation text.
+        Assert.Equal(typeString, source.Substring(ss[root], sl[root]));
+
+        // Full consumption: the continuation cursor lands on a type terminator (RightBrace 130 / Newline 136
+        // / Eof 135), proving the kernel consumed the whole type and nothing more.
+        Assert.True(res[1] < count, $"Continuation cursor out of range for '{typeString}'.");
+        var terminator = kinds[res[1]];
+        Assert.True(
+            terminator == 130 || terminator == 136 || terminator == 135,
+            $"Type '{typeString}' did not consume to a terminator; next token kind = {terminator}.");
+
+        // Determinism: a second invocation produces byte-identical node tables.
+        var (nodeCount2, k2, ns2, nl2, cs2, cc2, ci2, ss2, sl2, res2) =
+            InvokeParseTypeRefs(parseTypeRefs, kinds, starts, valueLengths, count, start);
+        Assert.Equal(nodeCount, nodeCount2);
+        Assert.Equal(res[0], res2[0]);
+        Assert.Equal(res[1], res2[1]);
+        for (var i = 0; i < nodeCount; i++)
+        {
+            Assert.True(
+                k[i] == k2[i] && ns[i] == ns2[i] && nl[i] == nl2[i] && cs[i] == cs2[i] &&
+                cc[i] == cc2[i] && ci[i] == ci2[i] && ss[i] == ss2[i] && sl[i] == sl2[i],
+                $"Non-deterministic node table at index {i} for '{typeString}'.");
+        }
+    }
+
+    private static void AssertTypeReferenceRefused(string typeString, MethodInfo tokenize, MethodInfo parseTypeRefs)
+    {
+        var (count, kinds, starts, valueLengths, start, _) = TokenizeTypeAnnotation(typeString, tokenize);
+        var (nodeCount, _, _, _, _, _, _, _, _, _) = InvokeParseTypeRefs(parseTypeRefs, kinds, starts, valueLengths, count, start);
+        Assert.True(nodeCount == -1, $"Kernel should refuse deferred form '{typeString}' with -1, got {nodeCount}.");
+    }
+
+    private static void AssertTypeReferenceStopsAtUnionOperator(string typeString, MethodInfo tokenize, MethodInfo parseTypeRefs)
+    {
+        var (count, kinds, starts, valueLengths, start, source) = TokenizeTypeAnnotation(typeString, tokenize);
+        var (nodeCount, k, ns, nl, _, cc, _, _, _, res) = InvokeParseTypeRefs(parseTypeRefs, kinds, starts, valueLengths, count, start);
+        // Parses the first arm only (a Simple node), then cleanly stops at `|` (BitwiseOr == 108).
+        Assert.Equal(1, nodeCount);
+        Assert.Equal(0, k[res[0]]); // Simple
+        Assert.Equal(0, cc[res[0]]);
+        Assert.Equal(108, kinds[res[1]]);
+    }
+
+    private static (int NodeCount, int[] Kinds, int[] NameStarts, int[] NameLengths, int[] ChildStart,
+        int[] ChildCount, int[] ChildIndices, int[] SpanStarts, int[] SpanLengths, int[] Result)
+        InvokeParseTypeRefs(MethodInfo parseTypeRefs, int[] kinds, int[] starts, int[] valueLengths, int count, int start)
+    {
+        var outNodeKinds = new int[count + 1];
+        var outNameStarts = new int[count + 1];
+        var outNameLengths = new int[count + 1];
+        var outChildStart = new int[count + 1];
+        var outChildCount = new int[count + 1];
+        var outChildIndices = new int[count + 1];
+        var outSpanStarts = new int[count + 1];
+        var outSpanLengths = new int[count + 1];
+        var outResult = new int[2];
+        var nodeCount = (int)(parseTypeRefs.Invoke(
+            null,
+            new object[]
+            {
+                kinds, starts, valueLengths, count, start,
+                outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices,
+                outSpanStarts, outSpanLengths, outResult,
+            }) ?? -2);
+        return (nodeCount, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount,
+            outChildIndices, outSpanStarts, outSpanLengths, outResult);
+    }
+
+    private static void AssertTypeRefNode(
+        TypeReference expected, int idx,
+        int[] kinds, int[] nameStarts, int[] nameLengths, int[] childStart, int[] childCount, int[] childIndices,
+        string source, string label)
+    {
+        switch (expected)
+        {
+            case SimpleTypeReference s:
+                Assert.True(kinds[idx] == 0, $"Expected Simple (0) at node {idx} for '{label}', got kind {kinds[idx]}.");
+                Assert.Equal(s.Name, source.Substring(nameStarts[idx], nameLengths[idx]));
+                Assert.Equal(0, childCount[idx]);
+                break;
+            case GenericTypeReference g:
+                Assert.True(kinds[idx] == 1, $"Expected Generic (1) at node {idx} for '{label}', got kind {kinds[idx]}.");
+                Assert.Equal(g.Name, source.Substring(nameStarts[idx], nameLengths[idx]));
+                Assert.Equal(g.TypeArguments.Count, childCount[idx]);
+                for (var ai = 0; ai < g.TypeArguments.Count; ai++)
+                    AssertTypeRefNode(g.TypeArguments[ai], childIndices[childStart[idx] + ai], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case ArrayTypeReference a:
+                Assert.True(kinds[idx] == 2, $"Expected Array (2) at node {idx} for '{label}', got kind {kinds[idx]}.");
+                Assert.Equal(1, childCount[idx]);
+                AssertTypeRefNode(a.ElementType, childIndices[childStart[idx]], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case NullableTypeReference n:
+                Assert.True(kinds[idx] == 3, $"Expected Nullable (3) at node {idx} for '{label}', got kind {kinds[idx]}.");
+                Assert.Equal(1, childCount[idx]);
+                AssertTypeRefNode(n.InnerType, childIndices[childStart[idx]], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
+                break;
+            default:
+                Assert.Fail($"Unexpected production type node {expected.GetType().Name} for '{label}' (out of slice-6 scope).");
+                break;
+        }
+    }
+
     [Fact]
     public void Parser_RealCorpus_AstSerializesDeterministically()
     {

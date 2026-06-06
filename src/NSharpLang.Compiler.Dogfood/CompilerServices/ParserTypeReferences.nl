@@ -1,0 +1,240 @@
+// Parser slice 6: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices 1-5
+// produced flat top-level indices via single-pass token scans, this kernel reproduces the C# parser's
+// ParseTypeReference -> ParsePostfixTypeReference -> ParseBaseTypeReference recursion (Parser.cs:1718-1907)
+// for the four dominant type-reference forms and emits a real parent->child AST as a flat columnar node
+// table. It consumes the lexer's token kind/start/value-length arrays (the output of
+// TokenizeMetadataWithIndentationInto) and builds nodes in POST-ORDER (children before parents), so the
+// root is the last node written.
+//
+// Supported forms this slice (matching the concrete C# TypeReference nodes):
+//   SimpleTypeReference   -> kind 0   e.g. int, string, A.B.C (dotted name folded to one name span)
+//   GenericTypeReference  -> kind 1   e.g. List<int>, Dictionary<string, int>, List<List<int>>
+//   ArrayTypeReference    -> kind 2   e.g. int[], List<int>[]
+//   NullableTypeReference -> kind 3   e.g. int?, int?[] (=> Array(Nullable(inner)))
+// Deferred to later rungs (the kernel cleanly STOPS at, or REFUSES, these rather than mis-parsing):
+//   UnionTypeReference (A | B) -- the postfix loop stops at `|`, returning the first arm and leaving the
+//     `|` unconsumed (the union-arm level is the next slice). TupleTypeReference `(...)`,
+//     FunctionTypeReference (`Func<...>` is semantically a function type in the C# AST, not a generic --
+//     so Func is intentionally excluded from this slice's corpus), and ByRefTypeReference (`&T`) all begin
+//     with a non-identifier first token and are REFUSED with a -1 return.
+//
+// Node-table columns (all caller-allocated to capacity >= count+1; outChildIndices likewise):
+//   outNodeKinds[i]   : 0 Simple | 1 Generic | 2 Array | 3 Nullable
+//   outNameStarts[i]  : source byte offset of the (dotted) name for Simple/Generic; -1 for Array/Nullable
+//   outNameLengths[i] : name byte length; 0 when no name
+//   outChildStart[i]  : index into outChildIndices where this node's child ids begin; -1 when no children
+//   outChildCount[i]  : Generic = #type args; Array/Nullable = 1; Simple = 0
+//   outChildIndices[] : flattened child node-id pointers (the tree edges); each node's children occupy a
+//                       CONTIGUOUS run (see the arg-stack note below)
+//   outSpanStarts[i]  : source byte offset where the node's full text begins
+//   outSpanLengths[i] : byte length of the node's full text (so source.Substring(start,len) is the type)
+//   outResult[0]      : root node id (== nodeCount-1 by the post-order convention)
+//   outResult[1]      : token index one past the consumed type (the caller's continuation cursor)
+// Returns the number of nodes written, or -1 on refusal (non-identifier first token), parse failure
+// (e.g. an unterminated generic), or generic-nesting depth > 64.
+//
+// Parser state is threaded through the recursion in a single caller-owned int[] `st` (a faithful analogue
+// of the C# Parser's mutable _position / _splitGreaterDepth fields):
+//   st[0] = pos                 current token index
+//   st[1] = splitGreaterDepth   owed `>` count from a split `>>` (RightShift) token
+//   st[2] = nodeCursor          next free node-table slot
+//   st[3] = childCursor         next free outChildIndices slot
+//   st[4] = owedGreaterByteEnd  byte end of the owed second-half `>` while splitGreaterDepth > 0
+//   st[5] = argStackTop         top of the generic-argument id stack (see below)
+//
+// Generic arguments are gathered onto a shared LIFO `argStack` rather than appended to outChildIndices as
+// they are parsed: a nested generic argument appends ITS OWN children during parsing, which would otherwise
+// interleave with and fragment the outer generic's contiguous child run. Because recursion is LIFO, each
+// generic records the stack top on entry, pushes each parsed argument id, then -- only after the whole
+// argument list and the closing `>` are consumed -- appends that contiguous block of ids to outChildIndices
+// and pops the stack. This keeps every node's children contiguous in outChildIndices with a single
+// allocation per top-level parse.
+//
+// TokenType ordinals used (from Token.cs, sequential, zero-based): Identifier 0, Less 100, Greater 102,
+// BitwiseAnd 107, RightShift 112, Question 115, QuestionBracket 119, Dot 124, LeftParen 127,
+// LeftBracket 131, RightBracket 132, Comma 134.
+
+func EmitTypeReferenceNode(st: int[], outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outSpanStarts: int[], outSpanLengths: int[], kind: int, nameStart: int, nameLength: int, childStart: int, childCount: int, spanStart: int, spanLength: int): int {
+    id := st[2]
+    outNodeKinds[id] = kind
+    outNameStarts[id] = nameStart
+    outNameLengths[id] = nameLength
+    outChildStart[id] = childStart
+    outChildCount[id] = childCount
+    outSpanStarts[id] = spanStart
+    outSpanLengths[id] = spanLength
+    st[2] = id + 1
+    return id
+}
+
+func AppendTypeReferenceChild(st: int[], outChildIndices: int[], childId: int): int {
+    slot := st[3]
+    outChildIndices[slot] = childId
+    st[3] = slot + 1
+    return slot
+}
+
+// Consume one closing `>` for a generic argument list, mirroring C# ConsumeGreater + the _splitGreaterDepth
+// mechanism (Parser.cs:2047-2065, 5918-5932, 6083-6091): a single `>` (Greater 102) is consumed directly;
+// a `>>` (RightShift 112) is consumed once but credits ONE owed `>` so the enclosing generic close uses the
+// second half without advancing past a real token. Returns the byte end of the consumed `>`, or -1 on a
+// missing close.
+func ConsumeGreaterForTypeNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[]): int {
+    if st[1] > 0 {
+        st[1] = st[1] - 1
+        return st[4]
+    }
+
+    pos := st[0]
+    if pos < count && tokenKinds[pos] == 102 {
+        st[0] = pos + 1
+        return tokenStarts[pos] + tokenValueLengths[pos]
+    }
+
+    if pos < count && tokenKinds[pos] == 112 {
+        st[0] = pos + 1
+        st[1] = st[1] + 1
+        st[4] = tokenStarts[pos] + 2
+        return tokenStarts[pos] + 1
+    }
+
+    return -1
+}
+
+// ParseBaseTypeReference (Parser.cs:1828-1907) restricted to identifier-led Simple/Generic forms. Reads a
+// (possibly dotted) name, then optional `<...>` generic arguments. Returns the emitted node id, or -1 on
+// refusal/failure. Advances st[0] past the consumed tokens.
+func ParseBaseTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    if depth > 64 {
+        return -1
+    }
+
+    pos := st[0]
+    if pos >= count {
+        return -1
+    }
+
+    if tokenKinds[pos] != 0 {
+        return -1
+    }
+
+    nameStart := tokenStarts[pos]
+    nameEnd := tokenStarts[pos] + tokenValueLengths[pos]
+    pos = pos + 1
+
+    while pos + 1 < count && tokenKinds[pos] == 124 && tokenKinds[pos + 1] == 0 {
+        nameEnd = tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+        pos = pos + 2
+    }
+
+    st[0] = pos
+
+    if pos < count && tokenKinds[pos] == 100 {
+        st[0] = pos + 1
+        argBase := st[5]
+
+        firstArg := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if firstArg < 0 {
+            return -1
+        }
+
+        argStack[st[5]] = firstArg
+        st[5] = st[5] + 1
+
+        while st[0] < count && tokenKinds[st[0]] == 134 {
+            st[0] = st[0] + 1
+            nextArg := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if nextArg < 0 {
+                return -1
+            }
+
+            argStack[st[5]] = nextArg
+            st[5] = st[5] + 1
+        }
+
+        greaterEnd := ConsumeGreaterForTypeNode(tokenKinds, tokenStarts, tokenValueLengths, count, st)
+        if greaterEnd < 0 {
+            return -1
+        }
+
+        childCount := st[5] - argBase
+        childRunStart := st[3]
+        a := argBase
+        while a < st[5] {
+            AppendTypeReferenceChild(st, outChildIndices, argStack[a])
+            a = a + 1
+        }
+        st[5] = argBase
+
+        return EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 1, nameStart, nameEnd - nameStart, childRunStart, childCount, nameStart, greaterEnd - nameStart)
+    }
+
+    return EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 0, nameStart, nameEnd - nameStart, -1, 0, nameStart, nameEnd - nameStart)
+}
+
+// ParsePostfixTypeReference (Parser.cs:1758-1812): a base type followed by any run of `[]` (array), `?[]`
+// (nullable array => Array(Nullable(inner))), and `?` (nullable) suffixes. Returns the outermost node id.
+func ParsePostfixTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    baseNode := ParseBaseTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    if baseNode < 0 {
+        return -1
+    }
+
+    matched := true
+    while matched {
+        pos := st[0]
+
+        if pos + 1 < count && tokenKinds[pos] == 131 && tokenKinds[pos + 1] == 132 {
+            spanStart := outSpanStarts[baseNode]
+            rightBracketEnd := tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+            childRunStart := st[3]
+            AppendTypeReferenceChild(st, outChildIndices, baseNode)
+            baseNode = EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 2, -1, 0, childRunStart, 1, spanStart, rightBracketEnd - spanStart)
+            st[0] = pos + 2
+        } else if pos + 1 < count && tokenKinds[pos] == 119 && tokenKinds[pos + 1] == 132 {
+            spanStart := outSpanStarts[baseNode]
+            questionBracketStart := tokenStarts[pos]
+            rightBracketEnd := tokenStarts[pos + 1] + tokenValueLengths[pos + 1]
+
+            nullableRunStart := st[3]
+            AppendTypeReferenceChild(st, outChildIndices, baseNode)
+            nullableNode := EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 3, -1, 0, nullableRunStart, 1, spanStart, (questionBracketStart + 1) - spanStart)
+
+            arrayRunStart := st[3]
+            AppendTypeReferenceChild(st, outChildIndices, nullableNode)
+            baseNode = EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 2, -1, 0, arrayRunStart, 1, spanStart, rightBracketEnd - spanStart)
+            st[0] = pos + 2
+        } else if pos < count && tokenKinds[pos] == 115 {
+            spanStart := outSpanStarts[baseNode]
+            questionEnd := tokenStarts[pos] + tokenValueLengths[pos]
+            childRunStart := st[3]
+            AppendTypeReferenceChild(st, outChildIndices, baseNode)
+            baseNode = EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 3, -1, 0, childRunStart, 1, spanStart, questionEnd - spanStart)
+            st[0] = pos + 1
+        } else {
+            matched = false
+        }
+    }
+
+    return baseNode
+}
+
+func ParseTypeReferenceNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
+    st := new int[](6)
+    st[0] = start
+    st[1] = 0
+    st[2] = 0
+    st[3] = 0
+    st[4] = 0
+    st[5] = 0
+    argStack := new int[](count + 1)
+
+    root := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+    if root < 0 {
+        return -1
+    }
+
+    outResult[0] = root
+    outResult[1] = st[0]
+    return st[2]
+}

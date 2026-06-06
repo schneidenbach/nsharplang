@@ -11,6 +11,52 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 6: FIRST recursive-descent, tree-building kernel (type references)
+
+The qualitative jump from flat single-pass token *scans* (slices 1-5) to genuine recursive-descent AST
+*construction*. `ParseTypeReferenceNodesInto` + helpers (NEW file `ParserTypeReferences.nl`) reproduce the
+C# parser's `ParseTypeReference` → `ParsePostfixTypeReference` → `ParseBaseTypeReference` recursion
+(Parser.cs:1718-1907) for the four dominant forms — `SimpleTypeReference` (incl. dotted `A.B.C`),
+`GenericTypeReference`, `ArrayTypeReference`, `NullableTypeReference` (incl. `?[]` → `Array(Nullable)`) —
+and emit a real parent→child AST as a flat columnar node table (kind / name span / child run / byte span),
+in **post-order** so the root is the last node. Verified structurally against the production parser's
+`TypeReference` tree (kind + name + recursive children) plus byte-span, post-order-root, full-consumption,
+determinism, deferred-form-seam, and depth-cap invariants, on a corpus covering every form and composition.
+
+**Why this rung is the product blocker:** `ParseTypeReference` is the shared leaf of every
+field/param/return/constraint parse, so no declaration/statement/expression parser slice can self-host
+until type references do. It also begins Phase 2 (the in-assembly N# front-end that removes the
+~1.2 ns/token delegate boundary blocking production routing of the lexer and the routed kernels).
+
+**Capability proven (no language gap surfaced):** N# supports recursive-descent **tree construction** —
+mutual recursion (`ParsePostfix` ↔ `ParseBase`) plus shared mutable state threaded through recursive
+frames (the `st[]` parser-state array — pos / splitGreaterDepth / node & child cursors — and the
+columnar out-arrays). Recursion alone was already proven (`ProjectSourceFilterMatchFrom`); building a tree
+with it is the new, now-validated surface.
+
+**Correctness highlights handled (faithful to the C# parser):**
+- **`>>` RightShift split.** The lexer emits one `RightShift` (112) token for `>>`, so `List<List<int>>`
+  has ONE token closing TWO generics. The kernel mirrors C# `ConsumeGreater`/`_splitGreaterDepth`: a
+  `RightShift` close consumes the token and credits one *owed* `>` (tracked with its byte-end) that the
+  enclosing close consumes without advancing. Proven: `splitGreaterDepth` provably never exceeds 1 (each
+  `RightShift` is immediately followed by an owed close), so a single owed-byte-end slot suffices.
+  Corpus: `List<List<int>>`, `Foo<Bar<Baz<int>>>`.
+- **Child-run contiguity under interleaving (the one real bug found & fixed mid-slice).** A generic whose
+  arguments are themselves generic would, with naïve append-as-you-parse, fragment the parent's child run
+  in the shared `outChildIndices` (the nested arg appends ITS edges in between). Fix: gather each generic's
+  argument ids on a shared **LIFO arg-stack** (recursion is LIFO, so nested generics push/append/pop within
+  their own region) and append the parent's contiguous child block only after the whole arg list + closing
+  `>` are consumed. Regression pin in the corpus: `Dictionary<List<int>, List<int>>`.
+- **Deferred-form seam.** Union (`A | B`) cleanly STOPS at `|` (returns the first arm, leaves `|`
+  unconsumed — the next slice). Tuple `(...)`, `Func<...>` (a `FunctionTypeReference` in the C# AST, not a
+  generic — intentionally out of corpus), and ByRef `&T` are REFUSED with -1 (non-identifier first token).
+- **Depth cap.** Generic nesting > 64 returns the -1 overflow sentinel (a tested, documented limit; the
+  real stack is never blown). Pin: a 70-deep `List<...>` asserts -1.
+
+Deferred to later rungs: Union arms, Tuple, Func semantics, ByRef, lifetimes, line/col `SourceSpan`
+(byte-span only this slice), a full real-corpus type-annotation harvest, and production routing. No
+language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 5: top-level declaration modifiers
 
 `TopLevelDeclarationModifiersInto` + `ModifierFlag` (ParserDeclarations.nl) record, for each top-level
