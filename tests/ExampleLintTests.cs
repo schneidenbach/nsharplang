@@ -310,12 +310,7 @@ func main() {
             return;
         }
 
-        var (exitCode, stdout, stderr) = CaptureConsole(() =>
-            CheckCommand.Execute(new[] { "--project", projectPath }));
-
-        var doc = JsonDocument.Parse(stdout);
-        var errors = doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32();
-        Assert.True(errors == 0, $"Expected no errors from nlc check. Exit code: {exitCode}\nstdout:\n{stdout}\nstderr:\n{stderr}");
+        AssertNlcCheckNoErrors(projectPath);
     }
 
     [Theory]
@@ -331,12 +326,7 @@ func main() {
         if (!Directory.Exists(projectPath))
             return;
 
-        var (exitCode, stdout, _) = CaptureConsole(() =>
-            CheckCommand.Execute(new[] { "--project", projectPath }));
-
-        var doc = JsonDocument.Parse(stdout);
-        var errors = doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32();
-        Assert.Equal(0, errors);
+        AssertNlcCheckNoErrors(projectPath);
     }
 
     [Fact]
@@ -346,12 +336,7 @@ func main() {
         if (!Directory.Exists(projectPath))
             return;
 
-        var (exitCode, stdout, _) = CaptureConsole(() =>
-            CheckCommand.Execute(new[] { "--project", projectPath }));
-
-        var doc = JsonDocument.Parse(stdout);
-        var errors = doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32();
-        Assert.Equal(0, errors);
+        AssertNlcCheckNoErrors(projectPath);
     }
 
     [Fact]
@@ -361,12 +346,7 @@ func main() {
         if (!Directory.Exists(projectPath))
             return;
 
-        var (exitCode, stdout, _) = CaptureConsole(() =>
-            CheckCommand.Execute(new[] { "--project", projectPath }));
-
-        var doc = JsonDocument.Parse(stdout);
-        var errors = doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32();
-        Assert.Equal(0, errors);
+        AssertNlcCheckNoErrors(projectPath);
     }
 
     // ── No NL010 errors on any example ──────────────────────────────
@@ -627,6 +607,32 @@ func main() {
         var path = Path.Combine(Path.GetTempPath(), $"nsharp-lint-{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    // Runs `nlc check --project <path>` and asserts zero errors. On any failure (unparseable output or
+    // a non-zero error count) it dumps the raw exit code, stdout, and stderr so an intermittent failure
+    // is immediately diagnosable instead of surfacing as a bare JsonException or "Expected 0, got N".
+    private static void AssertNlcCheckNoErrors(string projectPath)
+    {
+        var (exitCode, stdout, stderr) = CaptureConsole(() =>
+            CheckCommand.Execute(new[] { "--project", projectPath }));
+
+        int errors;
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout);
+            errors = doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32();
+        }
+        catch (Exception ex)
+        {
+            throw new Xunit.Sdk.XunitException(
+                $"nlc check output for '{projectPath}' was not parseable JSON (exit={exitCode}).\n" +
+                $"--- stdout ({stdout.Length} chars) ---\n{stdout}\n--- stderr ---\n{stderr}\n--- exception ---\n{ex}");
+        }
+
+        Assert.True(errors == 0,
+            $"Expected no errors from nlc check on '{projectPath}' (exit={exitCode}).\n" +
+            $"--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}");
     }
 
     private static (int ExitCode, string Stdout, string Stderr) CaptureConsole(Func<int> action)
