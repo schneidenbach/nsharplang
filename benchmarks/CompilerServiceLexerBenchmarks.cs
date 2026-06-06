@@ -561,6 +561,159 @@ public class CompilerServiceLexerMetadataBenchmarks
     }
 }
 
+/// <summary>
+/// Comment-trivia benchmark for the N# lexer candidate.
+///
+/// The C# baseline runs the full production lexer and projects its collected Lexer.Comments into
+/// caller-owned buffers (line/column/start/length/isMultiLine). The N# path runs the CommentsInto
+/// kernel, which scans the source (skipping string/char/lifetime/number/identifier runs as units so
+/// a // or /* inside a literal is not collected) and writes the same comment metadata. Both produce
+/// identical comment metadata; this measures the cost of collecting formatter trivia.
+/// </summary>
+[MemoryDiagnoser]
+[Orderer(SummaryOrderPolicy.FastestToSlowest)]
+public class CompilerServiceLexerCommentBenchmarks
+{
+    private Func<string, int[], int[], int[], int[], int[], int> _nsharpCommentsInto =
+        (_, _, _, _, _, _) => throw new InvalidOperationException("Benchmark not initialized.");
+    private int[] _csharpLines = Array.Empty<int>();
+    private int[] _csharpColumns = Array.Empty<int>();
+    private int[] _csharpStarts = Array.Empty<int>();
+    private int[] _csharpLengths = Array.Empty<int>();
+    private int[] _csharpIsMultiLine = Array.Empty<int>();
+    private int[] _nsharpLines = Array.Empty<int>();
+    private int[] _nsharpColumns = Array.Empty<int>();
+    private int[] _nsharpStarts = Array.Empty<int>();
+    private int[] _nsharpLengths = Array.Empty<int>();
+    private int[] _nsharpIsMultiLine = Array.Empty<int>();
+    private int[] _lineStarts = Array.Empty<int>();
+    private string _source = string.Empty;
+
+    [Params(CompilerLexerCorpus.Representative, CompilerLexerCorpus.LargeGenerated)]
+    public CompilerLexerCorpus Corpus { get; set; }
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _source = CompilerLexerCorpusSources.Build(Corpus);
+        _lineStarts = BuildLineStarts(_source);
+        _nsharpCommentsInto = NSharpCompiledMethod.Bind<Func<string, int[], int[], int[], int[], int[], int>>(
+            CompilerServiceLexerScannerBenchmarks.NSharpScannerSource,
+            "CommentsInto");
+
+        var capacity = _source.Length + 1;
+        _csharpLines = new int[capacity];
+        _csharpColumns = new int[capacity];
+        _csharpStarts = new int[capacity];
+        _csharpLengths = new int[capacity];
+        _csharpIsMultiLine = new int[capacity];
+        _nsharpLines = new int[capacity];
+        _nsharpColumns = new int[capacity];
+        _nsharpStarts = new int[capacity];
+        _nsharpLengths = new int[capacity];
+        _nsharpIsMultiLine = new int[capacity];
+
+        var expected = new Lexer(_source, $"{Corpus}.nl");
+        expected.Tokenize();
+        var expectedComments = expected.Comments;
+
+        var csharpCount = CSharpLexer_Comments();
+        if (csharpCount != expectedComments.Count)
+        {
+            throw new InvalidOperationException(
+                $"C# comment baseline count mismatch for {Corpus}: expected {expectedComments.Count}, got {csharpCount}.");
+        }
+
+        var nsharpCount = NSharpScanner_Comments();
+        if (nsharpCount != expectedComments.Count)
+        {
+            throw new InvalidOperationException(
+                $"N# CommentsInto count mismatch for {Corpus}: expected {expectedComments.Count}, got {nsharpCount}.");
+        }
+
+        for (var i = 0; i < expectedComments.Count; i++)
+        {
+            if (_nsharpLines[i] != _csharpLines[i] ||
+                _nsharpColumns[i] != _csharpColumns[i] ||
+                _nsharpStarts[i] != _csharpStarts[i] ||
+                _nsharpLengths[i] != _csharpLengths[i] ||
+                _nsharpIsMultiLine[i] != _csharpIsMultiLine[i])
+            {
+                throw new InvalidOperationException(
+                    $"N# CommentsInto mismatch for {Corpus} at comment {i}: " +
+                    $"expected line/col/start/len/multi " +
+                    $"{_csharpLines[i]}/{_csharpColumns[i]}/{_csharpStarts[i]}/{_csharpLengths[i]}/{_csharpIsMultiLine[i]}, got " +
+                    $"{_nsharpLines[i]}/{_nsharpColumns[i]}/{_nsharpStarts[i]}/{_nsharpLengths[i]}/{_nsharpIsMultiLine[i]}.");
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    public int CSharpLexer_Comments()
+    {
+        var lexer = new Lexer(_source, $"{Corpus}.nl");
+        lexer.Tokenize();
+        var comments = lexer.Comments;
+        for (var i = 0; i < comments.Count; i++)
+        {
+            var c = comments[i];
+            _csharpLines[i] = c.Line;
+            _csharpColumns[i] = c.Column;
+            _csharpStarts[i] = TokenStartFromLineColumn(_lineStarts, c.Line, c.Column, _source.Length);
+            _csharpLengths[i] = c.Text.Length;
+            _csharpIsMultiLine[i] = c.IsMultiLine ? 1 : 0;
+        }
+
+        return comments.Count;
+    }
+
+    [Benchmark]
+    public int NSharpScanner_Comments() =>
+        _nsharpCommentsInto(_source, _nsharpLines, _nsharpColumns, _nsharpStarts, _nsharpLengths, _nsharpIsMultiLine);
+
+    private static int[] BuildLineStarts(string source)
+    {
+        var starts = new List<int> { 0 };
+        var position = 0;
+        while (position < source.Length)
+        {
+            if (source[position] == '\r')
+            {
+                position++;
+                if (position < source.Length && source[position] == '\n')
+                {
+                    position++;
+                }
+
+                starts.Add(position);
+                continue;
+            }
+
+            if (source[position] == '\n')
+            {
+                position++;
+                starts.Add(position);
+                continue;
+            }
+
+            position++;
+        }
+
+        return starts.ToArray();
+    }
+
+    private static int TokenStartFromLineColumn(int[] lineStarts, int line, int column, int sourceLength)
+    {
+        var lineIndex = line - 1;
+        if (lineIndex < 0 || lineIndex >= lineStarts.Length)
+        {
+            return sourceLength;
+        }
+
+        return Math.Min(sourceLength, lineStarts[lineIndex] + column - 1);
+    }
+}
+
 internal static class CompilerLexerCorpusSources
 {
     public static string Build(CompilerLexerCorpus corpus) => corpus switch

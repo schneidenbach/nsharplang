@@ -97,6 +97,32 @@ two rows are measured under identical conditions.
   format-contract gate on one file; it is not routed, so it carries no production risk (fix the
   formatting before merging that branch if it is kept).
 
+## 2026-06-06 — Lexer feature-complete; comment-trivia benchmark
+
+The N# lexer kernels reached full feature parity with the C# production lexer (indentation braces,
+systems keywords, lifetimes, Unicode classification, malformed-number `Unknown` tokens, comment
+trivia). Added `CompilerServiceLexerCommentBenchmarks` for the new `CommentsInto` kernel. Short-job
+(`--job short`) numbers, parity asserted in `[GlobalSetup]`:
+
+| Corpus | N# `CommentsInto` | C# `Lexer.Comments` | Speedup | N# alloc | C# alloc |
+|--------|-------------------|---------------------|---------|----------|----------|
+| Representative | 1.51 µs | 7.16 µs | 4.7× | 0 B | 33,882 B |
+| LargeGenerated | 408 µs | 7.35 ms | 18.0× | 0 B | 10,664,663 B |
+
+**Honest framing (not a clean codegen isolation):** C# has no dedicated comment scanner — the only way
+to obtain `Lexer.Comments` is the full allocating `Lexer.Tokenize()` (StringBuilder per token, `Token`
+records, `List<Token>`, indentation pass). So this measures *how each system obtains comment trivia
+today*: N#'s dedicated zero-alloc comment scan vs C#'s tokenize-byproduct. It is dramatic and real
+(0 B vs 10.7 MB on the large row), but it is NOT a scan-vs-scan comparison — a hypothetical C#
+comment-only scanner would narrow it, and in the compiler the full token pass is needed regardless
+(so the apples-to-apples cost is `TokenizeMetadataInto` + `CommentsInto`, both zero-alloc scans, which
+the existing `CompilerServiceLexerMetadataBenchmarks` already covers for the token pass). The honest
+takeaway: the N# lexer scanners are zero-allocation where the C# lexer allocates heavily, which is the
+boundary-profiling thesis (N# wins when the C# baseline is wasteful) confirmed on the lexer subsystem.
+The lexer kernels remain behind the `*DogfoodAdapter` bridge; routing the whole lexer is NOT justified
+because the parser consumes C# `Token` objects, so materialization re-incurs the string allocations
+— bridge deletion awaits an N# parser (Phase 2/3).
+
 ## Prior accepted/rejected evidence (pre-this-batch)
 
 Earlier dogfood slices already recorded in [`compiler-dogfood-rewrite.md`](compiler-dogfood-rewrite.md)
