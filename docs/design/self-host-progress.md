@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 10: primary expressions (the expression subsystem begins)
+
+Starts the largest parser subsystem — the ~17-level expression precedence chain
+(Parser.cs ParseExpression..ParsePrimaryExpression). This is the critical path for self-hosting the dogfood
+kernels themselves, which are flat top-level functions whose BODIES are statements + expressions (they have
+no type members). `ParseExpressionNodesInto` (new `ParserExpressions.nl`) parses PRIMARY expressions —
+int/float/char/string/bool/null literals (kinds 0-5), identifiers (kind 6), and parenthesized expressions
+(kind 7, `( expr )`) — into a columnar node table (post-order, root last), mirroring
+`ParsePrimaryExpression`. Verified against the production parser's Expression AST (extracted from a
+`return <expr>` statement) on every primary form incl. nested parens, plus refusals (-1) for tuples
+`(a, b)`, named elements `(x: e)`, and non-primary leads (`+5`, `.x`, `)`), plus determinism, root-span, and
+full-consumption (continuation lands on the block's `}`) invariants.
+
+Deferred to later slices (the rest of the chain): postfix (call/index/member access), unary, the binary
+precedence chain, assignment, ternary, range, new/alloc, match, tuples, array/object literals, interpolated
+strings, lambdas, casts. Literal VALUE materialization (unescaping) stays the host's job — the kernel
+records the value token's byte span (int/float values verified to equal that span; string/char are
+kind-only). No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 9: function signatures (first declaration-level kernel, composes the type kernel)
 
 The first slice that goes ABOVE type references: `ParseFunctionSignatureInto` (new

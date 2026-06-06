@@ -913,6 +913,194 @@ class B
         _ => false,
     };
 
+    // Parser slice 10: the first EXPRESSION kernel. ParseExpressionNodesInto (ParserExpressions.nl) parses
+    // primary expressions (literals / identifiers / parenthesized) into a columnar node table, pinned
+    // against the production parser's Expression AST (extracted from a `return <expr>` statement). This is
+    // the foundation of the expression subsystem; later slices add postfix, unary, and binary precedence.
+    [Fact]
+    public void Parser_PrimaryExpression_MatchesProductionParser()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"NSharpLang.Compiler.Dogfood.ParserExpr.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+
+            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            var programType = assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod(
+                    "TokenizeMetadataWithIndentationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
+            var parseExpr = programType.GetMethod(
+                    "ParseExpressionNodesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseExpressionNodesInto.");
+
+            string[] expressions =
+            {
+                "5", "0", "42", "3.14", "0.5", "'a'", "'\\n'", "\"hi\"", "\"\"",
+                "true", "false", "null",
+                "x", "value", "count",
+                "(5)", "(x)", "((42))", "(true)", "(null)", "(\"hi\")",
+            };
+            foreach (var e in expressions)
+                AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
+
+            // Refused (-1): deferred primaries / non-primary leads / tuples.
+            foreach (var bad in new[] { "(1, 2)", "(x: 1)", "+5", ".x", ")" })
+                AssertExpressionRefused(bad, tokenize, parseExpr);
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static (int Count, int[] Kinds, int[] Starts, int[] ValueLengths, int Start, string Source)
+        TokenizeReturnExpression(string exprString, MethodInfo tokenize)
+    {
+        var (count, kinds, starts, valueLengths, source) =
+            TokenizeSourceViaKernel("func e() { return " + exprString + " }", tokenize);
+        // The expression begins one token after the `return` keyword (TokenType.Return == 29).
+        var start = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == 29) { start = i + 1; break; }
+        }
+        Assert.True(start > 0, $"Could not locate `return` for expression '{exprString}'.");
+        return (count, kinds, starts, valueLengths, start, source);
+    }
+
+    private static void AssertPrimaryExpressionLikeProduction(string exprString, MethodInfo tokenize, MethodInfo parseExpr)
+    {
+        var tokens = new Lexer("func e() { return " + exprString + " }", "e.nl").Tokenize();
+        var compilationUnit = new Parser(tokens, "e.nl").ParseCompilationUnit().CompilationUnit;
+        Assert.NotNull(compilationUnit);
+        var fn = compilationUnit!.Declarations.OfType<FunctionDeclaration>().Single();
+        var body = fn.Body;
+        Assert.True(body != null, $"No body for '{exprString}'.");
+        var ret = body!.Statements.OfType<ReturnStatement>().Single();
+        Assert.True(ret.Value != null, $"No return value for '{exprString}'.");
+
+        var (count, kinds, starts, valueLengths, start, source) = TokenizeReturnExpression(exprString, tokenize);
+
+        var cap = count + 1;
+        var k = new int[cap];
+        var vs = new int[cap];
+        var vl = new int[cap];
+        var cstart = new int[cap];
+        var ccount = new int[cap];
+        var ci = new int[cap];
+        var ss = new int[cap];
+        var sl = new int[cap];
+        var res = new int[2];
+        var nodeCount = (int)(parseExpr.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, start, k, vs, vl, cstart, ccount, ci, ss, sl, res }) ?? -2);
+
+        Assert.True(nodeCount > 0, $"Kernel refused primary expression '{exprString}'.");
+        var root = res[0];
+        Assert.Equal(nodeCount - 1, root);
+
+        AssertExprNode(ret.Value!, root, k, vs, vl, cstart, ccount, ci, source, exprString);
+
+        // Root span equals the expression text; full consumption lands on the block's `}` (130).
+        Assert.Equal(exprString, source.Substring(ss[root], sl[root]));
+        Assert.True(res[1] < count && kinds[res[1]] == 130, $"Expression '{exprString}' did not consume to the block close.");
+
+        // Determinism.
+        var (n2, k2, vs2, vl2, cstart2, ccount2, ci2, ss2, sl2, res2) = InvokeParseExpr(parseExpr, kinds, starts, valueLengths, count, start);
+        Assert.Equal(nodeCount, n2);
+        for (var i = 0; i < nodeCount; i++)
+        {
+            Assert.True(
+                k[i] == k2[i] && vs[i] == vs2[i] && vl[i] == vl2[i] && cstart[i] == cstart2[i] &&
+                ccount[i] == ccount2[i] && ci[i] == ci2[i] && ss[i] == ss2[i] && sl[i] == sl2[i],
+                $"Non-deterministic expression node table at {i} for '{exprString}'.");
+        }
+        Assert.Equal(res[0], res2[0]);
+        Assert.Equal(res[1], res2[1]);
+    }
+
+    private static void AssertExpressionRefused(string exprString, MethodInfo tokenize, MethodInfo parseExpr)
+    {
+        var (count, kinds, starts, valueLengths, start, _) = TokenizeReturnExpression(exprString, tokenize);
+        var (nodeCount, _, _, _, _, _, _, _, _, _) = InvokeParseExpr(parseExpr, kinds, starts, valueLengths, count, start);
+        Assert.True(nodeCount == -1, $"Kernel should refuse deferred expression '{exprString}' with -1, got {nodeCount}.");
+    }
+
+    private static (int NodeCount, int[] Kinds, int[] ValueStarts, int[] ValueLengths, int[] ChildStart,
+        int[] ChildCount, int[] ChildIndices, int[] SpanStarts, int[] SpanLengths, int[] Result)
+        InvokeParseExpr(MethodInfo parseExpr, int[] kinds, int[] starts, int[] valueLengths, int count, int start)
+    {
+        var cap = count + 1;
+        var k = new int[cap];
+        var vs = new int[cap];
+        var vl = new int[cap];
+        var cstart = new int[cap];
+        var ccount = new int[cap];
+        var ci = new int[cap];
+        var ss = new int[cap];
+        var sl = new int[cap];
+        var res = new int[2];
+        var nodeCount = (int)(parseExpr.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, start, k, vs, vl, cstart, ccount, ci, ss, sl, res }) ?? -2);
+        return (nodeCount, k, vs, vl, cstart, ccount, ci, ss, sl, res);
+    }
+
+    private static void AssertExprNode(
+        Expression expected, int idx,
+        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
+        string source, string label)
+    {
+        switch (expected)
+        {
+            case IntLiteralExpression e:
+                Assert.True(kinds[idx] == 0, $"Expected Int (0) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(e.Value, source.Substring(valueStarts[idx], valueLengths[idx]));
+                break;
+            case FloatLiteralExpression e:
+                Assert.True(kinds[idx] == 1, $"Expected Float (1) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(e.Value, source.Substring(valueStarts[idx], valueLengths[idx]));
+                break;
+            case CharLiteralExpression:
+                Assert.True(kinds[idx] == 2, $"Expected Char (2) at node {idx} for '{label}', got {kinds[idx]}.");
+                break;
+            case StringLiteralExpression:
+                Assert.True(kinds[idx] == 3, $"Expected String (3) at node {idx} for '{label}', got {kinds[idx]}.");
+                break;
+            case BoolLiteralExpression e:
+                Assert.True(kinds[idx] == 4, $"Expected Bool (4) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(e.Value, source.Substring(valueStarts[idx], valueLengths[idx]) == "true");
+                break;
+            case NullLiteralExpression:
+                Assert.True(kinds[idx] == 5, $"Expected Null (5) at node {idx} for '{label}', got {kinds[idx]}.");
+                break;
+            case IdentifierExpression e:
+                Assert.True(kinds[idx] == 6, $"Expected Identifier (6) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(e.Name, source.Substring(valueStarts[idx], valueLengths[idx]));
+                break;
+            case ParenthesizedExpression e:
+                Assert.True(kinds[idx] == 7, $"Expected Parenthesized (7) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(1, childCount[idx]);
+                AssertExprNode(e.Inner, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            default:
+                Assert.Fail($"Unexpected production expression node {expected.GetType().Name} for '{label}' (out of slice-10 scope).");
+                break;
+        }
+    }
+
     [Fact]
     public void Parser_RealCorpus_AstSerializesDeterministically()
     {
