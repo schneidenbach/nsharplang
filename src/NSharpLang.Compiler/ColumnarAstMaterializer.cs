@@ -14,7 +14,7 @@ namespace NSharpLang.Compiler;
 ///
 /// Node-kind numbering matches the kernels: TYPE 0 Simple,1 Generic,2 Array,3 Nullable,4 Union,5 ByRef;
 /// EXPR 0 Int,1 Float,2 Char,3 String,4 Bool,5 Null,6 Identifier,7 Parenthesized,8 MemberAccess,9 Call,
-/// 10 IndexAccess,11 Unary,12 Binary,13 Ternary,14 Assignment,15 New. Type-vs-expression children that share
+/// 10 IndexAccess,11 Unary,12 Binary,13 Ternary,14 Assignment,15 New,16 Cast. Type-vs-expression children that share
 /// a kind range are disambiguated positionally by the caller (e.g. a New node's child[0] is a type, the rest
 /// are argument expressions), exactly as the kernels emit them.
 ///
@@ -74,6 +74,8 @@ public sealed class ColumnarAstMaterializer
             case 13: return new TernaryExpression(MaterializeExpression(Child(idx, 0)), MaterializeExpression(Child(idx, 1)), MaterializeExpression(Child(idx, 2)), line, column);
             case 14: return new AssignmentExpression(MaterializeExpression(Child(idx, 0)), AssignmentOperatorOf(Text(idx)), MaterializeExpression(Child(idx, 1)), line, column);
             case 15: return MaterializeNew(idx, line, column);
+            // Hard cast `(Type)expr`: child[0] is the target type subtree, child[1] the operand expression.
+            case 16: return new CastExpression(MaterializeExpression(Child(idx, 1)), MaterializeTypeReference(Child(idx, 0)), CastKind.Hard, line, column);
             default: throw new InvalidOperationException($"ColumnarAstMaterializer: unknown expression node kind {kind} at {idx}.");
         }
     }

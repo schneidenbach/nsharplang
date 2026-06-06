@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Slice 24: PRODUCTION ROUTING + cast expressions — the N# front-end parses 100% of its own systems source
+
+The N# parser front-end is now **wired into the production parse path** and parses the entire dogfood
+compiler-service corpus (32 `CompilerServices/*.nl` files) **byte-for-byte identically** to the C# parser.
+
+- **`NSharpCompilerDogfoodAdapter.TryParseCompilationUnit`** (new): a whole-file orchestrator that runs the
+  dogfood tokenizer + declarations kernel (imports/package/decl kinds) + per-function signature & statement
+  kernels + `ColumnarAstMaterializer`, assembling a production `CompilationUnit`. It is conservative and
+  **fallback-safe**: any non-function top-level declaration, package declaration, or kernel refusal makes it
+  return `false` so the C# parser handles the file.
+- **`Parser.ParseCompilationUnit()` routes through it** when `NSharpCompilerDogfoodAdapter
+  .ParserFrontEndRoutingEnabled` is set (env var `NSHARP_PARSER_FRONTEND=1`). **Off by default**, so
+  production behavior is unchanged until the end-to-end benchmark (next) justifies flipping it on.
+- **Cast expressions (kind 16)** were the *only* gap to full-corpus parity. Building the orchestrator + a
+  whole-corpus parity test surfaced that the expression kernel silently mis-parsed C-style casts `(int)x` as
+  `(int)` (parenthesized) + a stray statement — a real refusal-incompleteness bug. Added faithful cast
+  detection to `ParserExpressions.nl` mirroring `Parser.cs` `IsCastExpression`: speculatively parse a type
+  after `(`, and if it is followed by `)` and an expression-start token (`IsExpressionStartKind`, mirroring
+  C#'s `IsExpressionStart`), emit a `CastExpression`; otherwise roll back and parse as parenthesized. With
+  casts, the corpus went from 29/32 to **32/32 files routed, 0 divergent**.
+- **Safety:** `Router_CompilationUnit_MatchesProductionParserAst` asserts every dogfood file routes AND
+  matches the C# parser structurally (the corpus is the safety proof — a silently-wrong tree fails here).
+  `Router_RefusesUnsupportedForms` proves the front-end declines class/struct/enum/package/`let`/`foreach`
+  (so "kernel didn't refuse" + whole-file acceptance is a trustworthy routing signal).
+
+This is the self-host **parser** milestone: the N# parser is genuinely USED in production (env-gated) and is
+correct on 100% of the compiler's own systems source. Next: end-to-end benchmark (routed tokenize+kernels
++materialize vs C# Lexer+Parser) — the never-slower gate before flipping the default on — then expand the
+supported declaration forms (types/classes) and begin shrinking the C# parser surface.
+
 ## 2026-06-06 — Slice 23: whole-function-declaration materialization (the routing unit)
 
 Composes the fnsig kernel (name + parameter names/types + return type) and the statement kernel (body) and

@@ -24,10 +24,14 @@
 //                                         the type child is a TYPE-kernel subtree (kinds 0-5), args are
 //                                         expression subtrees -- the host walks child[0] as a type and the
 //                                         rest as expressions. Composes the type kernel via the unified st. )
+//   CastExpression          -> kind 16  ( ( <type> ) operand -- hard cast; children [typeRoot, operand];
+//                                         operand is a unary expression. Detected by speculatively parsing a
+//                                         type after `(` and requiring `) <expr-start>` (Parser.cs
+//                                         IsCastExpression); otherwise the `(` is a parenthesized expression. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
-//   default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/cast/...). A tuple
+//   default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/...). A tuple
 //   `(a, b)` or named element `(x: e)` is refused (the parenthesized branch requires a lone `)` after the
 //   inner expression). Literal VALUE materialization (unescaping strings/chars) is the host's job; this
 //   kernel records the value token's byte span only.
@@ -72,6 +76,21 @@ func AppendExpressionChild(st: int[], outChildIndices: int[], childId: int): int
     outChildIndices[slot] = childId
     st[2] = slot + 1
     return slot
+}
+
+// Mirrors Parser.cs IsExpressionStart: the set of token kinds that can begin an expression. Used by the cast
+// detection in ParsePrimaryExpressionNode to disambiguate `( <type> ) <expr>` (a hard cast) from a
+// parenthesized expression -- the C# parser only treats `(...)` as a cast when an expression-start token
+// follows the `)`. Kinds (TokenType ordinals, see Token.cs): Identifier 0, IntLiteral 1, FloatLiteral 2,
+// CharLiteral 3, StringLiteral 4, TripleQuoteStringLiteral 5, InterpolatedRawStringLiteral 6, Must 20,
+// Match 31, Default 34, Throw 37, New 41, This 42, Base 43, True 44, False 45, Null 46, Typeof 49, Nameof 50,
+// Sizeof 51, Await 69, Immutable 70, Checked 83, Unchecked 84, Plus 88, Minus 89, Not 106, BitwiseNot 110,
+// Increment 113, Decrement 114, LeftParen 127, LeftBracket 131, Alloc 143, Stackalloc 145.
+func IsExpressionStartKind(kind: int): bool {
+    if kind >= 0 && kind <= 6 {
+        return true
+    }
+    return kind == 20 || kind == 31 || kind == 34 || kind == 37 || kind == 41 || kind == 42 || kind == 43 || kind == 44 || kind == 45 || kind == 46 || kind == 49 || kind == 50 || kind == 51 || kind == 69 || kind == 70 || kind == 83 || kind == 84 || kind == 88 || kind == 89 || kind == 106 || kind == 110 || kind == 113 || kind == 114 || kind == 127 || kind == 131 || kind == 143 || kind == 145
 }
 
 // ParsePrimaryExpression (Parser.cs:4525) restricted to literals, identifiers, and ( expr ). Returns the
@@ -200,6 +219,45 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 
     if kind == 127 {
         parenStart := tokenStart
+
+        // Cast expression (Parser.cs ParsePrimaryExpression + IsCastExpression): `( <type> ) <operand>`,
+        // where an expression-start token follows the `)`, is a hard cast. SPECULATIVELY parse a type from
+        // after the `(`; if it is followed by `)` and an expression-start, emit a CastExpression (kind 16):
+        // children = [typeRoot, operand], operand parsed as a unary expression (matching C#). Otherwise roll
+        // back the speculatively-emitted type nodes / child run / arg-stack and parse as a parenthesized
+        // expression. The type kernel refuses type forms it does not support, which rolls back to the paren
+        // path (and typically refuses there too) -- never a silently-wrong tree.
+        castSaveNode := st[1]
+        castSaveChild := st[2]
+        castSaveArg := st[3]
+        st[0] = pos + 1
+        st[4] = 0
+        castType := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        isCast := false
+        if castType >= 0 && st[0] < count && tokenKinds[st[0]] == 128 {
+            if st[0] + 1 < count && IsExpressionStartKind(tokenKinds[st[0] + 1]) {
+                isCast = true
+            }
+        }
+
+        if isCast {
+            st[0] = st[0] + 1
+            operand := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if operand < 0 {
+                return -1
+            }
+
+            castSpanEnd := outSpanStarts[operand] + outSpanLengths[operand]
+            castChildRun := st[2]
+            AppendExpressionChild(st, outChildIndices, castType)
+            AppendExpressionChild(st, outChildIndices, operand)
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 16, -1, 0, castChildRun, 2, parenStart, castSpanEnd - parenStart)
+        }
+
+        st[1] = castSaveNode
+        st[2] = castSaveChild
+        st[3] = castSaveArg
+        st[4] = 0
         st[0] = pos + 1
         inner := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if inner < 0 {

@@ -42,6 +42,201 @@ internal static class NSharpCompilerDogfoodAdapter
     internal static bool IsAvailable => s_bindings.Value != null;
 
     /// <summary>
+    /// Routes whole-file parsing through the N#-native columnar parser front-end (slices 1-23) instead of the
+    /// C# <see cref="Parser"/>. Off by default; set the NSHARP_PARSER_FRONTEND=1 environment variable (or this
+    /// property from a test) to enable. While off, production behavior is byte-for-byte the C# parser; while
+    /// on, <see cref="Parser.ParseCompilationUnit"/> first attempts <see cref="TryParseCompilationUnit"/> and
+    /// only falls back to C# when the N# front-end declines (any unsupported form, see the guard rails there).
+    /// </summary>
+    internal static bool ParserFrontEndRoutingEnabled { get; set; }
+        = Environment.GetEnvironmentVariable("NSHARP_PARSER_FRONTEND") == "1";
+
+    /// <summary>
+    /// Parses an entire source file with the N#-native parser front-end and materializes the result into the
+    /// production <see cref="CompilationUnit"/> AST. Returns true only when the WHOLE file is within the forms
+    /// the front-end fully supports (all top-level declarations are functions; every signature and body parses
+    /// without the kernels declining); otherwise returns false so the caller keeps the C# parser. This is the
+    /// conservative, fallback-safe routing entry: any form the kernels do not handle makes them return a
+    /// negative sentinel, which is propagated here as "false" -- never a silently-wrong tree.
+    /// </summary>
+    internal static bool TryParseCompilationUnit(string source, string? filePath, out CompilationUnit? unit)
+    {
+        unit = null;
+
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+
+        try
+        {
+            // 1. Tokenize via the dogfood tokenizer (the exact path the parser parity tests exercise).
+            var capacity = 3 * (source.Length + 1) + 8;
+            var rawKinds = new int[capacity];
+            var rawStarts = new int[capacity];
+            var rawValueLengths = new int[capacity];
+            var rawLines = new int[capacity];
+            var rawColumns = new int[capacity];
+            var rawCount = bindings.TokenizeMetadataWithIndentation(
+                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+            if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            // 2. Top-level declaration kinds (on the RAW stream, matching the decl kernel's contract). Every
+            //    declaration must be a function (TokenType.Func == 7); a class/struct/enum/interface/etc.
+            //    means the file is outside the supported subset -> fall back to the C# parser.
+            var declKinds = new int[rawCount + 1];
+            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
+            if (declCount < 0)
+                return false;
+            for (var i = 0; i < declCount; i++)
+            {
+                if (declKinds[i] != 7)
+                    return false;
+            }
+
+            // 3. A package declaration is not yet materialized by the front-end; defer those files to C#.
+            var packageResult = new int[2];
+            if (bindings.PackageNameSpan(rawKinds, rawStarts, rawValueLengths, rawCount, packageResult) == 1)
+                return false;
+
+            // 4. Imports (namespace + optional alias spans) on the RAW stream.
+            var nsStarts = new int[rawCount + 1];
+            var nsLengths = new int[rawCount + 1];
+            var aliasStarts = new int[rawCount + 1];
+            var aliasLengths = new int[rawCount + 1];
+            var importCount = bindings.NamespaceImportSpans(
+                rawKinds, rawStarts, rawValueLengths, rawCount, nsStarts, nsLengths, aliasStarts, aliasLengths);
+            if (importCount < 0)
+                return false;
+            var imports = new List<ImportDirective>(importCount);
+            for (var i = 0; i < importCount; i++)
+            {
+                if (nsStarts[i] < 0)
+                    return false;
+                var ns = source.Substring(nsStarts[i], nsLengths[i]);
+                var alias = aliasStarts[i] < 0 ? null : source.Substring(aliasStarts[i], aliasLengths[i]);
+                imports.Add(new ImportDirective(ns, alias, 0, 0));
+            }
+
+            // 5. Compact the Newline tokens (kind 136) for the per-function kernels, which expect the same
+            //    newline-free stream the C# Parser builds (Parser.cs constructor) -- byte offsets are unchanged.
+            var ck = new int[rawCount];
+            var cs = new int[rawCount];
+            var cv = new int[rawCount];
+            var n = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                ck[n] = rawKinds[i];
+                cs[n] = rawStarts[i];
+                cv[n] = rawValueLengths[i];
+                n++;
+            }
+
+            // 6. Each depth-0 `func` keyword (TokenType.Func == 7) is one function declaration, in order.
+            var funcIndices = TopLevelFuncIndices(ck, n);
+            if (funcIndices.Count != declCount)
+                return false;
+
+            var declarations = new List<Declaration>(funcIndices.Count);
+            var cap = n + 1;
+            foreach (var funcIndex in funcIndices)
+            {
+                // 6a. Signature kernel -> name + parameter names/types + return type (its own node table).
+                var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+                var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+                var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+                var sres = new int[5];
+                var paramCount = bindings.ParseFunctionSignature(
+                    ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
+                    pNameStart, pNameLen, pTypeRoot, sres);
+                if (paramCount < 0 || sres[3] < 0)
+                    return false;
+
+                var name = source.Substring(sres[3], sres[4]);
+                var sigMaterializer = new ColumnarAstMaterializer(sk, sns, snl, scs, scc, sci, sss, source);
+                var parameters = new List<Parameter>(paramCount);
+                for (var p = 0; p < paramCount; p++)
+                {
+                    parameters.Add(new Parameter(
+                        source.Substring(pNameStart[p], pNameLen[p]),
+                        sigMaterializer.MaterializeTypeReference(pTypeRoot[p]),
+                        null,
+                        false));
+                }
+
+                TypeReference? returnType = sres[1] >= 0 ? sigMaterializer.MaterializeTypeReference(sres[1]) : null;
+
+                // 6b. Statement kernel over the body block (its own node table); body root in bres[0].
+                var bodyBrace = -1;
+                for (var t = funcIndex + 1; t < n; t++)
+                {
+                    if (ck[t] == 129) { bodyBrace = t; break; }
+                }
+                if (bodyBrace < 0)
+                    return false;
+
+                var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+                var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+                var bres = new int[2];
+                var bodyNodeCount = bindings.ParseStatementNodes(
+                    ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
+                if (bodyNodeCount <= 0)
+                    return false;
+
+                var body = new ColumnarAstMaterializer(bk, bvs, bvl, bcs, bcc, bci, bss, source)
+                    .MaterializeStatement(bres[0]) as BlockStatement;
+                if (body == null)
+                    return false;
+
+                declarations.Add(new FunctionDeclaration(
+                    name, parameters, returnType, body,
+                    ExpressionBody: null, TypeParameters: null, Constraints: null,
+                    Modifiers.None, new List<AttributeNode>(),
+                    IsOperatorOverload: false, OperatorSymbol: null,
+                    IsConversionOperator: false, IsImplicitConversion: false,
+                    Line: 0, Column: 0));
+            }
+
+            unit = new CompilationUnit(
+                Namespace: null, imports, new List<Statement>(), Package: null, declarations, 0, 0);
+            return true;
+        }
+        catch
+        {
+            unit = null;
+            return false;
+        }
+    }
+
+    /// <summary>Indices of every depth-0 <c>func</c> keyword (TokenType.Func == 7) in the compacted stream.</summary>
+    private static List<int> TopLevelFuncIndices(int[] kinds, int count)
+    {
+        var result = new List<int>();
+        var brace = 0;
+        var bracket = 0;
+        var paren = 0;
+        for (var i = 0; i < count; i++)
+        {
+            switch (kinds[i])
+            {
+                case 129: brace++; break;
+                case 130: if (brace > 0) brace--; break;
+                case 131: bracket++; break;
+                case 132: if (bracket > 0) bracket--; break;
+                case 127: paren++; break;
+                case 128: if (paren > 0) paren--; break;
+                case 7:
+                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
     /// Single-pass replacement for ProjectConfig.GetSourceFiles' post-enumeration filtering
     /// (test-file filter + exclude-glob filter). Materializes the kept files preserving enumeration
     /// order. Returns false (so callers keep the C# path) when the dogfood assembly is unavailable
@@ -1021,7 +1216,25 @@ internal static class NSharpCompilerDogfoodAdapter
                     "SemanticScopeLookupSymbolIndicesInto"),
                 CreateDelegate<OverloadSelectBestCandidate>(
                     programType,
-                    "OverloadSelectBestCandidate"));
+                    "OverloadSelectBestCandidate"),
+                CreateDelegate<TokenizeMetadataWithIndentationInto>(
+                    programType,
+                    "TokenizeMetadataWithIndentationInto"),
+                CreateDelegate<TopLevelDeclarationKindsInto>(
+                    programType,
+                    "TopLevelDeclarationKindsInto"),
+                CreateDelegate<NamespaceImportSpansInto>(
+                    programType,
+                    "NamespaceImportSpansInto"),
+                CreateDelegate<PackageNameSpanInto>(
+                    programType,
+                    "PackageNameSpanInto"),
+                CreateDelegate<ParseFunctionSignatureInto>(
+                    programType,
+                    "ParseFunctionSignatureInto"),
+                CreateDelegate<ParseStatementNodesInto>(
+                    programType,
+                    "ParseStatementNodesInto"));
         }
         catch
         {
@@ -1173,6 +1386,27 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] resultScopeIds,
         int[] resultSymbolIndices);
 
+    // Parser front-end kernels (slices 1-23): the N#-native columnar parser. These compose into the
+    // TryParseCompilationUnit routing orchestrator below, which materializes the columnar node tables into
+    // the production CompilationUnit/Declaration/Statement/Expression AST via ColumnarAstMaterializer.
+    private delegate int TokenizeMetadataWithIndentationInto(
+        string source, int[] kinds, int[] starts, int[] valueLengths, int[] lines, int[] columns);
+    private delegate int TopLevelDeclarationKindsInto(int[] tokenKinds, int count, int[] outKinds);
+    private delegate int NamespaceImportSpansInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
+        int[] outNsStarts, int[] outNsLengths, int[] outAliasStarts, int[] outAliasLengths);
+    private delegate int PackageNameSpanInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int[] outResult);
+    private delegate int ParseFunctionSignatureInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
+        int[] outNodeKinds, int[] outNameStarts, int[] outNameLengths, int[] outChildStart, int[] outChildCount,
+        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
+        int[] outParamNameStarts, int[] outParamNameLengths, int[] outParamTypeRoots, int[] outResult);
+    private delegate int ParseStatementNodesInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
+        int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
+        int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
+
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
         FormatterImportOrderIndicesInto FormatterImportOrderIndices,
@@ -1189,7 +1423,13 @@ internal static class NSharpCompilerDogfoodAdapter
         SemanticScopeBuildDepthsInto SemanticScopeBuildDepths,
         SemanticScopeVisibleSymbolIndicesInto SemanticScopeVisibleSymbolIndices,
         SemanticScopeLookupSymbolIndicesInto SemanticScopeLookupSymbolIndices,
-        OverloadSelectBestCandidate OverloadSelectBestCandidate);
+        OverloadSelectBestCandidate OverloadSelectBestCandidate,
+        TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
+        TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
+        NamespaceImportSpansInto NamespaceImportSpans,
+        PackageNameSpanInto PackageNameSpan,
+        ParseFunctionSignatureInto ParseFunctionSignature,
+        ParseStatementNodesInto ParseStatementNodes);
 
     private sealed class SemanticScopeCache
     {

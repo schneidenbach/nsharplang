@@ -1353,6 +1353,8 @@ class B
                 "a + b * c", "i < count && tokenKinds[pos] == 102", "arr[i].field", "f(g(x), y)",
                 "-arr[i]", "!found", "a ? b : c", "total = total + 1", "x ??= y",
                 "new int[](count + 1)", "obj.method(a, b)", "data[i].next.value", "(a + b) * c",
+                // Hard casts (must NOT be mistaken for parenthesized expressions).
+                "(int)left", "(char)(a + b)", "(int)data[i]", "(int)left - (int)right",
             };
             foreach (var e in expressions)
             {
@@ -1496,6 +1498,114 @@ class B
             if (File.Exists(outputPath)) File.Delete(outputPath);
         }
     }
+
+    // Slice 24: PRODUCTION ROUTING. NSharpCompilerDogfoodAdapter.TryParseCompilationUnit assembles a whole
+    // CompilationUnit from the N#-native front-end -- imports (declarations kernel) + every top-level function
+    // (signature kernel + statement kernel + ColumnarAstMaterializer) -- and Parser.ParseCompilationUnit()
+    // routes through it when NSHARP_PARSER_FRONTEND is enabled, falling back to the C# parser for any
+    // unsupported form. This proves the routed CompilationUnit is structurally identical to the C# parser on
+    // fully-supported sources (hand-built corpora plus any real dogfood file the front-end accepts).
+    [Fact]
+    public void Router_CompilationUnit_MatchesProductionParserAst()
+    {
+        // Corpora composed ENTIRELY of supported forms (imports + functions whose signatures and bodies the
+        // front-end fully handles): these must route AND match the C# parser structurally.
+        string[] supportedCorpora =
+        {
+            "import System\n\nfunc add(a: int, b: int): int {\n    return a + b\n}\n\nfunc neg(x: int): int {\n    return -x\n}\n",
+            "func scan(data: int[], count: int): int {\n    total := 0\n    i := 0\n    while i < count {\n        if data[i] < 0 {\n            i = i + 1\n            continue\n        }\n        total = total + data[i]\n        i = i + 1\n    }\n    return total\n}\n",
+            "import System.Text\n\nfunc choose(items: string[], flag: bool): string {\n    result := flag ? items[0] : items[1]\n    return result\n}\n",
+            // Hard casts: (int)ident, (char)(expr), (int)indexed -- the form that distinguishes the cast branch
+            // from a parenthesized expression.
+            "func codes(left: char, text: string, i: int): int {\n    leftCode := (int)left\n    ch := (int)text[i]\n    c := (char)(leftCode + 1)\n    return leftCode\n}\n",
+        };
+
+        foreach (var src in supportedCorpora)
+        {
+            var (ok, routed) = RouteCompilationUnit(src, "corpus.nl");
+            Assert.True(ok, $"Front-end declined a fully-supported corpus:\n{src}");
+            Assert.NotNull(routed);
+            var expected = CSharpCompilationUnit(src, "corpus.nl");
+            Assert.Equal(StructuralJson(expected), StructuralJson(routed));
+        }
+
+        // Real dogfood files: the N# front-end parses 100% of its OWN systems source (the compiler-service
+        // kernels) identically to the C# parser. Every CompilerServices/*.nl file must (a) route end-to-end
+        // and (b) produce a CompilationUnit structurally identical to the C# parser. This is the self-host
+        // parser milestone -- and the safety proof for routing the corpus: any divergence (a form the kernels
+        // silently mis-parse instead of refusing) fails here, never reaches production.
+        var repoRoot = FindRepoRoot();
+        var servicesDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var files = Directory.EnumerateFiles(servicesDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var routedDogfoodFiles = 0;
+        foreach (var file in files)
+        {
+            var src = File.ReadAllText(file);
+            var (ok, routed) = RouteCompilationUnit(src, file);
+            Assert.True(ok, $"The N# front-end must fully route its own systems source, but declined {file}.");
+            var expected = CSharpCompilationUnit(src, file);
+            Assert.True(
+                StructuralJson(expected) == StructuralJson(routed),
+                $"Routed CompilationUnit diverges from the C# parser for {file}");
+            routedDogfoodFiles++;
+        }
+
+        Assert.Equal(files.Count, routedDogfoodFiles);
+        Assert.True(routedDogfoodFiles >= 30, $"Expected the full dogfood corpus to route; only {routedDogfoodFiles} did.");
+    }
+
+    // The routing orchestrator must DECLINE every form the front-end does not fully support -- returning false
+    // so the C# parser (with its diagnostics) handles the file -- never a silently-wrong tree. These are all
+    // valid N# the C# parser accepts; only the front-end declines.
+    [Fact]
+    public void Router_RefusesUnsupportedForms()
+    {
+        (string Label, string Source)[] unsupported =
+        {
+            ("class declaration", "class Box {\n    value: int\n}\n"),
+            ("struct declaration", "struct Point {\n    x: int\n}\n"),
+            ("enum declaration", "enum Color {\n    Red,\n    Green\n}\n"),
+            ("package declaration", "package Demo.App\n\nfunc f(): int {\n    return 1\n}\n"),
+            ("let-keyword declaration", "func f(): int {\n    let x = 0\n    return x\n}\n"),
+            ("typed let declaration", "func f(): int {\n    let x: int = 0\n    return x\n}\n"),
+            ("foreach loop", "func f(items: int[]): int {\n    foreach item in items {\n        return item\n    }\n    return 0\n}\n"),
+        };
+
+        foreach (var (label, src) in unsupported)
+        {
+            var (ok, routed) = RouteCompilationUnit(src, "unsupported.nl");
+            Assert.False(ok, $"Front-end must DECLINE unsupported form ({label}); routing it risks a wrong tree.");
+            Assert.Null(routed);
+            // The C# parser still parses it (proving it is valid N#, not gibberish).
+            Assert.NotNull(CSharpCompilationUnit(src, "unsupported.nl"));
+        }
+    }
+
+    // Invokes the internal NSharpCompilerDogfoodAdapter.TryParseCompilationUnit (the production routing entry)
+    // reflectively, mirroring the other adapter tests in this file.
+    private static (bool Ok, CompilationUnit? Unit) RouteCompilationUnit(string source, string? filePath)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var isAvailable = (bool)(adapterType.GetProperty(
+                "IsAvailable",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?.GetValue(null) ?? false);
+        Assert.True(isAvailable, "The production test output must carry NSharpLang.Compiler.Dogfood.dll.");
+
+        var method = adapterType.GetMethod(
+                "TryParseCompilationUnit",
+                BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryParseCompilationUnit.");
+        var args = new object?[] { source, filePath, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (CompilationUnit?)args[2]);
+    }
+
+    // The C# parser baseline. Routing is off by default (NSHARP_PARSER_FRONTEND unset), so this is always the
+    // pure C# parse used as the parity reference.
+    private static CompilationUnit? CSharpCompilationUnit(string source, string filePath)
+        => new Parser(new Lexer(source, filePath).Tokenize(), filePath, source).ParseCompilationUnit().CompilationUnit;
 
     // Reflection serialization of an AST node identical to OutputFormatter's AstValueToJson, but SKIPPING
     // Line/Column (source positions differ for operator-keyed nodes between the materializer's span-start and
