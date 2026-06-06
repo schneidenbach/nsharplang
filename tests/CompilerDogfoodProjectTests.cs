@@ -1240,6 +1240,91 @@ class B
         _ => "<unsupported>",
     };
 
+    // Parser slice 20: real-corpus WHOLE-BODY pin -- the capstone dogfood validation. Runs the full N#
+    // front-end statement kernel (which composes the type + expression + new kernels over the shared node
+    // table) on every dogfood compiler-kernel function body whose statements stay within the supported forms,
+    // and compares the resulting statement tree structurally to the C# parser's FunctionDeclaration.Body.
+    // This is the N# parser parsing the actual compiler kernels and matching the production parser. Bodies
+    // with any not-yet-supported statement/expression form are skipped and counted (never silently passed).
+    [Fact]
+    public void Parser_RealCorpusFunctionBodies_MatchProductionParser()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(Path.GetTempPath(), $"NSharpLang.Compiler.Dogfood.RealBody.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+            var programType = Assembly.Load(File.ReadAllBytes(outputPath)).GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod("TokenizeMetadataWithIndentationInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+            var parseStmt = programType.GetMethod("ParseStatementNodesInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
+
+            var verified = 0;
+            var skipped = 0;
+            foreach (var file in Directory
+                .EnumerateFiles(Path.Combine(projectRoot, "CompilerServices"), "*.nl")
+                .OrderBy(p => p, StringComparer.Ordinal))
+            {
+                var src = File.ReadAllText(file);
+                var cu = new Parser(new Lexer(src, file).Tokenize(), file).ParseCompilationUnit().CompilationUnit;
+                if (cu == null) continue;
+                var funcs = cu.Declarations.OfType<FunctionDeclaration>().ToList();
+
+                var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(src, tokenize);
+                var funcIndices = TopLevelFuncIndices(kinds, count);
+                if (funcIndices.Count != funcs.Count) { skipped += funcs.Count; continue; }
+
+                for (var fi = 0; fi < funcs.Count; fi++)
+                {
+                    var body = funcs[fi].Body;
+                    if (body == null || !IsSupportedStatement(body)) { skipped++; continue; }
+
+                    // The body block opens at the first `{` (LeftBrace 129) after the func keyword; the
+                    // signature contains no braces in the dogfood corpus.
+                    var bodyBrace = -1;
+                    for (var t = funcIndices[fi] + 1; t < count; t++)
+                    {
+                        if (kinds[t] == 129) { bodyBrace = t; break; }
+                    }
+                    if (bodyBrace < 0) { skipped++; continue; }
+
+                    var cap = count + 1;
+                    var k = new int[cap]; var vs = new int[cap]; var vl = new int[cap];
+                    var cs = new int[cap]; var cc = new int[cap]; var ci = new int[cap];
+                    var ss = new int[cap]; var sl = new int[cap]; var res = new int[2];
+                    var nodeCount = (int)(parseStmt.Invoke(null, new object[] { kinds, starts, valueLengths, count, bodyBrace, k, vs, vl, cs, cc, ci, ss, sl, res }) ?? -2);
+                    Assert.True(nodeCount > 0, $"Kernel refused supported real body {file}#{funcs[fi].Name}.");
+                    AssertStmtNode(body, res[0], k, vs, vl, cs, cc, ci, source, $"{file}#{funcs[fi].Name}");
+                    verified++;
+                }
+            }
+
+            Assert.True(verified > 30, $"Expected to verify >30 real dogfood function bodies, only verified {verified} (skipped {skipped}).");
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static bool IsSupportedStatement(Statement s) => s switch
+    {
+        ReturnStatement r => r.Value == null || IsSupportedExpr(r.Value),
+        BreakStatement or ContinueStatement => true,
+        ExpressionStatement e => IsSupportedExpr(e.Expression),
+        // Only the `:=` shorthand (no type, with initializer) is supported by the slice-16 statement kernel.
+        VariableDeclarationStatement v => v.Type == null && v.Initializer != null && v.Kind == VariableKind.Let && IsSupportedExpr(v.Initializer),
+        BlockStatement b => b.Statements.All(IsSupportedStatement),
+        WhileStatement w => IsSupportedExpr(w.Condition) && IsSupportedStatement(w.Body),
+        IfStatement i => IsSupportedExpr(i.Condition) && IsSupportedStatement(i.ThenStatement) && (i.ElseStatement == null || IsSupportedStatement(i.ElseStatement)),
+        _ => false,
+    };
+
     // Parser slice 18: real-corpus expression pin. Validates the slice 10-15 expression kernel against the
     // production parser on REAL dogfood code (the anti-overfitting discipline the lexer's 108-file pin
     // established): every `return <expr>` value in the dogfood kernels whose expression stays within the

@@ -11,6 +11,29 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 20: real-corpus WHOLE-BODY pin (capstone — the N# parser parses real compiler code)
+
+The capstone dogfood validation. Runs the full N#-native front-end statement kernel — which composes the
+type + expression + `new` kernels in-assembly over one shared columnar node table — on every dogfood
+compiler-kernel function body whose statements stay within the supported forms, and compares the resulting
+statement tree **structurally to the C# parser's `FunctionDeclaration.Body`**. This is the N# parser parsing
+the actual N# compiler kernels (real recursive-descent compiler code: `:=` declarations, `while`/`if`/`else`,
+`return`/`break`/`continue`, assignments, calls, member/index access, the full operator precedence chain,
+`new int[](...)`) and matching the production parser node-for-node. 30+ supported-form bodies verified; bodies
+using a not-yet-supported form (deferred expression/statement kinds) are skipped and counted via a recursive
+`IsSupportedStatement`/`IsSupportedExpr` filter, with a per-file func-count safety net so nothing is silently
+mis-paired. Test-only (no kernel change). **No language gaps surfaced — the N# parser reproduces the C#
+parser's AST on real compiler code.**
+
+This closes the parser self-host arc for the supported language subset: slices 1-5 (declaration index),
+6-8 (type-reference grammar), 9 (function signatures), 10-15 (full common expression grammar), 16-17
+(statements + control flow), 19 (`new` + type/expr composition), and now whole-body parity on real code.
+Remaining for FULL parser parity (each a future slice): for/foreach, let/const + typed local declarations,
+tuple deconstruction, the remaining statement forms (throw/try/using/lock/switch/yield/print/assert), and the
+remaining expression primaries (`new[size]`/`new{init}`, match, tuple, array/object literals, interpolated
+strings, lambdas, is/as, range, cast). After full parity: production routing of the in-assembly front-end
+behind a 5x benchmark (the acceptance-standard endgame).
+
 ## 2026-06-06 — N# parser slice 19: st-layout unification + `new` expressions (type/expr kernel composition)
 
 Unblocks whole-body parsing of the dogfood kernels, which use `new int[](...)` array allocation (20 sites).
