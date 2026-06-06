@@ -1219,6 +1219,144 @@ class B
         _ => "<unsupported>",
     };
 
+    // Parser slice 16: the first STATEMENT kernel. ParseStatementNodesInto (ParserStatements.nl) parses one
+    // simple statement (return / break / continue / expression-statement / `:=` declaration), composing the
+    // expression kernel into a shared node table (statement kinds 20+), pinned against the production
+    // parser's Statement AST (extracted from a `func f() { <stmt> }` body). Control flow + blocks are next.
+    [Fact]
+    public void Parser_Statement_MatchesProductionParser()
+    {
+        var repoRoot = FindRepoRoot();
+        var projectRoot = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood");
+        var config = ProjectFileParser.Parse(Path.Combine(projectRoot, "project.yml"));
+        var outputPath = Path.Combine(
+            Path.GetTempPath(),
+            $"NSharpLang.Compiler.Dogfood.ParserStmt.{Guid.NewGuid():N}.dll");
+
+        try
+        {
+            var result = new MultiFileCompiler(projectRoot, config)
+                .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
+
+            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            var programType = assembly.GetType("Program")
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
+            var tokenize = programType.GetMethod(
+                    "TokenizeMetadataWithIndentationInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit TokenizeMetadataWithIndentationInto.");
+            var parseStmt = programType.GetMethod(
+                    "ParseStatementNodesInto",
+                    BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                ?? throw new InvalidOperationException("Dogfood assembly did not emit ParseStatementNodesInto.");
+
+            string[] statements =
+            {
+                "return 5", "return", "return a + b", "return arr[i]", "return f(x) && g(y)",
+                "break", "continue",
+                "x := 0", "count := a + b", "result := f(x)", "node := arr[i].next",
+                "total = total + 1", "arr[i] = value", "x += 1", "obj.field = y",
+                "f(x)", "obj.method(a, b)", "queue.Enqueue(item)",
+            };
+            foreach (var stmt in statements)
+                AssertStatementLikeProduction(stmt, tokenize, parseStmt);
+        }
+        finally
+        {
+            if (File.Exists(outputPath)) File.Delete(outputPath);
+        }
+    }
+
+    private static void AssertStatementLikeProduction(string statementSource, MethodInfo tokenize, MethodInfo parseStmt)
+    {
+        var wrapper = "func f() { " + statementSource + " }";
+        var tokens = new Lexer(wrapper, "s.nl").Tokenize();
+        var compilationUnit = new Parser(tokens, "s.nl").ParseCompilationUnit().CompilationUnit;
+        Assert.NotNull(compilationUnit);
+        var fn = compilationUnit!.Declarations.OfType<FunctionDeclaration>().Single();
+        Assert.True(fn.Body != null, $"No body for '{statementSource}'.");
+        var stmt = fn.Body!.Statements.Single();
+
+        var (count, kinds, starts, valueLengths, source) = TokenizeSourceViaKernel(wrapper, tokenize);
+        // The statement begins one token after the function body's opening `{` (LeftBrace 129).
+        var start = -1;
+        for (var i = 0; i < count; i++)
+        {
+            if (kinds[i] == 129) { start = i + 1; break; }
+        }
+        Assert.True(start > 0, $"Could not locate body brace for '{statementSource}'.");
+
+        var cap = count + 1;
+        var k = new int[cap];
+        var vs = new int[cap];
+        var vl = new int[cap];
+        var cstart = new int[cap];
+        var ccount = new int[cap];
+        var ci = new int[cap];
+        var ss = new int[cap];
+        var sl = new int[cap];
+        var res = new int[2];
+        var nodeCount = (int)(parseStmt.Invoke(
+            null,
+            new object[] { kinds, starts, valueLengths, count, start, k, vs, vl, cstart, ccount, ci, ss, sl, res }) ?? -2);
+
+        Assert.True(nodeCount > 0, $"Kernel refused statement '{statementSource}'.");
+        var root = res[0];
+        Assert.Equal(nodeCount - 1, root);
+
+        AssertStmtNode(stmt, root, k, vs, vl, cstart, ccount, ci, source, statementSource);
+
+        // Full consumption: the statement ends at the body's closing `}` (RightBrace 130).
+        Assert.True(res[1] < count && kinds[res[1]] == 130, $"Statement '{statementSource}' did not consume to the body close.");
+    }
+
+    private static void AssertStmtNode(
+        Statement expected, int idx,
+        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
+        string source, string label)
+    {
+        switch (expected)
+        {
+            case ReturnStatement s:
+                Assert.True(kinds[idx] == 20, $"Expected Return (20) at node {idx} for '{label}', got {kinds[idx]}.");
+                if (s.Value == null)
+                {
+                    Assert.Equal(0, childCount[idx]);
+                }
+                else
+                {
+                    Assert.Equal(1, childCount[idx]);
+                    AssertExprNode(s.Value, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                }
+                break;
+            case BreakStatement:
+                Assert.True(kinds[idx] == 21, $"Expected Break (21) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(0, childCount[idx]);
+                break;
+            case ContinueStatement:
+                Assert.True(kinds[idx] == 22, $"Expected Continue (22) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(0, childCount[idx]);
+                break;
+            case ExpressionStatement s:
+                Assert.True(kinds[idx] == 23, $"Expected ExpressionStatement (23) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(1, childCount[idx]);
+                AssertExprNode(s.Expression, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            case VariableDeclarationStatement s:
+                Assert.True(kinds[idx] == 24, $"Expected VariableDeclaration (24) at node {idx} for '{label}', got {kinds[idx]}.");
+                Assert.Equal(s.Name, source.Substring(valueStarts[idx], valueLengths[idx]));
+                Assert.True(s.Type == null, $"Slice-16 kernel only handles `:=` shorthand (no type) for '{label}'.");
+                Assert.True(s.Initializer != null, $"Production declaration has no initializer for '{label}'.");
+                Assert.Equal(1, childCount[idx]);
+                AssertExprNode(s.Initializer!, childIndices[childStart[idx]], kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, label);
+                break;
+            default:
+                Assert.Fail($"Unexpected production statement node {expected.GetType().Name} for '{label}' (out of slice-16 scope).");
+                break;
+        }
+    }
+
     [Fact]
     public void Parser_RealCorpus_AstSerializesDeterministically()
     {

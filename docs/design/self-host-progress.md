@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 16: simple statements (statement subsystem begins)
+
+Starts the last major parser subsystem — function bodies, the critical path for parsing the dogfood kernels
+(flat top-level functions whose bodies are statements). `ParseStatementNodesInto` (new
+`ParserStatements.nl`) parses ONE statement, dispatching like the C# `ParseStatement` (Parser.cs:2165), and
+COMPOSES the slice 10-15 expression kernel into a SHARED node table (statement kinds 20+, expression kinds
+0-14): `ReturnStatement` (20, optional value child), `BreakStatement` (21), `ContinueStatement` (22),
+`ExpressionStatement` (23, incl. assignment expressions like `x = e`/`x += 1`), and
+`VariableDeclarationStatement` (24, the `:=` shorthand after a bare identifier — name in the value span,
+initializer child). `:=` (ColonAssign 121) is the declaration; `=` (Assign 93) is an assignment expression
+wrapped in an ExpressionStatement. Verified against the production parser's Statement AST (extracted from a
+`func f() { <stmt> }` body) on return-with/without-value, break/continue, `:=` declarations, assignment and
+call expression-statements, with full-consumption (the statement ends at the body `}`).
+
+Deferred to later slices: control flow (if/else, while, for, foreach) and their nested blocks (the block
+kernel parsing a `{ ... }` sequence is next); let/const/readonly and typed `name: Type = init` declarations;
+tuple deconstruction; throw/try/using/lock/switch/yield/print/assert/local-functions; and `new`/`alloc`
+initializers (a deferred expression primary). No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 15: ternary + assignment (expression top)
 
 Adds the two levels above the binary chain (mirroring `ParseTernaryExpression` Parser.cs:3916 and
