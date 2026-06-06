@@ -1,0 +1,60 @@
+<Project>
+  <PropertyGroup>
+    <NSharpDogfoodAssemblyName Condition="'$(NSharpDogfoodAssemblyName)' == ''">NSharpLang.Compiler.Dogfood</NSharpDogfoodAssemblyName>
+    <NSharpDogfoodProjectRoot Condition="'$(NSharpDogfoodProjectRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))</NSharpDogfoodProjectRoot>
+    <NSharpDogfoodProjectFile Condition="'$(NSharpDogfoodProjectFile)' == ''">$(NSharpDogfoodProjectRoot)project.yml</NSharpDogfoodProjectFile>
+    <NSharpDogfoodBuildTasksProject Condition="'$(NSharpDogfoodBuildTasksProject)' == ''">$(MSBuildThisFileDirectory)..\NSharpLang.Build.Tasks\NSharpLang.Build.Tasks.csproj</NSharpDogfoodBuildTasksProject>
+    <NSharpDogfoodBuildTasksAssembly Condition="'$(NSharpDogfoodBuildTasksAssembly)' == ''">$(MSBuildThisFileDirectory)..\NSharpLang.Build.Tasks\bin\$(Configuration)\net10.0\NSharpLang.Build.Tasks.dll</NSharpDogfoodBuildTasksAssembly>
+  </PropertyGroup>
+
+  <UsingTask
+    TaskName="NSharpLang.Build.Tasks.EmitIlAssembly"
+    AssemblyFile="$(NSharpDogfoodBuildTasksAssembly)" />
+
+  <Target
+    Name="BuildNSharpDogfoodBuildTasks"
+    BeforeTargets="EmitNSharpDogfoodCompilerServices"
+    Condition="'$(DesignTimeBuild)' != 'true' And '$(SkipNSharpDogfoodCompilerServices)' != 'true'">
+    <MSBuild
+      Projects="$(NSharpDogfoodBuildTasksProject)"
+      Targets="Restore;Build"
+      Properties="Configuration=$(Configuration);TargetFramework=net10.0" />
+  </Target>
+
+  <Target
+    Name="EmitNSharpDogfoodCompilerServices"
+    AfterTargets="Build"
+    Condition="'$(DesignTimeBuild)' != 'true' And '$(SkipNSharpDogfoodCompilerServices)' != 'true'">
+    <PropertyGroup>
+      <NSharpDogfoodOutputPath Condition="'$(NSharpDogfoodOutputPath)' == ''">$(TargetDir)$(NSharpDogfoodAssemblyName).dll</NSharpDogfoodOutputPath>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_NSharpDogfoodSources
+        Include="$(NSharpDogfoodProjectRoot)**/*.nl"
+        Exclude="$(NSharpDogfoodProjectRoot)bin\**\*;$(NSharpDogfoodProjectRoot)obj\**\*" />
+    </ItemGroup>
+
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(NSharpDogfoodOutputPath)'))" />
+    <Message Importance="High" Text="Emitting N# dogfood compiler services to $(NSharpDogfoodOutputPath)..." />
+    <EmitIlAssembly
+      Sources="@(_NSharpDogfoodSources)"
+      References="@(ReferencePath)"
+      ProjectRoot="$(NSharpDogfoodProjectRoot)"
+      ProjectFile="$(NSharpDogfoodProjectFile)"
+      TargetAssemblyPath="$(NSharpDogfoodOutputPath)" />
+    <ItemGroup>
+      <FileWrites Include="$(NSharpDogfoodOutputPath)" />
+    </ItemGroup>
+  </Target>
+
+  <Target
+    Name="CopyNSharpDogfoodCompilerServicesToPublish"
+    AfterTargets="Publish"
+    Condition="'$(DesignTimeBuild)' != 'true' And '$(SkipNSharpDogfoodCompilerServices)' != 'true' And '$(PublishDir)' != '' And Exists('$(NSharpDogfoodOutputPath)')">
+    <Copy
+      SourceFiles="$(NSharpDogfoodOutputPath)"
+      DestinationFiles="$(PublishDir)$(NSharpDogfoodAssemblyName).dll"
+      SkipUnchangedFiles="true" />
+  </Target>
+</Project>

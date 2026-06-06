@@ -105,13 +105,7 @@ internal static class BatchQueryRunner
             });
         }
 
-        var duplicateIds = requests
-            .Where(request => !string.IsNullOrWhiteSpace(request.Id))
-            .GroupBy(request => request.Id, StringComparer.Ordinal)
-            .Where(group => group.Count() > 1)
-            .Select(group => group.Key)
-            .OrderBy(id => id, StringComparer.Ordinal)
-            .ToArray();
+        var duplicateIds = FindDuplicateRequestIds(requests);
 
         if (duplicateIds.Length > 0)
         {
@@ -119,6 +113,20 @@ internal static class BatchQueryRunner
         }
 
         return requests;
+    }
+
+    private static string[] FindDuplicateRequestIds(IReadOnlyList<BatchQueryRequest> requests)
+    {
+        if (NSharpCliDogfoodAdapter.TryFindDuplicateBatchRequestIds(requests, out var duplicateIds))
+            return duplicateIds;
+
+        return requests
+            .Where(request => !string.IsNullOrWhiteSpace(request.Id))
+            .GroupBy(request => request.Id, StringComparer.Ordinal)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key!)
+            .OrderBy(id => id, StringComparer.Ordinal)
+            .ToArray();
     }
 
     public static BatchQueryExecutionResult Execute(
@@ -129,6 +137,7 @@ internal static class BatchQueryRunner
         CompletionEngine completionEngine)
     {
         var items = new List<BatchQueryItemResult>(requests.Count);
+        var okWords = new ulong[(requests.Count + 63) >> 6];
 
         for (int i = 0; i < requests.Count; i++)
         {
@@ -138,11 +147,18 @@ internal static class BatchQueryRunner
             var response = responseDocument.RootElement.Clone();
             var ok = response.TryGetProperty("ok", out var okElement) &&
                      okElement.ValueKind == JsonValueKind.True;
+            if (ok)
+                okWords[i >> 6] |= 1UL << (i & 63);
 
             items.Add(new BatchQueryItemResult(i, request, ok, response));
         }
 
-        var successCount = items.Count(item => item.Ok);
+        var successCount = NSharpCliDogfoodAdapter.TryCountBatchResultSuccesses(
+            okWords,
+            items.Count,
+            out var dogfoodSuccessCount)
+            ? dogfoodSuccessCount
+            : items.Count(item => item.Ok);
         var failureCount = items.Count - successCount;
         var envelope = new
         {
@@ -252,9 +268,7 @@ internal static class BatchQueryRunner
         var results = service.GetDiagnostics(snapshot, request.File);
         if (!string.IsNullOrWhiteSpace(request.Severity))
         {
-            results = results
-                .Where(diagnostic => diagnostic.Severity.Equals(request.Severity, StringComparison.OrdinalIgnoreCase))
-                .ToList();
+            results = OutputFormatter.FilterDiagnosticsBySeverity(results, request.Severity);
         }
 
         return request.Clusters

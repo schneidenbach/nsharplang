@@ -348,6 +348,45 @@ public class AotBlockerAnalyzerTests
     }
 
     [Fact]
+    public void Requirements_PublicMixedBlockers_CombineFlagsAndSortConstructs()
+    {
+        var requirements = AotRequirements.FromBlockers(new[]
+        {
+            NewBlocker(AotSafetyKind.DynamicCodeRequired, "zeta.Construct"),
+            NewBlocker(AotSafetyKind.MetadataRequired, "alpha.Construct"),
+            NewBlocker(AotSafetyKind.ExpressionTreeRequired, "beta.Construct"),
+            NewBlocker(AotSafetyKind.MetadataRequired, "alpha.Construct"),
+            new AotBlocker(
+                AotSafetyKind.MetadataRequired,
+                "test.nl",
+                5,
+                1,
+                1,
+                "ignored.Private",
+                AbiBoundary.ClrInternal,
+                "PublicApi")
+        });
+
+        Assert.True(requirements.TryGet("PublicApi", out var annotation));
+        Assert.True(annotation.RequiresUnreferencedCode);
+        Assert.True(annotation.RequiresDynamicCode);
+        Assert.Equal(
+            "Uses AOT-unsafe constructs (alpha.Construct, beta.Construct, zeta.Construct); not safe under Native AOT or trimming.",
+            annotation.Message);
+
+        static AotBlocker NewBlocker(AotSafetyKind kind, string construct) =>
+            new(
+                kind,
+                "test.nl",
+                1,
+                1,
+                construct.Length,
+                construct,
+                AbiBoundary.ClrPublic,
+                "PublicApi");
+    }
+
+    [Fact]
     public void Requirements_PrivateBlocker_ProducesNoAnnotation()
     {
         var requirements = AotRequirements.FromBlockers(Analyze("""

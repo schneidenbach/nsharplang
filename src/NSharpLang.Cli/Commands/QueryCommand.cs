@@ -76,8 +76,13 @@ public static class QueryCommand
         // Apply fuzzy/glob filter: * = wildcard, bare string = substring match
         if (!string.IsNullOrWhiteSpace(filterPattern))
         {
-            var regex = BuildSymbolFilterRegex(filterPattern);
-            results = results.Where(s => regex.IsMatch(s.Name)).Take(200).ToList();
+            results = NSharpCliDogfoodAdapter.TryFilterSymbolsByNamePattern(
+                    results,
+                    filterPattern,
+                    200,
+                    out var dogfoodResults)
+                ? dogfoodResults
+                : FilterSymbolsByNamePatternWithRegex(results, filterPattern);
         }
 
         if (options.UseText)
@@ -90,6 +95,14 @@ public static class QueryCommand
         }
 
         return 0;
+    }
+
+    private static List<SymbolResult> FilterSymbolsByNamePatternWithRegex(
+        IReadOnlyList<SymbolResult> symbols,
+        string pattern)
+    {
+        var regex = BuildSymbolFilterRegex(pattern);
+        return symbols.Where(s => regex.IsMatch(s.Name)).Take(200).ToList();
     }
 
     private static Regex BuildSymbolFilterRegex(string pattern)
@@ -489,9 +502,10 @@ public static class QueryCommand
         var severityFilter = GetOption(args, "--severity");
         if (severityFilter != null)
         {
-            results = results.Where(d => d.Severity.Equals(severityFilter, StringComparison.OrdinalIgnoreCase)).ToList();
+            results = OutputFormatter.FilterDiagnosticsBySeverity(results, severityFilter);
         }
 
+        var summary = OutputFormatter.SummarizeDiagnostics(results);
         if (wantsClusters)
         {
             Console.Write(OutputFormatter.DiagnosticClustersToJson(results, snapshot.ProjectRoot));
@@ -505,7 +519,7 @@ public static class QueryCommand
             Console.Write(OutputFormatter.DiagnosticsToJson(results, snapshot.ProjectRoot));
         }
 
-        return results.Any(d => d.Severity == "error") ? 1 : 0;
+        return summary.Errors > 0 ? 1 : 0;
     }
 
     private static int TypeCommand(string[] args, QueryOptions options)

@@ -78,4 +78,33 @@ public class StructCopyAnalysisTests
     {
         Assert.False(StructCopyAnalysis.ShouldPassByReadOnlyReference(typeof(LargeReadonly).MakeByRefType()));
     }
+
+    [Fact]
+    public void DeclaredFields_StaticMutableFieldsAreIgnored()
+    {
+        var fields = new[]
+        {
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: false, IsStatic: true),
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: true, IsStatic: false),
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: true, IsStatic: false),
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: true, IsStatic: false),
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: true, IsStatic: false)
+        };
+
+        Assert.True(StructCopyAnalysis.ShouldPassByReadOnlyReference(typeof(LargeReadonly), fields));
+    }
+
+    [Fact]
+    public void DeclaredFields_InstanceMutableFieldBlocksReadOnlyReference()
+    {
+        var fields = new[]
+        {
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: true, IsStatic: false),
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: false, IsStatic: false),
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: true, IsStatic: false),
+            new StructCopyAnalysis.StructFieldDescriptor(typeof(double), IsInitOnly: true, IsStatic: false)
+        };
+
+        Assert.False(StructCopyAnalysis.ShouldPassByReadOnlyReference(typeof(LargeReadonly), fields));
+    }
 }

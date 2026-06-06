@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 
 namespace NSharpLang.Compiler;
 
@@ -10,7 +11,7 @@ public class Parser
     private readonly List<Token> _tokens;
     private readonly string? _fileName;
     private readonly string? _sourceCode;
-    private readonly string[]? _sourceLines;
+    private string[]? _sourceLines;
     private readonly List<CompilerError> _errors = new();
     private int _position;
     private bool _panicMode;
@@ -20,10 +21,11 @@ public class Parser
 
     public Parser(List<Token> tokens, string? fileName = null, string? sourceCode = null)
     {
-        _tokens = tokens.Where(t => t.Type != TokenType.Newline).ToList();
+        _tokens = NSharpCompilerDogfoodAdapter.TryCompactParserTokens(tokens, out var compactedTokens)
+            ? compactedTokens
+            : tokens.Where(t => t.Type != TokenType.Newline).ToList();
         _fileName = fileName;
         _sourceCode = sourceCode;
-        _sourceLines = sourceCode?.Split('\n');
     }
 
     public ParseResult ParseCompilationUnit()
@@ -7199,8 +7201,17 @@ public class Parser
     /// </summary>
     private string? GetSourceSnippet(int line)
     {
-        if (_sourceLines == null || line < 1 || line > _sourceLines.Length)
+        if (_sourceCode == null || line < 1)
             return null;
-        return _sourceLines[line - 1];
+
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(_sourceCode, line, out var dogfoodLine))
+        {
+            return dogfoodLine;
+        }
+
+        var sourceLines = _sourceLines ??= _sourceCode.Split('\n');
+        return line <= sourceLines.Length
+            ? sourceLines[line - 1]
+            : null;
     }
 }

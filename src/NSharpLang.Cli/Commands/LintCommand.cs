@@ -18,11 +18,7 @@ public static class LintCommand
         var useJson = args.Contains("--json");
         var projectRoot = Path.GetFullPath(GetOption(args, "--project") ?? Directory.GetCurrentDirectory());
 
-        // Filter out flags to get positional file args
-        var positionalFiles = args
-            .Where(a => !a.StartsWith("-", StringComparison.Ordinal) && a != "help")
-            .Where(a => !IsOptionValue(args, a, "--project"))
-            .ToArray();
+        var positionalFiles = GetPositionalFiles(args);
 
         // Default to JSON when no explicit mode is specified (matches check/fix contract)
         if (!useText && !useJson)
@@ -93,14 +89,15 @@ public static class LintCommand
                     var tokens = lexer.Tokenize();
                     var parser = new Parser(tokens, file, source);
                     var parseResult = parser.ParseCompilationUnit();
+                    var parseErrors = FilterCompilerErrorsBySeverity(parseResult.Errors, ErrorSeverity.Error);
 
-                    if (parseResult.Errors.Any(e => e.Severity == ErrorSeverity.Error))
+                    if (parseErrors.Count > 0)
                     {
                         hadErrors = true;
                         var relativePath = NormalizePath(Path.GetRelativePath(projectRoot, file));
                         if (useJson)
                         {
-                            foreach (var err in parseResult.Errors.Where(e => e.Severity == ErrorSeverity.Error))
+                            foreach (var err in parseErrors)
                             {
                                 allDiagnostics.Add(new DiagnosticResult(
                                     "PARSE", "error", err.Message,
@@ -164,6 +161,7 @@ public static class LintCommand
                 }
             }
 
+            var summary = OutputFormatter.SummarizeDiagnostics(allDiagnostics);
             if (useJson)
             {
                 Console.Write(OutputFormatter.LintToJson(allDiagnostics, projectRoot, lintedFileCount));
@@ -181,7 +179,7 @@ public static class LintCommand
                 }
             }
 
-            return (hadErrors || allDiagnostics.Any(d => d.Severity == "error")) ? 1 : 0;
+            return (hadErrors || summary.Errors > 0) ? 1 : 0;
         }
         catch (Exception ex)
         {
@@ -268,6 +266,16 @@ Exit codes:
         return false;
     }
 
+    private static string[] GetPositionalFiles(string[] args)
+    {
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetLintFileArgs(args, out var files)
+            ? files
+            : args
+                .Where(a => !a.StartsWith("-", StringComparison.Ordinal) && a != "help")
+                .Where(a => !IsOptionValue(args, a, "--project"))
+                .ToArray();
+    }
+
     private static string FormatElapsed(TimeSpan elapsed)
     {
         if (elapsed.TotalMinutes >= 1)
@@ -277,9 +285,18 @@ Exit codes:
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
 
-    private static string? ExtractSourceLine(string source, int line)
+    private static List<CompilerError> FilterCompilerErrorsBySeverity(
+        IReadOnlyList<CompilerError> errors,
+        ErrorSeverity severity)
     {
-        var lines = source.Split('\n');
-        return line > 0 && line <= lines.Length ? lines[line - 1] : null;
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+            errors,
+            severity,
+            out var filteredErrors)
+            ? filteredErrors
+            : errors.Where(error => error.Severity == severity).ToList();
     }
+
+    private static string? ExtractSourceLine(string source, int line) =>
+        CodeIntelligenceService.ExtractSourceLineForDiagnostics(source, line);
 }

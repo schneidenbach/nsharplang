@@ -366,6 +366,30 @@ func main() {
     }
 
     [Fact]
+    public void FixApplicator_ValidateAndSortEdits_UsesApplicationOrder()
+    {
+        var edits = new[]
+        {
+            new TextEdit(1, 0, 1, 0, "line1"),
+            new TextEdit(3, 5, 3, 5, "line3-col5-first"),
+            new TextEdit(3, 5, 3, 5, "line3-col5-second"),
+            new TextEdit(2, 10, 2, 12, "line2"),
+            new TextEdit(3, 3, 3, 4, "line3-col3")
+        };
+
+        var sorted = NSharpLang.Compiler.CodeIntelligence.FixApplicator.ValidateAndSortEdits(edits);
+
+        Assert.Equal(new[]
+        {
+            "line3-col5-second",
+            "line3-col5-first",
+            "line3-col3",
+            "line2",
+            "line1"
+        }, sorted.Select(edit => edit.NewText));
+    }
+
+    [Fact]
     public void CodeAction_StoresCorrectValues()
     {
         // Arrange

@@ -31,4 +31,88 @@
     <ProjectReference Include="../src/NSharpLang.Runtime/NSharpLang.Runtime.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/LexerTokenKindScanner.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.LexerTokenKindScanner.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/SourceTextLines.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/IdentifierSpans.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.IdentifierSpans.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/DiagnosticClusters.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticClusters.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/DiagnosticDeduplication.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.DiagnosticDeduplication.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/FormatterSafetyScan.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.FormatterSafetyScan.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/TextEditOrdering.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.TextEditOrdering.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/FormatterImportOrdering.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.FormatterImportOrdering.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/BindingLookup.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.BindingLookup.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/SemanticScopes.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.SemanticScopes.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CompletionReceivers.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionReceivers.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CompletionGrouping.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CompletionGrouping.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/PathMatching.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.PathMatching.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliQueryParsing.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliQueryParsing.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliArguments.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliArguments.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliDocOrdering.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliDocOrdering.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/DocQuery.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.DocQuery.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/CliTreeDependencies.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.CliTreeDependencies.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ErrorSuggestions.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ErrorSuggestions.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/LinterImports.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.LinterImports.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/AnalyzerExhaustiveness.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.AnalyzerExhaustiveness.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/AotRequirements.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.AotRequirements.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/AnonymousUnionShims.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.AnonymousUnionShims.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/StructCopyAnalysis.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.StructCopyAnalysis.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/TypeLookup.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.TypeLookup.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ProjectSourceFilter.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ProjectSourceFilter.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/OverloadCandidates.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.OverloadCandidates.nl" />
+  </ItemGroup>
+
 </Project>

@@ -40,13 +40,14 @@ public static class CheckCommand
             var service = new CodeIntelligenceService();
             var snapshot = service.LoadProject(projectDir, projectConfig);
             var diagnostics = service.GetDiagnostics(snapshot);
-            diagnostics = DeduplicateAndSort(diagnostics);
+            diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
+            var summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
 
             // If analysis found no errors AND this is a proper project (has project.yml),
             // verify the IL backend can emit the assembly successfully. Non-project
             // directories (standalone .nl files) skip this because they aren't meant
             // to be compiled as a single project.
-            if (!diagnostics.Any(d => d.Severity == "error")
+            if (summary.Errors == 0
                 && snapshot.SourceFiles.Count > 0
                 && File.Exists(projectYmlPath))
             {
@@ -54,7 +55,8 @@ public static class CheckCommand
                 if (verificationDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(verificationDiagnostics);
-                    diagnostics = DeduplicateAndSort(diagnostics);
+                    diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
+                    summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
                 }
             }
 
@@ -66,7 +68,8 @@ public static class CheckCommand
                 if (aotDiagnostics.Count > 0)
                 {
                     diagnostics.AddRange(aotDiagnostics);
-                    diagnostics = DeduplicateAndSort(diagnostics);
+                    diagnostics = OutputFormatter.DeduplicateAndSortDiagnostics(diagnostics);
+                    summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
                 }
             }
 
@@ -77,9 +80,7 @@ public static class CheckCommand
 
             if (useText)
             {
-                var errors = diagnostics.Count(d => d.Severity == "error");
-                var warnings = diagnostics.Count(d => d.Severity == "warning");
-                if (errors == 0 && warnings == 0)
+                if (summary.Errors == 0 && summary.Warnings == 0)
                 {
                     var fileCount = snapshot.SourceFiles.Count;
                     Console.Error.WriteLine($"  Checked {fileCount} file{(fileCount == 1 ? "" : "s")} — no errors. [{FormatElapsed(sw.Elapsed)}]");
@@ -103,7 +104,7 @@ public static class CheckCommand
                 Console.Write(OutputFormatter.CheckToJson(diagnostics, snapshot.ProjectRoot, snapshot.SourceFiles.Count));
             }
 
-            return diagnostics.Any(d => d.Severity == "error") ? 1 : 0;
+            return summary.Errors > 0 ? 1 : 0;
         }
         catch (Exception ex)
         {
@@ -143,7 +144,7 @@ public static class CheckCommand
 
             if (!compileResult.Success)
             {
-                foreach (var error in compileResult.Errors.Where(e => e.Severity == ErrorSeverity.Error))
+                foreach (var error in FilterCompilerErrorsBySeverity(compileResult.Errors, ErrorSeverity.Error))
                 {
                     results.Add(CodeIntelligenceService.ToDiagnosticResult(error, projectDir));
                 }
@@ -157,6 +158,19 @@ public static class CheckCommand
         return results;
     }
 
+    private static List<CompilerError> FilterCompilerErrorsBySeverity(
+        IEnumerable<CompilerError> errors,
+        ErrorSeverity severity)
+    {
+        var errorList = errors as IReadOnlyList<CompilerError> ?? errors.ToList();
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterCompilerErrorsBySeverity(
+            errorList,
+            severity,
+            out var filteredErrors)
+            ? filteredErrors
+            : errorList.Where(error => error.Severity == severity).ToList();
+    }
+
     /// <summary>
     /// Runs the AOT-blocker analysis pass and returns the blockers as build-blocking
     /// diagnostics. Analysis-only — no IL is emitted.
@@ -167,17 +181,6 @@ public static class CheckCommand
         compiler.CompileForAnalysis();
         return compiler.BuildAotDiagnostics(asError: true)
             .Select(error => CodeIntelligenceService.ToDiagnosticResult(error, projectDir))
-            .ToList();
-    }
-
-    private static List<DiagnosticResult> DeduplicateAndSort(List<DiagnosticResult> diagnostics)
-    {
-        return diagnostics
-            .GroupBy(d => (d.Code, d.File, d.Line, d.Column, d.Message))
-            .Select(group => group.First())
-            .OrderBy(d => d.File)
-            .ThenBy(d => d.Line)
-            .ThenBy(d => d.Column)
             .ToList();
     }
 
@@ -245,6 +248,9 @@ Exit codes:
 
     private static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
     {
+        if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional))
+            return positional;
+
         for (int i = 0; i < args.Length; i++)
         {
             if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))

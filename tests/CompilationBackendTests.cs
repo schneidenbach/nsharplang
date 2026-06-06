@@ -670,6 +670,40 @@ func main() {
     }
 
     [Fact]
+    public void BuildCommand_SingleFileSourceAfterOptions_BuildsWithIlBackend()
+    {
+        var tempDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+
+        try
+        {
+            var sourcePath = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourcePath, """
+func main() {
+    print "single file route"
+}
+""");
+
+            var outputDir = Path.Combine(tempDir, "dist");
+            Directory.SetCurrentDirectory(tempDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("build", "--backend", "il", "--output", outputDir, sourcePath));
+
+            Assert.Equal(0, exitCode);
+            Assert.Contains("Build successful!", stdout);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+            Assert.True(File.Exists(Path.Combine(outputDir, "Program.dll")));
+            Assert.True(File.Exists(Path.Combine(outputDir, "Program.runtimeconfig.json")));
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void BuildCommand_StrictLintError_BlocksIlBuild()
     {
         var tempDir = CreateTempDir();

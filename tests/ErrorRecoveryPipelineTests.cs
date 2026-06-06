@@ -403,6 +403,44 @@ class B {
     }
 
     [Fact]
+    public void MultiFileCompiler_CircularFileImports_CrLfSourceSnippetHasNoTrailingCarriageReturn()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(tempDir, "A.nl"),
+                string.Join("\r\n", new[]
+                {
+                    "import \"B\"",
+                    "",
+                    "class A {",
+                    "}"
+                }));
+            File.WriteAllText(
+                Path.Combine(tempDir, "B.nl"),
+                string.Join("\r\n", new[]
+                {
+                    "import \"A\"",
+                    "",
+                    "class B {",
+                    "}"
+                }));
+
+            var compiler = new MultiFileCompiler(tempDir);
+            compiler.CompileForAnalysis();
+
+            var cycle = Assert.Single(compiler.AllErrors,
+                error => error.Code == ErrorCode.CircularImport);
+            Assert.Equal("import \"A\"", cycle.SourceSnippet);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void Compile_SyntaxErrorInOneFile_StillReportsSemanticErrors()
     {
         var tempDir = CreateTempDir();

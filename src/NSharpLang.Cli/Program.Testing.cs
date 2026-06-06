@@ -37,6 +37,18 @@ partial class Program
         [property: JsonPropertyName("nsharpDescription")]
         string? NSharpDescription);
 
+    private sealed record NativeTestRun(
+        IReadOnlyList<NativeTestResult> Results,
+        int[] OutcomeRanks,
+        int OutcomeCount);
+
+    private readonly record struct NativeTestSummary(
+        bool Ok,
+        int Total,
+        int Passed,
+        int Failed,
+        int Skipped);
+
     private sealed class NativeTestLoadContext(string assemblyDirectory)
         : AssemblyLoadContext(nameof(NativeTestLoadContext), isCollectible: true)
     {
@@ -116,25 +128,24 @@ partial class Program
                 return Error("Test build failed.");
             }
 
-            var testResults = string.Equals(projectConfig.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase)
+            var testRun = string.Equals(projectConfig.TestFramework, "nunit", StringComparison.OrdinalIgnoreCase)
                 ? RunReflectionTests(outputPath, filter, verbose, timeoutMs)
                 : RunXunitTests(outputPath, filter, verbose, timeoutMs);
-            var ok = testResults.All(result => result.Outcome is "passed" or "skipped");
+            var testResults = testRun.Results;
+            var summary = SummarizeNativeTestRun(testRun);
 
             if (jsonOutput)
             {
-                OutputNativeTestJson(projectRoot, ok, testResults);
+                OutputNativeTestJson(projectRoot, summary.Ok, testResults, summary: summary);
             }
             else
             {
-                var passed = testResults.Count(result => result.Outcome == "passed");
-                var failed = testResults.Count(result => result.Outcome == "failed");
-                var skipped = testResults.Count(result => result.Outcome == "skipped");
-                Console.WriteLine($"Passed: {passed}, Failed: {failed}, Skipped: {skipped}, Total: {testResults.Count}");
+                Console.WriteLine(
+                    $"Passed: {summary.Passed}, Failed: {summary.Failed}, Skipped: {summary.Skipped}, Total: {summary.Total}");
                 Console.WriteLine($"  Tests completed in {FormatElapsed(stopwatch.Elapsed)}");
             }
 
-            return ok ? 0 : 1;
+            return summary.Ok ? 0 : 1;
         }
         catch (Exception ex)
         {
@@ -153,7 +164,7 @@ partial class Program
         }
     }
 
-    private static List<NativeTestResult> RunXunitTests(
+    private static NativeTestRun RunXunitTests(
         string assemblyPath,
         string? filter,
         bool verbose,
@@ -213,7 +224,7 @@ partial class Program
                 .Where(testCase => MatchesXunitTestFilter(testCase, filter))
                 .ToArray();
 
-            using var executionSink = new XunitResultSink(verbose);
+            using var executionSink = new XunitResultSink(verbose, testCases.Length);
             var executionOptions = TestFrameworkOptions.ForExecution(assemblyConfiguration);
             controller.RunTests(testCases, executionSink, executionOptions);
 
@@ -222,7 +233,7 @@ partial class Program
                 throw new TimeoutException("Test run timed out.");
             }
 
-            return executionSink.Results;
+            return executionSink.ToRun();
         }
         finally
         {
@@ -231,12 +242,12 @@ partial class Program
         }
     }
 
-    private sealed class XunitResultSink(bool verbose) : IMessageSink, IDisposable
+    private sealed class XunitResultSink(bool verbose, int expectedResultCount) : IMessageSink, IDisposable
     {
         private readonly ManualResetEventSlim _finished = new();
+        private int[] _outcomeRanks = new int[Math.Max(expectedResultCount, 4)];
+        private int _outcomeCount;
         private readonly List<NativeTestResult> _results = new();
-
-        public List<NativeTestResult> Results => _results;
 
         public bool OnMessage(IMessageSinkMessage message)
         {
@@ -259,6 +270,7 @@ partial class Program
                         "0.000s",
                         FormatXunitFailure(error),
                         "xUnit runner"));
+                    AddOutcomeRank(GetNativeTestOutcomeRank("failed"));
                     break;
                 case ITestAssemblyFinished:
                     _finished.Set();
@@ -284,6 +296,8 @@ partial class Program
             _finished.Dispose();
         }
 
+        public NativeTestRun ToRun() => new(_results, _outcomeRanks, _outcomeCount);
+
         private void AddResult(ITestResultMessage message, string outcome, string? errorMessage)
         {
             var testCase = message.Test.TestCase;
@@ -297,6 +311,7 @@ partial class Program
                 GetXunitDescription(testCase) ?? displayName);
 
             _results.Add(result);
+            AddOutcomeRank(GetNativeTestOutcomeRank(outcome));
 
             if (!verbose)
             {
@@ -312,6 +327,17 @@ partial class Program
             Console.WriteLine(errorMessage == null
                 ? $"{prefix} {displayName} [{message.ExecutionTime * 1000:F0} ms]"
                 : $"{prefix} {displayName}: {errorMessage}");
+        }
+
+        private void AddOutcomeRank(int rank)
+        {
+            if (_outcomeCount == _outcomeRanks.Length)
+            {
+                Array.Resize(ref _outcomeRanks, Math.Max(_outcomeRanks.Length * 2, 4));
+            }
+
+            _outcomeRanks[_outcomeCount] = rank;
+            _outcomeCount++;
         }
     }
 
@@ -345,7 +371,7 @@ partial class Program
                 || fullyQualifiedName.Contains(part, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static List<NativeTestResult> RunReflectionTests(
+    private static NativeTestRun RunReflectionTests(
         string assemblyPath,
         string? filter,
         bool verbose,
@@ -363,12 +389,17 @@ partial class Program
                 .ToArray();
 
             var results = new List<NativeTestResult>(testCases.Length);
+            var outcomeRanks = new int[testCases.Length];
+            var outcomeCount = 0;
             foreach (var testCase in testCases)
             {
-                results.Add(RunNativeTest(testCase, verbose, timeoutMs));
+                var result = RunNativeTest(testCase, verbose, timeoutMs);
+                results.Add(result);
+                outcomeRanks[outcomeCount] = GetNativeTestOutcomeRank(result.Outcome);
+                outcomeCount++;
             }
 
-            return results;
+            return new NativeTestRun(results, outcomeRanks, outcomeCount);
         }
         finally
         {
@@ -651,16 +682,50 @@ partial class Program
         return ex;
     }
 
+    private static NativeTestSummary SummarizeNativeTestRun(NativeTestRun testRun)
+    {
+        if (NSharpCliDogfoodAdapter.TrySummarizeTestOutcomeRanks(
+                testRun.OutcomeRanks,
+                testRun.OutcomeCount,
+                out var dogfoodSummary))
+        {
+            return new NativeTestSummary(
+                dogfoodSummary.Ok,
+                testRun.OutcomeCount,
+                dogfoodSummary.Passed,
+                dogfoodSummary.Failed,
+                dogfoodSummary.Skipped);
+        }
+
+        return SummarizeNativeTestResults(testRun.Results);
+    }
+
+    private static NativeTestSummary SummarizeNativeTestResults(IReadOnlyList<NativeTestResult> testResults)
+    {
+        var ok = testResults.All(result => result.Outcome is "passed" or "skipped");
+        var passed = testResults.Count(result => result.Outcome == "passed");
+        var failed = testResults.Count(result => result.Outcome == "failed");
+        var skipped = testResults.Count(result => result.Outcome == "skipped");
+        return new NativeTestSummary(ok, testResults.Count, passed, failed, skipped);
+    }
+
+    private static int GetNativeTestOutcomeRank(string outcome) =>
+        outcome switch
+        {
+            "passed" => 1,
+            "failed" => 2,
+            "skipped" => 3,
+            _ => 0
+        };
+
     private static void OutputNativeTestJson(
         string projectRoot,
         bool ok,
         IReadOnlyList<NativeTestResult> testResults,
-        string? errorMessage = null)
+        string? errorMessage = null,
+        NativeTestSummary? summary = null)
     {
-        var total = testResults.Count;
-        var passed = testResults.Count(result => result.Outcome == "passed");
-        var failed = testResults.Count(result => result.Outcome == "failed");
-        var skipped = testResults.Count(result => result.Outcome == "skipped");
+        var summaryValue = summary ?? SummarizeNativeTestResults(testResults);
 
         var envelope = new
         {
@@ -671,10 +736,10 @@ partial class Program
             error = errorMessage,
             summary = new
             {
-                total,
-                passed,
-                failed,
-                skipped,
+                total = summaryValue.Total,
+                passed = summaryValue.Passed,
+                failed = summaryValue.Failed,
+                skipped = summaryValue.Skipped,
                 duration = "0s"
             },
             results = testResults

@@ -361,6 +361,11 @@ public static class StructCopyAnalysis
 
     private static bool AllInstanceFieldsAreInitOnly(IReadOnlyList<StructFieldDescriptor> fields)
     {
+        if (NSharpPerformanceDogfoodAdapter.TryAllInstanceFieldsAreInitOnly(fields, out var dogfoodResult))
+        {
+            return dogfoodResult;
+        }
+
         var instanceFields = fields.Where(field => !field.IsStatic).ToList();
 
         // An empty struct is trivially immutable but also tiny, so it is filtered by size.

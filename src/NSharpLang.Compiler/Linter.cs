@@ -1836,6 +1836,7 @@ internal class LintVisitor
             { "Func", "System" },
             { "Console", "System" },
             { "Math", "System" },
+            { "Char", "System" },
             { "Exception", "System" },
             { "ArgumentException", "System" },
             { "ArgumentNullException", "System" },

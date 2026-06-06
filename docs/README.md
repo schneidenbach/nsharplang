@@ -81,6 +81,7 @@ nlc run
 
 ### Design Notes
 
+- **[Compiler Dogfood Rewrite Plan](design/compiler-dogfood-rewrite.md)** - Rewrite plan and evidence gates for moving compiler, compiler services, and CLI tooling to N#
 - **[Performance Compiler Refactor](design/performance-compiler-refactor.md)** - Compiler architecture plan for making N# performance-by-default while documenting CLR interop tradeoffs
 - **[Systems N# Proposal](design/systems-nsharp.md)** - Proposal for an optional systems profile with explicit runtime costs, hot-path contracts, AOT support, boundaries, and adversarial review questions
 - **[Systems N# Implementation Review](audits/systems-nsharp-implementation-adversarial-review.md)** - Adversarial implementation audit covering enforced surfaces, hard edges, and smoke cases

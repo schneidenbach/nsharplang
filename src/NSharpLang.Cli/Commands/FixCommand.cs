@@ -111,7 +111,12 @@ public static class FixCommand
                 {
                     // Collect only edits from fixes that passed the safety gate. Validate in dry-run too so
                     // the JSON never promises a write plan that would later fail or corrupt a file.
-                    var safeActions = fixes.Where(f => ShouldApply(f.Safety, includeReviewNeeded)).ToList();
+                    var safeActions = NSharpLang.Cli.NSharpCliDogfoodAdapter.TryFilterFixesBySafety(
+                        fixes,
+                        includeReviewNeeded,
+                        out var dogfoodSafeActions)
+                        ? dogfoodSafeActions
+                        : fixes.Where(f => ShouldApply(f.Safety, includeReviewNeeded)).ToList();
                     var allEdits = safeActions.SelectMany(f => f.Edits).ToList();
                     FixApplicator.ValidateAndSortEdits(source, allEdits);
 
@@ -222,19 +227,42 @@ Examples:
             var fileWord = filesModified == 1 ? "file" : "files";
             Console.Error.WriteLine($"{verb} {applied.Count} issue{(applied.Count == 1 ? "" : "s")} in {filesModified} {fileWord}:");
 
-            var byFile = applied.GroupBy(f => f.File);
-            foreach (var group in byFile)
+            if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGroupAppliedFixEntriesByFile(applied, out var groupedApplied))
             {
-                Console.Error.WriteLine($"  {group.Key}:");
-                foreach (var fix in group)
+                for (var groupIndex = 0; groupIndex < groupedApplied.GroupCount; groupIndex++)
                 {
-                    Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                    Console.Error.WriteLine($"  {groupedApplied.Files[groupIndex]}:");
+                    var start = groupedApplied.Starts[groupIndex];
+                    var count = groupedApplied.Counts[groupIndex];
+                    for (var i = 0; i < count; i++)
+                    {
+                        var sourceIndex = groupedApplied.Indices[start + i];
+                        var fix = applied[sourceIndex];
+                        Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                    }
+                }
+            }
+            else
+            {
+                var byFile = applied.GroupBy(f => f.File);
+                foreach (var group in byFile)
+                {
+                    Console.Error.WriteLine($"  {group.Key}:");
+                    foreach (var fix in group)
+                    {
+                        Console.Error.WriteLine($"    [{fix.DiagnosticCode}] {fix.Title}");
+                    }
                 }
             }
         }
 
         // Report skipped fixes
-        var skipped = results.Where(r => !applied.Contains(r)).ToList();
+        var skipped = NSharpLang.Cli.NSharpCliDogfoodAdapter.TrySelectSkippedFixEntries(
+            results,
+            includeReviewNeeded,
+            out var dogfoodSkipped)
+            ? dogfoodSkipped
+            : results.Where(r => !applied.Contains(r)).ToList();
         if (skipped.Count > 0)
         {
             Console.Error.WriteLine();
@@ -328,6 +356,9 @@ Examples:
 
     private static string? GetFirstPositionalArg(string[] args, params string[] optionsWithValues)
     {
+        if (NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional))
+            return positional;
+
         for (int i = 0; i < args.Length; i++)
         {
             if (optionsWithValues.Contains(args[i], StringComparer.Ordinal))

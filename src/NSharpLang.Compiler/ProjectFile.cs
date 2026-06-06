@@ -113,6 +113,23 @@ public class ProjectConfig
         // local agent worktrees that can mirror the repo and explode the project size.
         var allFiles = EnumerateSourceFiles(projectRoot).ToArray();
 
+        // Fast path: when exclude globs are present, the N# dogfood kernel classifies every file in
+        // a single pass (test-file filter + exclude-glob filter) without recompiling a regex per
+        // (file, pattern) pair, preserving enumeration order and the exact glob semantics of
+        // MatchesPattern below. With no excludes there is no regex to avoid, so the cheap LINQ
+        // suffix filter below stays on the C# path (and skips per-file Path.GetRelativePath).
+        if (Exclude.Count > 0 &&
+            NSharpCompilerDogfoodAdapter.TryFilterSourceFiles(
+                allFiles,
+                projectRoot,
+                static (root, file) => Path.GetRelativePath(root, file),
+                Exclude.ToArray(),
+                includeTests,
+                out var dogfoodFiles))
+        {
+            return dogfoodFiles;
+        }
+
         // Filter out test files if not including them
         var files = includeTests
             ? allFiles

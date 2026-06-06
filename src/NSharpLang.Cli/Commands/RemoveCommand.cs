@@ -15,7 +15,10 @@ public static class RemoveCommand
         if (args.Length == 0)
             return Error("Usage: nlc remove <package>");
 
-        var packageName = args[0];
+        var packageName = GetPackageOperand(args);
+        if (string.IsNullOrWhiteSpace(packageName))
+            return Error("Usage: nlc remove <package>");
+
         var projectRoot = Directory.GetCurrentDirectory();
         var projectYml = Path.Combine(projectRoot, "project.yml");
 
@@ -70,6 +73,27 @@ public static class RemoveCommand
 
         Console.WriteLine($"Removed {packageName} from project.yml");
         return 0;
+    }
+
+    internal static string? GetPackageOperand(string[] args)
+    {
+        return NSharpLang.Cli.NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(
+            args,
+            Array.Empty<string>(),
+            out var positional)
+            ? positional
+            : GetPackageOperandWithCSharp(args);
+    }
+
+    private static string? GetPackageOperandWithCSharp(string[] args)
+    {
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        }
+
+        return null;
     }
 
     static int ShowHelp()

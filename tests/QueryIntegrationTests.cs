@@ -772,6 +772,32 @@ func Main() {
     }
 
     [Fact]
+    public void References_SourceContexts_AreTrimmedThroughProductionQuerySurface()
+    {
+        var snapshot = LoadTemporaryProject(
+            ("Program.nl", """
+namespace QueryTemp
+
+   record Widget {
+    Value: int
+}
+
+	  func Read(widget: Widget): int {
+    return widget.Value
+}
+"""));
+
+        var filePath = Path.Combine(snapshot.ProjectRoot, "Program.nl");
+        var declarationLine = FindLineInFile(filePath, "record Widget");
+        var declarationColumn = FindColumnInFile(filePath, declarationLine, "Widget");
+
+        var refs = _service.FindReferences(snapshot, "Program.nl", declarationLine, declarationColumn);
+
+        Assert.Contains(refs, r => r.IsDefinition && r.Context == "record Widget {");
+        Assert.Contains(refs, r => !r.IsDefinition && r.Context == "func Read(widget: Widget): int {");
+    }
+
+    [Fact]
     public void TypeUseNavigation_DuplicateTypeNames_UsesSemanticBindingForCompositeTypes()
     {
         var snapshot = LoadTemporaryProject(
@@ -1293,6 +1319,7 @@ func Main() {
         // Signature should mention "Hi" and its return type
         Assert.Contains("Hi", result.Signature, StringComparison.Ordinal);
         Assert.Contains("int", result.Signature, StringComparison.Ordinal);
+        Assert.Contains("A simple hello-world program", result.Documentation);
     }
 
     [Fact]

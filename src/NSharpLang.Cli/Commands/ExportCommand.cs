@@ -36,12 +36,8 @@ public static class ExportCommand
         var outputPath = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
         var projectOption = GetOptionValue(args, "--project");
 
-        args = StripOptionWithValue(args, "--output");
-        args = StripOptionWithValue(args, "-o");
-        args = StripOptionWithValue(args, "--project");
-
-        var positional = args.Where(arg => !arg.StartsWith("-", StringComparison.Ordinal)).ToArray();
-        if (!string.IsNullOrWhiteSpace(projectOption) && positional.Length > 0)
+        var firstPositional = GetExportCSharpInputOperand(args);
+        if (!string.IsNullOrWhiteSpace(projectOption) && firstPositional != null)
         {
             return Error("Specify either a source path or --project, not both.");
         }
@@ -53,9 +49,9 @@ public static class ExportCommand
                 return ExportProjectBundle(Path.GetFullPath(projectOption), outputPath);
             }
 
-            if (positional.Length > 0)
+            if (firstPositional != null)
             {
-                var inputPath = Path.GetFullPath(positional[0]);
+                var inputPath = Path.GetFullPath(firstPositional);
                 if (File.Exists(inputPath))
                 {
                     return ExportSingleFile(inputPath, outputPath);
@@ -66,7 +62,7 @@ public static class ExportCommand
                     return ExportProjectBundle(inputPath, outputPath);
                 }
 
-                return Error($"Path not found: {positional[0]}");
+                return Error($"Path not found: {firstPositional}");
             }
 
             var currentDirectory = Directory.GetCurrentDirectory();
@@ -256,6 +252,28 @@ Exit codes:
         return null;
     }
 
+    private static string? GetExportCSharpInputOperand(string[] args)
+    {
+        return NSharpCliDogfoodAdapter.TryGetExportCSharpInputOperand(args, out var positional)
+            ? positional
+            : GetExportCSharpInputOperandWithCSharp(args);
+    }
+
+    private static string? GetExportCSharpInputOperandWithCSharp(string[] args)
+    {
+        args = StripOptionWithValue(args, "--output");
+        args = StripOptionWithValue(args, "-o");
+        args = StripOptionWithValue(args, "--project");
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        }
+
+        return null;
+    }
+
     private static string[] StripOptionWithValue(string[] args, string option)
     {
         var result = new List<string>(args.Length);
@@ -421,7 +439,7 @@ Exit codes:
         {
             var projectReferences = new List<string>();
 
-            foreach (var dependency in dependencies.Where(reference => reference.Type == ReferenceType.Project))
+            foreach (var dependency in FilterExportReferencesByType(dependencies, ReferenceType.Project))
             {
                 var absoluteReferencePath = Path.GetFullPath(Path.IsPathRooted(dependency.Project!)
                     ? dependency.Project!
@@ -445,16 +463,14 @@ Exit codes:
                 projectReferences.Add(NormalizePath(Path.GetRelativePath(outputDirectory, exportedReference.ProjectFilePath)));
             }
 
-            return projectReferences
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
         }
 
         private List<DllReferenceInfo> ResolveDllReferences(IEnumerable<Reference> dependencies, string projectRoot, string outputDirectory)
         {
             var dllReferences = new List<DllReferenceInfo>();
 
-            foreach (var dependency in dependencies.Where(reference => reference.Type == ReferenceType.Dll))
+            foreach (var dependency in FilterExportReferencesByType(dependencies, ReferenceType.Dll))
             {
                 var absoluteReferencePath = Path.GetFullPath(Path.IsPathRooted(dependency.Dll!)
                     ? dependency.Dll!
@@ -480,27 +496,35 @@ Exit codes:
                     NormalizePath(Path.GetRelativePath(outputDirectory, copiedReferencePath))));
             }
 
-            return dllReferences
-                .Distinct()
-                .ToList();
+            return DeduplicateExportReferences(dllReferences);
         }
 
         private static List<PackageReferenceInfo> ResolvePackageReferences(IEnumerable<Reference> dependencies)
         {
-            return dependencies
-                .Where(reference => reference.Type == ReferenceType.NuGet)
+            var packageReferences = FilterExportReferencesByType(dependencies, ReferenceType.NuGet)
                 .Select(reference => new PackageReferenceInfo(reference.Nuget!, reference.Version))
-                .Distinct()
                 .ToList();
+
+            return DeduplicateExportReferences(packageReferences);
         }
 
         private static List<string> ResolveFrameworkReferences(IEnumerable<Reference> dependencies)
         {
-            return dependencies
-                .Where(reference => reference.Type == ReferenceType.Framework)
+            var frameworkReferences = FilterExportReferencesByType(dependencies, ReferenceType.Framework)
                 .Select(reference => reference.Framework!)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            return DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static List<Reference> FilterExportReferencesByType(
+            IEnumerable<Reference> dependencies,
+            ReferenceType referenceType)
+        {
+            var dependencyList = dependencies as IReadOnlyList<Reference> ?? dependencies.ToArray();
+            return NSharpCliDogfoodAdapter.TryFilterReferencesByType(dependencyList, referenceType, out var dogfoodReferences)
+                ? dogfoodReferences
+                : dependencyList.Where(reference => reference.Type == referenceType).ToList();
         }
 
         private static string GenerateMainProjectFile(
@@ -565,10 +589,11 @@ Exit codes:
             List<string> projectReferences,
             List<DllReferenceInfo> dllReferences)
         {
-            if (packageReferences.Count > 0)
+            var distinctPackageReferences = DeduplicateExportReferences(packageReferences);
+            if (distinctPackageReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var packageReference in packageReferences.Distinct())
+                foreach (var packageReference in distinctPackageReferences)
                 {
                     if (string.IsNullOrWhiteSpace(packageReference.Version))
                     {
@@ -592,30 +617,33 @@ Exit codes:
                 sb.AppendLine("  </ItemGroup>");
             }
 
-            if (frameworkReferences.Count > 0)
+            var distinctFrameworkReferences = DeduplicateExportReferences(frameworkReferences, StringComparer.OrdinalIgnoreCase);
+            if (distinctFrameworkReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var frameworkReference in frameworkReferences.Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var frameworkReference in distinctFrameworkReferences)
                 {
                     sb.AppendLine($"    <FrameworkReference Include=\"{EscapeXml(frameworkReference)}\" />");
                 }
                 sb.AppendLine("  </ItemGroup>");
             }
 
-            if (projectReferences.Count > 0)
+            var distinctProjectReferences = DeduplicateExportReferences(projectReferences, StringComparer.OrdinalIgnoreCase);
+            if (distinctProjectReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var projectReference in projectReferences.Distinct(StringComparer.OrdinalIgnoreCase))
+                foreach (var projectReference in distinctProjectReferences)
                 {
                     sb.AppendLine($"    <ProjectReference Include=\"{EscapeXml(projectReference)}\" />");
                 }
                 sb.AppendLine("  </ItemGroup>");
             }
 
-            if (dllReferences.Count > 0)
+            var distinctDllReferences = DeduplicateExportReferences(dllReferences);
+            if (distinctDllReferences.Count > 0)
             {
                 sb.AppendLine("  <ItemGroup>");
-                foreach (var dllReference in dllReferences.Distinct())
+                foreach (var dllReference in distinctDllReferences)
                 {
                     sb.AppendLine($"    <Reference Include=\"{EscapeXml(dllReference.Name)}\">");
                     sb.AppendLine($"      <HintPath>{EscapeXml(dllReference.HintPath)}</HintPath>");
@@ -623,6 +651,16 @@ Exit codes:
                 }
                 sb.AppendLine("  </ItemGroup>");
             }
+        }
+
+        private static List<T> DeduplicateExportReferences<T>(
+            IReadOnlyList<T> references,
+            IEqualityComparer<T>? comparer = null)
+            where T : notnull
+        {
+            return NSharpCliDogfoodAdapter.TryDeduplicateExportReferences(references, comparer, out var dogfoodReferences)
+                ? dogfoodReferences
+                : references.Distinct(comparer).ToList();
         }
 
         private static List<PackageReferenceInfo> GetTestFrameworkPackages(string testFramework)

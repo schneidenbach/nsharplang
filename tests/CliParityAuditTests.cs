@@ -4,6 +4,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text.Json;
 using System.Threading.Tasks;
+using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using Xunit;
@@ -97,6 +98,68 @@ public class CliParityAuditTests
         {
             Directory.Delete(tempDir, true);
         }
+    }
+
+    [Fact]
+    public void UnifiedDiff_Create_EmitsStableMultiHunkDiff()
+    {
+        var before = string.Join(
+            '\n',
+            new[]
+            {
+                "one",
+                "two",
+                "three",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine",
+                "ten",
+                "eleven",
+                "twelve"
+            });
+        var after = string.Join(
+            '\n',
+            new[]
+            {
+                "one",
+                "two",
+                "THREE",
+                "four",
+                "five",
+                "six",
+                "seven",
+                "eight",
+                "nine-a",
+                "nine",
+                "ten",
+                "twelve"
+            });
+
+        var diff = UnifiedDiff.Create(before, after, "a/Program.nl", "b/Program.nl", contextLines: 1);
+        var expected = string.Join(
+            '\n',
+            new[]
+            {
+                "--- a/Program.nl",
+                "+++ b/Program.nl",
+                "@@ -2,3 +2,3 @@",
+                " two",
+                "-three",
+                "+THREE",
+                " four",
+                "@@ -8,5 +8,5 @@",
+                " eight",
+                "+nine-a",
+                " nine",
+                " ten",
+                "-eleven",
+                " twelve"
+            }) + "\n";
+
+        Assert.Equal(expected, diff);
     }
 
     [Fact]
@@ -368,6 +431,9 @@ func Main() {
             Assert.True(root.GetProperty("lintedFiles").GetInt32() > 0);
             Assert.True(root.GetProperty("results").GetArrayLength() > 0);
             Assert.True(root.GetProperty("summary").GetProperty("errors").GetInt32() > 0);
+            var diagnostic = Assert.Single(root.GetProperty("results").EnumerateArray(),
+                result => result.GetProperty("code").GetString() == "NL001");
+            Assert.Equal("    value := 42", diagnostic.GetProperty("sourceSnippet").GetString());
         }
         finally
         {
@@ -489,6 +555,33 @@ func Main() {
         }
     }
 
+    [Fact]
+    public void LintCommand_FileArgs_DoesNotTreatProjectValueAsFile()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    print "hello"
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                LintCommand.Execute(new[] { "--project", tempDir, tempDir, "Program.nl", "--json" }));
+
+            Assert.Equal(0, exitCode);
+            using var doc = JsonDocument.Parse(stdout);
+            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
+            Assert.Equal(1, doc.RootElement.GetProperty("lintedFiles").GetInt32());
+            Assert.Equal(0, doc.RootElement.GetProperty("results").GetArrayLength());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // ── Step 4: C# export flow ───────────────────────────────────────────
 
     [Fact]
@@ -501,6 +594,16 @@ func Main() {
         Assert.Contains("nlc export csharp <file.nl>", stdout);
         Assert.Contains("self-contained C# bundle", stdout);
         Assert.Contains("sibling test project", stdout);
+    }
+
+    [Fact]
+    public void ExportCommand_ProjectAndSourceOperand_AreRejected()
+    {
+        var (exitCode, _, stderr) = CaptureConsole(() =>
+            ExecuteProgram("export", "csharp", "--project", "demo", "Program.nl"));
+
+        Assert.Equal(1, exitCode);
+        Assert.Contains("Specify either a source path or --project", stderr);
     }
 
     [Fact]
@@ -583,6 +686,34 @@ func Main() {
             AssertCanonicalProjectShape(projectDir, projectName, hasProgram, hasTests, hasWebController);
             Assert.Contains("project.yml", stdout);
             Assert.Contains("nlc build", stdout);
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
+    public void NewCommand_AcceptsProjectNameAfterTemplateOption()
+    {
+        var parentDir = CreateTempDir();
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var projectName = "DemoOptionFirst";
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "--template", "library", projectName));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var projectDir = Path.Combine(parentDir, projectName);
+            AssertCanonicalProjectShape(projectDir, projectName, hasProgram: false, hasTests: false, hasWebController: false);
+            Assert.Contains("library", stdout);
         }
         finally
         {
@@ -791,6 +922,57 @@ func Main() {
                 TidyCommand.Execute(new[] { "--project", tempDir }));
 
             Assert.Equal(1, exitCode);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void TidyCommand_Json_ClassifiesDependencyUsage()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: TidyClassification
+entry: Program.nl
+outputType: exe
+targetFramework: net10.0
+
+dependencies:
+  - nuget: Newtonsoft.Json
+    version: 13.0.3
+  - nuget: Serilog.Sinks.Console
+    version: 5.0.1
+  - nuget: Polly
+    version: 8.0.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import Newtonsoft.Json.Linq
+
+func Main() {
+    print "ok"
+}
+""");
+
+            var (exitCode, stdout, stderr) = CaptureConsole(() =>
+                TidyCommand.Execute(new[] { "--project", tempDir, "--json" }));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            using var doc = JsonDocument.Parse(stdout);
+            var dependencies = doc.RootElement.GetProperty("dependencies")
+                .EnumerateArray()
+                .ToDictionary(
+                    dependency => dependency.GetProperty("name").GetString()!,
+                    dependency => dependency.GetProperty("status").GetString()!);
+
+            Assert.Equal("used", dependencies["Newtonsoft.Json"]);
+            Assert.Equal("possibly-unused", dependencies["Serilog.Sinks.Console"]);
+            Assert.Equal("unknown", dependencies["Polly"]);
         }
         finally
         {

@@ -48,15 +48,17 @@ public static class FixApplicator
         // Sort edits bottom-to-top, right-to-left so applying them doesn't shift earlier positions.
         // Same-position zero-width inserts are applied in reverse input order so the final text
         // preserves the caller's input order.
-        var sortedEdits = edits
-            .Select((edit, index) => new { Edit = edit, Index = index })
-            .OrderByDescending(item => item.Edit.StartLine)
-            .ThenByDescending(item => item.Edit.StartColumn)
-            .ThenBy(item => item.Edit.EndLine)
-            .ThenBy(item => item.Edit.EndColumn)
-            .ThenByDescending(item => item.Index)
-            .Select(item => item.Edit)
-            .ToList();
+        var sortedEdits = NSharpCodeIntelligenceDogfoodAdapter.TryOrderTextEdits(edits, out var dogfoodSortedEdits)
+            ? dogfoodSortedEdits
+            : edits
+                .Select((edit, index) => new { Edit = edit, Index = index })
+                .OrderByDescending(item => item.Edit.StartLine)
+                .ThenByDescending(item => item.Edit.StartColumn)
+                .ThenBy(item => item.Edit.EndLine)
+                .ThenBy(item => item.Edit.EndColumn)
+                .ThenByDescending(item => item.Index)
+                .Select(item => item.Edit)
+                .ToList();
 
         foreach (var edit in sortedEdits)
         {

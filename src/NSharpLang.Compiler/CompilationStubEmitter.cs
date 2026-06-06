@@ -15,9 +15,10 @@ public static class CompilationStubEmitter
         ArgumentNullException.ThrowIfNull(sourceFiles);
 
         var compilationUnits = new List<CompilationUnit>();
-        foreach (var sourceFile in sourceFiles
-                     .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        var existingSourceFiles = sourceFiles
+            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            .ToList();
+        foreach (var sourceFile in DeduplicateSourceFilesOrdinalIgnoreCase(existingSourceFiles))
         {
             var source = File.ReadAllText(sourceFile);
             var lexer = new Lexer(source, sourceFile);
@@ -38,6 +39,13 @@ public static class CompilationStubEmitter
         ArgumentNullException.ThrowIfNull(compilationUnits);
 
         return new Writer(config, compilationUnits.ToList()).Write();
+    }
+
+    private static List<string> DeduplicateSourceFilesOrdinalIgnoreCase(IReadOnlyList<string> sourceFiles)
+    {
+        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstStringsOrdinalIgnoreCase(sourceFiles, out var dogfoodSourceFiles)
+            ? dogfoodSourceFiles
+            : sourceFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
     }
 
     private sealed class Writer(ProjectConfig config, IReadOnlyList<CompilationUnit> compilationUnits)
@@ -156,11 +164,28 @@ public static class CompilationStubEmitter
                 }
             }
 
-            foreach (var namespaceName in _compilationUnits
-                         .Select(GetNamespaceName)
-                         .Where(namespaceName => !string.IsNullOrWhiteSpace(namespaceName))
-                         .Distinct(StringComparer.Ordinal)
-                         .OrderBy(namespaceName => namespaceName, StringComparer.Ordinal))
+            var namespaceNames = new List<string>(_compilationUnits.Count);
+            foreach (var unit in _compilationUnits)
+            {
+                var namespaceName = GetNamespaceName(unit);
+                if (!string.IsNullOrWhiteSpace(namespaceName))
+                {
+                    namespaceNames.Add(namespaceName);
+                }
+            }
+
+            IEnumerable<string> orderedNamespaceNames;
+            if (NSharpCompilerDogfoodAdapter.TryDistinctOrderStringsOrdinal(namespaceNames, out var dogfoodNamespaceNames))
+            {
+                orderedNamespaceNames = dogfoodNamespaceNames;
+            }
+            else
+            {
+                orderedNamespaceNames = namespaceNames
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(namespaceName => namespaceName, StringComparer.Ordinal);
+            }
+            foreach (var namespaceName in orderedNamespaceNames)
             {
                 usingDirectives.Add($"using {namespaceName};");
             }

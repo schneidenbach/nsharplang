@@ -563,6 +563,23 @@ class User {
     }
 
     [Fact]
+    public void Parser_ProvidesSourceSnippet_PreservesCrLfSplitBehavior()
+    {
+        var source = string.Join("\r\n", new[]
+        {
+            "func test() {",
+            "    x.",
+            "}"
+        });
+        var result = Parse(source);
+
+        Assert.False(result.Success);
+        var error = result.Errors.FirstOrDefault();
+        Assert.NotNull(error);
+        Assert.Equal("    x.\r", error.SourceSnippet);
+    }
+
+    [Fact]
     public void Parser_ProvidesDocsUrl()
     {
         var source = "func test() { x. }";

@@ -28,6 +28,9 @@ public sealed class AotRequirements
         _byDeclaration = byDeclaration;
     }
 
+    internal static AotRequirements FromMap(Dictionary<string, Annotation> byDeclaration) =>
+        new(byDeclaration);
+
     /// <summary>An empty requirement set (no annotations needed).</summary>
     public static AotRequirements Empty { get; } = new(new Dictionary<string, Annotation>(StringComparer.Ordinal));
 
@@ -49,7 +52,11 @@ public sealed class AotRequirements
     /// </summary>
     public static AotRequirements FromBlockers(IEnumerable<AotBlocker> blockers)
     {
-        var grouped = blockers
+        var blockerList = blockers as IReadOnlyList<AotBlocker> ?? blockers.ToArray();
+        if (NSharpPerformanceDogfoodAdapter.TryBuildAotRequirements(blockerList, out var dogfoodRequirements))
+            return dogfoodRequirements;
+
+        var grouped = blockerList
             .Where(blocker => blocker.IsOnPublicSurface && !string.IsNullOrEmpty(blocker.EnclosingDeclaration))
             .GroupBy(blocker => blocker.EnclosingDeclaration!, StringComparer.Ordinal);
 
@@ -65,11 +72,16 @@ public sealed class AotRequirements
                 .Distinct(StringComparer.Ordinal)
                 .OrderBy(c => c, StringComparer.Ordinal)
                 .Take(3);
-            var message = $"Uses AOT-unsafe constructs ({string.Join(", ", constructs)}); not safe under Native AOT or trimming.";
 
-            map[group.Key] = new Annotation(requiresUnreferenced, requiresDynamic, message);
+            map[group.Key] = new Annotation(
+                requiresUnreferenced,
+                requiresDynamic,
+                CreateAnnotationMessage(constructs));
         }
 
         return new AotRequirements(map);
     }
+
+    internal static string CreateAnnotationMessage(IEnumerable<string> constructs) =>
+        $"Uses AOT-unsafe constructs ({string.Join(", ", constructs)}); not safe under Native AOT or trimming.";
 }

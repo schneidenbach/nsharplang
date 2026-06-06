@@ -493,6 +493,11 @@ public class DocQuery
                 GetEventSummary(evt), null));
         }
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryOrderDocMembers(results, out var dogfoodMembers))
+        {
+            return dogfoodMembers;
+        }
+
         return results
             .OrderBy(r => r.Kind)
             .ThenBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
@@ -680,12 +685,31 @@ public class DocQuery
 
     private static Type? SelectBestType(string query, IEnumerable<Type> candidates)
     {
-        return candidates
-            .Distinct()
+        var candidateList = candidates as IReadOnlyList<Type> ?? candidates.ToArray();
+        var distinctCandidates = DeduplicateTypeCandidates(candidateList);
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySelectBestDocType(
+            query,
+            distinctCandidates,
+            ScoreTypeMatch,
+            out var dogfoodType))
+        {
+            return dogfoodType;
+        }
+
+        return distinctCandidates
             .OrderByDescending(t => ScoreTypeMatch(query, t))
             .ThenBy(t => t.Namespace?.Length ?? int.MaxValue)
             .ThenBy(t => t.FullName, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
+    }
+
+    private static Type[] DeduplicateTypeCandidates(IReadOnlyList<Type> candidates)
+    {
+        return NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableTypes(
+            candidates,
+            out var dogfoodCandidates)
+            ? dogfoodCandidates
+            : candidates.Distinct().ToArray();
     }
 
     private static int ScoreTypeMatch(string query, Type type)
@@ -855,16 +879,39 @@ public class DocQuery
 
     private IEnumerable<string> DiscoverReferencePackAssemblyNames()
     {
-        return GetReferencePackDirectories()
-            .SelectMany(dir =>
+        var names = new List<string>();
+        foreach (var dir in GetReferencePackDirectories())
+        {
+            string[] dllFiles;
+            try
             {
-                try { return Directory.EnumerateFiles(dir, "*.dll"); }
-                catch { return Array.Empty<string>(); }
-            })
-            .Select(Path.GetFileNameWithoutExtension)
-            .Where(name => !string.IsNullOrWhiteSpace(name))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Cast<string>();
+                dllFiles = Directory.GetFiles(dir, "*.dll");
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (var dllFile in dllFiles)
+            {
+                var name = Path.GetFileNameWithoutExtension(dllFile);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    names.Add(name);
+                }
+            }
+        }
+
+        return DeduplicateReferencePackAssemblyNames(names);
+    }
+
+    private static string[] DeduplicateReferencePackAssemblyNames(IReadOnlyList<string> names)
+    {
+        return NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateStableStringsOrdinalIgnoreCase(
+            names,
+            out var dogfoodNames)
+            ? dogfoodNames
+            : names.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     private IEnumerable<string> GetReferencePackDirectories()

@@ -123,6 +123,85 @@ public static class OutputFormatter
             References = Normalize(result.References)
         };
 
+    public static DiagnosticSummary SummarizeDiagnostics(IReadOnlyList<DiagnosticResult> results)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySummarizeDiagnosticSeverities(results, out var summary))
+            return summary;
+
+        return new DiagnosticSummary(
+            Errors: results.Count(d => d.Severity == "error"),
+            Warnings: results.Count(d => d.Severity == "warning"),
+            Info: results.Count(d => d.Severity == "info"));
+    }
+
+    public static List<DiagnosticResult> FilterDiagnosticsBySeverity(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        string severity)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFilterDiagnosticSeverities(
+            diagnostics,
+            severity,
+            out var resultIndices,
+            out var resultCount))
+        {
+            var results = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                    return FilterDiagnosticsBySeverityWithLinq(diagnostics, severity);
+
+                results.Add(diagnostics[diagnosticIndex]);
+            }
+
+            return results;
+        }
+
+        return FilterDiagnosticsBySeverityWithLinq(diagnostics, severity);
+    }
+
+    private static List<DiagnosticResult> FilterDiagnosticsBySeverityWithLinq(
+        IReadOnlyList<DiagnosticResult> diagnostics,
+        string severity) =>
+        diagnostics
+            .Where(diagnostic => diagnostic.Severity.Equals(severity, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    public static List<DiagnosticResult> DeduplicateAndSortDiagnostics(IReadOnlyList<DiagnosticResult> diagnostics)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateDiagnostics(
+            diagnostics,
+            out var resultIndices,
+            out var resultCount))
+        {
+            var results = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                    return DeduplicateAndSortDiagnosticsWithLinq(diagnostics);
+
+                results.Add(diagnostics[diagnosticIndex]);
+            }
+
+            return results;
+        }
+
+        return DeduplicateAndSortDiagnosticsWithLinq(diagnostics);
+    }
+
+    private static List<DiagnosticResult> DeduplicateAndSortDiagnosticsWithLinq(
+        IReadOnlyList<DiagnosticResult> diagnostics)
+    {
+        return diagnostics
+            .GroupBy(diagnostic => (diagnostic.Code, diagnostic.File, diagnostic.Line, diagnostic.Column, diagnostic.Message))
+            .Select(group => group.First())
+            .OrderBy(diagnostic => diagnostic.File)
+            .ThenBy(diagnostic => diagnostic.Line)
+            .ThenBy(diagnostic => diagnostic.Column)
+            .ToList();
+    }
+
     // ── JSON Output ────────────────────────────────────────────────────
 
     public static string SymbolsToJson(List<SymbolResult> results, string? projectRoot = null)
@@ -154,11 +233,7 @@ public static class OutputFormatter
 
     public static string DiagnosticsToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = SummarizeDiagnostics(results);
         var envelope = new
         {
             schemaVersion = SchemaVersion,
@@ -173,11 +248,7 @@ public static class OutputFormatter
 
     public static string DiagnosticClustersToJson(List<DiagnosticResult> results, string? projectRoot = null)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = SummarizeDiagnostics(results);
         var clusters = BuildDiagnosticClusters(results);
         var envelope = new
         {
@@ -193,11 +264,7 @@ public static class OutputFormatter
 
     public static string CheckToJson(List<DiagnosticResult> results, string? projectRoot, int checkedFiles)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = SummarizeDiagnostics(results);
 
         var envelope = new
         {
@@ -214,11 +281,7 @@ public static class OutputFormatter
 
     public static string LintToJson(List<DiagnosticResult> results, string? projectRoot, int lintedFiles)
     {
-        var summary = new DiagnosticSummary(
-            Errors: results.Count(d => d.Severity == "error"),
-            Warnings: results.Count(d => d.Severity == "warning"),
-            Info: results.Count(d => d.Severity == "info")
-        );
+        var summary = SummarizeDiagnostics(results);
 
         var envelope = new
         {
@@ -790,11 +853,15 @@ public static class OutputFormatter
             ? new LocationResult(result.Definition.File, result.Definition.Line, result.Definition.Column)
             : result.Symbol?.Definition;
 
-        var referenceFiles = result.References.Results
-            .Select(reference => NormalizePath(reference.File) ?? reference.File)
-            .Distinct(StringComparer.Ordinal)
-            .OrderBy(file => file, StringComparer.Ordinal)
-            .ToArray();
+        var referenceFiles = NSharpCodeIntelligenceDogfoodAdapter.TryBuildInspectSummaryReferenceFiles(
+            result.References.Results,
+            out var dogfoodReferenceFiles)
+                ? dogfoodReferenceFiles
+                : result.References.Results
+                    .Select(reference => NormalizePath(reference.File) ?? reference.File)
+                    .Distinct(StringComparer.Ordinal)
+                    .OrderBy(file => file, StringComparer.Ordinal)
+                    .ToArray();
 
         var referenceSample = result.References.Results
             .Take(InspectSummaryReferenceSampleSize)
@@ -865,6 +932,15 @@ public static class OutputFormatter
         string? SourceSnippet,
         string? Suggestion);
 
+    private sealed record ClassifiedDiagnostic(DiagnosticResult Diagnostic, DiagnosticClusterTraits Traits);
+
+    private sealed record ClassifiedDiagnosticSet(
+        List<ClassifiedDiagnostic> Items,
+        DiagnosticResult[] Diagnostics,
+        int[]? CategoryIds,
+        int[]? SourceConstructIds,
+        string[]? MessagePatterns);
+
     private sealed record DiagnosticClusterTraits(
         string Category,
         string SourceConstruct,
@@ -875,8 +951,11 @@ public static class OutputFormatter
 
     private static List<DiagnosticCluster> BuildDiagnosticClusters(List<DiagnosticResult> results)
     {
-        return results
-            .Select(diagnostic => new { Diagnostic = Normalize(diagnostic), Traits = ClassifyDiagnostic(diagnostic) })
+        var classified = BuildClassifiedDiagnostics(results);
+        if (TryBuildDiagnosticClustersFromDogfoodGroups(classified, out var clusters))
+            return clusters;
+
+        return classified.Items
             .GroupBy(item => new
             {
                 item.Diagnostic.Severity,
@@ -895,36 +974,9 @@ public static class OutputFormatter
                     .ThenBy(d => d.Column)
                     .ThenBy(d => d.File, StringComparer.OrdinalIgnoreCase)
                     .ToList();
-                var root = ordered.First();
                 var traits = group.First().Traits;
 
-                return new DiagnosticCluster(
-                    Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
-                    Category: traits.Category,
-                    Recipe: traits.Recipe,
-                    Risk: traits.Risk,
-                    Count: ordered.Count,
-                    Severity: root.Severity,
-                    Files: ordered.Select(d => d.File).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(file => file, StringComparer.OrdinalIgnoreCase).ToArray(),
-                    RelatedDiagnostics: ordered.Select(d => new DiagnosticClusterRelatedDiagnostic(
-                        d.Code,
-                        d.Severity,
-                        d.File,
-                        d.Line,
-                        d.Column,
-                        d.Message)).ToArray(),
-                    NextCommand: BuildDiagnosticClusterNextCommand(root),
-                    RootLocation: new DiagnosticClusterLocation(root.File, root.Line, root.Column),
-                    MessagePattern: traits.MessagePattern,
-                    SourceConstruct: traits.SourceConstruct,
-                    SuggestedNextActions: traits.SuggestedNextActions,
-                    Examples: ordered.Take(DiagnosticClusterExampleLimit).Select(d => new DiagnosticClusterExample(
-                        d.File,
-                        d.Line,
-                        d.Column,
-                        d.Message,
-                        string.IsNullOrWhiteSpace(d.SourceSnippet) ? null : d.SourceSnippet.Trim(),
-                        string.IsNullOrWhiteSpace(d.Suggestion) ? null : d.Suggestion.Trim())).ToArray());
+                return CreateDiagnosticCluster(ordered, traits);
             })
             .OrderByDescending(cluster => cluster.Count)
             .ThenBy(cluster => cluster.RootLocation.File, StringComparer.OrdinalIgnoreCase)
@@ -932,6 +984,274 @@ public static class OutputFormatter
             .ThenBy(cluster => cluster.RootLocation.Column)
             .ToList();
     }
+
+    private static bool TryBuildDiagnosticClustersFromDogfoodGroups(
+        ClassifiedDiagnosticSet classified,
+        out List<DiagnosticCluster> clusters)
+    {
+        clusters = new List<DiagnosticCluster>();
+
+        if (classified.CategoryIds == null
+            || classified.SourceConstructIds == null
+            || classified.MessagePatterns == null
+            || !NSharpCodeIntelligenceDogfoodAdapter.TryGroupDiagnosticClusters(
+                classified.Diagnostics,
+                classified.CategoryIds,
+                classified.SourceConstructIds,
+                classified.MessagePatterns,
+                out var grouping)
+            || grouping == null)
+        {
+            return false;
+        }
+
+        clusters.Capacity = grouping.GroupCount;
+        var ordered = new List<DiagnosticResult>();
+        for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
+        {
+            var rootIndex = grouping.RootIndices[groupIndex];
+            if (rootIndex < 0 || rootIndex >= classified.Items.Count)
+                return false;
+
+            var memberStart = grouping.MemberStarts[groupIndex];
+            var memberCount = grouping.Counts[groupIndex];
+            if (memberStart < 0
+                || memberCount < 0
+                || memberStart > grouping.MemberIndices.Length - memberCount)
+            {
+                return false;
+            }
+
+            ordered.Clear();
+            for (var memberOffset = 0; memberOffset < memberCount; memberOffset++)
+            {
+                var diagnosticIndex = grouping.MemberIndices[memberStart + memberOffset];
+                if (diagnosticIndex < 0 || diagnosticIndex >= classified.Items.Count)
+                    return false;
+
+                ordered.Add(classified.Items[diagnosticIndex].Diagnostic);
+            }
+
+            if (ordered.Count != memberCount)
+                return false;
+
+            if (memberCount > 0 && grouping.MemberIndices[memberStart] != rootIndex)
+                return false;
+
+            var traits = classified.Items[rootIndex].Traits;
+            clusters.Add(CreateDiagnosticCluster(ordered, traits));
+        }
+
+        return true;
+    }
+
+    private static DiagnosticCluster CreateDiagnosticCluster(
+        List<DiagnosticResult> ordered,
+        DiagnosticClusterTraits traits)
+    {
+        var root = ordered[0];
+        var files = NSharpCodeIntelligenceDogfoodAdapter.TryBuildDiagnosticClusterFiles(
+            ordered,
+            out var dogfoodFiles)
+                ? dogfoodFiles
+                : ordered
+                    .Select(d => d.File)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(file => file, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+        return new DiagnosticCluster(
+            Id: CreateClusterId(root.Code, root.Severity, traits.Category, traits.SourceConstruct, traits.Recipe, traits.MessagePattern),
+            Category: traits.Category,
+            Recipe: traits.Recipe,
+            Risk: traits.Risk,
+            Count: ordered.Count,
+            Severity: root.Severity,
+            Files: files,
+            RelatedDiagnostics: ordered.Select(d => new DiagnosticClusterRelatedDiagnostic(
+                d.Code,
+                d.Severity,
+                d.File,
+                d.Line,
+                d.Column,
+                d.Message)).ToArray(),
+            NextCommand: BuildDiagnosticClusterNextCommand(root),
+            RootLocation: new DiagnosticClusterLocation(root.File, root.Line, root.Column),
+            MessagePattern: traits.MessagePattern,
+            SourceConstruct: traits.SourceConstruct,
+            SuggestedNextActions: traits.SuggestedNextActions,
+            Examples: ordered.Take(DiagnosticClusterExampleLimit).Select(d => new DiagnosticClusterExample(
+                d.File,
+                d.Line,
+                d.Column,
+                d.Message,
+                string.IsNullOrWhiteSpace(d.SourceSnippet) ? null : d.SourceSnippet.Trim(),
+                string.IsNullOrWhiteSpace(d.Suggestion) ? null : d.Suggestion.Trim())).ToArray());
+    }
+
+    private static int CompareDiagnosticClusterRoots(DiagnosticResult left, DiagnosticResult right)
+    {
+        var line = left.Line.CompareTo(right.Line);
+        if (line != 0)
+            return line;
+
+        var column = left.Column.CompareTo(right.Column);
+        if (column != 0)
+            return column;
+
+        return StringComparer.OrdinalIgnoreCase.Compare(left.File, right.File);
+    }
+
+    private static ClassifiedDiagnosticSet BuildClassifiedDiagnostics(List<DiagnosticResult> results)
+    {
+        var classified = new List<ClassifiedDiagnostic>(results.Count);
+        var diagnostics = new DiagnosticResult[results.Count];
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryClassifyDiagnosticClusterTraits(
+                results,
+                out var categories,
+                out var sourceConstructs))
+        {
+            var messagePatterns = new string[results.Count];
+            for (var i = 0; i < results.Count; i++)
+            {
+                var diagnostic = results[i];
+                var messagePattern = NormalizeMessagePattern(diagnostic.Message ?? string.Empty);
+                var normalized = Normalize(diagnostic);
+                messagePatterns[i] = messagePattern;
+                diagnostics[i] = normalized;
+                classified.Add(new ClassifiedDiagnostic(
+                    normalized,
+                    CreateDiagnosticClusterTraits(
+                        categories[i],
+                        sourceConstructs[i],
+                        messagePattern)));
+            }
+
+            return new ClassifiedDiagnosticSet(classified, diagnostics, categories, sourceConstructs, messagePatterns);
+        }
+
+        for (var i = 0; i < results.Count; i++)
+        {
+            var diagnostic = results[i];
+            var normalized = Normalize(diagnostic);
+            diagnostics[i] = normalized;
+            classified.Add(new ClassifiedDiagnostic(normalized, ClassifyDiagnostic(diagnostic)));
+        }
+
+        return new ClassifiedDiagnosticSet(classified, diagnostics, null, null, null);
+    }
+
+    private static DiagnosticClusterTraits CreateDiagnosticClusterTraits(
+        int category,
+        int sourceConstruct,
+        string messagePattern)
+    {
+        var sourceConstructText = DiagnosticSourceConstructName(sourceConstruct);
+        return category switch
+        {
+            0 => new DiagnosticClusterTraits(
+                "syntax-missing-terminator",
+                sourceConstructText,
+                "syntax:statement-boundary",
+                "high",
+                messagePattern,
+                new[]
+                {
+                    "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
+                    "Inspect the refactor or code-generation path that emitted this construct and add a delimiter/terminator regression test."
+                }),
+            1 => new DiagnosticClusterTraits(
+                "syntax-missing-delimiter",
+                sourceConstructText,
+                "syntax:delimiter-balancing",
+                "high",
+                messagePattern,
+                new[]
+                {
+                    "Fix the earliest statement-boundary parse error first; later syntax diagnostics are often cascades.",
+                    "Inspect the refactor or code-generation path that emitted this construct and add a delimiter/terminator regression test."
+                }),
+            2 => new DiagnosticClusterTraits(
+                "import-cycle",
+                "import",
+                "architecture:extract-shared-module-or-invert-dependency",
+                "high",
+                messagePattern,
+                new[]
+                {
+                    "Break the cycle at the reported import path by moving shared declarations into a third file/package or inverting one dependency.",
+                    "Rerun `nlc check` after removing the cycle; unused-import warnings in the same files may be cascades."
+                }),
+            3 => new DiagnosticClusterTraits(
+                "identifier-resolution",
+                sourceConstructText,
+                "symbols:missing-import-or-qualification",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Resolve the first missing identifier by adding the import/qualification or correcting the declaration name.",
+                    "Rerun diagnostics after the root symbol is resolved; dependent member/type errors may disappear."
+                }),
+            4 => new DiagnosticClusterTraits(
+                "type-resolution",
+                sourceConstructText,
+                "types:resolve-type-or-import",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Resolve the type/import at the earliest root location before chasing downstream uses.",
+                    "Check whether the source construct needs full qualification or a project reference."
+                }),
+            5 => new DiagnosticClusterTraits(
+                "type-mismatch",
+                sourceConstructText,
+                "refactor:signature-or-expression-shape",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Compare the expected and actual types at the root example and update the refactor recipe that changed the expression/signature shape.",
+                    "Prefer fixing the producer expression over adding casts to each cascaded consumer."
+                }),
+            6 => new DiagnosticClusterTraits(
+                "member-resolution",
+                sourceConstructText,
+                "members:api-rename-or-extension-import",
+                "medium",
+                messagePattern,
+                new[]
+                {
+                    "Verify the API/member name for the root receiver before fixing repeated call sites.",
+                    "Check whether an extension-method import or receiver type conversion was dropped."
+                }),
+            _ => new DiagnosticClusterTraits(
+                "diagnostic-message-shape",
+                sourceConstructText,
+                "manual-triage:inspect-root-diagnostic",
+                "low",
+                messagePattern,
+                new[]
+                {
+                    "Start at the root example and decide whether this is a source, refactor, or compiler diagnostic issue.",
+                    "After fixing the root cause, rerun diagnostics and compare the remaining cluster counts."
+                })
+        };
+    }
+
+    private static string DiagnosticSourceConstructName(int sourceConstruct) => sourceConstruct switch
+    {
+        0 => "variable-declaration",
+        1 => "function-declaration",
+        2 => "class-declaration",
+        3 => "interface-declaration",
+        4 => "import",
+        5 => "return-statement",
+        6 => "control-flow",
+        7 => "call-or-construction",
+        _ => "unknown-construct"
+    };
 
     private static void AppendDiagnosticClusterSummary(StringBuilder sb, List<DiagnosticCluster> clusters)
     {
@@ -1213,9 +1533,7 @@ public static class OutputFormatter
             return "No diagnostics found.";
 
         var sb = new StringBuilder();
-        var errors = results.Count(d => d.Severity == "error");
-        var warnings = results.Count(d => d.Severity == "warning");
-        var info = results.Count(d => d.Severity == "info");
+        var summary = SummarizeDiagnostics(results);
 
         AppendDiagnosticClusterSummary(sb, BuildDiagnosticClusters(results));
 
@@ -1227,9 +1545,9 @@ public static class OutputFormatter
         // Summary line
         sb.AppendLine();
         var parts = new List<string>();
-        if (errors > 0) parts.Add($"{errors} error{(errors == 1 ? "" : "s")}");
-        if (warnings > 0) parts.Add($"{warnings} warning{(warnings == 1 ? "" : "s")}");
-        if (info > 0) parts.Add($"{info} info");
+        if (summary.Errors > 0) parts.Add($"{summary.Errors} error{(summary.Errors == 1 ? "" : "s")}");
+        if (summary.Warnings > 0) parts.Add($"{summary.Warnings} warning{(summary.Warnings == 1 ? "" : "s")}");
+        if (summary.Info > 0) parts.Add($"{summary.Info} info");
         sb.AppendLine($"Found {string.Join(", ", parts)}.");
 
         return sb.ToString();

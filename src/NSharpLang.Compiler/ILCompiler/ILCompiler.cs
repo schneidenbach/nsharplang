@@ -1500,6 +1500,19 @@ public partial class ILCompiler
             yield return $"{import.Namespace}.{typeName}";
         }
 
+        if (NSharpCompilerDogfoodAdapter.TrySelectDeclaredTypeNameCandidate(
+            _compilationUnit,
+            typeName,
+            out var dogfoodDeclaredNameCandidate))
+        {
+            if (dogfoodDeclaredNameCandidate != null)
+            {
+                yield return dogfoodDeclaredNameCandidate;
+            }
+
+            yield break;
+        }
+
         var declaredNames = EnumerateDeclaredTypes()
             .Select(info => info.Name)
             .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -1642,6 +1655,11 @@ public partial class ILCompiler
     private static bool TryLookupUniqueDeclaredTypeBySuffix<TType>(IReadOnlyDictionary<string, TType> types, string typeName, out TType type)
         where TType : Type
     {
+        if (NSharpCompilerDogfoodAdapter.TryLookupUniqueDeclaredTypeBySuffix(types, typeName, out type, out var found))
+        {
+            return found;
+        }
+
         var matches = types
             .Where(entry => string.Equals(entry.Key, typeName, StringComparison.Ordinal)
                 || entry.Key.EndsWith("." + typeName, StringComparison.Ordinal))
@@ -7711,11 +7729,11 @@ public partial class ILCompiler
             return null;
         }
 
-        BoundDeclaredMethodCall? best = null;
-        var bestScore = -1;
-        var bestUsesParams = true;
-        var bestDefaultsUsed = int.MaxValue;
-        var bestIsGeneric = true;
+        // First pass: bind each surviving candidate once and collect its rank columns. The N#
+        // compact-candidate ranking kernel then selects the winning index over those columns,
+        // replacing the inline four-level tie-break. The collected candidate data feeds the final
+        // BoundDeclaredMethodCall so binding work is never repeated.
+        var candidates = new List<BoundDeclaredMethodCandidate>(overloadList.Count);
 
         foreach (var overload in overloadList)
         {
@@ -7761,19 +7779,88 @@ public partial class ILCompiler
             }
 
             var isGeneric = HasRuntimeTypeParameters(overload.Declaration);
-            if (best == null
+            candidates.Add(new BoundDeclaredMethodCandidate(
+                overload.Declaration,
+                candidateMethod,
+                boundArguments,
+                candidateTypeArguments,
+                score,
+                isGeneric,
+                usesParams,
+                defaultsUsed));
+        }
+
+        var bestIndex = SelectBestDeclaredMethodCandidate(candidates);
+        if (bestIndex < 0)
+        {
+            return null;
+        }
+
+        var bestCandidate = candidates[bestIndex];
+        return new BoundDeclaredMethodCall(
+            bestCandidate.Declaration,
+            bestCandidate.CandidateMethod,
+            bestCandidate.BoundArguments,
+            implicitReceiver != null,
+            targetType,
+            bestCandidate.CandidateTypeArguments);
+    }
+
+    /// <summary>
+    /// Selects the winning declared-method candidate index using the exact four-level tie-break
+    /// (score &gt; non-generic &gt; non-params &gt; fewer-defaults, first-wins-on-tie). When the N#
+    /// dogfood ranking kernel is available it runs the ranking over compact primitive columns;
+    /// otherwise it falls back to the equivalent inline C# scan.
+    /// </summary>
+    private static int SelectBestDeclaredMethodCandidate(List<BoundDeclaredMethodCandidate> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return -1;
+        }
+
+        if (NSharpCompilerDogfoodAdapter.TrySelectOverloadCandidate(
+                candidates.Count,
+                (validFlags, scores, genericFlags, paramsFlags, defaultsUsed) =>
+                {
+                    for (var i = 0; i < candidates.Count; i++)
+                    {
+                        var candidate = candidates[i];
+                        validFlags[i] = 1;
+                        scores[i] = candidate.Score;
+                        genericFlags[i] = candidate.IsGeneric ? 1 : 0;
+                        paramsFlags[i] = candidate.UsesParams ? 1 : 0;
+                        defaultsUsed[i] = candidate.DefaultsUsed;
+                    }
+
+                    return candidates.Count;
+                },
+                out var selectedIndex))
+        {
+            return selectedIndex;
+        }
+
+        var bestIndex = -1;
+        var bestScore = -1;
+        var bestUsesParams = true;
+        var bestDefaultsUsed = int.MaxValue;
+        var bestIsGeneric = true;
+
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            var candidate = candidates[i];
+            var score = candidate.Score;
+            var isGeneric = candidate.IsGeneric;
+            var usesParams = candidate.UsesParams;
+            var defaultsUsed = candidate.DefaultsUsed;
+
+            if (bestIndex < 0
                 || score > bestScore
                 || (score == bestScore && bestIsGeneric && !isGeneric)
                 || (score == bestScore && bestIsGeneric == isGeneric && bestUsesParams && !usesParams)
                 || (score == bestScore && bestIsGeneric == isGeneric && bestUsesParams == usesParams && defaultsUsed < bestDefaultsUsed))
             {
-                best = new BoundDeclaredMethodCall(
-                    overload.Declaration,
-                    candidateMethod,
-                    boundArguments,
-                    implicitReceiver != null,
-                    targetType,
-                    candidateTypeArguments);
+                bestIndex = i;
                 bestScore = score;
                 bestUsesParams = usesParams;
                 bestDefaultsUsed = defaultsUsed;
@@ -7781,8 +7868,18 @@ public partial class ILCompiler
             }
         }
 
-        return best;
+        return bestIndex;
     }
+
+    private readonly record struct BoundDeclaredMethodCandidate(
+        FunctionDeclaration Declaration,
+        MethodInfo CandidateMethod,
+        IReadOnlyList<BoundCallArgument> BoundArguments,
+        IReadOnlyList<Type>? CandidateTypeArguments,
+        int Score,
+        bool IsGeneric,
+        bool UsesParams,
+        int DefaultsUsed);
 
     private BoundDeclaredMethodCall? BindDeclaredExtensionMethodCall(
         string methodName,
@@ -9259,12 +9356,27 @@ public partial class ILCompiler
         // extends, so a type implementing `Shape : HasArea` also satisfies the
         // inherited `HasArea` members (the method-override wiring in DeclareMethod
         // matches against every interface returned here).
-        return implementedInterfaces
-            .SelectMany(EnumerateTypeWithBaseInterfaces)
-            .Where(type => type.IsInterface)
-            .GroupBy(GetTypeKey, StringComparer.Ordinal)
-            .Select(group => group.First())
-            .ToList();
+        var expandedInterfaces = new List<Type>();
+        foreach (var implementedInterface in implementedInterfaces)
+        {
+            foreach (var type in EnumerateTypeWithBaseInterfaces(implementedInterface))
+            {
+                if (type.IsInterface)
+                {
+                    expandedInterfaces.Add(type);
+                }
+            }
+        }
+
+        return NSharpCompilerDogfoodAdapter.TryDeduplicateFirstTypeKeys(
+            expandedInterfaces,
+            GetTypeKey,
+            out var dogfoodInterfaces)
+            ? dogfoodInterfaces
+            : expandedInterfaces
+                .GroupBy(GetTypeKey, StringComparer.Ordinal)
+                .Select(group => group.First())
+                .ToList();
     }
 
     private Type ResolveRequiredRuntimeType(string fullName)
@@ -9337,6 +9449,12 @@ public partial class ILCompiler
             if (expression is NullLiteralExpression && CanAssignNullToType(_expectedExpressionType))
             {
                 _currentIL!.Emit(OpCodes.Ldnull);
+                return;
+            }
+
+            if (expression is IntLiteralExpression intLiteral
+                && TryEmitIntLiteralWithExpectedIntegralType(intLiteral, _expectedExpressionType))
+            {
                 return;
             }
 
@@ -10050,15 +10168,12 @@ public partial class ILCompiler
 
         EnsureRuntimeEntryPointWrapper();
 
-        foreach (var nestedEnumType in _enumTypes.Values
-                     .OfType<TypeBuilder>()
-                     .OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.')))
+        foreach (var nestedEnumType in OrderTypeBuildersByDescendingTypeKeyDepth(_enumTypes.Values.OfType<TypeBuilder>()))
         {
             nestedEnumType.CreateType();
         }
 
-        foreach (var stringEnumContainer in _stringEnumContainers.Values
-                     .OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.')))
+        foreach (var stringEnumContainer in OrderTypeBuildersByDescendingTypeKeyDepth(_stringEnumContainers.Values))
         {
             stringEnumContainer.CreateType();
         }
@@ -10074,7 +10189,7 @@ public partial class ILCompiler
         }
 
         // Create all types
-        foreach (var typeBuilder in _types.Values.OrderByDescending(tb => GetTypeKey(tb).Count(c => c == '.')))
+        foreach (var typeBuilder in OrderTypeBuildersByDescendingTypeKeyDepth(_types.Values))
         {
             typeBuilder.CreateType();
         }
@@ -10098,6 +10213,16 @@ public partial class ILCompiler
             _enumTypes[entry.Key] = bakedType;
             _typeKeys[bakedType] = entry.Key;
         }
+    }
+
+    private IEnumerable<TypeBuilder> OrderTypeBuildersByDescendingTypeKeyDepth(IEnumerable<TypeBuilder> typeBuilders)
+    {
+        return NSharpCompilerDogfoodAdapter.TryOrderTypesByDescendingKeyDotCount(
+            typeBuilders,
+            GetTypeKey,
+            out var dogfoodOrder)
+            ? dogfoodOrder
+            : typeBuilders.OrderByDescending(typeBuilder => GetTypeKey(typeBuilder).Count(c => c == '.'));
     }
 
     private void SaveAssembly(PersistedAssemblyBuilder assemblyBuilder)
@@ -10388,6 +10513,14 @@ public partial class ILCompiler
             return false;
         }
 
+        if (NSharpCompilerDogfoodAdapter.TryDeclaresAnonymousUnionShims(
+                function.Parameters,
+                IsTwoArmAnonymousUnion,
+                out var dogfoodResult))
+        {
+            return dogfoodResult;
+        }
+
         var unionParameters = function.Parameters
             .Where(parameter => TryGetTwoArmAnonymousUnion(parameter.Type) != null)
             .ToList();
@@ -10481,6 +10614,36 @@ public partial class ILCompiler
 
         var arms = FlattenUnionTypeReference(union).ToList();
         return arms.Count == 2 ? arms : null;
+    }
+
+    private static bool IsTwoArmAnonymousUnion(TypeReference typeReference)
+    {
+        if (typeReference is not UnionTypeReference)
+            return false;
+
+        var count = 0;
+        CountFlattenedUnionArms(typeReference, ref count);
+        return count == 2;
+    }
+
+    private static void CountFlattenedUnionArms(TypeReference typeReference, ref int count)
+    {
+        if (count > 2)
+            return;
+
+        if (typeReference is UnionTypeReference union)
+        {
+            foreach (var arm in union.Arms)
+            {
+                CountFlattenedUnionArms(arm, ref count);
+                if (count > 2)
+                    return;
+            }
+
+            return;
+        }
+
+        count++;
     }
 
     private static IEnumerable<Dictionary<int, TypeReference>> EnumerateAnonymousUnionArmChoices(
@@ -13171,7 +13334,20 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        var literalType = GetIntLiteralRuntimeType(intLit.Value);
+        if (literalType != typeof(int))
+        {
+            EmitUnsignedIntegerLiteralMagnitude(NumericLiteralFacts.ParseUnsignedIntegerMagnitude(intLit.Value), literalType);
+            return;
+        }
+
         var value = ParseIntLiteralValue(intLit.Value);
+        EmitInt32Constant(value);
+    }
+
+    private void EmitInt32Constant(int value)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
         // Use optimized opcodes for small values
         switch (value)
@@ -13197,6 +13373,93 @@ public partial class ILCompiler
                 }
                 break;
         }
+    }
+
+    private bool TryEmitIntLiteralWithExpectedIntegralType(IntLiteralExpression intLit, Type expectedType)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        if (Nullable.GetUnderlyingType(expectedType) != null)
+        {
+            return false;
+        }
+
+        var targetType = TryGetEnumUnderlyingType(expectedType) ?? expectedType;
+        if (!TryGetUnsignedIntegerLiteralMaxValue(targetType, out var maxValue))
+        {
+            return false;
+        }
+
+        var magnitude = NumericLiteralFacts.ParseUnsignedIntegerMagnitude(intLit.Value);
+        if (magnitude > maxValue)
+        {
+            throw new OverflowException($"Integer literal '{intLit.Value}' is too large for target type '{expectedType}'.");
+        }
+
+        EmitUnsignedIntegerLiteralMagnitude(magnitude, targetType);
+        return true;
+    }
+
+    private void EmitUnsignedIntegerLiteralMagnitude(ulong magnitude, Type targetType)
+    {
+        targetType = TryGetEnumUnderlyingType(targetType) ?? targetType;
+
+        if (targetType == typeof(long) || targetType == typeof(ulong))
+        {
+            _currentIL!.Emit(OpCodes.Ldc_I8, unchecked((long)magnitude));
+            return;
+        }
+
+        EmitInt32Constant(unchecked((int)magnitude));
+    }
+
+    private static bool TryGetUnsignedIntegerLiteralMaxValue(Type type, out ulong maxValue)
+    {
+        type = TryGetEnumUnderlyingType(type) ?? type;
+
+        if (type == typeof(byte))
+        {
+            maxValue = byte.MaxValue;
+            return true;
+        }
+        if (type == typeof(sbyte))
+        {
+            maxValue = (ulong)sbyte.MaxValue;
+            return true;
+        }
+        if (type == typeof(short))
+        {
+            maxValue = (ulong)short.MaxValue;
+            return true;
+        }
+        if (type == typeof(ushort) || type == typeof(char))
+        {
+            maxValue = ushort.MaxValue;
+            return true;
+        }
+        if (type == typeof(int))
+        {
+            maxValue = int.MaxValue;
+            return true;
+        }
+        if (type == typeof(uint))
+        {
+            maxValue = uint.MaxValue;
+            return true;
+        }
+        if (type == typeof(long))
+        {
+            maxValue = long.MaxValue;
+            return true;
+        }
+        if (type == typeof(ulong))
+        {
+            maxValue = ulong.MaxValue;
+            return true;
+        }
+
+        maxValue = 0;
+        return false;
     }
 
     // ==================== match/switch dispatch lowering ====================
@@ -13785,24 +14048,30 @@ public partial class ILCompiler
 
     private static long ParseIntLiteralMagnitude(string text)
     {
-        // Strip trailing suffixes (u, l, ul, lu, etc.)
-        var span = text.AsSpan();
-        while (span.Length > 0 && (span[^1] == 'u' || span[^1] == 'U' || span[^1] == 'l' || span[^1] == 'L'))
+        var magnitude = NumericLiteralFacts.ParseUnsignedIntegerMagnitude(text);
+        return checked((long)magnitude);
+    }
+
+    private static Type GetIntLiteralRuntimeType(string text)
+    {
+        var suffix = NumericLiteralFacts.GetIntegerSuffix(text);
+        if (!suffix.HasUnsigned && !suffix.HasLong)
         {
-            span = span[..^1];
+            return typeof(int);
         }
 
-        // Remove underscore separators
-        var clean = span.ToString().Replace("_", "");
+        var magnitude = NumericLiteralFacts.ParseUnsignedIntegerMagnitude(text);
+        if (suffix.HasUnsigned && suffix.HasLong)
+        {
+            return typeof(ulong);
+        }
 
-        if (clean.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            return long.Parse(clean[2..], System.Globalization.NumberStyles.HexNumber);
-        if (clean.StartsWith("0b", StringComparison.OrdinalIgnoreCase))
-            return Convert.ToInt64(clean[2..], 2);
-        if (clean.StartsWith("0o", StringComparison.OrdinalIgnoreCase))
-            return Convert.ToInt64(clean[2..], 8);
+        if (suffix.HasUnsigned)
+        {
+            return magnitude <= uint.MaxValue ? typeof(uint) : typeof(ulong);
+        }
 
-        return long.Parse(clean);
+        return magnitude <= long.MaxValue ? typeof(long) : typeof(ulong);
     }
 
     /// <summary>
@@ -13812,10 +14081,10 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        // Remove quotes from string value
-        var value = strLit.Value.Trim('"');
-        _currentIL.Emit(OpCodes.Ldstr, value);
+        _currentIL.Emit(OpCodes.Ldstr, GetStringLiteralRuntimeValue(strLit));
     }
+
+    private static string GetStringLiteralRuntimeValue(StringLiteralExpression strLit) => strLit.Value.Trim('"');
 
     private void EmitCharLiteral(CharLiteralExpression charLit)
     {
@@ -14746,8 +15015,23 @@ public partial class ILCompiler
             return;
         }
 
+        if (binary.Operator == BinaryOperator.And)
+        {
+            EmitLogicalAnd(binary);
+            return;
+        }
+
+        if (binary.Operator == BinaryOperator.Or)
+        {
+            EmitLogicalOr(binary);
+            return;
+        }
+
+        var leftType = GetExpressionType(binary.Left);
+        var rightType = GetExpressionType(binary.Right);
+
         if (binary.Operator == BinaryOperator.Add &&
-            (GetExpressionType(binary.Left) == typeof(string) || GetExpressionType(binary.Right) == typeof(string)))
+            (leftType == typeof(string) || rightType == typeof(string)))
         {
             EmitStringConcatenation(binary);
             return;
@@ -14779,12 +15063,14 @@ public partial class ILCompiler
         // `intField / (double)other`) emit a `div` over Int32+Double, which the
         // ECMA-335 verifier rejects (IL:StackUnexpected) and which produces wrong
         // results at runtime.
-        if (TryGetBinaryNumericPromotionType(binary.Operator, GetExpressionType(binary.Left), GetExpressionType(binary.Right), out var promotedType))
+        var opcodeOperandType = leftType;
+        if (TryGetBinaryNumericPromotionType(binary.Operator, leftType, rightType, out var promotedType))
         {
+            opcodeOperandType = promotedType;
             EmitExpression(binary.Left);
-            EmitValueCoercion(GetExpressionType(binary.Left), promotedType, allowExplicitUserDefinedConversions: false);
+            EmitValueCoercion(leftType, promotedType, allowExplicitUserDefinedConversions: false);
             EmitExpression(binary.Right);
-            EmitValueCoercion(GetExpressionType(binary.Right), promotedType, allowExplicitUserDefinedConversions: false);
+            EmitValueCoercion(rightType, promotedType, allowExplicitUserDefinedConversions: false);
         }
         else
         {
@@ -14805,10 +15091,10 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Mul);
                 break;
             case BinaryOperator.Divide:
-                _currentIL.Emit(OpCodes.Div);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Div_Un : OpCodes.Div);
                 break;
             case BinaryOperator.Modulo:
-                _currentIL.Emit(OpCodes.Rem);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Rem_Un : OpCodes.Rem);
                 break;
             case BinaryOperator.Equal:
                 _currentIL.Emit(OpCodes.Ceq);
@@ -14819,18 +15105,18 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Ceq);
                 break;
             case BinaryOperator.Less:
-                _currentIL.Emit(OpCodes.Clt);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Clt_Un : OpCodes.Clt);
                 break;
             case BinaryOperator.Greater:
-                _currentIL.Emit(OpCodes.Cgt);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(opcodeOperandType) ? OpCodes.Cgt_Un : OpCodes.Cgt);
                 break;
             case BinaryOperator.LessOrEqual:
-                _currentIL.Emit(OpCodes.Cgt);
+                _currentIL.Emit(UsesUnsignedOrUnorderedComparisonOpcode(opcodeOperandType) ? OpCodes.Cgt_Un : OpCodes.Cgt);
                 _currentIL.Emit(OpCodes.Ldc_I4_0);
                 _currentIL.Emit(OpCodes.Ceq);
                 break;
             case BinaryOperator.GreaterOrEqual:
-                _currentIL.Emit(OpCodes.Clt);
+                _currentIL.Emit(UsesUnsignedOrUnorderedComparisonOpcode(opcodeOperandType) ? OpCodes.Clt_Un : OpCodes.Clt);
                 _currentIL.Emit(OpCodes.Ldc_I4_0);
                 _currentIL.Emit(OpCodes.Ceq);
                 break;
@@ -14853,11 +15139,71 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Shl);
                 break;
             case BinaryOperator.RightShift:
-                _currentIL.Emit(OpCodes.Shr);
+                _currentIL.Emit(UsesUnsignedNumericOpcode(leftType) ? OpCodes.Shr_Un : OpCodes.Shr);
                 break;
             default:
                 throw new NotImplementedException($"Binary operator {binary.Operator} not yet implemented in IL compiler");
         }
+    }
+
+    private void EmitLogicalAnd(BinaryExpression binary)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var falseLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        EmitExpression(binary.Left);
+        _currentIL.Emit(OpCodes.Brfalse, falseLabel);
+
+        EmitExpression(binary.Right);
+        _currentIL.Emit(OpCodes.Brfalse, falseLabel);
+
+        EmitBooleanConstant(true);
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        _currentIL.MarkLabel(falseLabel);
+        EmitBooleanConstant(false);
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    private void EmitLogicalOr(BinaryExpression binary)
+    {
+        if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+
+        var trueLabel = _currentIL.DefineLabel();
+        var endLabel = _currentIL.DefineLabel();
+
+        EmitExpression(binary.Left);
+        _currentIL.Emit(OpCodes.Brtrue, trueLabel);
+
+        EmitExpression(binary.Right);
+        _currentIL.Emit(OpCodes.Brtrue, trueLabel);
+
+        EmitBooleanConstant(false);
+        _currentIL.Emit(OpCodes.Br, endLabel);
+
+        _currentIL.MarkLabel(trueLabel);
+        EmitBooleanConstant(true);
+        _currentIL.MarkLabel(endLabel);
+    }
+
+    private bool UsesUnsignedNumericOpcode(Type type)
+    {
+        type = NormalizeOverflowCheckedType(type);
+        return type == typeof(byte)
+            || type == typeof(ushort)
+            || type == typeof(uint)
+            || type == typeof(ulong)
+            || type == typeof(char);
+    }
+
+    private bool UsesUnsignedOrUnorderedComparisonOpcode(Type type)
+    {
+        type = NormalizeOverflowCheckedType(type);
+        return UsesUnsignedNumericOpcode(type)
+            || type == typeof(float)
+            || type == typeof(double);
     }
 
     /// <summary>
@@ -14991,29 +15337,121 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        var leftType = GetExpressionType(binary.Left);
-        var rightType = GetExpressionType(binary.Right);
-        var concatMethod = typeof(string).GetMethod(
-            nameof(string.Concat),
-            new[] { typeof(object), typeof(object) });
+        var operands = new List<Expression>();
+        CollectStringConcatenationOperands(binary, operands);
+
+        if (TryEmitConstantStringConcatenation(operands))
+        {
+            return;
+        }
+
+        if (CanEmitDirectStringConcatenation(operands))
+        {
+            EmitDirectStringConcatenation(operands);
+            return;
+        }
+
+        EmitStringConcatenationViaHandler(operands);
+    }
+
+    private void CollectStringConcatenationOperands(Expression expression, List<Expression> operands)
+    {
+        var candidate = expression is ParenthesizedExpression parenthesized
+            ? parenthesized.Inner
+            : expression;
+
+        if (candidate is BinaryExpression nested && IsStringConcatenationExpression(nested))
+        {
+            CollectStringConcatenationOperands(nested.Left, operands);
+            CollectStringConcatenationOperands(nested.Right, operands);
+            return;
+        }
+
+        operands.Add(candidate);
+    }
+
+    private bool IsStringConcatenationExpression(BinaryExpression binary)
+    {
+        if (binary.Operator != BinaryOperator.Add)
+        {
+            return false;
+        }
+
+        return GetExpressionType(binary.Left) == typeof(string)
+            || GetExpressionType(binary.Right) == typeof(string);
+    }
+
+    private bool TryEmitConstantStringConcatenation(IReadOnlyList<Expression> operands)
+    {
+        if (!operands.All(IsConstantStringConcatenationOperand))
+        {
+            return false;
+        }
+
+        _currentIL!.Emit(
+            OpCodes.Ldstr,
+            string.Concat(operands.Select(operand => operand is StringLiteralExpression literal
+                ? GetStringLiteralRuntimeValue(literal)
+                : string.Empty)));
+        return true;
+    }
+
+    private static bool IsConstantStringConcatenationOperand(Expression operand) =>
+        operand is StringLiteralExpression or NullLiteralExpression;
+
+    private bool CanEmitDirectStringConcatenation(IReadOnlyList<Expression> operands) =>
+        operands.Count is >= 2 and <= 4 && operands.All(IsStringLikeConcatenationOperand);
+
+    private bool IsStringLikeConcatenationOperand(Expression operand) =>
+        operand is NullLiteralExpression || GetExpressionType(operand) == typeof(string);
+
+    private void EmitDirectStringConcatenation(IReadOnlyList<Expression> operands)
+    {
+        var parameterTypes = Enumerable.Repeat(typeof(string), operands.Count).ToArray();
+        var concatMethod = typeof(string).GetMethod(nameof(string.Concat), parameterTypes);
         if (concatMethod == null)
         {
-            throw new InvalidOperationException("Could not resolve string.Concat(object, object)");
+            var signature = string.Join(", ", parameterTypes.Select(t => t.Name));
+            throw new InvalidOperationException($"Could not resolve string.Concat({signature})");
         }
 
-        EmitExpression(binary.Left);
-        if (IsValueTypeLike(leftType))
+        foreach (var operand in operands)
         {
-            _currentIL.Emit(OpCodes.Box, leftType);
+            if (operand is NullLiteralExpression)
+            {
+                _currentIL!.Emit(OpCodes.Ldnull);
+                continue;
+            }
+
+            EmitExpression(operand);
         }
 
-        EmitExpression(binary.Right);
-        if (IsValueTypeLike(rightType))
+        _currentIL!.Emit(OpCodes.Call, concatMethod);
+    }
+
+    private void EmitStringConcatenationViaHandler(IReadOnlyList<Expression> operands)
+    {
+        var parts = new List<InterpolatedStringPart>(operands.Count);
+        foreach (var operand in operands)
         {
-            _currentIL.Emit(OpCodes.Box, rightType);
+            switch (operand)
+            {
+                case StringLiteralExpression literal:
+                    parts.Add(new InterpolatedStringText(
+                        GetStringLiteralRuntimeValue(literal),
+                        literal.Line,
+                        literal.Column));
+                    break;
+                case NullLiteralExpression nullLiteral:
+                    parts.Add(new InterpolatedStringText(string.Empty, nullLiteral.Line, nullLiteral.Column));
+                    break;
+                default:
+                    parts.Add(new InterpolatedStringHole(operand, null, operand.Line, operand.Column));
+                    break;
+            }
         }
 
-        _currentIL.Emit(OpCodes.Call, concatMethod);
+        EmitInterpolatedStringViaHandler(parts);
     }
 
     /// <summary>
@@ -15591,7 +16029,7 @@ public partial class ILCompiler
     /// <summary>
     /// Emit IL for an assignment expression
     /// </summary>
-    private void EmitAssignment(AssignmentExpression assignment)
+    private void EmitAssignment(AssignmentExpression assignment, bool leaveValueOnStack = true)
     {
         if (_currentIL == null || _locals == null || _parameters == null)
             throw new InvalidOperationException("No IL generator context");
@@ -15639,7 +16077,10 @@ public partial class ILCompiler
                         _currentIL.MarkLabel(endLabel);
                     }
 
-                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    if (leaveValueOnStack)
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    }
                     return;
                 }
 
@@ -15673,7 +16114,10 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Stloc, assignedValueLocal);
                 _currentIL.Emit(OpCodes.Ldloc, assignedValueLocal);
                 EmitStaticMemberStoreValue(staticType, memberAccess.MemberName);
-                _currentIL.Emit(OpCodes.Ldloc, assignedValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, assignedValueLocal);
+                }
                 return;
             }
 
@@ -15715,11 +16159,17 @@ public partial class ILCompiler
 
                     _currentIL.MarkLabel(hasValueLabel);
                     _currentIL.MarkLabel(endLabel);
-                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    if (leaveValueOnStack)
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    }
                     return;
                 }
 
-                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                }
                 return;
             }
 
@@ -15824,11 +16274,18 @@ public partial class ILCompiler
             if (storesToReferenceTypeField)
             {
                 var fb = _fields[GetFieldKey((TypeBuilder)objectType, memberAccess.MemberName)];
-                var resultLocal = _currentIL.DeclareLocal(fb.FieldType);
-                _currentIL.Emit(OpCodes.Dup);
-                _currentIL.Emit(OpCodes.Stloc, resultLocal);
+                LocalBuilder? resultLocal = null;
+                if (leaveValueOnStack)
+                {
+                    resultLocal = _currentIL.DeclareLocal(fb.FieldType);
+                    _currentIL.Emit(OpCodes.Dup);
+                    _currentIL.Emit(OpCodes.Stloc, resultLocal);
+                }
                 _currentIL.Emit(OpCodes.Stfld, fb);
-                _currentIL.Emit(OpCodes.Ldloc, resultLocal);
+                if (resultLocal != null)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, resultLocal);
+                }
                 return;
             }
 
@@ -15853,16 +16310,19 @@ public partial class ILCompiler
                 EmitMemberStoreValue(memberOwnerType, memberAccess.MemberName);
             }
 
-            // Assignment expressions return the assigned value
-            // For member assignments, we need to reload the value
-            if (receiverLocal != null)
+            // Assignment expressions return the assigned value. Statement-context assignment skips
+            // this reload because the caller does not need a value to pop.
+            if (leaveValueOnStack)
             {
-                _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
-                EmitMemberLoadValue(memberOwnerType, memberAccess.MemberName);
-            }
-            else
-            {
-                EmitMemberAccess(memberAccess);
+                if (receiverLocal != null)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, receiverLocal);
+                    EmitMemberLoadValue(memberOwnerType, memberAccess.MemberName);
+                }
+                else
+                {
+                    EmitMemberAccess(memberAccess);
+                }
             }
 
             return;
@@ -15880,6 +16340,10 @@ public partial class ILCompiler
                 && TryGetPromotedBuffer(bufferIdentifier.Name, out var bufferStorage))
             {
                 EmitPromotedBufferAssignment(assignment, indexAccess, bufferStorage);
+                if (!leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Pop);
+                }
                 return;
             }
 
@@ -15927,11 +16391,17 @@ public partial class ILCompiler
 
                     _currentIL.MarkLabel(hasValueLabel);
                     _currentIL.MarkLabel(endLabel);
-                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    if (leaveValueOnStack)
+                    {
+                        _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                    }
                     return;
                 }
 
-                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                }
                 return;
             }
 
@@ -15963,7 +16433,10 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Ldloc, indexLocal);
             _currentIL.Emit(OpCodes.Ldloc, valueLocal);
             EmitIndexStoreValue(indexAccess, objectType);
-            _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+            if (leaveValueOnStack)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, valueLocal);
+            }
             return;
         }
 
@@ -16001,11 +16474,17 @@ public partial class ILCompiler
 
                 _currentIL.MarkLabel(hasValueLabel);
                 _currentIL.MarkLabel(endLabel);
-                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                if (leaveValueOnStack)
+                {
+                    _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+                }
                 return;
             }
 
-            _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+            if (leaveValueOnStack)
+            {
+                _currentIL.Emit(OpCodes.Ldloc, currentValueLocal);
+            }
             return;
         }
 
@@ -16082,9 +16561,12 @@ public partial class ILCompiler
             EmitStoreResolvedCurrentTypeMember(field, setter, memberType);
         }
 
-        // Assignment expressions also return the assigned value, so we need to load it back
-        // This allows things like: x = y = 5
-        EmitIdentifier(ident);
+        // Assignment expressions also return the assigned value, so expression contexts need to
+        // load it back. Statement contexts skip that reload and avoid a matching pop.
+        if (leaveValueOnStack)
+        {
+            EmitIdentifier(ident);
+        }
     }
 
     /// <summary>
@@ -18057,7 +18539,7 @@ public partial class ILCompiler
     {
         return expression switch
         {
-            IntLiteralExpression => typeof(int),
+            IntLiteralExpression intLiteral => GetIntLiteralRuntimeType(intLiteral.Value),
             FloatLiteralExpression floatLiteral when IsDecimalLiteral(floatLiteral.Value) => typeof(decimal),
             FloatLiteralExpression floatLiteral when IsSingleLiteral(floatLiteral.Value) => typeof(float),
             FloatLiteralExpression => typeof(double),
@@ -18388,6 +18870,13 @@ public partial class ILCompiler
     /// </summary>
     private Type GetBinaryExpressionType(BinaryExpression binary)
     {
+        if (binary.Operator == BinaryOperator.Add
+            && (GetExpressionType(binary.Left) == typeof(string)
+                || GetExpressionType(binary.Right) == typeof(string)))
+        {
+            return typeof(string);
+        }
+
         var operatorMethod = ResolveBinaryOperatorMethod(
             binary.Operator,
             GetExpressionType(binary.Left),

@@ -9,8 +9,20 @@ using NSharpLang.Cli.Commands;
 
 namespace NSharpLang.Cli;
 
+internal readonly record struct PublishArgumentSummary(
+    string? ValidationError,
+    string? ProjectOption,
+    string? BackendOption,
+    string Configuration,
+    string? Output,
+    string? Runtime,
+    bool SelfContained,
+    bool Aot);
+
 partial class Program
 {
+    private static readonly string[] NewProjectOptionsWithValues = ["--template", "--type"];
+
     static int Main(string[] args)
         => Execute(args);
 
@@ -115,17 +127,12 @@ Exit codes:
         var outputDir = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
         var backendOption = GetOptionValue(args, "--backend");
         var projectOption = GetOptionValue(args, "--project");
-        args = args.Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot").ToArray();
-        // Strip --output/-o and its value from positional args
-        args = StripOptionWithValue(args, "--output");
-        args = StripOptionWithValue(args, "-o");
-        args = StripOptionWithValue(args, "--backend");
-        args = StripOptionWithValue(args, "--project");
+        var buildOperands = GetBuildOperandSummary(args);
 
         try
         {
             // Support both single-file and multi-file builds
-            if (args.Length == 0)
+            if (buildOperands.Count == 0)
             {
                 var projectRoot = projectOption != null
                     ? Path.GetFullPath(projectOption)
@@ -144,7 +151,7 @@ Exit codes:
                 return buildResult;
             }
 
-            var sourceFile = args[0];
+            var sourceFile = buildOperands.FirstOperand!;
             if (!File.Exists(sourceFile))
             {
                 return Error($"File not found: {sourceFile}");
@@ -291,9 +298,15 @@ Exit codes:
 
         // Find all nsharp/ output directories under obj/
         // Search for both "nsharp" and "NSharp" to handle case-sensitive filesystems (Linux)
-        var nsharpDirs = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
+        var nsharpDirCandidates = Directory.GetDirectories(objDir, "nsharp", SearchOption.AllDirectories)
             .Concat(Directory.GetDirectories(objDir, "NSharp", SearchOption.AllDirectories))
-            .Distinct(StringComparer.Ordinal);
+            .ToArray();
+        var nsharpDirs = NSharpCliDogfoodAdapter.TryDeduplicateStable(
+                nsharpDirCandidates,
+                StringComparer.Ordinal,
+                out var dogfoodNsharpDirs)
+            ? dogfoodNsharpDirs
+            : nsharpDirCandidates.Distinct(StringComparer.Ordinal);
         foreach (var nsharpDir in nsharpDirs)
         {
             if (!Directory.Exists(nsharpDir))
@@ -380,11 +393,11 @@ Exit codes:
         }
 
         var backendOption = GetOptionValue(args, "--backend");
-        args = StripOptionWithValue(args, "--backend");
+        var sourceFile = GetRunSourceOperand(args);
 
         try
         {
-            if (args.Length == 0)
+            if (sourceFile == null)
             {
                 var projectRoot = Directory.GetCurrentDirectory();
                 var currentProjectConfig = ProjectFileParser.ParseFromDirectory(projectRoot);
@@ -397,7 +410,6 @@ Exit codes:
                 return RunWithIlBackend(projectRoot);
             }
 
-            var sourceFile = args[0];
             if (!File.Exists(sourceFile))
             {
                 return Error($"File not found: {sourceFile}");
@@ -464,14 +476,14 @@ Exit codes:
             return 0;
         }
 
-        var validationError = ValidatePublishArguments(args);
-        if (validationError != null)
+        var publishArguments = GetPublishArgumentSummary(args);
+        if (publishArguments.ValidationError != null)
         {
-            return Error(validationError);
+            return Error(publishArguments.ValidationError);
         }
 
-        var projectRoot = Path.GetFullPath(GetOptionValue(args, "--project") ?? Directory.GetCurrentDirectory());
-        var backendOption = GetOptionValue(args, "--backend");
+        var projectRoot = Path.GetFullPath(publishArguments.ProjectOption ?? Directory.GetCurrentDirectory());
+        var backendOption = publishArguments.BackendOption;
 
         try
         {
@@ -490,17 +502,15 @@ Exit codes:
                 throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
             }
 
-            var configuration = GetOptionValue(args, "--configuration") ?? GetOptionValue(args, "-c") ?? "Release";
-            var output = GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o");
-            var runtime = GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r");
-            var selfContained = args.Contains("--self-contained");
-            var aot = args.Contains("--aot");
-            if (selfContained)
+            var configuration = publishArguments.Configuration;
+            var output = publishArguments.Output;
+            var runtime = publishArguments.Runtime;
+            if (publishArguments.SelfContained)
             {
                 return Error(SelfContainedPublishUnsupportedMessage);
             }
 
-            if (aot)
+            if (publishArguments.Aot)
             {
                 Console.WriteLine(AotPublishAnalysisOnlyNotice);
             }
@@ -524,10 +534,10 @@ Exit codes:
                 configuration,
                 publishDir,
                 includeTests: false,
-                aotMode: aot);
+                aotMode: publishArguments.Aot);
             if (outputPath == null)
             {
-                return Error(aot
+                return Error(publishArguments.Aot
                     ? "Publish failed: Native AOT blockers were found (see the diagnostics above). Fix them, then publish again."
                     : "Publish failed");
             }
@@ -647,6 +657,22 @@ exec dotnet "$DIR/{assemblyName}.dll" "$@"
         return null;
     }
 
+    internal static PublishArgumentSummary GetPublishArgumentSummary(string[] args)
+    {
+        if (NSharpCliDogfoodAdapter.TryGetPublishArgumentSummary(args, out var summary))
+            return summary;
+
+        return new PublishArgumentSummary(
+            ValidatePublishArguments(args),
+            GetOptionValue(args, "--project"),
+            GetOptionValue(args, "--backend"),
+            GetOptionValue(args, "--configuration") ?? GetOptionValue(args, "-c") ?? "Release",
+            GetOptionValue(args, "--output") ?? GetOptionValue(args, "-o"),
+            GetOptionValue(args, "--runtime") ?? GetOptionValue(args, "-r"),
+            args.Contains("--self-contained"),
+            args.Contains("--aot"));
+    }
+
     static int NewCommand(string[] args)
     {
         if (args.Contains("--help") || args.Contains("-h") || (args.Length > 0 && args[0] == "help"))
@@ -682,14 +708,14 @@ Exit codes:
             return 0;
         }
 
-        var positional = GetPositionalArgs(args, "--template", "--type");
-        if (positional.Length == 0)
+        var projectName = GetFirstPositionalArg(args, NewProjectOptionsWithValues);
+        if (projectName == null)
         {
             return Error("Usage: nlc new <project-name> [--template <template>]");
         }
 
         var requestedTemplate = GetOptionValue(args, "--template") ?? GetOptionValue(args, "--type");
-        var projectName = positional[0];
+        var positional = GetPositionalArgs(args, "--template", "--type");
         if (positional.Length >= 2 && NormalizeProjectTemplate(positional[0]) is { } positionalTemplate)
         {
             requestedTemplate = positionalTemplate;
@@ -1459,6 +1485,73 @@ Exit codes:
         }
 
         return positional.ToArray();
+    }
+
+    static string? GetFirstPositionalArg(string[] args, string[] optionsWithValues)
+    {
+        return NSharpCliDogfoodAdapter.TryGetFirstPositionalArg(args, optionsWithValues, out var positional)
+            ? positional
+            : GetFirstPositionalArgWithCSharp(args, optionsWithValues);
+    }
+
+    static string? GetFirstPositionalArgWithCSharp(string[] args, string[] optionsWithValues)
+    {
+        var options = new HashSet<string>(optionsWithValues, StringComparer.Ordinal);
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (options.Contains(args[i]))
+            {
+                i++;
+                continue;
+            }
+
+            if (args[i] is "--check" or "--verify-no-changes" or "--diff" or "--stdin" or "--verbose")
+                continue;
+
+            if (!args[i].StartsWith("-", StringComparison.Ordinal))
+                return args[i];
+        }
+
+        return null;
+    }
+
+    private readonly record struct BuildOperandSummary(int Count, string? FirstOperand);
+
+    static BuildOperandSummary GetBuildOperandSummary(string[] args)
+    {
+        if (NSharpCliDogfoodAdapter.TryGetBuildOperandSummary(args, out var count, out var firstOperandIndex))
+        {
+            return new BuildOperandSummary(
+                count,
+                count > 0 ? args[firstOperandIndex] : null);
+        }
+
+        var operands = GetBuildOperandArgsWithCSharp(args);
+        return new BuildOperandSummary(
+            operands.Length,
+            operands.Length > 0 ? operands[0] : null);
+    }
+
+    static string[] GetBuildOperandArgsWithCSharp(string[] args)
+    {
+        args = args
+            .Where(a => a is not "--release" and not "--verbose" and not "--timings" and not "--perf-report" and not "--aot")
+            .ToArray();
+        args = StripOptionWithValue(args, "--output");
+        args = StripOptionWithValue(args, "-o");
+        args = StripOptionWithValue(args, "--backend");
+        args = StripOptionWithValue(args, "--project");
+        return args;
+    }
+
+    internal static string? GetRunSourceOperand(string[] args)
+    {
+        if (NSharpCliDogfoodAdapter.TryGetRunSourceOperand(args, out var operand))
+            return operand;
+
+        var strippedArgs = StripOptionWithValue(args, "--backend");
+        return strippedArgs.Length > 0 ? strippedArgs[0] : null;
     }
 
     static int? ParseDurationToMs(string duration)

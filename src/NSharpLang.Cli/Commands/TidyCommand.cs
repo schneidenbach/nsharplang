@@ -72,18 +72,10 @@ public static class TidyCommand
         // Collect all import namespaces from .nl source files
         var importedNamespaces = CollectImportedNamespaces(projectRoot);
 
-        // Analyse each NuGet dependency
-        var results = new List<DependencyStatus>();
-        foreach (var dep in config.Dependencies)
-        {
-            if (dep.Nuget == null)
-                continue; // Only analyse NuGet packages
+        var results = ClassifyDependencies(config.Dependencies, importedNamespaces);
 
-            var status = ClassifyDependency(dep.Nuget, dep.Version, importedNamespaces);
-            results.Add(status);
-        }
-
-        var ok = results.All(r => r.Status != "possibly-unused");
+        var summary = SummarizeDependencies(results);
+        var ok = summary.PossiblyUnusedCount == 0;
 
         if (json)
         {
@@ -104,13 +96,18 @@ public static class TidyCommand
         }
         else
         {
-            PrintTable(results, projectRoot);
+            PrintTable(results, projectRoot, summary);
         }
 
         // Apply fixes if requested
         if (fix)
         {
-            var toRemove = results.Where(r => r.Status == "possibly-unused").ToList();
+            var toRemove = NSharpCliDogfoodAdapter.TrySelectTidyPossiblyUnusedDependencies(
+                results,
+                static result => result.Status,
+                out var dogfoodToRemove)
+                ? dogfoodToRemove
+                : results.Where(r => r.Status == "possibly-unused").ToList();
             if (toRemove.Count == 0)
             {
                 if (!json) Console.WriteLine("Nothing to remove.");
@@ -207,14 +204,107 @@ public static class TidyCommand
             $"No import statement found referencing '{prefix1}' or '{prefix2}'.");
     }
 
+    private static List<DependencyStatus> ClassifyDependencies(
+        IReadOnlyList<Reference> dependencies,
+        HashSet<string> importedNamespaces)
+    {
+        var nugetDependencies = new List<Reference>();
+        foreach (var dep in dependencies)
+        {
+            if (dep.Nuget != null)
+                nugetDependencies.Add(dep);
+        }
+
+        if (NSharpCliDogfoodAdapter.TryClassifyTidyDependencyStatusRanks(
+                nugetDependencies,
+                importedNamespaces,
+                out var statusRanks))
+        {
+            var results = new List<DependencyStatus>(nugetDependencies.Count);
+            for (var i = 0; i < nugetDependencies.Count; i++)
+            {
+                var dep = nugetDependencies[i];
+                var status = CreateDependencyStatusFromRank(dep.Nuget!, dep.Version, statusRanks[i]);
+                if (status == null)
+                    return ClassifyDependenciesWithCSharp(nugetDependencies, importedNamespaces);
+
+                results.Add(status);
+            }
+
+            return results;
+        }
+
+        return ClassifyDependenciesWithCSharp(nugetDependencies, importedNamespaces);
+    }
+
+    private static List<DependencyStatus> ClassifyDependenciesWithCSharp(
+        IReadOnlyList<Reference> dependencies,
+        HashSet<string> importedNamespaces)
+    {
+        var results = new List<DependencyStatus>();
+        foreach (var dep in dependencies)
+        {
+            if (dep.Nuget == null)
+                continue;
+
+            results.Add(ClassifyDependency(dep.Nuget, dep.Version, importedNamespaces));
+        }
+
+        return results;
+    }
+
+    private static DependencyStatus? CreateDependencyStatusFromRank(
+        string packageName,
+        string? version,
+        int statusRank)
+    {
+        var firstDot = packageName.IndexOf('.');
+        if (statusRank == 3 && firstDot < 0)
+        {
+            return new DependencyStatus(packageName, version, "unknown",
+                "Cannot determine namespace for single-segment package name; manual review required.");
+        }
+
+        if (firstDot <= 0)
+            return null;
+
+        var secondDot = packageName.IndexOf('.', firstDot + 1);
+        var prefix1 = packageName[..firstDot];
+        var prefix2 = secondDot > firstDot
+            ? packageName[..secondDot]
+            : packageName;
+
+        return statusRank switch
+        {
+            2 => new DependencyStatus(packageName, version, "used",
+                $"Import statement references namespace matching '{prefix2}'."),
+            1 => new DependencyStatus(packageName, version, "possibly-unused",
+                $"No import statement found referencing '{prefix1}' or '{prefix2}'."),
+            _ => null
+        };
+    }
+
     // ── Fix ───────────────────────────────────────────────────────────────
 
     private static void RemoveDependencies(string projectYml, List<string> packageNames)
     {
-        var lines = new List<string>(File.ReadAllLines(projectYml));
+        var lines = File.ReadAllLines(projectYml);
+        if (NSharpCliDogfoodAdapter.TryFilterTidyRemovalLines(lines, packageNames, out var dogfoodFiltered))
+        {
+            File.WriteAllLines(projectYml, dogfoodFiltered);
+            return;
+        }
+
+        File.WriteAllLines(projectYml, FilterDependencyLinesWithCSharp(lines, packageNames));
+    }
+
+    private static List<string> FilterDependencyLinesWithCSharp(
+        IReadOnlyList<string> lines,
+        IReadOnlyList<string> packageNames)
+    {
         var toRemove = new HashSet<string>(packageNames, StringComparer.OrdinalIgnoreCase);
 
-        var filtered = lines.Where(line =>
+        return lines.Where(line =>
         {
             var trimmed = line.TrimStart();
             if (!trimmed.StartsWith("- "))
@@ -233,13 +323,31 @@ public static class TidyCommand
 
             return true;
         }).ToList();
-
-        File.WriteAllLines(projectYml, filtered);
     }
 
     // ── Output ────────────────────────────────────────────────────────────
 
-    private static void PrintTable(List<DependencyStatus> results, string projectRoot)
+    private static TidyDependencySummary SummarizeDependencies(IReadOnlyList<DependencyStatus> results)
+    {
+        if (NSharpCliDogfoodAdapter.TrySummarizeTidyDependencyStatuses(
+                results,
+                static result => result.Status,
+                out var dogfoodSummary))
+        {
+            return new TidyDependencySummary(
+                dogfoodSummary.PossiblyUnusedCount,
+                dogfoodSummary.UnknownCount);
+        }
+
+        return new TidyDependencySummary(
+            results.Count(r => r.Status == "possibly-unused"),
+            results.Count(r => r.Status == "unknown"));
+    }
+
+    private static void PrintTable(
+        List<DependencyStatus> results,
+        string projectRoot,
+        TidyDependencySummary summary)
     {
         if (results.Count == 0)
         {
@@ -258,8 +366,8 @@ public static class TidyCommand
             Console.WriteLine($"  {r.Name.PadRight(nameWidth)}  {r.Status.PadRight(statusWidth)}  {r.Reason}");
         }
 
-        var possiblyUnused = results.Count(r => r.Status == "possibly-unused");
-        var unknown = results.Count(r => r.Status == "unknown");
+        var possiblyUnused = summary.PossiblyUnusedCount;
+        var unknown = summary.UnknownCount;
 
         Console.WriteLine();
         if (possiblyUnused > 0)
@@ -332,4 +440,8 @@ Exit codes:
     // ── Types ─────────────────────────────────────────────────────────────
 
     private sealed record DependencyStatus(string Name, string? Version, string Status, string Reason);
+
+    private readonly record struct TidyDependencySummary(
+        int PossiblyUnusedCount,
+        int UnknownCount);
 }

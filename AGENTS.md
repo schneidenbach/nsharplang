@@ -25,6 +25,20 @@ This is a product being built for millions of users. Treat every feature, every 
 - **Semantic correctness**: Symbol resolution is semantic, not string matching. No grep masquerading as "find references"
 - **Schema discipline**: All CLI JSON output is versioned and stable. Breaking changes get new schema versions
 
+## Compiler Dogfood Architecture
+
+The compiler core libraries, compiler-service core libraries, and CLI command logic are not intended
+to remain in C#. The target implementation language for those hot paths is N#, using the systems
+portion of the language where it buys real speed.
+
+C# is acceptable only for CLR/BCL host boundaries, bootstrap loading, MSBuild/VS Code/LSP glue,
+public .NET object materialization, or a measured fallback while an N# implementation has not yet
+cleared parity and the 5x benchmark gate.
+
+Treat `*DogfoodAdapter` types as temporary transition boundaries, not product architecture. Do not
+expand them into permanent service layers; shrink or remove them as accepted N# slices are routed
+directly into production paths.
+
 ## Memory lookup
 
 The memory/README.md is the table of contents for your documentation - if you need to look something up, start in the memory/README.md and then find the file that could answer your question.
@@ -49,10 +63,13 @@ This is non-negotiable. Unit tests are necessary but NOT sufficient for IDE tool
 
 ALWAYS: KEEP THE PROJECT CODE REALLY CLEAN. If you have temporary code, DELETE IT AFTER YOU're DONE!
 ALWAYS: Clean up unnecessary code as you go, and run your tests after cleaning up the code.
-ALWAYS: After implementing functionality or solving problems, run the FULL test suite using `./scripts/test-all.sh`. This is MANDATORY. A cached pass is acceptable for local development feedback only.
-ALWAYS: RUN `./scripts/test-all.sh --commit` BEFORE COMMITTING ANY CODE. This forces a fresh isolated full-suite run; cached results are not accepted for commits. If it fails, fix the failures first!
+ALWAYS: While the compiler rewrite/dogfood work is in progress, default to the non-VS-Code product gate for backend-only work. Do not spend VS Code test time unless the change affects Language Server, LSP, VS Code extension, or IDE developer-experience behavior.
+ALWAYS: For compiler, SDK, CLI, runtime, benchmark, and documentation work that does NOT affect the IDE developer experience, run the full non-VS-Code product gate using `VSCODE_TESTS=skip ./scripts/test-all.sh`. This is MANDATORY. A cached pass is acceptable for local development feedback only.
+ALWAYS: For those same non-IDE changes, RUN `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` BEFORE COMMITTING ANY CODE. This forces a fresh isolated product-gate run without VS Code integration tests; cached results are not accepted for commits. If it fails, fix the failures first!
+ALWAYS: If the change touches the Language Server, LSP handlers, VS Code extension, or anything that affects the developer experience in the IDE, do NOT set `VSCODE_TESTS=skip`. Run the appropriate VS Code-enabled gate with `./scripts/test-all.sh` (or `./scripts/test-all.sh --commit` before committing) in addition to the mandatory visual IDE verification below.
 ALWAYS: The test-all.sh script:
   - Runs all unit tests (`dotnet test`)
+  - Runs VS Code smoke tests unless `VSCODE_TESTS=skip` is explicitly set for non-IDE work
   - Rebuilds the compiler and SDK
   - Installs the latest SDK to local NuGet feed
   - Tests dotnet new template creation
@@ -60,7 +77,7 @@ ALWAYS: The test-all.sh script:
   - Validates everything works end-to-end
 ALWAYS: CHECK YOUR OWN WORK
 ALWAYS: CHECK YOUR OWN ASSUMPTIONS
-ALWAYS: `git commit` after you've written any code AND verified `./scripts/test-all.sh --commit` passes!!
+ALWAYS: `git commit` after you've written any code AND verified the correct `./scripts/test-all.sh --commit` gate passes for the change scope!!
 
 ## VS Code Extension Development Workflow
 
@@ -81,6 +98,7 @@ Files that require extension reload:
 - `editors/vscode/**/*.ts` (VS Code extension TypeScript code)
 
 IMPORTANT: Always test LSP changes in VS Code to verify the user experience!
+IMPORTANT: Do not spend VS Code integration-test budget on backend-only compiler/SDK/CLI work. Use `VSCODE_TESTS=skip` for those changes, and reserve VS Code tests plus computer-use verification for IDE-affecting changes.
 
 ## Project Configuration Philosophy
 

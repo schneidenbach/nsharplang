@@ -265,10 +265,13 @@ public class CodeIntelligenceOutputTests
             new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
             new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
             new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
-            new InspectReferencesResult(2, 1, new[]
+            new InspectReferencesResult(5, 1, new[]
             {
                 new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
-                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false),
+                new ReferenceResult(@"Services\TaskService.nl", 94, 9, 8, "normalized duplicate", false),
+                new ReferenceResult("Generated/Stats.nl", 12, 4, 8, "generated reference", false),
+                new ReferenceResult("Program.nl", 86, 11, 8, "duplicate program reference", false)
             }),
             new CompletionResult(
                 CompletionContext.MemberAccess,
@@ -298,10 +301,13 @@ public class CodeIntelligenceOutputTests
             new InspectSymbolResult("GetStats", "function", new LocationResult("Services/TaskService.nl", 93, 5)),
             new TypeResult("GetStats", "TaskStats", "record", new LocationResult("Services/TaskService.nl", 105, 1)),
             new DefinitionResult("GetStats", "function", "Services/TaskService.nl", 93, 5, 8),
-            new InspectReferencesResult(2, 1, new[]
+            new InspectReferencesResult(5, 1, new[]
             {
                 new ReferenceResult("Services/TaskService.nl", 93, 5, 8, "func GetStats(): TaskStats {", true),
-                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false)
+                new ReferenceResult("Program.nl", 85, 22, 8, "stats := service.GetStats()", false),
+                new ReferenceResult("Program.nl", 87, 14, 8, "Log(service.GetStats())", false),
+                new ReferenceResult("Generated\\Stats.nl", 12, 9, 8, "value = service.GetStats()", false),
+                new ReferenceResult("Services/TaskService.nl", 101, 13, 8, "return GetStats()", false)
             }),
             new CompletionResult(
                 CompletionContext.MemberAccess,
@@ -327,10 +333,38 @@ public class CodeIntelligenceOutputTests
         Assert.True(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.True(doc.RootElement.TryGetProperty("summary", out var summary));
         Assert.False(doc.RootElement.TryGetProperty("result", out _));
-        Assert.Equal(2, summary.GetProperty("references").GetProperty("count").GetInt32());
+        var references = summary.GetProperty("references");
+        Assert.Equal(5, references.GetProperty("count").GetInt32());
+        Assert.Equal(
+            new[] { "Generated/Stats.nl", "Program.nl", "Services/TaskService.nl" },
+            references.GetProperty("files").EnumerateArray().Select(file => file.GetString()).ToArray());
         Assert.Equal(3, summary.GetProperty("completions").GetProperty("totalCount").GetInt32());
         Assert.Equal(2, summary.GetProperty("completions").GetProperty("groupCounts").GetProperty("functions").GetInt32());
         Assert.Equal("GetStats", summary.GetProperty("completions").GetProperty("groups").GetProperty("functions")[0].GetString());
+    }
+
+    [Fact]
+    public void DiagnosticClustersToJson_OrdersClusterFilesCaseInsensitively()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL301", "error", "Undefined variable 'customer'", "src/B.nl", 1, 5, 8,
+                null, null, null, null, null, null, null),
+            new("NL301", "error", "Undefined variable 'customer'", "src/a.nl", 2, 5, 8,
+                null, null, null, null, null, null, null),
+            new("NL301", "error", "Undefined variable 'customer'", "SRC/A.NL", 3, 5, 8,
+                null, null, null, null, null, null, null),
+            new("NL301", "error", "Undefined variable 'customer'", "src/C.nl", 4, 5, 8,
+                null, null, null, null, null, null, null)
+        };
+
+        var json = OutputFormatter.DiagnosticClustersToJson(diagnostics, "/project");
+        using var doc = JsonDocument.Parse(json);
+
+        var cluster = Assert.Single(doc.RootElement.GetProperty("clusters").EnumerateArray());
+        Assert.Equal(
+            new[] { "src/a.nl", "src/B.nl", "src/C.nl" },
+            cluster.GetProperty("files").EnumerateArray().Select(file => file.GetString()).ToArray());
     }
 
     [Fact]
@@ -351,6 +385,28 @@ public class CodeIntelligenceOutputTests
         Assert.Equal(3, doc.RootElement.GetProperty("checkedFiles").GetInt32());
         Assert.False(doc.RootElement.GetProperty("ok").GetBoolean());
         Assert.Equal(1, doc.RootElement.GetProperty("summary").GetProperty("errors").GetInt32());
+    }
+
+    [Fact]
+    public void SummarizeDiagnostics_CountsStableSeveritiesAndIgnoresUnknown()
+    {
+        var diagnostics = new List<DiagnosticResult>
+        {
+            new("NL101", "error", "Syntax error", "Program.nl", 1, 1, 1,
+                null, null, null, null, null, null, null),
+            new("NL201", "warning", "Warning", "Program.nl", 2, 1, 1,
+                null, null, null, null, null, null, null),
+            new("NL301", "info", "Info", "Program.nl", 3, 1, 1,
+                null, null, null, null, null, null, null),
+            new("NL999", "hint", "Hint", "Program.nl", 4, 1, 1,
+                null, null, null, null, null, null, null)
+        };
+
+        var summary = OutputFormatter.SummarizeDiagnostics(diagnostics);
+
+        Assert.Equal(1, summary.Errors);
+        Assert.Equal(1, summary.Warnings);
+        Assert.Equal(1, summary.Info);
     }
 
     [Fact]

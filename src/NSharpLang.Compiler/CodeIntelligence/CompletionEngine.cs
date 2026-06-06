@@ -99,14 +99,31 @@ public class CompletionEngine
             return EmptyResult(CompletionContext.Unknown);
         }
 
-        var lines = sourceText.Split('\n');
-        if (line <= 0 || line > lines.Length)
+        if (!TryExtractCompletionPrefix(snapshot, filePath, sourceText, line, col, out var beforeCursor))
         {
             return EmptyResult(CompletionContext.Unknown);
         }
 
-        var lineText = lines[line - 1];
-        var beforeCursor = col > 0 && col <= lineText.Length ? lineText.Substring(0, col) : lineText;
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryClassifyCompletionReceiver(
+                beforeCursor,
+                out var dogfoodMemberAccess,
+                out var dogfoodReceiver))
+        {
+            if (dogfoodMemberAccess)
+            {
+                return GetMemberAccessCompletions(
+                    cu,
+                    semanticModel,
+                    beforeCursor,
+                    line,
+                    col,
+                    snapshot,
+                    dogfoodReceiver,
+                    hasPrecomputedReceiver: true);
+            }
+
+            return GetIdentifierCompletions(cu, semanticModel, beforeCursor, snapshot, includeKeywords, line, col);
+        }
 
         // Detect context
         if (IsMemberAccessContext(beforeCursor))
@@ -120,11 +137,61 @@ public class CompletionEngine
 
     // ── Member Access Completions ───────────────────────────────────────
 
-    private CompletionResult GetMemberAccessCompletions(CompilationUnit cu, SemanticModel? semanticModel,
-        string beforeCursor, int line, int col, ProjectSnapshot snapshot)
+    private static bool TryExtractCompletionPrefix(
+        ProjectSnapshot snapshot,
+        string filePath,
+        string sourceText,
+        int line,
+        int col,
+        [NotNullWhen(true)] out string? beforeCursor)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractCompletionPrefix(
+                snapshot,
+                filePath,
+                sourceText,
+                line,
+                col,
+                out var dogfoodPrefix))
+        {
+            beforeCursor = dogfoodPrefix;
+            return beforeCursor != null;
+        }
+
+        return TryExtractCompletionPrefixFallback(sourceText, line, col, out beforeCursor);
+    }
+
+    private static bool TryExtractCompletionPrefixFallback(
+        string sourceText,
+        int line,
+        int col,
+        [NotNullWhen(true)] out string? beforeCursor)
+    {
+        beforeCursor = null;
+        var lines = sourceText.Split('\n');
+        if (line <= 0 || line > lines.Length)
+        {
+            return false;
+        }
+
+        var lineText = lines[line - 1];
+        beforeCursor = col > 0 && col <= lineText.Length ? lineText.Substring(0, col) : lineText;
+        return true;
+    }
+
+    private CompletionResult GetMemberAccessCompletions(
+        CompilationUnit cu,
+        SemanticModel? semanticModel,
+        string beforeCursor,
+        int line,
+        int col,
+        ProjectSnapshot snapshot,
+        string? precomputedReceiver = null,
+        bool hasPrecomputedReceiver = false)
     {
         var memberAccess = FindMemberAccessAtPosition(cu, line, col);
-        var receiver = ExtractReceiver(beforeCursor) ?? FormatReceiverExpression(memberAccess?.Object);
+        var receiver = hasPrecomputedReceiver
+            ? precomputedReceiver ?? FormatReceiverExpression(memberAccess?.Object)
+            : ExtractReceiver(beforeCursor) ?? FormatReceiverExpression(memberAccess?.Object);
 
         var completions = new Dictionary<string, List<CompletionItem>>();
 
@@ -145,11 +212,7 @@ public class CompletionEngine
             var isStatic = IsStaticAccess(receiver, semanticModel);
             var members = GetTypeMembers(resolvedType, isStatic ? MemberFilter.StaticOnly : MemberFilter.InstanceOnly);
 
-            foreach (var group in members.GroupBy(m => m.Kind))
-            {
-                var key = Pluralize(group.Key);
-                completions[key] = group.ToList();
-            }
+            AddGroupedCompletionsByKind(members, completions);
 
             return new CompletionResult(
                 CompletionContext.MemberAccess,
@@ -188,7 +251,7 @@ public class CompletionEngine
         // Try to resolve receiver as a variable from semantic model (position-aware, then flat)
         if (semanticModel != null)
         {
-            var typeInfo = semanticModel.LookupIdentifierAtPosition(receiver, line, col)
+            var typeInfo = LookupIdentifierAtPosition(semanticModel, receiver, line, col)
                           ?? semanticModel.LookupIdentifier(receiver);
             if (typeInfo != null)
             {
@@ -222,6 +285,11 @@ public class CompletionEngine
         return EmptyResult(CompletionContext.MemberAccess);
     }
 
+    private static TypeInfo? LookupIdentifierAtPosition(SemanticModel semanticModel, string name, int line, int column)
+    {
+        return semanticModel.LookupIdentifierAtPosition(name, line, column);
+    }
+
     // ── General Identifier Completions ──────────────────────────────────
 
     private CompletionResult GetIdentifierCompletions(CompilationUnit cu, SemanticModel? semanticModel,
@@ -232,9 +300,15 @@ public class CompletionEngine
         // Variables and parameters from semantic model (position-aware when possible)
         if (semanticModel != null)
         {
-            var visibleVars = (line > 0 && semanticModel.Scopes.Count > 0)
-                ? semanticModel.GetVisibleVariablesAtPosition(line, col)
-                : new Dictionary<string, TypeInfo>(semanticModel.Variables);
+            Dictionary<string, TypeInfo> visibleVars;
+            if (line > 0 && semanticModel.Scopes.Count > 0)
+            {
+                visibleVars = semanticModel.GetVisibleVariablesAtPosition(line, col);
+            }
+            else
+            {
+                visibleVars = new Dictionary<string, TypeInfo>(semanticModel.Variables);
+            }
 
             var variables = new List<CompletionItem>();
             foreach (var (name, typeInfo) in visibleVars)
@@ -299,10 +373,7 @@ public class CompletionEngine
         var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
         if (nsharpMembers.Count > 0)
         {
-            foreach (var group in nsharpMembers.GroupBy(m => m.Kind))
-            {
-                completions[Pluralize(group.Key)] = group.ToList();
-            }
+            AddGroupedCompletionsByKind(nsharpMembers, completions);
             return new CompletionResult(CompletionContext.MemberAccess, receiver, typeName, completions);
         }
 
@@ -317,10 +388,7 @@ public class CompletionEngine
         if (clrType != null)
         {
             var members = GetTypeMembers(clrType, MemberFilter.InstanceOnly);
-            foreach (var group in members.GroupBy(m => m.Kind))
-            {
-                completions[Pluralize(group.Key)] = group.ToList();
-            }
+            AddGroupedCompletionsByKind(members, completions);
             return new CompletionResult(CompletionContext.MemberAccess, receiver, clrType.FullName, completions);
         }
 
@@ -497,26 +565,7 @@ public class CompletionEngine
              filter == MemberFilter.InstanceOnly ? BindingFlags.Instance :
              BindingFlags.Static | BindingFlags.Instance);
 
-        // Methods
-        var methods = type.GetMethods(bindingFlags)
-            .Where(m => !m.IsSpecialName && m.DeclaringType?.FullName != "System.Object")
-            .GroupBy(m => m.Name)
-            .ToList();
-
-        foreach (var group in methods)
-        {
-            var method = group.First();
-            var overloads = group.Count();
-            var paramStr = FormatMethodParameters(method);
-            var detail = overloads > 1 ? $"(+{overloads - 1} overloads)" : null;
-            items.Add(new CompletionItem(
-                method.Name,
-                "method",
-                FormatClrType(method.ReturnType),
-                paramStr,
-                detail,
-                method.IsStatic));
-        }
+        AddMethodCompletionItems(type.GetMethods(bindingFlags), items);
 
         // Properties
         foreach (var prop in type.GetProperties(bindingFlags))
@@ -545,6 +594,49 @@ public class CompletionEngine
         }
 
         return items;
+    }
+
+    private static void AddMethodCompletionItems(MethodInfo[] methods, List<CompletionItem> items)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryGroupReflectionMethodsByName(methods, out var grouping)
+            && grouping != null)
+        {
+            for (var groupIndex = 0; groupIndex < grouping.GroupCount; groupIndex++)
+            {
+                AddMethodCompletionItem(
+                    methods[grouping.FirstIndices[groupIndex]],
+                    grouping.Counts[groupIndex],
+                    items);
+            }
+
+            return;
+        }
+
+        var methodGroups = methods
+            .Where(IsIncludedCompletionMethod)
+            .GroupBy(static method => method.Name)
+            .ToList();
+
+        foreach (var group in methodGroups)
+        {
+            AddMethodCompletionItem(group.First(), group.Count(), items);
+        }
+    }
+
+    private static bool IsIncludedCompletionMethod(MethodInfo method) =>
+        !method.IsSpecialName && method.DeclaringType?.FullName != "System.Object";
+
+    private static void AddMethodCompletionItem(MethodInfo method, int overloads, List<CompletionItem> items)
+    {
+        var paramStr = FormatMethodParameters(method);
+        var detail = overloads > 1 ? $"(+{overloads - 1} overloads)" : null;
+        items.Add(new CompletionItem(
+            method.Name,
+            "method",
+            FormatClrType(method.ReturnType),
+            paramStr,
+            detail,
+            method.IsStatic));
     }
 
     private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot)
@@ -1314,7 +1406,20 @@ public class CompletionEngine
         return charBefore == '/';
     }
 
-    private static string Pluralize(string kind) => kind switch
+    private static void AddGroupedCompletionsByKind(
+        List<CompletionItem> items,
+        Dictionary<string, List<CompletionItem>> completions)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryAddGroupedCompletionItemsByKind(items, completions))
+            return;
+
+        foreach (var group in items.GroupBy(m => m.Kind))
+        {
+            completions[PluralizeCompletionKind(group.Key)] = group.ToList();
+        }
+    }
+
+    internal static string PluralizeCompletionKind(string kind) => kind switch
     {
         "property" => "properties",
         "class" => "classes",

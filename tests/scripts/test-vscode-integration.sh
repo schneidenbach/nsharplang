@@ -93,13 +93,82 @@ fi
 echo "(This will download VS Code if needed and may take a minute...)"
 echo
 
+VSCODE_TEST_CACHE="${NSHARP_VSCODE_TEST_CACHE:-.vscode-test}"
+
+preseed_vscode_test_cache_from_machine_install() {
+    local code_path
+    code_path="$(command -v code 2>/dev/null || true)"
+    [ -n "$code_path" ] || return 0
+
+    local resolved_code_path
+    resolved_code_path="$(python3 - "$code_path" <<'PY'
+import os
+import sys
+print(os.path.realpath(sys.argv[1]))
+PY
+)"
+
+    local app_path=""
+    case "$resolved_code_path" in
+        */Visual\ Studio\ Code.app/Contents/Resources/app/bin/code)
+            app_path="${resolved_code_path%/Contents/Resources/app/bin/code}"
+            ;;
+    esac
+
+    [ -n "$app_path" ] && [ -d "$app_path" ] || return 0
+
+    local version
+    version="$(code --version 2>/dev/null | head -1 || true)"
+    [ -n "$version" ] || return 0
+
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        arm64|aarch64) arch="arm64" ;;
+        x86_64|amd64) arch="x64" ;;
+        *) return 0 ;;
+    esac
+
+    local platform
+    case "$(uname -s)" in
+        Darwin) platform="darwin-$arch" ;;
+        *) return 0 ;;
+    esac
+
+    local install_dir="$VSCODE_TEST_CACHE/vscode-$platform-$version"
+    local cached_app="$install_dir/Visual Studio Code.app"
+    local complete_file="$install_dir/is-complete"
+
+    if [ -f "$complete_file" ] && [ -d "$cached_app" ]; then
+        return 0
+    fi
+
+    rm -rf "$install_dir"
+    mkdir -p "$install_dir"
+    if ! cp -cR "$app_path" "$cached_app" 2>/dev/null; then
+        cp -R "$app_path" "$cached_app"
+    fi
+    touch "$complete_file"
+    echo -e "${GREEN}✓ Seeded machine VS Code $version into test-electron cache${NC}"
+}
+
+preseed_vscode_test_cache_from_machine_install
+
+if [ -z "${NSHARP_VSCODE_TEST_VERSION:-}" ]; then
+    NSHARP_VSCODE_TEST_VERSION="$(code --version 2>/dev/null | head -1 || true)"
+fi
+if [ -n "${NSHARP_VSCODE_TEST_VERSION:-}" ]; then
+    export NSHARP_VSCODE_TEST_VERSION
+    echo -e "${GREEN}✓ Using VS Code $NSHARP_VSCODE_TEST_VERSION for test-electron${NC}"
+fi
+
 # @vscode/test-electron reuses editors/vscode/.vscode-test between runs. If a
 # previous download was interrupted, the directory can look installed but miss
 # VS Code's packaged node modules; launching then fails before tests start with
 # ERR_MODULE_NOT_FOUND (for example @vscode/policy-watcher). Detect that state
 # and force a clean re-download instead of letting the release gate fail on a
 # corrupt cache.
-for vscode_app in .vscode-test/vscode-*/Visual\ Studio\ Code.app; do
+for vscode_app in "$VSCODE_TEST_CACHE"/vscode-*/Visual\ Studio\ Code.app; do
     [ -d "$vscode_app" ] || continue
     if [ ! -d "$vscode_app/Contents/Resources/app/node_modules/@vscode/policy-watcher" ]; then
         install_dir="$(dirname "$vscode_app")"
@@ -108,7 +177,66 @@ for vscode_app in .vscode-test/vscode-*/Visual\ Studio\ Code.app; do
     fi
 done
 
-node ./out/test/runTest.js
+terminate_process_tree() {
+    local pid="$1"
+    local signal="${2:-TERM}"
+    local child
+
+    for child in $(pgrep -P "$pid" 2>/dev/null || true); do
+        terminate_process_tree "$child" "$signal"
+    done
+
+    kill "-$signal" "$pid" 2>/dev/null || true
+}
+
+run_vscode_tests() {
+    local output
+    output="$(mktemp)"
+    node ./out/test/runTest.js > "$output" 2>&1 &
+    local node_pid=$!
+    local passed_seen=0
+    local host_exit_seen=0
+    local passed_at=0
+
+    while kill -0 "$node_pid" 2>/dev/null; do
+        if [ "$passed_seen" = "0" ] && grep -Eq '[0-9]+ passing' "$output"; then
+            passed_seen=1
+            passed_at="$(date +%s)"
+        fi
+
+        if [ "$host_exit_seen" = "0" ] && grep -Eq 'Extension host with pid [0-9]+ exited with code: 0' "$output"; then
+            host_exit_seen=1
+        fi
+
+        if [ "$passed_seen" = "1" ] && [ "$host_exit_seen" = "1" ]; then
+            local now
+            now="$(date +%s)"
+            if [ $((now - passed_at)) -ge 10 ]; then
+                cat "$output"
+                echo "VS Code tests passed; closing lingering Electron process tree."
+                terminate_process_tree "$node_pid" TERM
+                sleep 2
+                if kill -0 "$node_pid" 2>/dev/null; then
+                    terminate_process_tree "$node_pid" KILL
+                fi
+                wait "$node_pid" 2>/dev/null || true
+                rm -f "$output"
+                return 0
+            fi
+        fi
+
+        sleep 1
+    done
+
+    local status
+    wait "$node_pid"
+    status=$?
+    cat "$output"
+    rm -f "$output"
+    return "$status"
+}
+
+run_vscode_tests
 
 echo
 echo -e "${GREEN}=======================================${NC}"

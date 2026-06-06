@@ -122,10 +122,20 @@ public class CodeIntelligenceService
 
         if (kind != null)
         {
-            results = results.Where(s => s.Kind == kind.Value).ToList();
+            results = FilterSymbolsByKind(results, kind.Value);
         }
 
         return results;
+    }
+
+    private static List<SymbolResult> FilterSymbolsByKind(List<SymbolResult> symbols, SymbolKind kind)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFilterSymbolsByKind(symbols, kind, out var filteredSymbols))
+        {
+            return filteredSymbols;
+        }
+
+        return symbols.Where(s => s.Kind == kind).ToList();
     }
 
     /// <summary>
@@ -187,10 +197,7 @@ public class CodeIntelligenceService
         var sourceTexts = snapshot.SourceTexts.ToDictionary(kvp => kvp.Key, kvp => kvp.Value, StringComparer.OrdinalIgnoreCase);
 
         var results = new List<DiagnosticResult>();
-        var filesWithCompilerShadowingErrors = snapshot.AllErrors
-            .Where(error => error.Code == ErrorCode.ShadowedDeclaration && !string.IsNullOrWhiteSpace(error.FileName))
-            .Select(error => GetRelativePath(snapshot.ProjectRoot, error.FileName!))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var filesWithCompilerShadowingErrors = GetCompilerShadowingErrorFiles(snapshot);
 
         foreach (var error in snapshot.AllErrors)
         {
@@ -204,7 +211,7 @@ public class CodeIntelligenceService
             var snippet = error.SourceSnippet;
             if (string.IsNullOrWhiteSpace(snippet) && error.Line > 0)
             {
-                snippet = ExtractSourceLine(sourceTexts, errorFile, error.Line);
+                snippet = ExtractSourceLine(snapshot, errorFile, error.Line);
             }
 
             results.Add(new DiagnosticResult(
@@ -233,9 +240,7 @@ public class CodeIntelligenceService
         var lintDiagnostics = GetLintDiagnostics(snapshot.ProjectRoot, snapshot.SourceFiles, snapshot.CompilationUnits, sourceTexts, file);
         if (filesWithCompilerShadowingErrors.Count > 0)
         {
-            lintDiagnostics = lintDiagnostics
-                .Where(diagnostic => diagnostic.Code != "NL020" || !filesWithCompilerShadowingErrors.Contains(diagnostic.File))
-                .ToList();
+            lintDiagnostics = SuppressLintShadowingDiagnostics(lintDiagnostics, filesWithCompilerShadowingErrors);
         }
 
         results.AddRange(lintDiagnostics);
@@ -284,6 +289,56 @@ public class CodeIntelligenceService
         }
 
         return GetLintDiagnostics(projectRoot, sourceFiles, compilationUnits, sourceTexts, file);
+    }
+
+    private static List<string> GetCompilerShadowingErrorFiles(ProjectSnapshot snapshot)
+    {
+        var files = new List<string>();
+        foreach (var error in snapshot.AllErrors)
+        {
+            if (error.Code == ErrorCode.ShadowedDeclaration && !string.IsNullOrWhiteSpace(error.FileName))
+            {
+                files.Add(GetRelativePath(snapshot.ProjectRoot, error.FileName!));
+            }
+        }
+
+        return files;
+    }
+
+    private static List<DiagnosticResult> SuppressLintShadowingDiagnostics(
+        List<DiagnosticResult> lintDiagnostics,
+        IReadOnlyList<string> filesWithCompilerShadowingErrors)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySuppressLintShadowingDiagnostics(
+                lintDiagnostics,
+                filesWithCompilerShadowingErrors,
+                out var resultIndices,
+                out var resultCount))
+        {
+            var filtered = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= lintDiagnostics.Count)
+                    return SuppressLintShadowingDiagnosticsWithLinq(lintDiagnostics, filesWithCompilerShadowingErrors);
+
+                filtered.Add(lintDiagnostics[diagnosticIndex]);
+            }
+
+            return filtered;
+        }
+
+        return SuppressLintShadowingDiagnosticsWithLinq(lintDiagnostics, filesWithCompilerShadowingErrors);
+    }
+
+    private static List<DiagnosticResult> SuppressLintShadowingDiagnosticsWithLinq(
+        List<DiagnosticResult> lintDiagnostics,
+        IReadOnlyList<string> filesWithCompilerShadowingErrors)
+    {
+        var shadowedFiles = filesWithCompilerShadowingErrors.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return lintDiagnostics
+            .Where(diagnostic => diagnostic.Code != "NL020" || !shadowedFiles.Contains(diagnostic.File))
+            .ToList();
     }
 
     public static DiagnosticResult ToDiagnosticResult(
@@ -345,6 +400,9 @@ public class CodeIntelligenceService
             DiagnosticCatalog.DocsUrlFor(diagnostic.Code));
     }
 
+    public static string? ExtractSourceLineForDiagnostics(string source, int line) =>
+        ExtractSourceLine(source, line);
+
     private static List<DiagnosticResult> GetLintDiagnostics(
         string projectRoot,
         IReadOnlyList<string> sourceFiles,
@@ -388,6 +446,29 @@ public class CodeIntelligenceService
     }
 
     private static List<DiagnosticResult> DeduplicateDiagnostics(List<DiagnosticResult> diagnostics)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateDiagnosticsPreservingOrder(
+                diagnostics,
+                out var resultIndices,
+                out var resultCount))
+        {
+            var deduplicated = new List<DiagnosticResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var diagnosticIndex = resultIndices[i];
+                if (diagnosticIndex < 0 || diagnosticIndex >= diagnostics.Count)
+                    return DeduplicateDiagnosticsWithLinq(diagnostics);
+
+                deduplicated.Add(diagnostics[diagnosticIndex]);
+            }
+
+            return deduplicated;
+        }
+
+        return DeduplicateDiagnosticsWithLinq(diagnostics);
+    }
+
+    private static List<DiagnosticResult> DeduplicateDiagnosticsWithLinq(List<DiagnosticResult> diagnostics)
     {
         return diagnostics
             .GroupBy(diagnostic => new
@@ -524,6 +605,26 @@ public class CodeIntelligenceService
         if (source == null)
             return false;
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TrySelectedSpanMatchesDeclarationName(
+                snapshot,
+                filePath,
+                source,
+                line,
+                declaration.Column,
+                declaration.Name,
+                selectedSpan.StartColumn,
+                selectedSpan.EndColumn,
+                out var dogfoodMatches))
+        {
+            return dogfoodMatches;
+        }
+
+        return SelectedSpanMatchesDeclarationNameFallback(source, line, selectedSpan, declaration);
+    }
+
+    private static bool SelectedSpanMatchesDeclarationNameFallback(string source, int line,
+        (int StartColumn, int EndColumn) selectedSpan, SymbolDeclaration declaration)
+    {
         var lines = source.Split('\n');
         if (line <= 0 || line > lines.Length)
             return false;
@@ -579,6 +680,35 @@ public class CodeIntelligenceService
             }
         }
 
+        return DeduplicateAndSortReferenceResults(results);
+    }
+
+    private static List<ReferenceResult> DeduplicateAndSortReferenceResults(IReadOnlyList<ReferenceResult> results)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryDeduplicateReferences(
+                results,
+                out var resultIndices,
+                out var resultCount))
+        {
+            var deduplicated = new List<ReferenceResult>(resultCount);
+            for (var i = 0; i < resultCount; i++)
+            {
+                var referenceIndex = resultIndices[i];
+                if (referenceIndex < 0 || referenceIndex >= results.Count)
+                    return DeduplicateAndSortReferenceResultsWithLinq(results);
+
+                deduplicated.Add(results[referenceIndex]);
+            }
+
+            return deduplicated;
+        }
+
+        return DeduplicateAndSortReferenceResultsWithLinq(results);
+    }
+
+    private static List<ReferenceResult> DeduplicateAndSortReferenceResultsWithLinq(
+        IReadOnlyList<ReferenceResult> results)
+    {
         return results
             .GroupBy(r => (r.File, r.Line, r.Column))
             .Select(g => g.First())
@@ -738,6 +868,23 @@ public class CodeIntelligenceService
 
         if (absolutePath == null) return null;
 
+        var source = GetSourceText(snapshot, absolutePath);
+        if (source != null
+            && NSharpCodeIntelligenceDogfoodAdapter.TryExtractDocComment(
+                snapshot,
+                absolutePath,
+                source,
+                definitionLine,
+                out var dogfoodDocumentation))
+        {
+            return dogfoodDocumentation;
+        }
+
+        return ExtractDocCommentFallback(absolutePath, definitionLine);
+    }
+
+    private static string? ExtractDocCommentFallback(string absolutePath, int definitionLine)
+    {
         try
         {
             var lines = File.ReadAllLines(absolutePath);
@@ -1053,6 +1200,16 @@ public class CodeIntelligenceService
         var source = GetSourceText(snapshot, filePath);
         if (source == null) return null;
 
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceContext(
+                snapshot,
+                filePath,
+                source,
+                line,
+                out var dogfoodContext))
+        {
+            return dogfoodContext;
+        }
+
         var lines = source.Split('\n');
         return line <= lines.Length ? lines[line - 1].Trim() : null;
     }
@@ -1150,7 +1307,18 @@ public class CodeIntelligenceService
         if (snapshot.Bindings == null)
             return null;
 
-        foreach (var candidateColumn in GetBindingCandidateColumns(snapshot, filePath, line, col))
+        var candidateColumns = GetBindingCandidateColumns(snapshot, filePath, line, col);
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryResolveBindingDeclaration(
+                snapshot.Bindings,
+                filePath,
+                line,
+                candidateColumns,
+                out var dogfoodDeclaration))
+        {
+            return dogfoodDeclaration;
+        }
+
+        foreach (var candidateColumn in candidateColumns)
         {
             var declaration = snapshot.Bindings.GetBindingAt(filePath, line, candidateColumn);
             if (declaration != null)
@@ -1186,7 +1354,16 @@ public class CodeIntelligenceService
         return FindBestDeclarationSymbolByName(snapshot, filePath, name, line);
     }
 
-    private static IEnumerable<int> GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
+    private static int[] GetBindingCandidateColumns(ProjectSnapshot snapshot, string filePath, int line, int col)
+    {
+        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryGetBindingCandidateColumns(col, span, out var dogfoodCandidateColumns))
+            return dogfoodCandidateColumns;
+
+        return GetBindingCandidateColumnsFallback(col, span);
+    }
+
+    private static int[] GetBindingCandidateColumnsFallback(int col, (int StartColumn, int EndColumn)? span)
     {
         var seen = new HashSet<int>();
 
@@ -1196,7 +1373,6 @@ public class CodeIntelligenceService
             seen.Add(col - 1);
         seen.Add(col + 1);
 
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
         if (span != null)
         {
             for (int candidate = span.Value.StartColumn; candidate <= span.Value.EndColumn; candidate++)
@@ -1205,7 +1381,7 @@ public class CodeIntelligenceService
             }
         }
 
-        return seen.OrderBy(candidate => Math.Abs(candidate - col));
+        return seen.OrderBy(candidate => Math.Abs(candidate - col)).ToArray();
     }
 
     private SymbolDeclaration? FindDeclarationSymbol(ProjectSnapshot snapshot, string? name)
@@ -1239,6 +1415,16 @@ public class CodeIntelligenceService
     {
         if (snapshot.Bindings == null)
             return null;
+
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFindNearestBindingDeclarationByName(
+                snapshot.Bindings,
+                filePath,
+                name,
+                line,
+                out var dogfoodDeclaration))
+        {
+            return dogfoodDeclaration;
+        }
 
         return snapshot.Bindings.FindDeclarationsByName(name)
             .Where(declaration => string.Equals(declaration.File, filePath, StringComparison.Ordinal) && declaration.Line <= line)
@@ -2383,15 +2569,27 @@ public class CodeIntelligenceService
 
     private static string? ExtractWordAtPosition(ProjectSnapshot snapshot, string filePath, int line, int col)
     {
-        var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
-        if (span == null)
-            return null;
-
         try
         {
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractIdentifierName(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    col,
+                    out var dogfoodName))
+            {
+                return dogfoodName;
+            }
+
+            var span = ExtractIdentifierSpanAtPosition(snapshot, filePath, line, col);
+            if (span == null)
+                return null;
+
             var lines = source.Split('\n');
             var lineText = lines[line - 1];
             var startIndex = span.Value.StartColumn - 1;
@@ -2411,6 +2609,18 @@ public class CodeIntelligenceService
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractMemberReceiverName(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    memberStartColumn,
+                    out var dogfoodReceiverName))
+            {
+                return dogfoodReceiverName;
+            }
+
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length)
                 return null;
@@ -2472,6 +2682,18 @@ public class CodeIntelligenceService
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractIdentifierSpan(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    col,
+                    out var dogfoodSpan))
+            {
+                return dogfoodSpan;
+            }
+
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length)
                 return null;
@@ -2569,6 +2791,17 @@ public class CodeIntelligenceService
             var source = GetSourceText(snapshot, filePath);
             if (source == null)
                 return null;
+
+            if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractVariableDeclarationName(
+                    snapshot,
+                    filePath,
+                    source,
+                    line,
+                    out var dogfoodName))
+            {
+                return dogfoodName;
+            }
+
             var lines = source.Split('\n');
             if (line <= 0 || line > lines.Length) return null;
 
@@ -2600,7 +2833,36 @@ public class CodeIntelligenceService
         return ExtractSourceLine(source, line);
     }
 
+    private static string? ExtractSourceLine(ProjectSnapshot snapshot, string filePath, int line)
+    {
+        var source = GetSourceText(snapshot, filePath);
+        if (source == null)
+            return null;
+
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(
+                snapshot,
+                filePath,
+                source,
+                line,
+                out var dogfoodLine))
+        {
+            return dogfoodLine;
+        }
+
+        return ExtractSourceLineFallback(source, line);
+    }
+
     private static string? ExtractSourceLine(string source, int line)
+    {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(source, line, out var dogfoodLine))
+        {
+            return dogfoodLine;
+        }
+
+        return ExtractSourceLineFallback(source, line);
+    }
+
+    private static string? ExtractSourceLineFallback(string source, int line)
     {
         var lines = source.Split('\n');
         if (line > 0 && line <= lines.Length)

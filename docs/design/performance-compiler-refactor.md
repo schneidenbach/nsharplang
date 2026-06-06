@@ -166,6 +166,18 @@ The handler is a ref struct kept strictly stack-local: it is declared as a local
 
 Net effect per interpolation with value holes: `box` drops to `0`, the `string[]` allocation (`newarr`) and `string.Concat` call are eliminated. IL-shape regression tests in `ILShapeBaselineTests` pin `box == 0`, `newarr == 0`, no `string.Concat`, exactly one handler ctor + `ToStringAndClear`, and one `AppendFormatted` per hole. Behavioral tests assert exact string parity (including culture-correct `:X` / `:F2` format clauses) against the equivalent C# interpolation.
 
+## String Concatenation
+
+Binary `+` string concatenation is flattened before IL emission. The old lowering emitted every
+string addition as a pairwise `string.Concat(object, object)` call, which boxed value-type operands
+and materialized intermediate strings for longer chains.
+
+Current lowering keeps pure two-to-four operand string chains on the typed `string.Concat(string, …)`
+overloads, folds all-literal chains to one `ldstr`, and routes mixed string/value chains through the
+same `DefaultInterpolatedStringHandler` machinery used for interpolation. That preserves left-to-right
+evaluation while avoiding `box`, `newarr`, and nested `string.Concat` calls for hot CLI-style command
+construction such as `"--pos " + line + ":" + column`.
+
 ## Generics And Specialization
 
 The CLR already specializes generic code for value types but shares many reference-type instantiations. N# can still do better for internal code.
@@ -368,6 +380,24 @@ promotion is a transparent optimization, not a checked language feature.
 
 Deferred: buffers declared inside nested blocks (would require scope-restored promotion
 state), non-constant sizes, and managed/struct element types.
+
+### Statement-context assignment
+
+Assignment is both an expression and a statement in N#. Expression-valued assignment is required for
+shapes such as `x = y = 5`, so the ordinary expression lowerer must leave the assigned value on the
+evaluation stack. Hot compiler-service code, however, is dominated by bare assignment statements:
+loop induction (`position = position + 1`), counters (`count = count + 1`), and compact token-buffer
+writes (`kinds[count] = kind`). Reloading the assigned value only for the expression-statement
+emitter to `pop` it adds unnecessary IL and can inhibit the JIT from seeing the tightest loop shape.
+
+Implemented compiler work (2026-06-03):
+
+1. `ExpressionStatement` detects `AssignmentExpression` and asks `EmitAssignment` for
+   statement-context lowering (`leaveValueOnStack: false`).
+2. Identifier, static member, instance member, and indexed assignment stores skip the final reload
+   when the value is not consumed. Expression contexts still use the default value-producing path.
+3. `AssignmentStatementIlShapeTests` pins zero `pop` opcodes for local/indexed assignment
+   statements and verifies nested assignment expressions still return the assigned value.
 
 ## Async And Iterators
 
@@ -745,6 +775,10 @@ making unverifiable IL a deterministic, host-independent, **blocking** failure.
 
 The performance claims are backed by two coupled artifacts, one per optimized pattern.
 
+This section covers benchmarks for N#-emitted runtime code. Compiler/tooling dogfood benchmarks
+are tracked separately in [compiler-dogfood-rewrite.md](compiler-dogfood-rewrite.md), because they
+compare the current C# compiler-service functions against N# implementations of the same services.
+
 ### 1. Matched N#-vs-C# benchmark corpus (`benchmarks/`)
 
 `benchmarks/NSharpLang.Benchmarks.csproj` is a BenchmarkDotNet project with one benchmark class per
@@ -780,6 +814,12 @@ Current families (matched to the PR #160 optimizations):
 | `ConstrainedDispatchBenchmarks`  | constrained generic dispatch (no box)      | `run`        |
 | `StaticLambdaBenchmarks`         | cached non-capturing lambda in a loop      | `build`      |
 | `ErrorTupleBenchmarks`           | `(result, err)` tuple, no throw on success | `RunSuccess` |
+
+Dogfood compiler-service baselines also live in `benchmarks/` and are deliberately named with the
+`CompilerService` prefix. `CompilerServiceLexerBenchmarks` is the first such family; it currently
+measures the C# `Lexer.Tokenize()` baseline over representative and large generated corpora. A
+ported N# lexer must add the matching N# benchmark over the same corpora before any 5x dogfood
+speedup claim is valid.
 
 ### 2. Deterministic IL-shape regression gate (`tests/PerfEvidence/IlShapeRegressionTests.cs`)
 

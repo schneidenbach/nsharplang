@@ -75,8 +75,7 @@ public static class RestoreCommand
             sb.AppendLine($"    <_NSharpBaseSdk>{baseSdk}</_NSharpBaseSdk>");
             sb.AppendLine(@"  </PropertyGroup>");
 
-            var projectReferences = config.Dependencies
-                .Where(reference => reference.Type == ReferenceType.Project)
+            var resolvedProjectReferences = FilterReferencesByType(config.Dependencies, ReferenceType.Project)
                 .Select(reference =>
                 {
                     var projectPath = Path.IsPathRooted(reference.Project!)
@@ -84,8 +83,8 @@ public static class RestoreCommand
                         : Path.Combine(projectRoot, reference.Project!);
                     return ProjectReferenceResolver.ResolveMsBuildProjectPath(projectPath);
                 })
-                .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToArray();
+            var projectReferences = DeduplicateProjectReferences(resolvedProjectReferences);
 
             if (projectReferences.Length > 0)
             {
@@ -102,7 +101,7 @@ public static class RestoreCommand
             var propsPath = Path.Combine(objDir, "project.g.props");
             File.WriteAllText(propsPath, sb.ToString(), Encoding.UTF8);
 
-            foreach (var dependency in config.Dependencies.Where(reference => reference.Type == ReferenceType.Project))
+            foreach (var dependency in FilterReferencesByType(config.Dependencies, ReferenceType.Project))
             {
                 var referencedPath = dependency.Project!;
                 var absoluteReferencePath = Path.IsPathRooted(referencedPath)
@@ -151,6 +150,25 @@ NSharpLang.Sdk .csproj. Native 'nlc build' reads project.yml directly.
 
 Options:
   -h, --help    Show this help message");
+    }
+
+    internal static string[] DeduplicateProjectReferences(IReadOnlyList<string> projectReferences)
+    {
+        return NSharpCliDogfoodAdapter.TryDeduplicateStable(
+            projectReferences,
+            StringComparer.OrdinalIgnoreCase,
+            out var dogfoodProjectReferences)
+            ? dogfoodProjectReferences.ToArray()
+            : projectReferences.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static List<Reference> FilterReferencesByType(
+        IReadOnlyList<Reference> references,
+        ReferenceType referenceType)
+    {
+        return NSharpCliDogfoodAdapter.TryFilterReferencesByType(references, referenceType, out var dogfoodReferences)
+            ? dogfoodReferences
+            : references.Where(reference => reference.Type == referenceType).ToList();
     }
 
     private static string EscapeXml(string value)

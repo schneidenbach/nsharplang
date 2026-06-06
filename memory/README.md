@@ -14,6 +14,7 @@ Welcome to the N# compiler documentation. This folder contains technical documen
 | Question | Answer |
 |----------|--------|
 | Understand the architecture? | Read [architecture.md](architecture.md) |
+| Plan the compiler dogfood rewrite? | Read [docs/design/compiler-dogfood-rewrite.md](../docs/design/compiler-dogfood-rewrite.md) |
 | Plan compiler performance work? | Read [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md) |
 | Work on Systems N#? | Read [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md) and [docs/audits/systems-nsharp-implementation-adversarial-review.md](../docs/audits/systems-nsharp-implementation-adversarial-review.md) |
 | Check IL backend parity status? | Read [il-compiler-parity-audit.md](il-compiler-parity-audit.md) |
@@ -56,6 +57,15 @@ Performance-focused compiler refactor plan for Bound IR, escape/capture/allocati
 
 ### [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md)
 Canonical Systems N# proposal and v1 implementation target for hot-path cost visibility, HotSummary facts, BCL seed summaries, `Result<T,E>`, restricted unsafe, ref/lifetime safety, pooling, AOT/readiness reporting, templates, and acceptance gauntlet examples.
+
+### [docs/design/compiler-dogfood-rewrite.md](../docs/design/compiler-dogfood-rewrite.md)
+Dogfood rewrite plan for moving the compiler, compiler services, and CLI tooling to N# with per-function parity and 5x BenchmarkDotNet speed gates.
+
+**Topics:**
+- N# implementation acceptance standard for compiler/service/CLI functions
+- Dogfood benchmark evidence model distinct from emitted-runtime-code benchmarks
+- Rewrite order starting with lexer, source text, parser, binding, diagnostics, CLI, and IL emission
+- Language pressure points exposed by compiler-service hot paths
 
 ---
 

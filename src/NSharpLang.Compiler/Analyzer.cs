@@ -1,4 +1,5 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,6 +8,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using NSharpLang.Compiler.Ast;
+using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.SourceGenerators;
 
 namespace NSharpLang.Compiler;
@@ -135,6 +137,7 @@ public class Analyzer : IDisposable
     private string? _projectRoot;
     private CompilationUnit? _compilationUnit; // Current file's AST (for namespace checks)
     private TypeInfo? _currentExpectedType;  // For target-typed expressions
+    private string? _sourceText;
     private string[]? _sourceLines;  // Source code lines for error snippets
     // MetadataLoadContext-based assembly inspection (no runtime loading, no version conflicts)
     private NSharpMetadataResolver? _metadataResolver;
@@ -264,6 +267,7 @@ public class Analyzer : IDisposable
         _currentFilePath = currentFilePath;
         _projectRoot = projectRoot;
         _compilationUnit = unit;
+        _sourceText = sourceCode;
         _sourceLines = sourceCode?.Split('\n');
         _externalNamespaceCache.Clear();
         _projectNamespaceCache.Clear();
@@ -4002,7 +4006,7 @@ public class Analyzer : IDisposable
     {
         var type = expr switch
         {
-            IntLiteralExpression => BuiltInTypes.Int,
+            IntLiteralExpression intLiteral => GetIntLiteralType(intLiteral.Value),
             FloatLiteralExpression floatLiteral => GetFloatLiteralType(floatLiteral.Value),
             CharLiteralExpression => BuiltInTypes.Char,
             StringLiteralExpression strExpr => AnalyzeStringLiteral(strExpr),
@@ -10137,144 +10141,181 @@ public class Analyzer : IDisposable
             return;
         }
 
-        // Collect all union case names that are covered by UNGUARDED arms.
-        // Guarded arms only partially cover their pattern (the guard may be false at runtime),
-        // so they don't count toward exhaustiveness.
-        var coveredCases = new HashSet<string>();
-        var partiallyCoveredCases = new HashSet<string>();
-        var unionCasePatterns = new Dictionary<string, List<UnionCasePattern>>();
-        var partialCoverageHints = new Dictionary<string, List<string>>();
+        var unionDeclaration = unionType.Declaration!;
+        var unionCases = unionDeclaration.Cases;
+        var caseCount = unionCases.Count;
+        var coveredFlags = ArrayPool<int>.Shared.Rent(caseCount);
+        var partialFlags = ArrayPool<int>.Shared.Rent(caseCount);
 
-        foreach (var matchCase in match.Cases)
+        try
         {
-            // Skip guarded arms — they only partially cover their pattern
-            if (matchCase.Guard != null)
-                continue;
+            Array.Clear(coveredFlags, 0, caseCount);
+            Array.Clear(partialFlags, 0, caseCount);
 
-            if (matchCase.Pattern is UnionCasePattern unionPattern)
+            // Collect all union case names that are covered by UNGUARDED arms.
+            // Guarded arms only partially cover their pattern (the guard may be false at runtime),
+            // so they don't count toward exhaustiveness.
+            var caseIndexByName = new Dictionary<string, int>(caseCount, StringComparer.Ordinal);
+            for (var caseIndex = 0; caseIndex < caseCount; caseIndex++)
             {
-                if (TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchedCase))
-                {
-                    if (!unionCasePatterns.TryGetValue(matchedCase.Name, out var patterns))
-                    {
-                        patterns = new List<UnionCasePattern>();
-                        unionCasePatterns[matchedCase.Name] = patterns;
-                    }
+                caseIndexByName.TryAdd(unionCases[caseIndex].Name, caseIndex);
+            }
 
-                    patterns.Add(unionPattern);
+            var unionCasePatterns = new Dictionary<string, List<UnionCasePattern>>();
+            var partialCoverageHints = new Dictionary<string, List<string>>();
+
+            foreach (var matchCase in match.Cases)
+            {
+                // Skip guarded arms — they only partially cover their pattern
+                if (matchCase.Guard != null)
+                    continue;
+
+                if (matchCase.Pattern is UnionCasePattern unionPattern)
+                {
+                    if (TryGetUnionCaseForPattern(unionType, unionPattern.CaseName, out var matchedCase))
+                    {
+                        if (!unionCasePatterns.TryGetValue(matchedCase.Name, out var patterns))
+                        {
+                            patterns = new List<UnionCasePattern>();
+                            unionCasePatterns[matchedCase.Name] = patterns;
+                        }
+
+                        patterns.Add(unionPattern);
+                    }
+                }
+                else if (matchCase.Pattern is IdentifierPattern identPattern)
+                {
+                    if (identPattern.Name == "_")
+                    {
+                        // Unguarded wildcard pattern covers all remaining cases
+                        match.IsExhaustive = true;
+                        return;
+                    }
+                    else if (identPattern.Name.Contains('.'))
+                    {
+                        // Qualified union case name without properties
+                        if (TryGetUnionCaseForPattern(unionType, identPattern.Name, out var matchedCase) &&
+                            caseIndexByName.TryGetValue(matchedCase.Name, out var matchedCaseIndex))
+                        {
+                            coveredFlags[matchedCaseIndex] = 1;
+                        }
+                    }
+                    else
+                    {
+                        // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
+                        // that matches everything at runtime — treat it the same as `_`
+                        match.IsExhaustive = true;
+                        return;
+                    }
                 }
             }
-            else if (matchCase.Pattern is IdentifierPattern identPattern)
+
+            // Check if all union cases are covered
+            for (var caseIndex = 0; caseIndex < caseCount; caseIndex++)
             {
-                if (identPattern.Name == "_")
+                var unionCase = unionCases[caseIndex];
+                if (!unionCasePatterns.TryGetValue(unionCase.Name, out var patterns))
+                    continue;
+
+                if (IsUnionCaseCoveredByPatterns(unionDeclaration.Name, unionCase, patterns, out var hints))
                 {
-                    // Unguarded wildcard pattern covers all remaining cases
-                    match.IsExhaustive = true;
-                    return;
-                }
-                else if (identPattern.Name.Contains('.'))
-                {
-                    // Qualified union case name without properties
-                    if (TryGetUnionCaseForPattern(unionType, identPattern.Name, out var matchedCase))
-                    {
-                        coveredCases.Add(matchedCase.Name);
-                    }
+                    coveredFlags[caseIndex] = 1;
                 }
                 else
                 {
-                    // Unqualified, non-wildcard identifier is a catch-all binding (e.g., `other =>`)
-                    // that matches everything at runtime — treat it the same as `_`
-                    match.IsExhaustive = true;
-                    return;
-                }
-            }
-        }
-
-        // Check if all union cases are covered
-        foreach (var unionCase in unionType.Declaration!.Cases)
-        {
-            if (!unionCasePatterns.TryGetValue(unionCase.Name, out var patterns))
-                continue;
-
-            if (IsUnionCaseCoveredByPatterns(unionType.Declaration.Name, unionCase, patterns, out var hints))
-            {
-                coveredCases.Add(unionCase.Name);
-            }
-            else
-            {
-                partiallyCoveredCases.Add(unionCase.Name);
-                if (hints.Count > 0)
-                {
-                    partialCoverageHints[unionCase.Name] = hints;
-                }
-            }
-        }
-
-        var allCases = unionType.Declaration.Cases.Select(c => c.Name).ToHashSet();
-        var missingCases = allCases.Except(coveredCases).ToList();
-        var partialMissingCases = missingCases.Where(partiallyCoveredCases.Contains).ToList();
-        var neverCoveredCases = missingCases.Except(partialMissingCases).ToList();
-
-        if (missingCases.Any())
-        {
-            if (partialMissingCases.Any())
-            {
-                var messageParts = new List<string>();
-                if (neverCoveredCases.Any())
-                {
-                    messageParts.Add($"missing: {string.Join(", ", neverCoveredCases)}");
-                }
-
-                messageParts.Add($"partially covered: {FormatPartialCoverageCases(partialMissingCases, partialCoverageHints)}");
-
-                var partialHint = string.Join("; ", partialMissingCases.Select(caseName =>
-                {
-                    if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
+                    partialFlags[caseIndex] = 1;
+                    if (hints.Count > 0)
                     {
-                        return $"add '{hints[0]}', an unconstrained '{unionType.Declaration.Name}.{caseName}' arm, or a wildcard '_' arm";
+                        partialCoverageHints[unionCase.Name] = hints;
+                    }
+                }
+            }
+
+            if (!NSharpCompilerDogfoodAdapter.TrySelectMissingUnionCasesFromFlags(
+                    unionCases,
+                    coveredFlags,
+                    partialFlags,
+                    caseCount,
+                    out var missingCases,
+                    out var partialMissingCases,
+                    out var neverCoveredCases))
+            {
+                SelectMissingUnionCasesFromFlags(
+                    unionCases,
+                    coveredFlags,
+                    partialFlags,
+                    caseCount,
+                    out missingCases,
+                    out partialMissingCases,
+                    out neverCoveredCases);
+            }
+
+            if (missingCases.Any())
+            {
+                if (partialMissingCases.Any())
+                {
+                    var messageParts = new List<string>();
+                    if (neverCoveredCases.Any())
+                    {
+                        messageParts.Add($"missing: {string.Join(", ", neverCoveredCases)}");
                     }
 
-                    return $"add an unconstrained '{unionType.Declaration.Name}.{caseName}' arm or a wildcard '_' arm";
-                }));
-                Error(ErrorCode.NonExhaustiveMatch,
-                    $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
-                    match.Line,
-                    match.Column,
-                    ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)),
-                    length: MatchKeywordLength);
-            }
-            else
-            {
-                var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
-                    ? _sourceLines[match.Line - 1]
-                    : null;
+                    messageParts.Add($"partially covered: {FormatPartialCoverageCases(partialMissingCases, partialCoverageHints)}");
 
-                if (sourceSnippet != null && _currentFilePath != null)
-                {
-                    var error = ErrorMessageBuilder.NonExhaustiveMatch(
-                        _currentFilePath,
+                    var partialHint = string.Join("; ", partialMissingCases.Select(caseName =>
+                    {
+                        if (partialCoverageHints.TryGetValue(caseName, out var hints) && hints.Count > 0)
+                        {
+                            return $"add '{hints[0]}', an unconstrained '{unionDeclaration.Name}.{caseName}' arm, or a wildcard '_' arm";
+                        }
+
+                        return $"add an unconstrained '{unionDeclaration.Name}.{caseName}' arm or a wildcard '_' arm";
+                    }));
+                    Error(ErrorCode.NonExhaustiveMatch,
+                        $"This match doesn't cover all cases — {string.Join("; ", messageParts)}. {partialHint}.",
                         match.Line,
                         match.Column,
-                        sourceSnippet,
-                        MatchKeywordLength,
-                        missingCases
-                    );
-                    _errors.Add(error);
+                        ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, string.Join(", ", missingCases)),
+                        length: MatchKeywordLength);
                 }
                 else
                 {
-                    var missingCasesStr = string.Join(", ", missingCases);
-                    Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
-                        match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr),
-                        length: MatchKeywordLength);
+                    var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
+                        ? _sourceLines[match.Line - 1]
+                        : null;
+
+                    if (sourceSnippet != null && _currentFilePath != null)
+                    {
+                        var error = ErrorMessageBuilder.NonExhaustiveMatch(
+                            _currentFilePath,
+                            match.Line,
+                            match.Column,
+                            sourceSnippet,
+                            MatchKeywordLength,
+                            missingCases
+                        );
+                        _errors.Add(error);
+                    }
+                    else
+                    {
+                        var missingCasesStr = string.Join(", ", missingCases);
+                        Error(ErrorCode.NonExhaustiveMatch, $"This match doesn't cover all cases — missing: {missingCasesStr}",
+                            match.Line, match.Column, ErrorSuggestions.GetSuggestion(ErrorCode.NonExhaustiveMatch, null, missingCasesStr),
+                            length: MatchKeywordLength);
+                    }
                 }
             }
+            else
+            {
+                // All union cases covered by unguarded arms — mark exhaustive so the C# exporter
+                // emits a discard arm instead of relying on C# exhaustiveness analysis
+                match.IsExhaustive = true;
+            }
         }
-        else
+        finally
         {
-            // All union cases covered by unguarded arms — mark exhaustive so the C# exporter
-            // emits a discard arm instead of relying on C# exhaustiveness analysis
-            match.IsExhaustive = true;
+            ArrayPool<int>.Shared.Return(coveredFlags, clearArray: false);
+            ArrayPool<int>.Shared.Return(partialFlags, clearArray: false);
         }
     }
 
@@ -10291,6 +10332,40 @@ public class Analyzer : IDisposable
 
             return caseName;
         }));
+    }
+
+    private static void SelectMissingUnionCasesFromFlags(
+        IReadOnlyList<UnionCase> cases,
+        int[] coveredFlags,
+        int[] partialFlags,
+        int count,
+        out List<string> missingCases,
+        out List<string> partialMissingCases,
+        out List<string> neverCoveredCases)
+    {
+        missingCases = new List<string>();
+        partialMissingCases = new List<string>();
+        neverCoveredCases = new List<string>();
+
+        if (count < 0 || count > cases.Count || count > coveredFlags.Length || count > partialFlags.Length)
+            return;
+
+        for (var i = 0; i < count; i++)
+        {
+            if (coveredFlags[i] != 0)
+                continue;
+
+            var caseName = cases[i].Name;
+            missingCases.Add(caseName);
+            if (partialFlags[i] != 0)
+            {
+                partialMissingCases.Add(caseName);
+            }
+            else
+            {
+                neverCoveredCases.Add(caseName);
+            }
+        }
     }
 
     private bool IsUnionCaseCoveredByPatterns(
@@ -10522,10 +10597,16 @@ public class Analyzer : IDisposable
         }
 
         // Check if all enum members are covered
-        var allMembers = enumType.Declaration.Members.Select(m => m.Name).ToHashSet();
-        var missingMembers = allMembers.Except(coveredMembers).ToList();
+        if (!NSharpCompilerDogfoodAdapter.TrySelectMissingEnumMembers(
+                enumType.Declaration.Members,
+                coveredMembers,
+                out var missingMembers))
+        {
+            var allMembers = enumType.Declaration.Members.Select(m => m.Name).ToHashSet();
+            missingMembers = allMembers.Except(coveredMembers).ToList();
+        }
 
-        if (missingMembers.Any())
+        if (missingMembers.Count > 0)
         {
             var sourceSnippet = _sourceLines != null && match.Line > 0 && match.Line <= _sourceLines.Length
                 ? _sourceLines[match.Line - 1]
@@ -11345,6 +11426,155 @@ public class Analyzer : IDisposable
         if (trimmed.EndsWith("f", StringComparison.OrdinalIgnoreCase))
             return BuiltInTypes.Float;
         return BuiltInTypes.Double;
+    }
+
+    private TypeInfo GetIntLiteralType(string value)
+    {
+        if (!NumericLiteralFacts.TryParseUnsignedIntegerMagnitude(value, out var magnitude))
+        {
+            return BuiltInTypes.Int;
+        }
+
+        var suffix = NumericLiteralFacts.GetIntegerSuffix(value);
+        if (suffix.HasUnsigned && suffix.HasLong)
+        {
+            return BuiltInTypes.ULong;
+        }
+
+        if (suffix.HasUnsigned)
+        {
+            return magnitude <= uint.MaxValue ? BuiltInTypes.UInt : BuiltInTypes.ULong;
+        }
+
+        if (suffix.HasLong)
+        {
+            return magnitude <= long.MaxValue ? BuiltInTypes.Long : BuiltInTypes.ULong;
+        }
+
+        if (_currentExpectedType != null
+            && TryGetExpectedIntegerLiteralType(_currentExpectedType, magnitude, out var targetType))
+        {
+            return targetType;
+        }
+
+        return BuiltInTypes.Int;
+    }
+
+    private bool TryGetExpectedIntegerLiteralType(TypeInfo expectedType, ulong magnitude, out TypeInfo targetType)
+    {
+        var resolved = ResolveTypeAlias(expectedType);
+        if (resolved is NullableTypeInfo nullable)
+        {
+            resolved = ResolveTypeAlias(nullable.InnerType);
+        }
+
+        if (resolved is SimpleTypeInfo simple
+            && TryGetUnsignedIntegerLiteralMaxValue(simple.Name, out var simpleMaxValue)
+            && magnitude <= simpleMaxValue)
+        {
+            targetType = simple;
+            return true;
+        }
+
+        if (resolved is ReflectionTypeInfo reflection
+            && TryGetIntegerLiteralTypeInfo(reflection.Type, out var reflectionType)
+            && TryGetUnsignedIntegerLiteralMaxValue(reflectionType.Name, out var reflectionMaxValue)
+            && magnitude <= reflectionMaxValue)
+        {
+            targetType = reflectionType;
+            return true;
+        }
+
+        targetType = BuiltInTypes.Int;
+        return false;
+    }
+
+    private static bool TryGetIntegerLiteralTypeInfo(Type type, out SimpleTypeInfo typeInfo)
+    {
+        type = Nullable.GetUnderlyingType(type) ?? type;
+        if (type == typeof(byte))
+        {
+            typeInfo = BuiltInTypes.Byte;
+            return true;
+        }
+        if (type == typeof(sbyte))
+        {
+            typeInfo = BuiltInTypes.SByte;
+            return true;
+        }
+        if (type == typeof(short))
+        {
+            typeInfo = BuiltInTypes.Short;
+            return true;
+        }
+        if (type == typeof(ushort))
+        {
+            typeInfo = BuiltInTypes.UShort;
+            return true;
+        }
+        if (type == typeof(int))
+        {
+            typeInfo = BuiltInTypes.Int;
+            return true;
+        }
+        if (type == typeof(uint))
+        {
+            typeInfo = BuiltInTypes.UInt;
+            return true;
+        }
+        if (type == typeof(long))
+        {
+            typeInfo = BuiltInTypes.Long;
+            return true;
+        }
+        if (type == typeof(ulong))
+        {
+            typeInfo = BuiltInTypes.ULong;
+            return true;
+        }
+        if (type == typeof(char))
+        {
+            typeInfo = BuiltInTypes.Char;
+            return true;
+        }
+
+        typeInfo = BuiltInTypes.Int;
+        return false;
+    }
+
+    private static bool TryGetUnsignedIntegerLiteralMaxValue(string typeName, out ulong maxValue)
+    {
+        switch (typeName)
+        {
+            case "byte":
+                maxValue = byte.MaxValue;
+                return true;
+            case "sbyte":
+                maxValue = (ulong)sbyte.MaxValue;
+                return true;
+            case "short":
+                maxValue = (ulong)short.MaxValue;
+                return true;
+            case "ushort":
+            case "char":
+                maxValue = ushort.MaxValue;
+                return true;
+            case "int":
+                maxValue = int.MaxValue;
+                return true;
+            case "uint":
+                maxValue = uint.MaxValue;
+                return true;
+            case "long":
+                maxValue = long.MaxValue;
+                return true;
+            case "ulong":
+                maxValue = ulong.MaxValue;
+                return true;
+            default:
+                maxValue = 0;
+                return false;
+        }
     }
 
     private bool IsKnownGenericTypeAssignable(TypeInfo target, TypeInfo source)
@@ -12447,7 +12677,7 @@ public class Analyzer : IDisposable
             return fallbackColumn;
 
         var sourceText = _sourceLines != null
-            ? string.Join('\n', _sourceLines)
+            ? _sourceText
             : TryGetProjectSourceText(_currentFilePath);
 
         return FindIdentifierNameColumn(sourceText, name, line, fallbackColumn);
@@ -12466,6 +12696,16 @@ public class Analyzer : IDisposable
 
     private static int FindIdentifierNameColumn(string? sourceText, string name, int line, int fallbackColumn)
     {
+        if (NSharpCodeIntelligenceDogfoodAdapter.TryFindIdentifierNameColumn(
+            sourceText,
+            name,
+            line,
+            fallbackColumn,
+            out var dogfoodColumn))
+        {
+            return dogfoodColumn;
+        }
+
         if (string.IsNullOrWhiteSpace(sourceText) || line <= 0)
             return fallbackColumn;
 
@@ -13018,10 +13258,9 @@ public class Analyzer : IDisposable
     {
         CompilerError error;
 
-        // If we have source lines and the line is valid, include snippet
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
-            var sourceSnippet = _sourceLines[line - 1]; // Lines are 1-indexed
             error = CompilerError.WithSnippet(
                 code,
                 message,
@@ -13056,10 +13295,9 @@ public class Analyzer : IDisposable
     {
         CompilerError warning;
 
-        // If we have source lines and the line is valid, include snippet
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length && _currentFilePath != null)
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
         {
-            var sourceSnippet = _sourceLines[line - 1]; // Lines are 1-indexed
             warning = CompilerError.WithSnippet(
                 code,
                 message,
@@ -13086,9 +13324,20 @@ public class Analyzer : IDisposable
     }
 
     private string? GetSourceSnippet(int line)
-        => _sourceLines != null && line > 0 && line <= _sourceLines.Length
+    {
+        if (line <= 0)
+            return null;
+
+        if (_sourceText != null &&
+            NSharpCodeIntelligenceDogfoodAdapter.TryExtractSourceLine(_sourceText, line, out var dogfoodLine))
+        {
+            return dogfoodLine;
+        }
+
+        return _sourceLines != null && line <= _sourceLines.Length
             ? _sourceLines[line - 1]
             : null;
+    }
 
     // Package validation
     private void ValidatePackageName(PackageDeclaration package)
@@ -13532,11 +13781,8 @@ public class Analyzer : IDisposable
     {
         string? sourceLine = null;
 
-        if (_sourceLines != null && line > 0 && line <= _sourceLines.Length)
-        {
-            sourceLine = _sourceLines[line - 1];
-        }
-        else if (!string.IsNullOrWhiteSpace(_currentFilePath) && File.Exists(_currentFilePath))
+        sourceLine = GetSourceSnippet(line);
+        if (sourceLine == null && !string.IsNullOrWhiteSpace(_currentFilePath) && File.Exists(_currentFilePath))
         {
             sourceLine = File.ReadLines(_currentFilePath).Skip(line - 1).FirstOrDefault();
         }

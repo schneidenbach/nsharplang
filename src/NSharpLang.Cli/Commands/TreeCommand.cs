@@ -78,11 +78,7 @@ public static class TreeCommand
     {
         var config = ProjectFileParser.Parse(projectYml);
         var projectName = config.Name ?? Path.GetFileName(projectRoot) ?? "Project";
-        var allDirect = config.Dependencies
-            .Select(ToProjectYmlDependency)
-            .OrderBy(dependency => dependency.Kind, StringComparer.Ordinal)
-            .ThenBy(dependency => dependency.Name, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+        var allDirect = Deduplicate(config.Dependencies.Select(ToProjectYmlDependency));
 
         var direct = maxDepth >= 1 ? allDirect : Array.Empty<TreeDependency>();
         var limitations = new List<string>
@@ -160,9 +156,7 @@ public static class TreeCommand
 
         var visibleDirect = maxDepth >= 1 ? Deduplicate(direct) : Array.Empty<TreeDependency>();
         var visibleTransitive = maxDepth >= 2 ? Deduplicate(transitive) : Array.Empty<TreeDependency>();
-        var frameworkName = targetFrameworks.Count == 0
-            ? "unknown"
-            : string.Join(",", targetFrameworks.Distinct(StringComparer.OrdinalIgnoreCase));
+        var frameworkName = FormatTargetFrameworks(targetFrameworks);
 
         return new TreeReport(
             SchemaVersion: 2,
@@ -219,14 +213,123 @@ public static class TreeCommand
             .ToArray();
     }
 
-    static TreeDependency[] Deduplicate(IEnumerable<TreeDependency> dependencies)
+    internal static TreeDependency[] Deduplicate(IEnumerable<TreeDependency> dependencies)
     {
-        return dependencies
+        var dependencyArray = dependencies as TreeDependency[] ?? dependencies.ToArray();
+        if (TryDeduplicateWithDogfood(dependencyArray, out var orderedDependencies))
+            return orderedDependencies;
+
+        return dependencyArray
             .GroupBy(dependency => (dependency.Kind, dependency.Name), dependency => dependency, new TreeDependencyKeyComparer())
             .Select(group => group.First())
             .OrderBy(dependency => dependency.Kind, StringComparer.Ordinal)
             .ThenBy(dependency => dependency.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();
+    }
+
+    internal static string FormatTargetFrameworks(IReadOnlyList<string> targetFrameworks)
+    {
+        if (targetFrameworks.Count == 0)
+            return "unknown";
+
+        var distinctFrameworks = NSharpCliDogfoodAdapter.TryDeduplicateStable(
+                targetFrameworks,
+                StringComparer.OrdinalIgnoreCase,
+                out var dogfoodFrameworks)
+            ? dogfoodFrameworks
+            : targetFrameworks.Distinct(StringComparer.OrdinalIgnoreCase);
+
+        return string.Join(",", distinctFrameworks);
+    }
+
+    private static bool TryDeduplicateWithDogfood(
+        TreeDependency[] dependencies,
+        out TreeDependency[] orderedDependencies)
+    {
+        orderedDependencies = Array.Empty<TreeDependency>();
+
+        if (dependencies.Length == 0)
+            return true;
+
+        var kindRanks = new int[dependencies.Length];
+        var nameRanks = new int[dependencies.Length];
+        BuildTreeDependencyRanks(dependencies, kindRanks, nameRanks, out var uniqueKindCount, out var uniqueNameCount);
+
+        if (!NSharpCliDogfoodAdapter.TryDeduplicateTreeDependencyIndices(
+                kindRanks,
+                nameRanks,
+                uniqueKindCount,
+                uniqueNameCount,
+                out var orderedSourceIndices))
+        {
+            return false;
+        }
+
+        orderedDependencies = new TreeDependency[orderedSourceIndices.Length];
+        for (var i = 0; i < orderedSourceIndices.Length; i++)
+        {
+            var sourceIndex = orderedSourceIndices[i];
+            if (sourceIndex < 0 || sourceIndex >= dependencies.Length)
+            {
+                orderedDependencies = Array.Empty<TreeDependency>();
+                return false;
+            }
+
+            orderedDependencies[i] = dependencies[sourceIndex];
+        }
+
+        return true;
+    }
+
+    private static void BuildTreeDependencyRanks(
+        TreeDependency[] dependencies,
+        int[] kindRanks,
+        int[] nameRanks,
+        out int uniqueKindCount,
+        out int uniqueNameCount)
+    {
+        var kindRankMap = new Dictionary<string, int>(StringComparer.Ordinal);
+        var uniqueKinds = new string[dependencies.Length];
+        var nameRankMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var uniqueNames = new string[dependencies.Length];
+
+        uniqueKindCount = 0;
+        uniqueNameCount = 0;
+        for (var i = 0; i < dependencies.Length; i++)
+        {
+            var dependency = dependencies[i];
+            if (!kindRankMap.ContainsKey(dependency.Kind))
+            {
+                kindRankMap.Add(dependency.Kind, 0);
+                uniqueKinds[uniqueKindCount] = dependency.Kind;
+                uniqueKindCount++;
+            }
+
+            if (!nameRankMap.ContainsKey(dependency.Name))
+            {
+                nameRankMap.Add(dependency.Name, 0);
+                uniqueNames[uniqueNameCount] = dependency.Name;
+                uniqueNameCount++;
+            }
+        }
+
+        Array.Sort(uniqueKinds, 0, uniqueKindCount, StringComparer.Ordinal);
+        for (var i = 0; i < uniqueKindCount; i++)
+        {
+            kindRankMap[uniqueKinds[i]] = i + 1;
+        }
+
+        Array.Sort(uniqueNames, 0, uniqueNameCount, StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < uniqueNameCount; i++)
+        {
+            nameRankMap[uniqueNames[i]] = i + 1;
+        }
+
+        for (var i = 0; i < dependencies.Length; i++)
+        {
+            kindRanks[i] = kindRankMap[dependencies[i].Kind];
+            nameRanks[i] = nameRankMap[dependencies[i].Name];
+        }
     }
 
     static string? GetPackageVersion(JsonElement package)
@@ -369,7 +472,7 @@ Exit codes:
 
     private sealed record TreeCapabilities(bool DirectDependencies, bool TransitiveNuGetDependencies);
 
-    private sealed record TreeDependency(
+    internal sealed record TreeDependency(
         string Name,
         string Kind,
         string? Version,
