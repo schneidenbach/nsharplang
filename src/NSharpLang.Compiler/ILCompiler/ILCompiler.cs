@@ -17959,6 +17959,18 @@ public partial class ILCompiler
 
         objectType = GetByRefElementType(objectType);
 
+        // `array.Length` on a single-dimension zero-based array lowers to the canonical `ldlen; conv.i4`
+        // instead of a `get_Length` property call. Besides being smaller, `ldlen` is the form the JIT's
+        // bounds-check elimination pattern-matches against, so this strengthens BCE in counted loops
+        // (`for i := 0; i < a.Length; i++ { a[i] }`). `ldlen` is only valid for SZ arrays; multidimensional
+        // arrays keep the property path below. Array.Length is int32, so conv.i4 narrows the native-int result.
+        if (memberName == "Length" && objectType.IsSZArray)
+        {
+            _currentIL.Emit(OpCodes.Ldlen);
+            _currentIL.Emit(OpCodes.Conv_I4);
+            return;
+        }
+
         if (objectType is TypeBuilder typeBuilder)
         {
             if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberName), out var fieldBuilder))
@@ -18317,6 +18329,17 @@ public partial class ILCompiler
         else
         {
             EmitExpression(memberAccess.Object);
+        }
+
+        // `array.Length` on a single-dimension zero-based array lowers to `ldlen; conv.i4` rather than a
+        // `get_Length` call. This is the form the JIT's bounds-check elimination recognizes, so it
+        // strengthens BCE in counted loops, and it is smaller. Only valid for SZ arrays; multidimensional
+        // arrays fall through to the property path.
+        if (memberAccess.MemberName == "Length" && memberOwnerType.IsSZArray)
+        {
+            _currentIL.Emit(OpCodes.Ldlen);
+            _currentIL.Emit(OpCodes.Conv_I4);
+            return;
         }
 
         // Check if it's a user-defined type

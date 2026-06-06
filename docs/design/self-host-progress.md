@@ -117,6 +117,28 @@ codegen quality improvement for every `if`/`while`/`for` condition in the langua
 
 ---
 
+## 2026-06-05 — Lever 3 codegen: `array.Length` → `ldlen` for SZ arrays
+
+**What:** `EmitMemberAccess`/`EmitMemberLoadValue` lowered `array.Length` on a single-dimension
+zero-based array (`IsSZArray`) to a non-virtual `call Array.get_Length()`. Replaced with the canonical
+`ldlen; conv.i4`. Strings, `Span<T>`, and multidimensional arrays are unaffected (not `IsSZArray`).
+
+**Why (boundary-profiling Lever 3):** `ldlen` is the form the JIT's bounds-check elimination
+pattern-matches, so an `array.Length`-bounded counted loop (`for i := 0; i < a.Length; i++ { a[i] }`)
+now emits the same shape C# does and the JIT elides the `ldelem` bounds check.
+
+**Evidence (direct micro-benchmark, 4096-int sum, 2M iterations, identical checksums):**
+
+| N# array.Length form | N# / C# ratio | IL size (`sumArray`) |
+|----------------------|---------------|----------------------|
+| `call get_Length` (before) | 1.003× (slightly slower) | 33 B |
+| `ldlen; conv.i4` (after)   | **0.999× (parity)** | 30 B |
+
+Modest but real: moves the canonical counted array loop from marginally-slower to parity with C#,
+meeting the "never slower than C#" bar, with smaller and canonical IL. 537 array/length/span/string/
+loop tests pass; parity is guaranteed (same value). Benefits every `array.Length`-bounded loop,
+including the array-heavy dogfood kernels.
+
 ## Bootstrap coverage
 
 - **0%** — no compiler source is yet compiled by the N# compiler itself. The dogfood kernels are
