@@ -6,24 +6,24 @@
 // TokenizeMetadataWithIndentationInto) and builds nodes in POST-ORDER (children before parents), so the
 // root is the last node written.
 //
-// Supported forms this slice (matching the concrete C# TypeReference nodes):
+// Supported forms (matching the concrete C# TypeReference nodes):
 //   SimpleTypeReference   -> kind 0   e.g. int, string, A.B.C (dotted name folded to one name span)
 //   GenericTypeReference  -> kind 1   e.g. List<int>, Dictionary<string, int>, List<List<int>>
 //   ArrayTypeReference    -> kind 2   e.g. int[], List<int>[]
 //   NullableTypeReference -> kind 3   e.g. int?, int?[] (=> Array(Nullable(inner)))
-// Deferred to later rungs (the kernel cleanly STOPS at, or REFUSES, these rather than mis-parsing):
-//   UnionTypeReference (A | B) -- the postfix loop stops at `|`, returning the first arm and leaving the
-//     `|` unconsumed (the union-arm level is the next slice). TupleTypeReference `(...)`,
-//     FunctionTypeReference (`Func<...>` is semantically a function type in the C# AST, not a generic --
-//     so Func is intentionally excluded from this slice's corpus), and ByRefTypeReference (`&T`) all begin
-//     with a non-identifier first token and are REFUSED with a -1 return.
+//   UnionTypeReference    -> kind 4   e.g. int | string, List<int> | string (slice 7; arms are postfix
+//                                     types, and a union may itself be a generic argument: List<int | T>)
+// Deferred to later rungs (the kernel REFUSES these with a -1 return -- their first token is not an
+// identifier): TupleTypeReference `(...)`, FunctionTypeReference (`Func<...>` is semantically a function
+// type in the C# AST, not a generic -- so Func is intentionally excluded from the corpus), and
+// ByRefTypeReference (`&T`).
 //
 // Node-table columns (all caller-allocated to capacity >= count+1; outChildIndices likewise):
-//   outNodeKinds[i]   : 0 Simple | 1 Generic | 2 Array | 3 Nullable
-//   outNameStarts[i]  : source byte offset of the (dotted) name for Simple/Generic; -1 for Array/Nullable
+//   outNodeKinds[i]   : 0 Simple | 1 Generic | 2 Array | 3 Nullable | 4 Union
+//   outNameStarts[i]  : source byte offset of the (dotted) name for Simple/Generic; -1 otherwise
 //   outNameLengths[i] : name byte length; 0 when no name
 //   outChildStart[i]  : index into outChildIndices where this node's child ids begin; -1 when no children
-//   outChildCount[i]  : Generic = #type args; Array/Nullable = 1; Simple = 0
+//   outChildCount[i]  : Generic = #type args; Union = #arms (>= 2); Array/Nullable = 1; Simple = 0
 //   outChildIndices[] : flattened child node-id pointers (the tree edges); each node's children occupy a
 //                       CONTIGUOUS run (see the arg-stack note below)
 //   outSpanStarts[i]  : source byte offset where the node's full text begins
@@ -51,8 +51,8 @@
 // allocation per top-level parse.
 //
 // TokenType ordinals used (from Token.cs, sequential, zero-based): Identifier 0, Less 100, Greater 102,
-// BitwiseAnd 107, RightShift 112, Question 115, QuestionBracket 119, Dot 124, LeftParen 127,
-// LeftBracket 131, RightBracket 132, Comma 134.
+// BitwiseAnd 107, BitwiseOr 108, RightShift 112, Question 115, QuestionBracket 119, Dot 124,
+// LeftParen 127, LeftBracket 131, RightBracket 132, Comma 134.
 
 func EmitTypeReferenceNode(st: int[], outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outSpanStarts: int[], outSpanLengths: int[], kind: int, nameStart: int, nameLength: int, childStart: int, childCount: int, spanStart: int, spanLength: int): int {
     id := st[2]
@@ -133,7 +133,7 @@ func ParseBaseTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         st[0] = pos + 1
         argBase := st[5]
 
-        firstArg := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        firstArg := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if firstArg < 0 {
             return -1
         }
@@ -143,7 +143,7 @@ func ParseBaseTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 
         while st[0] < count && tokenKinds[st[0]] == 134 {
             st[0] = st[0] + 1
-            nextArg := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            nextArg := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
             if nextArg < 0 {
                 return -1
             }
@@ -219,6 +219,51 @@ func ParsePostfixTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenV
     return baseNode
 }
 
+// ParseUnionTypeReference (Parser.cs:1718-1756): the top of the type grammar. A postfix type, optionally
+// followed by `| postfix` arms; with at least one `|` it becomes a UnionTypeReference whose arms are the
+// children (gathered on the LIFO arg-stack for contiguity, like generic args). With no `|` it returns the
+// single postfix node unchanged. This is the level a generic argument and the top-level entry parse, so a
+// union may appear as a generic argument (e.g. List<int | string>). Returns the node id, or -1.
+func ParseUnionTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    firstArm := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    if firstArm < 0 {
+        return -1
+    }
+
+    if !(st[0] < count && tokenKinds[st[0]] == 108) {
+        return firstArm
+    }
+
+    argBase := st[5]
+    argStack[st[5]] = firstArm
+    st[5] = st[5] + 1
+
+    while st[0] < count && tokenKinds[st[0]] == 108 {
+        st[0] = st[0] + 1
+        nextArm := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+        if nextArm < 0 {
+            return -1
+        }
+
+        argStack[st[5]] = nextArm
+        st[5] = st[5] + 1
+    }
+
+    lastArm := argStack[st[5] - 1]
+    childCount := st[5] - argBase
+    childRunStart := st[3]
+    a := argBase
+    while a < st[5] {
+        AppendTypeReferenceChild(st, outChildIndices, argStack[a])
+        a = a + 1
+    }
+    st[5] = argBase
+
+    spanStart := outSpanStarts[firstArm]
+    spanEnd := outSpanStarts[lastArm] + outSpanLengths[lastArm]
+    return EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 4, -1, 0, childRunStart, childCount, spanStart, spanEnd - spanStart)
+}
+
 func ParseTypeReferenceNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     st := new int[](6)
     st[0] = start
@@ -229,7 +274,7 @@ func ParseTypeReferenceNodesInto(tokenKinds: int[], tokenStarts: int[], tokenVal
     st[5] = 0
     argStack := new int[](count + 1)
 
-    root := ParsePostfixTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+    root := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
     if root < 0 {
         return -1
     }

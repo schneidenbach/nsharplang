@@ -378,12 +378,13 @@ class B
         _ => -1
     };
 
-    // Parser slice 6: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices 1-5
-    // produced flat top-level indices, ParseTypeReferenceNodesInto (ParserTypeReferences.nl) reproduces the
-    // C# parser's ParseTypeReference recursion for Simple / Generic / Array / Nullable type references and
-    // emits a real parent->child AST as a flat columnar node table. This pins it structurally against the
-    // production parser's TypeReference tree (kind + name + children) plus byte-span, post-order-root,
-    // full-consumption, determinism, deferred-form-seam, and depth-cap invariants.
+    // Parser slices 6-7: the first N#-native RECURSIVE-DESCENT, tree-building parser kernel. Where slices
+    // 1-5 produced flat top-level indices, ParseTypeReferenceNodesInto (ParserTypeReferences.nl) reproduces
+    // the C# parser's ParseTypeReference recursion for Simple / Generic / Array / Nullable (slice 6) and
+    // Union (slice 7) type references and emits a real parent->child AST as a flat columnar node table. This
+    // pins it structurally against the production parser's TypeReference tree (kind + name + children) plus
+    // byte-span, post-order-root, full-consumption, determinism, deferred-form-seam, and depth-cap
+    // invariants. Tuple / Func / ByRef remain deferred (refused with -1).
     [Fact]
     public void Parser_TypeReferenceTree_MatchesProductionParser()
     {
@@ -429,6 +430,9 @@ class B
                 "Map<List<int>, Dictionary<string, int>>",
                 "List<int[]>", "List<int?>", "List<int>?", "List<int>[]", "List<int>[]?",
                 "Outer.Inner<int>", "List<A.B.C>",
+                // Unions (slice 7): arms are postfix types; a union may itself be a generic argument.
+                "int | string", "int | string | bool", "List<int> | string", "int? | string[]",
+                "List<int | string>", "Dictionary<int | string, bool>", "int[] | List<int> | string?",
             };
             foreach (var t in positives)
                 AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
@@ -441,10 +445,6 @@ class B
             // Deferred-form seam (REFUSED with -1): the first token is not an identifier.
             foreach (var t in new[] { "(int, string)", "&int" })
                 AssertTypeReferenceRefused(t, tokenize, parseTypeRefs);
-
-            // Deferred-form seam (CLEAN STOP, not refusal): a union parses only its first arm and leaves the
-            // `|` (BitwiseOr 108) unconsumed -- the union-arm level is the next slice.
-            AssertTypeReferenceStopsAtUnionOperator("int | string", tokenize, parseTypeRefs);
 
             // Depth cap: generic nesting beyond 64 returns the -1 overflow sentinel (a tested, documented
             // limit -- the kernel never blows the real stack).
@@ -544,17 +544,6 @@ class B
         Assert.True(nodeCount == -1, $"Kernel should refuse deferred form '{typeString}' with -1, got {nodeCount}.");
     }
 
-    private static void AssertTypeReferenceStopsAtUnionOperator(string typeString, MethodInfo tokenize, MethodInfo parseTypeRefs)
-    {
-        var (count, kinds, starts, valueLengths, start, source) = TokenizeTypeAnnotation(typeString, tokenize);
-        var (nodeCount, k, ns, nl, _, cc, _, _, _, res) = InvokeParseTypeRefs(parseTypeRefs, kinds, starts, valueLengths, count, start);
-        // Parses the first arm only (a Simple node), then cleanly stops at `|` (BitwiseOr == 108).
-        Assert.Equal(1, nodeCount);
-        Assert.Equal(0, k[res[0]]); // Simple
-        Assert.Equal(0, cc[res[0]]);
-        Assert.Equal(108, kinds[res[1]]);
-    }
-
     private static (int NodeCount, int[] Kinds, int[] NameStarts, int[] NameLengths, int[] ChildStart,
         int[] ChildCount, int[] ChildIndices, int[] SpanStarts, int[] SpanLengths, int[] Result)
         InvokeParseTypeRefs(MethodInfo parseTypeRefs, int[] kinds, int[] starts, int[] valueLengths, int count, int start)
@@ -609,8 +598,14 @@ class B
                 Assert.Equal(1, childCount[idx]);
                 AssertTypeRefNode(n.InnerType, childIndices[childStart[idx]], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
                 break;
+            case UnionTypeReference u:
+                Assert.True(kinds[idx] == 4, $"Expected Union (4) at node {idx} for '{label}', got kind {kinds[idx]}.");
+                Assert.Equal(u.Arms.Count, childCount[idx]);
+                for (var ui = 0; ui < u.Arms.Count; ui++)
+                    AssertTypeRefNode(u.Arms[ui], childIndices[childStart[idx] + ui], kinds, nameStarts, nameLengths, childStart, childCount, childIndices, source, label);
+                break;
             default:
-                Assert.Fail($"Unexpected production type node {expected.GetType().Name} for '{label}' (out of slice-6 scope).");
+                Assert.Fail($"Unexpected production type node {expected.GetType().Name} for '{label}' (out of slice-6/7 scope).");
                 break;
         }
     }

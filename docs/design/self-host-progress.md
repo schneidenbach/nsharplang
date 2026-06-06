@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — N# parser slice 7: union type references (closes the first deferred form)
+
+Extends slice 6's recursive-descent type kernel with the top-of-grammar union level
+(`ParseUnionTypeReferenceNode`, mirroring C# `ParseUnionTypeReference`, Parser.cs:1723-1756): a postfix
+type optionally followed by `| postfix` arms becomes a `UnionTypeReference` (node kind 4) whose arms are
+its children; with no `|` it returns the single postfix node unchanged (matching the C# `return first`).
+Both the top-level entry AND generic arguments now route through this level (matching the C# parser, where
+generic args call full `ParseTypeReference`), so a union can be a generic argument — `List<int | string>`,
+`Dictionary<int | string, bool>`. Arms are gathered on the same shared LIFO arg-stack as generic args, so
+union+generic nesting keeps every node's child run contiguous. Span = first-arm-start .. last-arm-end.
+
+Verified against the production parser's `UnionTypeReference` (arm count + recursive arm trees) on
+multi-arm unions, unions of generics/arrays/nullables (`int[] | List<int> | string?`), and union-as-
+generic-arg, plus a focused adversarial-refutation pass (union-correctness + arg-stack-discipline lenses).
+Remaining deferred type forms: Tuple `(...)`, Func `Func<...>` (a `FunctionTypeReference` in the C# AST),
+ByRef `&T` — all still refused with -1. No language gaps surfaced.
+
 ## 2026-06-06 — N# parser slice 6: FIRST recursive-descent, tree-building kernel (type references)
 
 The qualitative jump from flat single-pass token *scans* (slices 1-5) to genuine recursive-descent AST
