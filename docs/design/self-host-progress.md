@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 3b-ii: columnar unreachable-after-terminal (NL312), parity-gated
+
+Second columnar diagnostic. `ColumnarDiagnosticsPass.CollectUnreachable` mirrors `Analyzer.AnalyzeStatements`
+(2017): in each statement list (a Block), once a statement always exits (`StatementAlwaysReturns`), the
+IMMEDIATELY following statement is reported unreachable (once, then the rest of that list is skipped), recursing
+into nested blocks / if-branches / while-bodies exactly as `AnalyzeStatement` does. Emitted per function before
+the definite-return descriptor (deterministic order).
+
+**Position fidelity (the tricky bit):** the diagnostic reports the unreachable statement's `line:col`. The AST
+carries `Statement(Line, Column)`; the columnar statement node carries only a byte span. Rather than reconstruct
+line/col (and risk a counting-convention mismatch with the C# lexer), the adapter builds a byte-offset → (line,
+col) map straight from the tokenizer's own per-token metadata (`rawStarts`/`rawLines`/`rawColumns`) and passes a
+`PositionOf` resolver to the pass. Because the dogfood tokenizer and the C# lexer agree byte-identically, the
+resolved line/col equals the AST `Statement.Line/Column` — confirmed empirically: the test asserts the FULL
+descriptor strings (incl. `line:col`) equal the C#-AST-walk mirror, which would fail on any position drift.
+
+**Parity:** a new `MirrorCollectUnreachable` walks the AST with identical logic; tested on 6 hand-built cases
+(dead code after return; after a terminal if/else; only-first-reported-then-skip; unreachable inside a reachable
+nested block; the unreachable-before-missing-return ordering; and a clean negative) asserting columnar == mirror
++ a non-vacuous unreachable count. The 32-file dogfood corpus (in the definite-return test's corpus loop) now
+also validates zero unreachable on valid self-host source. Adversarially verified (read-only Explore workflow:
+control-flow parity, position fidelity, test non-weakening — all clean, APPROVE). Note the analyzer's NL312 keys
+off `StatementAlwaysReturns`, which is FALSE for break/continue, so code after break/continue is NOT flagged —
+the columnar pass matches (it does not "improve" on the analyzer). Next: 3b-iii unused-local.
+
 ## 2026-06-07 — Stage 3b-i: columnar definite-return (NL305) — first columnar diagnostic, parity-gated
 
 First slice of Stage 3b (columnar diagnostics): definite-return / not-all-paths-return (NL305), computed

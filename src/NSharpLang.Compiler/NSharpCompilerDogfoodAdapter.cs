@@ -644,6 +644,14 @@ internal static class NSharpCompilerDogfoodAdapter
                     : "void");
             }
 
+            // Byte-offset -> (line, column) from the tokenizer's own per-token metadata, so the unreachable
+            // diagnostic's reported position is the exact line/col the parser records — matching the C# AST.
+            var lineColByOffset = new Dictionary<int, (int Line, int Column)>(rawCount);
+            for (var i = 0; i < rawCount; i++)
+                lineColByOffset[rawStarts[i]] = (rawLines[i], rawColumns[i]);
+            (int Line, int Column) PositionOf(int offset)
+                => lineColByOffset.TryGetValue(offset, out var lc) ? lc : (0, 0);
+
             // Pass 2: structural diagnostics over each body.
             for (var fi = 0; fi < funcIndices.Count; fi++)
             {
@@ -664,7 +672,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 if (bodyNodeCount <= 0)
                     return false;
 
-                var pass = new Columnar.ColumnarDiagnosticsPass(bk, bvs, bvl, bcs, bcc, bci, source);
+                var pass = new Columnar.ColumnarDiagnosticsPass(bk, bvs, bvl, bcs, bcc, bci, bss, source, PositionOf);
                 perFunctionDiagnostics.Add(pass.Analyze(bres[0], perFunctionReturnType[fi]));
             }
 

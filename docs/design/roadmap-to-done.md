@@ -75,7 +75,16 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         diagnostics on 7 hand-built cases, and on the full 32-file dogfood corpus (mirror parity + ZERO
         false-positive NL305 on valid self-host source). Adversarially verified (the review caught the async
         unit-task divergence; fixed + regression-tested).
-      - [ ] 3b-ii unreachable-after-terminal, [ ] 3b-iii unused-local (next sub-slices).
+      - [x] **3b-ii unreachable-after-terminal (NL312)** — `ColumnarDiagnosticsPass.CollectUnreachable` mirrors
+        `Analyzer.AnalyzeStatements`: within a statement list, once a statement always exits, the immediately
+        following statement is reported unreachable (once, then the list is skipped), recursing into nested
+        blocks / if-branches / while-bodies exactly as `AnalyzeStatement` does. Reported position is the
+        statement's `line:col`, resolved from the tokenizer's own per-token line/col (a byte-offset→position map
+        in the adapter) — empirically equal to the AST `Statement.Line/Column` (the exact-parity test would fail
+        otherwise). Parity vs a C#-AST mirror on 6 hand-built cases (incl. only-first-reported, nested, and the
+        unreachable-before-missing-return ordering) + zero unreachable on the 32-file corpus. Adversarially
+        verified (clean — no divergence).
+      - [ ] 3b-iii unused-local (next sub-slice).
 - [ ] **Stage 4 — columnar codegen.** Emit IL directly from the columnar + resolved tables for the systems
       subset; compile a trivial then a real dogfood function with NO C# AST. Parity: emitted IL runs identically
       to the C# path (same outputs); IL-verification gate green.
@@ -207,10 +216,12 @@ vectorized as a seeded shifted-compare count — MEASURED **2.37× faster than C
 **EVERY vectorizable systems kernel is now Rust-class (within ~2× of native); only rolling-hash (~1.5×, the
 latency-bound floor) is left, and it is not vectorizable.** Phase P's per-pattern auto-vectorization program is
 essentially DONE. Now in progress: the self-host spine — **Stage 3b — columnar diagnostics** (Phase S).
-**3b-i definite-return (NL305) is DONE** (`ColumnarDiagnosticsPass`; the columnar subset of the real
-`StatementAlwaysReturns`; async/generator sources decline to C#; parity vs a C#-AST mirror on 7 hand-built cases
-+ the full 32-file corpus with zero false positives; adversarially verified — the review caught + we fixed an
-async unit-task divergence). **Next: 3b-ii unreachable-after-terminal, 3b-iii unused-local**, then Stage 4
+**3b-i definite-return (NL305) and 3b-ii unreachable-after-terminal (NL312) are DONE** (`ColumnarDiagnosticsPass`:
+the columnar subset of the real `StatementAlwaysReturns` + `CollectUnreachable` mirroring
+`Analyzer.AnalyzeStatements`; async/generator sources decline to C#; unreachable positions resolved from the
+tokenizer's own line/col, matching the AST; parity vs a C#-AST mirror on hand-built cases + the full 32-file
+corpus with zero false positives; both adversarially verified — the 3b-i review caught + we fixed an async
+unit-task divergence). **Next: 3b-iii unused-local**, then Stage 4
 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 

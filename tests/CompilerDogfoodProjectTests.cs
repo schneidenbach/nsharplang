@@ -1938,6 +1938,45 @@ class B
             Assert.False(RouteFunctionDiagnostics(src).Ok, $"Columnar diagnostics must decline async/generator source:\n{src}");
     }
 
+    // COLUMNAR PIPELINE stage 3b-ii: unreachable-after-terminal (NL312). The columnar pass mirrors
+    // Analyzer.AnalyzeStatements — within a statement list, once a statement always exits, the immediately
+    // following statement is unreachable (reported once), recursing into nested blocks. Verified equal to the
+    // C#-AST-walk mirror (which validates the reported line:col matches the AST) on hand-built cases, plus a
+    // non-vacuous count of detected unreachable statements. The corpus (asserted in the test above) compiles,
+    // so it has zero unreachable — that test already pins zero false positives over the full 32-file corpus.
+    [Fact]
+    public void ColumnarDiagnostics_UnreachableAfterTerminal_MatchesAstWalk()
+    {
+        var cases = new (string Src, int Unreachable)[]
+        {
+            // a dead statement after a return.
+            ("func f(): int {\n    return 1\n    x := 2\n}\n", 1),
+            // a dead statement after a terminal if/else (both branches return).
+            ("func g(ok: bool): int {\n    if ok {\n        return 1\n    } else {\n        return 2\n    }\n    y := 3\n}\n", 1),
+            // only the FIRST unreachable statement is reported, then the rest of the list is skipped.
+            ("func h(): int {\n    return 1\n    a := 2\n    b := 3\n}\n", 1),
+            // unreachable INSIDE a reachable nested block (dead code after a return in the then-branch).
+            ("func k(ok: bool): int {\n    if ok {\n        return 1\n        z := 2\n    }\n    return 3\n}\n", 1),
+            // BOTH unreachable (in the then-branch) AND a missing return (the outer block is not terminal):
+            // exercises the unreachable-before-missing-return ordering.
+            ("func m(ok: bool): int {\n    if ok {\n        return 1\n        dead := 2\n    }\n}\n", 1),
+            // fully reachable code: no unreachable.
+            ("func clean(): int {\n    x := 1\n    return x\n}\n", 0),
+        };
+
+        foreach (var (src, unreachable) in cases)
+        {
+            var (ok, diags) = RouteFunctionDiagnostics(src);
+            Assert.True(ok, $"Columnar diagnostics declined a supported unreachable corpus:\n{src}");
+            Assert.NotNull(diags);
+            // Exact parity with the AST walk: same descriptors, same order, same reported line:col.
+            Assert.Equal(CSharpCollectFunctionDiagnostics(src, "corpus.nl"), diags);
+            // Non-vacuous: the case actually detects the expected number of unreachable statements.
+            var flat = diags!.SelectMany(d => d).ToList();
+            Assert.Equal(unreachable, flat.Count(d => d.StartsWith("unreachable@", StringComparison.Ordinal)));
+        }
+    }
+
     private static (bool Ok, List<List<string>>? Diags) RouteFunctionDiagnostics(string source)
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
@@ -1949,10 +1988,11 @@ class B
         return (ok, (List<List<string>>?)args[1]);
     }
 
-    // The C# AST mirror of ColumnarDiagnosticsPass's definite-return — the SAME StatementAlwaysReturns subset
-    // (Return / Block / If-with-else) walked on the object-graph AST, so the columnar diagnostics are verified
-    // identical to walking the AST. Per function: NL305 ("missing-return:<canonicalReturnType>") iff the
-    // return type is non-void and the body does not return on all paths.
+    // The C# AST mirror of ColumnarDiagnosticsPass — the SAME control-flow logic walked on the object-graph
+    // AST, so the columnar diagnostics are verified identical to walking the AST. Per function, in the same
+    // deterministic order the pass emits: first unreachable-after-terminal (NL312, mirroring
+    // Analyzer.AnalyzeStatements), then NL305 ("missing-return:<canonicalReturnType>") iff the return type is
+    // non-void and the body does not return on all paths.
     private static List<List<string>> CSharpCollectFunctionDiagnostics(string source, string filePath)
     {
         var cu = CSharpCompilationUnit(source, filePath);
@@ -1961,6 +2001,8 @@ class B
         foreach (var fn in funcs)
         {
             var diags = new List<string>();
+            if (fn.Body != null)
+                MirrorCollectUnreachable(fn.Body, diags);
             var ret = fn.ReturnType != null ? ColumnarFunctionSymbol.CanonicalType(fn.ReturnType) : "void";
             if (ret != "void" && fn.Body != null && !MirrorAlwaysReturns(fn.Body))
                 diags.Add("missing-return:" + ret);
@@ -1968,6 +2010,44 @@ class B
         }
 
         return result;
+    }
+
+    // Mirrors Analyzer.AnalyzeStatements (2017): in each statement list, once a statement always exits, the
+    // immediately-following statement is unreachable (reported once, then the list is skipped). Recurses into
+    // nested blocks / if branches / while bodies exactly as Analyzer.AnalyzeStatement does.
+    private static void MirrorCollectUnreachable(Statement s, List<string> diags)
+    {
+        switch (s)
+        {
+            case BlockStatement b:
+            {
+                var terminated = false;
+                foreach (var st in b.Statements)
+                {
+                    if (terminated)
+                    {
+                        diags.Add("unreachable@" + st.Line + ":" + st.Column);
+                        break;
+                    }
+
+                    MirrorCollectUnreachable(st, diags);
+                    if (MirrorAlwaysReturns(st))
+                        terminated = true;
+                }
+
+                break;
+            }
+
+            case WhileStatement w:
+                MirrorCollectUnreachable(w.Body, diags);
+                break;
+
+            case IfStatement i:
+                MirrorCollectUnreachable(i.ThenStatement, diags);
+                if (i.ElseStatement != null)
+                    MirrorCollectUnreachable(i.ElseStatement, diags);
+                break;
+        }
     }
 
     private static bool MirrorAlwaysReturns(Statement s)
