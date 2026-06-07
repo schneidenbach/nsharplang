@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P-minmax(c): FUSED single-pass MinMaxInt32 — min-max-delta to Rust-class (~1.8× native)
+
+The fused follow-up to P-minmax(b). (b) lowered min-max-delta to TWO passes (`MinInt32` then `MaxInt32`, each
+re-scanning the array); (c) adds `SimdReductions.MinMaxInt32(array, start, end, seedMin, seedMax) -> (int Min,
+int Max)` that loads each `Vector<int>` ONCE and applies both `Vector.Min` and `Vector.Max`, and routes the
+canonical `[1 min, 1 max]` body to it. `TryGetMinMaxPair` (in `ILCompiler.Vectorization.cs`) detects exactly one
+min + one max reduction; the emitter calls the fused helper (seedMin = the min accumulator, seedMax = the max
+accumulator), stores the `ValueTuple<int,int>` to a local, and reads `Item1 -> min` / `Item2 -> max` via
+`ldloca + ldfld`. min-only/max-only (and any homogeneous pair) keep the per-reduction `MinInt32`/`MaxInt32` path.
+The fused helper reuses the same empty/negative-range early-out, in-bounds guard, and scalar-tail OOB semantics.
+
+**Measured — rigorous back-to-back on the SAME machine (worktree `systems-language-perf`, isolated tree; BDN
+short job, MinMaxDelta):**
+
+| size | two-pass (b) | fused (c) | fused speedup | fused vs best-native |
+|---|---|---|---|---|
+| 4096 | 453.2 ns (0.296× C#) | **262.5 ns (0.168× = 5.94× faster than C#)** | **1.73×** | ~10.5× → **~1.77× behind** |
+| 64 | 30.6 ns (1.303× — *slower* than C#) | **18.4 ns (0.768×)** | **1.67×** | — |
+
+The fused path is **1.73× faster than two-pass** at 4096 — far beyond the ~10–15% I'd predicted from memory
+traffic alone. The extra win is the eliminated second call/loop boundary (visible at size 64, where two-pass was
+actually *slower* than C#, 1.303×, and fused is 0.768×). This puts min-max-delta at **~1.77× behind native —
+BELOW the ~2× DONE bar, matching checksum-sum and count-ascii (Rust-class).** Decision rule honored: I measured
+fused vs two-pass before keeping it (would have dropped it if ≈ two-pass).
+
+Tests: 69 MinMax tests (the codegen `[1 min, 1 max]` now lowers to ONE fused call — `MinMax_LowersToOneFusedHelperCall`;
+end-to-end scalar≡vectorized parity through the fused path; direct `MinMaxInt32` helper edge cases proving fused ≡
+the two separate helpers ≡ the scalar fold across seeds/partial ranges/extremes/all-equal/empty). Developed in an
+isolated worktree (`systems-language-perf` off `ca9ba88e`) after a concurrent session made the shared
+`systems-language` tree non-compiling. Adversarially verified; full gate green.
+
 ## 2026-06-07 — Rust-perf P-minmax: lane-wise SIMD min/max reduction (min-max-delta) — the 10.5× kernel
 
 The codegen that vectorizes the min-max-delta kernel — the single LARGEST remaining native gap (10.5× behind
