@@ -63,8 +63,19 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       numeric promotion to unary -/~ (ECMA §12.4 gaps). The columnar inferer currently MATCHES the binder
       (behavior-preserving). Decide + do: fix the binder to ECMA-correct (then update ColumnarTypeLattice to
       the promoted types and re-verify), or keep matching. Low-risk localized binder change; gate for regress.
-- [ ] **Stage 3b — columnar diagnostics** (pure-structural: definite-return, unreachable-after-terminal,
+- [~] **Stage 3b — columnar diagnostics** (pure-structural: definite-return, unreachable-after-terminal,
       unused-local). Parity vs the C# analyzer.
+      - [x] **3b-i definite-return (NL305)** — `ColumnarDiagnosticsPass.StatementAlwaysReturns` is the columnar
+        subset of `Analyzer.StatementAlwaysReturns` (Return exits; Block exits if any stmt exits; If exits only
+        with an else where both branches exit; Break/Continue/ExprStmt/VarDecl/While non-exiting). The kernel
+        refuses throw/switch/try/wrapper forms, so the subset is faithful by construction; omitted return type =
+        void (matches `Analyzer.cs:621`). Async/generator functions carry the `isAsyncUnitTask`/`isIterator`
+        exemptions (BCL task-type knowledge the pass can't model) → the adapter DECLINES those sources to the C#
+        analyzer (corpus has none, so zero coverage loss). Parity-tested vs a C#-AST mirror + exact expected
+        diagnostics on 7 hand-built cases, and on the full 32-file dogfood corpus (mirror parity + ZERO
+        false-positive NL305 on valid self-host source). Adversarially verified (the review caught the async
+        unit-task divergence; fixed + regression-tested).
+      - [ ] 3b-ii unreachable-after-terminal, [ ] 3b-iii unused-local (next sub-slices).
 - [ ] **Stage 4 — columnar codegen.** Emit IL directly from the columnar + resolved tables for the systems
       subset; compile a trivial then a real dogfood function with NO C# AST. Parity: emitted IL runs identically
       to the C# path (same outputs); IL-verification gate green.
@@ -195,10 +206,13 @@ codegen; c: FUSED single-pass MinMaxInt32 — MEASURED **5.94× faster than C#**
 vectorized as a seeded shifted-compare count — MEASURED **2.37× faster than C#** @4096, ~1.9× behind native).
 **EVERY vectorizable systems kernel is now Rust-class (within ~2× of native); only rolling-hash (~1.5×, the
 latency-bound floor) is left, and it is not vectorizable.** Phase P's per-pattern auto-vectorization program is
-essentially DONE. Next up: the self-host spine — **Stage 3b — columnar diagnostics** (Phase S; definite-return /
-unreachable-after-terminal / unused-local, parity vs the C# analyzer), then Stage 4 (columnar codegen) — where
-end-to-end binder/output parity (incl. the binder reconciliation item) is verified — → 5 (route) → 6 (delete C#).
-Phase T (route columnar into CLI/LSP) follows stages 3–4.
+essentially DONE. Now in progress: the self-host spine — **Stage 3b — columnar diagnostics** (Phase S).
+**3b-i definite-return (NL305) is DONE** (`ColumnarDiagnosticsPass`; the columnar subset of the real
+`StatementAlwaysReturns`; async/generator sources decline to C#; parity vs a C#-AST mirror on 7 hand-built cases
++ the full 32-file corpus with zero false positives; adversarially verified — the review caught + we fixed an
+async unit-task divergence). **Next: 3b-ii unreachable-after-terminal, 3b-iii unused-local**, then Stage 4
+(columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
+→ 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 
 **Perf capstone (Track C) — COMPLETE 2026-06-07.** The rigorous single-machine cross-language re-run is done:
 N#/best-native is now **MEASURED ≤2.0× at 4096** (worst cell 2.49×), down from 8.24–10.5× — `systems-vs-native.md`

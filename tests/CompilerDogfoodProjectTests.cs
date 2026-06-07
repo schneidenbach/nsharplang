@@ -1858,6 +1858,141 @@ class B
         return result;
     }
 
+    // COLUMNAR PIPELINE stage 3b (docs/design/columnar-pipeline.md): pure-structural diagnostics over the
+    // columnar statement tables (no C# AST). This slice is definite-return (NL305): a non-void function must
+    // return on every code path. ColumnarDiagnosticsPass.StatementAlwaysReturns is the columnar subset of the
+    // real Analyzer.StatementAlwaysReturns — Return always exits, a Block exits if any statement exits, an If
+    // exits only with an else where both branches exit; every other columnar statement kind (Break/Continue/
+    // ExpressionStatement/VariableDeclaration/While) is non-exiting. The kernel refuses throw/switch/try/wrapper
+    // forms, so those richer terminal shapes cannot appear on any body the columnar pass accepts — which makes
+    // the subset faithful. Verified two ways: per hand-built case against the exact expected diagnostics AND a
+    // C#-AST-walk mirror; and on the full dogfood corpus, equal to the AST-walk mirror AND emitting ZERO
+    // missing-return (valid self-host source compiles, so the real analyzer emits no NL305 — a real-analyzer
+    // parity check). Definitive routed parity follows at stages 4-5.
+    [Fact]
+    public void ColumnarDiagnostics_DefiniteReturn_MatchesAstWalk()
+    {
+        var cases = new (string Src, string[][] Expected)[]
+        {
+            // non-void, `if` WITHOUT else: the then-branch returns but control can skip it -> NL305.
+            ("func score(ok: bool): int {\n    if ok {\n        return 42\n    }\n}\n",
+                new[] { new[] { "missing-return:int" } }),
+            // non-void, if/else where BOTH branches return -> all paths return -> none.
+            ("func choose(ok: bool): int {\n    if ok {\n        return 1\n    } else {\n        return 2\n    }\n}\n",
+                new[] { new string[0] }),
+            // non-void, a plain return -> none.
+            ("func id(x: int): int {\n    return x\n}\n",
+                new[] { new string[0] }),
+            // omitted return type is void-like -> the check is skipped -> none.
+            ("func noop(x: int) {\n    y := x\n}\n",
+                new[] { new string[0] }),
+            // non-void, the only return is inside a while (a loop may run zero times) -> NL305.
+            ("func loopOnly(ok: bool): int {\n    while ok {\n        return 1\n    }\n}\n",
+                new[] { new[] { "missing-return:int" } }),
+            // non-void, a non-terminal if followed by a trailing return -> the block exits -> none.
+            ("func trailing(ok: bool): int {\n    if ok {\n        return 1\n    }\n    return 2\n}\n",
+                new[] { new string[0] }),
+            // two functions: the first misses a return, the second is fine -> per-function alignment.
+            ("func a(ok: bool): int {\n    if ok {\n        return 1\n    }\n}\n\nfunc b(): int {\n    return 2\n}\n",
+                new[] { new[] { "missing-return:int" }, new string[0] }),
+        };
+
+        foreach (var (src, expected) in cases)
+        {
+            var (ok, diags) = RouteFunctionDiagnostics(src);
+            Assert.True(ok, $"Columnar diagnostics declined a supported corpus:\n{src}");
+            Assert.NotNull(diags);
+            Assert.Equal(expected.Select(f => f.ToList()).ToList(), diags);
+            Assert.Equal(CSharpCollectFunctionDiagnostics(src, "corpus.nl"), diags);
+        }
+
+        var repoRoot = FindRepoRoot();
+        var servicesDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var files = Directory.EnumerateFiles(servicesDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var analyzed = 0;
+        foreach (var file in files)
+        {
+            var src = File.ReadAllText(file);
+            var (ok, diags) = RouteFunctionDiagnostics(src);
+            Assert.True(ok, $"Columnar diagnostics declined its own systems source: {file}.");
+            Assert.Equal(CSharpCollectFunctionDiagnostics(src, file), diags);
+            Assert.All(diags!, fn => Assert.Empty(fn));
+            analyzed++;
+        }
+
+        Assert.Equal(files.Count, analyzed);
+        Assert.True(analyzed >= 30, $"Expected the full dogfood corpus to analyze; only {analyzed} did.");
+
+        // Boundary: async + generator functions carry the real analyzer's isAsyncUnitTask / isIterator NL305
+        // exemptions, which depend on BCL task-type knowledge the columnar pass does not model. The pass must
+        // DECLINE such sources (ok == false -> C# fallback) rather than emit a divergent diagnostic. (e.g. the
+        // real analyzer emits NO NL305 for `async func f(): Task {}`, but a naive return-type-only check would.)
+        string[] declined =
+        {
+            "async func f(): Task {\n}\n",         // async unit Task — real analyzer exempts (no NL305)
+            "async func g(): ValueTask {\n}\n",    // async unit ValueTask — exempt
+            "async func h(): Task<int> {\n}\n",    // async non-unit — real analyzer DOES emit NL305 here
+            "func* gen(): int {\n}\n",             // generator (func*) — iterator exemption
+        };
+        foreach (var src in declined)
+            Assert.False(RouteFunctionDiagnostics(src).Ok, $"Columnar diagnostics must decline async/generator source:\n{src}");
+    }
+
+    private static (bool Ok, List<List<string>>? Diags) RouteFunctionDiagnostics(string source)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryCollectTopLevelFunctionDiagnostics", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryCollectTopLevelFunctionDiagnostics.");
+        var args = new object?[] { source, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (List<List<string>>?)args[1]);
+    }
+
+    // The C# AST mirror of ColumnarDiagnosticsPass's definite-return — the SAME StatementAlwaysReturns subset
+    // (Return / Block / If-with-else) walked on the object-graph AST, so the columnar diagnostics are verified
+    // identical to walking the AST. Per function: NL305 ("missing-return:<canonicalReturnType>") iff the
+    // return type is non-void and the body does not return on all paths.
+    private static List<List<string>> CSharpCollectFunctionDiagnostics(string source, string filePath)
+    {
+        var cu = CSharpCompilationUnit(source, filePath);
+        var funcs = cu!.Declarations.OfType<FunctionDeclaration>().ToList();
+        var result = new List<List<string>>();
+        foreach (var fn in funcs)
+        {
+            var diags = new List<string>();
+            var ret = fn.ReturnType != null ? ColumnarFunctionSymbol.CanonicalType(fn.ReturnType) : "void";
+            if (ret != "void" && fn.Body != null && !MirrorAlwaysReturns(fn.Body))
+                diags.Add("missing-return:" + ret);
+            result.Add(diags);
+        }
+
+        return result;
+    }
+
+    private static bool MirrorAlwaysReturns(Statement s)
+    {
+        switch (s)
+        {
+            case ReturnStatement:
+                return true;
+            case BlockStatement b:
+                foreach (var st in b.Statements)
+                {
+                    if (MirrorAlwaysReturns(st))
+                        return true;
+                }
+
+                return false;
+            case IfStatement i:
+                return i.ElseStatement != null
+                    && MirrorAlwaysReturns(i.ThenStatement)
+                    && MirrorAlwaysReturns(i.ElseStatement);
+            default:
+                return false;
+        }
+    }
+
     private static (bool Ok, List<List<ColumnarNameRef>>? Refs) RouteFunctionNameRefs(string source)
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")

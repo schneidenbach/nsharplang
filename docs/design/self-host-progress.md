@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 3b-i: columnar definite-return (NL305) — first columnar diagnostic, parity-gated
+
+First slice of Stage 3b (columnar diagnostics): definite-return / not-all-paths-return (NL305), computed
+DIRECTLY over the columnar statement tables with no C# AST. New `Columnar/ColumnarDiagnosticsPass.cs` +
+adapter entry `NSharpCompilerDogfoodAdapter.TryCollectTopLevelFunctionDiagnostics` (reuses the stage-3 parse
+scaffold; per function returns `[]` or `["missing-return:<canonicalReturnType>"]`).
+
+`ColumnarDiagnosticsPass.StatementAlwaysReturns` is the columnar **subset** of the real
+`Analyzer.StatementAlwaysReturns`: Return always exits; a Block exits if any statement exits; an If exits only
+with an else where both branches exit; Break/Continue/ExpressionStatement/VariableDeclaration/While are
+non-exiting. This subset is faithful by construction because the parser kernel REFUSES throw/switch/try/wrapper
+forms (the richer terminal shapes the real analyzer also handles can't appear on any body the pass accepts), and
+an omitted return type is treated as void — matching `Analyzer.cs:621` (`func.ReturnType != null ? ResolveType :
+Void`).
+
+**Limitation found + resolved (adversarial review):** the real analyzer EXEMPTS async-unit-task
+(`async func f(): Task {}` / `ValueTask`) and iterator (`func* g()`) functions from NL305 — exemptions that need
+BCL task-type knowledge the structural pass cannot model. The first cut accepted `async func f(): Task {}` and
+wrongly emitted `missing-return:Task`. Fix: the adapter now DECLINES any source with an async/generator function
+(via `TopLevelDeclarationModifiers` + `Modifiers.Async|Generator`), falling back to the C# analyzer for exact
+parity. The dogfood corpus has zero async/generator functions, so coverage is unaffected. (Generators already
+declined at the parse stage; the modifier guard makes it explicit and covers async.)
+
+**Parity:** per hand-built case against the EXACT expected diagnostics AND a C#-AST-walk mirror
+(`MirrorAlwaysReturns`); on the full **32-file dogfood corpus**, equal to the mirror AND emitting ZERO
+missing-return (valid self-host source compiles → the real analyzer emits no NL305 → a real-analyzer parity
+check). Plus boundary assertions that async/generator sources decline. Adversarially verified twice (read-only
+Explore workflow): the first pass caught the async unit-task divergence; the re-verify after the fix was clean
+(no remaining columnar-vs-analyzer divergence on valid input). Definitive routed parity follows at stages 4–5.
+Next: 3b-ii unreachable-after-terminal, 3b-iii unused-local.
+
 ## 2026-06-07 — Track C perf capstone: rigorous single-machine native re-run + P4 backend decision
 
 Closed out Phase P with the rigorous step the roadmap reserved: a **cross-language re-run with all four
