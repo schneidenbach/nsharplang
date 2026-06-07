@@ -115,7 +115,10 @@ question — only genuine architectural forks surface. Living evidence in
 
 - [ ] Route the columnar pipeline into the CLI (`nlc check`/`query`/`format`) and the LSP once stages 3–4 land
       (the LLM-first toolchain + IDE run on the fast N# path).
-- [ ] Re-run the systems-vs-native harness after each Phase-P win; keep `systems-vs-native.md` numbers current.
+- [~] Re-run the systems-vs-native harness after each Phase-P win; keep `systems-vs-native.md` numbers current.
+      P1+P2 wins MEASURED (2026-06-07, BDN): N# now beats C# ~4–4.5× on checksum-sum/count-ascii/score-frame
+      (tied before) → implied ~2.0×/~1.6× behind native (was 8.8×/6.3×). Full cross-language re-run on a cool
+      machine to refresh the Rust/C columns is the remaining rigorous step.
 - [ ] Broader general-purpose language features per `project_roadmap_2026q2` — lower priority until self-host +
       perf land, then resumed.
 
