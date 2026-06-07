@@ -89,7 +89,7 @@ class Product {
     // Full property with getter and setter
     stock: int
     Stock: int {
-        get => stock
+        get { return stock }
         set {
             if value < 0 {
                 throw new ArgumentException("Stock cannot be negative")
@@ -102,10 +102,13 @@ class Product {
 
 ### Init-only Properties
 
+Mark a property `init` to make it settable in the object initializer but immutable
+afterward.
+
 ```n#
 class Configuration {
-    AppName: string { get; init; }
-    Version: string { get; init; }
+    init AppName: string
+    init Version: string
 }
 
 // Usage
@@ -794,7 +797,7 @@ type Email = newtype string
 Unlike type aliases, newtypes are **not interchangeable** with their underlying type:
 
 ```n#
-id := UserId(42)           // Explicit construction
+id := new UserId(42)       // Explicit construction
 let raw: int = id.Value    // Explicit unwrapping
 
 // These are compile errors:
@@ -803,7 +806,12 @@ let raw: int = id.Value    // Explicit unwrapping
 // let z: OrderId = id      // ERROR: UserId is not OrderId
 ```
 
-Newtypes emit concrete wrapper types for .NET interop, giving C# consumers value equality, `ToString()`, and familiar value semantics.
+Newtypes emit concrete `readonly record struct` wrappers for .NET interop, giving C#
+consumers value equality, `ToString()`, and familiar value semantics.
+
+> **Status:** Construct a newtype with `new UserId(42)`. The call-style shorthand
+> `UserId(42)` (without `new`) is **not yet supported** in the IL backend (it reports
+> `NL103`) — use the `new` form.
 
 ## Complete Example
 
@@ -912,4 +920,4 @@ func main() {
 
 - [Project README](../../README.md)
 - [Examples](../../examples/)
-- [Language Design](../../DESIGN.md)
+- [Language Design](../DESIGN.md)

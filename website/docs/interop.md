@@ -23,7 +23,7 @@ N# follows a **"C# first"** interop philosophy:
 > **C# consumers should not know they're using N#-compiled code.**
 
 This means:
-- N# types compile to idiomatic C# types
+- N# types emit ordinary C#-friendly CLR shapes
 - No special runtime support needed
 - C# consumers get ordinary CLR-visible types in covered scenarios
 - No leaky abstractions
@@ -133,7 +133,7 @@ class AppDbContext : DbContext {
 
 ## C# Consuming N# Code
 
-N# compiles to C# code that is indistinguishable from hand-written C#.
+N# emits CLR-visible types that are indistinguishable from hand-written C# to consumers.
 
 ### Example 1: Simple Class
 
@@ -145,7 +145,7 @@ class Calculator {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 public class Calculator
 {
@@ -179,7 +179,7 @@ func divide(a: int, b: int): Result<int> {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 public abstract class Result<T>
 {
@@ -239,7 +239,7 @@ func processReader(reader: IReader): string {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 internal interface IReader
 {
@@ -284,7 +284,7 @@ record Person {
 }
 ```
 
-**Generated C#:**
+**C# Shape:**
 ```csharp
 public record Person
 {
@@ -418,36 +418,35 @@ func main() {
 }
 ```
 
-### Example 4: C# Events
+### Example 4: Callbacks Instead of Events
 
-**C# Library:**
-```csharp
-public class Button
-{
-    public event EventHandler? Clicked;
+N# deliberately has **no event syntax** — there is no `event` keyword, and subscribing to a
+.NET `event` member is not supported. (See [DESIGN.md → Deferred Features](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md).)
+For your own N# APIs, model notifications with a delegate field or callback parameter using
+`Func<>`, which N# fully supports:
 
-    public void Click()
-    {
-        Clicked?.Invoke(this, EventArgs.Empty);
+```n#
+class Button {
+    onClicked: Func<void>
+
+    func Click() {
+        if onClicked != null {
+            onClicked()
+        }
     }
 }
-```
-
-**N# Consumer:**
-```n#
-import MyLibrary
 
 func main() {
     button := new Button()
-
-    // Subscribe to event
-    button.Clicked += (sender, args) => {
+    button.onClicked = () => {
         Console.WriteLine("Button clicked!")
     }
-
-    button.Click()  // "Button clicked!"
+    button.Click()   // "Button clicked!"
 }
 ```
+
+If you must consume a C# API that exposes a true `event`, wrap the subscription in a thin
+C# shim that exposes a plain callback/delegate method, and call that shim from N#.
 
 ## Type Mappings
 
@@ -721,10 +720,10 @@ var message = result switch
 ## Next Steps
 
 - **[Types Guide](types.md)** - Learn about N# type system
-- **[Examples](/examples)** - See interop in action
+- **[Examples](/examples/)** - See interop in action
 
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
 - [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
-- [Minimal API Example](https://github.com/schneidenbach/nsharplang/tree/main/examples/14-minimal-api)
+- [Minimal API Example](/examples/14-minimal-api/)

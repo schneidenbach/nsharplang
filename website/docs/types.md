@@ -19,6 +19,8 @@ This guide covers the type system in N#, including classes, structs, records, di
 - [Interfaces](#interfaces)
 - [Generics](#generics)
 - [Nullable Types](#nullable-types)
+- [Type Aliases](#type-aliases)
+- [Newtypes (Branded Types)](#newtypes-branded-types)
 
 ## Basic Types
 
@@ -92,7 +94,7 @@ class Product {
     // Full property with getter and setter
     stock: int
     Stock: int {
-        get => stock
+        get { return stock }
         set {
             if value < 0 {
                 throw new ArgumentException("Stock cannot be negative")
@@ -105,10 +107,13 @@ class Product {
 
 ### Init-only Properties
 
+Mark a property `init` to make it settable in the object initializer but immutable
+afterward.
+
 ```n#
 class Configuration {
-    AppName: string { get; init; }
-    Version: string { get; init; }
+    init AppName: string
+    init Version: string
 }
 
 // Usage
@@ -324,8 +329,8 @@ func divide(a: double, b: double): Result<double> {
 result := divide(10, 2)
 
 message := match result {
-    Result.Success<double> { value: v } => $"Result: {v}",
-    Result.Failure<double> { error: e } => $"Error: {e}"
+    Result.Success { value: v } => $"Result: {v}",
+    Result.Failure { error: e } => $"Error: {e}"
 }
 ```
 
@@ -365,15 +370,15 @@ union Option<T> {
 func findUser(id: int): Option<User> {
     user := database.Find(id)
     if user == null {
-        return new Option.None<User> { }
+        return new Option.None
     }
     return new Option.Some<User> { value: user }
 }
 ```
 
-### How Unions Compile to C#
+### CLR Shape of Unions
 
-N# unions compile to C# class hierarchies:
+N# unions emit CLR class hierarchies:
 
 ```n#
 union Result<T> {
@@ -487,7 +492,7 @@ class FileReader {
     func Read(): string { ... }
 }
 
-// Generated C#
+// C# shape
 class FileReader : IReader
 {
     public string Read() { ... }
@@ -496,44 +501,82 @@ class FileReader : IReader
 
 ## Enums
 
-N# supports string enums for better APIs:
+N# supports both string enums and numeric enums as first-class types:
 
 ```n#
-enum Status {
+enum Status: string {
     Active = "active",
     Inactive = "inactive",
     Pending = "pending"
 }
 
-enum Role {
-    Admin = "admin",
-    User = "user",
-    Guest = "guest"
+enum Priority {
+    Low = 0,
+    Medium = 1,
+    High = 2
 }
 ```
 
 ### Using Enums
 
-```n#
-userStatus: string = Status.Active
-userRole: string = Role.Admin
+String enums can be used as parameter types, return types, and record properties — just like numeric enums:
 
-// In functions
-func checkAccess(role: string): bool {
-    return role == Role.Admin
+```n#
+// As a parameter type
+func checkActive(status: Status): bool {
+    return status == Status.Active
+}
+
+// As a return type
+func getDefault(): Status {
+    return Status.Pending
+}
+
+// In records
+record User {
+    Name: string
+    CurrentStatus: Status
+}
+
+// Implicit conversion to string
+name: string = Status.Active  // "active"
+
+// Pattern matching
+func describe(status: Status): string {
+    return match status {
+        Status.Active => "Currently active",
+        Status.Inactive => "Not active",
+        Status.Pending => "Awaiting activation"
+    }
 }
 ```
 
 ### How Enums Compile
 
-String enums compile to static classes:
+String enums compile to readonly structs with implicit string conversion and JSON support:
 
 ```csharp
-public static class Status
+[JsonConverter(typeof(StatusJsonConverter))]
+public readonly struct Status : IEquatable<Status>
 {
-    public const string Active = "active";
-    public const string Inactive = "inactive";
-    public const string Pending = "pending";
+    public static readonly Status Active = new Status("active");
+    public static readonly Status Inactive = new Status("inactive");
+    public static readonly Status Pending = new Status("pending");
+
+    public string Value { get; }
+    public static implicit operator string(Status value) => value.Value;
+    // ... equality, JSON converter
+}
+```
+
+Numeric enums emit CLR enums:
+
+```csharp
+public enum Priority
+{
+    Low = 0,
+    Medium = 1,
+    High = 2
 }
 ```
 
@@ -698,7 +741,9 @@ age: int? = null
 age = 25
 
 if age != null {
-    Console.WriteLine($"Age: {age.Value}")
+    // Direct null checks narrow nullable values inside this block.
+    definitelyAge: int = age
+    Console.WriteLine($"Age: {definitelyAge}")
 }
 
 // Null-coalescing operator
@@ -715,21 +760,63 @@ name := user?.Name  // null if user is null
 city := user?.Address?.City
 ```
 
-### Null-forgiving Operator
+### Null checks instead of null-forgiving
+
+N# does not use C#'s null-forgiving `!` as an escape hatch. Prefer a direct check, `??`, or `match` so the proof stays in the code:
 
 ```n#
-// When you know it's not null
-name: string = optionalName!
+optionalName: string? = GetName()
+
+if optionalName != null {
+    // `optionalName` is narrowed to `string` in this block.
+    name: string = optionalName
+}
+
+displayName := optionalName ?? "anonymous"
 ```
+
+`null!`, `default!`, and blind `.Value` access are not N# style. Replace suppression with explicit nullable handling.
 
 ## Type Aliases
 
+Create transparent type aliases (interchangeable with the underlying type):
+
 ```n#
-// Not yet supported in N# - use C# using directives
-// Future feature:
-// type UserId = Guid
-// type EmailAddress = string
+type UserId = int
+type StringDict = Dictionary<string, string>
+type Callback = Func<void>
 ```
+
+Type aliases are compile-time only — they do not create a distinct runtime type.
+
+## Newtypes (Branded Types)
+
+Create **distinct wrapper types** that prevent accidental type confusion:
+
+```n#
+type UserId = newtype int
+type OrderId = newtype int
+type Email = newtype string
+```
+
+Unlike type aliases, newtypes are **not interchangeable** with their underlying type:
+
+```n#
+id := new UserId(42)       // Explicit construction
+let raw: int = id.Value    // Explicit unwrapping
+
+// These are compile errors:
+// let x: int = id          // ERROR: UserId is not int
+// let y: UserId = 42       // ERROR: int is not UserId
+// let z: OrderId = id      // ERROR: UserId is not OrderId
+```
+
+Newtypes emit concrete `readonly record struct` wrappers for .NET interop, giving C#
+consumers value equality, `ToString()`, and familiar value semantics.
+
+> **Status:** Construct a newtype with `new UserId(42)`. The call-style shorthand
+> `UserId(42)` (without `new`) is **not yet supported** in the IL backend (it reports
+> `NL103`) — use the `new` form.
 
 ## Complete Example
 
@@ -815,13 +902,13 @@ func main() {
     // Retrieve and match
     result := repo.GetById(person.Id)
     match result {
-        Result.Success<Person> { value: p } => {
+        Result.Success { value: p } => {
             Console.WriteLine($"Found: {p.describe()}")
             if p.Address != null {
                 Console.WriteLine($"Lives in: {p.Address.City}")
             }
         },
-        Result.Failure<Person> { error: e } => {
+        Result.Failure { error: e } => {
             Console.WriteLine($"Error: {e}")
         }
     }
@@ -837,5 +924,5 @@ func main() {
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
-- [Examples](/examples)
+- [Examples](/examples/)
 - [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)

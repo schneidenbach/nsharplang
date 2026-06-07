@@ -55,6 +55,21 @@ func main() {
 }
 ```
 
+### Function Overloading
+
+Declare multiple functions with the same name but different parameter lists. The compiler
+resolves the call by argument count and types, exactly like C#.
+
+```n#
+func area(side: int): int => side * side
+func area(width: int, height: int): int => width * height
+
+func main() {
+    print area(5)       // 25
+    print area(3, 4)    // 12
+}
+```
+
 ## Types
 
 ### Classes
@@ -273,10 +288,10 @@ func main() {
 
 ### String Enums
 
-String enums map enum members to string values, so status names stay typed instead of copied as `const string` sets.
+String enums map enum members to string values, so status names stay typed instead of copied as `const string` sets. Annotate the backing type with `: string`.
 
 ```n#
-enum Status {
+enum Status: string {
     Pending = "pending",
     Active = "active",
     Done = "done"
@@ -464,6 +479,226 @@ func main() {
 }
 ```
 
+## Properties: Required and Init-Only
+
+Mark a property `required` to force callers to set it in the object initializer, and `init`
+to make it settable only during construction (immutable afterward). `required init`
+combines both.
+
+```n#
+class Product {
+    required init Id: int      // must be set, immutable after creation
+    init Name: string          // optional, immutable after creation
+    Price: double = 0.0        // mutable
+
+    func Describe(): string => $"#{Id} {Name} (${Price})"
+}
+
+func main() {
+    p := new Product { Id: 1, Name: "Widget" }
+    print p.Describe()   // #1 Widget ($0)
+    // p.Id = 2          // compile error: init-only
+}
+```
+
+## Indexers
+
+Give a type `[]` access with an indexer. Declare it as `func this[key: K]: V` with `get`
+and `set` accessors.
+
+```n#
+class Grid {
+    storage: Dictionary<string, int> = new()
+
+    func this[key: string]: int {
+        get { return storage[key] }
+        set { storage[key] = value }
+    }
+}
+
+func main() {
+    g := new Grid()
+    g["score"] = 42
+    print g["score"]    // 42
+}
+```
+
+## Operator Overloading
+
+Define operators on your own types with `static func operator <op>`. Comparison operators
+must be defined in pairs (`==`/`!=`).
+
+```n#
+class Vec {
+    X: int
+    Y: int
+
+    static func operator +(a: Vec, b: Vec): Vec => new Vec { X: a.X + b.X, Y: a.Y + b.Y }
+    static func operator ==(a: Vec, b: Vec): bool => a.X == b.X && a.Y == b.Y
+    static func operator !=(a: Vec, b: Vec): bool => !(a == b)
+}
+
+func main() {
+    sum := (new Vec { X: 1, Y: 2 }) + (new Vec { X: 3, Y: 4 })
+    print $"({sum.X}, {sum.Y})"   // (4, 6)
+}
+```
+
+## Conversion Operators
+
+Define `implicit` (always safe) and `explicit` (requires a cast) conversions between types.
+
+```n#
+struct Celsius {
+    Value: double
+
+    implicit operator Fahrenheit(c: Celsius) => new Fahrenheit { Value: c.Value * 9.0 / 5.0 + 32.0 }
+    explicit operator Kelvin(c: Celsius) => new Kelvin { Value: c.Value + 273.15 }
+}
+
+struct Fahrenheit { Value: double }
+struct Kelvin { Value: double }
+
+func main() {
+    boiling := new Celsius { Value: 100.0 }
+    f: Fahrenheit = boiling       // implicit — no cast
+    k := (Kelvin)boiling          // explicit — cast required
+    print $"{f.Value}°F  {k.Value}K"   // 212°F  373.15K
+}
+```
+
+## Type Aliases
+
+Create a transparent alias for a longer type — fully interchangeable with the underlying
+type.
+
+```n#
+type UserId = int
+type StringDict = Dictionary<string, string>
+type Callback = Func<void>
+
+func main() {
+    id: UserId = 7
+    print id    // 7
+}
+```
+
+N# also has `newtype` for *distinct* branded types that are **not** interchangeable with
+their underlying type (`type Email = newtype string`) — see the
+[Types guide](types.md#newtypes-branded-types).
+
+## Working With Nullable Values
+
+Use `?` to mark a type nullable, and `must` to assert a nullable value is non-null,
+unwrapping it (it throws if the value is actually null). N# does **not** have C#'s
+null-forgiving `!` operator — prefer explicit checks, `??`, or `must`.
+
+```n#
+func find(items: int[], target: int): int? {
+    for i := 0; i < items.Length; i++ {
+        if items[i] == target { return i }
+    }
+    return null
+}
+
+func main() {
+    idx := must find([10, 20, 30], 20)   // unwrap int? -> int
+    print idx                            // 1
+
+    name: string? = "Ada"
+    greeting := name ?? "stranger"       // null-coalescing
+    print greeting                       // Ada
+}
+```
+
+## Resource Management and Locking
+
+`lock` takes a mutual-exclusion lock for a critical section (parentheses optional). Use it
+to guard shared state across threads.
+
+```n#
+class Counter {
+    count: int = 0
+    sync: object = new object()
+
+    func Increment() {
+        lock sync {
+            count++
+        }
+    }
+
+    func Value(): int => count
+}
+```
+
+## Checked and Unchecked Arithmetic
+
+Control integer overflow behavior explicitly. `checked` throws `OverflowException` on
+overflow; `unchecked` wraps (the .NET default).
+
+```n#
+func main() {
+    max := 2147483647            // int.MaxValue
+    print unchecked(max + 1)     // -2147483648 (wraps)
+
+    try {
+        print checked(max + 1)   // throws
+    } catch ex: OverflowException {
+        print "overflow caught"
+    }
+}
+```
+
+## Reflection Operators
+
+`nameof` and `typeof` are compile-time operators, the same as in C#.
+
+```n#
+class Person {
+    Name: string = ""
+}
+
+func main() {
+    print nameof(Person)        // Person
+    print typeof(Person).Name   // Person
+}
+```
+
+## File-Scoped Types
+
+Mark a type `file` to keep it visible only within the file that declares it — useful for
+internal helpers that should never leak into the public surface.
+
+```n#
+file class Helper {
+    func Shout(s: string): string => s + "!"
+}
+
+func main() {
+    print new Helper().Shout("hi")   // hi!
+}
+```
+
+## Systems N#
+
+For high-performance code, N# has an opt-in **systems profile** with explicit, checkable
+runtime costs: `[hot]`/`[boundary]` effect contracts, allocation-free `Result<T,E>`, `alloc`
+and `stackalloc`, `ref struct` and lifetime-checked spans, governed `unsafe`, and SIMD
+auto-vectorization that beats C# by ~4× on counted-reduction kernels. See the dedicated
+**[Systems N# guide](systems.md)**.
+
+```n#
+[hot]
+func checksum(values: int[]): int {
+    sum := 0
+    len := values.Length
+    for i := 0; i < len; i++ {
+        sum = sum + values[i]
+    }
+    return sum
+}
+```
+
 ## Testing
 
 Tests live in `.tests.nl` files next to the code they test. Use the `test` keyword and `assert` statements.
@@ -618,6 +853,21 @@ print $"Next year: {age + 1}"
 print $"Pi: {3.14159:F2}"             // Pi: 3.14
 ```
 
+### Raw String Literals
+
+Triple-quoted raw strings (`"""..."""`) span multiple lines and don't need escaping —
+quotes and special characters are taken literally. Prefix with `$` to interpolate.
+
+```n#
+name := "Ada"
+sql := $"""
+SELECT * FROM users
+WHERE name = '{name}'
+  AND active = true
+"""
+print sql
+```
+
 ## Imports and Packages
 
 ```n#
@@ -675,4 +925,5 @@ Enum cases are part of the containing enum's value set. Export is controlled by 
 - **[For Go Developers](for-go-developers.md)** — How Go concepts map to N#
 - **[Pattern Matching Guide](pattern-matching.md)** — Deep dive into pattern matching
 - **[Types Guide](types.md)** — Advanced type system features
+- **[Systems N#](systems.md)** — The high-performance lane: `[hot]`, `Result<T,E>`, spans, SIMD
 - **[Examples](../../examples/)** — curated example projects

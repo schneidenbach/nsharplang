@@ -685,5 +685,5 @@ city := if person != null and person.Address != null {
 ## Resources
 
 - [Project README](../../README.md)
-- [Language Design](../../DESIGN.md)
+- [Language Design](../DESIGN.md)
 - [Pattern Matching Examples](../../examples/04-pattern-matching/)

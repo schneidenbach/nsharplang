@@ -1,6 +1,6 @@
 # N# (NewLang Sharp)
 
-**Go for .NET: a pragmatic CLR language with small syntax, project-first tooling, and C# interop.**
+**A pragmatic CLR language with small syntax, a rich type system, project-first tooling, an opt-in systems performance lane, and first-class C# interop.**
 
 N# is in active development. The repository has a working compiler, SDK, CLI, templates, VS Code support, and examples, but not every product gate is launch-green yet. Treat this README as the current developer-facing map, not a claim that every planned language feature or IDE workflow is complete.
 
@@ -58,7 +58,11 @@ dotnet run --project src/NSharpLang.Cli/Cli.csproj -- run
 
 ## Why N#?
 
-N# explores a tighter, Go-flavored developer experience for .NET while keeping C# interop as a core design constraint. The goal is to emit types and assemblies that fit normal .NET workflows while giving N# source a smaller, more direct shape.
+N# borrows Go's ethos — a tighter developer experience, fast tooling, and performance as a
+first-class concern — but it is **not** "Go for .NET": it pairs that small syntax with a much
+richer type system and an opt-in systems lane for hot-path code, while keeping C# interop as
+a core design constraint. The goal is to emit types and assemblies that fit normal .NET
+workflows while giving N# source a smaller, more direct shape.
 
 | Area | N# direction |
 |------|--------------|
@@ -67,6 +71,7 @@ N# explores a tighter, Go-flavored developer experience for .NET while keeping C
 | **Async** | `Task`/`ValueTask` interop instead of a separate async ecosystem |
 | **Nullability** | Works with .NET nullable reference types and explicit checks |
 | **Visibility** | Go-style casing by default, explicit modifiers for interop escapes |
+| **Systems lane** | Opt-in `[hot]`/`[boundary]` cost contracts, `Result<T,E>`, spans/`ref struct`, governed `unsafe`, SIMD auto-vectorization |
 
 ## Quick Example
 
@@ -190,8 +195,15 @@ Shell completions are generated from the same registry. When docs drift, prefer 
 ### Advanced Types
 - Discriminated unions
 - Duck interfaces / structural typing
-- Records and classes
-- Required/init-style .NET interop patterns
+- Records and classes (incl. `ref struct`)
+- Generics with constraints, function/operator overloading, conversion operators
+- Required/init properties, indexers, type aliases
+
+### Systems N# (opt-in performance lane)
+- `[hot]`/`[boundary]` cost contracts with the `NSYS###` effect model
+- Allocation-free `Result<T,E>`, explicit `alloc`/`stackalloc`
+- `ref struct`, lifetime-checked spans, governed `unsafe` + `[trusted]`
+- SIMD auto-vectorization (~4× faster than C# on reduction kernels) — see [Systems N# guide](docs/guide/systems.md)
 
 ### .NET Interop
 - C#-consumable generated assemblies and source where supported
@@ -239,6 +251,9 @@ See [CI/CD Guide](docs/guide/ci-cd.md) for current setup notes.
 
 ## Documentation
 
+- **docs/guide/language-tour.md** - the main language reference with runnable examples
+- **docs/guide/systems.md** - Systems N#: the opt-in high-performance lane
+- **docs/guide/types.md**, **functions.md**, **pattern-matching.md** - deep-dive language guides
 - **docs/DESIGN.md** - language design notes and intended semantics
 - **docs/guide/cli-reference.md** - CLI command reference aligned to current help/completions
 - **memory/** - implementation notes, component docs, and known limitations
@@ -249,10 +264,12 @@ See [CI/CD Guide](docs/guide/ci-cd.md) for current setup notes.
 ## Architecture
 
 ```text
-.nl source → Lexer → Parser → Analyzer → IL compiler / generated C# paths → .NET assembly
+.nl source → Lexer → Parser → Analyzer → IL compiler → .NET assembly
 ```
 
-Some workflows emit generated C# for compiler inspection and interop debugging.
+The compiler emits CLR IL directly (`--backend il`, the default). `nlc export csharp` can
+still emit readable C# for compiler inspection and interop debugging, but it is not the
+compilation path.
 
 ## C# Interop Example
 

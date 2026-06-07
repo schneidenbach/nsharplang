@@ -1150,15 +1150,29 @@ Reasoning:
 
 ## SIMD And Codegen Visibility
 
+> **Update (2026-06-07): targeted auto-vectorization has landed.** The bullet below
+> ("No auto-vectorization in v1") is superseded. The IL backend now recognizes two
+> canonical hot-loop shapes — counted integer reductions (`for i<len { acc += a[i] }`) and
+> range-predicate counts (`for i<len { if a[i] in [lo,hi] count++ }`) — and emits unrolled
+> `System.Numerics.Vector<T>` codegen directly (RyuJIT does not auto-vectorize these). It is
+> **on by default** (`NSHARP_VECTORIZE_REDUCTIONS=0` opts out) for `int`/`long`/`uint`/`ulong`
+> arrays under conservative aliasing/overflow guards, and is measured at **~4–4.5× faster
+> than C#** on checksum/count-ascii (closing the worst-case native gap from ~8.8× to ~2×).
+> See [`systems-vs-native.md`](systems-vs-native.md). Broader auto-vectorization, loop
+> unrolling, and a vectorizing backend remain on the
+> [performance backlog](systems-perf-backlog.md).
+
 V1 SIMD support is diagnostics and guidance plus HotSummary coverage for known
-BCL APIs.
+BCL APIs, **plus** the targeted reduction/range-count auto-vectorization noted above.
 
 Rules:
 
 - `System.Numerics.Vector<T>` and hardware intrinsics should type-check cleanly.
 - The compiler can recognize simple vectorization opportunities and report
   suggestions.
-- No auto-vectorization or new vector syntax in v1.
+- Counted integer reductions and range-predicate counts are auto-vectorized to
+  `Vector<T>` codegen (shipped 2026-06; on by default). No new vector *syntax* is
+  introduced — recognition is purely on loop shape.
 - Reports expose IL-shape facts relevant to systems code: `newobj`, `newarr`,
   `box`, `callvirt`, delegate construction, constrained calls, and known
   intrinsic calls.

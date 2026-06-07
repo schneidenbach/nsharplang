@@ -413,36 +413,35 @@ func main() {
 }
 ```
 
-### Example 4: C# Events
+### Example 4: Callbacks Instead of Events
 
-**C# Library:**
-```csharp
-public class Button
-{
-    public event EventHandler? Clicked;
+N# deliberately has **no event syntax** — there is no `event` keyword, and subscribing to a
+.NET `event` member is not supported. (See [DESIGN.md → Deferred Features](../DESIGN.md).)
+For your own N# APIs, model notifications with a delegate field or callback parameter using
+`Func<>`, which N# fully supports:
 
-    public void Click()
-    {
-        Clicked?.Invoke(this, EventArgs.Empty);
+```n#
+class Button {
+    onClicked: Func<void>
+
+    func Click() {
+        if onClicked != null {
+            onClicked()
+        }
     }
 }
-```
-
-**N# Consumer:**
-```n#
-import MyLibrary
 
 func main() {
     button := new Button()
-
-    // Subscribe to event
-    button.Clicked += (sender, args) => {
+    button.onClicked = () => {
         Console.WriteLine("Button clicked!")
     }
-
-    button.Click()  // "Button clicked!"
+    button.Click()   // "Button clicked!"
 }
 ```
+
+If you must consume a C# API that exposes a true `event`, wrap the subscription in a thin
+C# shim that exposes a plain callback/delegate method, and call that shim from N#.
 
 ## Type Mappings
 
@@ -721,5 +720,5 @@ var message = result switch
 ## Resources
 
 - [Project README](../../README.md)
-- [Language Design](../../DESIGN.md)
+- [Language Design](../DESIGN.md)
 - [Minimal API Example](../../examples/14-minimal-api/)

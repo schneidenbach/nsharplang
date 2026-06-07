@@ -704,10 +704,11 @@ func main() {
 
 - **[Types Guide](types.md)** - Learn about classes, unions, records, and interfaces
 - **[Pattern Matching](pattern-matching.md)** - Deep dive into pattern matching
-- **[Async Programming](async.md)** - Advanced async patterns
+- **[Language Tour: Async/Await](language-tour.md#asyncawait)** - Async functions and streams
+- **[Systems N#](systems.md)** - `[hot]` functions, `Result<T,E>`, and the performance lane
 
 ## Resources
 
 - [Project README](../../README.md)
 - [Examples](../../examples/)
-- [Language Design](../../DESIGN.md)
+- [Language Design](../DESIGN.md)

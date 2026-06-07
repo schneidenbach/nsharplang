@@ -1180,11 +1180,12 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
   type OrderId = newtype int
   type Email = newtype string
 
-  id := UserId(42)            // explicit construction
+  id := new UserId(42)        // explicit construction
   let raw: int = id.Value     // explicit unwrapping
   // let x: int = id          // ERROR: UserId is not int
   // let y: OrderId = id      // ERROR: UserId is not OrderId
   ```
+  (The call-style shorthand `UserId(42)` without `new` is not yet supported — reports NL103.)
 - Design:
   - No auto-forwarded arithmetic operators
   - No implicit conversions in either direction
@@ -1512,15 +1513,14 @@ func foo(x: int): int {
 
 ## Compilation Strategy
 
-### Initial Approach: Transpile to C#
-- Parse source → Generate C# code → Use C# compiler/Roslyn
-- Leverage existing .NET toolchain
-- Easier to implement and maintain
-- Good C# interop by design
+### Current Approach: Direct IL Emission
+- Parse source → bind/analyze → emit CLR IL directly (`--backend il`, the default)
+- No C# round-trip on the build path; the toolchain produces assemblies that interop with C# as first-class .NET types
+- Enables the Systems N# cost model (IL-shape facts, allocation/dispatch visibility) and SIMD codegen
+- `nlc export csharp` still produces readable C# for inspection/interop review, but it is not the compilation path
 
-### Future Considerations
-- Could evolve to direct IL emission or Roslyn API usage
-- Start simple, optimize later
+### History
+- The project began as a C# transpiler (parse → generate C# → Roslyn) to bootstrap quickly on the existing .NET toolchain. That path has been superseded by the direct IL backend; the dogfood/self-host effort is migrating the compiler itself to N#.
 
 ## Project Structure
 
@@ -1580,8 +1580,8 @@ import Newtonsoft.Json as Json  // with alias
 
 ## Deferred Features
 
-### Future Consideration
-- Unsafe code and pointers (may add later for native interop)
+### Now Shipped (formerly deferred)
+- **Unsafe code and pointers** — shipped in the opt-in [Systems N#](guide/systems.md) profile as governed `unsafe { }` blocks behind `[memory(safe)]` + `[trusted(...)]`, alongside `ref struct`, `stackalloc`, and lifetime-checked spans.
 
 ### Explicitly NOT Supported
 - **Events** - NO event syntax. N# does not interop with .NET events. Use callbacks/lambdas instead.

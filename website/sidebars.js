@@ -22,6 +22,7 @@ const sidebars = {
         'functions',
         'types',
         'pattern-matching',
+        'systems',
       ],
     },
     {

@@ -32,6 +32,8 @@ func add(a: int, b: int): int {
 }
 ```
 
+Functions that return a value must declare that return type. Omitting the return type means the function returns `void`.
+
 ### Visibility
 
 Functions follow N#'s convention-based visibility:
@@ -162,6 +164,16 @@ func printMessage(msg: string) {
     Console.WriteLine(msg)
 }
 ```
+
+Returning a value from a void function is an error:
+
+```n#
+func answer() {
+    return 42
+}
+```
+
+Write `func answer(): int` when the function should return `42`.
 
 ### Nullable Return Types
 
@@ -360,6 +372,45 @@ func process<T>(item: T): string where T : IFormattable {
 func compare<T>(a: T, b: T): bool where T : IComparable<T> {
     return a.CompareTo(b) == 0
 }
+```
+
+When the type argument is a **value type** (a `struct`), calls to a constrained
+interface method dispatch through a `constrained.` prefix — the receiver is **not
+boxed**, so there is no heap allocation and the struct's own method is invoked
+directly:
+
+```n#
+interface Shape {
+    func Area(): int
+}
+
+struct Square : Shape {
+    side: int
+    func Area(): int => side * side
+}
+
+func totalArea<T>(s: T): int where T : Shape {
+    return s.Area()   // dispatched without boxing when T is Square
+}
+
+totalArea(new Square { side: 3 })   // 9
+```
+
+This holds even when the called method is inherited from a **base interface** of
+the constraint. Given `interface Shape : HasArea`, a function constrained to
+`T : Shape` can still call the inherited `Area()` without boxing:
+
+```n#
+interface HasArea { func Area(): int }
+interface Shape : HasArea { func Name(): string }
+
+struct Square : Shape {
+    side: int
+    func Area(): int => side * side
+    func Name(): string => "square"
+}
+
+func totalArea<T>(s: T): int where T : Shape => s.Area()   // resolves HasArea.Area
 ```
 
 ### Multiple Constraints
@@ -658,10 +709,11 @@ func main() {
 
 - **[Types Guide](types.md)** - Learn about classes, unions, records, and interfaces
 - **[Pattern Matching](pattern-matching.md)** - Deep dive into pattern matching
-- **[Language Tour](language-tour.md)** - Comprehensive language overview including async
+- **[Language Tour: Async/Await](language-tour.md#asyncawait)** - Async functions and streams
+- **[Systems N#](systems.md)** - `[hot]` functions, `Result<T,E>`, and the performance lane
 
 ## Resources
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
-- [Examples](/examples)
+- [Examples](/examples/)
 - [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)

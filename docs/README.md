@@ -4,14 +4,19 @@ Welcome to the N# programming language documentation. N# is an active pre-releas
 
 ## What is N#?
 
-N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It's designed as "Go for .NET" - combining Go's simplicity and clean syntax with normal .NET ecosystem interop as a design constraint.
+N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It shares Go's
+ethos — tight syntax, fast tooling, performance as a first-class concern — but it is **not**
+"Go for .NET": N# has a much richer type system (discriminated unions, exhaustive pattern
+matching, structural/duck interfaces, newtypes) and an opt-in systems lane for hot-path code.
+Seamless C# interop is a design constraint throughout.
 
 ### Key Features
 
 - **Clean Syntax**: No semicolons, short variable declarations with `:=`, convention-based visibility
 - **.NET Interop**: C#-consumable assemblies and common .NET interop paths where covered by tests/examples
-- **Modern Type System**: String enums, type inference, and pragmatic nullability
-- **Pattern Matching**: Powerful match expressions for cleaner code
+- **Rich Type System**: Discriminated unions, exhaustive pattern matching, duck (structural) interfaces, generics, string enums, newtypes, type inference, and pragmatic nullability
+- **Pattern Matching**: Powerful match expressions with compiler-enforced exhaustiveness
+- **Systems N#**: An opt-in performance lane with `[hot]`/`[boundary]` cost contracts, allocation-free `Result<T,E>`, spans/`ref struct`, governed `unsafe`, and SIMD auto-vectorization (~4× faster than C# on reduction kernels)
 - **Tooling**: `nlc` CLI, query/diagnostic JSON, formatting/testing commands, and VS Code support in active development
 
 ## Getting Started
@@ -70,6 +75,7 @@ nlc run
 - **[Functions](guide/functions.md)** - Deep dive into functions, lambdas, async, and generics
 - **[Types](guide/types.md)** - Classes, unions, records, duck interfaces, and the type system
 - **[Pattern Matching](guide/pattern-matching.md)** - Master pattern matching with exhaustiveness checking
+- **[Systems N#](guide/systems.md)** - The high-performance lane: `[hot]` cost contracts, `Result<T,E>`, spans, governed `unsafe`, SIMD
 
 ### Interop
 
