@@ -143,6 +143,16 @@ public record LambdaExpression(
     int Line,
     int Column) : Expression(Line, Column);
 
+// Event subscription: `on target.Event (sender, args) => { ... }`
+// Subscribes Handler to the .NET event named by Target (a MemberAccessExpression) by calling
+// the event's add_ accessor. As an expression it yields an NSharpEventSubscription handle that
+// can later be passed to `off`.
+public record OnSubscriptionExpression(
+    Expression Target,
+    LambdaExpression Handler,
+    int Line,
+    int Column) : Expression(Line, Column);
+
 // Ternary (conditional) expression
 public record TernaryExpression(
     Expression Condition,

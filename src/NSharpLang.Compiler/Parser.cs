@@ -730,6 +730,28 @@ public class Parser
             && LookAhead(1).Type == TokenType.LeftBrace;
     }
 
+    // `on` and `off` are CONTEXTUAL keywords: they only introduce event subscription when an
+    // identifier (the start of the event member chain / the subscription handle) follows them.
+    // Anywhere else — `on := 5`, `on.Foo`, `off(x)`, `obj.off` — they remain plain identifiers,
+    // so existing code that uses these names keeps working.
+    private bool IsOnSubscriptionStart()
+    {
+        if (Current.Type != TokenType.Identifier || Current.Value != "on")
+            return false;
+
+        // The event target starts with an identifier, `this`, or `base` (the latter two enable
+        // subscribing to events inherited from a .NET base class). A following `(`/`:=`/`.` etc.
+        // means `on` is just an ordinary identifier, so we leave it alone.
+        var next = LookAhead(1).Type;
+        return next == TokenType.Identifier || next == TokenType.This || next == TokenType.Base;
+    }
+
+    private bool IsOffStatementStart()
+    {
+        return Current.Type == TokenType.Identifier && Current.Value == "off"
+            && LookAhead(1).Type == TokenType.Identifier;
+    }
+
     private SetupDeclaration ParseSetupDeclaration()
     {
         var line = Current.Line;
@@ -2250,6 +2272,9 @@ public class Parser
         if (Check(TokenType.Func))
             return ParseLocalFunction();
 
+        if (IsOffStatementStart())
+            return ParseOffStatement();
+
         // Expression statement (or shorthand declaration with :=)
         return ParseExpressionStatement();
     }
@@ -2890,6 +2915,80 @@ public class Parser
         var column = Current.Column;
         Consume(TokenType.Break, "Expected 'break'");
         return new BreakStatement(line, column);
+    }
+
+    private OnSubscriptionExpression ParseOnSubscriptionExpression()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Advance(); // consume contextual 'on'
+
+        // The event member chain, e.g. `AppDomain.CurrentDomain.ProcessExit` or `timer.Elapsed`.
+        var target = ParseEventTarget();
+
+        // The handler is a lambda: `(sender, args) => { ... }` or `x => ...`.
+        var handlerExpr = ParseLambdaOrAssignmentExpression();
+        if (handlerExpr is LambdaExpression handler)
+        {
+            return new OnSubscriptionExpression(target, handler, line, column);
+        }
+
+        ReportError(
+            ErrorCode.InvalidSyntax,
+            "Expected an event handler lambda after the event",
+            handlerExpr.Line,
+            handlerExpr.Column,
+            humanExplanation: "`on` subscribes a handler to a .NET event, so it needs a lambda to run when the event fires.",
+            hint: "Write the handler inline, e.g. `on widget.Clicked (sender, args) => { ... }`.",
+            length: 1);
+
+        // Recover with an empty handler so analysis can continue.
+        var recoveryBody = new BlockStatement(new List<Statement>(), handlerExpr.Line, handlerExpr.Column);
+        var recoveryHandler = new LambdaExpression(new List<Parameter>(), null, recoveryBody, handlerExpr.Line, handlerExpr.Column);
+        return new OnSubscriptionExpression(target, recoveryHandler, line, column);
+    }
+
+    // Parse the event reference for an `on` subscription: a member-access (and index) chain only.
+    // Unlike ParsePostfixExpression we deliberately stop before a `(` so the handler's parameter
+    // list (e.g. `(sender, args)`) is not swallowed as a call on the event member.
+    private Expression ParseEventTarget()
+    {
+        var expr = ParsePrimaryExpression();
+
+        while (true)
+        {
+            if (Check(TokenType.Dot) || Check(TokenType.QuestionDot))
+            {
+                var isNullConditional = Check(TokenType.QuestionDot);
+                var dotToken = Advance();
+                var memberName = ConsumeIdentifier("Expected event or member name after '.'");
+                expr = new MemberAccessExpression(expr, memberName, isNullConditional, dotToken.Line, dotToken.Column);
+            }
+            else if (Check(TokenType.LeftBracket) || Check(TokenType.QuestionBracket))
+            {
+                var isNullConditional = Check(TokenType.QuestionBracket);
+                var bracketToken = Advance();
+                var index = ParseExpression();
+                Consume(TokenType.RightBracket, "Expected ']'");
+                expr = new IndexAccessExpression(expr, index, isNullConditional, bracketToken.Line, bracketToken.Column);
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        return expr;
+    }
+
+    private OffStatement ParseOffStatement()
+    {
+        var line = Current.Line;
+        var column = Current.Column;
+        Advance(); // consume contextual 'off'
+
+        var handle = ParseExpression();
+        return new OffStatement(handle, line, column);
     }
 
     private ContinueStatement ParseContinueStatement()
@@ -3570,6 +3669,12 @@ public class Parser
     {
         var line = Current.Line;
         var column = Current.Column;
+
+        // Event subscription: `on target.Event (sender, args) => { ... }`. Handled here as the
+        // highest-precedence prefix so it composes with `:=` (`sub := on ...`) and works as a
+        // bare statement (via ParseExpressionStatement).
+        if (IsOnSubscriptionStart())
+            return ParseOnSubscriptionExpression();
 
         // Single parameter lambda: x => expr
         if (Check(TokenType.Identifier) && LookAhead(1).Type == TokenType.Arrow)

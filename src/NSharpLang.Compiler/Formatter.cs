@@ -1259,6 +1259,13 @@ public class Formatter
                 sb.AppendLine();
                 break;
 
+            case OffStatement offStmt:
+                Indent(sb);
+                sb.Append("off ");
+                FormatExpression(offStmt.Handle, sb);
+                sb.AppendLine();
+                break;
+
             case TryStatement tryStmt:
                 Indent(sb);
                 sb.AppendLine("try {");
@@ -1647,6 +1654,12 @@ public class Formatter
                 sb.Append(FormatAssignmentOperator(assign.Operator));
                 sb.Append(" ");
                 FormatExpression(assign.Value, sb);
+                break;
+            case OnSubscriptionExpression onSubscription:
+                sb.Append("on ");
+                FormatExpression(onSubscription.Target, sb);
+                sb.Append(" ");
+                FormatExpression(onSubscription.Handler, sb);
                 break;
             case LambdaExpression lambda:
                 bool allParamsInferred = lambda.Parameters.All(p =>

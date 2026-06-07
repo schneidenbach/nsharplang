@@ -159,6 +159,10 @@ public class Analyzer : IDisposable
     private bool _suppressNullabilityFlowType;
     private bool _suppressErrorTupleResultUse;
     private bool _allowUnboundCallableReference;
+    // When false (the default), a bare reference to a .NET event is an error — events may only
+    // be used with `on`/`off`. AnalyzeOnSubscription and AnalyzeAssignment flip this while
+    // resolving the event member so they can emit their own, more specific diagnostics.
+    private bool _allowEventReference;
     private readonly HashSet<(int Line, int Column, string Path, string Operation)> _reportedNullabilityDiagnostics = new();
     private readonly HashSet<(int Line, int Column, string Name)> _reportedUnverifiedErrorResultDiagnostics = new();
     private readonly HashSet<(int Line, int Column, string Name)> _reportedCallableReferenceDiagnostics = new();
@@ -2139,6 +2143,9 @@ public class Analyzer : IDisposable
             case PrintStatement printStmt:
                 AnalyzeExpression(printStmt.Value);
                 break;
+            case OffStatement off:
+                AnalyzeOffStatement(off);
+                break;
             case AssertStatement assertStmt:
                 AnalyzeAssertStatement(assertStmt);
                 break;
@@ -2369,6 +2376,7 @@ public class Analyzer : IDisposable
             AssignmentExpression => true,
             CallExpression => true,
             NewExpression => true,
+            OnSubscriptionExpression => true, // subscribing to an event is a side effect
             AllocExpression alloc => IsValidExpressionStatement(alloc.Expression),
             AwaitExpression => true,
             UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PreDecrement
@@ -4021,6 +4029,7 @@ public class Analyzer : IDisposable
             IndexAccessExpression index => AnalyzeIndexAccess(index),
             CallExpression call => AnalyzeCall(call),
             AssignmentExpression assignment => AnalyzeAssignment(assignment),
+            OnSubscriptionExpression on => AnalyzeOnSubscription(on),
             LambdaExpression lambda => AnalyzeLambda(lambda, _currentExpectedType),
             TernaryExpression ternary => AnalyzeTernary(ternary),
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
@@ -4053,6 +4062,15 @@ public class Analyzer : IDisposable
         if (!_allowUnboundCallableReference && IsUnboundCallableReference(expr, flowType))
         {
             ReportMethodGroupUsedAsValue(expr, flowType);
+            return BuiltInTypes.Unknown;
+        }
+
+        // A .NET event can only be touched via `on`/`off`. Catch every other use of it as a value
+        // here (the `on`/`off`/assignment paths set _allowEventReference to opt out and emit their
+        // own tailored diagnostics).
+        if (!_allowEventReference && flowType is ReflectionEventInfo bareEvent)
+        {
+            ReportEventUsedAsValue(expr, bareEvent);
             return BuiltInTypes.Unknown;
         }
 
@@ -5865,6 +5883,16 @@ public class Analyzer : IDisposable
         if (field != null)
         {
             memberType = NullabilityMetadata.ConvertField(field);
+            return true;
+        }
+
+        // .NET events resolve to a distinct symbol (never a field) so that `+=`/`-=` against
+        // them is rejected with a friendly diagnostic and `on`/`off` can subscribe via the
+        // event's add_/remove_ accessors instead of touching the private backing field.
+        var evt = type.GetEvent(memberName, memberFlags);
+        if (evt != null)
+        {
+            memberType = new ReflectionEventInfo(evt);
             return true;
         }
 
@@ -9560,17 +9588,36 @@ public class Analyzer : IDisposable
 
         var previousSuppressNullabilityFlowType = _suppressNullabilityFlowType;
         var previousSuppressErrorTupleResultUse = _suppressErrorTupleResultUse;
+        var previousAllowEventReference = _allowEventReference;
         TypeInfo targetType;
         try
         {
             _suppressNullabilityFlowType = true;
             _suppressErrorTupleResultUse = assignment.Operator == AssignmentOperator.Assign;
+            // Resolve the target without the bare-event guard so we can give a tailored
+            // "use on/off" message instead of the generic one.
+            _allowEventReference = true;
             targetType = AnalyzeExpression(assignment.Target);
         }
         finally
         {
+            _allowEventReference = previousAllowEventReference;
             _suppressErrorTupleResultUse = previousSuppressErrorTupleResultUse;
             _suppressNullabilityFlowType = previousSuppressNullabilityFlowType;
+        }
+
+        // `event += handler` / `-=` / `=` silently compiled to direct backing-field access before,
+        // then threw FieldAccessException at runtime. N# never assigns events — subscribe with
+        // `on`, unsubscribe with `off`. (A `+=` on a real Func/Action field is NOT an event and
+        // falls through to the normal delegate-combine path below.)
+        if (targetType is ReflectionEventInfo eventTarget)
+        {
+            ReportEventAssignment(assignment, eventTarget);
+            // Still analyze the value so handler-body errors surface too.
+            AnalyzeExpression(assignment.Value);
+            // Return an error-recovery type (not the event) so the caller's bare-event guard
+            // doesn't pile on a second diagnostic for the same assignment.
+            return BuiltInTypes.Unknown;
         }
 
         var previousExpectedType = _currentExpectedType;
@@ -9613,6 +9660,156 @@ public class Analyzer : IDisposable
 
         return targetType;
     }
+
+    private TypeInfo AnalyzeOnSubscription(OnSubscriptionExpression on)
+    {
+        var subscriptionType = new ReflectionTypeInfo(typeof(NSharpLang.Runtime.NSharpEventSubscription));
+
+        var previousAllow = _allowEventReference;
+        TypeInfo targetType;
+        try
+        {
+            // Resolve the target without the bare-event guard so the diagnostics below are the
+            // ones the user sees. Restored even if analysis throws.
+            _allowEventReference = true;
+            targetType = AnalyzeExpression(on.Target);
+        }
+        finally
+        {
+            _allowEventReference = previousAllow;
+        }
+
+        if (targetType is not ReflectionEventInfo eventInfo)
+        {
+            // Don't pile a "not an event" error on top of an already-reported resolution failure.
+            if (!BuiltInTypes.IsUnknown(targetType))
+            {
+                var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
+                Error(
+                    ErrorCode.InvalidEventSubscription,
+                    "`on` can only subscribe to a .NET event",
+                    line,
+                    column,
+                    "Write `on <object>.<Event> (sender, args) => { ... }`. To combine plain delegates, use `+=` on a Func/Action field instead.",
+                    length);
+            }
+
+            AnalyzeLambda(on.Handler);
+            return subscriptionType;
+        }
+
+        var addMethod = eventInfo.Event.GetAddMethod(nonPublic: true);
+        var removeMethod = eventInfo.Event.GetRemoveMethod(nonPublic: true);
+        var handlerDelegateType = eventInfo.Event.EventHandlerType;
+
+        // Prove the event is actually subscribable now, with a clear diagnostic, rather than
+        // letting the IL backend throw on a missing accessor or value-type receiver.
+        if (addMethod == null || removeMethod == null || handlerDelegateType == null)
+        {
+            var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
+            Error(
+                ErrorCode.InvalidEventSubscription,
+                $"'{eventInfo.Event.Name}' can't be subscribed to — it has no accessible add/remove accessors",
+                line,
+                column,
+                "This usually means the event is compiler-generated or inaccessible from N#.",
+                length);
+            AnalyzeLambda(on.Handler);
+            return subscriptionType;
+        }
+
+        if (!addMethod.IsStatic && (eventInfo.Event.DeclaringType?.IsValueType ?? false))
+        {
+            var (line, column, length) = GetExpressionDiagnosticSpan(on.Target);
+            Error(
+                ErrorCode.InvalidEventSubscription,
+                $"subscribing to '{eventInfo.Event.Name}' isn't supported — it's an instance event on a value type (struct)",
+                line,
+                column,
+                "Events on struct receivers can't be bound safely. Subscribe through a reference-type instance instead.",
+                length);
+            AnalyzeLambda(on.Handler, new ReflectionTypeInfo(handlerDelegateType));
+            return subscriptionType;
+        }
+
+        AnalyzeLambda(on.Handler, new ReflectionTypeInfo(handlerDelegateType));
+        return subscriptionType;
+    }
+
+    private void AnalyzeOffStatement(OffStatement off)
+    {
+        var handleType = AnalyzeExpression(off.Handle);
+
+        if (BuiltInTypes.IsUnknown(handleType))
+        {
+            return; // an earlier error already explained the problem
+        }
+
+        if (handleType is ReflectionTypeInfo reflection
+            && typeof(NSharpLang.Runtime.NSharpEventSubscription).IsAssignableFrom(reflection.Type))
+        {
+            return;
+        }
+
+        var (line, column, length) = GetExpressionDiagnosticSpan(off.Handle);
+        Error(
+            ErrorCode.InvalidEventSubscription,
+            "`off` expects a subscription returned by `on`",
+            line,
+            column,
+            "Capture the subscription first (`sub := on <object>.<Event> handler`), then detach it with `off sub`.",
+            length);
+    }
+
+    private void ReportEventAssignment(AssignmentExpression assignment, ReflectionEventInfo eventTarget)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(assignment.Target);
+        var target = RenderEventTarget(assignment.Target);
+        var name = eventTarget.Event.Name;
+
+        string message;
+        string hint;
+        if (assignment.Operator == AssignmentOperator.SubtractAssign)
+        {
+            message = $"'{name}' is a .NET event — it can't be unsubscribed with '-='";
+            hint = $"Capture the subscription when you subscribe (`sub := on {target} handler`), then detach it with `off sub`.";
+        }
+        else if (assignment.Operator == AssignmentOperator.AddAssign)
+        {
+            message = $"'{name}' is a .NET event — it can't be subscribed to with '+='";
+            hint = $"Subscribe with `on {target} (sender, args) => {{ ... }}`; it returns a subscription you can later pass to `off`.";
+        }
+        else
+        {
+            message = $"'{name}' is a .NET event — it can't be assigned with '='";
+            hint = $"Subscribe with `on {target} (sender, args) => {{ ... }}` and unsubscribe with `off`.";
+        }
+
+        Error(ErrorCode.EventRequiresOnOff, message, line, column, hint, length);
+    }
+
+    private void ReportEventUsedAsValue(Expression expr, ReflectionEventInfo eventRef)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(expr);
+        var target = RenderEventTarget(expr);
+        Error(
+            ErrorCode.EventRequiresOnOff,
+            $"'{eventRef.Event.Name}' is a .NET event and can only be used with `on`/`off`",
+            line,
+            column,
+            $"Subscribe with `on {target} (sender, args) => {{ ... }}`; the result is a subscription you can later pass to `off`.",
+            length);
+    }
+
+    private static string RenderEventTarget(Expression expr) => expr switch
+    {
+        IdentifierExpression identifier => identifier.Name,
+        ThisExpression => "this",
+        BaseExpression => "base",
+        MemberAccessExpression member => $"{RenderEventTarget(member.Object)}.{member.MemberName}",
+        ParenthesizedExpression parenthesized => RenderEventTarget(parenthesized.Inner),
+        _ => "<event>"
+    };
 
     private void UpdateNullStateAfterAssignment(Expression target, Expression value, TypeInfo targetType, TypeInfo valueType)
     {
@@ -15267,6 +15464,15 @@ public record ReflectionTypeInfo(Type Type) : TypeInfo
 public record ReflectionMethodInfo(MethodInfo Method) : TypeInfo
 {
     public override string ToString() => $"{Method.Name}(...)";
+}
+
+/// <summary>
+/// Represents a .NET event resolved via reflection. N# does not model events as fields;
+/// they are subscribed/unsubscribed exclusively through the <c>on</c>/<c>off</c> keywords.
+/// </summary>
+public record ReflectionEventInfo(System.Reflection.EventInfo Event) : TypeInfo
+{
+    public override string ToString() => $"event {Event.Name}";
 }
 
 /// <summary>

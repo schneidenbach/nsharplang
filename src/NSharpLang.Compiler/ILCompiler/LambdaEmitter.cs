@@ -372,6 +372,13 @@ public partial class ILCompiler
                 }
                 break;
 
+            case OnSubscriptionExpression onSubscription:
+                // The event target lives in the current scope; the handler lambda re-enters the
+                // nested-lambda case below, which applies its own parameter shadowing.
+                FindCapturedVariablesInExpression(onSubscription.Target, parameterNames, captured);
+                FindCapturedVariablesInExpression(onSubscription.Handler, parameterNames, captured);
+                break;
+
             case LambdaExpression nestedLambda:
                 // Nested lambdas - parameters shadow outer scope
                 var nestedParams = new HashSet<string>(parameterNames);

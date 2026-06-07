@@ -2837,6 +2837,10 @@ public partial class ILCompiler
     {
         switch (expression)
         {
+            case OnSubscriptionExpression onSubscription:
+                CollectEscapingLocalFunctionCapturedStorageNames(onSubscription.Target, candidates, captured);
+                CollectEscapingLocalFunctionCapturedStorageNames(onSubscription.Handler, candidates, captured);
+                break;
             case LambdaExpression lambda:
                 CollectEscapingLocalFunctionCapturedStorageNames(lambda.BlockBody, candidates, captured);
                 break;
@@ -3080,6 +3084,10 @@ public partial class ILCompiler
                 break;
             case UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PreDecrement or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement } unary:
                 AddMutatedTargetName(unary.Operand, captured, mutated);
+                break;
+            case OnSubscriptionExpression onSubscription:
+                CollectMutatedCapturedStorageNames(onSubscription.Target, captured, mutated);
+                CollectMutatedCapturedStorageNames(onSubscription.Handler, captured, mutated);
                 break;
             case LambdaExpression lambda:
                 var lambdaCaptured = RemoveShadowedCapturedNames(
@@ -3447,6 +3455,11 @@ public partial class ILCompiler
     {
         switch (expression)
         {
+            case OnSubscriptionExpression onSubscription:
+                // The handler is a lambda with its own scope (skipped like LambdaExpression);
+                // only the event-target expression lives in the current scope.
+                CollectPotentialLocalStorageNames(onSubscription.Target, candidates);
+                break;
             case LambdaExpression:
                 break;
             case InterpolatedStringExpression interpolatedString:
@@ -3718,6 +3731,10 @@ public partial class ILCompiler
     {
         switch (expression)
         {
+            case OnSubscriptionExpression onSubscription:
+                CollectNestedFunctionCapturedStorageNames(onSubscription.Target, candidates, captured);
+                CollectNestedFunctionCapturedStorageNames(onSubscription.Handler, candidates, captured);
+                break;
             case LambdaExpression lambda:
                 CollectLambdaCapturedStorageNames(lambda, candidates, captured);
                 break;
@@ -4055,6 +4072,10 @@ public partial class ILCompiler
                     captured.Add(identifier.Name);
                 }
                 break;
+            case OnSubscriptionExpression onSubscription:
+                CollectCandidateIdentifierReferences(onSubscription.Target, candidates, captured, shadowed);
+                CollectCandidateIdentifierReferences(onSubscription.Handler, candidates, captured, shadowed);
+                break;
             case LambdaExpression lambda:
                 var nestedShadowed = new HashSet<string>(shadowed, StringComparer.Ordinal);
                 foreach (var parameter in lambda.Parameters)
@@ -4346,6 +4367,8 @@ public partial class ILCompiler
         return expression switch
         {
             LambdaExpression => true,
+            OnSubscriptionExpression onSubscription => ContainsNestedFunction(onSubscription.Target)
+                || ContainsNestedFunction(onSubscription.Handler),
             InterpolatedStringExpression interpolatedString => interpolatedString.Parts
                 .OfType<InterpolatedStringHole>()
                 .Any(hole => ContainsNestedFunction(hole.Expression)),
@@ -4503,6 +4526,8 @@ public partial class ILCompiler
         return expression switch
         {
             LambdaExpression => true,
+            OnSubscriptionExpression onSubscription => ContainsLambda(onSubscription.Target)
+                || ContainsLambda(onSubscription.Handler),
             InterpolatedStringExpression interpolatedString => interpolatedString.Parts
                 .OfType<InterpolatedStringHole>()
                 .Any(hole => ContainsLambda(hole.Expression)),
@@ -4624,6 +4649,8 @@ public partial class ILCompiler
             ParenthesizedExpression parenthesizedExpression => ContainsAwait(parenthesizedExpression.Inner),
             LambdaExpression lambdaExpression => (lambdaExpression.BlockBody != null && ContainsAwait(lambdaExpression.BlockBody))
                 || (lambdaExpression.ExpressionBody != null && ContainsAwait(lambdaExpression.ExpressionBody)),
+            OnSubscriptionExpression onSubscription => ContainsAwait(onSubscription.Target)
+                || ContainsAwait(onSubscription.Handler),
             _ => false
         };
     }
@@ -10956,6 +10983,10 @@ public partial class ILCompiler
                 EmitPrint(printStmt);
                 break;
 
+            case OffStatement off:
+                EmitOff(off);
+                break;
+
             case AssertStatement assertStmt:
                 EmitAssert(assertStmt);
                 break;
@@ -12337,6 +12368,7 @@ public partial class ILCompiler
         {
             AssignmentExpression assignment => TryEmitAssignmentStatement(assignment),
             UnaryExpression unary => TryEmitIncrementOrDecrementStatement(unary),
+            OnSubscriptionExpression on => EmitOnSubscriptionStatement(on),
             ParenthesizedExpression parenthesized => TryEmitExpressionDiscardingResult(parenthesized.Inner),
             _ => false
         };
@@ -13625,6 +13657,10 @@ public partial class ILCompiler
 
             case LambdaExpression lambda:
                 EmitLambda(lambda);
+                break;
+
+            case OnSubscriptionExpression on:
+                EmitOnSubscriptionCore(on, produceHandle: true);
                 break;
 
             case ParenthesizedExpression paren:
@@ -15797,6 +15833,22 @@ public partial class ILCompiler
             }
 
             _currentIL.Emit(OpCodes.Call, concatMethod);
+            return;
+        }
+
+        // Delegate fields (Func/Action/custom delegates) combine via Delegate.Combine/Remove —
+        // emitting the numeric `add`/`sub` opcode on reference types is unverifiable IL. (Events
+        // never reach here; they are rejected by the analyzer in favor of `on`/`off`.)
+        if ((op == AssignmentOperator.AddAssign || op == AssignmentOperator.SubtractAssign)
+            && IsDelegateLikeType(operandType))
+        {
+            var combineOrRemove = typeof(Delegate).GetMethod(
+                op == AssignmentOperator.AddAssign ? nameof(Delegate.Combine) : nameof(Delegate.Remove),
+                new[] { typeof(Delegate), typeof(Delegate) })
+                ?? throw new InvalidOperationException("Could not resolve Delegate.Combine/Remove(Delegate, Delegate)");
+
+            _currentIL.Emit(OpCodes.Call, combineOrRemove);
+            _currentIL.Emit(OpCodes.Castclass, operandType);
             return;
         }
 
@@ -18925,6 +18977,7 @@ public partial class ILCompiler
             IndexAccessExpression indexAccess => GetIndexAccessType(indexAccess),
             CallExpression call => GetCallExpressionType(call),
             LambdaExpression lambda => GetLambdaExpressionType(lambda),
+            OnSubscriptionExpression => typeof(NSharpLang.Runtime.NSharpEventSubscription),
             MatchExpression match => GetMatchExpressionType(match),
             TernaryExpression ternary => GetExpressionType(ternary.ThenExpression),
             ArrayLiteralExpression arrayLiteral => GetArrayLiteralType(arrayLiteral),

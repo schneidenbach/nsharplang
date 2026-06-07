@@ -48,6 +48,8 @@ public enum ErrorCode
     UnverifiedErrorResult = 314,
     DiscardedMustUseResult = 315,
     ShadowedDeclaration = 316,
+    EventRequiresOnOff = 317,
+    InvalidEventSubscription = 318,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,

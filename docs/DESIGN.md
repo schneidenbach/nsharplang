@@ -1583,9 +1583,10 @@ import Newtonsoft.Json as Json  // with alias
 
 ### Now Shipped (formerly deferred)
 - **Unsafe code and pointers** — shipped in the opt-in [Systems N#](guide/systems.md) profile as governed `unsafe { }` blocks behind `[memory(safe)]` + `[trusted(...)]`, alongside `ref struct`, `stackalloc`, and lifetime-checked spans.
+- **.NET event interop** — subscribe to a .NET `event` with `on event handler` and detach with `off subscription`. `on` returns a subscription handle, so unsubscribing a lambda just works (unlike C#'s `-=`). N# still has no `event` *declaration* keyword — you consume external events, you don't author them. See [Interop → Subscribing to .NET Events](guide/interop.md). Note: `+=`/`-=` on an event is a compile error that points you to `on`/`off`; `+=`/`-=` on a real `Func`/`Action` field still performs delegate combine/remove.
 
 ### Explicitly NOT Supported
-- **Events** - NO event syntax. N# does not interop with .NET events. Use callbacks/lambdas instead.
+- **Declaring events** - NO `event` keyword for *defining* events on your own types. Model notifications with a `Func<>`/`Action<>` field instead. (Subscribing to *external* .NET events is supported via `on`/`off` — see above.)
 - **Delegates (custom)** - Use `Func<>` and `Action<>` from .NET. No custom delegate declarations.
 
 ## Philosophy Notes

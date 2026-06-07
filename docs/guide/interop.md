@@ -413,12 +413,55 @@ func main() {
 }
 ```
 
-### Example 4: Callbacks Instead of Events
+### Example 4: Subscribing to .NET Events with `on` / `off`
 
-N# deliberately has **no event syntax** — there is no `event` keyword, and subscribing to a
-.NET `event` member is not supported. (See [DESIGN.md → Deferred Features](../DESIGN.md).)
-For your own N# APIs, model notifications with a delegate field or callback parameter using
-`Func<>`, which N# fully supports:
+To subscribe to a .NET `event`, use `on`; to unsubscribe, use `off`. `on` lowers to the event's
+`add_` accessor and returns a **subscription handle**; `off` calls the `remove_` accessor through
+that handle. Because the handle remembers the exact delegate that was added, unsubscribing a
+lambda just works — no need to keep the original delegate around the way C#'s `-=` demands.
+
+```n#
+import System
+
+func main() {
+    // Fire-and-forget: subscribe and never detach.
+    on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
+        Console.WriteLine("shutting down")
+    }
+
+    // Keep the handle so you can detach later.
+    timer := new System.Timers.Timer(1000)
+    sub := on timer.Elapsed (sender, args) => {
+        Console.WriteLine("tick")
+    }
+    timer.Start()
+    // ...later...
+    off sub        // detaches the handler
+}
+```
+
+The handler is a lambda; its parameter types are inferred from the event's delegate
+(`(sender, args)` above become `object` and `EventArgs`).
+
+#### `+=` / `-=` are a compile error on events
+
+N# does not assign events. Writing `event += handler` is rejected at compile time with a
+diagnostic that points you to `on`/`off` — this closes a class of bugs where the assignment used
+to compile and then throw `FieldAccessException` at runtime:
+
+```n#
+// ERROR NL317: 'ProcessExit' is a .NET event — it can't be subscribed to with '+='
+//   help: Subscribe with `on AppDomain.CurrentDomain.ProcessExit (sender, args) => { ... }`.
+AppDomain.CurrentDomain.ProcessExit += (sender, args) => { }
+```
+
+`+=` / `-=` still work on real `Func`/`Action`/delegate **fields** (they perform delegate
+combine/remove) — only genuine .NET *events* require `on`/`off`.
+
+#### Authoring notifications on your own types
+
+N# has no `event` *declaration* keyword. For notifications on your own APIs, model them with a
+delegate field or callback parameter using `Func<>`/`Action<>`:
 
 ```n#
 class Button {
@@ -439,9 +482,6 @@ func main() {
     button.Click()   // "Button clicked!"
 }
 ```
-
-If you must consume a C# API that exposes a true `event`, wrap the subscription in a thin
-C# shim that exposes a plain callback/delegate method, and call that shim from N#.
 
 ## Type Mappings
 

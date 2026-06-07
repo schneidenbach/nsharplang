@@ -177,6 +177,13 @@ public record PrintStatement(
     int Line,
     int Column) : Statement(Line, Column);
 
+// Event unsubscription: `off subscription`
+// Detaches a handler previously attached with `on`, by calling Unsubscribe() on the handle.
+public record OffStatement(
+    Expression Handle,
+    int Line,
+    int Column) : Statement(Line, Column);
+
 // Preprocessor directive (pass-through to C#)
 public record PreprocessorDirective(
     string Directive,  // Full directive text including # (e.g., "#if DEBUG", "#region Helpers")

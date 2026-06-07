@@ -587,6 +587,26 @@ N# also has `newtype` for *distinct* branded types that are **not** interchangea
 their underlying type (`type Email = newtype string`) — see the
 [Types guide](types.md#newtypes-branded-types).
 
+## Subscribing to .NET Events
+
+Subscribe to a .NET event with `on` and detach with `off`. `on` returns a subscription handle
+you can hold onto — unsubscribing a lambda just works, no need to stash the delegate.
+
+```n#
+import System
+
+func main() {
+    sub := on AppDomain.CurrentDomain.ProcessExit (sender, args) => {
+        print "bye"
+    }
+    off sub        // detach again
+}
+```
+
+`+=`/`-=` on an event is a compile error that points you to `on`/`off` (it used to compile and
+then crash at runtime). On a real `Func`/`Action` field, `+=`/`-=` still combine/remove
+delegates. See the [Interop guide](interop.md) for details.
+
 ## Working With Nullable Values
 
 Use `?` to mark a type nullable, and `must` to assert a nullable value is non-null,

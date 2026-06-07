@@ -1457,6 +1457,10 @@ public partial class ILCompiler
                 FindEscapingLocalFunctionReferences(indexAccess.Object, localFunctionNames, escapingNames, isDirectCallCallee: false);
                 FindEscapingLocalFunctionReferences(indexAccess.Index, localFunctionNames, escapingNames, isDirectCallCallee: false);
                 break;
+            case OnSubscriptionExpression onSubscription:
+                FindEscapingLocalFunctionReferences(onSubscription.Target, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                FindEscapingLocalFunctionReferences(onSubscription.Handler, localFunctionNames, escapingNames, isDirectCallCallee: false);
+                break;
             case LambdaExpression lambda:
                 if (lambda.ExpressionBody != null)
                 {
