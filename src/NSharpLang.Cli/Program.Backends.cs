@@ -18,7 +18,7 @@ partial class Program
             : config?.EffectiveBackend ?? CompilationBackend.Il;
     }
 
-    private static BuildCommandResult BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false)
+    private static BuildCommandResult BuildWithIlBackend(string projectRoot, bool release, string? outputDir, bool timings, bool verbose = false, bool aot = false, IReadOnlyList<string>? cliDefines = null)
     {
         var totalSw = Stopwatch.StartNew();
         var resolveSw = new Stopwatch();
@@ -37,6 +37,7 @@ partial class Program
 
             var config = ProjectFileParser.Parse(projectYmlPath);
             var configuration = release ? "Release" : "Debug";
+            ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = outputDir != null
                 ? Path.GetFullPath(outputDir)
                 : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
@@ -78,7 +79,7 @@ Build timings:
         }
     }
 
-    private static BuildCommandResult BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir, bool aot = false)
+    private static BuildCommandResult BuildSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, bool release, string? outputDir, bool aot = false, IReadOnlyList<string>? cliDefines = null)
     {
         try
         {
@@ -86,6 +87,7 @@ Build timings:
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
+            ApplyEffectiveDefines(config, debug: !release, cliDefines);
             var resolvedOutputDir = outputDir != null
                 ? Path.GetFullPath(outputDir)
                 : Path.Combine(sourceDir, "bin", release ? "Release" : "Debug", config.TargetFramework);
@@ -110,7 +112,7 @@ Build timings:
         }
     }
 
-    private static int RunWithIlBackend(string projectRoot)
+    private static int RunWithIlBackend(string projectRoot, IReadOnlyList<string>? cliDefines = null)
     {
         try
         {
@@ -128,6 +130,7 @@ Build timings:
             }
 
             var configuration = "Debug";
+            ApplyEffectiveDefines(config, debug: true, cliDefines);
             var outputDir = CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
             var references = CompilationReferenceResolver.AddResolvedDllReferences(
                 projectRoot,
@@ -150,7 +153,7 @@ Build timings:
         }
     }
 
-    private static int RunSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig)
+    private static int RunSingleFileWithIlBackend(string sourceFile, ProjectConfig? projectConfig, IReadOnlyList<string>? cliDefines = null)
     {
         var tempDir = CreateTempBuildDirectory();
         try
@@ -159,6 +162,7 @@ Build timings:
 
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var config = GetEffectiveCompilationConfig(projectConfig, Path.GetFileNameWithoutExtension(sourceFile));
+            ApplyEffectiveDefines(config, debug: true, cliDefines);
             if (!string.Equals(config.OutputType, "exe", StringComparison.OrdinalIgnoreCase))
             {
                 return Error("Cannot run a library source file.");
@@ -197,6 +201,7 @@ Build timings:
         bool aotMode = false)
     {
         projectRoot = Path.GetFullPath(projectRoot);
+        ApplyEffectiveDefines(config, debug: !string.Equals(configuration, "Release", StringComparison.OrdinalIgnoreCase), cliDefines: null);
         var resolvedOutputDir = outputDir != null
             ? Path.GetFullPath(outputDir)
             : CompilationReferenceResolver.GetStableOutputDirectory(projectRoot, config, configuration);
@@ -345,6 +350,33 @@ Build timings:
         var config = projectConfig ?? ProjectFileParser.CreateDefault(defaultName);
         config.Name ??= defaultName;
         return config;
+    }
+
+    /// <summary>
+    /// Folds build-configuration and CLI conditional-compilation symbols into
+    /// <see cref="ProjectConfig.Defines"/> (which already holds the project.yml-authored
+    /// symbols). Defines <c>DEBUG</c> for debug builds — matching C#/MSBuild — and adds
+    /// any <c>--define</c> values. Symbols are case-sensitive and de-duplicated.
+    /// </summary>
+    private static void ApplyEffectiveDefines(ProjectConfig config, bool debug, IReadOnlyList<string>? cliDefines)
+    {
+        if (debug && !config.Defines.Contains("DEBUG"))
+        {
+            config.Defines.Add("DEBUG");
+        }
+
+        if (cliDefines == null)
+        {
+            return;
+        }
+
+        foreach (var symbol in cliDefines)
+        {
+            if (!string.IsNullOrWhiteSpace(symbol) && !config.Defines.Contains(symbol))
+            {
+                config.Defines.Add(symbol);
+            }
+        }
     }
 
     private static BuildPerfReportFacts ToPerfReportFacts(MultiFileCompiler compiler)

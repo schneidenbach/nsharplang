@@ -190,6 +190,8 @@
       ProjectRoot="$(MSBuildProjectDirectory)"
       ProjectFile="$(NSharpProjectFile)"
       AssemblyVersion="$(AssemblyVersion)"
+      Configuration="$(Configuration)"
+      DefineConstants="$(DefineConstants)"
       TargetAssemblyPath="@(IntermediateAssembly)"
       TargetReferenceAssemblyPath="$(TargetRefPath)" />
   </Target>

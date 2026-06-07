@@ -99,7 +99,13 @@ Options:
   --perf-report      Emit a versioned JSON performance report after build
   --aot              Analyze for Native AOT safety; AOT blockers become build errors
   --output <path>    Output directory for build artifacts (-o shorthand)
+  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);
+                     repeatable, and accepts comma-separated lists
   --help, -h         Show this help text
+
+Conditional compilation:
+  DEBUG is defined automatically for debug builds (omitted with --release).
+  Project-wide symbols can also be set via 'defines:' in project.yml.
 
 Examples:
   nlc build              Build the current project
@@ -110,6 +116,7 @@ Examples:
   nlc build --perf-report Emit a JSON performance report
   nlc build --aot        Fail the build on Native AOT blockers
   nlc build -o ./dist    Build to a specific output directory
+  nlc build --define FEATURE_X  Build with FEATURE_X defined
   nlc build Program.nl   Build a single file
 
 Exit codes:
@@ -117,6 +124,10 @@ Exit codes:
   1  Build failed");
             return 0;
         }
+
+        // Extract --define/-d before operand/flag detection so their values are never
+        // mistaken for source-file operands by the build operand parsers.
+        var cliDefines = ExtractDefineFlags(ref args);
 
         // Check for flags
         var release = args.Contains("--release");
@@ -147,7 +158,7 @@ Exit codes:
                 var buildResult = RunBuildEmittingPerfReport(
                     perfReport,
                     projectRoot,
-                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot));
+                    () => BuildWithIlBackend(projectRoot, release, outputDir, timings, verbose, aot, cliDefines));
                 return buildResult;
             }
 
@@ -163,7 +174,7 @@ Exit codes:
             var singleFileResult = RunBuildEmittingPerfReport(
                 perfReport,
                 sourceDir,
-                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot));
+                () => BuildSingleFileWithIlBackend(sourceFile, sourceProjectConfig, release, outputDir, aot, cliDefines));
             return singleFileResult;
         }
         catch (Exception ex)
@@ -379,12 +390,19 @@ Build and run either the current project or a single N# source file.
 
 Options:
   --backend <mode>   Compilation backend: il
+  --define <symbol>  Define a conditional-compilation symbol for #if (-d shorthand);
+                     repeatable, and accepts comma-separated lists
   --help, -h         Show this help text
+
+Conditional compilation:
+  DEBUG is defined automatically when running (a debug build).
+  Project-wide symbols can also be set via 'defines:' in project.yml.
 
 Examples:
   nlc run
   nlc run --backend il
   nlc run Program.nl
+  nlc run --define FEATURE_X
 
 Exit codes:
   0  Program ran successfully
@@ -392,6 +410,9 @@ Exit codes:
             return 0;
         }
 
+        // Extract --define/-d before operand detection so their values are never
+        // mistaken for the source-file operand.
+        var cliDefines = ExtractDefineFlags(ref args);
         var backendOption = GetOptionValue(args, "--backend");
         var sourceFile = GetRunSourceOperand(args);
 
@@ -407,7 +428,7 @@ Exit codes:
                     throw new InvalidOperationException(CompilationBackendExtensions.RetiredTranspileBackendMessage);
                 }
 
-                return RunWithIlBackend(projectRoot);
+                return RunWithIlBackend(projectRoot, cliDefines);
             }
 
             if (!File.Exists(sourceFile))
@@ -420,7 +441,7 @@ Exit codes:
             var sourceDir = Path.GetDirectoryName(Path.GetFullPath(sourceFile)) ?? Directory.GetCurrentDirectory();
             var sourceProjectConfig = ProjectFileParser.ParseFromDirectory(sourceDir);
             _ = ResolveCompilationBackend(backendOption, sourceProjectConfig);
-            return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig);
+            return RunSingleFileWithIlBackend(sourceFile, sourceProjectConfig, cliDefines);
         }
         catch (Exception ex)
         {
@@ -1462,6 +1483,63 @@ Exit codes:
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Extracts conditional-compilation symbols from <c>--define</c>/<c>-d</c> flags
+    /// (space form <c>--define FOO</c>, equals form <c>--define=FOO</c>, and
+    /// comma/semicolon lists <c>--define FOO,BAR</c>), removing them from
+    /// <paramref name="args"/> so operand/flag detection never sees them. Returns the
+    /// collected symbols in first-seen order.
+    /// </summary>
+    static List<string> ExtractDefineFlags(ref string[] args)
+    {
+        var defines = new List<string>();
+        var remaining = new List<string>(args.Length);
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var arg = args[i];
+            if (arg is "--define" or "-d")
+            {
+                if (i + 1 < args.Length)
+                {
+                    AddDefineSymbols(defines, args[i + 1]);
+                    i++; // consume the flag's value
+                }
+
+                continue;
+            }
+
+            if (arg.StartsWith("--define=", StringComparison.Ordinal))
+            {
+                AddDefineSymbols(defines, arg["--define=".Length..]);
+                continue;
+            }
+
+            if (arg.StartsWith("-d=", StringComparison.Ordinal))
+            {
+                AddDefineSymbols(defines, arg["-d=".Length..]);
+                continue;
+            }
+
+            remaining.Add(arg);
+        }
+
+        args = remaining.ToArray();
+        return defines;
+    }
+
+    static void AddDefineSymbols(List<string> defines, string raw)
+    {
+        foreach (var part in raw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var symbol = part.Trim();
+            if (symbol.Length > 0 && !defines.Contains(symbol))
+            {
+                defines.Add(symbol);
+            }
+        }
     }
 
     static string[] GetPositionalArgs(string[] args, params string[] optionsWithValues)

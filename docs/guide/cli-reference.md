@@ -13,8 +13,8 @@ Updated: 2026-06-01
 
 | Command | Purpose | Key Flags | Example |
 |---------|---------|-----------|---------|
-| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--output` | `nlc build` |
-| `nlc run [file]` | Build and run a project or single file | none | `nlc run` |
+| `nlc build [file]` | Build a project or single file | `--backend`, `--project`, `--release`, `--verbose`, `--timings`, `--perf-report`, `--output`, `--define` | `nlc build` |
+| `nlc run [file]` | Build and run a project or single file | `--define` | `nlc run` |
 | `nlc new <name>` | Create a csproj-free N# project scaffold | `--template` (`console`, `library`, `test`, `webapi`, `systems-cli`, `systems-lib`), `--systems` | `nlc new MyApp --template console` |
 | `nlc init` | Initialize N# in the current directory | none | `nlc init` |
 | `nlc test` | Run `.tests.nl` suites through the xUnit/NUnit-backed N# test runner | `--project`, `--filter`, `--verbose`, `--json` | `nlc test --filter "should add"` |
@@ -128,6 +128,7 @@ nlc completion bash > /etc/bash_completion.d/nlc
 ## Build, Test, And Publish Truth
 
 - `nlc build --release` selects the Release configuration and `bin/Release/<targetFramework>` output layout unless `--output` is provided. The direct IL backend does not have a separate optimization mode yet.
+- **Conditional compilation.** `#if`/`#elif`/`#else`/`#endif` are evaluated by the compiler against the set of defined symbols; only the live branch is compiled (`#region`/`#endregion` remain organizational pass-through). `DEBUG` is defined for debug builds (`nlc run`, `nlc build`, `nlc test`) and omitted under `nlc build --release`. Project-wide symbols come from `defines:` in `project.yml`; ad-hoc symbols come from `--define <symbol>` / `-d <symbol>` (repeatable, and comma/semicolon lists are accepted). Conditions support symbols, `true`/`false`, `!`, `&&`, `||`, and parentheses, matching C# preprocessor semantics. Symbol names are case-sensitive.
 - `nlc build --perf-report` builds the project and then prints a versioned JSON performance report to stdout. The envelope is `{ schemaVersion: 1, command: "build", ok: true, projectRoot, perfReport: { allocationSites, delegateSites, boxingSites, dispatchSites, closureCaptures, poolSites, resourceSites, boundaryLeakSites, hotReadinessSites, implicitTrapSites, trustedSites, aotBlockers } }`. `aotBlockers` is populated from semantic AOT-blocker analysis when blockers are found; the systems categories are populated from Systems N# effect findings and governed trusted-site metadata. Combine with `--project <dir>` to point at a specific project root.
 - `nlc test --coverage` and `nlc test --coverage-report` are unavailable in the native test runner today. They exit 1 with a clear text error, or with the same message in the schemaVersion 1 JSON `error` field when `--json` is present.
 - `nlc publish` produces framework-dependent artifacts. Without `--runtime`, run the output with `dotnet <assembly>.dll` on a compatible .NET installation.

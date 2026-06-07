@@ -75,6 +75,13 @@ public class ProjectConfig
     public string TestFramework { get; set; } = "xunit";
 
     /// <summary>
+    /// Conditional-compilation symbols defined for the whole project. These drive
+    /// <c>#if</c>/<c>#elif</c> evaluation in source. The build also defines
+    /// <c>DEBUG</c> for debug builds and any symbols passed via <c>nlc --define</c>.
+    /// </summary>
+    public List<string> Defines { get; set; } = new();
+
+    /// <summary>
     /// Language-specific configuration
     /// </summary>
     public LanguageConfig Language { get; set; } = new();

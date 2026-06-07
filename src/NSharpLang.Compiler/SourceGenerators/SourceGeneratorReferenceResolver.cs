@@ -1,9 +1,12 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Xml.Linq;
 using NSharpLang.Compiler.Ast;
 
@@ -13,7 +16,19 @@ public static class SourceGeneratorReferenceResolver
 {
     private static readonly StringComparer PathComparer = StringComparer.OrdinalIgnoreCase;
 
-    public static void PopulateDiscoveredReferences(
+    // (path|fingerprint) -> single-flight build of the generator assembly path. Bounds
+    // `dotnet build` to once per generator-project change within a process (H5) and coalesces
+    // concurrent analysis/check threads so they don't race a build of the same project.
+    private static readonly ConcurrentDictionary<string, Lazy<string>> GeneratorBuildCache = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Discovers source-generator references for the project (package analyzers, framework
+    /// generators, and Roslyn-component project references) and appends them to
+    /// <paramref name="config"/>. Returns any diagnostics produced while preparing those
+    /// references (e.g. a generator project that failed to build) so callers can surface them
+    /// instead of crashing analysis/emit (H6).
+    /// </summary>
+    public static IReadOnlyList<CompilerError> PopulateDiscoveredReferences(
         ProjectConfig config,
         string projectRoot,
         IEnumerable<CompilationUnit>? compilationUnits = null,
@@ -21,6 +36,8 @@ public static class SourceGeneratorReferenceResolver
     {
         ArgumentNullException.ThrowIfNull(config);
         projectRoot = Path.GetFullPath(projectRoot);
+
+        var diagnostics = new List<CompilerError>();
 
         foreach (var packageReference in config.Dependencies.Where(reference => reference.Type == ReferenceType.NuGet))
         {
@@ -48,14 +65,32 @@ public static class SourceGeneratorReferenceResolver
                 continue;
             }
 
-            if (buildProjectReferences)
+            if (!buildProjectReferences)
             {
-                var outputAssembly = BuildGeneratorProject(projectPath);
+                continue;
+            }
+
+            // Only build project references that are actually Roslyn components (source
+            // generators / analyzers). Ordinary library references are resolved as normal
+            // compile references elsewhere and must NOT be built here — building every
+            // `.csproj` on the interactive analysis path is the H5 stall (ILCompiler review).
+            if (!IsRoslynComponentProject(projectPath))
+            {
+                continue;
+            }
+
+            try
+            {
+                var outputAssembly = BuildGeneratorProjectCached(projectPath);
                 AddReferenceIfMissing(
                     config,
                     outputAssembly,
                     SourceGeneratorReferenceKind.Project,
                     projectReference.Project!);
+            }
+            catch (Exception ex)
+            {
+                diagnostics.Add(BuildGeneratorReferenceFailureDiagnostic(projectReference.Project!, projectPath, ex));
             }
         }
 
@@ -68,7 +103,148 @@ public static class SourceGeneratorReferenceResolver
                 "System.Text.Json.SourceGeneration.dll",
                 "System.Text.Json");
         }
+
+        return diagnostics;
     }
+
+    /// <summary>
+    /// True when the project declares <c>&lt;IsRoslynComponent&gt;true&lt;/IsRoslynComponent&gt;</c>,
+    /// the standard MSBuild marker for source-generator / analyzer projects.
+    /// </summary>
+    private static bool IsRoslynComponentProject(string projectPath)
+    {
+        try
+        {
+            var document = XDocument.Load(projectPath);
+            return document.Descendants()
+                .Where(element => element.Name.LocalName == "IsRoslynComponent")
+                .Any(element => string.Equals(element.Value.Trim(), "true", StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static string BuildGeneratorProjectCached(string projectPath)
+    {
+        projectPath = Path.GetFullPath(projectPath);
+        var key = projectPath + "|" + ComputeProjectFingerprint(projectPath);
+
+        while (true)
+        {
+            // Single-flight: only one thread builds a given (project, fingerprint); others await
+            // the same Lazy result instead of racing a concurrent `dotnet build` of the project.
+            var lazy = GeneratorBuildCache.GetOrAdd(
+                key,
+                _ => new Lazy<string>(() => BuildGeneratorProject(projectPath), LazyThreadSafetyMode.ExecutionAndPublication));
+
+            string built;
+            try
+            {
+                built = lazy.Value;
+            }
+            catch
+            {
+                // Don't pin a failed build; let a later call retry.
+                GeneratorBuildCache.TryRemove(new KeyValuePair<string, Lazy<string>>(key, lazy));
+                throw;
+            }
+
+            if (File.Exists(built))
+            {
+                return built;
+            }
+
+            // The cached output was removed after the build; invalidate this entry and rebuild.
+            GeneratorBuildCache.TryRemove(new KeyValuePair<string, Lazy<string>>(key, lazy));
+        }
+    }
+
+    // Fingerprint covers every build input we can cheaply see: the count and newest write time of
+    // all files under the project directory (excluding bin/obj), plus any ancestor
+    // Directory.Build.props/.targets. Captures edits, adds, and deletes of project sources and
+    // MSBuild props/targets so a stale generator assembly isn't reused. It does NOT capture
+    // changes in referenced projects or NuGet restore inputs outside the project tree — rare for
+    // a generator project, and `dotnet build` incrementality still applies when we do build.
+    private static string ComputeProjectFingerprint(string projectPath)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(projectPath) ?? Environment.CurrentDirectory;
+            long newestTicks = 0;
+            long fileCount = 0;
+            foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            {
+                if (PathHasSegment(file, "bin") || PathHasSegment(file, "obj"))
+                {
+                    continue;
+                }
+
+                fileCount++;
+                var ticks = File.GetLastWriteTimeUtc(file).Ticks;
+                if (ticks > newestTicks)
+                {
+                    newestTicks = ticks;
+                }
+            }
+
+            foreach (var ticks in EnumerateAncestorBuildFileTicks(directory))
+            {
+                if (ticks > newestTicks)
+                {
+                    newestTicks = ticks;
+                }
+            }
+
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"{fileCount}|{newestTicks}");
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static IEnumerable<long> EnumerateAncestorBuildFileTicks(string startDirectory)
+    {
+        for (var current = new DirectoryInfo(startDirectory); current != null; current = current.Parent)
+        {
+            foreach (var name in new[] { "Directory.Build.props", "Directory.Build.targets" })
+            {
+                var path = Path.Combine(current.FullName, name);
+                if (File.Exists(path))
+                {
+                    yield return File.GetLastWriteTimeUtc(path).Ticks;
+                }
+            }
+        }
+    }
+
+    private static bool PathHasSegment(string path, string segment)
+        => path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Any(part => string.Equals(part, segment, StringComparison.OrdinalIgnoreCase));
+
+    private static CompilerError BuildGeneratorReferenceFailureDiagnostic(string origin, string projectPath, Exception ex)
+        => new CompilerError(
+            ErrorCode.SourceGeneratorLoadFailure,
+            $"Source generator project reference '{origin}' could not be prepared: {ex.Message}",
+            0,
+            0,
+            ErrorSeverity.Error)
+        {
+            DiagnosticIdOverride = "NL920",
+            HumanExplanation = "A referenced source-generator project failed to build, so its generators are unavailable.",
+            ContextualHint = "Source-generator project references are built before generators run; a build failure there is reported as a diagnostic instead of crashing analysis.",
+            Suggestion = "Build the referenced generator project manually to see the underlying error, fix it, or remove the reference.",
+            RelatedInfo = new Dictionary<string, string>
+            {
+                ["origin"] = origin,
+                ["path"] = projectPath,
+                ["exception"] = ex.ToString()
+            }
+        };
 
     public static void AddPackageAnalyzers(ProjectConfig config, string packageName, string packageDirectory)
     {

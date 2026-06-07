@@ -123,6 +123,12 @@ entry: Program.nl
 outputType: exe
 targetFramework: net10.0
 
+# Conditional-compilation symbols available to #if. DEBUG is also defined
+# automatically for debug builds (omitted under `nlc build --release`), and
+# extra symbols can be passed ad hoc with `nlc build --define FEATURE_X`.
+defines:
+  - FEATURE_X
+
 dependencies:
   - nuget: Newtonsoft.Json
     version: 13.0.3

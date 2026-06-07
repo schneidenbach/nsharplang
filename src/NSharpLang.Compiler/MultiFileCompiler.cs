@@ -30,6 +30,7 @@ public class MultiFileCompiler
     private readonly Analyzer _sharedAnalyzer;
     private readonly bool _debugLoggingEnabled;
     private readonly IReadOnlyDictionary<string, string> _sourceTextOverrides;
+    private readonly IReadOnlySet<string> _preprocessorSymbols;
     private readonly Dictionary<string, string> _sourceTexts = new(StringComparer.OrdinalIgnoreCase);
     private readonly BindingMap _projectBindings = new();
     private readonly Dictionary<string, string> _projectTypeDeclarationFiles = new(StringComparer.Ordinal);
@@ -109,6 +110,7 @@ public class MultiFileCompiler
     {
         _projectRoot = projectRoot;
         _config = config ?? ProjectFileParser.CreateDefault();
+        _preprocessorSymbols = BuildPreprocessorSymbols(_config);
         _sourceTextOverrides = NormalizeSourceTextOverrides(sourceTextOverrides);
         _sourceFiles = DeduplicateSourceFilesOrdinalIgnoreCase(sourceFiles
             .Select(Path.GetFullPath)
@@ -120,6 +122,27 @@ public class MultiFileCompiler
         _sharedAnalyzer = new Analyzer();
         _sharedAnalyzer.LoadSystemAssemblies();
         _sharedAnalyzer.LoadFromProjectConfig(_config, _projectRoot);
+    }
+
+    /// <summary>
+    /// Builds the set of conditional-compilation symbols that drive <c>#if</c>
+    /// evaluation, seeded from <c>project.yml</c> <c>defines:</c>. The CLI folds
+    /// build-configuration symbols (e.g. <c>DEBUG</c>) and <c>--define</c> values
+    /// into the same list before constructing the compiler. Symbols are
+    /// case-sensitive, matching C# preprocessor semantics.
+    /// </summary>
+    private static IReadOnlySet<string> BuildPreprocessorSymbols(ProjectConfig config)
+    {
+        var symbols = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var define in config.Defines)
+        {
+            if (!string.IsNullOrWhiteSpace(define))
+            {
+                symbols.Add(define.Trim());
+            }
+        }
+
+        return symbols;
     }
 
     private static List<string> BuildSourceFiles(string projectRoot, ProjectConfig config, IReadOnlyDictionary<string, string>? sourceTextOverrides)
@@ -191,6 +214,10 @@ public class MultiFileCompiler
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Lexer created");
                 var tokens = lexer.Tokenize();
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Tokenized ({tokens.Count} tokens)");
+                // Resolve conditional-compilation directives (#if/#elif/#else/#endif) so the
+                // parser and all downstream stages only see the live branch.
+                tokens = Preprocessor.Process(tokens, _preprocessorSymbols, sourceFile, _allErrors);
+                AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Preprocessed ({tokens.Count} tokens)");
                 var parser = new Parser(tokens, sourceFile, source);  // Pass source code
                 AppendDebugLog($"[{DateTime.Now:HH:mm:ss.fff}]     Parser created");
                 var parseResult = parser.ParseCompilationUnit();
@@ -615,23 +642,47 @@ public class MultiFileCompiler
         var effectiveAssemblyName = !string.IsNullOrWhiteSpace(assemblyName)
             ? assemblyName!
             : GetProjectAssemblyName();
-        var stubSource = CompilationStubEmitter.Generate(_config, orderedUnits);
-        var stubPath = Path.Combine(
-            _projectRoot,
-            "obj",
-            "nsharp",
-            "generator-input",
-            $"{SanitizeGeneratedInputFileName(effectiveAssemblyName)}.AnalysisStub.g.cs");
 
-        _sourceGeneratorAnalysisResult = SourceGeneratorPipeline.RunForAnalysis(
-            _config,
-            _projectRoot,
-            effectiveAssemblyName,
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        // The source-generator pipeline runs on the analysis fast path (nlc check / LSP). It must
+        // never crash analysis: an unexpected failure is converted into a clean diagnostic (H6).
+        try
+        {
+            var stubSource = CompilationStubEmitter.Generate(_config, orderedUnits);
+            var stubPath = Path.Combine(
+                _projectRoot,
+                "obj",
+                "nsharp",
+                "generator-input",
+                $"{SanitizeGeneratedInputFileName(effectiveAssemblyName)}.AnalysisStub.g.cs");
+
+            _sourceGeneratorAnalysisResult = SourceGeneratorPipeline.RunForAnalysis(
+                _config,
+                _projectRoot,
+                effectiveAssemblyName,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [stubPath] = stubSource
+                },
+                orderedUnits);
+        }
+        catch (Exception ex)
+        {
+            _sourceGeneratorAnalysisResult = SourceGeneratorRunResult.Inactive;
+            _allErrors.Add(new CompilerError(
+                ErrorCode.SourceGeneratorFailure,
+                $"Source generator analysis failed: {ex.Message}",
+                0,
+                0,
+                ErrorSeverity.Error)
             {
-                [stubPath] = stubSource
-            },
-            orderedUnits);
+                DiagnosticIdOverride = "NL921",
+                HumanExplanation = "The source-generator analysis pass threw unexpectedly.",
+                ContextualHint = "Generated members may be missing from analysis; the failure is reported rather than crashing nlc check / the language server.",
+                Suggestion = "Inspect the generator dependency, restore packages, or remove the offending generator reference.",
+                RelatedInfo = new Dictionary<string, string> { ["exception"] = ex.ToString() }
+            });
+            return;
+        }
 
         if (!_sourceGeneratorAnalysisResult.IsActive)
         {

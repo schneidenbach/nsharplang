@@ -28,6 +28,18 @@ public class EmitIlAssembly : Task
 
     public string? AssemblyVersion { get; set; }
 
+    /// <summary>
+    /// Build configuration ("Debug"/"Release"); drives whether <c>DEBUG</c> is defined
+    /// for conditional compilation, matching the <c>nlc</c> CLI.
+    /// </summary>
+    public string? Configuration { get; set; }
+
+    /// <summary>
+    /// Semicolon/comma-separated conditional-compilation symbols from MSBuild
+    /// (<c>$(DefineConstants)</c>), folded into the project's defined symbols.
+    /// </summary>
+    public string? DefineConstants { get; set; }
+
     public override bool Execute()
     {
         try
@@ -65,6 +77,8 @@ public class EmitIlAssembly : Task
                 config.Version = AssemblyVersion;
             }
 
+            ApplyEffectiveDefines(config);
+
             AddResolvedDllReferences(config, TargetAssemblyPath, TargetReferenceAssemblyPath);
 
             var compiler = new MultiFileCompiler(sourceFiles, ProjectRoot, config);
@@ -88,6 +102,34 @@ public class EmitIlAssembly : Task
         {
             Log.LogErrorFromException(ex, showStackTrace: true);
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Folds build-configuration and MSBuild <c>DefineConstants</c> symbols into the
+    /// project's defined symbols so <c>dotnet build</c> resolves <c>#if</c> identically to
+    /// <c>nlc</c>: <c>DEBUG</c> is defined for any non-Release configuration.
+    /// </summary>
+    private void ApplyEffectiveDefines(ProjectConfig config)
+    {
+        var isRelease = string.Equals(Configuration, "Release", StringComparison.OrdinalIgnoreCase);
+        if (!isRelease && !config.Defines.Contains("DEBUG"))
+        {
+            config.Defines.Add("DEBUG");
+        }
+
+        if (string.IsNullOrWhiteSpace(DefineConstants))
+        {
+            return;
+        }
+
+        foreach (var symbol in DefineConstants.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = symbol.Trim();
+            if (trimmed.Length > 0 && !config.Defines.Contains(trimmed))
+            {
+                config.Defines.Add(trimmed);
+            }
         }
     }
 

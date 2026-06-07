@@ -9,6 +9,7 @@ using System.Text.Json;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.SourceGenerators;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -440,6 +441,156 @@ func Run(widget: Widget): int {
 
         Assert.DoesNotContain(compiler.AllErrors, error => error.Severity == ErrorSeverity.Error);
     }
+
+    [Fact]
+    public void GeneratorDiagnostic_IsReportedExactlyOnce()
+    {
+        // M7: the run-result diagnostics and the RunGeneratorsAndUpdateCompilation out-param
+        // diagnostics previously double-reported every generator diagnostic. CompileForAnalysis
+        // runs a single generator pass, so a single reported diagnostic must appear exactly once.
+        using var project = CreateProject(("Program.nl", """
+class NSharpGeneratorDiagnosticMarker {
+}
+
+func Run(): int {
+    return 1
+}
+"""));
+
+        var config = CreateLibraryConfig("GeneratorDiagnosticOnce");
+        AddDirectGenerator(config);
+
+        var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+        compiler.CompileForAnalysis();
+
+        var testGeneratorDiagnostics = compiler.AllErrors
+            .Where(error =>
+                error.DiagnosticId == "NL921"
+                && error.RelatedInfo != null
+                && error.RelatedInfo.TryGetValue("roslynDiagnosticId", out var id)
+                && id == "TSG001")
+            .ToList();
+
+        Assert.Single(testGeneratorDiagnostics);
+    }
+
+    [Fact]
+    public void NonRoslynComponentProjectReference_IsNotBuilt()
+    {
+        // H5: ordinary library project references must NOT be built by source-generator
+        // discovery on the analysis path; only Roslyn-component projects are.
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return 1
+}
+"""));
+
+        var libraryDirectory = Directory.CreateTempSubdirectory("nsharp-plain-lib-").FullName;
+        try
+        {
+            var libraryProjectPath = Path.Combine(libraryDirectory, "PlainLibrary.csproj");
+            File.WriteAllText(libraryProjectPath, """
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+""");
+
+            var config = CreateLibraryConfig("NonComponentReference");
+            config.Dependencies.Add(new Reference { Project = libraryProjectPath });
+
+            var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+            compiler.CompileForAnalysis();
+
+            Assert.False(
+                Directory.Exists(Path.Combine(libraryDirectory, "bin")),
+                "A non-Roslyn-component project reference must not be built by source-generator discovery (H5).");
+            Assert.False(
+                Directory.Exists(Path.Combine(libraryDirectory, "obj")),
+                "A non-Roslyn-component project reference must not be restored/built by source-generator discovery (H5).");
+        }
+        finally
+        {
+            Directory.Delete(libraryDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void FailingGeneratorProjectReference_ReportsDiagnosticInsteadOfCrashing()
+    {
+        // H6: a Roslyn-component project reference that fails to build must surface a clean
+        // NL920 diagnostic rather than throwing out of analysis / the language server.
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return 1
+}
+"""));
+
+        var generatorDirectory = Directory.CreateTempSubdirectory("nsharp-broken-generator-").FullName;
+        try
+        {
+            var brokenProjectPath = Path.Combine(generatorDirectory, "BrokenGenerator.csproj");
+            File.WriteAllText(brokenProjectPath, """
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <IsRoslynComponent>true</IsRoslynComponent>
+  </PropertyGroup>
+</Project>
+""");
+            // A deliberate syntax error so `dotnet build` exits non-zero quickly.
+            File.WriteAllText(Path.Combine(generatorDirectory, "Broken.cs"), "public class Broken { this is not valid c# }");
+
+            var config = CreateLibraryConfig("FailingGeneratorReference");
+            config.Dependencies.Add(new Reference { Project = brokenProjectPath });
+
+            var compiler = new MultiFileCompiler(project.SourceFiles, project.Root, config);
+
+            // Must not throw.
+            compiler.CompileForAnalysis();
+
+            Assert.Contains(
+                compiler.AllErrors,
+                error => error.DiagnosticId == "NL920" && error.Severity == ErrorSeverity.Error);
+        }
+        finally
+        {
+            Directory.Delete(generatorDirectory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void GeneratorLoadContext_IsReusedAcrossRuns()
+    {
+        // H7: loading generators previously created a fresh non-collectible AssemblyLoadContext
+        // per run, leaking one per analysis/emit. The load cache must reuse the context for the
+        // same generator set, so a second identical run creates no new context.
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return GeneratedTools.Value + 1
+}
+"""));
+
+        var config = CreateLibraryConfig("GeneratorAlcReuse");
+        AddDirectGenerator(config);
+
+        var first = CompileProject(project.Root, config, "GeneratorAlcReuseA");
+        Assert.True(first.Success, FormatErrors(first.Errors));
+
+        var contextsBefore = CountGeneratorLoadContexts();
+
+        var second = CompileProject(project.Root, config, "GeneratorAlcReuseB");
+        Assert.True(second.Success, FormatErrors(second.Errors));
+
+        var contextsAfter = CountGeneratorLoadContexts();
+
+        Assert.Equal(contextsBefore, contextsAfter);
+    }
+
+    private static int CountGeneratorLoadContexts()
+        => AssemblyLoadContext.All.Count(context =>
+            string.Equals(context.Name, SourceGeneratorPipeline.GeneratorLoadContextName, StringComparison.Ordinal));
 
     private static void AddDirectGenerator(ProjectConfig config)
     {

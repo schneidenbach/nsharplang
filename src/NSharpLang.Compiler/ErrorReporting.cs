@@ -20,6 +20,7 @@ public enum ErrorCode
     MissingClosingParen = 107,
     MissingClosingBracket = 108,
     ReservedKeywordAsName = 109,
+    InvalidPreprocessorDirective = 110,
 
     // Type errors (200-299)
     TypeNotFound = 201,
