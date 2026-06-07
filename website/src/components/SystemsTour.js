@@ -1,5 +1,4 @@
 import React from 'react';
-import useBaseUrl from '@docusaurus/useBaseUrl';
 import Link from '@docusaurus/Link';
 import CodeBlock from '@theme/CodeBlock';
 import {ArrowRight, Gauge, GraduationCap} from 'lucide-react';
@@ -58,7 +57,7 @@ export default function SystemsTour() {
   return (
     <div className="learn-page">
       <div className="learn-breadcrumb">
-        <Link to={useBaseUrl('/learn')}>Learn</Link>
+        <Link to="/learn">Learn</Link>
         <span>›</span>
         <span>Systems N# Tour</span>
       </div>
@@ -109,11 +108,11 @@ export default function SystemsTour() {
       </div>
 
       <div className="hero__buttons">
-        <Link className="btn--primary" to={useBaseUrl('/docs/getting-started')}>Get started</Link>
-        <Link className="btn--secondary" to={useBaseUrl('/learn/performance')}>
+        <Link className="btn--primary" to="/docs/getting-started">Get started</Link>
+        <Link className="btn--secondary" to="/learn/performance">
           <GraduationCap size={14} aria-hidden="true" style={{marginRight: 6}} /> Start from scratch instead
         </Link>
-        <Link className="btn--secondary" to={useBaseUrl('/playground')}>Open the playground <ArrowRight size={13} aria-hidden="true" /></Link>
+        <Link className="btn--secondary" to="/playground">Open the playground <ArrowRight size={13} aria-hidden="true" /></Link>
       </div>
     </div>
   );

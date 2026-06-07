@@ -1,6 +1,5 @@
 import React from 'react';
 import Link from '@docusaurus/Link';
-import useBaseUrl from '@docusaurus/useBaseUrl';
 import {ArrowRight, Check, Gauge, GraduationCap, Zap} from 'lucide-react';
 
 const paths = [
@@ -51,7 +50,7 @@ export default function LearnHome() {
 
       <div className="learn-paths">
         {paths.map((path) => (
-          <Link className="learn-path-card" to={useBaseUrl(path.to)} key={path.to}>
+          <Link className="learn-path-card" to={path.to} key={path.to}>
             <span className="learn-path-card__icon">{path.icon}</span>
             <span className="learn-path-card__kicker">{path.kicker}</span>
             <span className="learn-path-card__title">{path.title}</span>

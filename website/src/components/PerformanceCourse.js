@@ -1,6 +1,7 @@
 import React, {Suspense, useCallback, useEffect, useMemo, useState} from 'react';
 import BrowserOnly from '@docusaurus/BrowserOnly';
 import useBaseUrl from '@docusaurus/useBaseUrl';
+import Link from '@docusaurus/Link';
 import CodeBlock from '@theme/CodeBlock';
 import {
   AlertTriangle,
@@ -232,7 +233,7 @@ export default function PerformanceCourse() {
   return (
     <div className="learn-page">
       <div className="learn-breadcrumb">
-        <a href={useBaseUrl('/learn')}>Learn</a>
+        <Link to="/learn">Learn</Link>
         <span>›</span>
         <span>High Performance from Scratch</span>
       </div>
@@ -416,9 +417,9 @@ export default function PerformanceCourse() {
                 {moduleDone ? 'Next module' : 'Solve the puzzle to continue'} <ArrowRight size={14} aria-hidden="true" />
               </button>
             ) : (
-              <a className="course-btn course-btn--primary" href={useBaseUrl('/learn/systems')}>
+              <Link className="course-btn course-btn--primary" to="/learn/systems">
                 Finish → the Systems Tour <ArrowRight size={14} aria-hidden="true" />
-              </a>
+              </Link>
             )}
           </div>
         </section>
