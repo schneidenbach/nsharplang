@@ -11,6 +11,43 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Slice 26: routing-cost DECOMPOSITION — the front-end is 2.4x FASTER; the tax is materialization, not marshaling
+
+Slice 25 showed routing is ~4-5x slower end-to-end, but lumped the causes together. This slice decomposes the
+cost with two more `CompilationUnitRoutingBenchmarks` variants (columnar-parse-only with fresh per-function
+tables, and the same with POOLED tables), isolating each tax. Apple M4 / .NET 10.0.5, LargeGenerated (40
+funcs), ratios vs the C# parser (ratios are stable; absolute µs drift with machine temperature):
+
+| Variant | Time | Alloc |
+|---|---|---|
+| **Columnar front-end, POOLED tables, no materialize** | **0.41× (2.4× FASTER)** | 1.88× |
+| Columnar front-end, fresh per-function tables, no materialize | 3.65× slower | 16.95× |
+| Full routing (fresh tables + materialize → C# AST) | 5.52× slower | 18.5× |
+
+On a small file the pooled front-end is **0.39× time (2.6× faster) and 0.51× allocation (HALF of C#)**.
+
+**The regression is NOT a marshaling/boundary problem.** The delegate boundary is crossed identically in the
+pooled variant, which is 2.4× *faster* — so the C#↔N# boundary is negligible. The 4-5x came from two
+separable taxes:
+
+1. **Table over-allocation (fixable artifact):** pooled → fresh is 0.41× → 3.65× and 1.88× → 16.95× alloc.
+   The naive orchestrator (and `TryParseCompilationUnit`) allocate ~19 int[] tables sized to the *whole file*
+   *per function*, i.e. O(funcs·N). Pooling/right-sizing the buffers removes it entirely. Not fundamental.
+2. **Materialization to the C# AST (the real, structural tax):** no-materialize → materialize adds the rest.
+   This is the cost of rebuilding the C# object-graph AST (`ColumnarAstMaterializer`) so the *C# binder/
+   analyzer/codegen* can consume it.
+
+**Conclusion — and the answer to "how do we eliminate C#":** the N# parser front-end is genuinely **2.4×
+faster than C# and lower-allocation** when it is NOT forced back into the C# AST. Materialization exists ONLY
+because the downstream stages are still C# and consume the C# `CompilationUnit`/`Statement`/`Expression`
+records. So **"eliminate the C# reliance" and "capture the speed win" are the same goal**: port the binder/
+analyzer (and eventually codegen) to N# consuming the columnar tables directly — no materialization, no C#
+AST, no boundary. Materialization is a *symptom of the half-ported state* (N# parser feeding a C# back end),
+not an integration bug to optimize. The path is a columnar semantic pipeline, built incrementally downward
+from the (now correctness-complete, 2.4×-faster) parser, with pooled tables. Next concrete step: a contained
+spike — one semantic pass (declaration/symbol collection) reading the columnar tables directly, benchmarked
+vs the C# AST-based pass — to confirm the win compounds past the parser before committing to the full port.
+
 ## 2026-06-06 — Slice 25: END-TO-END routing benchmark — materialization erases the kernel's win (never-slower FAILS)
 
 The never-slower gate for flipping parser routing on. `CompilationUnitRoutingBenchmarks` measures the full

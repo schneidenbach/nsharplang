@@ -39,6 +39,34 @@ public class CompilationUnitRoutingBenchmarks
 
     private string _source = string.Empty;
 
+    // Pooled buffers for the NSharpFrontEnd_ColumnarParseOnly_Pooled variant: allocated once in Setup and
+    // reused across every function and every iteration, so the per-function whole-file-sized table allocation
+    // (the dominant cost of the naive orchestrator) is removed. This isolates the columnar front-end's true
+    // steady-state cost from the table-allocation artifact.
+    private int[] _pRawKinds = Array.Empty<int>();
+    private int[] _pRawStarts = Array.Empty<int>();
+    private int[] _pRawValueLengths = Array.Empty<int>();
+    private int[] _pRawLines = Array.Empty<int>();
+    private int[] _pRawColumns = Array.Empty<int>();
+    private int[] _pCk = Array.Empty<int>();
+    private int[] _pCs = Array.Empty<int>();
+    private int[] _pCv = Array.Empty<int>();
+    private int[] _pDeclKinds = Array.Empty<int>();
+    private int[] _pNsStarts = Array.Empty<int>();
+    private int[] _pNsLengths = Array.Empty<int>();
+    private int[] _pAliasStarts = Array.Empty<int>();
+    private int[] _pAliasLengths = Array.Empty<int>();
+    private readonly int[] _pPackageResult = new int[2];
+    private int[] _pSk = Array.Empty<int>(); private int[] _pSns = Array.Empty<int>(); private int[] _pSnl = Array.Empty<int>();
+    private int[] _pScs = Array.Empty<int>(); private int[] _pScc = Array.Empty<int>(); private int[] _pSci = Array.Empty<int>();
+    private int[] _pSss = Array.Empty<int>(); private int[] _pSsl = Array.Empty<int>();
+    private int[] _pPNameStart = Array.Empty<int>(); private int[] _pPNameLen = Array.Empty<int>(); private int[] _pPTypeRoot = Array.Empty<int>();
+    private readonly int[] _pSres = new int[5];
+    private int[] _pBk = Array.Empty<int>(); private int[] _pBvs = Array.Empty<int>(); private int[] _pBvl = Array.Empty<int>();
+    private int[] _pBcs = Array.Empty<int>(); private int[] _pBcc = Array.Empty<int>(); private int[] _pBci = Array.Empty<int>();
+    private int[] _pBss = Array.Empty<int>(); private int[] _pBsl = Array.Empty<int>();
+    private readonly int[] _pBres = new int[2];
+
     [Params(RoutingCorpus.Representative, RoutingCorpus.LargeGenerated)]
     public RoutingCorpus Corpus { get; set; }
 
@@ -54,6 +82,21 @@ public class CompilationUnitRoutingBenchmarks
         _parseStmt = NSharpCompiledMethod.Bind<ParseStatementNodesIntoDelegate>(kernelSource, "ParseStatementNodesInto");
 
         _source = RoutingCorpusSources.Build(Corpus);
+
+        // Pooled buffers sized to the whole corpus (>= any single function's needs).
+        var poolCap = 3 * (_source.Length + 1) + 8;
+        _pRawKinds = new int[poolCap]; _pRawStarts = new int[poolCap]; _pRawValueLengths = new int[poolCap];
+        _pRawLines = new int[poolCap]; _pRawColumns = new int[poolCap];
+        _pCk = new int[poolCap]; _pCs = new int[poolCap]; _pCv = new int[poolCap];
+        _pDeclKinds = new int[poolCap]; _pNsStarts = new int[poolCap]; _pNsLengths = new int[poolCap];
+        _pAliasStarts = new int[poolCap]; _pAliasLengths = new int[poolCap];
+        _pSk = new int[poolCap]; _pSns = new int[poolCap]; _pSnl = new int[poolCap];
+        _pScs = new int[poolCap]; _pScc = new int[poolCap]; _pSci = new int[poolCap];
+        _pSss = new int[poolCap]; _pSsl = new int[poolCap];
+        _pPNameStart = new int[poolCap]; _pPNameLen = new int[poolCap]; _pPTypeRoot = new int[poolCap];
+        _pBk = new int[poolCap]; _pBvs = new int[poolCap]; _pBvl = new int[poolCap];
+        _pBcs = new int[poolCap]; _pBcc = new int[poolCap]; _pBci = new int[poolCap];
+        _pBss = new int[poolCap]; _pBsl = new int[poolCap];
 
         // Sanity: both paths must succeed on the corpus (parity is covered by the test suite).
         var csharp = new Parser(new Lexer(_source, "bench.nl").Tokenize(), "bench.nl", _source).ParseCompilationUnit().CompilationUnit;
@@ -78,6 +121,32 @@ public class CompilationUnitRoutingBenchmarks
     {
         var unit = RouteCompilationUnit(_source);
         return unit?.Declarations.Count ?? 0;
+    }
+
+    // Same end-to-end parse as NSharpRouting_SourceToCompilationUnit -- identical tokenizer, declarations,
+    // signature, and statement kernels, identical per-function int[] table allocation, identical delegate
+    // boundary crossings -- but it STOPS at the columnar node tables and does NOT materialize the C# AST
+    // (no ColumnarAstMaterializer, no FunctionDeclaration/Parameter/Expression records). The only difference
+    // from the materializing benchmark is the materialization step, so:
+    //   (this vs NSharpRouting_SourceToCompilationUnit) = the cost of materializing the C# object-graph AST,
+    //   (this vs CSharpParser_SourceToCompilationUnit)   = the columnar front-end's true potential.
+    // This answers "is the routing regression a marshaling/boundary problem, or a materialization problem?".
+    [Benchmark]
+    public int NSharpFrontEnd_ColumnarParseOnly()
+    {
+        return ParseColumnarOnly(_source);
+    }
+
+    // Same as NSharpFrontEnd_ColumnarParseOnly but with the int[] tables POOLED (reused across functions and
+    // iterations) instead of freshly allocated per function. This removes the whole-file-sized-per-function
+    // table allocation -- a fixable orchestrator artifact -- and reveals the columnar front-end's true
+    // steady-state cost (tokenize + kernels + the kernels' own internal allocations). The gap between this and
+    // NSharpFrontEnd_ColumnarParseOnly is the table-allocation tax; this vs CSharpParser is the realistic
+    // ceiling of a columnar pipeline that never materializes the C# AST.
+    [Benchmark]
+    public int NSharpFrontEnd_ColumnarParseOnly_Pooled()
+    {
+        return ParseColumnarOnlyPooled(_source);
     }
 
     // Mirrors NSharpCompilerDogfoodAdapter.TryParseCompilationUnit (see that method for the rationale of each
@@ -199,6 +268,156 @@ public class CompilationUnitRoutingBenchmarks
         }
 
         return new CompilationUnit(Namespace: null, imports, new List<Statement>(), Package: null, declarations, 0, 0);
+    }
+
+    // Identical parse work to RouteCompilationUnit (same kernels, same per-function int[] table allocation,
+    // same delegate crossings) but WITHOUT materializing the C# AST. Returns the total columnar node count.
+    private int ParseColumnarOnly(string source)
+    {
+        var capacity = 3 * (source.Length + 1) + 8;
+        var rawKinds = new int[capacity];
+        var rawStarts = new int[capacity];
+        var rawValueLengths = new int[capacity];
+        var rawLines = new int[capacity];
+        var rawColumns = new int[capacity];
+        var rawCount = _tokenize(source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+        if (rawCount < 0 || rawCount > capacity)
+            return -1;
+
+        var declKinds = new int[rawCount + 1];
+        var declCount = _declKinds(rawKinds, rawCount, declKinds);
+        if (declCount < 0)
+            return -1;
+        for (var i = 0; i < declCount; i++)
+        {
+            if (declKinds[i] != 7)
+                return -1;
+        }
+
+        var packageResult = new int[2];
+        if (_packageSpan(rawKinds, rawStarts, rawValueLengths, rawCount, packageResult) == 1)
+            return -1;
+
+        var nsStarts = new int[rawCount + 1];
+        var nsLengths = new int[rawCount + 1];
+        var aliasStarts = new int[rawCount + 1];
+        var aliasLengths = new int[rawCount + 1];
+        var importCount = _importSpans(rawKinds, rawStarts, rawValueLengths, rawCount, nsStarts, nsLengths, aliasStarts, aliasLengths);
+        if (importCount < 0)
+            return -1;
+
+        var ck = new int[rawCount];
+        var cs = new int[rawCount];
+        var cv = new int[rawCount];
+        var n = 0;
+        for (var i = 0; i < rawCount; i++)
+        {
+            if (rawKinds[i] == 136)
+                continue;
+            ck[n] = rawKinds[i];
+            cs[n] = rawStarts[i];
+            cv[n] = rawValueLengths[i];
+            n++;
+        }
+
+        var funcIndices = TopLevelFuncIndices(ck, n);
+        if (funcIndices.Count != declCount)
+            return -1;
+
+        var totalNodes = 0;
+        var cap = n + 1;
+        foreach (var funcIndex in funcIndices)
+        {
+            var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+            var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+            var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+            var sres = new int[5];
+            var paramCount = _parseSig(ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl, pNameStart, pNameLen, pTypeRoot, sres);
+            if (paramCount < 0 || sres[3] < 0)
+                return -1;
+            totalNodes += sres[2];
+
+            var bodyBrace = -1;
+            for (var t = funcIndex + 1; t < n; t++)
+            {
+                if (ck[t] == 129) { bodyBrace = t; break; }
+            }
+            if (bodyBrace < 0)
+                return -1;
+
+            var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+            var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+            var bres = new int[2];
+            var bodyNodeCount = _parseStmt(ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
+            if (bodyNodeCount <= 0)
+                return -1;
+            totalNodes += bodyNodeCount;
+        }
+
+        return totalNodes;
+    }
+
+    // Pooled-buffer twin of ParseColumnarOnly: reuses the instance buffers for every function, so the only
+    // per-iteration allocations are the kernels' own internal scratch (st / argStack). Returns total nodes.
+    private int ParseColumnarOnlyPooled(string source)
+    {
+        var rawCount = _tokenize(source, _pRawKinds, _pRawStarts, _pRawValueLengths, _pRawLines, _pRawColumns);
+        if (rawCount < 0 || rawCount > _pRawKinds.Length)
+            return -1;
+
+        var declCount = _declKinds(_pRawKinds, rawCount, _pDeclKinds);
+        if (declCount < 0)
+            return -1;
+        for (var i = 0; i < declCount; i++)
+        {
+            if (_pDeclKinds[i] != 7)
+                return -1;
+        }
+
+        if (_packageSpan(_pRawKinds, _pRawStarts, _pRawValueLengths, rawCount, _pPackageResult) == 1)
+            return -1;
+
+        if (_importSpans(_pRawKinds, _pRawStarts, _pRawValueLengths, rawCount, _pNsStarts, _pNsLengths, _pAliasStarts, _pAliasLengths) < 0)
+            return -1;
+
+        var n = 0;
+        for (var i = 0; i < rawCount; i++)
+        {
+            if (_pRawKinds[i] == 136)
+                continue;
+            _pCk[n] = _pRawKinds[i];
+            _pCs[n] = _pRawStarts[i];
+            _pCv[n] = _pRawValueLengths[i];
+            n++;
+        }
+
+        var funcIndices = TopLevelFuncIndices(_pCk, n);
+        if (funcIndices.Count != declCount)
+            return -1;
+
+        var totalNodes = 0;
+        foreach (var funcIndex in funcIndices)
+        {
+            var paramCount = _parseSig(_pCk, _pCs, _pCv, n, funcIndex, _pSk, _pSns, _pSnl, _pScs, _pScc, _pSci, _pSss, _pSsl, _pPNameStart, _pPNameLen, _pPTypeRoot, _pSres);
+            if (paramCount < 0 || _pSres[3] < 0)
+                return -1;
+            totalNodes += _pSres[2];
+
+            var bodyBrace = -1;
+            for (var t = funcIndex + 1; t < n; t++)
+            {
+                if (_pCk[t] == 129) { bodyBrace = t; break; }
+            }
+            if (bodyBrace < 0)
+                return -1;
+
+            var bodyNodeCount = _parseStmt(_pCk, _pCs, _pCv, n, bodyBrace, _pBk, _pBvs, _pBvl, _pBcs, _pBcc, _pBci, _pBss, _pBsl, _pBres);
+            if (bodyNodeCount <= 0)
+                return -1;
+            totalNodes += bodyNodeCount;
+        }
+
+        return totalNodes;
     }
 
     private static List<int> TopLevelFuncIndices(int[] kinds, int count)
