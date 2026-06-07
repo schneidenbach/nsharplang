@@ -615,23 +615,47 @@ public class MultiFileCompiler
         var effectiveAssemblyName = !string.IsNullOrWhiteSpace(assemblyName)
             ? assemblyName!
             : GetProjectAssemblyName();
-        var stubSource = CompilationStubEmitter.Generate(_config, orderedUnits);
-        var stubPath = Path.Combine(
-            _projectRoot,
-            "obj",
-            "nsharp",
-            "generator-input",
-            $"{SanitizeGeneratedInputFileName(effectiveAssemblyName)}.AnalysisStub.g.cs");
 
-        _sourceGeneratorAnalysisResult = SourceGeneratorPipeline.RunForAnalysis(
-            _config,
-            _projectRoot,
-            effectiveAssemblyName,
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        // The source-generator pipeline runs on the analysis fast path (nlc check / LSP). It must
+        // never crash analysis: an unexpected failure is converted into a clean diagnostic (H6).
+        try
+        {
+            var stubSource = CompilationStubEmitter.Generate(_config, orderedUnits);
+            var stubPath = Path.Combine(
+                _projectRoot,
+                "obj",
+                "nsharp",
+                "generator-input",
+                $"{SanitizeGeneratedInputFileName(effectiveAssemblyName)}.AnalysisStub.g.cs");
+
+            _sourceGeneratorAnalysisResult = SourceGeneratorPipeline.RunForAnalysis(
+                _config,
+                _projectRoot,
+                effectiveAssemblyName,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [stubPath] = stubSource
+                },
+                orderedUnits);
+        }
+        catch (Exception ex)
+        {
+            _sourceGeneratorAnalysisResult = SourceGeneratorRunResult.Inactive;
+            _allErrors.Add(new CompilerError(
+                ErrorCode.SourceGeneratorFailure,
+                $"Source generator analysis failed: {ex.Message}",
+                0,
+                0,
+                ErrorSeverity.Error)
             {
-                [stubPath] = stubSource
-            },
-            orderedUnits);
+                DiagnosticIdOverride = "NL921",
+                HumanExplanation = "The source-generator analysis pass threw unexpectedly.",
+                ContextualHint = "Generated members may be missing from analysis; the failure is reported rather than crashing nlc check / the language server.",
+                Suggestion = "Inspect the generator dependency, restore packages, or remove the offending generator reference.",
+                RelatedInfo = new Dictionary<string, string> { ["exception"] = ex.ToString() }
+            });
+            return;
+        }
 
         if (!_sourceGeneratorAnalysisResult.IsActive)
         {

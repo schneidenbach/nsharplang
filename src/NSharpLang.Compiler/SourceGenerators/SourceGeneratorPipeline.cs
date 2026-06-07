@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -28,11 +29,7 @@ public static class SourceGeneratorPipeline
         IReadOnlyDictionary<string, string> sources,
         IEnumerable<CompilationUnit> compilationUnits)
     {
-        SourceGeneratorReferenceResolver.PopulateDiscoveredReferences(
-            config,
-            projectRoot,
-            compilationUnits,
-            buildProjectReferences: true);
+        var referenceDiagnostics = ResolveDiscoveredReferences(config, projectRoot, compilationUnits);
 
         return Run(
             config,
@@ -41,7 +38,8 @@ public static class SourceGeneratorPipeline
             sources,
             compilationUnits,
             SourceGeneratorRunMode.Analysis,
-            outputAssemblyPath: null);
+            outputAssemblyPath: null,
+            referenceDiagnostics);
     }
 
     public static SourceGeneratorRunResult EmitFinalAssembly(
@@ -52,11 +50,7 @@ public static class SourceGeneratorPipeline
         IEnumerable<CompilationUnit> compilationUnits,
         string outputAssemblyPath)
     {
-        SourceGeneratorReferenceResolver.PopulateDiscoveredReferences(
-            config,
-            projectRoot,
-            compilationUnits,
-            buildProjectReferences: true);
+        var referenceDiagnostics = ResolveDiscoveredReferences(config, projectRoot, compilationUnits);
 
         return Run(
             config,
@@ -65,7 +59,44 @@ public static class SourceGeneratorPipeline
             sources,
             compilationUnits,
             SourceGeneratorRunMode.Emit,
-            outputAssemblyPath);
+            outputAssemblyPath,
+            referenceDiagnostics);
+    }
+
+    // Reference discovery (which can build generator project references) must never crash
+    // analysis/emit — convert any unexpected failure into a diagnostic (H6).
+    private static IReadOnlyList<CompilerError> ResolveDiscoveredReferences(
+        ProjectConfig config,
+        string projectRoot,
+        IEnumerable<CompilationUnit> compilationUnits)
+    {
+        try
+        {
+            return SourceGeneratorReferenceResolver.PopulateDiscoveredReferences(
+                config,
+                projectRoot,
+                compilationUnits,
+                buildProjectReferences: true);
+        }
+        catch (Exception ex)
+        {
+            return new[]
+            {
+                new CompilerError(
+                    ErrorCode.SourceGeneratorLoadFailure,
+                    $"Source generator reference discovery failed: {ex.Message}",
+                    0,
+                    0,
+                    ErrorSeverity.Error)
+                {
+                    DiagnosticIdOverride = "NL920",
+                    HumanExplanation = "The compiler could not resolve the project's source-generator references.",
+                    ContextualHint = "Reference discovery probes NuGet analyzer assets, framework reference packs, and project references; a failure there is reported instead of crashing analysis.",
+                    Suggestion = "Restore packages, build referenced generator projects, or fix the project.yml references.",
+                    RelatedInfo = new Dictionary<string, string> { ["exception"] = ex.ToString() }
+                }
+            };
+        }
     }
 
     private static SourceGeneratorRunResult Run(
@@ -75,7 +106,8 @@ public static class SourceGeneratorPipeline
         IReadOnlyDictionary<string, string> sources,
         IEnumerable<CompilationUnit> compilationUnits,
         SourceGeneratorRunMode mode,
-        string? outputAssemblyPath)
+        string? outputAssemblyPath,
+        IReadOnlyList<CompilerError> referenceDiagnostics)
     {
         var generatorReferences = config.SourceGenerators
             .DistinctBy(reference => Path.GetFullPath(reference.Path), StringComparer.OrdinalIgnoreCase)
@@ -86,10 +118,20 @@ public static class SourceGeneratorPipeline
 
         if (generatorReferences.Length == 0)
         {
-            return SourceGeneratorRunResult.Inactive;
+            // No generators in play. Still surface any reference-discovery diagnostics so a
+            // failed generator project reference is reported rather than silently dropped.
+            return referenceDiagnostics.Count == 0
+                ? SourceGeneratorRunResult.Inactive
+                : new SourceGeneratorRunResult(
+                    true,
+                    false,
+                    referenceDiagnostics,
+                    GeneratedSymbolIndex.Empty,
+                    null,
+                    Array.Empty<string>());
         }
 
-        var diagnostics = new List<CompilerError>();
+        var diagnostics = new List<CompilerError>(referenceDiagnostics);
         var missingReferences = generatorReferences
             .Where(reference => !File.Exists(reference.Path))
             .ToArray();
@@ -149,13 +191,13 @@ public static class SourceGeneratorPipeline
         Compilation updatedCompilation;
         try
         {
+            // The out-param diagnostics here are the same per-generator diagnostics surfaced by
+            // ConvertGeneratorRunDiagnostics(runResult) below; adding both double-reports every
+            // generator diagnostic (M7). Discard these and emit from the run result only.
             driver = driver.RunGeneratorsAndUpdateCompilation(
                 compilation,
                 out updatedCompilation,
-                out var generatorDiagnostics);
-
-            diagnostics.AddRange(generatorDiagnostics.Select(diagnostic =>
-                ConvertDiagnostic(diagnostic, ErrorCode.SourceGeneratorFailure, "NL921")));
+                out _);
         }
         catch (Exception ex)
         {
@@ -213,17 +255,25 @@ public static class SourceGeneratorPipeline
             generatedSourcePaths);
     }
 
+    // One shared loader for the process. It caches an AssemblyLoadContext per (path, mtime,
+    // length), so repeated runs reuse the same context instead of leaking a new non-collectible
+    // ALC per analysis/emit run (H7). Generator INSTANCES are still created fresh per run below,
+    // so concurrent compilations never share mutable generator state (Roslyn's own pattern).
+    private static readonly SourceGeneratorAssemblyLoader SharedAssemblyLoader = new();
+
     private static SourceGeneratorLoadResult LoadGenerators(IReadOnlyList<SourceGeneratorReference> references)
     {
         var diagnostics = new List<CompilerError>();
         var generators = ImmutableArray.CreateBuilder<ISourceGenerator>();
-        var loader = new SourceGeneratorAssemblyLoader();
 
         foreach (var reference in references)
         {
             try
             {
-                var analyzerReference = new AnalyzerFileReference(reference.Path, loader);
+                // A fresh AnalyzerFileReference yields fresh generator instances each run; the
+                // shared loader still reuses the underlying ALC for an unchanged generator
+                // assembly (no per-run leak, no cross-run shared generator state).
+                var analyzerReference = new AnalyzerFileReference(reference.Path, SharedAssemblyLoader);
                 var loadedGenerators = analyzerReference.GetGenerators(LanguageName);
                 foreach (var generator in loadedGenerators)
                 {
@@ -765,7 +815,15 @@ public static class SourceGeneratorPipeline
 
     private sealed class SourceGeneratorAssemblyLoader : IAnalyzerAssemblyLoader
     {
-        private readonly Dictionary<string, string> _dependencyLocations = new(StringComparer.OrdinalIgnoreCase);
+        // Concurrent: GeneratorLoadContext.Load reads this while other threads may be adding
+        // dependency locations for a different generator load.
+        private readonly ConcurrentDictionary<string, string> _dependencyLocations = new(StringComparer.OrdinalIgnoreCase);
+
+        // (path|mtime|length) -> ALC. One context per generator-assembly version, reused across
+        // runs so we don't leak a non-collectible ALC per run (H7). A changed assembly gets a new
+        // key (and a new context); the superseded one is bounded by the number of versions seen.
+        private readonly object _contextGate = new();
+        private readonly Dictionary<string, GeneratorLoadContext> _contexts = new(StringComparer.Ordinal);
 
         public void AddDependencyLocation(string fullPath)
         {
@@ -802,14 +860,39 @@ public static class SourceGeneratorPipeline
                 }
             }
 
-            var context = new GeneratorLoadContext(fullPath, _dependencyLocations);
+            var contextKey = BuildContextKey(fullPath);
+            GeneratorLoadContext context;
+            lock (_contextGate)
+            {
+                if (!_contexts.TryGetValue(contextKey, out context!))
+                {
+                    context = new GeneratorLoadContext(fullPath, _dependencyLocations);
+                    _contexts[contextKey] = context;
+                }
+            }
+
             return context.LoadFromAssemblyPath(fullPath);
+        }
+
+        private static string BuildContextKey(string fullPath)
+        {
+            try
+            {
+                var info = new FileInfo(fullPath);
+                return $"{fullPath}|{info.LastWriteTimeUtc.Ticks}|{info.Length}";
+            }
+            catch
+            {
+                return fullPath;
+            }
         }
     }
 
+    public const string GeneratorLoadContextName = "NSharpGeneratorLoadContext";
+
     private sealed class GeneratorLoadContext(
         string mainAssemblyPath,
-        IReadOnlyDictionary<string, string> dependencyLocations) : AssemblyLoadContext(isCollectible: false)
+        IReadOnlyDictionary<string, string> dependencyLocations) : AssemblyLoadContext(GeneratorLoadContextName, isCollectible: false)
     {
         private readonly AssemblyDependencyResolver _resolver = new(mainAssemblyPath);
 
