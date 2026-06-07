@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 using System.Reflection.Emit;
 using Xunit;
@@ -173,5 +174,278 @@ func sumAll(a: int[]): int {
         var on = Shape(true);
         Assert.Equal(0, on.Ldelem); // the scalar element-load loop is gone, folded into the helper
         Assert.True(on.Call >= 1, "the reduction must be lowered to a SIMD helper call");
+    }
+
+    // ---- RUST-PERF P1(d): widen the vectorized reduction to long / uint / ulong --------------------------
+    // Integer wrapping add is associative (mod 2^32 for int/uint, mod 2^64 for long/ulong), so the unrolled
+    // SIMD reduction is value-identical to the scalar loop for every length. float/double must NOT vectorize
+    // (FP addition is not associative). Each integer type asserts: (1) vectorized result == scalar result
+    // (the absolute correctness bar), and (2) the reduction actually lowered to a helper Call (so it is not
+    // silently falling back). The sum functions contain no other calls, so a Call count of 0 (scalar) vs
+    // >=1 (vectorized) is a robust, type-agnostic "the optimization fired" signal.
+
+    private const string SumLongSrc = @"
+func sumL(a: long[], n: int): long {
+    acc: long = (long)0
+    i := 0
+    while i < n {
+        acc = acc + a[i]
+        i = i + 1
+    }
+    return acc
+}";
+
+    private const string SumUIntSrc = @"
+func sumU(a: uint[], n: int): uint {
+    acc: uint = (uint)0
+    i := 0
+    while i < n {
+        acc = acc + a[i]
+        i = i + 1
+    }
+    return acc
+}";
+
+    private const string SumULongSrc = @"
+func sumUL(a: ulong[], n: int): ulong {
+    acc: ulong = (ulong)0
+    i := 0
+    while i < n {
+        acc = acc + a[i]
+        i = i + 1
+    }
+    return acc
+}";
+
+    private const string SumFloatSrc = @"
+func sumF(a: float[], n: int): float {
+    acc: float = (float)0
+    i := 0
+    while i < n {
+        acc = acc + a[i]
+        i = i + 1
+    }
+    return acc
+}";
+
+    private const string SumDoubleSrc = @"
+func sumD(a: double[], n: int): double {
+    acc: double = (double)0
+    i := 0
+    while i < n {
+        acc = acc + a[i]
+        i = i + 1
+    }
+    return acc
+}";
+
+    private static object RunReduction(string src, string fn, bool? flag, object[] args)
+    {
+        Vectorize(flag);
+        try
+        {
+            return ILShapeInspector.Compile(src, asm =>
+                ILShapeInspector.GetProgramMethod(asm, fn).Invoke(null, args)!);
+        }
+        finally
+        {
+            Vectorize(null);
+        }
+    }
+
+    private static int CallCount(string src, string fn, bool? flag)
+    {
+        Vectorize(flag);
+        try
+        {
+            return ILShapeInspector.Compile(src, asm =>
+                ILShapeInspector.CountCall(ILShapeInspector.GetProgramMethod(asm, fn)));
+        }
+        finally
+        {
+            Vectorize(null);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(9)]
+    [InlineData(16)]
+    [InlineData(17)]
+    [InlineData(64)]
+    [InlineData(1000)]
+    public void VectorizedSumLong_IsValueIdenticalToScalar(int n)
+    {
+        var data = new long[n];
+        for (var k = 0; k < n; k++)
+            data[k] = (long)k * 1_000_000_007L - 7; // large 64-bit magnitudes
+
+        Assert.Equal(
+            RunReduction(SumLongSrc, "sumL", false, new object[] { data, n }),
+            RunReduction(SumLongSrc, "sumL", true, new object[] { data, n }));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(8)]
+    [InlineData(17)]
+    [InlineData(64)]
+    [InlineData(1000)]
+    public void VectorizedSumUInt_IsValueIdenticalToScalar_IncludingWraparound(int n)
+    {
+        var data = new uint[n];
+        for (var k = 0; k < n; k++)
+            data[k] = unchecked((uint)(k * 2_000_000_011)); // deliberately overflows uint → exercises mod-2^32 wrap
+
+        Assert.Equal(
+            RunReduction(SumUIntSrc, "sumU", false, new object[] { data, n }),
+            RunReduction(SumUIntSrc, "sumU", true, new object[] { data, n }));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(8)]
+    [InlineData(17)]
+    [InlineData(64)]
+    [InlineData(1000)]
+    public void VectorizedSumULong_IsValueIdenticalToScalar_IncludingWraparound(int n)
+    {
+        var data = new ulong[n];
+        for (var k = 0; k < n; k++)
+            data[k] = unchecked((ulong)k * 2_000_000_000_000_000_000UL); // sums past 2^64 → exercises mod-2^64 wrap
+
+        Assert.Equal(
+            RunReduction(SumULongSrc, "sumUL", false, new object[] { data, n }),
+            RunReduction(SumULongSrc, "sumUL", true, new object[] { data, n }));
+    }
+
+    [Theory]
+    [InlineData(SumLongSrc, "sumL")]
+    [InlineData(SumUIntSrc, "sumU")]
+    [InlineData(SumULongSrc, "sumUL")]
+    public void IntegerReduction_LowersToHelperCall_OnlyWhenEnabled(string src, string fn)
+    {
+        Assert.Equal(0, CallCount(src, fn, false));     // scalar loop: no calls in the body
+        Assert.True(CallCount(src, fn, true) >= 1, "the reduction must lower to a SIMD helper call when enabled");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FloatReduction_NeverVectorizes(bool flag)
+    {
+        // No float SIMD helper exists (FP add is not associative), so the body must stay a scalar element-load
+        // loop (ldelem.r4) with no helper call, regardless of the flag — and stay numerically correct.
+        var n = 64;
+        var data = new float[n];
+        var expected = 0f;
+        for (var k = 0; k < n; k++) { data[k] = k * 0.5f - 1f; expected += data[k]; }
+
+        Vectorize(flag);
+        try
+        {
+            var result = ILShapeInspector.Compile(SumFloatSrc, asm =>
+            {
+                var m = ILShapeInspector.GetProgramMethod(asm, "sumF");
+                var value = (float)m.Invoke(null, new object[] { data, n })!;
+                return (value, ldelem: ILShapeInspector.CountOpcode(m, OpCodes.Ldelem_R4), call: ILShapeInspector.CountCall(m));
+            });
+            Assert.Equal(expected, result.value, 3);
+            Assert.True(result.ldelem >= 1, "float reduction must keep the scalar element-load loop");
+            Assert.Equal(0, result.call); // never lowered to a SIMD helper
+        }
+        finally
+        {
+            Vectorize(null);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void DoubleReduction_NeverVectorizes(bool flag)
+    {
+        var n = 64;
+        var data = new double[n];
+        var expected = 0d;
+        for (var k = 0; k < n; k++) { data[k] = k * 0.25 - 2; expected += data[k]; }
+
+        Vectorize(flag);
+        try
+        {
+            var result = ILShapeInspector.Compile(SumDoubleSrc, asm =>
+            {
+                var m = ILShapeInspector.GetProgramMethod(asm, "sumD");
+                var value = (double)m.Invoke(null, new object[] { data, n })!;
+                return (value, ldelem: ILShapeInspector.CountOpcode(m, OpCodes.Ldelem_R8), call: ILShapeInspector.CountCall(m));
+            });
+            Assert.Equal(expected, result.value, 6);
+            Assert.True(result.ldelem >= 1, "double reduction must keep the scalar element-load loop");
+            Assert.Equal(0, result.call);
+        }
+        finally
+        {
+            Vectorize(null);
+        }
+    }
+
+    // ---- Degenerate / out-of-bounds bound parity (regression for the adversarial-review findings) ----------
+    // The bound `n` is a runtime parameter, so the helper — not the emitter — must match scalar semantics for
+    // EVERY n, including extreme-negative (which would overflow `end - step` in the helper) and out-of-range
+    // (which must throw IndexOutOfRangeException, NOT the Vector ctor's ArgumentOutOfRangeException).
+
+    [Theory]
+    [InlineData(int.MinValue)]      // end - step overflows to a large positive if unguarded
+    [InlineData(int.MinValue + 1)]
+    [InlineData(int.MinValue + 8)]
+    [InlineData(-1)]
+    [InlineData(-100)]
+    [InlineData(0)]
+    public void VectorizedSum_ExtremeOrEmptyBound_MatchesScalar_NoOutOfBoundsRead(int n)
+    {
+        var data = new int[100];
+        for (var k = 0; k < data.Length; k++) data[k] = k + 1;
+
+        // scalar `while i < n` with i = 0 and n <= 0 never runs → 0; the vectorized helper must also return 0
+        // (no out-of-bounds SIMD read), not throw and not sum phantom elements.
+        var scalar = (int)RunReduction(SumSource, "sum", false, new object[] { data, n });
+        var vector = (int)RunReduction(SumSource, "sum", true, new object[] { data, n });
+        Assert.Equal(0, scalar);
+        Assert.Equal(scalar, vector);
+    }
+
+    [Theory]
+    [InlineData(SumSource, "sum", typeof(int))]
+    [InlineData(SumLongSrc, "sumL", typeof(long))]
+    [InlineData(SumUIntSrc, "sumU", typeof(uint))]
+    [InlineData(SumULongSrc, "sumUL", typeof(ulong))]
+    public void VectorizedReduction_BoundExceedsLength_ThrowsIndexOutOfRange_LikeScalar(string src, string fn, Type elementType)
+    {
+        // Array of 10, bound of 100 → the scalar loop reads array[10] and throws IndexOutOfRangeException.
+        // The vectorized path must throw the SAME exception type (it would be ArgumentOutOfRangeException if the
+        // helper let new Vector<T>(array, i) read past the end).
+        var data = Array.CreateInstance(elementType, 10);
+
+        Vectorize(true);
+        try
+        {
+            var ex = Assert.Throws<TargetInvocationException>(() =>
+                ILShapeInspector.Compile(src, asm =>
+                    ILShapeInspector.GetProgramMethod(asm, fn).Invoke(null, new object[] { data, 100 })));
+            Assert.IsType<IndexOutOfRangeException>(ex.InnerException);
+        }
+        finally
+        {
+            Vectorize(null);
+        }
     }
 }

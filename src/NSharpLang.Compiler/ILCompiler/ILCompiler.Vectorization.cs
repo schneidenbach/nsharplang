@@ -33,17 +33,36 @@ public partial class ILCompiler
         t_vectorizeReductionsSet = true;
     }
 
-    private static readonly MethodInfo s_sumInt32Reduction =
-        typeof(Runtime.SimdReductions).GetMethod(nameof(Runtime.SimdReductions.SumInt32))
-        ?? throw new InvalidOperationException("NSharpLang.Runtime.SimdReductions.SumInt32 not found.");
+    private static MethodInfo ResolveReductionHelper(string name) =>
+        typeof(Runtime.SimdReductions).GetMethod(name)
+        ?? throw new InvalidOperationException($"NSharpLang.Runtime.SimdReductions.{name} not found.");
+
+    private static readonly MethodInfo s_sumInt32Reduction = ResolveReductionHelper(nameof(Runtime.SimdReductions.SumInt32));
+    private static readonly MethodInfo s_sumInt64Reduction = ResolveReductionHelper(nameof(Runtime.SimdReductions.SumInt64));
+    private static readonly MethodInfo s_sumUInt32Reduction = ResolveReductionHelper(nameof(Runtime.SimdReductions.SumUInt32));
+    private static readonly MethodInfo s_sumUInt64Reduction = ResolveReductionHelper(nameof(Runtime.SimdReductions.SumUInt64));
+
+    // P1(d): maps a vectorizable array element type to its unrolled SIMD reduction helper. INTEGER ONLY —
+    // int/long/uint/ulong wrapping add is associative (mod 2^32 / 2^64), so reordering across SIMD lanes and
+    // accumulators is value-preserving. float/double are intentionally absent: FP addition is NOT associative
+    // (reassociation changes the result), so float/double reductions fall through to the scalar loop.
+    private static MethodInfo? ReductionHelperForElementType(Type elementType)
+    {
+        if (elementType == typeof(int)) return s_sumInt32Reduction;
+        if (elementType == typeof(long)) return s_sumInt64Reduction;
+        if (elementType == typeof(uint)) return s_sumUInt32Reduction;
+        if (elementType == typeof(ulong)) return s_sumUInt64Reduction;
+        return null;
+    }
 
     /// <summary>
-    /// If <paramref name="loop"/> is an <c>int[]</c> counted reduction (ReductionLoopShape), lower it to a SIMD
+    /// If <paramref name="loop"/> is an integer-array counted reduction (ReductionLoopShape), lower it to a SIMD
     /// helper call and return true; otherwise return false (caller emits the normal scalar loop). The loop
     /// <c>while index &lt; bound { acc = acc + array[index]; index = index + 1 }</c> becomes
-    /// <c>acc = acc + SimdReductions.SumInt32(array, index, bound); index = bound</c> — value-identical (int
-    /// wrapping add is associative) and ~4.5× faster. Only fires for int accumulator / int[] array / int index
-    /// / int bound (the helper is int-specialized; other element types are P1(d)).
+    /// <c>acc = acc + SimdReductions.Sum…(array, index, bound); index = max(index, bound)</c> — value-identical
+    /// (integer wrapping add is associative) and faster (~4.5× for int). Fires only for an <c>int</c>/<c>long</c>/
+    /// <c>uint</c>/<c>ulong</c> array+accumulator (P1(d)), an int index, an int side-effect-free bound, and the
+    /// default unchecked-arithmetic context (a <c>checked</c> reduction would throw rather than wrap).
     /// </summary>
     private bool TryEmitVectorizedReduction(WhileStatement loop)
     {
@@ -54,9 +73,24 @@ public partial class ILCompiler
         if (shape == null)
             return false;
 
-        if (GetIdentifierType(shape.AccumulatorRef) != typeof(int))
+        // Inside `checked { }` the scalar `acc = acc + a[i]` emits add.ovf (THROWS on overflow); the SIMD helpers
+        // wrap (unchecked). Vectorizing a checked reduction would replace a throw with a wrapped value — not
+        // value-preserving — so only vectorize in the default unchecked context; otherwise emit the scalar loop.
+        if (_overflowCheckingEnabled)
             return false;
-        if (GetIdentifierType(shape.ArrayRef) != typeof(int[]))
+
+        var arrayType = GetIdentifierType(shape.ArrayRef);
+        if (!arrayType.IsArray)
+            return false;
+        var elementType = arrayType.GetElementType()!;
+        var reductionMethod = ReductionHelperForElementType(elementType);
+        if (reductionMethod == null)
+            return false;
+
+        // The accumulator must be exactly the array element type so `acc + helper(...)` is width-correct; the
+        // index and bound are int (array indexing is int). A bound that is not provably side-effect-free int is
+        // rejected (the vectorized form evaluates it a different number of times than the scalar loop).
+        if (GetIdentifierType(shape.AccumulatorRef) != elementType)
             return false;
         if (GetIdentifierType(shape.IndexRef) != typeof(int))
             return false;
@@ -71,12 +105,14 @@ public partial class ILCompiler
         EmitExpression(shape.Bound);
         _currentIL.Emit(OpCodes.Stloc, boundLocal);
 
-        // acc = acc + SimdReductions.SumInt32(array, index, bound)
+        // acc = acc + SimdReductions.Sum…(array, index, bound) — helper chosen by element type. The IL `add`
+        // infers width from the stack operands (int32 for int/uint, int64 for long/ulong) and wraps, matching
+        // the unchecked scalar add.
         EmitIdentifier(shape.AccumulatorRef);
         EmitIdentifier(shape.ArrayRef);
         EmitIdentifier(shape.IndexRef);
         _currentIL.Emit(OpCodes.Ldloc, boundLocal);
-        _currentIL.Emit(OpCodes.Call, s_sumInt32Reduction);
+        _currentIL.Emit(OpCodes.Call, reductionMethod);
         _currentIL.Emit(OpCodes.Add);
         StoreIdentifier(shape.AccumulatorRef);
 

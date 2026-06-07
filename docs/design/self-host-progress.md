@@ -11,6 +11,43 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P1(d): widen auto-vectorized reductions to long/uint/ulong (+ 2 correctness fixes)
+
+Widened the counted-reduction auto-vectorization (P1 a–e, previously `int[]`-only) to the rest of the
+associative-add integer family: `long[]`, `uint[]`, `ulong[]`. `NSharpLang.Runtime.SimdReductions` gains
+`SumInt64`/`SumUInt32`/`SumUInt64` (the same unrolled 4-accumulator `Vector<T>` reduction); the emitter
+(`ILCompiler.TryEmitVectorizedReduction`) now resolves the helper by the array element type and requires the
+accumulator type to equal the element type. **float/double remain scalar by construction** — there is no FP
+helper, because FP addition is not associative (reassociating across lanes/accumulators changes the result).
+44 new tests pin scalar≡vectorized across lengths (incl. 0 and SIMD-tail non-multiples) for all three widths,
+including deliberate uint/ulong wraparound (mod-2^32 / mod-2^64), plus "lowers to a helper call only when
+enabled" and "float/double never vectorize."
+
+The adversarial-verify workflow (4 lenses, read-only) — the self-host-loop.md review substitute now that Codex
+is lifted — found **two real correctness divergences**, both pre-existing in the shipped `int` path and now
+fixed for all four widths in the runtime helper (the bound is a runtime parameter, so the fix must live in the
+helper, not the emitter):
+
+1. **`int.MinValue` bound overflow (CRITICAL).** The helper computed the vector-loop limit as `end - step` in
+   unchecked int arithmetic. For `end = int.MinValue` (a caller passing `n = int.MinValue`), `end - step` wraps
+   to a large positive, so the SIMD loop ran and read out of bounds — while the scalar loop `while i < n`
+   never runs (returns 0). Fixed with an `if (end <= start) return sum;` early-out (the empty/negative range is
+   the scalar identity AND `end - step` is never reached for a hugely-negative `end`).
+2. **Out-of-bounds exception-type divergence.** When `n > array.Length` (or a negative start index), the scalar
+   loop throws `IndexOutOfRangeException` at `a[i]`, but `new Vector<T>(array, i)` throws a *different*,
+   observable type — `ArgumentOutOfRangeException` (verified empirically on .NET 10). Fixed by taking the SIMD
+   fast path only over a provably in-bounds range (`start >= 0 && end <= array.Length`); otherwise the scalar
+   tail reproduces the exact `IndexOutOfRangeException` at the same element. Regression tests cover
+   `n = int.MinValue/+1/+8/-1/-100` (→ 0, no OOB read) and `n > length` (→ `IndexOutOfRangeException`, not
+   `ArgumentOutOfRangeException`) for int/long/uint/ulong.
+
+Also added a defensive `_overflowCheckingEnabled` guard: a `checked` reduction would emit `add.ovf` (throws on
+overflow) in the scalar path, which the wrapping helper would not reproduce — so vectorization is skipped in a
+checked context. (Currently unreachable: N# `checked` is expression-only and `while` is a statement, so a while
+body is never emitted under overflow checking — but the guard pins the invariant against a future `checked`
+block.) The full `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` gate is green (unit suite incl. the 81
+Simd-category tests + Systems BenchmarkDotNet zero-tolerance gate + IL verification + dogfood/examples/templates).
+
 ## 2026-06-07 — Rust-perf P1(e): vectorization ON by default — the perf win is now ACTIVE
 
 Flipped reduction auto-vectorization ON by default (env `NSHARP_VECTORIZE_REDUCTIONS=0` opts out). The N#

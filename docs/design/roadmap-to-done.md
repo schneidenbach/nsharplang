@@ -65,7 +65,7 @@ question — only genuine architectural forks surface. Living evidence in
 ## Phase P — Rust-class performance
 
 - [x] Ceiling measured: unrolled `Vector<int>` = 4.5× over scalar (checksum-sum 8.8× → ~2× behind native)
-- [ ] **P1 — auto-vectorize counted reductions** (the `while`-form `i:=0; while i<len { acc=acc+a[i]; i=i+1 }`).
+- [x] **P1 — auto-vectorize counted reductions** (the `while`-form `i:=0; while i<len { acc=acc+a[i]; i=i+1 }`).
       Sub-slices: [x] (a) pattern detection (`ReductionLoopShape.TryMatch` + 11 tests, no emission change);
       [x] (b) lowering to the unrolled `Vector<int>` SIMD helper (`SimdReductions.SumInt32` in NSharpLang.Runtime;
       `ILCompiler.TryEmitVectorizedReduction` hooks EmitWhile), behind an off-by-default thread-local flag, with
@@ -75,9 +75,13 @@ question — only genuine architectural forks surface. Living evidence in
       and evaluated once — `.Count`/custom `.Length` no longer vectorize. Already unrolled to 4 accumulators
       (the helper). [x] (c) [merged into (b)]; [x] (e) DEFAULT-ON (env NSHARP_VECTORIZE_REDUCTIONS=0 to opt
       out) — never-regress proven: the full 3466-test suite + dogfood + examples + IL-verification + the
-      SystemsFastGate benchmark all pass with vectorization active. (d) widen element types: INTEGER ONLY
-      (long/uint/ulong — wrapping add is associative); float/double reductions must NOT vectorize (FP
-      reassociation is not value-preserving) — they fall back to scalar.
+      SystemsFastGate benchmark all pass with vectorization active. [x] (d) widen element types: INTEGER ONLY
+      (long/uint/ulong — wrapping add is associative); float/double do NOT vectorize (FP reassociation is not
+      value-preserving) — they fall back to scalar. DONE: `SumInt64`/`SumUInt32`/`SumUInt64` helpers +
+      element-type dispatch in the emitter (accumulator type must equal element type); 44 tests incl. wraparound.
+      Adversarial review found+fixed two real divergences (both pre-existing in the int path): `int.MinValue`
+      bound overflowing `end - step` (→ `if (end <= start) return`), and OOB throwing `ArgumentOutOfRangeException`
+      instead of `IndexOutOfRangeException` (→ SIMD only over a provably in-bounds range). **P1 COMPLETE.**
       Scoping (workflow w8urlgage): hook EmitWhile (ILCompiler.cs:12401, _currentIL/_locals); Vector<int>
       Reflection.Emit feasible (RuntimeCalls.cs generic-binding patterns; N# already emits Vector<int> op IL);
       int wrapping add associative (reorder safe); mandatory scalar tail (Vector<int>.Count platform-varies).
@@ -103,6 +107,8 @@ question — only genuine architectural forks surface. Living evidence in
 
 ## Status cursor
 
-Next up: **Stage 3b — columnar diagnostics** (Phase S) and/or **P1 (a) — vectorization pattern detection**
-(Phase P, user-prioritized Rust bar). Then Stage 4 (codegen) — where end-to-end binder/output parity (incl.
-the binder reconciliation item) is verified. Phase T follows stages 3–4.
+Phase P **P1 is COMPLETE** (a–e: int/long/uint/ulong counted-reduction auto-vectorization, default-on, parity-
+and adversarially-verified). Next up: **Stage 3b — columnar diagnostics** (Phase S, the C#-elimination spine)
+and **P2 — range-predicate counts** (Phase P, count-ascii: packed compare + masked accumulate). Then Stage 4
+(columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified.
+Phase T (route columnar into CLI/LSP) follows stages 3–4.
