@@ -11,6 +11,40 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Slice 25: END-TO-END routing benchmark — materialization erases the kernel's win (never-slower FAILS)
+
+The never-slower gate for flipping parser routing on. `CompilationUnitRoutingBenchmarks` measures the full
+**source → `CompilationUnit`** path both ways: the C# `Parser` (Lexer + ParseCompilationUnit) vs the N#
+routing path (dogfood tokenizer + declarations/signature/statement kernels + `ColumnarAstMaterializer`).
+Apple M4, .NET 10.0.5:
+
+| Corpus | C# parser | N# routing | Time | Alloc |
+|---|---|---|---|---|
+| Representative (~2 funcs) | 6.28 µs / 21.95 KB | 5.12 µs / 61.58 KB | **0.82× (faster)** | **2.81× more** |
+| LargeGenerated (40 funcs) | 214.6 µs / 662 KB | 934.9 µs / 12.2 MB | **4.36× slower** | **18.5× more** |
+
+**Verdict: routing stays OFF.** On realistic input the routed path is **4.36× slower and allocates 18.5×
+more**. This is *fundamental*, not a tuning gap:
+
+1. **Materialization re-creates the C# object-graph AST** — the routed path allocates the *same* records the
+   C# parser does (via `ColumnarAstMaterializer`), so routed allocation is **C#'s allocation + the columnar
+   int[] tables**, i.e. strictly greater. Materializing to the C# AST can never beat the C# parser on memory.
+2. **Per-function table over-allocation** — each function allocates ~11 int[] arrays sized to the whole-file
+   token count, so a 40-function file allocates O(40·N) table memory vs the parser's O(N).
+3. Plus re-tokenization and delegate-boundary overhead.
+
+The statement kernel's **5–6× raw-parse win (slice 21) does NOT survive materialization.** The kernel is fast
+because it writes compact int[] tables instead of an object graph; materializing those tables back into the
+object graph throws that advantage away.
+
+**Implication for the endgame:** the self-host *speed* win is **not** "route the parser + materialize to C#
+records" — that path regresses perf. The real win requires the binder/analyzer/codegen to **consume the
+columnar tables directly (zero materialization)**, with pooled, right-sized tables — a large architectural
+bet (a columnar semantic pipeline), not parser routing. The slice-24 routing path remains valuable as the
+**correctness oracle** (it proves the N# parser parses 100% of its own source identically to C#) and as the
+front-end for that future columnar pipeline — but it must not be the production speed path while it
+materializes. See also [`compiler-dogfood-boundary-profiling.md`](compiler-dogfood-boundary-profiling.md).
+
 ## 2026-06-06 — Slice 24: PRODUCTION ROUTING + cast expressions — the N# front-end parses 100% of its own systems source
 
 The N# parser front-end is now **wired into the production parse path** and parses the entire dogfood

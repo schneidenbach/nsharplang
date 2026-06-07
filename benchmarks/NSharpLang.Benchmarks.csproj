@@ -45,6 +45,12 @@
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ParserStatements.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserStatements.nl" />
     <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ParserDeclarations.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserDeclarations.nl" />
+    <EmbeddedResource
+      Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/ParserFunctionSignatures.nl"
+      LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserFunctionSignatures.nl" />
+    <EmbeddedResource
       Include="../src/NSharpLang.Compiler.Dogfood/CompilerServices/SourceTextLines.nl"
       LogicalName="NSharpLang.Benchmarks.Dogfood.CompilerServices.SourceTextLines.nl" />
     <EmbeddedResource

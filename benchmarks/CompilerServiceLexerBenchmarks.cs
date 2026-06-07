@@ -892,10 +892,17 @@ internal static class DogfoodCompilerSources
     private const string OverloadCandidatesResourceName =
         "NSharpLang.Benchmarks.Dogfood.CompilerServices.OverloadCandidates.nl";
 
+    private const string ParserDeclarationsResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserDeclarations.nl";
+    private const string ParserFunctionSignaturesResourceName =
+        "NSharpLang.Benchmarks.Dogfood.CompilerServices.ParserFunctionSignatures.nl";
+
     public static string LexerTokenKindScanner => ReadResource(LexerTokenKindScannerResourceName);
     public static string ParserTypeReferences => ReadResource(ParserTypeReferencesResourceName);
     public static string ParserExpressions => ReadResource(ParserExpressionsResourceName);
     public static string ParserStatements => ReadResource(ParserStatementsResourceName);
+    public static string ParserDeclarations => ReadResource(ParserDeclarationsResourceName);
+    public static string ParserFunctionSignatures => ReadResource(ParserFunctionSignaturesResourceName);
 
     // The N# statement kernel composes the lexer (for tokenization), type-reference, expression, and
     // statement kernels -- concatenate them into one source so the single-source benchmark compiler emits a
@@ -903,6 +910,18 @@ internal static class DogfoodCompilerSources
     public static string ParserFrontEnd =>
         LexerTokenKindScanner + Environment.NewLine +
         ParserTypeReferences + Environment.NewLine +
+        ParserExpressions + Environment.NewLine +
+        ParserStatements;
+
+    // The FULL parser front-end used by the whole-file routing path (NSharpCompilerDogfoodAdapter
+    // .TryParseCompilationUnit): adds the declarations kernel (top-level decl kinds / imports / package) and
+    // the function-signature kernel to ParserFrontEnd, so a single compiled Program exposes every method the
+    // CompilationUnit orchestrator binds.
+    public static string ParserFrontEndFull =>
+        LexerTokenKindScanner + Environment.NewLine +
+        ParserDeclarations + Environment.NewLine +
+        ParserTypeReferences + Environment.NewLine +
+        ParserFunctionSignatures + Environment.NewLine +
         ParserExpressions + Environment.NewLine +
         ParserStatements;
     public static string SourceTextLines => ReadResource(SourceTextLinesResourceName);

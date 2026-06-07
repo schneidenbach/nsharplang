@@ -47,6 +47,15 @@ internal static class NSharpCompilerDogfoodAdapter
     /// property from a test) to enable. While off, production behavior is byte-for-byte the C# parser; while
     /// on, <see cref="Parser.ParseCompilationUnit"/> first attempts <see cref="TryParseCompilationUnit"/> and
     /// only falls back to C# when the N# front-end declines (any unsupported form, see the guard rails there).
+    ///
+    /// IMPORTANT — kept OFF deliberately (do NOT default this on): the end-to-end benchmark
+    /// (CompilationUnitRoutingBenchmarks) shows the routed path is ~4.4x slower and allocates ~18x more on
+    /// realistic input, because materializing the columnar tables into the C# object-graph AST re-incurs all
+    /// of the C# parser's allocation PLUS the table cost. The kernel's raw-parse speed only survives if the
+    /// rest of the compiler consumes the columnar tables directly (no materialization). This flag exists for
+    /// the correctness oracle (TryParseCompilationUnit parses 100% of the dogfood corpus identically to C#)
+    /// and as the front-end for a future columnar pipeline — not as a production speed path today. See
+    /// docs/design/self-host-progress.md (slice 25).
     /// </summary>
     internal static bool ParserFrontEndRoutingEnabled { get; set; }
         = Environment.GetEnvironmentVariable("NSHARP_PARSER_FRONTEND") == "1";
