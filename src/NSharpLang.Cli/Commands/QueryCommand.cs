@@ -1058,10 +1058,13 @@ public static class QueryCommand
         try
         {
             var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(Path.GetFileName(projectDir));
+            // `nlc query` is a read-only/LLM-first inspection path: it must never spawn `dotnet build`
+            // for project references (multi-second stalls + the build-pipe deadlock) (H4). Resolve
+            // package/already-resolved references only; cross-project resolution requires `nlc build`.
             CompilationReferenceResolver.AddResolvedDllReferences(
                 projectDir,
                 config,
-                new ReferenceResolutionOptions(Quiet: true));
+                new ReferenceResolutionOptions(Quiet: true, BuildProjectReferences: false));
             return Service.LoadProject(projectDir, config);
         }
         catch (Exception ex)
@@ -1081,10 +1084,11 @@ public static class QueryCommand
         }
 
         var config = ProjectFileParser.ParseFromDirectory(projectDir) ?? ProjectFileParser.CreateDefault(Path.GetFileName(projectDir));
+        // Read-only query path: never spawn `dotnet build` for project references (H4).
         CompilationReferenceResolver.AddResolvedDllReferences(
             projectDir,
             config,
-            new ReferenceResolutionOptions(Quiet: true));
+            new ReferenceResolutionOptions(Quiet: true, BuildProjectReferences: false));
         return Service.LoadProject(projectDir, config);
     }
 

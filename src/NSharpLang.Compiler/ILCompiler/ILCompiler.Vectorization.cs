@@ -143,12 +143,24 @@ public partial class ILCompiler
     // getter may have side effects), falling back to the scalar loop.
     private bool IsSideEffectFreeInt32Bound(Expression bound) => bound switch
     {
-        IdentifierExpression id => GetIdentifierType(id) == typeof(int),
-        IntLiteralExpression => true,
+        // Only an int local/parameter read. A bare identifier that resolves to a property emits a
+        // getter call (possible side effects / per-call-varying value); the vectorized form
+        // snapshots the bound once, so restrict to locals/parameters (pure ldloc/ldarg).
+        IdentifierExpression id => GetIdentifierType(id) == typeof(int) && IsLocalOrParameterRead(id),
+        // Only int32 literals. A suffixed literal (100L/100u/100ul) emits int64/uint/ulong, which
+        // would be stored into the int32 bound temp below -> unverifiable IL (H2). Such loops fall
+        // back to the scalar path.
+        IntLiteralExpression lit => GetIntLiteralRuntimeType(lit.Value) == typeof(int),
         MemberAccessExpression { MemberName: "Length", Object: IdentifierExpression receiver }
             => GetIdentifierType(receiver).IsArray,
         _ => false,
     };
+
+    // True only for a bare identifier that is a local variable or a parameter — a pure ldloc/ldarg.
+    // Excludes fields/properties (a property read calls a getter; vectorization snapshots the value
+    // once, which would differ from the scalar loop re-reading it each iteration).
+    private bool IsLocalOrParameterRead(IdentifierExpression id)
+        => (_locals?.ContainsKey(id.Name) ?? false) || (_parameters?.ContainsKey(id.Name) ?? false);
 
     // ---- RUST-PERF P2(b): masked-SIMD range-predicate count (the count-ascii kernel) ----------------------
 
@@ -236,8 +248,12 @@ public partial class ILCompiler
     // excluded (possible side effects + non-int).
     private bool IsSideEffectFreeInt32Operand(Expression operand) => operand switch
     {
-        IdentifierExpression id => GetIdentifierType(id) == typeof(int),
-        IntLiteralExpression => true,
+        // Local/parameter int read only (see IsSideEffectFreeInt32Bound) — a property-backed lo/hi
+        // getter could vary per call, but the vectorized form evaluates it once.
+        IdentifierExpression id => GetIdentifierType(id) == typeof(int) && IsLocalOrParameterRead(id),
+        // Only int32 literals (see IsSideEffectFreeInt32Bound) — a suffixed lo/hi would emit a
+        // wider value into the int32 temp -> invalid IL (H2).
+        IntLiteralExpression lit => GetIntLiteralRuntimeType(lit.Value) == typeof(int),
         _ => false,
     };
 

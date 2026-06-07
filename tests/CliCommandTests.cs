@@ -323,6 +323,93 @@ func Main() {
     }
 
     [Fact]
+    public void DocOrdering_DogfoodPath_MatchesCSharpKindOrdinalOrdering()
+    {
+        // M10: the doc symbol ordering must be deterministic regardless of whether the N# dogfood
+        // path or the C# fallback runs. This asserts the dogfood ordering (taken because the
+        // dogfood DLL is present in the test build) equals the C# `Kind.ToString()` ordinal + name
+        // ordering, and locks the invariant so a future SymbolKind addition can't silently diverge.
+        var symbols = new List<SymbolResult>();
+        foreach (SymbolKind kind in Enum.GetValues<SymbolKind>())
+        {
+            // Two per kind (reverse-sorted names) to also exercise the name tiebreak.
+            symbols.Add(MakeDocSymbol("Zeta" + kind, kind));
+            symbols.Add(MakeDocSymbol("Alpha" + kind, kind));
+        }
+
+        var actual = ProjectDocGenerator.OrderSymbolsForGeneration(symbols);
+
+        var expected = symbols
+            .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
+            .OrderBy(symbol => symbol.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            expected.Select(symbol => (symbol.Kind, symbol.Name)),
+            actual.Select(symbol => (symbol.Kind, symbol.Name)));
+    }
+
+    private static SymbolResult MakeDocSymbol(string name, SymbolKind kind)
+        => new(name, kind, "file.nl", 1, 1, null, null, null, null);
+
+    [Fact]
+    public void QueryCommand_DoesNotBuildCSharpProjectReferences()
+    {
+        // H4: `nlc query` is read-only/LLM-first and must never spawn `dotnet build` for a C#
+        // project reference (multi-second stalls + the build-pipe deadlock). The referenced C#
+        // project must be left unbuilt.
+        var root = Path.Combine(Path.GetTempPath(), $"nsharp-query-noref-build-{Guid.NewGuid():N}");
+        var csharpDir = Path.Combine(root, "CsLib");
+        var nsharpDir = Path.Combine(root, "App");
+        Directory.CreateDirectory(csharpDir);
+        Directory.CreateDirectory(nsharpDir);
+
+        try
+        {
+            var csprojPath = Path.Combine(csharpDir, "CsLib.csproj");
+            File.WriteAllText(csprojPath, """
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+  </PropertyGroup>
+</Project>
+""");
+            File.WriteAllText(Path.Combine(csharpDir, "Lib.cs"), "namespace CsLib { public static class Tools { public static int Value => 1; } }");
+
+            File.WriteAllText(Path.Combine(nsharpDir, "project.yml"), $"""
+name: App
+outputType: exe
+targetFramework: net10.0
+dependencies:
+  - project: {csprojPath.Replace("\\", "/")}
+""");
+            File.WriteAllText(Path.Combine(nsharpDir, "Program.nl"), """
+func Main() {
+    Console.WriteLine("hi")
+}
+""");
+
+            var (_, _, _) = CaptureConsole(() => QueryCommand.Execute(new[]
+            {
+                "symbols",
+                "--project", nsharpDir
+            }));
+
+            Assert.False(
+                Directory.Exists(Path.Combine(csharpDir, "bin")),
+                "nlc query must not build a C# project reference (H4).");
+            Assert.False(
+                Directory.Exists(Path.Combine(csharpDir, "obj")),
+                "nlc query must not restore/build a C# project reference (H4).");
+        }
+        finally
+        {
+            try { Directory.Delete(root, recursive: true); } catch { /* best effort */ }
+        }
+    }
+
+    [Fact]
     public void QueryCommand_DiagnosticsClusters_EmitsClusterEnvelope()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-diagnostic-clusters-{Guid.NewGuid():N}");

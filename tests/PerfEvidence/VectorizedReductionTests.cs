@@ -267,6 +267,32 @@ func sumD(a: double[], n: int): double {
         }
     }
 
+    [Fact]
+    public void SuffixedLongLiteralBound_FallsBackToScalar_NoInvalidIl()
+    {
+        // H2: a suffixed long literal bound (100L) must NOT be vectorized — emitting int64 into the
+        // int32 bound temp is unverifiable IL. With vectorization on, the emitter declines and
+        // falls back to the scalar loop, producing the same value (and not throwing
+        // InvalidProgramException). The data is 1..128, so the [0,100) sum is 5050.
+        const string src = @"
+func sumTo(a: int[]): int {
+    sum := 0
+    i := 0
+    while i < 100L {
+        sum = sum + a[i]
+        i = i + 1
+    }
+    return sum
+}";
+        var data = new int[128];
+        for (var k = 0; k < data.Length; k++)
+            data[k] = k + 1;
+
+        Assert.Equal(
+            RunReduction(src, "sumTo", false, new object[] { data }),
+            RunReduction(src, "sumTo", true, new object[] { data }));
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(1)]

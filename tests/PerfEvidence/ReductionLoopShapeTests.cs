@@ -70,6 +70,9 @@ public class ReductionLoopShapeTests
     [InlineData("    acc := 0\n    i := 0\n    while i < n {\n        acc = acc + a[i]\n        i = i + 1\n        break\n    }")]
     // Increment before the accumulator update reads the wrong element.
     [InlineData("    acc := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        acc = acc + a[i]\n    }")]
+    // H1: the loop bound IS the accumulator, which is written every iteration (loop-variant). The
+    // SIMD helper snapshots the bound once, summing a different element set than the scalar loop.
+    [InlineData("    acc := 1\n    i := 0\n    while i < acc {\n        acc = acc + a[i]\n        i = i + 1\n    }")]
     public void Rejects_NonReductionShapes(string body)
     {
         Assert.Null(ReductionLoopShape.TryMatch(FirstWhile(body)));
@@ -121,6 +124,8 @@ public class ReductionLoopShapeTests
     [InlineData("    acc := 0\n    for i := 0; i <= n; i++ {\n        acc = acc + a[i]\n    }")]
     // Extra body statement (more than the single accumulator update).
     [InlineData("    acc := 0\n    for i := 0; i < n; i++ {\n        acc = acc + a[i]\n        acc = acc + 1\n    }")]
+    // H1 (for-form): the loop bound IS the accumulator (loop-variant).
+    [InlineData("    acc := 1\n    for i := 0; i < acc; i++ {\n        acc = acc + a[i]\n    }")]
     public void Rejects_NonReductionForShapes(string body)
     {
         Assert.Null(ReductionLoopShape.TryMatch(FirstFor(body)));

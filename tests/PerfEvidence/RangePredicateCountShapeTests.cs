@@ -78,6 +78,10 @@ public class RangePredicateCountShapeTests
     [InlineData("    count := 0\n    for i := 0; i < n; i++ {\n        if a[i] >= i && a[i] <= hi {\n            count++\n        }\n    }")]
     // Temp subject but the predicate compares a different variable.
     [InlineData("    count := 0\n    for i := 0; i < n; i++ {\n        value := a[i]\n        if i >= lo && i <= hi {\n            count++\n        }\n    }")]
+    // H1: the loop bound IS the counter, which is written every iteration (loop-variant). The
+    // masked-count helper snapshots the bound once, scanning a different element set than the
+    // scalar loop.
+    [InlineData("    count := 0\n    for i := 0; i < count; i++ {\n        if a[i] >= lo && a[i] <= hi {\n            count++\n        }\n    }")]
     public void Rejects_NonRangeCountForShapes(string body)
     {
         Assert.Null(RangePredicateCountShape.TryMatch(FirstLoop<ForStatement>(body)));
@@ -88,6 +92,8 @@ public class RangePredicateCountShapeTests
     [InlineData("    count := 0\n    i := 0\n    while i < n {\n        if a[i] >= lo && a[i] <= hi {\n            count++\n        }\n    }")]
     // while-form: counter increments by 2.
     [InlineData("    count := 0\n    i := 0\n    while i < n {\n        if a[i] >= lo && a[i] <= hi {\n            count += 2\n        }\n        i = i + 1\n    }")]
+    // H1 (while-form): the loop bound IS the counter (loop-variant).
+    [InlineData("    count := 0\n    i := 0\n    while i < count {\n        if a[i] >= lo && a[i] <= hi {\n            count++\n        }\n        i = i + 1\n    }")]
     public void Rejects_NonRangeCountWhileShapes(string body)
     {
         Assert.Null(RangePredicateCountShape.TryMatch(FirstLoop<WhileStatement>(body)));

@@ -9483,8 +9483,10 @@ public partial class ILCompiler
             }
 
             if (expression is CallExpression resultCall
+                && resultCall.IsResultFactory != false
                 && TryGetResultConstructorName(resultCall, out _)
-                && IsRuntimeResultType(_expectedExpressionType))
+                && IsRuntimeResultType(_expectedExpressionType)
+                && !IsResultFactoryCalleeShadowed(resultCall))
             {
                 EmitResultConstructorCall(resultCall, _expectedExpressionType);
                 return;
@@ -11904,6 +11906,25 @@ public partial class ILCompiler
 
         name = string.Empty;
         return false;
+    }
+
+    /// <summary>
+    /// True when the call's callee name (`Ok`/`Err`) is bound to a real in-scope symbol — a
+    /// local, parameter, or top-level function the user declared. In that case the call must NOT
+    /// be lowered as the compiler-known Result factory; it resolves to the user's symbol (C1).
+    /// </summary>
+    private bool IsResultFactoryCalleeShadowed(CallExpression call)
+    {
+        if (call.Callee is not IdentifierExpression identifier)
+        {
+            return false;
+        }
+
+        var name = identifier.Name;
+        return (_locals?.ContainsKey(name) ?? false)
+            || (_parameters?.ContainsKey(name) ?? false)
+            || _methods.ContainsKey(name) // top-level free function
+            || (_currentTypeBuilder != null && _methods.ContainsKey(GetMethodKey(_currentTypeBuilder, name))); // current-type method
     }
 
     private void EmitResultConstructorCall(CallExpression call, Type expectedResultType)
@@ -15938,7 +15959,7 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        if (_expectedExpressionType != null && TryGetResultConstructorName(call, out _) && IsRuntimeResultType(_expectedExpressionType))
+        if (_expectedExpressionType != null && call.IsResultFactory != false && TryGetResultConstructorName(call, out _) && IsRuntimeResultType(_expectedExpressionType) && !IsResultFactoryCalleeShadowed(call))
         {
             EmitResultConstructorCall(call, _expectedExpressionType);
             return;
@@ -19609,7 +19630,7 @@ public partial class ILCompiler
     /// </summary>
     private Type GetCallExpressionType(CallExpression call)
     {
-        if (_expectedExpressionType != null && TryGetResultConstructorName(call, out _) && IsRuntimeResultType(_expectedExpressionType))
+        if (_expectedExpressionType != null && call.IsResultFactory != false && TryGetResultConstructorName(call, out _) && IsRuntimeResultType(_expectedExpressionType) && !IsResultFactoryCalleeShadowed(call))
             return _expectedExpressionType;
 
         var calleeType = GetExpressionType(call.Callee);

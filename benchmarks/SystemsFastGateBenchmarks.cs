@@ -163,38 +163,94 @@ public class SystemsFastGateBenchmarks
         return benchmark;
     }
 
+    // Workload value arrays cached once (Enum.GetValues allocates per call; the gate enforces zero
+    // per-invoke allocation, so caching keeps the hot loop allocation-free).
+    private static readonly SystemsHotPathBenchmarks.HotPathWorkload[] HotWorkloads =
+        Enum.GetValues<SystemsHotPathBenchmarks.HotPathWorkload>();
+    private static readonly SystemsSpanHandoffBenchmarks.SpanHandoffWorkload[] SpanWorkloads =
+        Enum.GetValues<SystemsSpanHandoffBenchmarks.SpanHandoffWorkload>();
+    private static readonly SystemsCallerBufferBenchmarks.CallerBufferWorkload[] CallerWorkloads =
+        Enum.GetValues<SystemsCallerBufferBenchmarks.CallerBufferWorkload>();
+    private static readonly SystemsResultBenchmarks.ResultWorkload[] ResultWorkloads =
+        Enum.GetValues<SystemsResultBenchmarks.ResultWorkload>();
+    private static readonly SystemsPooledBoundaryBenchmarks.PooledBoundaryWorkload[] PooledWorkloads =
+        Enum.GetValues<SystemsPooledBoundaryBenchmarks.PooledBoundaryWorkload>();
+    private static readonly SystemsCombinationBenchmarks.CombinationWorkload[] CombinationWorkloads =
+        Enum.GetValues<SystemsCombinationBenchmarks.CombinationWorkload>();
+
+    // Apples-to-apples (H8): both sides run the SAME set of distinct per-workload functions, so the
+    // gate measures N# vs C# CODEGEN, not loop fusion. (The fused NSharpAll()/CSharpAll() helpers
+    // fuse the workloads asymmetrically — N# into a few loops, C# into separate full passes — so the
+    // gate used to partly measure that structural difference rather than codegen quality.)
     private static int RunHot(SystemsHotPathBenchmarks benchmark, bool useNSharp)
-        => useNSharp ? benchmark.NSharpAll() : benchmark.CSharpAll();
+    {
+        var total = 0;
+        foreach (var workload in HotWorkloads)
+        {
+            benchmark.Workload = workload;
+            total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
+        }
+
+        return total;
+    }
 
     private static int RunSpan(SystemsSpanHandoffBenchmarks benchmark, bool useNSharp)
     {
         var total = 0;
-        benchmark.Workload = SystemsSpanHandoffBenchmarks.SpanHandoffWorkload.SumSpan;
-        total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
-        benchmark.Workload = SystemsSpanHandoffBenchmarks.SpanHandoffWorkload.CountEven;
-        total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
-        benchmark.Workload = SystemsSpanHandoffBenchmarks.SpanHandoffWorkload.CopyUntilNegative;
-        total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
-        benchmark.Workload = SystemsSpanHandoffBenchmarks.SpanHandoffWorkload.ReverseCopy;
-        total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
-        benchmark.Workload = SystemsSpanHandoffBenchmarks.SpanHandoffWorkload.ArrayToSpanCaller;
-        total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
-        benchmark.Workload = SystemsSpanHandoffBenchmarks.SpanHandoffWorkload.CopyPositive;
-        total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
-        benchmark.Workload = SystemsSpanHandoffBenchmarks.SpanHandoffWorkload.ChecksumAndCopy;
-        total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
+        foreach (var workload in SpanWorkloads)
+        {
+            benchmark.Workload = workload;
+            total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
+        }
+
         return total;
     }
 
     private static int RunCaller(SystemsCallerBufferBenchmarks benchmark, bool useNSharp)
-        => useNSharp ? benchmark.NSharpAll() : benchmark.CSharpAll();
+    {
+        var total = 0;
+        foreach (var workload in CallerWorkloads)
+        {
+            benchmark.Workload = workload;
+            total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
+        }
+
+        return total;
+    }
 
     private static int RunResult(SystemsResultBenchmarks benchmark, bool useNSharp)
-        => useNSharp ? benchmark.RuntimeAll() : benchmark.CSharpAll();
+    {
+        var total = 0;
+        foreach (var workload in ResultWorkloads)
+        {
+            benchmark.Workload = workload;
+            total += useNSharp ? benchmark.RuntimeResult() : benchmark.CSharpTaggedStruct();
+        }
+
+        return total;
+    }
 
     private static int RunPooled(SystemsPooledBoundaryBenchmarks benchmark, bool useNSharp)
-        => useNSharp ? benchmark.NSharpAll() : benchmark.CSharpAll();
+    {
+        var total = 0;
+        foreach (var workload in PooledWorkloads)
+        {
+            benchmark.Workload = workload;
+            total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
+        }
+
+        return total;
+    }
 
     private static int RunCombination(SystemsCombinationBenchmarks benchmark, bool useNSharp)
-        => useNSharp ? benchmark.NSharpAll() : benchmark.CSharpAll();
+    {
+        var total = 0;
+        foreach (var workload in CombinationWorkloads)
+        {
+            benchmark.Workload = workload;
+            total += useNSharp ? benchmark.NSharp() : benchmark.CSharp();
+        }
+
+        return total;
+    }
 }

@@ -67,6 +67,14 @@ internal static class CompilationReferenceResolver
         Timeout = TimeSpan.FromMinutes(2)
     };
 
+    // Backstop for a hung `dotnet build` of a C# project reference (deadlock/runaway). Generous so a
+    // legitimately slow first build (with restore) is never falsely killed.
+    private static readonly TimeSpan ProjectReferenceBuildTimeout = TimeSpan.FromMinutes(10);
+
+    // After the build process exits, bound how long we wait to drain its redirected streams (a
+    // grandchild holding the pipe could otherwise stall the read indefinitely).
+    private static readonly TimeSpan StreamDrainTimeout = TimeSpan.FromSeconds(15);
+
     internal static ReferenceResolutionResult AddResolvedDllReferences(
         string projectDir,
         ProjectConfig config,
@@ -289,9 +297,34 @@ internal static class CompilationReferenceResolver
 
         using var process = System.Diagnostics.Process.Start(startInfo)
             ?? throw new InvalidOperationException($"Could not start dotnet build for project reference '{projectPath}'.");
-        var stdout = process.StandardOutput.ReadToEnd();
-        var stderr = process.StandardError.ReadToEnd();
-        process.WaitForExit();
+
+        // Drain BOTH redirected streams concurrently (async) rather than ReadToEnd-ing stdout then
+        // stderr in sequence: a verbose/erroring `dotnet build` that fills the stderr OS pipe buffer
+        // while the parent blocks reading stdout would deadlock the build forever (H3). A timeout
+        // bounds the wait as a backstop.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit((int)ProjectReferenceBuildTimeout.TotalMilliseconds))
+        {
+            try
+            {
+                process.Kill(entireProcessTree: true);
+            }
+            catch
+            {
+                // Best-effort termination; the throw below reports the timeout regardless.
+            }
+
+            throw new InvalidOperationException(
+                $"Project reference '{projectPath}' build timed out after {ProjectReferenceBuildTimeout.TotalMinutes:0} minutes and was terminated.");
+        }
+
+        // The process has exited, but a grandchild that inherited the pipe could keep it open and
+        // stall the reads. Bound the drain too, then proceed with whatever was captured.
+        System.Threading.Tasks.Task.WaitAll(new[] { stdoutTask, stderrTask }, StreamDrainTimeout);
+        var stdout = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : string.Empty;
+        var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : string.Empty;
 
         if (process.ExitCode != 0)
         {

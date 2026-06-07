@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.CodeIntelligence;
 using Xunit;
@@ -8,6 +9,63 @@ namespace NSharpLang.Tests;
 
 public class FixApplicatorTests
 {
+    [Fact]
+    public void DogfoodTextEditOrdering_IsActuallyExercisedInTests()
+    {
+        // M13: the Compiler project (and its dogfood DLL) is referenced WITHOUT
+        // SkipNSharpDogfoodCompilerServices, so the dogfood adapters must actually load and run in
+        // the test process — otherwise the parity test below would silently degrade to comparing
+        // the C# fallback against itself. Lock that the dogfood path is genuinely available.
+        Assert.True(
+            NSharpCodeIntelligenceDogfoodAdapter.IsAvailable,
+            "The N# dogfood compiler-services DLL must be loaded in the test run so dogfood paths are exercised.");
+    }
+
+    [Fact]
+    public void DogfoodTextEditOrdering_MatchesCSharpBaseline_AcrossRandomizedEdits()
+    {
+        // M12: differential test of the dogfood text-edit ordering (TextEditOrderIndices) against
+        // the C# baseline, across randomized edit sets including overlapping ranges, zero-width
+        // inserts, and same-position ties (the same-start tiebreak is ThenByDescending(inputIndex)).
+        for (var seed = 0; seed < 200; seed++)
+        {
+            var rng = new Random(seed);
+            var edits = new List<TextEdit>();
+
+            var count = rng.Next(0, 12);
+            for (var i = 0; i < count; i++)
+            {
+                var startLine = rng.Next(1, 4);
+                var startColumn = rng.Next(0, 4);
+                var endLine = startLine + rng.Next(0, 2);
+                var endColumn = endLine == startLine ? startColumn + rng.Next(0, 3) : rng.Next(0, 4);
+                edits.Add(new TextEdit(startLine, startColumn, endLine, endColumn, $"e{i}"));
+            }
+
+            // Force some same-position zero-width inserts to exercise the index tiebreak.
+            var duplicates = rng.Next(0, 4);
+            for (var k = 0; k < duplicates; k++)
+            {
+                edits.Add(new TextEdit(2, 1, 2, 1, $"ins{k}"));
+            }
+
+            var expected = edits
+                .Select((edit, index) => (edit, index))
+                .OrderByDescending(item => item.edit.StartLine)
+                .ThenByDescending(item => item.edit.StartColumn)
+                .ThenBy(item => item.edit.EndLine)
+                .ThenBy(item => item.edit.EndColumn)
+                .ThenByDescending(item => item.index)
+                .Select(item => item.edit)
+                .ToList();
+
+            Assert.True(
+                NSharpCodeIntelligenceDogfoodAdapter.TryOrderTextEdits(edits, out var dogfoodOrdered),
+                $"dogfood ordering should be available (seed {seed})");
+            Assert.Equal(expected, dogfoodOrdered);
+        }
+    }
+
     // ── Single Edit Application ─────────────────────────────────────────
 
     [Fact]

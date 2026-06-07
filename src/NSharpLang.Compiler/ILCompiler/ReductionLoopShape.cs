@@ -113,6 +113,12 @@ public sealed record ReductionLoopShape(
         var index = indexId.Name;
         if (accumulator == arrayRef.Name || accumulator == index || arrayRef.Name == index)
             return null;
+        // The bound must be loop-invariant. The accumulator is written every iteration, so a bound
+        // that names it (e.g. `while i < acc { acc = acc + a[i]; i = i + 1 }`) is loop-variant: the
+        // vectorized form snapshots the bound once at entry, summing a different element set than
+        // the scalar loop. Reject it (H1). The index is already excluded by the condition check.
+        if (bound is IdentifierExpression boundId && boundId.Name == accumulator)
+            return null;
         return new ReductionLoopShape(accumulatorId, arrayRef, indexId, bound);
     }
 

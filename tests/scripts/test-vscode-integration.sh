@@ -208,12 +208,20 @@ run_vscode_tests() {
             host_exit_seen=1
         fi
 
+        # NEVER take the success early-return if mocha reported any failures (H9). A run can print
+        # both "N passing" and "M failing"; without this guard the early-return reported success and
+        # bypassed mocha's non-zero exit code. On any failing line, fall through to the real
+        # wait/status below so the failure propagates.
+        if grep -Eq '[0-9]+ failing|✗|[0-9]+ pending, [0-9]+ failing' "$output"; then
+            passed_seen=0
+        fi
+
         if [ "$passed_seen" = "1" ] && [ "$host_exit_seen" = "1" ]; then
             local now
             now="$(date +%s)"
             if [ $((now - passed_at)) -ge 10 ]; then
                 cat "$output"
-                echo "VS Code tests passed; closing lingering Electron process tree."
+                echo "VS Code tests passed (no failures detected); closing lingering Electron process tree."
                 terminate_process_tree "$node_pid" TERM
                 sleep 2
                 if kill -0 "$node_pid" 2>/dev/null; then

@@ -80,6 +80,39 @@ public class AnalyzerTests
     }
 
     [Fact]
+    public void UserDefinedOk_IsNotHijackedByResultFactory()
+    {
+        // C1: a user-declared `Ok`/`Err` must bind to the user's function even in a Result-typed
+        // position, instead of being string-matched as the compiler-known Result factory. The
+        // two-argument user `Ok` here would trigger a bogus "needs exactly 1 argument" error if
+        // the factory hijacked the call.
+        AssertNoErrors(@"
+func Ok(a: int, b: int): Result<int, string> {
+    return Err(""boom"")
+}
+
+func make(): Result<int, string> {
+    return Ok(1, 2)
+}
+");
+    }
+
+    [Fact]
+    public void GenuineOkErr_StillRecognizedAsResultFactory()
+    {
+        // C1 must not break the real factory: with no user-defined Ok/Err in scope, Ok/Err in a
+        // Result-typed position are the compiler-known factory.
+        AssertNoErrors(@"
+func make(ok: bool): Result<int, string> {
+    if ok {
+        return Ok(42)
+    }
+    return Err(""nope"")
+}
+");
+    }
+
+    [Fact]
     public void InstanceMemberResolution_PrefersMemberNamedPathOverImportedType()
     {
         AssertNoErrors(@"

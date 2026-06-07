@@ -455,6 +455,62 @@ func Scratch(): int {
     }
 
     [Fact]
+    public void Stackalloc_OversizedCount_DoesNotOverflowBudgetCheck()
+    {
+        // M4: elementCount*elementSize was computed in int; 2_000_000_000 * 4 overflowed to a
+        // negative value that wrongly passed the budget check. Computed in long, it is correctly
+        // rejected as over-budget.
+        var report = Analyze("""
+func Scratch(): int {
+    scratch := stackalloc int[2000000000]
+    return scratch.Length
+}
+""", profile: "systems");
+
+        Assert.Contains(report.Findings, f => f.Code == "NSYS080");
+    }
+
+    [Fact]
+    public void HotDivision_ByNonZeroFloatLiteral_IsNotAnImplicitTrap()
+    {
+        // M2: the divide/modulo trap check only recognized non-zero INT literals, so a float-literal
+        // divisor was wrongly reported as an unproven trap. A non-zero literal can never
+        // divide-by-zero.
+        var report = Analyze("""
+[hot]
+func Scale(n: int): double {
+    return n / 2.0
+}
+""");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS120" && f.Effect == "implicitTrap");
+    }
+
+    [Fact]
+    public void HotDivision_GuardFromEarlyReturn_ExpiresWithItsScope()
+    {
+        // M3: PopGuards removed guards by value, and flow guards added via AddGuards (e.g. the
+        // `d != 0` implied by `if d == 0 return`) leaked past the scope that introduced them. With
+        // mark/truncate popping, the guard is scoped to the outer `if flag` block: the division
+        // INSIDE the block is proven non-zero, but the one AFTER the block is not and must trap.
+        var report = Analyze("""
+[hot]
+func Ratio(n: int, d: int, flag: bool): int {
+    if flag {
+        if d == 0 {
+            return 0
+        }
+        inside := n / d
+    }
+    outside := n / d
+    return outside
+}
+""");
+
+        Assert.Contains(report.Findings, f => f.Code == "NSYS120" && f.Effect == "implicitTrap");
+    }
+
+    [Fact]
     public void PoolRent_MustBeReturnedOnObviousLexicalPath()
     {
         var report = Analyze("""
@@ -656,8 +712,8 @@ public func Visible(): int {
 }
 """, profile: "systems");
 
-        Assert.Contains(report.Findings, f => f.Code == "NSYS150" && f.Message.Contains("reason", StringComparison.Ordinal));
-        Assert.Contains(report.Findings, f => f.Code == "NSYS150" && f.Message.Contains("owner", StringComparison.Ordinal));
+        Assert.Contains(report.Findings, f => f.Code == "NSYS180" && f.Effect == "effectPolicy" && f.Message.Contains("reason", StringComparison.Ordinal));
+        Assert.Contains(report.Findings, f => f.Code == "NSYS180" && f.Effect == "effectPolicy" && f.Message.Contains("owner", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -2450,7 +2506,12 @@ func Copy(): int {
         Assert.Contains("GateScenario.HotResultCombinations", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("switch (Scenario)", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("OperationsPerInvoke = InnerOperations", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("benchmark.NSharpAll() : benchmark.CSharpAll()", fastGateBenchmark, StringComparison.Ordinal);
+        // The gate aggregates per-workload (apples-to-apples) so it measures codegen, not loop
+        // fusion (H8). Both sides must run the same distinct per-workload functions, NOT the fused
+        // *All() helpers.
+        Assert.Contains("benchmark.NSharp() : benchmark.CSharp()", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("foreach (var workload in HotWorkloads)", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.DoesNotContain("benchmark.NSharpAll() : benchmark.CSharpAll()", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("RunCombination(_combination64", fastGateBenchmark, StringComparison.Ordinal);
 
         var compiledMethodSupport = File.ReadAllText(Path.Combine(root, "benchmarks", "NSharpCompiledMethod.cs"));
