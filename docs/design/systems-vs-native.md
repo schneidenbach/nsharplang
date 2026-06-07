@@ -15,16 +15,20 @@
 > | count-ascii | 4096 | 1172.9 | **296.4** | **0.25× (4.0× faster)** | ~1.0× | ~6.3× → **~1.6×** behind |
 > | count-ascii | 64 | 18.36 | **5.28** | **0.29×** | ~1.0× | ~5.7× → ~1.6× |
 > | score-frame (reduction) | 4096 | 1000.2 | **224.9** | **0.22× (4.5× faster)** | ~1.0× | bonus reduction win |
-> | min-max-delta (P-minmax) | 4096 | 1535.3 | **468.0** | **0.305× (3.28× faster)** | ~1.0× (tied, scalar) | ~10.5× → **~3.2×** behind |
-> | min-max-delta (P-minmax) | 64 | 23.55 | **16.79** | **0.713× (1.40× faster)** | ~1.0× | ~5.7× → ~4.1× |
+> | min-max-delta (P-minmax c, fused) | 4096 | 1558.4 | **262.5** | **0.168× (5.94× faster)** | ~1.0× (tied, scalar) | ~10.5× → **~1.77×** behind |
+> | min-max-delta (P-minmax c, fused) | 64 | 23.93 | **18.4** | **0.768× (1.30× faster)** | ~1.0× | ~5.7× → ~4.4× |
+> | count-transitions (P-ctrans) | 4096 | 1119.8 | **471.9** | **0.421× (2.37× faster)** | ~1.0× (tied, scalar) | ~4.54× → **~1.9×** behind |
+> | count-transitions (P-ctrans) | 64 | 16.91 | **10.93** | **0.646× (1.55× faster)** | ~1.0× | ~2.45× → ~1.6× |
 >
-> **2026-06-07 P-minmax UPDATE:** the largest remaining gap (min-max-delta, 10.5× behind native) now vectorizes
-> too — lane-wise `Vector.Min`/`Vector.Max` (min/max are associative + commutative integer reductions). N# beats
-> C# **3.28×** at 4096 (was tied). The 3.28× (below checksum's 4.5×) is the TWO-PASS cost — MinInt32 + MaxInt32
-> each re-scan; a fused single-pass `MinMaxInt32` is the planned follow-up.
+> **2026-06-07 P-minmax + P-ctrans UPDATE:** the two largest remaining gaps now vectorize too. min-max-delta
+> (10.5×) → fused `MinMaxInt32` (one `Vector.Min`+`Vector.Max` scan) = **5.94× faster than C#, ~1.77× native**.
+> count-transitions (4.5×) → seeded shifted-compare `CountTransitionsInt32` (`~Vector.Equals` of `a[i]` vs
+> `a[i-1]`, the carried `previous` passed as seed so no init analysis) = **2.37× faster than C#, ~1.9× native**.
+> **With these, EVERY vectorizable kernel is Rust-class (within ~2× of native); only rolling-hash (~1.5×, the
+> latency-bound floor) is left, and it is not vectorizable.**
 >
-> Non-vectorizable kernels are correctly **unchanged** (they don't match the reduction/count shapes): ScanTag,
-> RollingHash, CountTransitions all stay ≈1.0× C#; ParseEightDigits 0.65× (already faster). The
+> Remaining non-vectorizable kernels are correctly **unchanged**: ScanTag and RollingHash stay ≈1.0× C#;
+> ParseEightDigits 0.65× (already faster). The
 > KEY validation: this is measured on the `for`-form benchmark, so it confirms **P1(f) made the win real** — the
 > kernels tied C# (scalar) before, and beat it ~4.5× now. *The "implied vs best-native" column applies the
 > measured N# speedup to the prior (2026-06-06) native numbers on the same M4; the N#-vs-C# multiples (4–4.5×,

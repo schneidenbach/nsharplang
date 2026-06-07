@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
 using NSharpLang.Compiler.Ast;
@@ -264,6 +265,22 @@ public partial class ILCompiler
     private static readonly MethodInfo s_maxInt32Reduction =
         ResolveReductionHelper(nameof(Runtime.SimdReductions.MaxInt32));
 
+    // P-minmax(c): the FUSED single-pass helper for the canonical [1 min, 1 max] body (min-max-delta). Returns
+    // (min, max) so one scan computes both. ValueTuple<int,int>.Item1/Item2 are public fields read via ldfld.
+    private static readonly MethodInfo s_minMaxInt32Reduction =
+        ResolveReductionHelper(nameof(Runtime.SimdReductions.MinMaxInt32));
+    private static readonly FieldInfo s_valueTupleItem1 =
+        typeof(ValueTuple<int, int>).GetField("Item1")
+        ?? throw new InvalidOperationException("ValueTuple<int,int>.Item1 not found.");
+    private static readonly FieldInfo s_valueTupleItem2 =
+        typeof(ValueTuple<int, int>).GetField("Item2")
+        ?? throw new InvalidOperationException("ValueTuple<int,int>.Item2 not found.");
+
+    // P-ctrans: the adjacent-difference (count-transitions) shifted-compare helper. Returns (count, lastPrevious)
+    // via ValueTuple<int,int> — Item1/Item2 read with the same s_valueTupleItem1/Item2 fields above.
+    private static readonly MethodInfo s_countTransitionsInt32 =
+        ResolveReductionHelper(nameof(Runtime.SimdReductions.CountTransitionsInt32));
+
     /// <summary>While-form entry (P-minmax): <c>while i &lt; bound { [v := a[i];] if a[i] &lt; min { min = a[i] }
     /// [if a[i] &gt; max { max = a[i] }] }</c>.</summary>
     private bool TryEmitVectorizedMinMaxReduction(WhileStatement loop)
@@ -311,20 +328,142 @@ public partial class ILCompiler
         EmitExpression(shape.Bound);
         _currentIL.Emit(OpCodes.Stloc, boundLocal);
 
-        foreach (var reduction in shape.Reductions)
+        if (TryGetMinMaxPair(shape.Reductions, out var minReduction, out var maxReduction))
         {
-            // acc = SimdReductions.Min/MaxInt32(array, index, bound, acc) -- seeded with the pre-loop accumulator.
-            var helper = reduction.IsMin ? s_minInt32Reduction : s_maxInt32Reduction;
+            // P-minmax(c) FUSED single pass for the canonical [1 min, 1 max] body (min-max-delta): one scan loads
+            // each element once and computes both, halving memory traffic vs two MinInt32 + MaxInt32 passes.
+            // (min, max) = SimdReductions.MinMaxInt32(array, index, bound, seedMin=min, seedMax=max).
+            var tupleLocal = _currentIL.DeclareLocal(typeof(ValueTuple<int, int>));
             EmitIdentifier(shape.ArrayRef);
             EmitIdentifier(shape.IndexRef);
             _currentIL.Emit(OpCodes.Ldloc, boundLocal);
-            EmitIdentifier(reduction.AccumulatorRef);
-            _currentIL.Emit(OpCodes.Call, helper);
-            StoreIdentifier(reduction.AccumulatorRef);
+            EmitIdentifier(minReduction.AccumulatorRef);
+            EmitIdentifier(maxReduction.AccumulatorRef);
+            _currentIL.Emit(OpCodes.Call, s_minMaxInt32Reduction);
+            _currentIL.Emit(OpCodes.Stloc, tupleLocal);
+
+            // min = result.Item1 ; max = result.Item2 (ldloca + ldfld reads each field from the struct local).
+            _currentIL.Emit(OpCodes.Ldloca, tupleLocal);
+            _currentIL.Emit(OpCodes.Ldfld, s_valueTupleItem1);
+            StoreIdentifier(minReduction.AccumulatorRef);
+            _currentIL.Emit(OpCodes.Ldloca, tupleLocal);
+            _currentIL.Emit(OpCodes.Ldfld, s_valueTupleItem2);
+            StoreIdentifier(maxReduction.AccumulatorRef);
+        }
+        else
+        {
+            // One reduction (min-only/max-only) or an uncommon homogeneous pair: a separate scan per reduction.
+            foreach (var reduction in shape.Reductions)
+            {
+                // acc = SimdReductions.Min/MaxInt32(array, index, bound, acc) -- seeded with the pre-loop accumulator.
+                var helper = reduction.IsMin ? s_minInt32Reduction : s_maxInt32Reduction;
+                EmitIdentifier(shape.ArrayRef);
+                EmitIdentifier(shape.IndexRef);
+                _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+                EmitIdentifier(reduction.AccumulatorRef);
+                _currentIL.Emit(OpCodes.Call, helper);
+                StoreIdentifier(reduction.AccumulatorRef);
+            }
         }
 
         // index = max(index, bound) -- the scalar loop's exact terminal index value (matches both while- and
         // counted for-loops), even when the loop body never ran (bound <= index).
+        EmitIdentifier(shape.IndexRef);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        var keepIndexLabel = _currentIL.DefineLabel();
+        _currentIL.Emit(OpCodes.Bge, keepIndexLabel);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        StoreIdentifier(shape.IndexRef);
+        _currentIL.MarkLabel(keepIndexLabel);
+        return true;
+    }
+
+    // True iff <paramref name="reductions"/> is exactly one min and one max reduction — the canonical
+    // min-max-delta body that the fused single-pass MinMaxInt32 helper handles. min-only/max-only or an
+    // uncommon homogeneous pair (e.g. two mins) fall through to the per-reduction MinInt32/MaxInt32 path.
+    private static bool TryGetMinMaxPair(IReadOnlyList<MinMaxReduction> reductions, out MinMaxReduction min, out MinMaxReduction max)
+    {
+        min = null!;
+        max = null!;
+        if (reductions.Count != 2 || reductions[0].IsMin == reductions[1].IsMin)
+            return false;
+        min = reductions[0].IsMin ? reductions[0] : reductions[1];
+        max = reductions[0].IsMin ? reductions[1] : reductions[0];
+        return true;
+    }
+
+    // ---- RUST-PERF P-ctrans: shifted-compare SIMD count of adjacent transitions (the count-transitions kernel) -
+
+    /// <summary>While-form entry (P-ctrans): <c>while i &lt; bound { current := a[i]; if current != previous
+    /// { count++ }; previous = current }</c>.</summary>
+    private bool TryEmitVectorizedCountTransitions(WhileStatement loop)
+        => TryEmitMatchedCountTransitions(CountTransitionsShape.TryMatch(loop));
+
+    /// <summary>For-form entry (P-ctrans). EmitFor emits the initializer first, so the index holds its start value
+    /// here exactly as in the while-form.</summary>
+    private bool TryEmitVectorizedCountTransitions(ForStatement loop)
+        => TryEmitMatchedCountTransitions(CountTransitionsShape.TryMatch(loop));
+
+    /// <summary>
+    /// If <paramref name="shape"/> is a matched int[] adjacent-difference count, lower it to the shifted-compare
+    /// SIMD helper and return true; otherwise return false (caller emits the scalar loop). The loop becomes
+    /// <c>(count_delta, last) = SimdReductions.CountTransitionsInt32(array, index, bound, previous);
+    /// count = count + count_delta; previous = last; index = max(index, bound)</c> — value-identical (each
+    /// <c>a[i] != a[i-1]</c> comparison is independent; the carried <c>previous</c> is passed as the helper's seed
+    /// so its pre-loop value need not be analyzed) and faster (packed compare + masked accumulate). The terminal
+    /// <c>previous = last</c> restores the carried scalar to its scalar-loop exit value (<c>a[bound-1]</c>, or the
+    /// seed when the loop never ran) so any later read is correct. Fires only for an int[] array and int
+    /// counter/index/previous and an int side-effect-free bound, in the default unchecked-arithmetic context.
+    /// </summary>
+    private bool TryEmitMatchedCountTransitions(CountTransitionsShape? shape)
+    {
+        if (_currentIL == null || shape == null)
+            return false;
+
+        // Consistent with the other shapes: do not fire in a checked context. A count cannot overflow
+        // (count <= end <= int.Max), so this is a conservative invariant rather than a correctness requirement.
+        if (_overflowCheckingEnabled)
+            return false;
+
+        if (GetIdentifierType(shape.ArrayRef) != typeof(int[]))
+            return false;
+        if (GetIdentifierType(shape.CounterRef) != typeof(int))
+            return false;
+        if (GetIdentifierType(shape.IndexRef) != typeof(int))
+            return false;
+        if (GetIdentifierType(shape.PreviousRef) != typeof(int))
+            return false;
+        if (!IsSideEffectFreeInt32Bound(shape.Bound))
+            return false;
+
+        // Evaluate the bound EXACTLY ONCE into a temp (side-effect-free, so value-identical to the scalar loop's
+        // per-iteration re-evaluation).
+        var boundLocal = _currentIL.DeclareLocal(typeof(int));
+        EmitExpression(shape.Bound);
+        _currentIL.Emit(OpCodes.Stloc, boundLocal);
+
+        // (count_delta, last) = CountTransitionsInt32(array, index, bound, previous) -- previous passed as the seed.
+        var tupleLocal = _currentIL.DeclareLocal(typeof(ValueTuple<int, int>));
+        EmitIdentifier(shape.ArrayRef);
+        EmitIdentifier(shape.IndexRef);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        EmitIdentifier(shape.PreviousRef);
+        _currentIL.Emit(OpCodes.Call, s_countTransitionsInt32);
+        _currentIL.Emit(OpCodes.Stloc, tupleLocal);
+
+        // count = count + result.Item1
+        EmitIdentifier(shape.CounterRef);
+        _currentIL.Emit(OpCodes.Ldloca, tupleLocal);
+        _currentIL.Emit(OpCodes.Ldfld, s_valueTupleItem1);
+        _currentIL.Emit(OpCodes.Add);
+        StoreIdentifier(shape.CounterRef);
+
+        // previous = result.Item2  (the scalar loop's terminal carried value)
+        _currentIL.Emit(OpCodes.Ldloca, tupleLocal);
+        _currentIL.Emit(OpCodes.Ldfld, s_valueTupleItem2);
+        StoreIdentifier(shape.PreviousRef);
+
+        // index = max(index, bound) -- the scalar loop's exact terminal index value.
         EmitIdentifier(shape.IndexRef);
         _currentIL.Emit(OpCodes.Ldloc, boundLocal);
         var keepIndexLabel = _currentIL.DefineLabel();

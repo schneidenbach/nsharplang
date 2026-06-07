@@ -184,19 +184,21 @@ func minOf(a: int[], n: int): int {
     }
 
     [Fact]
-    public void MinMax_LowersToTwoHelperCalls_OnlyWhenEnabled()
+    public void MinMax_LowersToOneFusedHelperCall_OnlyWhenEnabled()
     {
+        // P-minmax(c): the [1 min, 1 max] body fuses into a SINGLE MinMaxInt32 call (one scan computes both),
+        // not two separate MinInt32 + MaxInt32 scans.
         Assert.Equal(0, Calls(ForTempMinMax, "minMaxDelta", false));
-        Assert.Equal(2, Calls(ForTempMinMax, "minMaxDelta", true)); // MinInt32 + MaxInt32
+        Assert.Equal(1, Calls(ForTempMinMax, "minMaxDelta", true)); // fused MinMaxInt32
         Assert.Equal(0, Calls(WhileTempMinMax, "mmw", false));
-        Assert.Equal(2, Calls(WhileTempMinMax, "mmw", true));
+        Assert.Equal(1, Calls(WhileTempMinMax, "mmw", true));
     }
 
     [Fact]
     public void MinOnly_LowersToOneHelperCall_OnlyWhenEnabled()
     {
         Assert.Equal(0, Calls(ForMinOnly, "minOf", false));
-        Assert.Equal(1, Calls(ForMinOnly, "minOf", true)); // MinInt32 only
+        Assert.Equal(1, Calls(ForMinOnly, "minOf", true)); // MinInt32 only (no max → not fused)
     }
 
     [Fact]
@@ -334,5 +336,52 @@ public class MinMaxHelperEdgeCaseTests
         Assert.Equal(99, SimdReductions.MaxInt32(data, 5, 5, 99));
         Assert.Equal(99, SimdReductions.MinInt32(data, 10, 3, 99));  // negative range
         Assert.Equal(99, SimdReductions.MaxInt32(data, 10, 3, 99));
+    }
+
+    // ---- P-minmax(c): the FUSED single-pass MinMaxInt32 helper ------------------------------------------
+
+    [Theory]
+    [InlineData(int.MinValue, int.MaxValue)] // wide seeds (don't bias the result)
+    [InlineData(0, 0)]                       // both seeds 0
+    [InlineData(7, 7)]                       // interior seed (the min-max-delta a[0] case)
+    [InlineData(int.MaxValue, int.MinValue)] // identity seeds (min starts high, max starts low)
+    public void FusedMinMaxInt32_SimdPath_MatchesSeparateAndScalar(int seedMin, int seedMax)
+    {
+        var data = Mixed();
+        var (fmin, fmax) = SimdReductions.MinMaxInt32(data, 0, data.Length, seedMin, seedMax);
+        // Fused == the two separate helpers == the scalar fold.
+        Assert.Equal(SimdReductions.MinInt32(data, 0, data.Length, seedMin), fmin);
+        Assert.Equal(SimdReductions.MaxInt32(data, 0, data.Length, seedMax), fmax);
+        Assert.Equal(ScalarMin(data, 0, data.Length, seedMin), fmin);
+        Assert.Equal(ScalarMax(data, 0, data.Length, seedMax), fmax);
+    }
+
+    [Theory]
+    [InlineData(0, 200)]
+    [InlineData(1, 200)]   // the min-max-delta shape: non-zero start + SIMD tail
+    [InlineData(3, 197)]
+    [InlineData(50, 150)]
+    public void FusedMinMaxInt32_PartialRange_MatchesScalar(int start, int end)
+    {
+        var data = Mixed();
+        var (fmin, fmax) = SimdReductions.MinMaxInt32(data, start, end, data[start], data[start]);
+        Assert.Equal(ScalarMin(data, start, end, data[start]), fmin);
+        Assert.Equal(ScalarMax(data, start, end, data[start]), fmax);
+    }
+
+    [Fact]
+    public void FusedMinMaxInt32_EmptyAndNegativeRange_ReturnsSeeds()
+    {
+        var data = Mixed();
+        Assert.Equal((11, 22), SimdReductions.MinMaxInt32(data, 5, 5, 11, 22));   // empty
+        Assert.Equal((11, 22), SimdReductions.MinMaxInt32(data, 10, 3, 11, 22));  // negative range
+    }
+
+    [Fact]
+    public void FusedMinMaxInt32_AllEqual_ReturnsThatValue()
+    {
+        var data = new int[200];
+        Array.Fill(data, -42);
+        Assert.Equal((-42, -42), SimdReductions.MinMaxInt32(data, 0, data.Length, int.MaxValue, int.MinValue));
     }
 }
