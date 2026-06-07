@@ -99,6 +99,11 @@ question — only genuine architectural forks surface. Living evidence in
       Behind an off-by-default flag; correctness test = run(vectorized) == run(scalar) across lengths incl.
       non-multiples of Count.
 - [ ] **P2 — range-predicate counts** (count-ascii) — same staged approach (packed compare + masked accumulate).
+      [x] (a) detector `RangePredicateCountShape.TryMatch` (while/for, temp/inlined subject, inclusive range, unit
+      counter increment; 19 accept/reject tests; no codegen change). [ ] (b) masked-count helper
+      `SimdReductions.CountInRangeInt32` (Vector.GreaterThanOrEqual & Vector.LessThanOrEqual → mask; acc -= mask;
+      Vector.Sum; reuse P1's empty/OOB/overflow guards) + emitter hook in EmitWhile/EmitFor + parity tests +
+      adversarial review. [ ] (c) widen element types / generalize predicate operators if the corpus needs it.
 - [ ] **P3 — bounds-check elision** for proven-in-range counted loops (count-transitions's size-scaling tax).
 - [ ] **P4 — LLVM / NativeAOT backend evaluation** (design workflow) once A-pattern wins plateau — the
       long-pole bet for broad vectorizable parity. Decide build-vs-not from P1–P3 results.
@@ -113,8 +118,9 @@ question — only genuine architectural forks surface. Living evidence in
 
 ## Status cursor
 
-Phase P **P1 is COMPLETE** (a–e: int/long/uint/ulong counted-reduction auto-vectorization, default-on, parity-
-and adversarially-verified). Next up: **Stage 3b — columnar diagnostics** (Phase S, the C#-elimination spine)
-and **P2 — range-predicate counts** (Phase P, count-ascii: packed compare + masked accumulate). Then Stage 4
-(columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified.
-Phase T (route columnar into CLI/LSP) follows stages 3–4.
+Phase P **P1 is COMPLETE** (a–f: int/long/uint/ulong counted-reduction auto-vectorization, default-on, both
+`while` and `for` forms — now firing on idiomatic/benchmark code — parity- and adversarially-verified, all
+correctness bugs fixed). **P2(a) detector landed.** Next up: **P2(b)** — the masked-count helper +
+emitter hook + parity tests + adversarial review (count-ascii); and on the self-host spine **Stage 3b — columnar
+diagnostics** (Phase S). Then Stage 4 (columnar codegen) — where end-to-end binder/output parity (incl. the
+binder reconciliation item) is verified. Phase T (route columnar into CLI/LSP) follows stages 3–4.

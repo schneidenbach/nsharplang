@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P2(a): range-predicate count detector (count-ascii; no codegen change)
+
+First sub-slice of the count-ascii vectorization (the 5.7–6.3× Rust gap). `RangePredicateCountShape.TryMatch`
+recognizes the canonical range-predicate count loop — `for`/`while i < n { [value := a[i];] if a[i] >= lo &&
+a[i] <= hi { count++ } }` (inclusive range; while- and for-forms; temp or inlined subject; counter increment
+`count = count + 1`/`+= 1`/`++`) — purely structurally, enforcing every safety condition that makes the future
+masked-SIMD rewrite (P2(b)) value-preserving: loop-invariant side-effect-free `lo`/`hi` (not index/temp/counter,
+so evaluating them once in the helper matches per-iteration evaluation), no `else`, a single unit-counter-increment
+body, the array indexed only by the loop var, and distinct counter/array/index/temp names. 19 tests pin 6 accepted
+shapes + 13 near-miss rejections (else branch, exclusive `>`/`<`, `||`, non-unit increment, extra statements,
+wrong index, two arrays, loop-variant bound, subject mismatch). **No IL emission yet → zero regression risk** —
+this is the analytical gate the masked-count emission (P2(b)) will hook into `EmitWhile`/`EmitFor`. The masked
+helper design is validated (`Vector.GreaterThanOrEqual & Vector.LessThanOrEqual` → an all-ones mask per in-range
+lane; `acc -= mask`; `Vector.Sum`), and will reuse P1's empty/OOB/overflow-guarded helper structure. **Next:
+P2(b)** — the masked-count helper (`SimdReductions.CountInRangeInt32`) + the emitter hook + parity tests.
+
 ## 2026-06-07 — Rust-perf P1(f): vectorize the FOR-form — the win now fires where it is actually measured
 
 **Discovery (high-leverage):** the reduction auto-vectorizer (P1 a–e) hooked ONLY `EmitWhile`, but the systems
