@@ -121,6 +121,8 @@ hot path did wrong:
 | `NSYS140` | A concurrency primitive with no memory-ordering summary |
 | `NSYS150` | Effect drift — a callee gained a cost a hot caller relied on it not having |
 | `NSYS160` | A must-use `Result<T,E>` discarded |
+| `NSYS170` | A `Result<T,E>` return value's copy shape exceeds the hot-path size guidance |
+| `NSYS180` | Effect policy — a function-level `[allow]` is missing a required `reason`/`owner` |
 
 When a cost is intentional, waive it locally with an `allow(...)` statement that records the
 reason and owner — the waiver is part of the source, reviewable in code review:
@@ -378,9 +380,10 @@ This closes the worst-case gap behind native (Rust/C) on these kernels from ~8.8
 > arrays; **range-predicate counts** currently cover `int[]` only. Floating-point reductions
 > are deliberately excluded (FP addition isn't associative).
 > Loops that don't match — and non-vectorizable kernels generally — correctly stay scalar
-> and tie C#. General auto-vectorization, loop unrolling beyond this, and a full
-> LLVM/NativeAOT-class backend remain on the
-> [performance backlog](https://github.com/schneidenbach/nsharplang/blob/main/docs/design/systems-perf-backlog.md), not shipped.
+> and tie C#. Broader auto-vectorization (more loop shapes and element types) and a structural
+> LLVM/NativeAOT-class vectorizing backend were evaluated and deferred; per-pattern `Vector<T>`
+> emission already closes the measured gap to within ~2× of native — see
+> [Systems N# vs Rust vs C](https://github.com/schneidenbach/nsharplang/blob/main/docs/design/systems-vs-native.md).
 
 ---
 

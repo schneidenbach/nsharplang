@@ -1582,8 +1582,8 @@ import Newtonsoft.Json as Json  // with alias
 ## Deferred Features
 
 ### Now Shipped (formerly deferred)
-- **Unsafe code and pointers** — shipped in the opt-in [Systems N#](guide/systems.md) profile as governed `unsafe { }` blocks behind `[memory(safe)]` + `[trusted(...)]`, alongside `ref struct`, `stackalloc`, and lifetime-checked spans.
-- **.NET event interop** — subscribe to a .NET `event` with `on event handler` and detach with `off subscription`. `on` returns a subscription handle, so unsubscribing a lambda just works (unlike C#'s `-=`). N# still has no `event` *declaration* keyword — you consume external events, you don't author them. See [Interop → Subscribing to .NET Events](guide/interop.md). Note: `+=`/`-=` on an event is a compile error that points you to `on`/`off`; `+=`/`-=` on a real `Func`/`Action` field still performs delegate combine/remove.
+- **Unsafe code and pointers** — shipped in the opt-in [Systems N#](../website/docs/systems.md) profile as governed `unsafe { }` blocks behind `[memory(safe)]` + `[trusted(...)]`, alongside `ref struct`, `stackalloc`, and lifetime-checked spans.
+- **.NET event interop** — subscribe to a .NET `event` with `on event handler` and detach with `off subscription`. `on` returns a subscription handle, so unsubscribing a lambda just works (unlike C#'s `-=`). N# still has no `event` *declaration* keyword — you consume external events, you don't author them. See [Interop → Subscribing to .NET Events](../website/docs/interop.md). Note: `+=`/`-=` on an event is a compile error that points you to `on`/`off`; `+=`/`-=` on a real `Func`/`Action` field still performs delegate combine/remove.
 
 ### Explicitly NOT Supported
 - **Declaring events** - NO `event` keyword for *defining* events on your own types. Model notifications with a `Func<>`/`Action<>` field instead. (Subscribing to *external* .NET events is supported via `on`/`off` — see above.)
@@ -1624,7 +1624,7 @@ This is the experiment: can we get better types while keeping C# interop simple?
 
 ## Strictness
 
-N# is a **near-zero-warnings** language. The compiler is deliberately strict: it is the "Go for .NET" stance applied to diagnostics. Go and Rust earned developer trust by being *predictable* — a clean build means the program is actually well-formed, not "well-formed except for the 47 warnings everyone scrolled past." N# adopts the same contract.
+N# is a **near-zero-warnings** language. The compiler is deliberately strict: it applies Go's and Rust's predictability ethos to diagnostics. Go and Rust earned developer trust by being *predictable* — a clean build means the program is actually well-formed, not "well-formed except for the 47 warnings everyone scrolled past." N# adopts the same contract.
 
 ### The Core Rule
 

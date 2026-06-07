@@ -3,7 +3,7 @@
 The standing execution plan. Work this top-to-bottom autonomously. It exists so there is never a "which next?"
 question — only genuine architectural forks surface. Living evidence in
 [`self-host-progress.md`](self-host-progress.md), [`columnar-pipeline.md`](columnar-pipeline.md),
-[`systems-perf-backlog.md`](systems-perf-backlog.md).
+[`systems-vs-native.md`](systems-vs-native.md).
 
 ## Operating contract (how this gets executed)
 
@@ -31,6 +31,20 @@ question — only genuine architectural forks surface. Living evidence in
    (checksum-sum, count-ascii) and ties-or-better elsewhere; the SystemsFastGate never-regress bar holds.
 3. **Top-of-class language + tooling:** general-purpose and systems surfaces are feature-complete for the
    corpus + examples; LSP/CLI run on the columnar pipeline; docs current.
+
+## End deliverable — what "done" ships
+
+A dynamic workflow spawns many short-lived `nlc` invocations; cold-start latency and reliability dominate.
+The finished product is:
+1. **AOT single-binary `nlc`** — `PublishAot` the CLI (and keep it AOT-clean as subsystems migrate; the
+   systems AOT/readiness reporting helps here). Eliminates JIT warmup → millisecond cold starts.
+2. **LLM-first CLI** — the versioned `nlc query` JSON toolchain: stable, schema-versioned JSON for
+   check/fix/query/diagnostics so an agent has the same power as VS Code.
+3. **Daemon/fast-path** for repeated invocations in one workflow (warm compiler, incremental).
+4. **Deterministic, hermetic builds** (project.yml-first, single SDK reference) so a workflow can
+   `nlc new`/`build`/`run`/`test` with no environment surprises.
+
+The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuinely snappy for agents.
 
 ## Phase S — Self-host (eliminate C# reliance)
 
@@ -61,6 +75,12 @@ question — only genuine architectural forks surface. Living evidence in
 - [ ] **Coverage expansion** (pulled in as stages need them): class/struct/enum/record/interface/union decls
       + members; for/foreach/let/match/lambdas/generics/tuples/is-as/range/`new[size]`/`new{init}`. Each is a
       parser-kernel form added + parity-gated, then threaded through stages 1–4.
+- **Deferred parity findings** (carried over from the retired dogfood-parity roadmap; fix as the parser
+  kernel / inferer work lands): **M6** — `test`/`setup`/`teardown` are contextual keywords the lexer emits
+  as identifiers, so a `*.tests.nl` file with no top-level `func` parses as zero declarations (repro:
+  `examples/16-task-cli/Program.tests.nl`); detect-and-fall-back or parse them. **M8** — the columnar
+  inferer keys function return types by name only, so top-level overloads collide (last wins); key by
+  canonical signature (`ColumnarFunctionSymbol.Signature()`).
 
 ## Phase P — Rust-class performance
 
@@ -188,13 +208,5 @@ the structural backend's order-of-magnitude prize was captured by Phase P's `Vec
 deferred behind evidence gates G1–G4; NativeAOT image emission is split out as a separate, lower-risk CLI
 startup/size track. **Next: the self-host spine — Stage 3b (columnar diagnostics).**
 
-**Worktree note (2026-06-07):** P-minmax(c) AND P3/P-ctrans were developed on branch `systems-language-perf` (an
-isolated worktree off `ca9ba88e`) while a concurrent session held the shared `systems-language` tree. Merge
-`systems-language-perf` → `systems-language` once that session settles (perf work touches `SimdReductions.cs` /
-`ILCompiler.Vectorization.cs` / `ILCompiler.cs` hooks + new shape files + tests/docs — disjoint from the
-concurrent newtype/CLI/preprocessor work, so a near-clean merge).
-
-**Worktree note (2026-06-07):** P-minmax(c) was developed on branch `systems-language-perf` (an isolated git
-worktree off `ca9ba88e`) because a concurrent session left the shared `systems-language` tree non-compiling.
-Merge `systems-language-perf` back into `systems-language` once that session settles (no file conflicts expected —
-perf work touches `SimdReductions.cs`/`ILCompiler.Vectorization.cs`, disjoint from the concurrent newtype/CLI work).
+The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
+(commit `d2a447f3`).

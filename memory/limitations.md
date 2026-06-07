@@ -5,7 +5,7 @@ This file is the current public-facing limitations register for N# docs. Keep it
 ## Launch and Verification
 
 - **Full product gate is not launch-green by default.** Use the latest `./scripts/test-all.sh` output as evidence before saying the whole product is ready. Prior audit notes record full-suite/VS Code integration risk, so do not replace this with a blanket "all tests pass" claim without a fresh run.
-- **Test counts move quickly.** Do not hard-code totals in README/site copy. Quote exact counts only from a fresh `./scripts/test-all.sh` run or a dated evidence artifact (e.g. `docs/design/self-host-progress.md` entries; the frozen `docs/talk/evidence-matrix.md` is a May-2026 snapshot, not a current source).
+- **Test counts move quickly.** Do not hard-code totals in README/site copy. Quote exact counts only from a fresh `./scripts/test-all.sh` run or a dated evidence artifact (e.g. `docs/design/self-host-progress.md` entries).
 - **Packaging/public feed status must be verified per release.** Local/private setup exists, but docs should not imply broadly available public NuGet packages unless the package/feed evidence is current.
 
 ## CLI

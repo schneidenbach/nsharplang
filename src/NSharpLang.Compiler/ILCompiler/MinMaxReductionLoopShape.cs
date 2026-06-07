@@ -25,7 +25,7 @@ public sealed record MinMaxReduction(IdentifierExpression AccumulatorRef, MinMax
 }
 
 /// <summary>
-/// RUST-PERF P-minmax (docs/design/roadmap-to-done.md, systems-perf-backlog.md). Recognizes the canonical
+/// RUST-PERF P-minmax (docs/design/roadmap-to-done.md). Recognizes the canonical
 /// min/max conditional-reduction loop — the min-max-delta kernel (the ~10.5× Rust gap, the single largest
 /// remaining one) — that the auto-vectorizing codegen rewrites into lane-wise <c>Vector.Min</c>/<c>Vector.Max</c>
 /// reductions. Integer min and max are associative AND commutative (a total order), so reducing across SIMD

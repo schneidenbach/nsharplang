@@ -61,29 +61,29 @@ nlc run
 
 ### Start Here
 
-- **[Getting Started](guide/getting-started.md)** - Install, create a project, build and run in under 5 minutes
-- **[Language Tour](guide/language-tour.md)** - Main implemented language surfaces with runnable examples
+- **[Getting Started](../website/docs/getting-started.md)** - Install, create a project, build and run in under 5 minutes
+- **[Language Tour](../website/docs/language-tour.md)** - Main implemented language surfaces with runnable examples
 
 ### Coming From Another Language
 
-- **[For C# Developers](guide/for-csharp-developers.md)** - Side-by-side syntax comparison for 20 common patterns
-- **[For Go Developers](guide/for-go-developers.md)** - How Go concepts map to N#
+- **[For C# Developers](../website/docs/for-csharp-developers.md)** - Side-by-side syntax comparison for 20 common patterns
+- **[For Go Developers](../website/docs/for-go-developers.md)** - How Go concepts map to N#
 
 ### Language Reference
 
-- **[Basics](guide/basics.md)** - Variables, functions, control flow, and core syntax
-- **[Functions](guide/functions.md)** - Deep dive into functions, lambdas, async, and generics
-- **[Types](guide/types.md)** - Classes, unions, records, duck interfaces, and the type system
-- **[Pattern Matching](guide/pattern-matching.md)** - Master pattern matching with exhaustiveness checking
-- **[Systems N#](guide/systems.md)** - The high-performance lane: `[hot]` cost contracts, `Result<T,E>`, spans, governed `unsafe`, SIMD
+- **[Basics](../website/docs/basics.md)** - Variables, functions, control flow, and core syntax
+- **[Functions](../website/docs/functions.md)** - Deep dive into functions, lambdas, async, and generics
+- **[Types](../website/docs/types.md)** - Classes, unions, records, duck interfaces, and the type system
+- **[Pattern Matching](../website/docs/pattern-matching.md)** - Master pattern matching with exhaustiveness checking
+- **[Systems N#](../website/docs/systems.md)** - The high-performance lane: `[hot]` cost contracts, `Result<T,E>`, spans, governed `unsafe`, SIMD
 
 ### Interop
 
-- **[Interop Guide](guide/interop.md)** - Using N# with C# and .NET libraries
+- **[Interop Guide](../website/docs/interop.md)** - Using N# with C# and .NET libraries
 
 ### Development & Deployment
 
-- **[CI/CD Guide](guide/ci-cd.md)** - Setting up continuous integration and deployment with GitHub Actions, Azure Pipelines, and Docker
+- **[CI/CD Guide](../website/docs/ci-cd.md)** - Setting up continuous integration and deployment with GitHub Actions, Azure Pipelines, and Docker
 
 ### Design Notes
 

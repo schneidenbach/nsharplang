@@ -7,6 +7,8 @@ N# has one supported executable backend:
 
 The product toolchain now runs through IL end to end. Projects use `backend: il` (or omit the field and take the default), and the CLI plus MSBuild SDK honor that path consistently for build, run, test, perf-report, and publish flows. C# generation remains available only through the explicit `nlc export csharp` inspection command.
 
+The compiler, compiler-service, and CLI logic are being self-hosted into N# via the **columnar pipeline** (see [`docs/design/roadmap-to-done.md`](../docs/design/roadmap-to-done.md) and [`docs/design/columnar-pipeline.md`](../docs/design/columnar-pipeline.md)); C# is being reduced to the CLR/BCL host boundary + bootstrap loader.
+
 ```
 .nl source file
     ↓

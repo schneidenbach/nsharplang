@@ -1,5 +1,7 @@
 # Pattern Matching
 
+> **Note:** N# compiles to **IL directly**. Any "Generated C# / Transpiles to" blocks below show the `nlc export csharp` *inspection* view of the semantics, not the build path.
+
 ## Match Expressions
 
 Match expressions provide exhaustive pattern matching (similar to Rust/F#).

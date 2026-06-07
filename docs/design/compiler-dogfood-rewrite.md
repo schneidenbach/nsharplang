@@ -2,7 +2,7 @@
 
 # Compiler Dogfood Rewrite Plan
 
-Status: active goal
+Status: superseded strategy — retained as a methodology + accept/reject evidence archive (see banner above)
 Updated: 2026-06-05
 
 This document tracks the rewrite of the N# compiler, compiler services, and CLI tooling in N#.

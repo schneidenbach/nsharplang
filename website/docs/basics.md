@@ -9,7 +9,7 @@ Welcome to N#! This guide covers the fundamental syntax and features of the N# p
 
 ## What is N#?
 
-N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. Think of it as "Go for .NET" - it combines Go's simplicity and clean syntax with the power of the .NET ecosystem.
+N# (pronounced "N Sharp") is a pragmatic, simple language for the .NET CLR. It shares Go's ethos of simplicity and clean syntax, but it is **not** "Go for .NET": N# pairs that small syntax with a much richer type system (discriminated unions, exhaustive pattern matching, structural typing) and an opt-in high-performance "systems" lane.
 
 **Key Features:**
 - Clean, minimal syntax (no semicolons!)

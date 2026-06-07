@@ -1,5 +1,7 @@
 # Type System
 
+> **Note:** N# compiles to **IL directly**. Any "Generated C# / Transpiles to" blocks below show the `nlc export csharp` *inspection* view of the semantics, not the build path.
+
 ## Overview
 
 N# has a rich type system with type inference, external type resolution, and structural typing.

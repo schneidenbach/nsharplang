@@ -14,7 +14,7 @@ Welcome to the N# compiler documentation. This folder contains technical documen
 | Question | Answer |
 |----------|--------|
 | Understand the architecture? | Read [architecture.md](architecture.md) |
-| Plan the compiler dogfood rewrite? | Read [docs/design/compiler-dogfood-rewrite.md](../docs/design/compiler-dogfood-rewrite.md) |
+| Plan the self-host / compiler rewrite? | Read [docs/design/roadmap-to-done.md](../docs/design/roadmap-to-done.md) and [docs/design/columnar-pipeline.md](../docs/design/columnar-pipeline.md) |
 | Plan compiler performance work? | Read [docs/design/performance-compiler-refactor.md](../docs/design/performance-compiler-refactor.md) |
 | Work on Systems N#? | Read [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md) and [docs/audits/systems-nsharp-implementation-adversarial-review.md](../docs/audits/systems-nsharp-implementation-adversarial-review.md) |
 | Check IL backend parity status? | Read [il-compiler-parity-audit.md](il-compiler-parity-audit.md) |
@@ -58,14 +58,14 @@ Performance-focused compiler refactor plan for Bound IR, escape/capture/allocati
 ### [docs/design/systems-nsharp.md](../docs/design/systems-nsharp.md)
 Canonical Systems N# proposal and v1 implementation target for hot-path cost visibility, HotSummary facts, BCL seed summaries, `Result<T,E>`, restricted unsafe, ref/lifetime safety, pooling, AOT/readiness reporting, templates, and acceptance gauntlet examples.
 
-### [docs/design/self-host-roadmap.md](../docs/design/self-host-roadmap.md)
-Strategic roadmap from today's bridged dogfood state to full self-host: why bridge code (the `*DogfoodAdapter` delegate boundaries) can only be removed by whole-subsystem migration to N# (lexer beachhead → parser → binder → IL emit → CLI), the in-assembly N#-to-N# call path, the bootstrap milestone, the systems-language completion track, and the AOT/LLM-first-CLI packaging that makes N# fast enough for dynamic Claude workflows.
+### [docs/design/roadmap-to-done.md](../docs/design/roadmap-to-done.md)
+The standing execution plan: Phase S (self-host via the columnar pipeline) → Phase P (Rust-class performance) → Phase T (tooling/language), plus the End-deliverable AOT single-binary `nlc` + LLM-first `nlc query` packaging that makes N# fast enough for dynamic Claude workflows. The architecture is in [columnar-pipeline.md](../docs/design/columnar-pipeline.md).
 
 ### [docs/design/self-host-progress.md](../docs/design/self-host-progress.md)
 Running log of self-host/dogfood slices: what migrated, benchmark deltas, adapters removed, bootstrap coverage, and each language/compiler limitation found + the principled fix.
 
 ### [docs/design/compiler-dogfood-rewrite.md](../docs/design/compiler-dogfood-rewrite.md)
-Dogfood rewrite plan for moving the compiler, compiler services, and CLI tooling to N# with per-function parity and 5x BenchmarkDotNet speed gates.
+**Archived strategy.** The original "N# kernels behind `*DogfoodAdapter` delegates" routing approach — a proven performance dead-end, superseded by the columnar pipeline. Retained for its per-slice parity/benchmark methodology and accept/reject evidence record.
 
 **Topics:**
 - N# implementation acceptance standard for compiler/service/CLI functions
@@ -108,7 +108,7 @@ Type checking, semantic analysis, name resolution.
 - Pattern exhaustiveness checking
 
 ### [components/transpiler.md](components/transpiler.md)
-C# code generation from AST.
+C# export — **inspection only** via `nlc export csharp`. N# compiles to IL directly; the C# exporter is not the build backend.
 
 **Key details:**
 - Union type → abstract base class
@@ -165,7 +165,7 @@ Match expressions, patterns, guards, exhaustiveness checking.
 - Pattern types (identifier, literal, union, positional, list, type)
 - Pattern guards (when clauses)
 - Exhaustiveness checking for unions
-- Transpilation to C# switch expressions
+- Lowering to IL match/switch (inspect via `nlc export csharp`)
 
 ### [features/async.md](features/async.md)
 Async/await, async streams (IAsyncEnumerable).
@@ -250,7 +250,7 @@ Current limitations and workarounds.
 3. Search for specific terms in relevant files
 
 **"I need to fix a bug"**
-1. Identify component (Lexer, Parser, Analyzer, C# exporter)
+1. Identify component (Lexer, Parser, Analyzer, IL backend)
 2. Read relevant component doc in [components/](#components)
 3. Check [testing.md](testing.md) for test approach
 4. Check [limitations.md](limitations.md) if it's a known limitation
@@ -267,7 +267,7 @@ Current limitations and workarounds.
 | Lexer | [components/lexer.md](components/lexer.md) | ~3KB | Tokenization, strings, operators |
 | Parser | [components/parser.md](components/parser.md) | ~5KB | AST, precedence, patterns |
 | Analyzer | [components/analyzer.md](components/analyzer.md) | ~6KB | Types, scopes, checking |
-| C# Exporter | [components/transpiler.md](components/transpiler.md) | ~5KB | C# export generation, strategies |
+| C# Exporter (inspection) | [components/transpiler.md](components/transpiler.md) | ~5KB | `nlc export csharp` inspection output |
 | CLI (legacy) | [components/cli.md](components/cli.md) | ~3KB | Build/run basics |
 | CLI Toolchain | [components/cli-toolchain.md](components/cli-toolchain.md) | ~8KB | **Full reference:** check, fix, query, daemon, completions |
 | Errors | [components/error-reporting.md](components/error-reporting.md) | ~3KB | Codes, formatting, suggestions |
@@ -296,7 +296,7 @@ These documentation files are optimized for AI context windows:
 | testing.md | ~4KB | When writing tests |
 | limitations.md | ~5KB | When hitting unexpected behavior |
 
-**Total:** ~50KB across all files (vs 133KB in old single file)
+These files are intentionally small and single-purpose.
 
 **Strategy:** Read architecture.md first, then only load specific files as needed.
 
@@ -306,8 +306,8 @@ These documentation files are optimized for AI context windows:
 
 - **../docs/DESIGN.md** - Language design and syntax specification
 - **../README.md** - Project overview and getting started
-- **../docs/** - User-facing documentation and guides
-- **./completed-tasks/** - Archived completed tasks
+- **../docs/** - Design docs (`docs/design/`), audits, and project references
+- **../website/docs/** - The canonical user-facing language guides
 
 ---
 
@@ -318,7 +318,7 @@ These documentation files are optimized for AI context windows:
 3. ✅ How is [feature X] implemented?
 4. ✅ How do I parse [syntax]?
 5. ✅ How does type checking work?
-6. ✅ How is C# code generated?
+6. ✅ How does N# emit IL (inspectable as C# via `nlc export csharp`)?
 7. ✅ How do I run the compiler?
 8. ✅ How do I write tests?
 9. ✅ What are the current limitations?
@@ -329,4 +329,4 @@ These documentation files are optimized for AI context windows:
 
 ---
 
-*Last Updated: 2026-03-25*
+*Last Updated: 2026-06-07*

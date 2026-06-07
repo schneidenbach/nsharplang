@@ -11,7 +11,7 @@ namespace NSharpLang.Tests;
 /// error-tuple sugar lowers to ordinary value carriers + a single capture clause, and that
 /// the SUCCESS path never throws or unwinds an exception.
 ///
-/// N# semantics (see docs/guide/language-tour.md "Tuple Error Capture"): the <c>err</c>
+/// N# semantics (see website/docs/language-tour.md "Tuple Error Capture"): the <c>err</c>
 /// variable captures any exception the initializer throws. The error source is therefore a
 /// CLR exception, so a catch clause is intrinsic to the contract. What the performance
 /// strategy (docs/design/performance-compiler-refactor.md, "Error Handling And Exceptions")

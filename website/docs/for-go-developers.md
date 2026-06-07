@@ -5,7 +5,7 @@ title: "N# for Go Developers"
 
 # N# for Go Developers
 
-N# is "Go for .NET." If you write Go, a lot of N# will feel familiar. Here's how your Go knowledge maps over.
+N# shares Go's ethos — simplicity, clean syntax, fast tooling — so if you write Go, a lot of N# will feel familiar. But it is **not** "Go for .NET": N# has a much richer type system (discriminated unions, exhaustive pattern matching, structural typing). Here's how your Go knowledge maps over.
 
 ## What's the Same
 

@@ -26,7 +26,7 @@ A developer can publish an N# executable for a target runtime and know whether t
 - `src/NSharpLang.Compiler`
 - `tests/CompilationBackendTests.cs`
 - `tests/CliCommandTests.cs`
-- `docs/guide/cli-reference.md`
+- `website/docs/cli-reference.md`
 - `website/docs/cli-reference.md`
 - `memory/components/cli-toolchain.md`
 

@@ -1,8 +1,8 @@
 # P4 — LLVM / NativeAOT backend evaluation
 
 **Status:** Decision document (2026-06-07). Feeds `P4` on [`roadmap-to-done.md`](roadmap-to-done.md) and
-backlog item B in [`systems-perf-backlog.md`](systems-perf-backlog.md). Grounded in the rigorous
-single-machine re-run in [`systems-vs-native.md`](systems-vs-native.md).
+supersedes the deferred structural-backend bet (formerly tracked as "backlog item B"). Grounded in the
+rigorous single-machine re-run in [`systems-vs-native.md`](systems-vs-native.md).
 
 ## TL;DR — decision
 

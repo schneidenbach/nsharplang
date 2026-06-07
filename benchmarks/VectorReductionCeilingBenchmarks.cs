@@ -5,7 +5,7 @@ using BenchmarkDotNet.Order;
 namespace NSharpLang.Benchmarks;
 
 /// <summary>
-/// RUST-PERF CEILING measurement (docs/design/systems-perf-backlog.md, item A "suggested first move"). The
+/// RUST-PERF CEILING measurement (docs/design/systems-vs-native.md). The
 /// systems-vs-native study found the checksum-sum reduction (`for i&lt;len { acc += a[i] }`) is ~8.2-8.8x
 /// slower in systems-N# than C/Rust, because RyuJIT leaves it scalar while LLVM auto-vectorizes + unrolls it.
 /// Before committing to a (large, correctness-critical) ILCompiler change that emits SIMD for reduction loops,

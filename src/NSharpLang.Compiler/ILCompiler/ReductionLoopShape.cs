@@ -3,7 +3,7 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// RUST-PERF P1 (docs/design/roadmap-to-done.md, systems-perf-backlog.md). Recognizes the canonical
+/// RUST-PERF P1 (docs/design/roadmap-to-done.md). Recognizes the canonical
 /// counted-reduction loop shape that the auto-vectorizing codegen (P1(b)/(d)/(f)) rewrites into an unrolled
 /// <c>System.Numerics.Vector&lt;T&gt;</c> accumulation — the measured ~4.5× win on checksum-sum.
 ///

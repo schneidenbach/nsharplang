@@ -562,7 +562,7 @@ The EF class stays EF-shaped; the API returns a record DTO.
 ### Documentation and examples
 
 - Update `website/docs/types.md` record/class sections to reflect this decision.
-- Update `docs/guide/for-csharp-developers.md` with C# object initializer conversion examples.
+- Update `website/docs/for-csharp-developers.md` with C# object initializer conversion examples.
 - Update example projects to remove `new Type { ... }` and `Name = value` initializer leftovers.
 - Add an explicit EF entity versus API DTO section.
 - Add formatter/linter examples to CLI docs once rule IDs exist.

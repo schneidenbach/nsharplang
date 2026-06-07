@@ -1,5 +1,7 @@
 # Async Programming
 
+> **Note:** N# compiles to **IL directly**. Any "Generated C# / Transpilation" blocks below show the `nlc export csharp` *inspection* view of the semantics, not the build path.
+
 ## Async/Await
 
 N# supports C# async/await for asynchronous programming.

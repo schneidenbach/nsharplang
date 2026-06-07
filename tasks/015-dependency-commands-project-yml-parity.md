@@ -27,7 +27,7 @@ Users can add, inspect, audit, tidy, remove, and update dependencies from the N#
 - `src/NSharpLang.Cli/Commands/TidyCommand.cs`
 - `src/NSharpLang.Compiler/ProjectFile.cs`
 - `memory/components/cli-toolchain.md`
-- `docs/guide/cli-reference.md`
+- `website/docs/cli-reference.md`
 - `website/docs/cli-reference.md`
 - `tests/CliCommandTests.cs`
 - `tests/CliParityAuditTests.cs`

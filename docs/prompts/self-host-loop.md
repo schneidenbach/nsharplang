@@ -7,9 +7,9 @@ Work on branch `systems-language` in this repo. NEVER work on `main`.
 ## Read first (ground yourself every cold start)
 - `goal.md` — the mandate and Definition of Done.
 - `AGENTS.md` — gate discipline, "NO SHORTCUTS", project.yml-first config, adapters-are-temporary.
-- `docs/design/self-host-roadmap.md` — the sequenced plan (Phase 0 audit → Phase 1 lexer beachhead →
-  Phase 2 in-assembly N#→N# call path → Phase 3 migrate parser/binder/IL-emit/CLI → Phase 4 bootstrap;
-  plus the systems-language completion track and the AOT/LLM-first-CLI packaging for Claude workflows).
+- `docs/design/roadmap-to-done.md` — the sequenced plan (Phase S self-host via the columnar pipeline →
+  Phase P Rust-class performance → Phase T tooling/language; plus the End-deliverable AOT/LLM-first-CLI
+  packaging for Claude workflows). The architecture is in `docs/design/columnar-pipeline.md`.
 - `docs/design/self-host-progress.md` — the running log; READ THE NEWEST ENTRIES to see exactly where
   the last iteration stopped and what the next slice is.
 - `docs/design/compiler-dogfood-boundary-profiling.md` — the decisive perf finding: the
@@ -79,7 +79,7 @@ Work on branch `systems-language` in this repo. NEVER work on `main`.
   removed or reduced to true CLR/BCL interop.
 - For dynamic Claude workflows: an AOT single-binary `nlc` with millisecond cold starts, a stable
   versioned `nlc query` JSON toolchain, and hermetic project.yml-first builds.
-- `self-host-roadmap.md`, `self-host-progress.md`, `compiler-dogfood-rewrite.md`, and
+- `roadmap-to-done.md`, `self-host-progress.md`, `compiler-dogfood-rewrite.md` (archived), and
   `compiler-benchmark-metrics.md` reflect the final state with evidence.
 
 ## Self-pacing (dynamic mode)

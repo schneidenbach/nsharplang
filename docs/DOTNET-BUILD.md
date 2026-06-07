@@ -131,6 +131,6 @@ src/
 
 ## See Also
 
-- [Quick Start](QUICK-START.md)
+- [Getting Started](../website/docs/getting-started.md)
 - [Templates](../templates/README.md)
 - [Repository README](../README.md)

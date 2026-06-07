@@ -8,7 +8,7 @@ namespace NSharpLang.Runtime;
 /// array and emits a call to the matching <see cref="SumInt32"/> / <see cref="SumInt64"/> /
 /// <see cref="SumUInt32"/> / <see cref="SumUInt64"/> helper instead of the scalar loop — turning the
 /// worst-case checksum-sum kernel from ~8.8× behind native to ~2× (see
-/// docs/design/systems-perf-backlog.md). Keeping the vectorization here, in plain readable/testable C#,
+/// docs/design/systems-vs-native.md). Keeping the vectorization here, in plain readable/testable C#,
 /// rather than as hand-emitted IL, makes the codegen change trivial (load args + call) and the SIMD logic
 /// auditable.
 ///

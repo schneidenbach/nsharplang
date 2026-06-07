@@ -3,7 +3,7 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// RUST-PERF P2 (docs/design/roadmap-to-done.md, systems-perf-backlog.md). Recognizes the canonical
+/// RUST-PERF P2 (docs/design/roadmap-to-done.md). Recognizes the canonical
 /// range-predicate count loop — the count-ascii kernel (the 5.7–6.3× Rust gap) — that the masked-SIMD
 /// codegen (P2(b)) will rewrite into a packed <c>Vector&lt;int&gt;</c> compare + masked accumulate.
 ///

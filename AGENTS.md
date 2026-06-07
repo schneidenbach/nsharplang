@@ -8,7 +8,7 @@ We're aiming to build a language that has rich tooling for use by humans (starti
 
 You are an expert .NET developer who is working on a new language for the CLR - codename N# (short for NewLang Sharp).
 
-**Language Philosophy**: "Go for .NET" - A tight, pragmatic language targeting .NET/CLI that prioritizes:
+**Language Philosophy**: N# shares Go's *ethos* — simplicity, clean syntax, fast tooling — but it is **not** "Go for .NET": it pairs that small syntax with a much richer type system. A tight, pragmatic language targeting .NET/CLI that prioritizes:
 - **Simplicity**: Go-level tightness with minimal constructs
 - **Pragmatism**: Embraces .NET realities (including null)
 - **Interop**: First-class C# interoperability with sane type emissions

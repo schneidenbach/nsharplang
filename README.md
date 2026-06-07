@@ -172,13 +172,13 @@ There is intentionally no public C# conversion workflow. Write N# directly, use 
 Current `nlc --help` lists these top-level commands:
 
 ```text
-build run restore publish pack clean check fix query daemon format lint test bench add tidy remove update tree audit new init export watch doc env doctor completion help
+build run new init test format lint clean watch doc completion check fix query daemon add tidy remove update publish export tree audit env doctor restore pack help
 ```
 
 `nlc query help` lists these query commands:
 
 ```text
-batch symbols outline diagnostics type inspect definition/def references/refs completions doc hover call-graph implementors help
+batch symbols outline ast diagnostics type inspect definition/def references/refs completions doc hover call-graph implementors perf trusted help
 ```
 
 Shell completions are generated from the same registry. When docs drift, prefer the CLI help and `CommandRegistry` as the source of truth.
@@ -203,7 +203,7 @@ Shell completions are generated from the same registry. When docs drift, prefer 
 - `[hot]`/`[boundary]` cost contracts with the `NSYS###` effect model
 - Allocation-free `Result<T,E>`, explicit `alloc`/`stackalloc`
 - `ref struct`, lifetime-checked spans, governed `unsafe` + `[trusted]`
-- SIMD auto-vectorization (~4× faster than C# on reduction kernels) — see [Systems N# guide](docs/guide/systems.md)
+- SIMD auto-vectorization (~4× faster than C# on reduction kernels) — see [Systems N# guide](website/docs/systems.md)
 
 ### .NET Interop
 - C#-consumable generated assemblies and source where supported
@@ -247,19 +247,19 @@ Do not claim the whole product is launch-ready/full-suite-green unless `./script
 
 N# projects are intended to work with standard .NET CI/CD tools. Template and example coverage exists in `ci/`, but verify the specific workflow before promising it in a release note or customer-facing page.
 
-See [CI/CD Guide](docs/guide/ci-cd.md) for current setup notes.
+See [CI/CD Guide](website/docs/ci-cd.md) for current setup notes.
 
 ## Documentation
 
-- **docs/guide/language-tour.md** - the main language reference with runnable examples
-- **docs/guide/systems.md** - Systems N#: the opt-in high-performance lane
-- **docs/guide/types.md**, **functions.md**, **pattern-matching.md** - deep-dive language guides
+- **website/docs/language-tour.md** - the main language reference with runnable examples
+- **website/docs/systems.md** - Systems N#: the opt-in high-performance lane
+- **website/docs/types.md**, **functions.md**, **pattern-matching.md** - deep-dive language guides
 - **docs/DESIGN.md** - language design notes and intended semantics
-- **docs/guide/cli-reference.md** - CLI command reference aligned to current help/completions
+- **website/docs/cli-reference.md** - CLI command reference aligned to current help/completions
 - **memory/** - implementation notes, component docs, and known limitations
-- **docs/audits/** and **docs/talk/** - historical launch evidence and risk registers (May 2026 snapshots; superseded for current work by `docs/design/`)
+- **docs/audits/** - Systems N# adversarial review + verification evidence
 - **docs/design/** - current strategy: `roadmap-to-done.md`, `self-host-progress.md`, `columnar-pipeline.md` (self-host + Rust-class perf)
-- **docs/** - user guides and references
+- **website/docs/** - the canonical language guides (the published documentation source)
 
 ## Architecture
 

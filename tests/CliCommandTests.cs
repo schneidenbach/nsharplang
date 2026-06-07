@@ -2445,7 +2445,7 @@ func Main() {
         var (_, help, _) = CaptureConsole(() => ExecuteProgram("help"));
         var (_, queryHelp, _) = CaptureConsole(() => QueryCommand.Execute(new[] { "help" }));
         var (_, zshCompletion, _) = CaptureConsole(() => CompletionCommand.Execute(new[] { "zsh" }));
-        var docs = File.ReadAllText(Path.Combine(FindRepoRoot(), "docs", "guide", "cli-reference.md"));
+        var docs = File.ReadAllText(Path.Combine(FindRepoRoot(), "website", "docs", "cli-reference.md"));
 
         foreach (var command in publicTopLevelCommands)
         {

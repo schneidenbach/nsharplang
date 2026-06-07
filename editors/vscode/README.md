@@ -1,6 +1,6 @@
 # N# Language Support for VS Code
 
-> **"Go for .NET"** - A tight, pragmatic language for the CLR with Go-inspired syntax and powerful .NET features
+> A tight, pragmatic language for the CLR with Go-inspired syntax, a rich type system, and powerful .NET features
 
 N# (`.nl` files) VS Code support with syntax highlighting, diagnostics, completions/hover/code actions where covered, and `nlc`-backed build/run/test tasks. Verify the extension against the current checkout before launch claims.
 
@@ -102,7 +102,7 @@ code --install-extension nsharp-0.6.0.vsix
 ## 📖 Example Code
 
 ```nsharp
-// N# - Go for .NET
+// N# - Go-inspired syntax, a richer type system
 package MyApp
 
 import System
@@ -218,7 +218,7 @@ The extension contributes the `catchResult` semantic token modifier. To customiz
 
 ## 🤝 Contributing
 
-Contributions welcome! Visit the [main repository](https://github.com/anthropics/NewCLILang) for:
+Contributions welcome! Visit the [main repository](https://github.com/schneidenbach/nsharplang) for:
 - Bug reports and feature requests
 - Contributing guidelines
 - Language design documentation
@@ -229,10 +229,10 @@ MIT
 
 ## 🔗 Links
 
-- [N# Language Documentation](https://github.com/anthropics/NewCLILang/tree/main/docs)
-- [GitHub Repository](https://github.com/anthropics/NewCLILang)
-- [Getting Started Guide](https://github.com/anthropics/NewCLILang/blob/main/docs/README.md)
-- [Language Reference](https://github.com/anthropics/NewCLILang/tree/main/docs/guide)
+- [N# Language Documentation](https://github.com/schneidenbach/nsharplang/tree/main/docs)
+- [GitHub Repository](https://github.com/schneidenbach/nsharplang)
+- [Getting Started Guide](https://github.com/schneidenbach/nsharplang/blob/main/docs/README.md)
+- [Language Reference](https://github.com/schneidenbach/nsharplang/tree/main/website/docs)
 
 ---
 

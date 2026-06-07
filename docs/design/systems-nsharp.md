@@ -1160,9 +1160,9 @@ Reasoning:
 > **on by default** (`NSHARP_VECTORIZE_REDUCTIONS=0` opts out) for `int`/`long`/`uint`/`ulong`
 > arrays under conservative aliasing/overflow guards, and is measured at **~4–4.5× faster
 > than C#** on checksum/count-ascii (closing the worst-case native gap from ~8.8× to ~2×).
-> See [`systems-vs-native.md`](systems-vs-native.md). Broader auto-vectorization, loop
-> unrolling, and a vectorizing backend remain on the
-> [performance backlog](systems-perf-backlog.md).
+> See [`systems-vs-native.md`](systems-vs-native.md). Broader auto-vectorization and a structural
+> vectorizing backend were evaluated and deferred — see
+> [`p4-llvm-nativeaot-backend-evaluation.md`](p4-llvm-nativeaot-backend-evaluation.md).
 
 V1 SIMD support is diagnostics and guidance plus HotSummary coverage for known
 BCL APIs, **plus** the targeted reduction/range-count auto-vectorization noted above.

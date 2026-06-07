@@ -25,7 +25,7 @@ A developer can run `nlc test --coverage` and get accurate coverage data for N# 
 - `src/NSharpLang.Sdk`
 - `tests/CompilationBackendTests.cs`
 - `tests/CliCommandTests.cs`
-- `docs/guide/cli-reference.md`
+- `website/docs/cli-reference.md`
 - `website/docs/cli-reference.md`
 - `memory/components/cli-toolchain.md`
 

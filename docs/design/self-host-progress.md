@@ -338,7 +338,7 @@ scalar reduction the N# codegen emits today, under the same RyuJIT (Apple M4 / .
 checksum-sum is 8.8× behind C/Rust today; unrolled-vectorized codegen would close it to **≈2× behind native**
 (8.8/4.5) — the worst-case kernel becomes top-tier for a CLR language. UNROLLING is the key (a single
 accumulator is add-latency-bound at ~2×; four independent accumulators hide the latency, the LLVM trick).
-Full numbers + the concrete codegen plan in [`systems-perf-backlog.md`](systems-perf-backlog.md) item A. The
+Full numbers + the concrete codegen plan in [`systems-vs-native.md`](systems-vs-native.md) item A. The
 codegen itself (recognize the `while`-form counted reduction + emit unrolled `Vector<int>` IL + parity/
 benchmark gate) is justified and is the next major, focused Rust-perf effort — large + correctness-critical,
 not folded into a slice.
@@ -566,7 +566,7 @@ tokenize→parse→materialize and delete/shrink the C# parser + `*DogfoodAdapte
 
 Ran the `systems-nsharp-vs-rust-c` workflow (5 phases, adversarial fairness). Full report:
 [`systems-vs-native.md`](systems-vs-native.md); reproducible harness: `benchmarks/native-comparison/`;
-deferred-bet backlog: [`systems-perf-backlog.md`](systems-perf-backlog.md). Headline: **systems-N# ties
+deferred-bet backlog: [`systems-vs-native.md`](systems-vs-native.md). Headline: **systems-N# ties
 C#/RyuJIT (top-of-class among CLR languages) but trails Rust/C by 1.4×–10.5×**, entirely RyuJIT's missing
 auto-vectorization (N# ties C# everywhere → 100% of the native gap is RyuJIT codegen, not N#-specific). The
 adversarial pass caught + I fixed two `clang -O3` DCE'd C harnesses (per-iteration pointer-launder barrier);
@@ -574,7 +574,7 @@ now 6-of-6 clean.
 
 **Decision (user, 2026-06-06):** finish self-host (the Roslyn-class N# entry point) and sharpen the evidence
 first; **backlog** the two big perf bets (auto-vectorization codegen; LLVM/NativeAOT backend) — see
-systems-perf-backlog.md. Key unblocker this gives the self-host work: since systems-N# is performance-neutral
+systems-vs-native.md. Key unblocker this gives the self-host work: since systems-N# is performance-neutral
 vs C#, porting compiler hot paths to N# carries NO speed regression, so the migration proceeds on
 correctness/ergonomics. Near-term order: (1) sharpen evidence (broaden the comparison corpus from synthetic
 i32 kernels to a real compiler hot path — token scan / symbol-table probe), (2) resume finishing the N#
@@ -1436,7 +1436,7 @@ including the array-heavy dogfood kernels.
 
 ## 2026-06-05 — Phase 0 audit kickoff: lexer feature surface + N# interop readiness
 
-Per [`self-host-roadmap.md`](self-host-roadmap.md), began the language-completeness audit by scoping
+Per [`roadmap-to-done.md`](roadmap-to-done.md), began the language-completeness audit by scoping
 the **lexer** beachhead (`src/NSharpLang.Compiler/Lexer.cs`, 1150 LOC). Its dependency surface:
 `string` indexing, one `Dictionary<string,TokenType>` (keywords), `List<Token>` (output), 13
 `StringBuilder` uses (token text), one `Stack`/indentation, 15 `char.Is*` calls, 14 `switch`, the

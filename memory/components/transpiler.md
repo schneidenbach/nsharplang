@@ -1,5 +1,7 @@
 # C# Export Component
 
+> **Inspection only.** This component backs `nlc export csharp` for inspecting how N# maps to C#. It is **not** the build backend — N# compiles to IL directly (see [`../architecture.md`](../architecture.md)).
+
 **File:** `src/NSharpLang.Compiler/Transpiler.cs`
 
 ## Responsibility

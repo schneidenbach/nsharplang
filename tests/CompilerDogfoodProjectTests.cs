@@ -4699,7 +4699,7 @@ func values(): int {
             // representative source that exercises the broad token surface together — line/doc/block
             // comments, string + interpolated + char literals, separated int/hex/binary/float numbers,
             // a wide operator set, and a spread of keywords. This pins how production-ready the existing
-            // N# lexer scanner already is for the lexer-beachhead migration (see self-host-roadmap.md).
+            // N# lexer scanner already is for the lexer-beachhead migration (see roadmap-to-done.md).
             const string representativeSource = """
 package CompilerDogfood.Representative
 
