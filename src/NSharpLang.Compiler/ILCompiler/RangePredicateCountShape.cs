@@ -178,6 +178,14 @@ public sealed record RangePredicateCountShape(
         if (tempName != null && (tempName == counter || tempName == arrayRef.Name || tempName == index))
             return null;
 
+        // The bound must be loop-invariant. The counter (and the per-iteration temp) are written
+        // every iteration, so a bound that names one (e.g. `while i < count { ... count++ }`) is
+        // loop-variant and must not be vectorized — the masked-count helper snapshots the bound
+        // once, scanning a different element set than the scalar loop (H1). The index is already
+        // excluded by the condition check.
+        if (bound is IdentifierExpression boundId && (boundId.Name == counter || boundId.Name == tempName))
+            return null;
+
         return new RangePredicateCountShape(counterId, arrayRef, indexId, lo, hi, bound);
     }
 

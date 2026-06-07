@@ -144,7 +144,10 @@ public partial class ILCompiler
     private bool IsSideEffectFreeInt32Bound(Expression bound) => bound switch
     {
         IdentifierExpression id => GetIdentifierType(id) == typeof(int),
-        IntLiteralExpression => true,
+        // Only int32 literals. A suffixed literal (100L/100u/100ul) emits int64/uint/ulong, which
+        // would be stored into the int32 bound temp below -> unverifiable IL (H2). Such loops fall
+        // back to the scalar path.
+        IntLiteralExpression lit => GetIntLiteralRuntimeType(lit.Value) == typeof(int),
         MemberAccessExpression { MemberName: "Length", Object: IdentifierExpression receiver }
             => GetIdentifierType(receiver).IsArray,
         _ => false,
@@ -237,7 +240,9 @@ public partial class ILCompiler
     private bool IsSideEffectFreeInt32Operand(Expression operand) => operand switch
     {
         IdentifierExpression id => GetIdentifierType(id) == typeof(int),
-        IntLiteralExpression => true,
+        // Only int32 literals (see IsSideEffectFreeInt32Bound) — a suffixed lo/hi would emit a
+        // wider value into the int32 temp -> invalid IL (H2).
+        IntLiteralExpression lit => GetIntLiteralRuntimeType(lit.Value) == typeof(int),
         _ => false,
     };
 
