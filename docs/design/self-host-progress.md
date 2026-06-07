@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Rust-perf: auto-vectorization CEILING measured — unrolled Vector<int> = 4.5x over scalar
+
+The first move on the Rust performance bar (after stages 1–2): quantify the prize before any codegen change.
+`benchmarks/VectorReductionCeilingBenchmarks.cs` measures `System.Numerics.Vector<int>` reductions vs the
+scalar reduction the N# codegen emits today, under the same RyuJIT (Apple M4 / .NET 10), ratios vs scalar:
+
+- single-accumulator `Vector<int>`: **2.08×** faster (N=4096), 3.8× (N=64)
+- **4 accumulators (unrolled): 4.5×** faster (N=4096), 5.0× (N=64)
+
+checksum-sum is 8.8× behind C/Rust today; unrolled-vectorized codegen would close it to **≈2× behind native**
+(8.8/4.5) — the worst-case kernel becomes top-tier for a CLR language. UNROLLING is the key (a single
+accumulator is add-latency-bound at ~2×; four independent accumulators hide the latency, the LLVM trick).
+Full numbers + the concrete codegen plan in [`systems-perf-backlog.md`](systems-perf-backlog.md) item A. The
+codegen itself (recognize the `while`-form counted reduction + emit unrolled `Vector<int>` IL + parity/
+benchmark gate) is justified and is the next major, focused Rust-perf effort — large + correctness-critical,
+not folded into a slice.
+
 ## 2026-06-06 — Columnar pipeline STAGE 2: lexical name resolution over columnar tables (no C# AST)
 
 The second downstream stage: resolve every bare identifier in a function body to its binding, walking the

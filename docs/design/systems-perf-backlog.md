@@ -22,6 +22,32 @@ than a CLR-relative one. Do NOT start without an explicit go-ahead — they are 
 - Risk: correctness-critical codegen change to the ILCompiler; must not regress existing codegen; needs the
   full parity + benchmark gate per pattern.
 
+### Ceiling MEASURED (2026-06-06, Apple M4 / .NET 10, `benchmarks/VectorReductionCeilingBenchmarks.cs`)
+
+The spike's measurement, done before any codegen change — `System.Numerics.Vector<int>` reduction vs the
+scalar reduction the N# codegen emits today, under the same RyuJIT the codegen targets (ratios vs scalar):
+
+| Reduction (N=4096) | vs scalar | vs scalar (N=64) |
+|---|---|---|
+| scalar (today's N# codegen) | 1.00× | 1.00× |
+| `Vector<int>`, single accumulator | **2.08× faster** | 3.8× faster |
+| `Vector<int>`, **4 accumulators (unrolled)** | **4.5× faster** | 5.0× faster |
+
+**Verdict: the prize is real and large — and UNROLLING is the key.** A naive single-accumulator `Vector<int>`
+only reaches ~2× (ARM/NEON `Vector<int>.Count`=4, but a single accumulator is add-latency-bound). FOUR
+independent accumulators reach **4.5×** by hiding latency (the trick LLVM uses for its ~8.8×). Applied to the
+checksum-sum kernel (8.8× behind C/Rust), unrolled-vectorized codegen would close the gap to **≈8.8/4.5 ≈ 2×
+behind native** — matching the ~2–3× projection and making the worst-case kernel top-tier for a CLR language.
+
+**So item A is justified and is the next major Rust-perf effort.** Concrete plan: recognize the counted-
+reduction shape — for the systems subset that is the `while` form `i := 0; while i < len { acc = acc + a[i];
+i = i + 1 }` (the corpus uses `while`, not `for`) — and emit an unrolled (≥4 independent `Vector<int>`
+accumulators) + horizontal-sum + scalar-tail loop. Safe for `int`/wrapping integer add (associative under
+two's-complement wraparound, so reordering across accumulators is value-preserving); guard on no body side
+effects and the array not being aliased/mutated in the loop. Gate: parity (vectorized result == scalar
+result on randomized inputs) + the SystemsFastGate benchmark, per the AGENTS.md never-regress rule. This is a
+large, correctness-critical ILCompiler change — its own focused effort, not folded into a self-host slice.
+
 ## Backlog item B — LLVM / NativeAOT-with-vectorizer backend for the systems subset (long-pole bet)
 
 **Goal:** route the systems subset through a backend that already auto-vectorizes and unrolls, rather than
