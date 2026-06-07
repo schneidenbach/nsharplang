@@ -12226,6 +12226,11 @@ public partial class ILCompiler
         {
             return;
         }
+        // RUST-PERF P-minmax: auto-vectorize a counted for-form min/max reduction (min-max-delta) the same way.
+        if (ReductionVectorizationEnabled && TryEmitVectorizedMinMaxReduction(forStmt))
+        {
+            return;
+        }
 
         var conditionLabel = _currentIL.DefineLabel();
         var bodyLabel = _currentIL.DefineLabel();
@@ -12420,6 +12425,9 @@ public partial class ILCompiler
             return;
         // RUST-PERF P2(b): lower an int[] range-predicate count (count-ascii) to a masked SIMD helper call.
         if (ReductionVectorizationEnabled && TryEmitVectorizedRangeCount(whileStmt))
+            return;
+        // RUST-PERF P-minmax: lower an int[] min/max conditional reduction (min-max-delta) to SIMD helper calls.
+        if (ReductionVectorizationEnabled && TryEmitVectorizedMinMaxReduction(whileStmt))
             return;
 
         var conditionLabel = _currentIL.DefineLabel();

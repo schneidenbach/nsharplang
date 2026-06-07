@@ -240,4 +240,82 @@ public partial class ILCompiler
         IntLiteralExpression => true,
         _ => false,
     };
+
+    // ---- RUST-PERF P-minmax: lane-wise SIMD min/max reduction (the min-max-delta kernel) ------------------
+
+    private static readonly MethodInfo s_minInt32Reduction =
+        ResolveReductionHelper(nameof(Runtime.SimdReductions.MinInt32));
+    private static readonly MethodInfo s_maxInt32Reduction =
+        ResolveReductionHelper(nameof(Runtime.SimdReductions.MaxInt32));
+
+    /// <summary>While-form entry (P-minmax): <c>while i &lt; bound { [v := a[i];] if a[i] &lt; min { min = a[i] }
+    /// [if a[i] &gt; max { max = a[i] }] }</c>.</summary>
+    private bool TryEmitVectorizedMinMaxReduction(WhileStatement loop)
+        => TryEmitMatchedMinMaxReduction(MinMaxReductionLoopShape.TryMatch(loop));
+
+    /// <summary>For-form entry (P-minmax). EmitFor emits the initializer first, so the index holds its start
+    /// value here exactly as in the while-form — the shared core is identical for both.</summary>
+    private bool TryEmitVectorizedMinMaxReduction(ForStatement loop)
+        => TryEmitMatchedMinMaxReduction(MinMaxReductionLoopShape.TryMatch(loop));
+
+    /// <summary>
+    /// If <paramref name="shape"/> is a matched int[] min/max conditional reduction, lower each reduction to a
+    /// lane-wise SIMD helper call and return true; otherwise return false (caller emits the scalar loop). The loop
+    /// becomes <c>min = SimdReductions.MinInt32(array, index, bound, min); [max = SimdReductions.MaxInt32(...);]
+    /// index = max(index, bound)</c> — value-identical (integer min/max are associative + commutative) and faster
+    /// (lane-wise Vector.Min/Vector.Max). Each helper is seeded with the pre-loop accumulator value and scans the
+    /// same [index, bound) range. Fires only for an int[] array, int accumulator(s)/index, and an int
+    /// side-effect-free bound, in the default unchecked-arithmetic context.
+    /// </summary>
+    private bool TryEmitMatchedMinMaxReduction(MinMaxReductionLoopShape? shape)
+    {
+        if (_currentIL == null || shape == null)
+            return false;
+
+        // Consistent with the sum reduction / range count: do not fire in a checked context. The matched body has
+        // NO arithmetic (only comparisons and assignments), so checked vs unchecked cannot change it — this is a
+        // conservative invariant pinning the no-arithmetic shape, not a correctness requirement.
+        if (_overflowCheckingEnabled)
+            return false;
+
+        if (GetIdentifierType(shape.ArrayRef) != typeof(int[]))
+            return false;
+        if (GetIdentifierType(shape.IndexRef) != typeof(int))
+            return false;
+        if (!IsSideEffectFreeInt32Bound(shape.Bound))
+            return false;
+        foreach (var reduction in shape.Reductions)
+            if (GetIdentifierType(reduction.AccumulatorRef) != typeof(int))
+                return false;
+
+        // Evaluate the bound EXACTLY ONCE into a temp (side-effect-free, so value-identical to the scalar loop's
+        // per-iteration re-evaluation). Each reduction reads the same [index, bound) range; the index is not
+        // modified until the terminal store, so every helper sees the same start value.
+        var boundLocal = _currentIL.DeclareLocal(typeof(int));
+        EmitExpression(shape.Bound);
+        _currentIL.Emit(OpCodes.Stloc, boundLocal);
+
+        foreach (var reduction in shape.Reductions)
+        {
+            // acc = SimdReductions.Min/MaxInt32(array, index, bound, acc) -- seeded with the pre-loop accumulator.
+            var helper = reduction.IsMin ? s_minInt32Reduction : s_maxInt32Reduction;
+            EmitIdentifier(shape.ArrayRef);
+            EmitIdentifier(shape.IndexRef);
+            _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+            EmitIdentifier(reduction.AccumulatorRef);
+            _currentIL.Emit(OpCodes.Call, helper);
+            StoreIdentifier(reduction.AccumulatorRef);
+        }
+
+        // index = max(index, bound) -- the scalar loop's exact terminal index value (matches both while- and
+        // counted for-loops), even when the loop body never ran (bound <= index).
+        EmitIdentifier(shape.IndexRef);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        var keepIndexLabel = _currentIL.DefineLabel();
+        _currentIL.Emit(OpCodes.Bge, keepIndexLabel);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        StoreIdentifier(shape.IndexRef);
+        _currentIL.MarkLabel(keepIndexLabel);
+        return true;
+    }
 }

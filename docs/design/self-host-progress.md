@@ -11,6 +11,52 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P-minmax: lane-wise SIMD min/max reduction (min-max-delta) — the 10.5× kernel
+
+The codegen that vectorizes the min-max-delta kernel — the single LARGEST remaining native gap (10.5× behind
+best-native at size 4096 when N# tied C#). min-max-delta is two min/max reductions in one loop body
+(`value := a[i]; if value < min { min = value }; if value > max { max = value }`). Signed integer min and max
+are associative AND commutative (a total order), so lane-wise `Vector.Min`/`Vector.Max` across SIMD lanes and
+four accumulators is value-identical to the sequential scalar fold — the same class of safe rewrite as P1's
+integer sum, just a different operator and the conditional-assignment shape.
+
+`SimdReductions.MinInt32(array, start, end, seed)` / `MaxInt32(...)` seed all four `Vector<int>` accumulators
+with the pre-loop accumulator value broadcast, run `Vector.Min`/`Vector.Max` over the SIMD body, fold the four
+accumulators + the lanes horizontally (no `Vector.Min`-reduce intrinsic), then a scalar tail. They reuse P1's
+guards verbatim: empty/negative range early-out (`end <= start`, which also avoids the P1(d) `end - step`
+int.MinValue overflow); SIMD only over a provably in-bounds range; the scalar tail reproduces
+`IndexOutOfRangeException` at the same element (not the Vector ctor's `ArgumentOutOfRangeException`).
+`ILCompiler.TryEmitMatchedMinMaxReduction` (hooked into `EmitWhile`/`EmitFor` after the reduction + range-count
+hooks) lowers a matched loop to `min = MinInt32(a, i, bound, min); max = MaxInt32(a, i, bound, max);
+i = max(i, bound)` — one helper call per reduction, the bound evaluated once, the index unchanged between calls
+so both helpers see the same start. The detector (`MinMaxReductionLoopShape`, P-minmax(a)) matches while/for,
+temp/inlined subject, one OR two reductions, and reversed `min > value` operand order, with full
+distinct-name/no-aliasing/single-write-per-accumulator safety.
+
+**Measured (2026-06-07, Apple M4, .NET 10, BenchmarkDotNet `SystemsHotPathBenchmarks`, N# vectorized vs the C#
+scalar baseline; short job):** MinMaxDelta size 4096 — C# 1535.3 ns → **N# 468.0 ns = 0.305× (3.28× faster)**;
+size 64 — C# 23.55 ns → **N# 16.79 ns = 0.713× (1.40× faster)**. Was ~1.0× (tied, scalar) on 2026-06-06.
+Implied vs best-native (applying the measured speedup to the prior M4 native numbers): **10.5× → ~3.2× behind**
+(4096), 5.70× → ~4.1× (64). The same-run cross-check confirms surgical scope: checksum 0.226×, count-ascii
+0.249×, score-frame 0.228× hold their P1/P2 wins, and every non-matching kernel (count-transitions ~0.99×,
+rolling-hash ~1.0×, scan-tag, parse-eight-digits) is unchanged — the min/max codegen fires only on min-max-delta.
+The 3.28× (vs checksum's ~4.4×) reflects the TWO-PASS cost (MinInt32 + MaxInt32 each re-scan the array); a fused
+single-pass `MinMaxInt32` (slice c) is the obvious follow-up to push toward checksum's ratio (~2.4× behind native).
+
+Tests (236 Simd-category total): the min-max-delta benchmark shape (for/while, temp/inlined), min-only/max-only,
+scalar≡vectorized across lengths incl. SIMD tails and signed extremes (int.MinValue/MaxValue mid-array);
+fires-only-when-enabled (2 helper calls for min+max, 1 for min-only); non-int[] array falls back (0 calls) and
+stays correct; OOB bound → `IndexOutOfRangeException`; empty/negative/int.MinValue bound → seed; plus direct
+helper edge cases on the SIMD path (all-equal, seed=extremum, partial ranges, empty/negative). The
+adversarial-verify workflow (3 lenses → skeptic-per-finding → judge) raised 7 candidates; I adjudicated all as
+non-divergent. The one the judge flagged "real" (a cached `array.Length` bound diverging under "concurrent array
+resize") rests on an impossible premise — .NET `int[]` is fixed-length, `array.Length` is immutable for an
+instance (`Array.Resize` allocates a new array), the function holds the array by a fixed local reference for the
+call, and the cached-bound pattern is identical to the already-shipped/reviewed SumInt32 (P1) and CountInRangeInt32
+(P2) emitters; the detector also rejects every genuinely-mutable bound, and the `a.Length`-bound parity test passes.
+Full `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` gate green; no IL-shape test fallout (the min/max shape is
+specific, like the range count).
+
 ## 2026-06-07 — Rust-perf P2(b): masked-SIMD range-predicate count (count-ascii) — the 5.7–6.3× kernel
 
 The codegen that vectorizes the count-ascii kernel. `SimdReductions.CountInRangeInt32(array, start, end, lo, hi)`

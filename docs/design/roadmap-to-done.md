@@ -107,6 +107,21 @@ question — only genuine architectural forks surface. Living evidence in
       adversarial review (no divergence). Fires for int[]/int counter+index/int side-effect-free bound+lo+hi only;
       non-int lo/hi or non-int[] array fall back to scalar. **P2 COMPLETE for int[].** [ ] (c) DEFERRED unless the
       corpus needs it: widen element types or generalize predicate operators (`>`/`<`, reversed operands).
+- [x] **P-minmax — min/max conditional reductions** (min-max-delta — the 10.5× kernel, the LARGEST remaining
+      native gap). min/max are associative + commutative integer reductions, so lane-wise `Vector.Min`/`Vector.Max`
+      is value-preserving like P1's sum. [x] (a) detector `MinMaxReductionLoopShape.TryMatch` (while/for,
+      temp/inlined subject, one OR two reductions in one body, reversed `min > value` operand order; 22
+      accept/reject tests; no codegen change). [x] (b) lane-wise SIMD helpers `SimdReductions.MinInt32`/`MaxInt32`
+      (seed-broadcast accumulators + horizontal fold + scalar tail; reuse P1's empty/OOB/overflow guards) + emitter
+      hook (`TryEmitMatchedMinMaxReduction` in EmitWhile/EmitFor; one helper call per reduction, bound evaluated
+      once, index unchanged between calls) + parity tests (for/while, temp/inlined, min-only, scalar≡vectorized
+      across lengths incl. SIMD tails + int.MinValue/MaxValue extremes) + adversarial review (7 candidates, ALL
+      adjudicated non-divergent — the one the judge flagged "real" rested on an impossible "concurrent array resize"
+      premise: .NET `int[]` is fixed-length, `array.Length` immutable, and the cached-bound pattern is identical to
+      the shipped/reviewed SumInt32/CountInRangeInt32). **MEASURED (BDN, M4):** N# now beats C# **3.28×** at 4096
+      (1535→468 ns; was ~1.0× tied) → implied ~10.5× → **~3.2× behind native** (1.40× at 64). int[] only.
+      [ ] (c) DEFERRED: fused single-pass `MinMaxInt32` to close the two-pass gap toward checksum's ~4.5×; widen to
+      long/uint/ulong if the corpus needs it. **P-minmax (a,b) COMPLETE for int[].**
 - [ ] **P3 — bounds-check elision** for proven-in-range counted loops (count-transitions's size-scaling tax).
 - [ ] **P4 — LLVM / NativeAOT backend evaluation** (design workflow) once A-pattern wins plateau — the
       long-pole bet for broad vectorizable parity. Decide build-vs-not from P1–P3 results.
@@ -116,9 +131,10 @@ question — only genuine architectural forks surface. Living evidence in
 - [ ] Route the columnar pipeline into the CLI (`nlc check`/`query`/`format`) and the LSP once stages 3–4 land
       (the LLM-first toolchain + IDE run on the fast N# path).
 - [~] Re-run the systems-vs-native harness after each Phase-P win; keep `systems-vs-native.md` numbers current.
-      P1+P2 wins MEASURED (2026-06-07, BDN): N# now beats C# ~4–4.5× on checksum-sum/count-ascii/score-frame
-      (tied before) → implied ~2.0×/~1.6× behind native (was 8.8×/6.3×). Full cross-language re-run on a cool
-      machine to refresh the Rust/C columns is the remaining rigorous step.
+      P1+P2+P-minmax wins MEASURED (2026-06-07, BDN): N# now beats C# ~4–4.5× on checksum-sum/count-ascii/
+      score-frame and **3.28×** on min-max-delta (all tied before) → implied ~2.0×/~1.6×/~3.2× behind native
+      (was 8.8×/6.3×/10.5×). Full cross-language re-run on a cool machine to refresh the Rust/C columns is the
+      remaining rigorous step.
 - [ ] Broader general-purpose language features per `project_roadmap_2026q2` — lower priority until self-host +
       perf land, then resumed.
 
@@ -127,8 +143,11 @@ question — only genuine architectural forks surface. Living evidence in
 Phase P **P1 is COMPLETE** (a–f: int/long/uint/ulong counted-reduction auto-vectorization, default-on, both
 `while` and `for` forms — now firing on idiomatic/benchmark code — parity- and adversarially-verified, all
 correctness bugs fixed). **P2 is COMPLETE for int[]** (a: detector; b: masked-SIMD count codegen, count-ascii,
-adversarially verified). Next up: **P3 — bounds-check elision** for proven-in-range counted loops
-(count-transitions's size-scaling tax), and/or on the self-host spine **Stage 3b — columnar diagnostics**
-(Phase S). Then Stage 4 (columnar codegen) — where end-to-end binder/output parity (incl. the binder
-reconciliation item) is verified. Phase T (route columnar into CLI/LSP) follows stages 3–4. (P4 — LLVM/NativeAOT
-backend evaluation — once the A-pattern wins P1–P3 plateau.)
+adversarially verified). **P-minmax is COMPLETE for int[]** (a: detector; b: lane-wise Vector.Min/Vector.Max
+codegen for min-max-delta, the 10.5× kernel — MEASURED 3.28× faster than C# at 4096, ~10.5× → ~3.2× behind
+native, adversarially verified). Next up: **P-minmax(c)** — a fused single-pass `MinMaxInt32` to close the
+two-pass gap toward checksum's ~4.5× — and/or **P3 — bounds-check elision** for proven-in-range counted loops
+(count-transitions's size-scaling tax), and/or on the self-host spine **Stage 3b — columnar diagnostics** (Phase
+S). Then Stage 4 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation
+item) is verified. Phase T (route columnar into CLI/LSP) follows stages 3–4. (P4 — LLVM/NativeAOT backend
+evaluation — once the A-pattern wins P1–P3 plateau.)

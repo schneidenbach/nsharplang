@@ -233,4 +233,100 @@ public static class SimdReductions
 
         return count;
     }
+
+    /// <summary>Minimum of <paramref name="seed"/> and <paramref name="array"/>[<paramref name="start"/> ..
+    /// <paramref name="end"/>) — the value of the scalar fold <c>m = seed; for i in [start,end): if array[i] &lt; m
+    /// m = array[i]</c> — computed with lane-wise SIMD (Rust-perf P-minmax, the min-max-delta kernel). Signed
+    /// integer min is associative AND commutative (a total order), so <see cref="Vector.Min{T}"/> across lanes and
+    /// four accumulators is value-identical to the sequential scalar fold for ANY (start, end). The accumulators
+    /// are seeded with <paramref name="seed"/> broadcast, so lanes that never see a smaller element keep the seed.
+    /// The empty/negative-range early-out and the in-bounds guard match <see cref="SumInt32"/> exactly: an
+    /// out-of-bounds range throws <see cref="System.IndexOutOfRangeException"/> at the same element via the scalar
+    /// tail (not the Vector ctor's <c>ArgumentOutOfRangeException</c>).</summary>
+    public static int MinInt32(int[] array, int start, int end, int seed)
+    {
+        var result = seed;
+        var i = start;
+
+        // Empty/negative range: the scalar fold never runs, so the min is just the seed. Returning here also
+        // prevents the `end - step` bound below from being computed for a hugely-negative `end` (e.g.
+        // int.MinValue), which would wrap (unchecked) to a large positive value (the P1(d) overflow fix).
+        if (end <= start)
+            return result;
+
+        // SIMD fast path only over a provably in-bounds range. Otherwise the scalar tail reproduces the scalar
+        // semantics exactly, including IndexOutOfRangeException at the same element.
+        if (start >= 0 && end <= array.Length)
+        {
+            var lanes = Vector<int>.Count;
+            var step = lanes * 4;
+
+            var a0 = new Vector<int>(result);
+            var a1 = new Vector<int>(result);
+            var a2 = new Vector<int>(result);
+            var a3 = new Vector<int>(result);
+            for (; i <= end - step; i += step)
+            {
+                a0 = Vector.Min(a0, new Vector<int>(array, i));
+                a1 = Vector.Min(a1, new Vector<int>(array, i + lanes));
+                a2 = Vector.Min(a2, new Vector<int>(array, i + lanes * 2));
+                a3 = Vector.Min(a3, new Vector<int>(array, i + lanes * 3));
+            }
+
+            // Horizontal min across the four accumulators, then across the lanes (no Vector.Min reduce intrinsic).
+            var folded = Vector.Min(Vector.Min(a0, a1), Vector.Min(a2, a3));
+            for (var lane = 0; lane < lanes; lane++)
+                if (folded[lane] < result)
+                    result = folded[lane];
+        }
+
+        for (; i < end; i++)
+            if (array[i] < result)
+                result = array[i];
+
+        return result;
+    }
+
+    /// <summary>Maximum of <paramref name="seed"/> and <paramref name="array"/>[<paramref name="start"/> ..
+    /// <paramref name="end"/>) — the value of the scalar fold <c>m = seed; for i in [start,end): if array[i] &gt; m
+    /// m = array[i]</c> — computed with lane-wise SIMD (Rust-perf P-minmax). The mirror of <see cref="MinInt32"/>:
+    /// signed integer max is associative + commutative, so <see cref="Vector.Max{T}"/> across lanes and four
+    /// seed-broadcast accumulators is value-identical to the scalar fold, with the same empty/OOB guards.</summary>
+    public static int MaxInt32(int[] array, int start, int end, int seed)
+    {
+        var result = seed;
+        var i = start;
+
+        if (end <= start)
+            return result;
+
+        if (start >= 0 && end <= array.Length)
+        {
+            var lanes = Vector<int>.Count;
+            var step = lanes * 4;
+
+            var a0 = new Vector<int>(result);
+            var a1 = new Vector<int>(result);
+            var a2 = new Vector<int>(result);
+            var a3 = new Vector<int>(result);
+            for (; i <= end - step; i += step)
+            {
+                a0 = Vector.Max(a0, new Vector<int>(array, i));
+                a1 = Vector.Max(a1, new Vector<int>(array, i + lanes));
+                a2 = Vector.Max(a2, new Vector<int>(array, i + lanes * 2));
+                a3 = Vector.Max(a3, new Vector<int>(array, i + lanes * 3));
+            }
+
+            var folded = Vector.Max(Vector.Max(a0, a1), Vector.Max(a2, a3));
+            for (var lane = 0; lane < lanes; lane++)
+                if (folded[lane] > result)
+                    result = folded[lane];
+        }
+
+        for (; i < end; i++)
+            if (array[i] > result)
+                result = array[i];
+
+        return result;
+    }
 }
