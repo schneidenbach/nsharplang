@@ -98,12 +98,15 @@ question — only genuine architectural forks surface. Living evidence in
       ldloca+initobj; vector loop while i<=len-lanes; then acc += Vector.Sum(vacc); then the scalar tail.
       Behind an off-by-default flag; correctness test = run(vectorized) == run(scalar) across lengths incl.
       non-multiples of Count.
-- [ ] **P2 — range-predicate counts** (count-ascii) — same staged approach (packed compare + masked accumulate).
+- [x] **P2 — range-predicate counts** (count-ascii) — packed compare + masked accumulate.
       [x] (a) detector `RangePredicateCountShape.TryMatch` (while/for, temp/inlined subject, inclusive range, unit
-      counter increment; 19 accept/reject tests; no codegen change). [ ] (b) masked-count helper
-      `SimdReductions.CountInRangeInt32` (Vector.GreaterThanOrEqual & Vector.LessThanOrEqual → mask; acc -= mask;
-      Vector.Sum; reuse P1's empty/OOB/overflow guards) + emitter hook in EmitWhile/EmitFor + parity tests +
-      adversarial review. [ ] (c) widen element types / generalize predicate operators if the corpus needs it.
+      counter increment; 19 accept/reject tests; no codegen change). [x] (b) masked-count helper
+      `SimdReductions.CountInRangeInt32` (`Vector.GreaterThanOrEqual & Vector.LessThanOrEqual` → mask; `acc -= mask`;
+      `Vector.Sum`; reuses P1's empty/OOB/overflow guards) + emitter hook (`TryEmitMatchedRangeCount` in
+      EmitWhile/EmitFor) + parity tests (int[], while/for, temp/inlined, tails + inclusive boundaries) +
+      adversarial review (no divergence). Fires for int[]/int counter+index/int side-effect-free bound+lo+hi only;
+      non-int lo/hi or non-int[] array fall back to scalar. **P2 COMPLETE for int[].** [ ] (c) DEFERRED unless the
+      corpus needs it: widen element types or generalize predicate operators (`>`/`<`, reversed operands).
 - [ ] **P3 — bounds-check elision** for proven-in-range counted loops (count-transitions's size-scaling tax).
 - [ ] **P4 — LLVM / NativeAOT backend evaluation** (design workflow) once A-pattern wins plateau — the
       long-pole bet for broad vectorizable parity. Decide build-vs-not from P1–P3 results.
@@ -120,7 +123,9 @@ question — only genuine architectural forks surface. Living evidence in
 
 Phase P **P1 is COMPLETE** (a–f: int/long/uint/ulong counted-reduction auto-vectorization, default-on, both
 `while` and `for` forms — now firing on idiomatic/benchmark code — parity- and adversarially-verified, all
-correctness bugs fixed). **P2(a) detector landed.** Next up: **P2(b)** — the masked-count helper +
-emitter hook + parity tests + adversarial review (count-ascii); and on the self-host spine **Stage 3b — columnar
-diagnostics** (Phase S). Then Stage 4 (columnar codegen) — where end-to-end binder/output parity (incl. the
-binder reconciliation item) is verified. Phase T (route columnar into CLI/LSP) follows stages 3–4.
+correctness bugs fixed). **P2 is COMPLETE for int[]** (a: detector; b: masked-SIMD count codegen, count-ascii,
+adversarially verified). Next up: **P3 — bounds-check elision** for proven-in-range counted loops
+(count-transitions's size-scaling tax), and/or on the self-host spine **Stage 3b — columnar diagnostics**
+(Phase S). Then Stage 4 (columnar codegen) — where end-to-end binder/output parity (incl. the binder
+reconciliation item) is verified. Phase T (route columnar into CLI/LSP) follows stages 3–4. (P4 — LLVM/NativeAOT
+backend evaluation — once the A-pattern wins P1–P3 plateau.)

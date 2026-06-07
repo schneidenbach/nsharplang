@@ -12221,6 +12221,11 @@ public partial class ILCompiler
         {
             return;
         }
+        // RUST-PERF P2(b): auto-vectorize a counted for-form range-predicate count (count-ascii) the same way.
+        if (ReductionVectorizationEnabled && TryEmitVectorizedRangeCount(forStmt))
+        {
+            return;
+        }
 
         var conditionLabel = _currentIL.DefineLabel();
         var bodyLabel = _currentIL.DefineLabel();
@@ -12410,8 +12415,11 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
-        // RUST-PERF P1(b): lower an int[] counted reduction to a SIMD helper call (off by default).
+        // RUST-PERF P1(b): lower an int[] counted reduction to a SIMD helper call.
         if (ReductionVectorizationEnabled && TryEmitVectorizedReduction(whileStmt))
+            return;
+        // RUST-PERF P2(b): lower an int[] range-predicate count (count-ascii) to a masked SIMD helper call.
+        if (ReductionVectorizationEnabled && TryEmitVectorizedRangeCount(whileStmt))
             return;
 
         var conditionLabel = _currentIL.DefineLabel();

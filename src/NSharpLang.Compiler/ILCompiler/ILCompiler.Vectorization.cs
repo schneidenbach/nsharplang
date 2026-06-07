@@ -149,4 +149,95 @@ public partial class ILCompiler
             => GetIdentifierType(receiver).IsArray,
         _ => false,
     };
+
+    // ---- RUST-PERF P2(b): masked-SIMD range-predicate count (the count-ascii kernel) ----------------------
+
+    private static readonly MethodInfo s_countInRangeInt32 =
+        ResolveReductionHelper(nameof(Runtime.SimdReductions.CountInRangeInt32));
+
+    /// <summary>While-form entry (P2(b)): <c>while i &lt; bound { [v := a[i];] if a[i] &gt;= lo &amp;&amp; a[i] &lt;= hi { count++ } }</c>.</summary>
+    private bool TryEmitVectorizedRangeCount(WhileStatement loop)
+        => TryEmitMatchedRangeCount(RangePredicateCountShape.TryMatch(loop));
+
+    /// <summary>For-form entry (P2(b)). EmitFor emits the initializer first, so the index holds its start value
+    /// here exactly as in the while-form — the shared core is identical for both.</summary>
+    private bool TryEmitVectorizedRangeCount(ForStatement loop)
+        => TryEmitMatchedRangeCount(RangePredicateCountShape.TryMatch(loop));
+
+    /// <summary>
+    /// If <paramref name="shape"/> is a matched int[] range-predicate count, lower it to a masked SIMD helper
+    /// call and return true; otherwise return false (caller emits the scalar loop). The loop becomes
+    /// <c>count = count + SimdReductions.CountInRangeInt32(array, index, bound, lo, hi); index = max(index, bound)</c>
+    /// — value-identical (counts are order-independent) and faster (packed compare + masked accumulate). Fires
+    /// only for an int[] array, int counter/index, int side-effect-free bound and int side-effect-free lo/hi, in
+    /// the default unchecked-arithmetic context.
+    /// </summary>
+    private bool TryEmitMatchedRangeCount(RangePredicateCountShape? shape)
+    {
+        if (_currentIL == null || shape == null)
+            return false;
+
+        // Consistent with the reduction: do not fire in a checked context (currently unreachable — N# `checked`
+        // is expression-only and a while/for is a statement). A count cannot overflow (count <= end <= int.Max),
+        // so this is a conservative invariant rather than a correctness requirement.
+        if (_overflowCheckingEnabled)
+            return false;
+
+        if (GetIdentifierType(shape.ArrayRef) != typeof(int[]))
+            return false;
+        if (GetIdentifierType(shape.CounterRef) != typeof(int))
+            return false;
+        if (GetIdentifierType(shape.IndexRef) != typeof(int))
+            return false;
+        if (!IsSideEffectFreeInt32Bound(shape.Bound))
+            return false;
+        // lo/hi feed the helper's int parameters and must match the scalar `int a[i]` comparison exactly, so
+        // they must be int and side-effect-free (the vectorized form evaluates them once, not per iteration).
+        if (!IsSideEffectFreeInt32Operand(shape.Lo) || !IsSideEffectFreeInt32Operand(shape.Hi))
+            return false;
+
+        // Evaluate bound, lo, hi EXACTLY ONCE into temps. All three are side-effect-free, so evaluating once
+        // here is value-identical to the scalar loop re-evaluating them each iteration.
+        var boundLocal = _currentIL.DeclareLocal(typeof(int));
+        EmitExpression(shape.Bound);
+        _currentIL.Emit(OpCodes.Stloc, boundLocal);
+        var loLocal = _currentIL.DeclareLocal(typeof(int));
+        EmitExpression(shape.Lo);
+        _currentIL.Emit(OpCodes.Stloc, loLocal);
+        var hiLocal = _currentIL.DeclareLocal(typeof(int));
+        EmitExpression(shape.Hi);
+        _currentIL.Emit(OpCodes.Stloc, hiLocal);
+
+        // count = count + SimdReductions.CountInRangeInt32(array, index, bound, lo, hi)
+        EmitIdentifier(shape.CounterRef);
+        EmitIdentifier(shape.ArrayRef);
+        EmitIdentifier(shape.IndexRef);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        _currentIL.Emit(OpCodes.Ldloc, loLocal);
+        _currentIL.Emit(OpCodes.Ldloc, hiLocal);
+        _currentIL.Emit(OpCodes.Call, s_countInRangeInt32);
+        _currentIL.Emit(OpCodes.Add);
+        StoreIdentifier(shape.CounterRef);
+
+        // index = max(index, bound) -- the scalar loop's exact terminal index value (matches both while- and
+        // counted for-loops), even when the loop body never ran (bound <= index).
+        EmitIdentifier(shape.IndexRef);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        var keepIndexLabel = _currentIL.DefineLabel();
+        _currentIL.Emit(OpCodes.Bge, keepIndexLabel);
+        _currentIL.Emit(OpCodes.Ldloc, boundLocal);
+        StoreIdentifier(shape.IndexRef);
+        _currentIL.MarkLabel(keepIndexLabel);
+        return true;
+    }
+
+    // A range bound (lo/hi) operand for the count helper: int literal or an int local/parameter read. Unlike the
+    // loop bound, `.Length` is not accepted (lo/hi are values, not lengths). `.Count`/custom properties are
+    // excluded (possible side effects + non-int).
+    private bool IsSideEffectFreeInt32Operand(Expression operand) => operand switch
+    {
+        IdentifierExpression id => GetIdentifierType(id) == typeof(int),
+        IntLiteralExpression => true,
+        _ => false,
+    };
 }

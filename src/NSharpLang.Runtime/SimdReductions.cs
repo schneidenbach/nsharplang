@@ -180,4 +180,57 @@ public static class SimdReductions
 
         return sum;
     }
+
+    /// <summary>Count of <paramref name="array"/>[<paramref name="start"/> .. <paramref name="end"/>) whose value
+    /// is in the inclusive range [<paramref name="lo"/>, <paramref name="hi"/>] — the value of the scalar loop
+    /// <c>count=0; for i in [start,end): if lo &lt;= array[i] &lt;= hi: count++</c> — computed with masked SIMD
+    /// (Rust-perf P2(b), the count-ascii kernel). Packed compares produce an all-ones lane mask per in-range
+    /// element; subtracting the mask accumulates +1 per match (across four independent accumulators to hide
+    /// latency), then a horizontal sum plus the scalar tail. The count is order-independent, so this is
+    /// value-identical to the scalar loop. The empty/negative-range early-out and the in-bounds guard match
+    /// <see cref="SumInt32"/> exactly: an out-of-bounds range throws <see cref="System.IndexOutOfRangeException"/>
+    /// at the same element via the scalar tail (not the Vector ctor's <c>ArgumentOutOfRangeException</c>).</summary>
+    public static int CountInRangeInt32(int[] array, int start, int end, int lo, int hi)
+    {
+        var count = 0;
+        var i = start;
+
+        if (end <= start)
+            return count;
+
+        if (start >= 0 && end <= array.Length)
+        {
+            var lanes = Vector<int>.Count;
+            var step = lanes * 4;
+            var vlo = new Vector<int>(lo);
+            var vhi = new Vector<int>(hi);
+
+            // Four independent lane-count accumulators. A packed compare yields -1 (all bits) per in-range lane;
+            // `acc -= mask` therefore adds 1 per match. Counts are order-independent, so this matches the scalar
+            // sequential count exactly.
+            var a0 = Vector<int>.Zero;
+            var a1 = Vector<int>.Zero;
+            var a2 = Vector<int>.Zero;
+            var a3 = Vector<int>.Zero;
+            for (; i <= end - step; i += step)
+            {
+                var v0 = new Vector<int>(array, i);
+                var v1 = new Vector<int>(array, i + lanes);
+                var v2 = new Vector<int>(array, i + lanes * 2);
+                var v3 = new Vector<int>(array, i + lanes * 3);
+                a0 -= Vector.GreaterThanOrEqual(v0, vlo) & Vector.LessThanOrEqual(v0, vhi);
+                a1 -= Vector.GreaterThanOrEqual(v1, vlo) & Vector.LessThanOrEqual(v1, vhi);
+                a2 -= Vector.GreaterThanOrEqual(v2, vlo) & Vector.LessThanOrEqual(v2, vhi);
+                a3 -= Vector.GreaterThanOrEqual(v3, vlo) & Vector.LessThanOrEqual(v3, vhi);
+            }
+
+            count += Vector.Sum(a0 + a1 + a2 + a3);
+        }
+
+        for (; i < end; i++)
+            if (array[i] >= lo && array[i] <= hi)
+                count++;
+
+        return count;
+    }
 }

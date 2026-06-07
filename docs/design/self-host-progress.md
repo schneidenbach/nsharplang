@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P2(b): masked-SIMD range-predicate count (count-ascii) — the 5.7–6.3× kernel
+
+The codegen that vectorizes the count-ascii kernel. `SimdReductions.CountInRangeInt32(array, start, end, lo, hi)`
+counts in-range elements via packed compares — `Vector.GreaterThanOrEqual(v, lo) & Vector.LessThanOrEqual(v, hi)`
+gives an all-ones lane mask per in-range element; `acc -= mask` accumulates +1 per match across four independent
+lane-accumulators; then `Vector.Sum` + a scalar tail. It reuses P1's empty/OOB/extreme-bound guards verbatim
+(`end <= start` early-out; SIMD only over a provably in-bounds range; the scalar tail throws
+`IndexOutOfRangeException` at the same element as the scalar loop — not the Vector ctor's
+`ArgumentOutOfRangeException`). `ILCompiler.TryEmitMatchedRangeCount` (hooked into `EmitWhile` + `EmitFor`
+after the reduction hook) lowers a matched `[value := a[i];] if a[i] >= lo && a[i] <= hi { count++ }` to
+`count = count + CountInRangeInt32(a, i, bound, lo, hi); i = max(i, bound)`. Fires for an `int[]` array, int
+counter/index, int side-effect-free bound, and int side-effect-free `lo`/`hi` (evaluated ONCE — the masked
+compare must match the scalar `int a[i]` comparison exactly, so non-int `lo`/`hi` or a non-`int[]` array fall
+back to scalar). Counts are order-independent, so the result is value-identical to the scalar loop.
+
+Tests (162 Simd-category total): count-ascii while/for forms, temp + inlined subject; scalar≡vectorized across
+lengths incl. SIMD tails and inclusive boundaries (values exactly `== lo`/`== hi`); fires-only-when-enabled;
+non-int `lo`/`hi` and non-`int[]` array fall back (0 helper calls) and stay correct; OOB bound →
+`IndexOutOfRangeException`; empty/negative/`int.MinValue` bound → 0; plus direct helper edge cases on the SIMD
+path (`lo>hi`→0, `lo==hi`, negative ranges, `int.MinValue`/`int.MaxValue` boundaries). The adversarial-verify
+workflow (3 lenses) found NO codegen divergence: signed compare semantics, the mask arithmetic, no accumulator
+overflow (count ≤ length ≤ `int.MaxValue`; per-lane and intermediate sums ≤ total), once-evaluation of the
+side-effect-free `lo`/`hi`, and the terminal index are all correct. Full `VSCODE_TESTS=skip ./scripts/test-all.sh
+--commit` gate green; no IL-shape test fallout (the range-count shape is specific, unlike the broad for-form).
+
 ## 2026-06-07 — Rust-perf P2(a): range-predicate count detector (count-ascii; no codegen change)
 
 First sub-slice of the count-ascii vectorization (the 5.7–6.3× Rust gap). `RangePredicateCountShape.TryMatch`
