@@ -11,6 +11,32 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Columnar pipeline STAGE 1: declared-symbol model (the first downstream stage, no C# AST)
+
+Decision "go big" (2026-06-06): commit to the columnar self-host pipeline (architecture + staged plan in
+[`columnar-pipeline.md`](columnar-pipeline.md)). This is stage 1 — the declared-symbol model that name
+resolution queries, built DIRECTLY from the columnar declaration + signature tables with NO C# AST
+materialization.
+
+- `NSharpCompilerDogfoodAdapter.TryBuildTopLevelFunctionSymbols(source)` → `List<ColumnarFunctionSymbol>`
+  (name, modifiers, canonical parameter + return type signatures). It runs the dogfood tokenizer + the
+  declarations kernel (kinds + modifier flags) + the per-function signature kernel, and canonicalizes each
+  parameter/return type subtree to a string via `ColumnarTypeCanon` — straight off the columnar type tables,
+  never building a `FunctionDeclaration`/`TypeReference` object. Conservative + fallback-safe (false on any
+  non-function decl or kernel refusal).
+- `Columnar.ColumnarFunctionSymbol` (new) holds the symbol; `CanonicalType(TypeReference)` is the matching C#
+  AST canon used only by the parity baseline.
+- `ColumnarSymbols_TopLevelFunctions_MatchProductionBinderModel` asserts the columnar symbol model matches the
+  C# AST-derived model (name + modifiers + canonical signatures) on **every dogfood file** plus hand-built
+  corpora (arrays, generics, nullable, casts). First proof that the columnar IR feeds a real **semantic
+  model**, not just round-trips through the parser.
+
+This is the foundation stage 2 (name resolution → symbol IDs) builds on. Per the pipeline design rules, the
+never-slower benchmark + production routing (with C# fallback) come with stage 2's integration; the front-end
+and downstream-traversal perf are already established (slices 26–27: 2.4× faster parse, ~1.6× faster passes,
+no AST allocation). Design rule reaffirmed: resolve names to symbol IDs once — the symbol model is the place
+that interning will live.
+
 ## 2026-06-06 — Slice 27: downstream-pass spike — the columnar win COMPOUNDS past the parser
 
 Validates the columnar-pipeline thesis on the NEXT stage after parsing. `ColumnarSemanticPassBenchmarks`

@@ -219,6 +219,150 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    /// <summary>
+    /// COLUMNAR PIPELINE — stage 1 (docs/design/columnar-pipeline.md). Builds the top-level function
+    /// declared-symbol model (name, modifiers, canonical parameter + return type signatures) DIRECTLY from the
+    /// columnar declaration + signature tables, WITHOUT materializing the C# AST. This is the declared-symbol
+    /// foundation name resolution queries. Returns false (so callers keep the C# binder) for any non-function
+    /// top-level declaration or kernel refusal. Canonical type strings match
+    /// <see cref="Columnar.ColumnarFunctionSymbol.CanonicalType"/> exactly for parity.
+    /// </summary>
+    internal static bool TryBuildTopLevelFunctionSymbols(string source, out List<Columnar.ColumnarFunctionSymbol> symbols)
+    {
+        symbols = new List<Columnar.ColumnarFunctionSymbol>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+
+        try
+        {
+            var capacity = 3 * (source.Length + 1) + 8;
+            var rawKinds = new int[capacity];
+            var rawStarts = new int[capacity];
+            var rawValueLengths = new int[capacity];
+            var rawLines = new int[capacity];
+            var rawColumns = new int[capacity];
+            var rawCount = bindings.TokenizeMetadataWithIndentation(
+                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+            if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            var declKinds = new int[rawCount + 1];
+            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
+            if (declCount < 0)
+                return false;
+            for (var i = 0; i < declCount; i++)
+            {
+                if (declKinds[i] != 7)
+                    return false;
+            }
+
+            // Per-declaration modifier flags ((int)Declaration.Modifiers); all decls are functions here.
+            var modKinds = new int[rawCount + 1];
+            var modFlags = new int[rawCount + 1];
+            var modCount = bindings.TopLevelDeclarationModifiers(rawKinds, rawCount, modKinds, modFlags);
+            if (modCount != declCount)
+                return false;
+
+            var ck = new int[rawCount];
+            var cs = new int[rawCount];
+            var cv = new int[rawCount];
+            var n = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                ck[n] = rawKinds[i];
+                cs[n] = rawStarts[i];
+                cv[n] = rawValueLengths[i];
+                n++;
+            }
+
+            var funcIndices = TopLevelFuncIndices(ck, n);
+            if (funcIndices.Count != declCount)
+                return false;
+
+            var cap = n + 1;
+            for (var fi = 0; fi < funcIndices.Count; fi++)
+            {
+                var funcIndex = funcIndices[fi];
+                var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+                var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+                var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+                var sres = new int[5];
+                var paramCount = bindings.ParseFunctionSignature(
+                    ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
+                    pNameStart, pNameLen, pTypeRoot, sres);
+                if (paramCount < 0 || sres[3] < 0)
+                    return false;
+
+                var name = source.Substring(sres[3], sres[4]);
+                var parameterTypes = new string[paramCount];
+                for (var p = 0; p < paramCount; p++)
+                    parameterTypes[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+
+                var returnType = sres[1] >= 0 ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]) : null;
+
+                symbols.Add(new Columnar.ColumnarFunctionSymbol(name, modFlags[fi], parameterTypes, returnType));
+            }
+
+            return true;
+        }
+        catch
+        {
+            symbols = new List<Columnar.ColumnarFunctionSymbol>();
+            return false;
+        }
+    }
+
+    // Canonical type string from a columnar TYPE subtree (kinds 0 Simple,1 Generic,2 Array,3 Nullable,
+    // 4 Union,5 ByRef), matching Columnar.ColumnarFunctionSymbol.CanonicalType for the C# AST exactly.
+    private static string ColumnarTypeCanon(
+        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
+        string source, int idx)
+    {
+        switch (kinds[idx])
+        {
+            case 0:
+                return source.Substring(valueStarts[idx], valueLengths[idx]);
+            case 1:
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.Append(source, valueStarts[idx], valueLengths[idx]).Append('<');
+                var run = childStart[idx];
+                for (var k = 0; k < childCount[idx]; k++)
+                {
+                    if (k > 0) sb.Append(',');
+                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[run + k]));
+                }
+
+                sb.Append('>');
+                return sb.ToString();
+            }
+            case 2:
+                return ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[idx]]) + "[]";
+            case 3:
+                return ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[idx]]) + "?";
+            case 4:
+            {
+                var sb = new System.Text.StringBuilder();
+                var run = childStart[idx];
+                for (var k = 0; k < childCount[idx]; k++)
+                {
+                    if (k > 0) sb.Append('|');
+                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[run + k]));
+                }
+
+                return sb.ToString();
+            }
+            case 5:
+                return "&" + ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[idx]]);
+            default:
+                return "?";
+        }
+    }
+
     /// <summary>Indices of every depth-0 <c>func</c> keyword (TokenType.Func == 7) in the compacted stream.</summary>
     private static List<int> TopLevelFuncIndices(int[] kinds, int count)
     {
@@ -1232,6 +1376,9 @@ internal static class NSharpCompilerDogfoodAdapter
                 CreateDelegate<TopLevelDeclarationKindsInto>(
                     programType,
                     "TopLevelDeclarationKindsInto"),
+                CreateDelegate<TopLevelDeclarationModifiersInto>(
+                    programType,
+                    "TopLevelDeclarationModifiersInto"),
                 CreateDelegate<NamespaceImportSpansInto>(
                     programType,
                     "NamespaceImportSpansInto"),
@@ -1401,6 +1548,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int TokenizeMetadataWithIndentationInto(
         string source, int[] kinds, int[] starts, int[] valueLengths, int[] lines, int[] columns);
     private delegate int TopLevelDeclarationKindsInto(int[] tokenKinds, int count, int[] outKinds);
+    private delegate int TopLevelDeclarationModifiersInto(int[] tokenKinds, int count, int[] outKinds, int[] outModifiers);
     private delegate int NamespaceImportSpansInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count,
         int[] outNsStarts, int[] outNsLengths, int[] outAliasStarts, int[] outAliasLengths);
@@ -1435,6 +1583,7 @@ internal static class NSharpCompilerDogfoodAdapter
         OverloadSelectBestCandidate OverloadSelectBestCandidate,
         TokenizeMetadataWithIndentationInto TokenizeMetadataWithIndentation,
         TopLevelDeclarationKindsInto TopLevelDeclarationKinds,
+        TopLevelDeclarationModifiersInto TopLevelDeclarationModifiers,
         NamespaceImportSpansInto NamespaceImportSpans,
         PackageNameSpanInto PackageNameSpan,
         ParseFunctionSignatureInto ParseFunctionSignature,

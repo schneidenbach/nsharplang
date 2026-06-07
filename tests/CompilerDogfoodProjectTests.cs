@@ -9,6 +9,7 @@ using NSharpLang.Cli;
 using NSharpLang.Compiler;
 using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
+using NSharpLang.Compiler.Columnar;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -1579,6 +1580,72 @@ class B
             // The C# parser still parses it (proving it is valid N#, not gibberish).
             Assert.NotNull(CSharpCompilationUnit(src, "unsupported.nl"));
         }
+    }
+
+    // COLUMNAR PIPELINE stage 1 (docs/design/columnar-pipeline.md): the top-level function declared-symbol
+    // model built DIRECTLY from the columnar tables (no C# AST) must match the C# AST-derived symbol model on
+    // every dogfood file -- name, modifiers, and canonical parameter + return type signatures. This is the
+    // first downstream stage proving the columnar IR feeds a real semantic model, not just the parser.
+    [Fact]
+    public void ColumnarSymbols_TopLevelFunctions_MatchProductionBinderModel()
+    {
+        // Hand-built supported corpora (functions with varied signatures: arrays, generics, nullable, casts).
+        string[] supportedCorpora =
+        {
+            "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc neg(x: int): int {\n    return -x\n}\n",
+            "import System\n\nfunc lookup(keys: string[], values: int[], key: string): int {\n    return values[0]\n}\n\nfunc empty() {\n    return\n}\n",
+            "func build(items: Map<string, int>, flags: bool[]): string {\n    return \"\"\n}\n",
+        };
+
+        foreach (var src in supportedCorpora)
+        {
+            var (ok, symbols) = RouteFunctionSymbols(src);
+            Assert.True(ok, $"Symbol builder declined a supported corpus:\n{src}");
+            Assert.NotNull(symbols);
+            Assert.Equal(CSharpFunctionSignatures(src, "corpus.nl"), symbols!.Select(s => s.Signature()).ToList());
+        }
+
+        // Real dogfood corpus: every file's top-level function symbol model must match the C# parser's.
+        var repoRoot = FindRepoRoot();
+        var servicesDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var files = Directory.EnumerateFiles(servicesDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var built = 0;
+        foreach (var file in files)
+        {
+            var src = File.ReadAllText(file);
+            var (ok, symbols) = RouteFunctionSymbols(src);
+            Assert.True(ok, $"Columnar symbol builder declined its own systems source: {file}.");
+            Assert.Equal(CSharpFunctionSignatures(src, file), symbols!.Select(s => s.Signature()).ToList());
+            built++;
+        }
+
+        Assert.Equal(files.Count, built);
+        Assert.True(built >= 30, $"Expected the full dogfood corpus to build symbols; only {built} did.");
+    }
+
+    private static (bool Ok, List<ColumnarFunctionSymbol>? Symbols) RouteFunctionSymbols(string source)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryBuildTopLevelFunctionSymbols", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryBuildTopLevelFunctionSymbols.");
+        var args = new object?[] { source, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (List<ColumnarFunctionSymbol>?)args[1]);
+    }
+
+    private static List<string> CSharpFunctionSignatures(string source, string filePath)
+    {
+        var cu = CSharpCompilationUnit(source, filePath);
+        var signatures = new List<string>();
+        foreach (var fn in cu!.Declarations.OfType<FunctionDeclaration>())
+        {
+            var parameterTypes = fn.Parameters.Select(p => ColumnarFunctionSymbol.CanonicalType(p.Type)).ToList();
+            var returnType = fn.ReturnType != null ? ColumnarFunctionSymbol.CanonicalType(fn.ReturnType) : null;
+            signatures.Add(new ColumnarFunctionSymbol(fn.Name, (int)fn.Modifiers, parameterTypes, returnType).Signature());
+        }
+
+        return signatures;
     }
 
     // Invokes the internal NSharpCompilerDogfoodAdapter.TryParseCompilationUnit (the production routing entry)
