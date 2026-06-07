@@ -30,6 +30,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Lets the test project assert on internal dogfood adapters (e.g. that the dogfood path is
+         actually loaded/exercised, and differential ordering parity) without widening the public API. -->
+    <InternalsVisibleTo Include="Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="/" />
   </ItemGroup>
 
