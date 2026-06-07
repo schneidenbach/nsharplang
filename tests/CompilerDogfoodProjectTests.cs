@@ -1668,6 +1668,196 @@ class B
         Assert.True(resolved >= 30, $"Expected the full dogfood corpus to resolve; only {resolved} did.");
     }
 
+    // COLUMNAR PIPELINE stage 3 (docs/design/columnar-pipeline.md): expression type inference over the
+    // columnar tables (no C# AST) must implement the SAME inference rules walking the C# AST -- every
+    // expression's inferred canonical type, in the same post-order -- on the full dogfood corpus plus
+    // hand-built corpora. Pure-N# forms are inferred (literals, numeric promotion, comparison/logical, locals
+    // from initializers, N#-function call returns, index, cast, new, ternary, assignment); BCL forms yield
+    // "External". The shared ColumnarTypeLattice rules were adversarially reviewed against the REAL C# binder
+    // (Analyzer.cs) and aligned to its actual behavior -- including the binder's current ECMA gaps (bitwise
+    // binary and unary ~ are not concretely typed today; flagged in roadmap-to-done.md). This test proves the
+    // columnar inferer implements that reviewed spec; the DEFINITIVE binder/output parity is verified
+    // end-to-end at stages 4-5 (the columnar pipeline emitting IL that runs identically).
+    [Fact]
+    public void ColumnarTypes_Inference_MatchesAstWalk()
+    {
+        string[] supportedCorpora =
+        {
+            "func add(a: int, b: int): int {\n    sum := a + b\n    return sum\n}\n",
+            "func pick(data: int[], i: int, flag: bool): int {\n    x := data[i]\n    return flag ? x : 0\n}\n",
+            "func cmp(a: int, b: int): bool {\n    return a < b && a != b\n}\n",
+            // forward-ref call return type
+            "func a(): int {\n    return b() + 1\n}\n\nfunc b(): int {\n    return 1\n}\n",
+            // cast -> int local; char arithmetic promotes to int
+            "func codes(ch: char): int {\n    code := (int)ch\n    next := code + 1\n    return next\n}\n",
+            // member access -> External; index on array -> element
+            "import System\n\nfunc scan(s: string, data: int[], i: int): int {\n    total := data[i]\n    return total\n}\n",
+        };
+
+        foreach (var src in supportedCorpora)
+        {
+            var (ok, types) = RouteFunctionTypes(src);
+            Assert.True(ok, $"Type inferer declined a supported corpus:\n{src}");
+            Assert.NotNull(types);
+            Assert.Equal(CSharpInferFunctionTypes(src, "corpus.nl"), types);
+        }
+
+        var repoRoot = FindRepoRoot();
+        var servicesDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var files = Directory.EnumerateFiles(servicesDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var inferred = 0;
+        foreach (var file in files)
+        {
+            var src = File.ReadAllText(file);
+            var (ok, types) = RouteFunctionTypes(src);
+            Assert.True(ok, $"Columnar type inferer declined its own systems source: {file}.");
+            Assert.Equal(CSharpInferFunctionTypes(src, file), types);
+            inferred++;
+        }
+
+        Assert.Equal(files.Count, inferred);
+        Assert.True(inferred >= 30, $"Expected the full dogfood corpus to infer; only {inferred} did.");
+    }
+
+    private static (bool Ok, List<List<string>>? Types) RouteFunctionTypes(string source)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryInferTopLevelFunctionTypes", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryInferTopLevelFunctionTypes.");
+        var args = new object?[] { source, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (List<List<string>>?)args[1]);
+    }
+
+    // The C# AST mirror of ColumnarTypeInferer -- the EXACT same inference (via the shared ColumnarTypeLattice)
+    // and post-order traversal on the object-graph AST. Produces per-function lists of inferred canonical types.
+    private static List<List<string>> CSharpInferFunctionTypes(string source, string filePath)
+    {
+        var cu = CSharpCompilationUnit(source, filePath);
+        var funcs = cu!.Declarations.OfType<FunctionDeclaration>().ToList();
+        var functionReturnTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var f in funcs)
+            functionReturnTypes[f.Name] = f.ReturnType != null ? ColumnarFunctionSymbol.CanonicalType(f.ReturnType) : "void";
+
+        var result = new List<List<string>>();
+        foreach (var fn in funcs)
+        {
+            var parameterTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var p in fn.Parameters) parameterTypes[p.Name] = ColumnarFunctionSymbol.CanonicalType(p.Type);
+            var localScopes = new List<Dictionary<string, string>>();
+            var types = new List<string>();
+
+            string Lookup(string name)
+            {
+                for (var i = localScopes.Count - 1; i >= 0; i--)
+                    if (localScopes[i].TryGetValue(name, out var t)) return t;
+                return parameterTypes.TryGetValue(name, out var p) ? p : ColumnarTypeLattice.External;
+            }
+
+            string Expr(Expression e)
+            {
+                string t;
+                switch (e)
+                {
+                    case IntLiteralExpression il: t = ColumnarTypeLattice.LiteralIntType(il.Value); break;
+                    case FloatLiteralExpression fl: t = ColumnarTypeLattice.LiteralFloatType(fl.Value); break;
+                    case CharLiteralExpression: t = "char"; break;
+                    case StringLiteralExpression: t = "string"; break;
+                    case BoolLiteralExpression: t = "bool"; break;
+                    case NullLiteralExpression: t = "null"; break;
+                    case IdentifierExpression id: t = Lookup(id.Name); break;
+                    case ParenthesizedExpression p: t = Expr(p.Inner); break;
+                    case MemberAccessExpression m: Expr(m.Object); t = ColumnarTypeLattice.External; break;
+                    case CallExpression c:
+                        Expr(c.Callee);
+                        foreach (var a in c.Arguments) Expr(a.Value);
+                        t = c.Callee is IdentifierExpression cid && functionReturnTypes.TryGetValue(cid.Name, out var r)
+                            ? r : ColumnarTypeLattice.External;
+                        break;
+                    case IndexAccessExpression ix:
+                    {
+                        var o = Expr(ix.Object);
+                        Expr(ix.Index);
+                        t = ColumnarTypeLattice.ElementType(o);
+                        break;
+                    }
+                    case UnaryExpression u:
+                    {
+                        var o = Expr(u.Operand);
+                        t = ColumnarTypeLattice.Unary(UnaryOperatorText(u.Operator), o);
+                        break;
+                    }
+                    case BinaryExpression b:
+                    {
+                        var l = Expr(b.Left);
+                        var rr = Expr(b.Right);
+                        t = ColumnarTypeLattice.Binary(BinaryOperatorText(b.Operator), l, rr);
+                        break;
+                    }
+                    case TernaryExpression tn:
+                    {
+                        Expr(tn.Condition);
+                        var a = Expr(tn.ThenExpression);
+                        var bb = Expr(tn.ElseExpression);
+                        t = a == bb ? a : ColumnarTypeLattice.Wider(a, bb);
+                        break;
+                    }
+                    case AssignmentExpression asn:
+                    {
+                        var tg = Expr(asn.Target);
+                        Expr(asn.Value);
+                        t = tg;
+                        break;
+                    }
+                    case NewExpression nw:
+                        foreach (var a in nw.ConstructorArguments) Expr(a.Value);
+                        t = ColumnarFunctionSymbol.CanonicalType(nw.Type!);
+                        break;
+                    case CastExpression cast:
+                        Expr(cast.Expression);
+                        t = ColumnarFunctionSymbol.CanonicalType(cast.TargetType);
+                        break;
+                    default: t = ColumnarTypeLattice.External; break;
+                }
+
+                types.Add(t);
+                return t;
+            }
+
+            void Stmt(Statement s)
+            {
+                switch (s)
+                {
+                    case BlockStatement b:
+                        localScopes.Add(new Dictionary<string, string>(StringComparer.Ordinal));
+                        foreach (var inner in b.Statements) Stmt(inner);
+                        localScopes.RemoveAt(localScopes.Count - 1);
+                        break;
+                    case VariableDeclarationStatement v:
+                    {
+                        var t = v.Initializer != null ? Expr(v.Initializer) : ColumnarTypeLattice.External;
+                        if (localScopes.Count == 0) localScopes.Add(new Dictionary<string, string>(StringComparer.Ordinal));
+                        localScopes[localScopes.Count - 1][v.Name] = t;
+                        break;
+                    }
+                    case WhileStatement w: Expr(w.Condition); Stmt(w.Body); break;
+                    case IfStatement i:
+                        Expr(i.Condition); Stmt(i.ThenStatement);
+                        if (i.ElseStatement != null) Stmt(i.ElseStatement);
+                        break;
+                    case ReturnStatement rs: if (rs.Value != null) Expr(rs.Value); break;
+                    case ExpressionStatement es: Expr(es.Expression); break;
+                }
+            }
+
+            if (fn.Body != null) Stmt(fn.Body);
+            result.Add(types);
+        }
+
+        return result;
+    }
+
     private static (bool Ok, List<List<ColumnarNameRef>>? Refs) RouteFunctionNameRefs(string source)
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")

@@ -436,6 +436,123 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
+    /// <summary>
+    /// COLUMNAR PIPELINE — stage 3 (docs/design/columnar-pipeline.md). Expression type inference over the
+    /// columnar tables (no C# AST): for each top-level function, the inferred canonical type of every
+    /// expression in its body (post-order). Two passes: (1) every function's signature → the function-return-
+    /// type map (so calls infer their return type, incl. forward refs); (2) per function, infer the body with
+    /// its parameter types + the shared function map. Pure-N# surface is inferred; BCL forms yield "External".
+    /// Fallback-safe (false for any non-function declaration or kernel refusal).
+    /// </summary>
+    internal static bool TryInferTopLevelFunctionTypes(string source, out List<List<string>> perFunctionTypes)
+    {
+        perFunctionTypes = new List<List<string>>();
+
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+
+        try
+        {
+            var capacity = 3 * (source.Length + 1) + 8;
+            var rawKinds = new int[capacity];
+            var rawStarts = new int[capacity];
+            var rawValueLengths = new int[capacity];
+            var rawLines = new int[capacity];
+            var rawColumns = new int[capacity];
+            var rawCount = bindings.TokenizeMetadataWithIndentation(
+                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+            if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            var declKinds = new int[rawCount + 1];
+            var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
+            if (declCount < 0)
+                return false;
+            for (var i = 0; i < declCount; i++)
+            {
+                if (declKinds[i] != 7)
+                    return false;
+            }
+
+            var ck = new int[rawCount];
+            var cs = new int[rawCount];
+            var cv = new int[rawCount];
+            var n = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                ck[n] = rawKinds[i];
+                cs[n] = rawStarts[i];
+                cv[n] = rawValueLengths[i];
+                n++;
+            }
+
+            var funcIndices = TopLevelFuncIndices(ck, n);
+            if (funcIndices.Count != declCount)
+                return false;
+
+            var cap = n + 1;
+
+            // Pass 1: each function's signature → parameter types + the shared function-return-type map.
+            var perFunctionParameterTypes = new List<Dictionary<string, string>>(funcIndices.Count);
+            var functionReturnTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var funcIndex in funcIndices)
+            {
+                var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+                var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+                var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+                var sres = new int[5];
+                var paramCount = bindings.ParseFunctionSignature(
+                    ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
+                    pNameStart, pNameLen, pTypeRoot, sres);
+                if (paramCount < 0 || sres[3] < 0)
+                    return false;
+
+                var paramTypes = new Dictionary<string, string>(StringComparer.Ordinal);
+                for (var p = 0; p < paramCount; p++)
+                    paramTypes[source.Substring(pNameStart[p], pNameLen[p])] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+                perFunctionParameterTypes.Add(paramTypes);
+
+                var name = source.Substring(sres[3], sres[4]);
+                functionReturnTypes[name] = sres[1] >= 0 ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]) : "void";
+            }
+
+            // Pass 2: infer each body with its parameter types + the function-return-type map.
+            for (var fi = 0; fi < funcIndices.Count; fi++)
+            {
+                var funcIndex = funcIndices[fi];
+                var bodyBrace = -1;
+                for (var t = funcIndex + 1; t < n; t++)
+                {
+                    if (ck[t] == 129) { bodyBrace = t; break; }
+                }
+                if (bodyBrace < 0)
+                    return false;
+
+                var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+                var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+                var bres = new int[2];
+                var bodyNodeCount = bindings.ParseStatementNodes(
+                    ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
+                if (bodyNodeCount <= 0)
+                    return false;
+
+                var inferer = new Columnar.ColumnarTypeInferer(
+                    bk, bvs, bvl, bcs, bcc, bci, source, perFunctionParameterTypes[fi], functionReturnTypes);
+                perFunctionTypes.Add(inferer.Infer(bres[0]));
+            }
+
+            return true;
+        }
+        catch
+        {
+            perFunctionTypes = new List<List<string>>();
+            return false;
+        }
+    }
+
     // Canonical type string from a columnar TYPE subtree (kinds 0 Simple,1 Generic,2 Array,3 Nullable,
     // 4 Union,5 ByRef), matching Columnar.ColumnarFunctionSymbol.CanonicalType for the C# AST exactly.
     private static string ColumnarTypeCanon(

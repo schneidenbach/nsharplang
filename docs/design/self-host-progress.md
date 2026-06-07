@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Columnar pipeline STAGE 3: expression type inference (no C# AST) + 2 binder gaps surfaced
+
+Third downstream stage: infer the canonical type of every expression in a function body, walking the columnar
+tables directly. `Columnar.ColumnarTypeInferer` + the shared `ColumnarTypeLattice` (numeric promotion,
+operator results, literal/element/cast/new types) over the columnar + symbol tables; `:=` locals take their
+initializer's inferred type, calls take the function-signature return type (two-pass, forward refs resolve),
+BCL forms (member access, non-N# calls) yield `External` (the typed host boundary a later stage fills).
+`NSharpCompilerDogfoodAdapter.TryInferTopLevelFunctionTypes` orchestrates it; fallback-safe.
+`ColumnarTypes_Inference_MatchesAstWalk` verifies the inferer implements the spec identically to the C#-AST
+walk on every dogfood file + hand corpora.
+
+**Adversarial review (3 lenses vs the REAL binder) surfaced two genuine C# binder ECMA gaps** — the binder
+does not concretely type bitwise binary ops (`& | ^ << >>` → Unknown) nor numeric-promote unary `-`/`~`
+(Analyzer.cs §12.4 gaps); both appear in the corpus (e.g. `BindingLookup.nl` `(lower+upper) >> 1`). It also
+correctly flagged that the parity oracle was self-referential. Resolution (behavior-preserving self-host):
+`ColumnarTypeLattice` was **aligned to the binder's actual behavior** (bitwise → External/deferred, unary as
+the binder does), so the columnar inferer is a faithful replacement rather than silently diverging. The
+binder's ECMA gaps are logged as a **reconciliation roadmap item** (fix the binder + promote the lattice, or
+keep matching). The DEFINITIVE binder/output parity is verified end-to-end at stages 4-5 (IL that runs
+identically) — the right place for it, since intermediate type differences only matter if they change output.
+
 ## 2026-06-06 — Rust-perf: auto-vectorization CEILING measured — unrolled Vector<int> = 4.5x over scalar
 
 The first move on the Rust performance bar (after stages 1–2): quantify the prize before any codegen change.

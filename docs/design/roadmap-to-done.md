@@ -42,6 +42,13 @@ question — only genuine architectural forks surface. Living evidence in
       the pure-N# surface (literals, locals/params, function returns, operators, index, cast, new); BCL
       member/call types via a typed host boundary (reflection — AGENTS.md-permitted). Parity vs the C# binder's
       inferred types on the corpus.
+- [x] Stage 3 — columnar type checking (expression inference; reviewed against the real binder; binder/output
+      parity deferred to stages 4-5). Surfaced two C# binder ECMA gaps (see reconciliation item below).
+- [ ] **Binder reconciliation** (correctness improvement surfaced by stage-3 adversarial review): the C#
+      binder (Analyzer.cs) does NOT concretely type bitwise binary ops (&,|,^,<<,>> → Unknown) nor apply
+      numeric promotion to unary -/~ (ECMA §12.4 gaps). The columnar inferer currently MATCHES the binder
+      (behavior-preserving). Decide + do: fix the binder to ECMA-correct (then update ColumnarTypeLattice to
+      the promoted types and re-verify), or keep matching. Low-risk localized binder change; gate for regress.
 - [ ] **Stage 3b — columnar diagnostics** (pure-structural: definite-return, unreachable-after-terminal,
       unused-local). Parity vs the C# analyzer.
 - [ ] **Stage 4 — columnar codegen.** Emit IL directly from the columnar + resolved tables for the systems
@@ -78,5 +85,6 @@ question — only genuine architectural forks surface. Living evidence in
 
 ## Status cursor
 
-Next up: **Stage 3 — columnar type checking** (Phase S). Then continue down Phase S; interleave Phase P
-sub-slices (P1) since the user prioritized the Rust bar. Phase T follows stages 3–4.
+Next up: **Stage 3b — columnar diagnostics** (Phase S) and/or **P1 (a) — vectorization pattern detection**
+(Phase P, user-prioritized Rust bar). Then Stage 4 (codegen) — where end-to-end binder/output parity (incl.
+the binder reconciliation item) is verified. Phase T follows stages 3–4.
