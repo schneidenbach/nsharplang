@@ -242,7 +242,8 @@ See [CI/CD Guide](docs/guide/ci-cd.md) for current setup notes.
 - **docs/DESIGN.md** - language design notes and intended semantics
 - **docs/guide/cli-reference.md** - CLI command reference aligned to current help/completions
 - **memory/** - implementation notes, component docs, and known limitations
-- **docs/audits/** and **docs/talk/** - launch evidence, risk registers, and public-claim guardrails
+- **docs/audits/** and **docs/talk/** - historical launch evidence and risk registers (May 2026 snapshots; superseded for current work by `docs/design/`)
+- **docs/design/** - current strategy: `roadmap-to-done.md`, `self-host-progress.md`, `columnar-pipeline.md` (self-host + Rust-class perf)
 - **docs/** - user guides and references
 
 ## Architecture

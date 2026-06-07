@@ -1,3 +1,5 @@
+> **Superseded snapshot.** Point-in-time pre-launch gate review (May 2026). Systems N# has since shipped and the project moved to columnar self-host work; for current status see `docs/audits/systems-nsharp-verification-summary.md` and `docs/design/self-host-progress.md`. Retained as a historical readiness snapshot.
+
 # N# launch adversarial Codex review
 
 Date: 2026-05-14

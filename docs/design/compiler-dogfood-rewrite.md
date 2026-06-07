@@ -1,3 +1,5 @@
+> **Strategy superseded; methodology retained.** The "N# kernels behind `*DogfoodAdapter` delegates" routing approach described here is a proven performance dead-end — the delegate boundary is a fixed ~1.2 ns/call floor and materializing back to the C# AST is 4–5× slower (see `docs/design/compiler-dogfood-boundary-profiling.md`). The current self-host strategy is the **columnar pipeline** (`docs/design/columnar-pipeline.md`, `docs/design/roadmap-to-done.md`). This doc is retained for its per-slice parity/benchmark methodology and accepted/rejected evidence record, which remain valid.
+
 # Compiler Dogfood Rewrite Plan
 
 Status: active goal

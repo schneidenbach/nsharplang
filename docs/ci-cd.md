@@ -35,7 +35,7 @@ jobs:
       run: dotnet test --no-build --verbosity normal
 
     - name: Lint
-      run: nsharp lint
+      run: nlc lint
       continue-on-error: true
 ```
 
@@ -100,5 +100,5 @@ You can run the same commands locally:
 dotnet restore
 dotnet build --no-restore
 dotnet test --no-build --verbosity normal
-nsharp lint
+nlc lint
 ```

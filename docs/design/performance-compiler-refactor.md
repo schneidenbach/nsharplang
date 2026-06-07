@@ -3,6 +3,14 @@
 Status: design proposal
 Updated: 2026-05-27
 
+> **Read alongside [`columnar-pipeline.md`](columnar-pipeline.md) (decided 2026-06-06).** The
+> self-host endgame makes flat **columnar node tables** the single intermediate representation
+> end-to-end (parse→bind→analyze→codegen, no internal C# AST). The optimization *principles* in this
+> doc — escape/capture analysis, allocation-fact tracking, dispatch classification, value layout —
+> remain valid, but the tree-based "Analyzer → Bound IR" pipeline diagram below must be reconciled with
+> the columnar Stages 1–4 (see [`roadmap-to-done.md`](roadmap-to-done.md) Phase S). Where the two
+> conflict, the columnar pipeline is authoritative.
+
 This document defines the compiler refactor needed to make N# a performance-by-default CLR language. It is intentionally conservative about public claims: CLR interop remains a first-class product value, and every optimization that weakens interop or changes language behavior must be justified by dated BenchmarkDotNet output, IL-shape evidence, and compatibility tests.
 
 ## Product Position

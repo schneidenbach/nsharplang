@@ -333,7 +333,7 @@ result := match value {
   class Person {
       Name: string           // must be set in constructor or at instantiation
       Age: int = 0           // inline init satisfies requirement
-      Id: string = Guid.New() // function calls allowed in inline init
+      Id: string = Guid.NewGuid() // function calls allowed in inline init
   }
   ```
 

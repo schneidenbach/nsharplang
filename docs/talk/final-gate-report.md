@@ -1,3 +1,5 @@
+> **Superseded snapshot (May 2026 launch).** Frozen evidence/runbook from the past launch effort — SHAs, test counts, task IDs, and publish status are point-in-time and must NOT be cited for current work. Current strategy & status live in `docs/design/roadmap-to-done.md` and `docs/design/self-host-progress.md`. Retained as a historical record.
+
 # N# final launch gate report
 
 Generated: 2026-05-17T04:03:00Z
