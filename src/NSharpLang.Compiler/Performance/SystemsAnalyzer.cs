@@ -478,7 +478,10 @@ public sealed class SystemsAnalyzer
             if (string.IsNullOrWhiteSpace(reason))
             {
                 AddFinding(
-                    "NSYS150",
+                    // effectPolicy gets its own code (NSYS180); NSYS150 is reserved for effectDrift.
+                    // Sharing one code made the per-error docs URL ambiguous and machine consumers
+                    // unable to distinguish the two effects (M5).
+                    "NSYS180",
                     "effectPolicy",
                     "function-level [allow] requires a reason",
                     function.Line,
@@ -493,7 +496,7 @@ public sealed class SystemsAnalyzer
             if (isPublicApi && string.IsNullOrWhiteSpace(owner))
             {
                 AddFinding(
-                    "NSYS150",
+                    "NSYS180",
                     "effectPolicy",
                     "public function-level [allow] requires an owner",
                     function.Line,
@@ -548,7 +551,8 @@ public sealed class SystemsAnalyzer
             && EstimateResultSize(function.ReturnType) is > 128 and var resultSize)
         {
             AddFinding(
-                "NSYS160",
+                // resultAbi gets its own code (NSYS170); NSYS160 is reserved for resultMustUse (M5).
+                "NSYS170",
                 "resultAbi",
                 $"Result<T,E> copy shape is estimated at {resultSize} bytes, above the v1 hot-path guidance of 128 bytes",
                 function.Line,
@@ -1621,7 +1625,23 @@ public sealed class SystemsAnalyzer
            && context.Guards.Any(guard => guard.Kind == GuardKind.NonZero && guard.Target == identifier.Name);
 
     private static bool IsDefinitelyNonZero(Expression expression)
-        => expression is IntLiteralExpression literal && int.TryParse(literal.Value, out var value) && value != 0;
+        => (expression is IntLiteralExpression literal && int.TryParse(literal.Value, out var value) && value != 0)
+            // A non-zero literal divisor can never divide-by-zero, for integer OR floating/decimal
+            // division. This removes the false positive on `x / 2.0`, `x % 4.0f`, etc. (M2): the
+            // trap check previously only recognized non-zero INT literals, so a float-literal
+            // divisor was reported as an unproven trap even though it is provably non-zero.
+            || (expression is FloatLiteralExpression floatLiteral && IsNonZeroFloatLiteral(floatLiteral.Value));
+
+    private static bool IsNonZeroFloatLiteral(string text)
+    {
+        var trimmed = text.TrimEnd('f', 'F', 'd', 'D', 'm', 'M');
+        return double.TryParse(
+                trimmed,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var value)
+            && value != 0.0;
+    }
 
     private static bool TryGetLengthComparison(BinaryExpression binary, out string receiver, out int literal, out BinaryOperator op)
     {
@@ -2009,6 +2029,12 @@ public sealed class SystemsAnalyzer
             return false;
         }
 
+        if (elementCount < 0)
+        {
+            reason = "stackalloc length cannot be negative";
+            return false;
+        }
+
         var elementSize = TypeReferenceName(stackAlloc.ElementType) switch
         {
             "bool" or "byte" or "sbyte" => 1,
@@ -2018,7 +2044,9 @@ public sealed class SystemsAnalyzer
             "decimal" => 16,
             _ => 16
         };
-        var total = elementCount * elementSize;
+        // Compute in long: int*int overflows for large counts (e.g. `stackalloc int[2_000_000_000]`)
+        // and would wrap to a small/negative value that wrongly passes the budget check (M4).
+        var total = (long)elementCount * elementSize;
         if (total <= _config.Language.Systems.StackBudgetBytes)
             return true;
 
@@ -2188,7 +2216,9 @@ public sealed class SystemsAnalyzer
     private sealed class WalkContext
     {
         private readonly Stack<HashSet<string>> _allowStack = new();
-        private readonly Stack<IReadOnlyList<Guard>> _guardStack = new();
+        // Marks (Guards.Count at push time) so Pop truncates back exactly, instead of removing by
+        // value (which corrupts the set for structurally-identical nested guards — M3).
+        private readonly Stack<int> _guardStack = new();
         private int _allocZoneDepth;
         private int _unsafeBlockDepth;
 
@@ -2228,7 +2258,9 @@ public sealed class SystemsAnalyzer
 
         public void PushGuards(IReadOnlyList<Guard> guards)
         {
-            _guardStack.Push(guards);
+            // Record the guard-set length BEFORE adding, so the matching Pop can truncate back to
+            // exactly this point.
+            _guardStack.Push(Guards.Count);
             Guards.AddRange(guards);
         }
 
@@ -2237,9 +2269,14 @@ public sealed class SystemsAnalyzer
             if (_guardStack.Count == 0)
                 return;
 
-            var guards = _guardStack.Pop();
-            foreach (var guard in guards)
-                Guards.Remove(guard);
+            // Truncate back to the mark taken at push time. This removes the pushed scope-entry
+            // guards AND any flow guards AddGuards() accumulated during the scope — all of which
+            // expire when the scope exits. Removing by value (the previous approach) corrupted the
+            // set when a nested scope pushed a structurally-identical guard: List.Remove deleted
+            // the first value-equal element (the OUTER instance), not the inner one (M3).
+            var mark = _guardStack.Pop();
+            if (mark < Guards.Count)
+                Guards.RemoveRange(mark, Guards.Count - mark);
         }
     }
 

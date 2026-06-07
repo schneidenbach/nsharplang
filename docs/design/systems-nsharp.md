@@ -180,7 +180,9 @@ Initial families:
 - `NSYS130`: pool rent/return imbalance
 - `NSYS140`: concurrency primitive summary failure
 - `NSYS150`: effect fact drift
-- `NSYS160`: result ABI / must-use violation
+- `NSYS160`: must-use `Result<T,E>` discarded
+- `NSYS170`: result ABI (Result copy shape exceeds the hot-path size guidance)
+- `NSYS180`: effect policy (function-level `[allow]` missing `reason`/`owner`)
 
 Strict mode errors must include:
 

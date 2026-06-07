@@ -116,6 +116,8 @@ hot path did wrong:
 | `NSYS140` | A concurrency primitive with no memory-ordering summary |
 | `NSYS150` | Effect drift — a callee gained a cost a hot caller relied on it not having |
 | `NSYS160` | A must-use `Result<T,E>` discarded |
+| `NSYS170` | A `Result<T,E>` return value's copy shape exceeds the hot-path size guidance |
+| `NSYS180` | Effect policy — a function-level `[allow]` is missing a required `reason`/`owner` |
 
 When a cost is intentional, waive it locally with an `allow(...)` statement that records the
 reason and owner — the waiver is part of the source, reviewable in code review:
