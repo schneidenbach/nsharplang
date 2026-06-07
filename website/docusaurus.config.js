@@ -39,7 +39,7 @@ const config = {
         },
         blog: false,
         theme: {
-          customCss: './src/css/custom.css',
+          customCss: ['./src/css/custom.css', './src/css/learn.css'],
         },
       }),
     ],
@@ -61,6 +61,7 @@ const config = {
           src: 'favicon.svg',
         },
         items: [
+          {to: '/learn', label: 'Learn', position: 'left'},
           {to: '/playground', label: 'Playground', position: 'left'},
           {to: '/tutorial', label: 'Tutorial', position: 'left'},
           {
@@ -83,11 +84,12 @@ const config = {
           {
             title: 'Learn',
             items: [
+              {label: 'Systems learning path', to: '/learn'},
+              {label: 'High Performance from Scratch', to: '/learn/performance'},
+              {label: 'Systems N# Tour', to: '/learn/systems'},
               {label: 'Playground', to: '/playground'},
               {label: 'Tutorial', to: '/tutorial'},
               {label: 'Getting Started', to: '/docs/getting-started'},
-              {label: 'Language Tour', to: '/docs/language-tour'},
-              {label: 'CLI Reference', to: '/docs/cli-reference'},
             ],
           },
           {
@@ -118,7 +120,7 @@ const config = {
       prism: {
         theme: prismThemes.github,
         darkTheme: prismThemes.dracula,
-        additionalLanguages: ['csharp', 'bash', 'yaml', 'json', 'xml-doc'],
+        additionalLanguages: ['csharp', 'rust', 'bash', 'yaml', 'json', 'xml-doc'],
       },
     }),
 };
