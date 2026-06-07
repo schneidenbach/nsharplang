@@ -2506,7 +2506,12 @@ func Copy(): int {
         Assert.Contains("GateScenario.HotResultCombinations", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("switch (Scenario)", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("OperationsPerInvoke = InnerOperations", fastGateBenchmark, StringComparison.Ordinal);
-        Assert.Contains("benchmark.NSharpAll() : benchmark.CSharpAll()", fastGateBenchmark, StringComparison.Ordinal);
+        // The gate aggregates per-workload (apples-to-apples) so it measures codegen, not loop
+        // fusion (H8). Both sides must run the same distinct per-workload functions, NOT the fused
+        // *All() helpers.
+        Assert.Contains("benchmark.NSharp() : benchmark.CSharp()", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.Contains("foreach (var workload in HotWorkloads)", fastGateBenchmark, StringComparison.Ordinal);
+        Assert.DoesNotContain("benchmark.NSharpAll() : benchmark.CSharpAll()", fastGateBenchmark, StringComparison.Ordinal);
         Assert.Contains("RunCombination(_combination64", fastGateBenchmark, StringComparison.Ordinal);
 
         var compiledMethodSupport = File.ReadAllText(Path.Combine(root, "benchmarks", "NSharpCompiledMethod.cs"));
