@@ -359,6 +359,49 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Detects the call-style newtype construction shorthand written through an import alias —
+    /// <c>Ids.UserId(42)</c>, where <c>Ids</c> is an import alias and <c>UserId</c> is a newtype.
+    /// On success <paramref name="qualifiedTypeReferenceName"/> is the alias-qualified type name
+    /// (<c>Ids.UserId</c>), which <see cref="ResolveType(TypeReference, GenericTypeParameterBuilder[])"/>
+    /// resolves back to the underlying <c>ids.UserId</c> wrapper via the alias import directives the
+    /// merged compilation unit carries. Returns <see langword="false"/> for ordinary instance/static
+    /// member calls so they continue through the regular dispatch.
+    /// </summary>
+    private bool TryResolveAliasQualifiedNewtypeConstruction(MemberAccessExpression memberAccess, out string qualifiedTypeReferenceName)
+    {
+        qualifiedTypeReferenceName = string.Empty;
+
+        // The receiver must be a bare identifier acting as an import alias, never a value: a real
+        // value receiver (`order.UserId(...)`) is an instance call, not a construction.
+        if (memberAccess.Object is not IdentifierExpression aliasIdentifier)
+        {
+            return false;
+        }
+
+        var isImportAlias =
+            _compilationUnit.Imports.Any(import =>
+                string.Equals(import.Alias, aliasIdentifier.Name, StringComparison.Ordinal))
+            || _compilationUnit.FileImports.OfType<FileImport>().Any(fileImport =>
+                string.Equals(fileImport.Alias, aliasIdentifier.Name, StringComparison.Ordinal));
+        if (!isImportAlias)
+        {
+            return false;
+        }
+
+        var candidateName = $"{aliasIdentifier.Name}.{memberAccess.MemberName}";
+        var resolvedName = ResolveDeclaredTypeName(candidateName);
+        if (resolvedName == null
+            || !TryGetDeclaredTypeInfo(resolvedName, out var declaredType)
+            || declaredType.Declaration is not NewtypeDeclaration)
+        {
+            return false;
+        }
+
+        qualifiedTypeReferenceName = candidateName;
+        return true;
+    }
+
+    /// <summary>
     /// AOT-safety annotations to stamp on public methods that contain AOT blockers. Defaults to
     /// <see cref="AotRequirements.Empty"/>, so attribute emission is opt-in and ordinary builds
     /// are unaffected. Set by <see cref="MultiFileCompiler"/> when <c>--aot</c> analysis is on.
@@ -15997,6 +16040,21 @@ public partial class ILCompiler
         // Handle instance method calls (obj.Method())
         if (call.Callee is MemberAccessExpression memberAccess)
         {
+            // Call-style newtype construction through a file-import alias: `Ids.UserId(42)` is sugar
+            // for `new Ids.UserId(42)`. The alias-qualified callee is not a value, so the normal
+            // member-access dispatch below would mis-resolve the receiver to `object`; route it
+            // through the `new` lowering exactly like the bare-identifier `UserId(42)` shorthand.
+            if (TryResolveAliasQualifiedNewtypeConstruction(memberAccess, out var aliasNewtypeTypeName))
+            {
+                EmitNewObject(new NewExpression(
+                    Type: new SimpleTypeReference(aliasNewtypeTypeName, memberAccess.Line, memberAccess.Column),
+                    ConstructorArguments: call.Arguments,
+                    Initializer: null,
+                    Line: call.Line,
+                    Column: call.Column));
+                return;
+            }
+
             if (TryResolveStaticContainer(memberAccess.Object, out var staticType))
             {
                 if (staticType is TypeBuilder staticTypeBuilder)
@@ -19644,6 +19702,16 @@ public partial class ILCompiler
         // Handle instance method calls
         if (call.Callee is MemberAccessExpression memberAccess)
         {
+            // Mirror EmitCall: an alias-qualified newtype construction `Ids.UserId(42)` yields the
+            // newtype wrapper itself, so `id := Ids.UserId(42)` infers the wrapper type instead of
+            // falling through to object.
+            if (TryResolveAliasQualifiedNewtypeConstruction(memberAccess, out var aliasNewtypeTypeName))
+            {
+                return ResolveType(
+                    new SimpleTypeReference(aliasNewtypeTypeName, memberAccess.Line, memberAccess.Column),
+                    _currentGenericParameters);
+            }
+
             if (TryResolveStaticContainer(memberAccess.Object, out var staticType))
             {
                 if (staticType is TypeBuilder staticTypeBuilder)

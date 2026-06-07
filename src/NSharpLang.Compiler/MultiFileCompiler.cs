@@ -993,7 +993,81 @@ public class MultiFileCompiler
             .Where(compilationUnit => compilationUnit != null)
             .Cast<CompilationUnit>()
             .ToList();
-        return NamespaceQualifiedCompilationMerger.Merge(orderedUnits);
+        var merged = NamespaceQualifiedCompilationMerger.Merge(orderedUnits);
+
+        // The merger qualifies every declared type with its package/namespace (e.g. `ids.UserId`)
+        // but knows nothing about *file* import aliases (`import "ids" as Ids`) — those live in
+        // `FileImports` as statements, not in `Imports`. Without a bridge, the IL backend cannot
+        // map an alias-qualified reference like `Ids.UserId` back to `ids.UserId` and resolves it
+        // to `object`. Synthesize the alias→namespace `ImportDirective`s the backend already knows
+        // how to consume, so alias-qualified type references resolve identically to the analyzer.
+        var aliasImports = BuildFileImportAliasDirectives();
+        if (aliasImports.Count == 0)
+        {
+            return merged;
+        }
+
+        var mergedImports = merged.Imports.ToList();
+        foreach (var aliasImport in aliasImports)
+        {
+            var alreadyPresent = mergedImports.Any(existing =>
+                string.Equals(existing.Namespace, aliasImport.Namespace, StringComparison.Ordinal)
+                && string.Equals(existing.Alias, aliasImport.Alias, StringComparison.Ordinal));
+            if (!alreadyPresent)
+            {
+                mergedImports.Add(aliasImport);
+            }
+        }
+
+        return merged with { Imports = mergedImports };
+    }
+
+    /// <summary>
+    /// Maps each aliased file import (<c>import "ids" as Ids</c>) to a synthetic
+    /// <see cref="ImportDirective"/> binding the alias to the imported unit's package/namespace.
+    /// The namespace is taken from the resolved target file's own <c>package</c>/<c>namespace</c>
+    /// declaration — the import path string is not assumed to equal the package name.
+    /// </summary>
+    private IReadOnlyList<ImportDirective> BuildFileImportAliasDirectives()
+    {
+        var sourceFileByFullPath = _compilationUnits.Keys.ToDictionary(
+            Path.GetFullPath,
+            path => path,
+            StringComparer.OrdinalIgnoreCase);
+
+        var directives = new List<ImportDirective>();
+        var seen = new HashSet<(string Namespace, string Alias)>();
+
+        foreach (var (sourceFile, compilationUnit) in _compilationUnits)
+        {
+            var resolver = new FileResolver(_projectRoot, sourceFile);
+            foreach (var fileImport in compilationUnit.FileImports.OfType<FileImport>())
+            {
+                if (string.IsNullOrEmpty(fileImport.Alias))
+                {
+                    continue;
+                }
+
+                var targetFile = ResolveImportedCompilationUnitPath(resolver, fileImport.Path, sourceFileByFullPath);
+                if (targetFile == null || !_compilationUnits.TryGetValue(targetFile, out var targetUnit))
+                {
+                    continue;
+                }
+
+                var namespaceName = targetUnit.Namespace?.Name ?? targetUnit.Package?.Name;
+                if (string.IsNullOrEmpty(namespaceName))
+                {
+                    continue;
+                }
+
+                if (seen.Add((namespaceName, fileImport.Alias)))
+                {
+                    directives.Add(new ImportDirective(namespaceName, fileImport.Alias, fileImport.Line, fileImport.Column));
+                }
+            }
+        }
+
+        return directives;
     }
 
     private static bool IsDebugLoggingEnabled()

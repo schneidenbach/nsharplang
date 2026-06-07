@@ -154,6 +154,109 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_CanConstructNewtypeThroughFileImportAliasWithNew()
+    {
+        // Regression: `import "ids" as Ids` is a file import (stored in FileImports, not Imports),
+        // so the merger never bridged the alias to the imported package's namespace. The IL backend
+        // then resolved the alias-qualified type `Ids.UserId` to `object`, and `new Ids.UserId(42)`
+        // failed at emission with "No matching constructor found for type Object". The `new` form is
+        // the foundation: alias-qualified type references must resolve to the underlying wrapper.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: AliasNewtypeNewProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "ids.nl"), """
+package ids
+
+type UserId = newtype int
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import "ids" as Ids
+
+func main() {
+    id := new Ids.UserId(42)
+    print id.Value
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "AliasNewtypeNewProject.dll");
+            var result = compiler.CompileToIlAssembly("AliasNewtypeNewProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("42", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void MultiFileCompiler_CanConstructNewtypeThroughFileImportAliasWithCallStyle()
+    {
+        // Regression: the call-style shorthand `Ids.UserId(42)` (sugar for `new Ids.UserId(42)`)
+        // has a MemberAccessExpression callee rather than a bare identifier, so the earlier
+        // identifier-only newtype lowering did not cover it. The member-access dispatch mis-resolved
+        // the alias receiver to `object` and failed with "Method UserId not found on type Object".
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: AliasNewtypeCallStyleProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "ids.nl"), """
+package ids
+
+type UserId = newtype int
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+import "ids" as Ids
+
+func main() {
+    id := Ids.UserId(42)
+    print id.Value
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "AliasNewtypeCallStyleProject.dll");
+            var result = compiler.CompileToIlAssembly("AliasNewtypeCallStyleProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("42", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_CanRunRepeatedBlockLocalWithNamespaceQualifiedType()
     {
         var tempDir = CreateTempDir();
