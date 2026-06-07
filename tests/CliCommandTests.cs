@@ -323,6 +323,37 @@ func Main() {
     }
 
     [Fact]
+    public void DocOrdering_DogfoodPath_MatchesCSharpKindOrdinalOrdering()
+    {
+        // M10: the doc symbol ordering must be deterministic regardless of whether the N# dogfood
+        // path or the C# fallback runs. This asserts the dogfood ordering (taken because the
+        // dogfood DLL is present in the test build) equals the C# `Kind.ToString()` ordinal + name
+        // ordering, and locks the invariant so a future SymbolKind addition can't silently diverge.
+        var symbols = new List<SymbolResult>();
+        foreach (SymbolKind kind in Enum.GetValues<SymbolKind>())
+        {
+            // Two per kind (reverse-sorted names) to also exercise the name tiebreak.
+            symbols.Add(MakeDocSymbol("Zeta" + kind, kind));
+            symbols.Add(MakeDocSymbol("Alpha" + kind, kind));
+        }
+
+        var actual = ProjectDocGenerator.OrderSymbolsForGeneration(symbols);
+
+        var expected = symbols
+            .Where(symbol => symbol.Kind is not SymbolKind.Variable and not SymbolKind.Parameter)
+            .OrderBy(symbol => symbol.Kind.ToString(), StringComparer.Ordinal)
+            .ThenBy(symbol => symbol.Name, StringComparer.Ordinal)
+            .ToList();
+
+        Assert.Equal(
+            expected.Select(symbol => (symbol.Kind, symbol.Name)),
+            actual.Select(symbol => (symbol.Kind, symbol.Name)));
+    }
+
+    private static SymbolResult MakeDocSymbol(string name, SymbolKind kind)
+        => new(name, kind, "file.nl", 1, 1, null, null, null, null);
+
+    [Fact]
     public void QueryCommand_DoesNotBuildCSharpProjectReferences()
     {
         // H4: `nlc query` is read-only/LLM-first and must never spawn `dotnet build` for a C#

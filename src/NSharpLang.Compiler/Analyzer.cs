@@ -6028,7 +6028,12 @@ public class Analyzer : IDisposable
             return true;
         }
 
-        return (!IsQualifiedTypeName(left) || !IsQualifiedTypeName(right))
+        // Only fall back to short-name comparison when BOTH names are unqualified (where it is just
+        // the exact comparison above). When one side is qualified, requiring the unqualified side to
+        // match its last segment conflated same-named types across namespaces (`A.Config` vs
+        // `B.Config`), binding a generated member to the wrong type (M11). Cross-type resolution now
+        // requires a fully-qualified match.
+        return !IsQualifiedTypeName(left) && !IsQualifiedTypeName(right)
             && string.Equals(GetUnqualifiedTypeName(left), GetUnqualifiedTypeName(right), StringComparison.Ordinal);
     }
 

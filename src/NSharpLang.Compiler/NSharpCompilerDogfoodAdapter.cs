@@ -2581,7 +2581,7 @@ internal static class NSharpCompilerDogfoodAdapter
             where TType : Type
         {
             var count = types.Count;
-            if (ReferenceEquals(_source, types) && _sourceCount == count)
+            if (ReferenceEquals(_source, types) && _sourceCount == count && !CachedValuesContainUnbakedBuilder())
                 return true;
 
             EnsureCapacity(count);
@@ -2612,6 +2612,24 @@ internal static class NSharpCompilerDogfoodAdapter
             _sourceCount = count;
             _tailHashWidth = -1;
             return true;
+        }
+
+        // A cache hit keyed on (same dictionary instance, same count) is unsafe when the
+        // dictionary's VALUES were replaced in place since we cached — e.g. ILCompiler's
+        // FinalizeTopLevelEnumTypes swaps each EnumBuilder value for its baked Type while keeping
+        // the same keys and count. If any cached value is still an unbaked reflection-emit builder,
+        // force a reload so we don't hand back a stale EnumBuilder/TypeBuilder (M9).
+        private bool CachedValuesContainUnbakedBuilder()
+        {
+            foreach (var value in _valueRanks.Keys)
+            {
+                if (value is System.Reflection.Emit.TypeBuilder or System.Reflection.Emit.EnumBuilder)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public void RefreshTailHashes(int width)
