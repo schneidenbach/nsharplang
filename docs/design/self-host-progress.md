@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P1(a): counted-reduction loop detector (safe, no codegen change)
+
+First sub-slice of the auto-vectorization codegen (the measured ~4.5× checksum-sum win). `ReductionLoopShape
+.TryMatch` recognizes the systems `while`-form counted reduction — `while index < bound { acc = acc +
+array[index]; index = index + 1 }` (and the `+=` forms, with bound = identifier / int literal / `x.Length`/
+`x.Count`) — purely structurally, enforcing every safety condition that makes the SIMD rewrite
+value-preserving (unit stride, single array indexed only by the loop var, distinct acc/array/index, the fixed
+two-statement body so no break/continue/other-write, accumulator-update-before-increment). 11 tests pin 3
+accepted shapes + 8 near-miss rejections. No IL emission yet → zero regression risk; this is the analytical
+gate the emission (P1(b)) will hook into EmitWhile. Scoped by workflow w8urlgage (EmitWhile hook, Vector<int>
+Reflection.Emit feasibility via RuntimeCalls.cs patterns, associativity of int wrapping add).
+
 ## 2026-06-06 — Columnar pipeline STAGE 3: expression type inference (no C# AST) + 2 binder gaps surfaced
 
 Third downstream stage: infer the canonical type of every expression in a function body, walking the columnar

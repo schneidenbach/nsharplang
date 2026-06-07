@@ -66,10 +66,13 @@ question — only genuine architectural forks surface. Living evidence in
 
 - [x] Ceiling measured: unrolled `Vector<int>` = 4.5× over scalar (checksum-sum 8.8× → ~2× behind native)
 - [ ] **P1 — auto-vectorize counted reductions** (the `while`-form `i:=0; while i<len { acc=acc+a[i]; i=i+1 }`).
-      Sub-slices: (a) pattern detection only (recognize + test, no emission change); (b) `Vector<int>` IL
-      emission, single accumulator + scalar tail, behind a flag, parity (vectorized == scalar on randomized
-      inputs) + SystemsFastGate bench; (c) unroll to ≥4 independent accumulators; (d) widen element types
-      (long/float/double); (e) default-on once never-regress proven.
+      Sub-slices: [x] (a) pattern detection only (`ReductionLoopShape.TryMatch` + 11 tests, no emission change);
+      (b) `Vector<int>` IL emission, single accumulator + scalar tail, behind a flag, parity (vectorized ==
+      scalar on randomized inputs) + SystemsFastGate bench; (c) unroll to ≥4 independent accumulators;
+      (d) widen element types (long/float/double); (e) default-on once never-regress proven.
+      Scoping (workflow w8urlgage): hook EmitWhile (ILCompiler.cs:12401, _currentIL/_locals); Vector<int>
+      Reflection.Emit feasible (RuntimeCalls.cs generic-binding patterns; N# already emits Vector<int> op IL);
+      int wrapping add associative (reorder safe); mandatory scalar tail (Vector<int>.Count platform-varies).
 - [ ] **P2 — range-predicate counts** (count-ascii) — same staged approach (packed compare + masked accumulate).
 - [ ] **P3 — bounds-check elision** for proven-in-range counted loops (count-transitions's size-scaling tax).
 - [ ] **P4 — LLVM / NativeAOT backend evaluation** (design workflow) once A-pattern wins plateau — the
