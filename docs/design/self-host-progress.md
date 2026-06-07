@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Slice 27: downstream-pass spike — the columnar win COMPOUNDS past the parser
+
+Validates the columnar-pipeline thesis on the NEXT stage after parsing. `ColumnarSemanticPassBenchmarks`
+takes an already-parsed file and runs the SAME semantic pass two ways — collect the distinct identifier names
+referenced in every function body (a full traversal with representative per-node work) — on the C# object-graph
+AST vs the flat columnar int[] node tables. Parsing is done in Setup, so this isolates the PASS. Apple M4 /
+.NET 10, LargeGenerated (40 funcs), ratios vs the C# AST pass:
+
+| Pass | Time | Alloc |
+|---|---|---|
+| C# AST walk (recursive visitor) | 1.00× (11.2 µs) | 1.00× (368 B) |
+| Columnar scan, naive `Substring` per ref | **0.62× (1.6× faster)** | 53× (19.6 KB) |
+| Columnar scan, **interned names** | **0.64× (1.56× faster)** | 2.74× (1.0 KB) |
+
+**Findings:**
+- **Columnar traversal is ~1.6× faster** than walking the AST — sequential int[] scan vs virtual-dispatch
+  pointer-chasing. The traversal advantage is real and holds past the parser.
+- **Name handling matters:** the naive columnar scan re-materializes a string per identifier *occurrence*
+  (53× alloc). Done right — intern each distinct name once (a span-keyed lookup; in a real pipeline, integer
+  symbol IDs) — allocation collapses to ~1 KB. This is standard fast-compiler practice, not a columnar flaw.
+- **The C# pass's tiny 368 B is an illusion:** it reuses strings already allocated in the **662 KB AST built
+  at parse time** (slice 26). The columnar path never builds that AST. So end-to-end (parse + N passes) the
+  columnar pipeline wins decisively and the gap **compounds with each pass** — every AST pass re-walks the
+  600 KB+ graph; every columnar pass scans tiny, cache-resident int[] tables.
+
+**Verdict:** the 2.4×-faster front-end (slice 26) is not a one-off — the advantage carries into downstream
+semantic passes (~1.6× faster, no AST allocation). This confirms the columnar self-host pipeline (port the
+binder/analyzer to consume the columnar tables directly, with interning/symbol IDs) is the path that BOTH
+eliminates the C# reliance AND captures the speed. The naive-vs-interned result also pins the one design
+rule: never re-materialize names per access — resolve to symbol IDs once.
+
 ## 2026-06-06 — Slice 26: routing-cost DECOMPOSITION — the front-end is 2.4x FASTER; the tax is materialization, not marshaling
 
 Slice 25 showed routing is ~4-5x slower end-to-end, but lumped the causes together. This slice decomposes the
