@@ -4522,6 +4522,28 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanExecuteNewtypeCallStyleConstruction()
+    {
+        // The call-style shorthand `UserId(42)` lowers to `new UserId(42)`. It must construct the
+        // newtype, infer the local's type as the wrapper (so `.Value` reads the underlying int),
+        // and pass by value into a function that takes the newtype.
+        var source = @"
+type UserId = newtype int
+
+func unwrap(u: UserId): int {
+    return u.Value
+}
+
+func main(): int {
+    id := UserId(42)
+    return id.Value + unwrap(UserId(58))
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(100, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteStringEnumMemberAccess()
     {
         var source = @"

@@ -97,6 +97,9 @@ public partial class ILCompiler
     private Dictionary<string, MethodBuilder> _methods = new();
     private Dictionary<string, ConstructorBuilder> _constructors = new();
     private Dictionary<string, TypeBuilder> _types = new();
+    // Unqualified names of every top-level newtype declared in this compilation unit.
+    // Used to lower the call-style construction shorthand `UserId(expr)` to `new UserId(expr)`.
+    private readonly HashSet<string> _newtypeNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _enumTypes = new();
     private readonly Dictionary<string, TypeBuilder> _stringEnumContainers = new();
     private Dictionary<string, FieldBuilder> _fields = new();
@@ -322,6 +325,37 @@ public partial class ILCompiler
         {
             _typeAliases[alias.Name] = alias.Type;
         }
+
+        CollectNewtypeNames(compilationUnit.Declarations);
+    }
+
+    /// <summary>
+    /// Records the simple name of every top-level <see cref="NewtypeDeclaration"/> so the call
+    /// emitter can treat the call-style shorthand <c>UserId(expr)</c> as <c>new UserId(expr)</c>.
+    /// Only top-level newtypes are collected because the analyzer resolves the call-style shorthand
+    /// only for newtypes in scope as bare identifiers; nested newtypes (<c>Outer.Id</c>) are not
+    /// reachable through an unqualified call and recording them would conflate same-named wrappers
+    /// across scopes. The name is stored unqualified: <see cref="NamespaceQualifiedCompilationMerger"/>
+    /// rewrites a packaged declaration to <c>demo.UserId</c>, but the call callee stays the bare
+    /// <c>UserId</c>, and the synthesized <c>new</c> lowering resolves that the same suffix-tolerant
+    /// way the explicit <c>new UserId(42)</c> form already does.
+    /// </summary>
+    private void CollectNewtypeNames(IEnumerable<Declaration> declarations)
+    {
+        foreach (var declaration in declarations.OfType<NewtypeDeclaration>())
+        {
+            _newtypeNames.Add(GetSimpleTypeName(declaration.Name));
+        }
+    }
+
+    /// <summary>
+    /// Returns the trailing segment of a possibly namespace-qualified type name
+    /// (<c>demo.UserId</c> → <c>UserId</c>), matching how an unqualified call callee is written.
+    /// </summary>
+    private static string GetSimpleTypeName(string name)
+    {
+        var lastDot = name.LastIndexOf('.');
+        return lastDot >= 0 ? name[(lastDot + 1)..] : name;
     }
 
     /// <summary>
@@ -16259,6 +16293,21 @@ public partial class ILCompiler
                 _currentIL.Emit(OpCodes.Call, methodBuilder);
                 return;
             }
+
+            // Call-style newtype construction shorthand: `UserId(expr)` is sugar for
+            // `new UserId(expr)`. The analyzer already validates the single-argument form against
+            // the newtype's underlying type, so here we simply re-route through the `new` lowering
+            // for the synthetic record struct.
+            if (_newtypeNames.Contains(ident.Name))
+            {
+                EmitNewObject(new NewExpression(
+                    Type: new SimpleTypeReference(ident.Name, ident.Line, ident.Column),
+                    ConstructorArguments: call.Arguments,
+                    Initializer: null,
+                    Line: call.Line,
+                    Column: call.Column));
+                return;
+            }
         }
 
         throw new NotImplementedException($"Function call {call.Callee} not yet fully implemented in IL compiler");
@@ -19776,6 +19825,14 @@ public partial class ILCompiler
                 {
                     return boundImplicitRuntimeCall.ReturnType;
                 }
+            }
+
+            // Call-style newtype construction `UserId(expr)` yields the newtype itself, mirroring
+            // the `new UserId(expr)` lowering in EmitCall so locals such as `id := UserId(42)`
+            // infer the wrapper type rather than falling through to object.
+            if (_newtypeNames.Contains(ident.Name))
+            {
+                return ResolveType(new SimpleTypeReference(ident.Name, ident.Line, ident.Column), _currentGenericParameters);
             }
         }
 

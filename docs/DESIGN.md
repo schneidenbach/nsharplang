@@ -1180,12 +1180,13 @@ result := unchecked(int.MaxValue + 1)  // Wraps to int.MinValue
   type OrderId = newtype int
   type Email = newtype string
 
-  id := new UserId(42)        // explicit construction
+  id := UserId(42)            // call-style construction
+  let other = new UserId(7)   // `new` form is equivalent
   let raw: int = id.Value     // explicit unwrapping
   // let x: int = id          // ERROR: UserId is not int
   // let y: OrderId = id      // ERROR: UserId is not OrderId
   ```
-  (The call-style shorthand `UserId(42)` without `new` is not yet supported — reports NL103.)
+  (Both `UserId(42)` and `new UserId(42)` are supported and produce identical IL.)
 - Design:
   - No auto-forwarded arithmetic operators
   - No implicit conversions in either direction

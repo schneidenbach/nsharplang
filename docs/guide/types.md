@@ -797,7 +797,8 @@ type Email = newtype string
 Unlike type aliases, newtypes are **not interchangeable** with their underlying type:
 
 ```n#
-id := new UserId(42)       // Explicit construction
+id := UserId(42)           // Call-style construction
+let other = new UserId(7)  // `new` form is equivalent
 let raw: int = id.Value    // Explicit unwrapping
 
 // These are compile errors:
@@ -809,9 +810,8 @@ let raw: int = id.Value    // Explicit unwrapping
 Newtypes emit concrete `readonly record struct` wrappers for .NET interop, giving C#
 consumers value equality, `ToString()`, and familiar value semantics.
 
-> **Status:** Construct a newtype with `new UserId(42)`. The call-style shorthand
-> `UserId(42)` (without `new`) is **not yet supported** in the IL backend (it reports
-> `NL103`) — use the `new` form.
+> **Construction:** Both the call-style shorthand `UserId(42)` and the explicit
+> `new UserId(42)` are supported and produce identical IL.
 
 ## Complete Example
 

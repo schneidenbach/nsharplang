@@ -106,6 +106,54 @@ func main() {
     }
 
     [Fact]
+    public void MultiFileCompiler_CanBuildPackagedNewtypeCallStyleConstruction()
+    {
+        // Regression: in a packaged project the merger qualifies the newtype declaration to
+        // `NewtypeProject.UserId`, but the call-style callee stays the bare `UserId`. The IL
+        // lowering of `UserId(42)` must still recognize the unqualified name — exercised here
+        // end-to-end through MultiFileCompiler, not just the single-file ILCompiler path.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
+name: NewtypeProject
+backend: il
+outputType: exe
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+package NewtypeProject
+
+type UserId = newtype int
+
+func main() {
+    id := UserId(42)
+    print id.Value
+}
+""");
+
+            var config = ProjectFileParser.Parse(Path.Combine(tempDir, "project.yml"));
+            var outputDir = Path.Combine(tempDir, "artifacts");
+            Directory.CreateDirectory(outputDir);
+
+            var compiler = new MultiFileCompiler(tempDir, config);
+            var outputPath = Path.Combine(outputDir, "NewtypeProject.dll");
+            var result = compiler.CompileToIlAssembly("NewtypeProject", outputPath);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
+            CompilationArtifacts.WriteRuntimeConfig(config, outputPath);
+
+            var runResult = DotnetRunner.Run($"\"{outputPath}\"", workingDirectory: tempDir);
+            Assert.Equal(0, runResult.ExitCode);
+            Assert.Contains("42", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void MultiFileCompiler_CanRunRepeatedBlockLocalWithNamespaceQualifiedType()
     {
         var tempDir = CreateTempDir();
