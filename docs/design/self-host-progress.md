@@ -11,6 +11,41 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P-ctrans: shifted-compare SIMD count-transitions — the LAST vectorizable kernel, Rust-class
+
+Vectorizes the count-transitions kernel (the last addressable Rust gap, ~2.5–4.5× behind native). This is the
+realization of the roadmap's "P3" — but as VECTORIZATION rather than literal bounds-check elision, which is the
+bigger win (the BCE goal — removing the per-iteration indexed-load+branch tax — is subsumed by replacing the loop
+with a SIMD helper). count-transitions counts `i in [1,len)` where `a[i] != a[i-1]`. The loop carries `previous`,
+but seeding the helper with `previous`'s live value makes the rewrite value-identical for ANY init — no non-local
+init analysis: the scalar loop's first comparison is `a[start]` vs `previous` and every later one is `a[i]` vs
+`a[i-1]`, which the helper reproduces exactly.
+
+`SimdReductions.CountTransitionsInt32(array, start, end, seedPrevious) -> (int Count, int LastPrevious)`: compares
+`a[start]` vs the seed (scalar), then SIMD-compares `a[i]` vs `a[i-1]` over `[start+1, end)` via shifted loads —
+`~Vector.Equals(curr, prevShifted)` is an all-ones mask per NOT-equal lane, `acc -= mask` accumulates +1 per
+mismatch across four lane-accumulators — then a scalar tail; returns the count and the terminal `previous`
+(`a[end-1]`, or the seed when empty). It reads ONLY `a[start..end-1]` (the seed replaces `a[start-1]`), so the
+empty/OOB guards match the other helpers (OOB → `IndexOutOfRangeException` at the same element).
+`TryEmitMatchedCountTransitions` lowers a matched `current := a[i]; if current != previous { count++ };
+previous = current` to `(delta, last) = CountTransitionsInt32(a, i, bound, previous); count = count + delta;
+previous = last; index = max(i, bound)` (ValueTuple `Item1`/`Item2` via `ldloca`/`ldfld`, reusing the P-minmax(c)
+fields). The terminal `previous = last` restores the carried scalar to its scalar-loop exit value for any later use.
+
+**Measured (BDN short job, M4, isolated worktree):** CountTransitions @4096 — C# 1119.8 ns → **N# 471.9 ns =
+0.421× = 2.37× faster than C#** (was ~0.99×, scalar) → implied **~4.54× → ~1.9× behind native**; @64 — 16.91 →
+**10.93 ns = 0.646×** → ~2.45× → ~1.6× behind native. **With this, EVERY vectorizable kernel is Rust-class
+(within ~2× of native):** checksum ~2×, count-ascii ~1.6×, score-frame ~2×, min-max-delta ~1.77×,
+count-transitions ~1.9×, parse-eight-digits already faster than C#. Only rolling-hash remains (~1.5×, the
+latency-bound floor — a carried multiply-mask dependency, not vectorizable). Phase P's auto-vectorization program
+is essentially complete on the systems kernels.
+
+Tests: 46 count-transitions tests — 17 detector accept/reject (for/while, carry/distinctness near-misses); parity
+scalar≡vectorized for the COUNT and the restored terminal `previous` across lengths incl. SIMD tails (for+while);
+lowers to ONE helper call; non-int[] falls back (0 calls); OOB → `IndexOutOfRangeException`; empty/negative → seed;
+direct helper edge cases (all-equal→0, all-different→N, runs, int extremes, seed ==/!= a[start], partial ranges).
+Adversarially verified; full gate green. Developed in the `systems-language-perf` worktree.
+
 ## 2026-06-07 — Rust-perf P-minmax(c): FUSED single-pass MinMaxInt32 — min-max-delta to Rust-class (~1.8× native)
 
 The fused follow-up to P-minmax(b). (b) lowered min-max-delta to TWO passes (`MinInt32` then `MaxInt32`, each

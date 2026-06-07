@@ -12231,6 +12231,11 @@ public partial class ILCompiler
         {
             return;
         }
+        // RUST-PERF P-ctrans: auto-vectorize a counted for-form adjacent-difference count (count-transitions).
+        if (ReductionVectorizationEnabled && TryEmitVectorizedCountTransitions(forStmt))
+        {
+            return;
+        }
 
         var conditionLabel = _currentIL.DefineLabel();
         var bodyLabel = _currentIL.DefineLabel();
@@ -12428,6 +12433,9 @@ public partial class ILCompiler
             return;
         // RUST-PERF P-minmax: lower an int[] min/max conditional reduction (min-max-delta) to SIMD helper calls.
         if (ReductionVectorizationEnabled && TryEmitVectorizedMinMaxReduction(whileStmt))
+            return;
+        // RUST-PERF P-ctrans: lower an int[] adjacent-difference count (count-transitions) to a shifted-compare helper.
+        if (ReductionVectorizationEnabled && TryEmitVectorizedCountTransitions(whileStmt))
             return;
 
         var conditionLabel = _currentIL.DefineLabel();

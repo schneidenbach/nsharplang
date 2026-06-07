@@ -127,19 +127,35 @@ question — only genuine architectural forks surface. Living evidence in
       (at 64, two-pass was 1.303× = *slower* than C#; fused 0.768×). Decision rule honored (measured fused>two-pass
       before keeping). 69 MinMax tests; adversarially verified. **P-minmax (a,b,c) COMPLETE for int[]** — widen to
       long/uint/ulong only if the corpus needs it.
-- [ ] **P3 — bounds-check elision** for proven-in-range counted loops (count-transitions's size-scaling tax).
+- [x] **P3 / P-ctrans — count-transitions, realized as VECTORIZATION** (the bigger win; the bounds-check-elision
+      goal — removing the per-iteration indexed-load+branch tax — is subsumed by replacing the loop with a SIMD
+      helper). count-transitions counts `i in [1,len)` where `a[i] != a[i-1]`; the loop carries `previous`, but
+      passing it as the helper's seed makes the rewrite value-identical for ANY init (the first compare is
+      `a[start]` vs the seed, the rest `a[i]` vs `a[i-1]`) — no non-local init analysis. [x] (a) detector
+      `CountTransitionsShape` (for/while temp form; carry `previous=current` + `current!=previous` + unit counter
+      increment; five distinct names; 17 accept/reject tests; no codegen change). [x] (b)
+      `SimdReductions.CountTransitionsInt32(a, start, end, seedPrevious) -> (count, lastPrevious)` (first-vs-seed
+      scalar, then SIMD shifted compare `~Vector.Equals`/`acc-=mask` over `[start+1,end)`, scalar tail; reads only
+      `a[start..end-1]`, same empty/OOB guards) + emitter (`TryEmitMatchedCountTransitions`; ValueTuple `Item1`→
+      count, `Item2`→previous restore, `index=max`) + 46 tests (parity incl. terminal previous; OOB; fallbacks) +
+      adversarial review. **MEASURED:** N# **2.37× faster than C#** @4096 (1119.8→471.9 ns; was ~0.99× tied) →
+      implied **~4.54× → ~1.9× behind native (Rust-class)**. **With this every vectorizable kernel is within ~2× of
+      native; only rolling-hash (~1.5×, the latency-bound floor) remains, and it is not vectorizable.** int[] only.
 - [ ] **P4 — LLVM / NativeAOT backend evaluation** (design workflow) once A-pattern wins plateau — the
-      long-pole bet for broad vectorizable parity. Decide build-vs-not from P1–P3 results.
+      long-pole bet for broad vectorizable parity. Decide build-vs-not from P1–P3 results. (Phase P's per-pattern
+      auto-vectorization is now essentially complete on the systems kernels — P4 is the remaining structural bet.)
 
 ## Phase T — Tooling + language strategy
 
 - [ ] Route the columnar pipeline into the CLI (`nlc check`/`query`/`format`) and the LSP once stages 3–4 land
       (the LLM-first toolchain + IDE run on the fast N# path).
 - [~] Re-run the systems-vs-native harness after each Phase-P win; keep `systems-vs-native.md` numbers current.
-      P1+P2+P-minmax wins MEASURED (2026-06-07, BDN): N# now beats C# ~4–4.5× on checksum-sum/count-ascii/
-      score-frame and **5.94×** on min-max-delta (all tied before) → implied ~2.0×/~1.6×/**~1.77×** behind native
-      (was 8.8×/6.3×/10.5×) — all three vectorized kernels now at/below the ~2× DONE bar. Full cross-language re-run
-      on a cool machine to refresh the Rust/C columns is the remaining rigorous step.
+      P1+P2+P-minmax+P-ctrans wins MEASURED (2026-06-07, BDN): N# now beats C# ~4–4.5× on checksum-sum/count-ascii/
+      score-frame, **5.94×** on min-max-delta, **2.37×** on count-transitions (all tied before) → implied
+      ~2.0×/~1.6×/**~1.77×**/**~1.9×** behind native
+      (was 8.8×/6.3×/10.5×/4.5×) — ALL vectorizable kernels now at/below the ~2× DONE bar; only rolling-hash
+      (~1.5×, latency-bound floor) is left. Full cross-language re-run on a cool machine to refresh the Rust/C
+      columns is the remaining rigorous step.
 - [ ] Broader general-purpose language features per `project_roadmap_2026q2` — lower priority until self-host +
       perf land, then resumed.
 
@@ -150,12 +166,21 @@ Phase P **P1 is COMPLETE** (a–f: int/long/uint/ulong counted-reduction auto-ve
 correctness bugs fixed). **P2 is COMPLETE for int[]** (a: detector; b: masked-SIMD count codegen, count-ascii,
 adversarially verified). **P-minmax is COMPLETE for int[]** (a: detector; b: lane-wise Vector.Min/Vector.Max
 codegen; c: FUSED single-pass MinMaxInt32 — MEASURED **5.94× faster than C#** at 4096 (1.73× over two-pass) →
-**~1.77× behind native, Rust-class**, adversarially verified). **All three vectorizable kernels (checksum,
-count-ascii, min-max-delta) are now at/below the ~2× DONE bar.** Next up: **P3 — bounds-check elision** for
-proven-in-range counted loops (count-transitions's size-scaling tax, 2.5–4.5× — the last non-floor perf gap),
-and/or on the self-host spine **Stage 3b — columnar diagnostics** (Phase S). Then Stage 4 (columnar codegen) —
-where end-to-end binder/output parity (incl. the binder reconciliation item) is verified. Phase T (route columnar
-into CLI/LSP) follows stages 3–4. (P4 — LLVM/NativeAOT backend evaluation — once the A-pattern wins P1–P3 plateau.)
+**~1.77× behind native, Rust-class**, adversarially verified). **P3/P-ctrans is COMPLETE for int[]** (count-transitions
+vectorized as a seeded shifted-compare count — MEASURED **2.37× faster than C#** @4096, ~1.9× behind native).
+**EVERY vectorizable systems kernel is now Rust-class (within ~2× of native); only rolling-hash (~1.5×, the
+latency-bound floor) is left, and it is not vectorizable.** Phase P's per-pattern auto-vectorization program is
+essentially DONE. Next up: the self-host spine — **Stage 3b — columnar diagnostics** (Phase S; definite-return /
+unreachable-after-terminal / unused-local, parity vs the C# analyzer), then Stage 4 (columnar codegen) — where
+end-to-end binder/output parity (incl. the binder reconciliation item) is verified — → 5 (route) → 6 (delete C#).
+Phase T (route columnar into CLI/LSP) follows stages 3–4. (P4 — LLVM/NativeAOT backend evaluation — the remaining
+structural perf bet — once the per-pattern wins plateau, which they now have.)
+
+**Worktree note (2026-06-07):** P-minmax(c) AND P3/P-ctrans were developed on branch `systems-language-perf` (an
+isolated worktree off `ca9ba88e`) while a concurrent session held the shared `systems-language` tree. Merge
+`systems-language-perf` → `systems-language` once that session settles (perf work touches `SimdReductions.cs` /
+`ILCompiler.Vectorization.cs` / `ILCompiler.cs` hooks + new shape files + tests/docs — disjoint from the
+concurrent newtype/CLI/preprocessor work, so a near-clean merge).
 
 **Worktree note (2026-06-07):** P-minmax(c) was developed on branch `systems-language-perf` (an isolated git
 worktree off `ca9ba88e`) because a concurrent session left the shared `systems-language` tree non-compiling.

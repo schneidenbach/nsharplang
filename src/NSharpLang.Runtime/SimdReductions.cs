@@ -396,4 +396,77 @@ public static class SimdReductions
 
         return (min, max);
     }
+
+    /// <summary>Counts adjacent transitions in <paramref name="array"/>[<paramref name="start"/> ..
+    /// <paramref name="end"/>) — the value of the scalar loop
+    /// <c>count=0; prev=seedPrevious; for i in [start,end): if array[i] != prev: count++; prev=array[i]</c> —
+    /// and returns <c>(count, lastPrevious)</c>, where <c>lastPrevious</c> is <c>prev</c> after the loop
+    /// (<c>array[end-1]</c>, or <paramref name="seedPrevious"/> when the range is empty) so the emitter can
+    /// restore the carried <c>previous</c> variable for any later use (Rust-perf P-ctrans, the count-transitions
+    /// kernel). Computed with masked SIMD: the FIRST element compares against <paramref name="seedPrevious"/>
+    /// (scalar), then the rest compare <c>array[i]</c> against <c>array[i-1]</c> via shifted loads — a packed
+    /// not-equal mask (<c>~Vector.Equals</c>) accumulated as <c>acc -= mask</c> (+1 per mismatch) across four
+    /// lane-accumulators, then a horizontal sum and a scalar tail. Comparisons are independent, so this is
+    /// value-identical to the scalar loop for ANY seed (no pre-loop init assumption needed — the seed reproduces
+    /// the scalar's first comparison exactly). Crucially it reads only <c>array[start..end-1]</c> (the i=start
+    /// element compares against the seed, NOT against <c>array[start-1]</c>). The empty/negative-range early-out
+    /// and in-bounds guard match the other helpers: an out-of-bounds range throws
+    /// <see cref="System.IndexOutOfRangeException"/> at the same element via the scalar path.</summary>
+    public static (int Count, int LastPrevious) CountTransitionsInt32(int[] array, int start, int end, int seedPrevious)
+    {
+        var count = 0;
+        var prev = seedPrevious;
+        var i = start;
+
+        if (end <= start)
+            return (count, prev);
+
+        // SIMD fast path only over a provably in-bounds range. The whole range reads array[start..end-1]
+        // (the seed replaces array[start-1]), so the guard is the same start>=0 && end<=Length as the others.
+        if (start >= 0 && end <= array.Length)
+        {
+            // First element vs the seed (scalar) — this is the only comparison that uses seedPrevious.
+            if (array[start] != prev)
+                count++;
+
+            // Vectorize i in [start+1, end): array[i] != array[i-1] via shifted loads. array[i-1] for the first
+            // such i is array[start] (in bounds). The masked count is order-independent.
+            i = start + 1;
+            var lanes = Vector<int>.Count;
+            var step = lanes * 4;
+            var a0 = Vector<int>.Zero;
+            var a1 = Vector<int>.Zero;
+            var a2 = Vector<int>.Zero;
+            var a3 = Vector<int>.Zero;
+            for (; i <= end - step; i += step)
+            {
+                // ~Vector.Equals(curr, prev) is all-ones per NOT-equal lane; `acc -= mask` adds 1 per mismatch.
+                a0 -= ~Vector.Equals(new Vector<int>(array, i), new Vector<int>(array, i - 1));
+                a1 -= ~Vector.Equals(new Vector<int>(array, i + lanes), new Vector<int>(array, i - 1 + lanes));
+                a2 -= ~Vector.Equals(new Vector<int>(array, i + lanes * 2), new Vector<int>(array, i - 1 + lanes * 2));
+                a3 -= ~Vector.Equals(new Vector<int>(array, i + lanes * 3), new Vector<int>(array, i - 1 + lanes * 3));
+            }
+
+            count += Vector.Sum(a0 + a1 + a2 + a3);
+
+            // Scalar tail for the remaining elements, still comparing array[i] against array[i-1].
+            for (; i < end; i++)
+                if (array[i] != array[i - 1])
+                    count++;
+
+            // Terminal carried value = the last element (end-1 is in [start, Length-1] here).
+            return (count, array[end - 1]);
+        }
+
+        // Out-of-bounds (or otherwise): the faithful scalar loop — compares against the carried prev and throws
+        // IndexOutOfRangeException at the same element the scalar loop would.
+        for (; i < end; i++)
+        {
+            if (array[i] != prev)
+                count++;
+            prev = array[i];
+        }
+
+        return (count, prev);
+    }
 }
