@@ -2388,6 +2388,11 @@ public class Transpiler
 
         var reservedPatternNames = CollectReservedPatternBindingNames(func);
         _reservedPatternBindingNames.Push(reservedPatternNames);
+        // A local function has its own return contract; use ITS Result return type for Ok/Err
+        // factory rewriting, not the enclosing function's, so a bare Ok(x)/Err(x) inside the local
+        // function isn't miscompiled to the outer function's Result type (C1).
+        var savedResultReturnType = _currentResultReturnType;
+        _currentResultReturnType = TryGetResultReturnType(func.ReturnType);
         try
         {
             if (func.Body != null)
@@ -2403,6 +2408,7 @@ public class Transpiler
         }
         finally
         {
+            _currentResultReturnType = savedResultReturnType;
             _reservedPatternBindingNames.Pop();
         }
     }
@@ -3005,12 +3011,11 @@ public class Transpiler
             return false;
         }
 
-        // Only rewrite `Ok`/`Err` as the compiler-known Result factory when the name is not a
-        // real in-scope symbol. A user-declared `Ok`/`Err` (function/local/parameter/import)
-        // must transpile as an ordinary call so C# binds their symbol (C1).
-        if (_semanticModel != null
-            && (_semanticModel.LookupIdentifierAtPosition(identifier.Name, identifier.Line, identifier.Column) != null
-                || _semanticModel.LookupIdentifier(identifier.Name) != null))
+        // Honor the analyzer's scope-aware decision (C1): if it resolved this `Ok`/`Err` to a real
+        // in-scope symbol (user function/local/parameter/import/member), do NOT rewrite it as the
+        // factory. When the analyzer did not run (IsResultFactory == null, e.g. direct transpiler
+        // unit tests) we fall back to the enclosing-Result-type heuristic in the guard above.
+        if (call.IsResultFactory == false)
         {
             return false;
         }

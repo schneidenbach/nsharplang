@@ -7508,16 +7508,25 @@ public class Analyzer : IDisposable
         if (call.Callee is not IdentifierExpression { Name: "Ok" or "Err" } identifier)
             return false;
 
-        // `Ok`/`Err` are compiler-known Result factories ONLY when the name is not bound to a
-        // real in-scope symbol. If the user declared their own `Ok`/`Err` (function, local,
-        // parameter, or import), defer to normal call resolution so we bind their symbol instead
-        // of silently hijacking the call (C1: resolution must be semantic, not string matching).
-        if (LookupSymbol(identifier.Name) != null)
-            return false;
-
+        // Only meaningful in a Result-typed context; otherwise this is an ordinary call and the
+        // factory decision does not apply (leave the annotation null).
         var isOk = identifier.Name == "Ok";
         if (!TryGetResultArmTypes(_currentExpectedType, out var okType, out var errType))
             return false;
+
+        // In a Result context, `Ok`/`Err` are the compiler-known factory ONLY when the name is not
+        // bound to a real in-scope symbol. If the user declared their own `Ok`/`Err` (function,
+        // local, parameter, or import), defer to normal call resolution so we bind their symbol
+        // instead of silently hijacking the call (C1: resolution must be semantic, not string
+        // matching). Record the decision on the node so the transpiler/IL backends honor this
+        // scope-aware resolution instead of re-deriving it from name + expected type alone.
+        if (LookupSymbol(identifier.Name) != null)
+        {
+            call.IsResultFactory = false;
+            return false;
+        }
+
+        call.IsResultFactory = true;
 
         if (call.Arguments.Count != 1)
         {

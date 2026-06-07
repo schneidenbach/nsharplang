@@ -158,6 +158,22 @@ public sealed record MinMaxReductionLoopShape(
                 return null;
         }
 
+        // The bound must be loop-invariant. The accumulators (and the per-iteration temp) are
+        // written every iteration; a bound that names one (e.g. `while i < min { if a[i] < min {
+        // min = a[i] } i++ }`) is loop-variant and must not be vectorized — each SIMD helper
+        // snapshots the bound once, scanning a different element set than the scalar loop (H1). The
+        // index is already excluded by the condition check.
+        if (bound is IdentifierExpression boundId)
+        {
+            if (boundId.Name == tempName)
+                return null;
+            foreach (var reduction in reductions)
+            {
+                if (reduction.Accumulator == boundId.Name)
+                    return null;
+            }
+        }
+
         return new MinMaxReductionLoopShape(arrayRef, indexId, bound, reductions);
     }
 

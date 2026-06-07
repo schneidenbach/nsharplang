@@ -109,6 +109,9 @@ public class MinMaxReductionLoopShapeTests
     [InlineData("    min := a[0]\n    for i := 1; i < n; i += 2 {\n        if a[i] < min {\n            min = a[i]\n        }\n    }")]
     // Condition compares the accumulator against a constant, not the subject.
     [InlineData("    min := a[0]\n    for i := 1; i < n; i++ {\n        if a[i] < 5 {\n            min = a[i]\n        }\n    }")]
+    // H1: the loop bound IS the accumulator, which is written every iteration (loop-variant). The
+    // SIMD helper snapshots the bound once, scanning a different element set than the scalar loop.
+    [InlineData("    min := a[0]\n    for i := 1; i < min; i++ {\n        if a[i] < min {\n            min = a[i]\n        }\n    }")]
     public void Rejects_NonMinMaxForShapes(string body)
     {
         Assert.Null(MinMaxReductionLoopShape.TryMatch(FirstLoop<ForStatement>(body)));

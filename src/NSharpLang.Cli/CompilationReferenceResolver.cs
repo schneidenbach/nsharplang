@@ -71,6 +71,10 @@ internal static class CompilationReferenceResolver
     // legitimately slow first build (with restore) is never falsely killed.
     private static readonly TimeSpan ProjectReferenceBuildTimeout = TimeSpan.FromMinutes(10);
 
+    // After the build process exits, bound how long we wait to drain its redirected streams (a
+    // grandchild holding the pipe could otherwise stall the read indefinitely).
+    private static readonly TimeSpan StreamDrainTimeout = TimeSpan.FromSeconds(15);
+
     internal static ReferenceResolutionResult AddResolvedDllReferences(
         string projectDir,
         ProjectConfig config,
@@ -316,9 +320,11 @@ internal static class CompilationReferenceResolver
                 $"Project reference '{projectPath}' build timed out after {ProjectReferenceBuildTimeout.TotalMinutes:0} minutes and was terminated.");
         }
 
-        // The process has exited; the async reads are now guaranteed to complete.
-        var stdout = stdoutTask.GetAwaiter().GetResult();
-        var stderr = stderrTask.GetAwaiter().GetResult();
+        // The process has exited, but a grandchild that inherited the pipe could keep it open and
+        // stall the reads. Bound the drain too, then proceed with whatever was captured.
+        System.Threading.Tasks.Task.WaitAll(new[] { stdoutTask, stderrTask }, StreamDrainTimeout);
+        var stdout = stdoutTask.IsCompletedSuccessfully ? stdoutTask.Result : string.Empty;
+        var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : string.Empty;
 
         if (process.ExitCode != 0)
         {
