@@ -73,8 +73,11 @@ question — only genuine architectural forks surface. Living evidence in
       optimization-fires shape check (27 tests). Adversarial review caught + fixed a real divergence: bounds are
       now restricted to provably side-effect-free int (int local/param, int literal, array.Length=pure ldlen)
       and evaluated once — `.Count`/custom `.Length` no longer vectorize. Already unrolled to 4 accumulators
-      (the helper). (c) [merged into (b)]; (d) widen element types (long/float/double); (e) end-to-end
-      SystemsFastGate bench (flag-on vs scalar) + default-on once never-regress proven.
+      (the helper). [x] (c) [merged into (b)]; [x] (e) DEFAULT-ON (env NSHARP_VECTORIZE_REDUCTIONS=0 to opt
+      out) — never-regress proven: the full 3466-test suite + dogfood + examples + IL-verification + the
+      SystemsFastGate benchmark all pass with vectorization active. (d) widen element types: INTEGER ONLY
+      (long/uint/ulong — wrapping add is associative); float/double reductions must NOT vectorize (FP
+      reassociation is not value-preserving) — they fall back to scalar.
       Scoping (workflow w8urlgage): hook EmitWhile (ILCompiler.cs:12401, _currentIL/_locals); Vector<int>
       Reflection.Emit feasible (RuntimeCalls.cs generic-binding patterns; N# already emits Vector<int> op IL);
       int wrapping add associative (reorder safe); mandatory scalar tail (Vector<int>.Count platform-varies).

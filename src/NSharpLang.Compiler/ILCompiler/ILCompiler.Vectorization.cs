@@ -7,15 +7,15 @@ namespace NSharpLang.Compiler.ILCompiler;
 
 public partial class ILCompiler
 {
-    // RUST-PERF P1(b): auto-vectorize counted reductions. OFF by default (env NSHARP_VECTORIZE_REDUCTIONS=1,
-    // or a thread-local override for tests) until the never-regress benchmark justifies flipping it on. The
-    // thread-local override keeps it safe under xUnit's parallel test collections — enabling it on one test's
-    // thread never leaks into another's compile.
+    // RUST-PERF P1(b)/(e): auto-vectorize counted reductions. ON by default (P1(e), once the lowering was
+    // proven value-identical to the scalar loop and adversarially reviewed); set NSHARP_VECTORIZE_REDUCTIONS=0
+    // to opt out. A thread-local override exists for tests (it keeps the per-test choice safe under xUnit's
+    // parallel collections — setting it on one test's thread never leaks into another's compile).
     [ThreadStatic] private static bool t_vectorizeReductions;
     [ThreadStatic] private static bool t_vectorizeReductionsSet;
 
     private static readonly bool s_vectorizeReductionsDefault =
-        Environment.GetEnvironmentVariable("NSHARP_VECTORIZE_REDUCTIONS") == "1";
+        Environment.GetEnvironmentVariable("NSHARP_VECTORIZE_REDUCTIONS") != "0";
 
     internal static bool ReductionVectorizationEnabled =>
         t_vectorizeReductionsSet ? t_vectorizeReductions : s_vectorizeReductionsDefault;

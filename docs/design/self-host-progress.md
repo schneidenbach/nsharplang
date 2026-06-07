@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P1(e): vectorization ON by default — the perf win is now ACTIVE
+
+Flipped reduction auto-vectorization ON by default (env `NSHARP_VECTORIZE_REDUCTIONS=0` opts out). The N#
+systems compiler now auto-vectorizes `int[]` counted reductions for every program — the worst-case
+checksum-sum kernel goes from ~8.8× behind C/Rust to ~2× (the helper's measured 4.5× over scalar). Never-
+regress proven broadly: the FULL 3466-test unit suite passes with vectorization active (no test changed
+behavior), and the gate (dogfood recompile + all examples + templates + IL-verification + the SystemsFastGate
+benchmark) is green. This is the first Rust-perf win shipped active, not just built. Design constraint for the
+next widening (P1(d)): integer types only (long/uint/ulong — wrapping add is associative); float/double
+reductions must stay scalar (FP reassociation changes results).
+
 ## 2026-06-07 — Rust-perf P1(b): counted-reduction auto-vectorization codegen (off by default)
 
 The codegen that realizes the measured ~4.5× checksum-sum win. When `NSHARP_VECTORIZE_REDUCTIONS` (or a
