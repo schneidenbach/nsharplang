@@ -1623,6 +1623,140 @@ class B
         Assert.True(built >= 30, $"Expected the full dogfood corpus to build symbols; only {built} did.");
     }
 
+    // COLUMNAR PIPELINE stage 2 (docs/design/columnar-pipeline.md): lexical name resolution over the columnar
+    // tables (no C# AST) must match the SAME algorithm walking the C# AST -- every bare identifier in every
+    // function body classified identically (parameter / local / function / not-in-scope), in the same
+    // pre-order, on the full dogfood corpus plus hand-built corpora (forward refs, while/if scopes, member
+    // access, BCL receivers). Proves the columnar IR supports faithful scoped name resolution.
+    [Fact]
+    public void ColumnarNames_Resolution_MatchesAstWalk()
+    {
+        string[] supportedCorpora =
+        {
+            // Forward reference: in `a`, `b` resolves to a function declared later in the file.
+            "func a(): int {\n    return b() + 1\n}\n\nfunc b(): int {\n    return 2\n}\n",
+            // Params, locals, while/if scopes, index/member, assignment.
+            "func scan(data: int[], count: int): int {\n    total := 0\n    i := 0\n    while i < count {\n        x := data[i]\n        if x > 0 {\n            total = total + x\n        }\n        i = i + 1\n    }\n    return total\n}\n",
+            // BCL receiver (Array not in scope), member name not resolved, params resolved, call to a function.
+            "import System\n\nfunc fill(buf: int[], n: int): int {\n    Array.Fill(buf, n)\n    return helper(buf)\n}\n\nfunc helper(b: int[]): int {\n    return b[0]\n}\n",
+            // Cast operand + new args are resolved; type subtrees are not name lookups.
+            "func codes(ch: char, n: int): int {\n    code := (int)ch\n    arr := new int[](n)\n    return code\n}\n",
+        };
+
+        foreach (var src in supportedCorpora)
+        {
+            var (ok, refs) = RouteFunctionNameRefs(src);
+            Assert.True(ok, $"Name resolver declined a supported corpus:\n{src}");
+            Assert.NotNull(refs);
+            Assert.Equal(CSharpResolveFunctionNames(src, "corpus.nl"), ColumnarRefStrings(refs!));
+        }
+
+        var repoRoot = FindRepoRoot();
+        var servicesDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var files = Directory.EnumerateFiles(servicesDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var resolved = 0;
+        foreach (var file in files)
+        {
+            var src = File.ReadAllText(file);
+            var (ok, refs) = RouteFunctionNameRefs(src);
+            Assert.True(ok, $"Columnar name resolver declined its own systems source: {file}.");
+            Assert.Equal(CSharpResolveFunctionNames(src, file), ColumnarRefStrings(refs!));
+            resolved++;
+        }
+
+        Assert.Equal(files.Count, resolved);
+        Assert.True(resolved >= 30, $"Expected the full dogfood corpus to resolve; only {resolved} did.");
+    }
+
+    private static (bool Ok, List<List<ColumnarNameRef>>? Refs) RouteFunctionNameRefs(string source)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryResolveTopLevelFunctionNames", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryResolveTopLevelFunctionNames.");
+        var args = new object?[] { source, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (List<List<ColumnarNameRef>>?)args[1]);
+    }
+
+    private static List<List<string>> ColumnarRefStrings(List<List<ColumnarNameRef>> perFunction)
+        => perFunction.Select(fn => fn.Select(r => $"{r.Name}:{r.Kind}").ToList()).ToList();
+
+    // The C# AST mirror of ColumnarNameResolver -- the EXACT same scoping + traversal order on the object-graph
+    // AST, so the columnar resolution is verified identical. Produces per-function lists of "name:Kind".
+    private static List<List<string>> CSharpResolveFunctionNames(string source, string filePath)
+    {
+        var cu = CSharpCompilationUnit(source, filePath);
+        var funcs = cu!.Declarations.OfType<FunctionDeclaration>().ToList();
+        var functionNames = new HashSet<string>(funcs.Select(f => f.Name), StringComparer.Ordinal);
+        var result = new List<List<string>>();
+        foreach (var fn in funcs)
+        {
+            var parameters = new HashSet<string>(fn.Parameters.Select(p => p.Name), StringComparer.Ordinal);
+            var refs = new List<string>();
+            var localScopes = new List<HashSet<string>>();
+
+            string Classify(string name)
+            {
+                for (var i = localScopes.Count - 1; i >= 0; i--)
+                    if (localScopes[i].Contains(name)) return "Local";
+                if (parameters.Contains(name)) return "Parameter";
+                if (functionNames.Contains(name)) return "Function";
+                return "NotInScope";
+            }
+
+            void Expr(Expression e)
+            {
+                switch (e)
+                {
+                    case IdentifierExpression id: refs.Add($"{id.Name}:{Classify(id.Name)}"); break;
+                    case ParenthesizedExpression p: Expr(p.Inner); break;
+                    case MemberAccessExpression m: Expr(m.Object); break;
+                    case CallExpression c:
+                        Expr(c.Callee);
+                        foreach (var a in c.Arguments) Expr(a.Value);
+                        break;
+                    case IndexAccessExpression ix: Expr(ix.Object); Expr(ix.Index); break;
+                    case UnaryExpression u: Expr(u.Operand); break;
+                    case BinaryExpression b: Expr(b.Left); Expr(b.Right); break;
+                    case TernaryExpression t: Expr(t.Condition); Expr(t.ThenExpression); Expr(t.ElseExpression); break;
+                    case AssignmentExpression a: Expr(a.Target); Expr(a.Value); break;
+                    case NewExpression nw: foreach (var a in nw.ConstructorArguments) Expr(a.Value); break;
+                    case CastExpression cast: Expr(cast.Expression); break;
+                }
+            }
+
+            void Stmt(Statement s)
+            {
+                switch (s)
+                {
+                    case BlockStatement b:
+                        localScopes.Add(new HashSet<string>(StringComparer.Ordinal));
+                        foreach (var inner in b.Statements) Stmt(inner);
+                        localScopes.RemoveAt(localScopes.Count - 1);
+                        break;
+                    case VariableDeclarationStatement v:
+                        if (v.Initializer != null) Expr(v.Initializer);
+                        if (localScopes.Count == 0) localScopes.Add(new HashSet<string>(StringComparer.Ordinal));
+                        localScopes[localScopes.Count - 1].Add(v.Name);
+                        break;
+                    case WhileStatement w: Expr(w.Condition); Stmt(w.Body); break;
+                    case IfStatement i:
+                        Expr(i.Condition); Stmt(i.ThenStatement);
+                        if (i.ElseStatement != null) Stmt(i.ElseStatement);
+                        break;
+                    case ReturnStatement r: if (r.Value != null) Expr(r.Value); break;
+                    case ExpressionStatement es: Expr(es.Expression); break;
+                }
+            }
+
+            if (fn.Body != null) Stmt(fn.Body);
+            result.Add(refs);
+        }
+
+        return result;
+    }
+
     private static (bool Ok, List<ColumnarFunctionSymbol>? Symbols) RouteFunctionSymbols(string source)
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")

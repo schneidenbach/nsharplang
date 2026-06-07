@@ -11,6 +11,29 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-06 — Columnar pipeline STAGE 2: lexical name resolution over columnar tables (no C# AST)
+
+The second downstream stage: resolve every bare identifier in a function body to its binding, walking the
+columnar statement/expression node tables directly — no C# AST.
+
+- `Columnar.ColumnarNameResolver` performs scoped pre-order resolution over the columnar tables: parameters as
+  the base scope, `:=` locals entering at their declaration point, Block/While/If bodies introducing nested
+  scopes, all top-level functions pre-declared (forward references resolve). Each bare identifier (kind 6)
+  classifies as Parameter / Local / Function / NotInScope (the last = BCL/types, a later stage's concern).
+  Member names (kind-8 value span) and New/Cast TYPE subtrees (child[0]) are not scope lookups.
+- `NSharpCompilerDogfoodAdapter.TryResolveTopLevelFunctionNames` orchestrates it (tokenizer + declarations
+  kernel for the pre-declared function set + per-function signature kernel for parameters + statement kernel
+  for the body), fallback-safe.
+- `ColumnarNames_Resolution_MatchesAstWalk` asserts the columnar resolution is IDENTICAL to the same algorithm
+  walking the C# AST — every identifier, same classification, same pre-order — on **every dogfood file** plus
+  hand-built corpora (forward refs, while/if scopes, member access, BCL receivers, cast/new). The terrain was
+  mapped by a parallel understanding sweep (corpus binding patterns + the C# binder's resolution order +
+  the columnar traversal spec); the resolver then passed a 3-lens adversarial review (scoping, traversal
+  completeness, mirror fidelity) → clean.
+
+Perf is covered by slice 27 (resolution = the same cache-friendly columnar traversal, ~1.6× faster than the
+AST walk, plus O(1) scope-set lookups). Stage 3 (type checking) builds on this + the stage-1 symbol model.
+
 ## 2026-06-06 — Columnar pipeline STAGE 1: declared-symbol model (the first downstream stage, no C# AST)
 
 Decision "go big" (2026-06-06): commit to the columnar self-host pipeline (architecture + staged plan in
