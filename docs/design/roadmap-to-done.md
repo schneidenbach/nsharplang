@@ -73,6 +73,13 @@ question — only genuine architectural forks surface. Living evidence in
       Scoping (workflow w8urlgage): hook EmitWhile (ILCompiler.cs:12401, _currentIL/_locals); Vector<int>
       Reflection.Emit feasible (RuntimeCalls.cs generic-binding patterns; N# already emits Vector<int> op IL);
       int wrapping add associative (reorder safe); mandatory scalar tail (Vector<int>.Count platform-varies).
+      P1(b) APPROACH DECIDED (probe): RAW Reflection.Emit, NOT AST-lowering — N# supports `Vector<int>` +
+      operators + `new Vector<int>(arr)` but NOT `Vector.Sum` (the non-generic `Vector` static class is
+      "undefined variable"), so the horizontal sum must be emitted directly. Emit via reflection: ctor(int[],
+      int), op_Addition, Vector.Sum<int> (MakeGenericMethod), Vector<int>.Count getter; zero vacc via
+      ldloca+initobj; vector loop while i<=len-lanes; then acc += Vector.Sum(vacc); then the scalar tail.
+      Behind an off-by-default flag; correctness test = run(vectorized) == run(scalar) across lengths incl.
+      non-multiples of Count.
 - [ ] **P2 — range-predicate counts** (count-ascii) — same staged approach (packed compare + masked accumulate).
 - [ ] **P3 — bounds-check elision** for proven-in-range counted loops (count-transitions's size-scaling tax).
 - [ ] **P4 — LLVM / NativeAOT backend evaluation** (design workflow) once A-pattern wins plateau — the
