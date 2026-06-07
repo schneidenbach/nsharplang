@@ -210,6 +210,53 @@ public partial class ILCompilerTests
     }
 
     [Fact]
+    public void UserDefinedOk_InResultPosition_CallsUserFunction()
+    {
+        // C1: a user-declared `Ok` returning Result must be invoked even in a Result-typed
+        // return position, instead of being lowered as the compiler-known Result factory.
+        // User Ok returns Err("user-ok"), so the result must be Err (-> 111), not a success.
+        var source = @"
+func Ok(n: int): Result<int, string> {
+    return Err(""user-ok"")
+}
+
+func make(): Result<int, string> {
+    return Ok(5)
+}
+
+func main(): int {
+    r := make()
+    if r.IsErr {
+        return 111
+    }
+    return 222
+}
+";
+        Assert.Equal(111, CompileAndInvoke(source, "main"));
+    }
+
+    [Fact]
+    public void GenuineResultFactory_StillConstructsResult()
+    {
+        // C1 must not break the real factory: with no user Ok/Err in scope, Ok(7) builds a
+        // success Result whose value is 7.
+        var source = @"
+func make(): Result<int, string> {
+    return Ok(7)
+}
+
+func main(): int {
+    r := make()
+    if r.IsOk {
+        return r.OkValueUnchecked
+    }
+    return -1
+}
+";
+        Assert.Equal(7, CompileAndInvoke(source, "main"));
+    }
+
+    [Fact]
     public void LibraryImportDeclarationsEmitPInvokeMetadataWithoutManagedBody()
     {
         var source = @"

@@ -28,6 +28,25 @@ public class TranspilerTests
     }
 
     [Fact]
+    public void OkInsideLambda_DoesNotInheritOuterResultReturnType()
+    {
+        // C1: a bare Ok(x) inside a lambda nested in a Result-returning function must not be
+        // rewritten to the OUTER function's Result factory. The lambda has its own return
+        // contract, so its Ok(x) stays an ordinary call.
+        var source = @"
+func make(): Result<int, string> {
+    transform := (x) => Ok(x)
+    return transform(5)
+}
+";
+        var csharp = Transpile(source);
+
+        // The lambda body's Ok(x) must stay an ordinary call, not the outer function's factory.
+        Assert.Contains("=> Ok(x)", csharp);
+        Assert.DoesNotContain(".Ok(x)", csharp);
+    }
+
+    [Fact]
     public void TestIndexerTranspilation()
     {
         var source = @"

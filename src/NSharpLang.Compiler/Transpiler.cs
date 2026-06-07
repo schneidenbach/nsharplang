@@ -3005,6 +3005,16 @@ public class Transpiler
             return false;
         }
 
+        // Only rewrite `Ok`/`Err` as the compiler-known Result factory when the name is not a
+        // real in-scope symbol. A user-declared `Ok`/`Err` (function/local/parameter/import)
+        // must transpile as an ordinary call so C# binds their symbol (C1).
+        if (_semanticModel != null
+            && (_semanticModel.LookupIdentifierAtPosition(identifier.Name, identifier.Line, identifier.Column) != null
+                || _semanticModel.LookupIdentifier(identifier.Name) != null))
+        {
+            return false;
+        }
+
         var returnType = TranspileTypeReference(_currentResultReturnType);
         var argument = TranspileExpression(call.Arguments[0].Value);
         result = $"{returnType}.{identifier.Name}({argument})";
@@ -3169,36 +3179,48 @@ public class Transpiler
         // Always emit with parens in C# for consistency (C# requires parens)
         var parameters = $"({string.Join(", ", lambda.Parameters.Select(p => p.Name))})";
 
-        if (lambda.ExpressionBody != null)
+        // A lambda has its own return contract; the enclosing function's Result return type must
+        // not leak into the lambda body, or a bare `Ok(x)`/`Err(x)` inside the lambda would be
+        // miscompiled to the OUTER function's Result type (C1). Clear it for the body.
+        var savedResultReturnType = _currentResultReturnType;
+        _currentResultReturnType = null;
+        try
         {
-            return $"{parameters} => {TranspileExpression(lambda.ExpressionBody)}";
+            if (lambda.ExpressionBody != null)
+            {
+                return $"{parameters} => {TranspileExpression(lambda.ExpressionBody)}";
+            }
+            else if (lambda.BlockBody != null)
+            {
+                var sb = new StringBuilder();
+                sb.Append($"{parameters} => ");
+
+                // Transpile block inline — suppress #line directives since they can't
+                // appear inside an expression context (would cause C# syntax errors)
+                var savedIndent = _indentLevel;
+                var savedOutput = _output.ToString();
+                var savedSuppress = _suppressLineDirectives;
+                _output.Clear();
+                _indentLevel = 0;
+                _suppressLineDirectives = true;
+
+                TranspileBlockStatement(lambda.BlockBody);
+
+                var blockCode = _output.ToString().Trim();
+                _output.Clear();
+                _output.Append(savedOutput);
+                _indentLevel = savedIndent;
+                _suppressLineDirectives = savedSuppress;
+
+                return $"{parameters} => {blockCode}";
+            }
+
+            throw new Exception("Lambda must have either expression or block body");
         }
-        else if (lambda.BlockBody != null)
+        finally
         {
-            var sb = new StringBuilder();
-            sb.Append($"{parameters} => ");
-
-            // Transpile block inline — suppress #line directives since they can't
-            // appear inside an expression context (would cause C# syntax errors)
-            var savedIndent = _indentLevel;
-            var savedOutput = _output.ToString();
-            var savedSuppress = _suppressLineDirectives;
-            _output.Clear();
-            _indentLevel = 0;
-            _suppressLineDirectives = true;
-
-            TranspileBlockStatement(lambda.BlockBody);
-
-            var blockCode = _output.ToString().Trim();
-            _output.Clear();
-            _output.Append(savedOutput);
-            _indentLevel = savedIndent;
-            _suppressLineDirectives = savedSuppress;
-
-            return $"{parameters} => {blockCode}";
+            _currentResultReturnType = savedResultReturnType;
         }
-
-        throw new Exception("Lambda must have either expression or block body");
     }
 
     private string TranspileCastExpression(CastExpression cast)

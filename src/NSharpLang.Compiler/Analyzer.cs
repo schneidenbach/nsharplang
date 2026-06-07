@@ -7508,6 +7508,13 @@ public class Analyzer : IDisposable
         if (call.Callee is not IdentifierExpression { Name: "Ok" or "Err" } identifier)
             return false;
 
+        // `Ok`/`Err` are compiler-known Result factories ONLY when the name is not bound to a
+        // real in-scope symbol. If the user declared their own `Ok`/`Err` (function, local,
+        // parameter, or import), defer to normal call resolution so we bind their symbol instead
+        // of silently hijacking the call (C1: resolution must be semantic, not string matching).
+        if (LookupSymbol(identifier.Name) != null)
+            return false;
+
         var isOk = identifier.Name == "Ok";
         if (!TryGetResultArmTypes(_currentExpectedType, out var okType, out var errType))
             return false;
