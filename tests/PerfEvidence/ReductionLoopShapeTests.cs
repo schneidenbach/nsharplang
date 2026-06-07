@@ -74,4 +74,55 @@ public class ReductionLoopShapeTests
     {
         Assert.Null(ReductionLoopShape.TryMatch(FirstWhile(body)));
     }
+
+    // ---- P1(f): for-form detection (the increment is the iterator; the body is the single accumulator update) --
+    private static ForStatement FirstFor(string body)
+    {
+        var src = "func f(a: int[], b: int[], n: int): int {\n" + body + "\n    return acc\n}\n";
+        var cu = new Parser(new Lexer(src, "t.nl").Tokenize(), "t.nl").ParseCompilationUnit().CompilationUnit;
+        var fn = cu!.Declarations.OfType<FunctionDeclaration>().Single();
+        return fn.Body!.Statements.OfType<ForStatement>().First();
+    }
+
+    [Theory]
+    // Canonical for-form with i++.
+    [InlineData("    acc := 0\n    for i := 0; i < n; i++ {\n        acc = acc + a[i]\n    }")]
+    // ++i (pre-increment) iterator.
+    [InlineData("    acc := 0\n    for i := 0; i < n; ++i {\n        acc = acc + a[i]\n    }")]
+    // i = i + 1 iterator + compound accumulator.
+    [InlineData("    acc := 0\n    for i := 0; i < n; i = i + 1 {\n        acc += a[i]\n    }")]
+    // i += 1 iterator.
+    [InlineData("    acc := 0\n    for i := 0; i < n; i += 1 {\n        acc = acc + a[i]\n    }")]
+    // a.Length bound.
+    [InlineData("    acc := 0\n    for i := 0; i < a.Length; i++ {\n        acc = acc + a[i]\n    }")]
+    // Non-zero start (the helper handles arbitrary start).
+    [InlineData("    acc := 0\n    for i := 4; i < n; i++ {\n        acc = acc + a[i]\n    }")]
+    public void Matches_ForFormReductions(string body)
+    {
+        var shape = ReductionLoopShape.TryMatch(FirstFor(body));
+        Assert.NotNull(shape);
+        Assert.Equal("acc", shape!.Accumulator);
+        Assert.Equal("a", shape.Array);
+        Assert.Equal("i", shape.Index);
+    }
+
+    [Theory]
+    // Stride != 1.
+    [InlineData("    acc := 0\n    for i := 0; i < n; i += 2 {\n        acc = acc + a[i]\n    }")]
+    // Decrement iterator.
+    [InlineData("    acc := 0\n    for i := 0; i < n; i-- {\n        acc = acc + a[i]\n    }")]
+    // a[i] * 2 (not a plain element).
+    [InlineData("    acc := 0\n    for i := 0; i < n; i++ {\n        acc = acc + a[i] * 2\n    }")]
+    // Two arrays.
+    [InlineData("    acc := 0\n    for i := 0; i < n; i++ {\n        acc = acc + a[i] + b[i]\n    }")]
+    // Indexed by something other than the loop var.
+    [InlineData("    acc := 0\n    j := 0\n    for i := 0; i < n; i++ {\n        acc = acc + a[j]\n    }")]
+    // <= bound changes the trip-count shape.
+    [InlineData("    acc := 0\n    for i := 0; i <= n; i++ {\n        acc = acc + a[i]\n    }")]
+    // Extra body statement (more than the single accumulator update).
+    [InlineData("    acc := 0\n    for i := 0; i < n; i++ {\n        acc = acc + a[i]\n        acc = acc + 1\n    }")]
+    public void Rejects_NonReductionForShapes(string body)
+    {
+        Assert.Null(ReductionLoopShape.TryMatch(FirstFor(body)));
+    }
 }

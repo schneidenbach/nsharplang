@@ -52,6 +52,17 @@ public class ArithmeticAndLoopShapeTests
     private static int CountOverflowOpcodes(System.Collections.Generic.IReadOnlyList<ILInstruction> il) =>
         il.Count(instruction => OverflowOpcodes.Contains(instruction.OpCode));
 
+    // The canonical counted sum loops below auto-vectorize by default (Rust-perf P1(f)). These tests pin the
+    // SCALAR codegen contract (BCE-friendly ldlen/blt + plain add opcodes) that applies on the vectorization-off
+    // path and to non-reduction loops, so they disable reduction vectorization for the duration; the vectorized
+    // shape of the same loops is covered by VectorizedReductionTests.
+    private static readonly MethodInfo s_setReductionVectorization =
+        typeof(NSharpLang.Compiler.ILCompiler.ILCompiler).GetMethod(
+            "SetReductionVectorizationForCurrentThread", BindingFlags.Static | BindingFlags.NonPublic)!;
+
+    private static void SetReductionVectorization(bool? enabled) =>
+        s_setReductionVectorization.Invoke(null, new object?[] { enabled });
+
     /// <summary>
     /// Returns the index of the first position in <paramref name="il"/> at which the contiguous
     /// opcode <paramref name="pattern"/> appears, or -1 if it never does. Used to pin that
@@ -187,6 +198,12 @@ func sumIndexed(nums: int[]): int {
     return total
 }";
 
+        // Pin the SCALAR BCE shape: this canonical sum loop auto-vectorizes by default (P1(f)), which the
+        // VectorizedReductionTests cover; here we verify the scalar codegen contract with vectorization off.
+        SetReductionVectorization(false);
+        try
+        {
+
         var il = ILShapeInspector.DecodeProgramMethod(source, "sumIndexed");
 
         AssertContainsSequence(
@@ -209,6 +226,11 @@ func sumIndexed(nums: int[]): int {
         Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Clt));
 
         Assert.Equal(0, CountOverflowOpcodes(il));
+        }
+        finally
+        {
+            SetReductionVectorization(null);
+        }
     }
 
     [Fact]
@@ -335,12 +357,22 @@ func sumArray(nums: int[]): int {
     return sum
 }";
 
-        var il = ILShapeInspector.DecodeProgramMethod(source, "sumArray");
+        // Pin the SCALAR statement-assignment shape: this sum loop auto-vectorizes by default (P1(f)); the
+        // scalar contract (no reload+pop, plain adds for accumulator + induction) is what we verify here.
+        SetReductionVectorization(false);
+        try
+        {
+            var il = ILShapeInspector.DecodeProgramMethod(source, "sumArray");
 
-        Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Pop));
-        Assert.True(
-            ILShapeInspector.CountOpcode(il, OpCodes.Add) >= 2,
-            "Expected user accumulator arithmetic and iterator induction to remain plain add opcodes.");
+            Assert.Equal(0, ILShapeInspector.CountOpcode(il, OpCodes.Pop));
+            Assert.True(
+                ILShapeInspector.CountOpcode(il, OpCodes.Add) >= 2,
+                "Expected user accumulator arithmetic and iterator induction to remain plain add opcodes.");
+        }
+        finally
+        {
+            SetReductionVectorization(null);
+        }
     }
 
     [Fact]

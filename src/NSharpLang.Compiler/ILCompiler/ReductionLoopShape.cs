@@ -3,16 +3,16 @@ using NSharpLang.Compiler.Ast;
 namespace NSharpLang.Compiler;
 
 /// <summary>
-/// RUST-PERF P1(a) (docs/design/roadmap-to-done.md, systems-perf-backlog.md). Recognizes the canonical
-/// counted-reduction loop shape that the auto-vectorizing codegen (P1(b)) rewrites into an unrolled
+/// RUST-PERF P1 (docs/design/roadmap-to-done.md, systems-perf-backlog.md). Recognizes the canonical
+/// counted-reduction loop shape that the auto-vectorizing codegen (P1(b)/(d)/(f)) rewrites into an unrolled
 /// <c>System.Numerics.Vector&lt;T&gt;</c> accumulation — the measured ~4.5× win on checksum-sum.
 ///
-/// The recognized shape (the systems <c>while</c> form) is exactly:
+/// Two surface forms are recognized, both reducing to the same shape (accumulator, array, index, bound):
 /// <code>
-///   while index &lt; bound {
-///       acc = acc + array[index]   // or: acc += array[index]
-///       index = index + 1          // or: index += 1
-///   }
+///   // while-form (the index increment is the second body statement)
+///   while index &lt; bound { acc = acc + array[index]; index = index + 1 }
+///   // for-form (the index increment is the ITERATOR; the body is the single accumulator update)
+///   for index := start; index &lt; bound; index++ { acc = acc + array[index] }
 /// </code>
 /// Detection is purely structural (no types here — the emitter adds the int/array type guard). The match is
 /// CONSERVATIVE: a non-match simply leaves the standard scalar loop emission untouched (correctness is never
@@ -22,13 +22,14 @@ namespace NSharpLang.Compiler;
 /// <item>condition is <c>index &lt; bound</c> with a loop-invariant, side-effect-free bound (identifier,
 ///   int literal, or <c>x.Length</c> — the codegen requires <c>x</c> to be an array so this is the pure
 ///   ldlen intrinsic) that is not the index;</item>
-/// <item>body is EXACTLY the two statements above, in that order (the accumulator update reads
-///   <c>array[index]</c> before the increment);</item>
+/// <item>the accumulator update reads <c>array[index]</c> before the increment (it is the only/first body
+///   statement; the for-form's increment is the iterator, the while-form's is the second statement);</item>
+/// <item>the index increments by exactly one (<c>i++</c>/<c>++i</c>/<c>i = i + 1</c>/<c>i += 1</c>);</item>
 /// <item>the array is indexed only by <c>index</c> (uniform unit stride), and accumulator/array/index are
 ///   three distinct names — so there is no loop-carried dependence, no other write, and no aliasing.</item>
 /// </list>
 /// Integer wrapping addition is associative, so reordering the additions across SIMD lanes/accumulators is
-/// value-preserving. break/continue/return/other writes cannot appear (the body is the fixed two statements).
+/// value-preserving. break/continue/return/other writes cannot appear (the body is the fixed update).
 /// </summary>
 public sealed record ReductionLoopShape(
     IdentifierExpression AccumulatorRef,
@@ -45,20 +46,14 @@ public sealed record ReductionLoopShape(
     /// <summary>The loop index local/parameter name.</summary>
     public string Index => IndexRef.Name;
 
-    /// <summary>Returns the matched shape, or null when <paramref name="loop"/> is not a vectorizable counted reduction.</summary>
+    /// <summary>Returns the matched shape, or null when <paramref name="loop"/> is not a vectorizable counted
+    /// reduction (while-form: the index increment is the second body statement).</summary>
     public static ReductionLoopShape? TryMatch(WhileStatement loop)
     {
-        // Condition: index < bound.
-        if (loop.Condition is not BinaryExpression { Operator: BinaryOperator.Less } condition)
-            return null;
-        if (condition.Left is not IdentifierExpression indexId)
-            return null;
-        var index = indexId.Name;
-        var bound = condition.Right;
-        if (!IsSideEffectFreeInvariantBound(bound, index))
+        if (!TryMatchCondition(loop.Condition, out var indexId, out var bound))
             return null;
 
-        // Body: exactly two expression statements.
+        // Body: exactly two expression statements — the accumulator update then the index increment.
         if (loop.Body is not BlockStatement { Statements: { Count: 2 } statements })
             return null;
         if (statements[0] is not ExpressionStatement { Expression: AssignmentExpression accumulatorUpdate })
@@ -66,56 +61,111 @@ public sealed record ReductionLoopShape(
         if (statements[1] is not ExpressionStatement { Expression: AssignmentExpression indexIncrement })
             return null;
 
-        // Statement 1: acc = acc + array[index]  OR  acc += array[index].
-        if (accumulatorUpdate.Target is not IdentifierExpression accumulatorId)
+        if (!TryMatchAccumulatorUpdate(accumulatorUpdate, indexId.Name, out var accumulatorId, out var arrayRef))
             return null;
+        if (!IsUnitIndexIncrement(indexIncrement, indexId.Name))
+            return null;
+
+        return Build(accumulatorId, arrayRef, indexId, bound);
+    }
+
+    /// <summary>Returns the matched shape, or null when <paramref name="loop"/> is not a vectorizable counted
+    /// reduction (for-form: the index increment is the iterator and the body is the single accumulator update).
+    /// The caller is responsible for emitting <see cref="ForStatement.Initializer"/> separately — the shape
+    /// describes only the condition/iterator/body, exactly like the while-form.</summary>
+    public static ReductionLoopShape? TryMatch(ForStatement loop)
+    {
+        if (!TryMatchCondition(loop.Condition, out var indexId, out var bound))
+            return null;
+
+        // Iterator increments the index by one; the body is the single accumulator-update statement.
+        if (loop.Iterator is null || !IsUnitIndexIncrement(loop.Iterator, indexId.Name))
+            return null;
+        if (TryGetSingleBodyStatement(loop.Body) is not ExpressionStatement { Expression: AssignmentExpression accumulatorUpdate })
+            return null;
+
+        if (!TryMatchAccumulatorUpdate(accumulatorUpdate, indexId.Name, out var accumulatorId, out var arrayRef))
+            return null;
+
+        return Build(accumulatorId, arrayRef, indexId, bound);
+    }
+
+    // Condition: index < bound, with a side-effect-free loop-invariant bound that is not the index.
+    private static bool TryMatchCondition(Expression? condition, out IdentifierExpression indexId, out Expression bound)
+    {
+        indexId = null!;
+        bound = null!;
+        if (condition is not BinaryExpression { Operator: BinaryOperator.Less } less)
+            return false;
+        if (less.Left is not IdentifierExpression id)
+            return false;
+        if (!IsSideEffectFreeInvariantBound(less.Right, id.Name))
+            return false;
+        indexId = id;
+        bound = less.Right;
+        return true;
+    }
+
+    // Enforces the three-distinct-names rule (no aliasing / loop-carried dependence) and builds the shape.
+    private static ReductionLoopShape? Build(IdentifierExpression accumulatorId, IdentifierExpression arrayRef, IdentifierExpression indexId, Expression bound)
+    {
         var accumulator = accumulatorId.Name;
-        IdentifierExpression arrayRef;
+        var index = indexId.Name;
+        if (accumulator == arrayRef.Name || accumulator == index || arrayRef.Name == index)
+            return null;
+        return new ReductionLoopShape(accumulatorId, arrayRef, indexId, bound);
+    }
+
+    // The for-loop body, or the single statement inside a one-statement block.
+    private static Statement? TryGetSingleBodyStatement(Statement body) => body switch
+    {
+        BlockStatement { Statements: { Count: 1 } s } => s[0],
+        ExpressionStatement => body,
+        _ => null,
+    };
+
+    // acc = acc + array[index]  OR  acc += array[index].
+    private static bool TryMatchAccumulatorUpdate(AssignmentExpression accumulatorUpdate, string index, out IdentifierExpression accumulatorId, out IdentifierExpression arrayRef)
+    {
+        accumulatorId = null!;
+        arrayRef = null!;
+        if (accumulatorUpdate.Target is not IdentifierExpression accId)
+            return false;
         switch (accumulatorUpdate.Operator)
         {
             case AssignmentOperator.Assign:
                 if (accumulatorUpdate.Value is not BinaryExpression { Operator: BinaryOperator.Add } sum)
-                    return null;
-                if (sum.Left is not IdentifierExpression sumLeft || sumLeft.Name != accumulator)
-                    return null;
+                    return false;
+                if (sum.Left is not IdentifierExpression sumLeft || sumLeft.Name != accId.Name)
+                    return false;
                 if (!TryMatchArrayIndex(sum.Right, index, out arrayRef))
-                    return null;
+                    return false;
                 break;
             case AssignmentOperator.AddAssign:
                 if (!TryMatchArrayIndex(accumulatorUpdate.Value, index, out arrayRef))
-                    return null;
+                    return false;
                 break;
             default:
-                return null;
+                return false;
         }
 
-        // Statement 2: index = index + 1  OR  index += 1.
-        if (indexIncrement.Target is not IdentifierExpression incrementId || incrementId.Name != index)
-            return null;
-        switch (indexIncrement.Operator)
-        {
-            case AssignmentOperator.Assign:
-                if (indexIncrement.Value is not BinaryExpression { Operator: BinaryOperator.Add } step)
-                    return null;
-                if (step.Left is not IdentifierExpression stepLeft || stepLeft.Name != index)
-                    return null;
-                if (!IsLiteralOne(step.Right))
-                    return null;
-                break;
-            case AssignmentOperator.AddAssign:
-                if (!IsLiteralOne(indexIncrement.Value))
-                    return null;
-                break;
-            default:
-                return null;
-        }
-
-        // Accumulator, array, and index must be three distinct names (no aliasing / loop-carried dependence).
-        if (accumulator == arrayRef.Name || accumulator == index || arrayRef.Name == index)
-            return null;
-
-        return new ReductionLoopShape(accumulatorId, arrayRef, indexId, bound);
+        accumulatorId = accId;
+        return true;
     }
+
+    // A unit index increment in any accepted form: i++ / ++i (for-iterator) or i = i + 1 / i += 1 (either form).
+    // (The while-body path only ever passes an AssignmentExpression — its `i++` would not parse as the second
+    // body statement's AssignmentExpression — so this does not change while-form matching.)
+    private static bool IsUnitIndexIncrement(Expression increment, string index) => increment switch
+    {
+        UnaryExpression { Operator: UnaryOperator.PostIncrement or UnaryOperator.PreIncrement, Operand: IdentifierExpression id }
+            => id.Name == index,
+        AssignmentExpression { Target: IdentifierExpression target, Operator: AssignmentOperator.Assign, Value: BinaryExpression { Operator: BinaryOperator.Add } add }
+            => target.Name == index && add.Left is IdentifierExpression addLeft && addLeft.Name == index && IsLiteralOne(add.Right),
+        AssignmentExpression { Target: IdentifierExpression target, Operator: AssignmentOperator.AddAssign, Value: var value }
+            => target.Name == index && IsLiteralOne(value),
+        _ => false,
+    };
 
     private static bool TryMatchArrayIndex(Expression expression, string index, out IdentifierExpression array)
     {

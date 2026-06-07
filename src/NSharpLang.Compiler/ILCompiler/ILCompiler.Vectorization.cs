@@ -55,22 +55,29 @@ public partial class ILCompiler
         return null;
     }
 
+    /// <summary>While-form entry (P1(b)): <c>while index &lt; bound { acc = acc + array[index]; index = index + 1 }</c>.
+    /// The index is already set by preceding code, so the shared core emits directly. See <see cref="TryEmitMatchedReduction"/>.</summary>
+    private bool TryEmitVectorizedReduction(WhileStatement loop)
+        => TryEmitMatchedReduction(ReductionLoopShape.TryMatch(loop));
+
+    /// <summary>For-form entry (P1(f)): <c>for index := start; index &lt; bound; index++ { acc = acc + array[index] }</c>.
+    /// EmitFor emits the initializer BEFORE calling this, so the index holds its start value here exactly as in the
+    /// while-form — the shared core is identical for both. See <see cref="TryEmitMatchedReduction"/>.</summary>
+    private bool TryEmitVectorizedReduction(ForStatement loop)
+        => TryEmitMatchedReduction(ReductionLoopShape.TryMatch(loop));
+
     /// <summary>
-    /// If <paramref name="loop"/> is an integer-array counted reduction (ReductionLoopShape), lower it to a SIMD
-    /// helper call and return true; otherwise return false (caller emits the normal scalar loop). The loop
-    /// <c>while index &lt; bound { acc = acc + array[index]; index = index + 1 }</c> becomes
+    /// If <paramref name="shape"/> is a matched integer-array counted reduction, lower it to a SIMD helper call
+    /// and return true; otherwise return false (caller emits the normal scalar loop). The reduction becomes
     /// <c>acc = acc + SimdReductions.Sum…(array, index, bound); index = max(index, bound)</c> — value-identical
-    /// (integer wrapping add is associative) and faster (~4.5× for int). Fires only for an <c>int</c>/<c>long</c>/
+    /// (integer wrapping add is associative) and faster (~4.5× for int). The terminal <c>index = max(index, bound)</c>
+    /// matches BOTH a while-loop and a counted for-loop's exit value. Fires only for an <c>int</c>/<c>long</c>/
     /// <c>uint</c>/<c>ulong</c> array+accumulator (P1(d)), an int index, an int side-effect-free bound, and the
     /// default unchecked-arithmetic context (a <c>checked</c> reduction would throw rather than wrap).
     /// </summary>
-    private bool TryEmitVectorizedReduction(WhileStatement loop)
+    private bool TryEmitMatchedReduction(ReductionLoopShape? shape)
     {
-        if (_currentIL == null)
-            return false;
-
-        var shape = ReductionLoopShape.TryMatch(loop);
-        if (shape == null)
+        if (_currentIL == null || shape == null)
             return false;
 
         // Inside `checked { }` the scalar `acc = acc + a[i]` emits add.ovf (THROWS on overflow); the SIMD helpers

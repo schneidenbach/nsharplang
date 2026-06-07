@@ -81,7 +81,13 @@ question — only genuine architectural forks surface. Living evidence in
       element-type dispatch in the emitter (accumulator type must equal element type); 44 tests incl. wraparound.
       Adversarial review found+fixed two real divergences (both pre-existing in the int path): `int.MinValue`
       bound overflowing `end - step` (→ `if (end <= start) return`), and OOB throwing `ArgumentOutOfRangeException`
-      instead of `IndexOutOfRangeException` (→ SIMD only over a provably in-bounds range). **P1 COMPLETE.**
+      instead of `IndexOutOfRangeException` (→ SIMD only over a provably in-bounds range).
+      [x] (f) FOR-FORM: the vectorizer hooked only `EmitWhile`, but the benchmarks + idiomatic N# use `for`
+      (probe: for-form emitted 0 SIMD calls vs while-form's 1 — the win was NOT reaching the benchmark). Now
+      `ReductionLoopShape` matches `for i := s; i < n; i++ { acc = acc + a[i] }` (iterator increment, single-stmt
+      body braced/braceless) and `EmitFor` emits the initializer then shares the while-form's emit core; terminal
+      `index = max(s, n)` matches a counted for-loop's exit. 35 tests; adversarial review SAFE-TO-SHIP. **P1 COMPLETE
+      (and now actually firing on idiomatic `for`-loops).**
       Scoping (workflow w8urlgage): hook EmitWhile (ILCompiler.cs:12401, _currentIL/_locals); Vector<int>
       Reflection.Emit feasible (RuntimeCalls.cs generic-binding patterns; N# already emits Vector<int> op IL);
       int wrapping add associative (reorder safe); mandatory scalar tail (Vector<int>.Count platform-varies).

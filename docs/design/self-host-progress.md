@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P1(f): vectorize the FOR-form — the win now fires where it is actually measured
+
+**Discovery (high-leverage):** the reduction auto-vectorizer (P1 a–e) hooked ONLY `EmitWhile`, but the systems
+benchmarks (`SystemsHotPathBenchmarks`: checksum, countAscii) and idiomatic N# use the **`for`-form**.
+Empirically confirmed via a probe: a for-form reduction emitted **0** SIMD helper calls while the equivalent
+while-form emitted **1** — so the measured "~8.8× → ~2×" checksum win was **not actually reaching the benchmark
+or any for-loop code**. `EmitFor` emits its own loop and never called `TryEmitVectorizedReduction`; there is no
+for→while desugaring. P1(f) closes that gap so the existing, proven SIMD machinery finally fires where it counts
+(and unblocks P2 — count-ascii is for-form).
+
+`ReductionLoopShape` now also matches the for-form `for i := start; i < bound; i++ { acc = acc + a[i] }` — the
+increment is the ITERATOR (`i++`/`++i`/`i = i + 1`/`i += 1`) and the body is the single accumulator-update
+statement (braced or braceless). `EmitFor` emits the initializer (so the index holds its start value), then the
+SAME shared core (`TryEmitMatchedReduction`) used by the while-form lowers the loop to the SIMD helper call plus
+the terminal `index = max(index, bound)` — which equals a counted for-loop's exit value `max(start, n)` for all
+start/n. The detector + emitter were refactored to share all matching/emission logic between the two forms with
+**no while-form behavior change** (verified: the while-body increment is still matched as an `AssignmentExpression`,
+so an `i++` statement cannot slip into the while-form).
+
+35 new tests (121 Simd-category total): for-form detector accept (`i++`/`++i`/`i=i+1`/`i+=1`, `a.Length` bound,
+non-zero start) + reject (stride≠1, `i--`, `a[i]*2`, two arrays, `a[j]`, `<=`, extra body statement); end-to-end
+for-form scalar≡vectorized across lengths incl. SIMD tails for int/long/uint/ulong (with uint/ulong wraparound);
+non-zero-start `[start, n)` parity incl. empty ranges; for-form terminal index = `max(start, n)`; braceless body;
+OOB bound → `IndexOutOfRangeException`. The read-only adversarial-verify workflow (3 lenses) returned **SAFE TO
+SHIP — no for-form-specific divergence**: the only genuinely new surface (initializer emitted exactly once,
+terminal index, single-statement body shape-matched-then-discarded) is correct, and the helper's overflow/OOB/
+wrap fixes from P1(d) are shared by both forms. Full `VSCODE_TESTS=skip ./scripts/test-all.sh --commit` gate green
+(this is the higher-blast-radius change — it now vectorizes every matching for-loop in the dogfood compiler,
+examples and templates; the gate compiles and runs all of them + IL verification).
+
 ## 2026-06-07 — Rust-perf P1(d): widen auto-vectorized reductions to long/uint/ulong (+ 2 correctness fixes)
 
 Widened the counted-reduction auto-vectorization (P1 a–e, previously `int[]`-only) to the rest of the

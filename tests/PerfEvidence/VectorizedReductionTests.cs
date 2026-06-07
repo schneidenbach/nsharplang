@@ -448,4 +448,195 @@ func sumD(a: double[], n: int): double {
             Vectorize(null);
         }
     }
+
+    // ---- RUST-PERF P1(f): the SAME vectorization fires on the `for`-form (what the benchmarks + idiomatic N#
+    // actually use). Before P1(f), `for i := 0; i < n; i++ { acc += a[i] }` compiled scalar (0 helper calls)
+    // while only the while-form vectorized — so the measured win never reached the benchmark. -----------------
+
+    private const string ForSumSource = @"
+func sumFor(a: int[], n: int): int {
+    acc := 0
+    for i := 0; i < n; i++ {
+        acc = acc + a[i]
+    }
+    return acc
+}";
+
+    private const string ForSumLongSrc = @"
+func sumForL(a: long[], n: int): long {
+    acc: long = (long)0
+    for i := 0; i < n; i++ {
+        acc = acc + a[i]
+    }
+    return acc
+}";
+
+    private const string ForSumUIntSrc = @"
+func sumForU(a: uint[], n: int): uint {
+    acc: uint = (uint)0
+    for i := 0; i < n; i++ {
+        acc = acc + a[i]
+    }
+    return acc
+}";
+
+    private const string ForSumULongSrc = @"
+func sumForUL(a: ulong[], n: int): ulong {
+    acc: ulong = (ulong)0
+    for i := 0; i < n; i++ {
+        acc = acc + a[i]
+    }
+    return acc
+}";
+
+    private const string ForSumFromSrc = @"
+func sumFrom(a: int[], start: int, n: int): int {
+    acc := 0
+    for i := start; i < n; i++ {
+        acc = acc + a[i]
+    }
+    return acc
+}";
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(7)]
+    [InlineData(8)]
+    [InlineData(15)]
+    [InlineData(16)]
+    [InlineData(17)]
+    [InlineData(64)]
+    [InlineData(1000)]
+    public void VectorizedForSum_IsValueIdenticalToScalar(int n)
+    {
+        var data = new int[n];
+        for (var k = 0; k < n; k++) data[k] = k * 3 - 7;
+
+        Assert.Equal(
+            RunReduction(ForSumSource, "sumFor", false, new object[] { data, n }),
+            RunReduction(ForSumSource, "sumFor", true, new object[] { data, n }));
+    }
+
+    [Fact]
+    public void ForFormReduction_NowVectorizes_WhenEnabled()
+    {
+        // The regression that motivated P1(f): the for-form must lower to a helper call when enabled (it did
+        // not before — only the while-form vectorized), and stay scalar (no call) when disabled.
+        Assert.Equal(0, CallCount(ForSumSource, "sumFor", false));
+        Assert.True(CallCount(ForSumSource, "sumFor", true) >= 1, "for-form reduction must vectorize when enabled");
+    }
+
+    [Theory]
+    [InlineData(ForSumLongSrc, "sumForL")]
+    [InlineData(ForSumUIntSrc, "sumForU")]
+    [InlineData(ForSumULongSrc, "sumForUL")]
+    public void ForFormReduction_WidenedTypes_LowerToHelperCall(string src, string fn)
+    {
+        Assert.Equal(0, CallCount(src, fn, false));
+        Assert.True(CallCount(src, fn, true) >= 1, "widened for-form reduction must vectorize when enabled");
+    }
+
+    [Theory]
+    [InlineData(64)]
+    [InlineData(1000)]
+    public void VectorizedForSum_WidenedTypes_AreValueIdenticalToScalar(int n)
+    {
+        var longData = new long[n];
+        var uintData = new uint[n];
+        var ulongData = new ulong[n];
+        for (var k = 0; k < n; k++)
+        {
+            longData[k] = (long)k * 1_000_000_007L - 7;
+            uintData[k] = unchecked((uint)(k * 2_000_000_011));            // overflow → mod-2^32 wrap
+            ulongData[k] = unchecked((ulong)k * 2_000_000_000_000_000_000UL); // → mod-2^64 wrap
+        }
+
+        Assert.Equal(
+            RunReduction(ForSumLongSrc, "sumForL", false, new object[] { longData, n }),
+            RunReduction(ForSumLongSrc, "sumForL", true, new object[] { longData, n }));
+        Assert.Equal(
+            RunReduction(ForSumUIntSrc, "sumForU", false, new object[] { uintData, n }),
+            RunReduction(ForSumUIntSrc, "sumForU", true, new object[] { uintData, n }));
+        Assert.Equal(
+            RunReduction(ForSumULongSrc, "sumForUL", false, new object[] { ulongData, n }),
+            RunReduction(ForSumULongSrc, "sumForUL", true, new object[] { ulongData, n }));
+    }
+
+    [Theory]
+    [InlineData(0, 64)]
+    [InlineData(3, 64)]   // non-zero start: the helper sums [start, n)
+    [InlineData(5, 17)]
+    [InlineData(60, 64)]
+    [InlineData(64, 64)]  // empty range (start == n)
+    [InlineData(70, 64)]  // start > n: empty
+    public void VectorizedForSum_NonZeroStart_MatchesScalar(int start, int n)
+    {
+        var data = new int[64];
+        for (var k = 0; k < data.Length; k++) data[k] = k * 5 - 11;
+
+        Assert.Equal(
+            RunReduction(ForSumFromSrc, "sumFrom", false, new object[] { data, start, n }),
+            RunReduction(ForSumFromSrc, "sumFrom", true, new object[] { data, start, n }));
+    }
+
+    [Fact]
+    public void VectorizedForSum_BoundExceedsLength_ThrowsIndexOutOfRange_LikeScalar()
+    {
+        var data = new int[10];
+        Vectorize(true);
+        try
+        {
+            var ex = Assert.Throws<TargetInvocationException>(() =>
+                ILShapeInspector.Compile(ForSumSource, asm =>
+                    ILShapeInspector.GetProgramMethod(asm, "sumFor").Invoke(null, new object[] { data, 100 })));
+            Assert.IsType<IndexOutOfRangeException>(ex.InnerException);
+        }
+        finally
+        {
+            Vectorize(null);
+        }
+    }
+
+    // Pins the for-form terminal index explicitly (the emitter's `index = max(index, bound)` must equal the
+    // scalar for-loop's exit value max(start, n)). `i` is declared before the loop so it is readable afterwards.
+    private const string ForLastIndexSrc = @"
+func lastIndexFor(a: int[], start: int, n: int): int {
+    acc := 0
+    i := 0
+    for i = start; i < n; i++ {
+        acc = acc + a[i]
+    }
+    return i
+}";
+
+    [Theory]
+    [InlineData(0, 64)]
+    [InlineData(3, 64)]
+    [InlineData(64, 64)]  // start == n: loop never runs, i stays start
+    [InlineData(70, 64)]  // start > n: i stays start
+    public void VectorizedForReduction_LeavesIndexAtScalarTerminalValue(int start, int n)
+    {
+        var data = new int[64];
+        for (var k = 0; k < data.Length; k++) data[k] = k;
+        var expected = start < n ? n : start; // scalar for-loop exits with i == max(start, n)
+
+        var scalar = (int)RunReduction(ForLastIndexSrc, "lastIndexFor", false, new object[] { data, start, n });
+        var vector = (int)RunReduction(ForLastIndexSrc, "lastIndexFor", true, new object[] { data, start, n });
+        Assert.Equal(expected, scalar);
+        Assert.Equal(scalar, vector);
+    }
+
+    [Fact]
+    public void VectorizedForSum_BracelessBody_VectorizesAndMatchesScalar()
+    {
+        // A braceless single-statement for body (pins TryGetSingleBodyStatement's ExpressionStatement arm).
+        const string src = "func sumBare(a: int[], n: int): int {\n    acc := 0\n    for i := 0; i < n; i++ acc = acc + a[i]\n    return acc\n}";
+        var data = new int[37];
+        for (var k = 0; k < data.Length; k++) data[k] = k * 7 - 3;
+
+        Assert.Equal(
+            RunReduction(src, "sumBare", false, new object[] { data, data.Length }),
+            RunReduction(src, "sumBare", true, new object[] { data, data.Length }));
+    }
 }

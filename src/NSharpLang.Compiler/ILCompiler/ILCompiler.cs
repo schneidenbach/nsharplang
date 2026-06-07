@@ -12214,6 +12214,14 @@ public partial class ILCompiler
             EmitStatement(forStmt.Initializer);
         }
 
+        // RUST-PERF P1(f): auto-vectorize a counted for-form reduction. The initializer is emitted above (so the
+        // index holds its start value), then the shared core lowers `for i; i < n; i++ { acc = acc + a[i] }` to a
+        // SIMD helper call and the terminal index store — replacing the entire condition/iterator/body loop below.
+        if (ReductionVectorizationEnabled && TryEmitVectorizedReduction(forStmt))
+        {
+            return;
+        }
+
         var conditionLabel = _currentIL.DefineLabel();
         var bodyLabel = _currentIL.DefineLabel();
         var continueLabel = _currentIL.DefineLabel();
