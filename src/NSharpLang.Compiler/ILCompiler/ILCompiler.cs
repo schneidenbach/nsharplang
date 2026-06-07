@@ -12402,6 +12402,10 @@ public partial class ILCompiler
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
+        // RUST-PERF P1(b): lower an int[] counted reduction to a SIMD helper call (off by default).
+        if (ReductionVectorizationEnabled && TryEmitVectorizedReduction(whileStmt))
+            return;
+
         var conditionLabel = _currentIL.DefineLabel();
         var endLabel = _currentIL.DefineLabel();
 

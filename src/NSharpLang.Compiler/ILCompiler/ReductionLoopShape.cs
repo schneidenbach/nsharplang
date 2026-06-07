@@ -20,7 +20,8 @@ namespace NSharpLang.Compiler;
 /// the rewrite value-preserving is enforced here:
 /// <list type="bullet">
 /// <item>condition is <c>index &lt; bound</c> with a loop-invariant, side-effect-free bound (identifier,
-///   int literal, or <c>x.Length</c>/<c>x.Count</c>) that is not the index;</item>
+///   int literal, or <c>x.Length</c> — the codegen requires <c>x</c> to be an array so this is the pure
+///   ldlen intrinsic) that is not the index;</item>
 /// <item>body is EXACTLY the two statements above, in that order (the accumulator update reads
 ///   <c>array[index]</c> before the increment);</item>
 /// <item>the array is indexed only by <c>index</c> (uniform unit stride), and accumulator/array/index are
@@ -29,8 +30,21 @@ namespace NSharpLang.Compiler;
 /// Integer wrapping addition is associative, so reordering the additions across SIMD lanes/accumulators is
 /// value-preserving. break/continue/return/other writes cannot appear (the body is the fixed two statements).
 /// </summary>
-public sealed record ReductionLoopShape(string Accumulator, string Array, string Index, Expression Bound)
+public sealed record ReductionLoopShape(
+    IdentifierExpression AccumulatorRef,
+    IdentifierExpression ArrayRef,
+    IdentifierExpression IndexRef,
+    Expression Bound)
 {
+    /// <summary>The accumulator local/parameter name.</summary>
+    public string Accumulator => AccumulatorRef.Name;
+
+    /// <summary>The summed array local/parameter name.</summary>
+    public string Array => ArrayRef.Name;
+
+    /// <summary>The loop index local/parameter name.</summary>
+    public string Index => IndexRef.Name;
+
     /// <summary>Returns the matched shape, or null when <paramref name="loop"/> is not a vectorizable counted reduction.</summary>
     public static ReductionLoopShape? TryMatch(WhileStatement loop)
     {
@@ -56,7 +70,7 @@ public sealed record ReductionLoopShape(string Accumulator, string Array, string
         if (accumulatorUpdate.Target is not IdentifierExpression accumulatorId)
             return null;
         var accumulator = accumulatorId.Name;
-        string array;
+        IdentifierExpression arrayRef;
         switch (accumulatorUpdate.Operator)
         {
             case AssignmentOperator.Assign:
@@ -64,11 +78,11 @@ public sealed record ReductionLoopShape(string Accumulator, string Array, string
                     return null;
                 if (sum.Left is not IdentifierExpression sumLeft || sumLeft.Name != accumulator)
                     return null;
-                if (!TryMatchArrayIndex(sum.Right, index, out array))
+                if (!TryMatchArrayIndex(sum.Right, index, out arrayRef))
                     return null;
                 break;
             case AssignmentOperator.AddAssign:
-                if (!TryMatchArrayIndex(accumulatorUpdate.Value, index, out array))
+                if (!TryMatchArrayIndex(accumulatorUpdate.Value, index, out arrayRef))
                     return null;
                 break;
             default:
@@ -97,30 +111,34 @@ public sealed record ReductionLoopShape(string Accumulator, string Array, string
         }
 
         // Accumulator, array, and index must be three distinct names (no aliasing / loop-carried dependence).
-        if (accumulator == array || accumulator == index || array == index)
+        if (accumulator == arrayRef.Name || accumulator == index || arrayRef.Name == index)
             return null;
 
-        return new ReductionLoopShape(accumulator, array, index, bound);
+        return new ReductionLoopShape(accumulatorId, arrayRef, indexId, bound);
     }
 
-    private static bool TryMatchArrayIndex(Expression expression, string index, out string array)
+    private static bool TryMatchArrayIndex(Expression expression, string index, out IdentifierExpression array)
     {
-        array = string.Empty;
+        array = null!;
         if (expression is not IndexAccessExpression { IsNullConditional: false } indexAccess)
             return false;
         if (indexAccess.Object is not IdentifierExpression arrayId)
             return false;
         if (indexAccess.Index is not IdentifierExpression indexId || indexId.Name != index)
             return false;
-        array = arrayId.Name;
+        array = arrayId;
         return true;
     }
 
+    // Shape-level bound check (no types here). `.Length` on an identifier is allowed at the shape level; the
+    // codegen further requires the receiver to be an ARRAY (so `.Length` is the pure ldlen intrinsic, not a
+    // possibly-side-effecting custom property). `.Count` is excluded — a custom collection's Count getter may
+    // have side effects, and the vectorized form evaluates the bound a different number of times.
     private static bool IsSideEffectFreeInvariantBound(Expression bound, string index) => bound switch
     {
         IdentifierExpression id => id.Name != index,
         IntLiteralExpression => true,
-        MemberAccessExpression { IsNullConditional: false, MemberName: "Length" or "Count", Object: IdentifierExpression } => true,
+        MemberAccessExpression { IsNullConditional: false, MemberName: "Length", Object: IdentifierExpression } => true,
         _ => false,
     };
 

@@ -66,10 +66,15 @@ question — only genuine architectural forks surface. Living evidence in
 
 - [x] Ceiling measured: unrolled `Vector<int>` = 4.5× over scalar (checksum-sum 8.8× → ~2× behind native)
 - [ ] **P1 — auto-vectorize counted reductions** (the `while`-form `i:=0; while i<len { acc=acc+a[i]; i=i+1 }`).
-      Sub-slices: [x] (a) pattern detection only (`ReductionLoopShape.TryMatch` + 11 tests, no emission change);
-      (b) `Vector<int>` IL emission, single accumulator + scalar tail, behind a flag, parity (vectorized ==
-      scalar on randomized inputs) + SystemsFastGate bench; (c) unroll to ≥4 independent accumulators;
-      (d) widen element types (long/float/double); (e) default-on once never-regress proven.
+      Sub-slices: [x] (a) pattern detection (`ReductionLoopShape.TryMatch` + 11 tests, no emission change);
+      [x] (b) lowering to the unrolled `Vector<int>` SIMD helper (`SimdReductions.SumInt32` in NSharpLang.Runtime;
+      `ILCompiler.TryEmitVectorizedReduction` hooks EmitWhile), behind an off-by-default thread-local flag, with
+      run(vectorized)==run(scalar) across lengths incl. tails + post-loop index = max(index,bound) + the
+      optimization-fires shape check (27 tests). Adversarial review caught + fixed a real divergence: bounds are
+      now restricted to provably side-effect-free int (int local/param, int literal, array.Length=pure ldlen)
+      and evaluated once — `.Count`/custom `.Length` no longer vectorize. Already unrolled to 4 accumulators
+      (the helper). (c) [merged into (b)]; (d) widen element types (long/float/double); (e) end-to-end
+      SystemsFastGate bench (flag-on vs scalar) + default-on once never-regress proven.
       Scoping (workflow w8urlgage): hook EmitWhile (ILCompiler.cs:12401, _currentIL/_locals); Vector<int>
       Reflection.Emit feasible (RuntimeCalls.cs generic-binding patterns; N# already emits Vector<int> op IL);
       int wrapping add associative (reorder safe); mandatory scalar tail (Vector<int>.Count platform-varies).

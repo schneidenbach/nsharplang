@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Rust-perf P1(b): counted-reduction auto-vectorization codegen (off by default)
+
+The codegen that realizes the measured ~4.5× checksum-sum win. When `NSHARP_VECTORIZE_REDUCTIONS` (or a
+thread-local test override) is set, `ILCompiler.TryEmitVectorizedReduction` (hooked into `EmitWhile`) lowers a
+matched `int[]` counted reduction to `acc = acc + NSharpLang.Runtime.SimdReductions.SumInt32(array, index,
+bound); index = max(index, bound)` — i.e. a call to the unrolled 4-accumulator `Vector<int>` reduction in
+plain testable C#, instead of hand-emitting vector IL (much safer; the emitted IL is just load-args + call +
+add + store + a max). Off by default + thread-local so it can't affect other tests or production.
+
+27 tests: run(vectorized) == run(scalar) across lengths incl. 0 and non-multiples of the SIMD width (scalar
+tail), the post-loop index left at the scalar terminal value `max(index,bound)` (incl. empty/negative bounds),
+the array.Length path, and the optimization-fires shape check (scalar element-load loop replaced by a call).
+
+Adversarial review (4 agents) caught one real divergence and it was fixed: the bound was evaluated multiple
+times and `.Count`/custom `.Length` bounds could be side-effecting property getters, so a vectorized loop
+would observe a different evaluation count than the scalar loop. Now bounds are restricted to provably
+side-effect-free int (int local/param read, int literal, or `.Length` on an ARRAY = the pure ldlen intrinsic)
+and evaluated exactly once; anything else falls back to the scalar loop. Next: (d) widen element types, then
+(e) the end-to-end SystemsFastGate bench + default-on once never-regress is proven.
+
 ## 2026-06-07 — Rust-perf P1(a): counted-reduction loop detector (safe, no codegen change)
 
 First sub-slice of the auto-vectorization codegen (the measured ~4.5× checksum-sum win). `ReductionLoopShape
