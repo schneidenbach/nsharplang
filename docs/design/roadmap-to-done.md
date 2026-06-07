@@ -141,21 +141,26 @@ question — only genuine architectural forks surface. Living evidence in
       adversarial review. **MEASURED:** N# **2.37× faster than C#** @4096 (1119.8→471.9 ns; was ~0.99× tied) →
       implied **~4.54× → ~1.9× behind native (Rust-class)**. **With this every vectorizable kernel is within ~2× of
       native; only rolling-hash (~1.5×, the latency-bound floor) remains, and it is not vectorizable.** int[] only.
-- [ ] **P4 — LLVM / NativeAOT backend evaluation** (design workflow) once A-pattern wins plateau — the
-      long-pole bet for broad vectorizable parity. Decide build-vs-not from P1–P3 results. (Phase P's per-pattern
-      auto-vectorization is now essentially complete on the systems kernels — P4 is the remaining structural bet.)
+- [x] **P4 — LLVM / NativeAOT backend evaluation** (decision doc): DONE 2026-06-07 →
+      [`p4-llvm-nativeaot-backend-evaluation.md`](p4-llvm-nativeaot-backend-evaluation.md). **DECISION: defer the
+      structural vectorizing backend (evidence-gated reopen, gates G1–G4).** Phase P's per-pattern `Vector<T>`
+      emission already closed the 8.8–10.5× SIMD gap to ≤2.0× native (measured), so the structural backend's
+      original prize is gone; the residual ~1.6–2× is latency-bound / small-input / scalar-scheduling, which
+      NativeAOT (shares RyuJIT → no loop auto-vectorization) and the WASM-only experimental NativeAOT-LLVM do not
+      cheaply fix. Split out: NativeAOT **image emission** is a separate, lower-risk CLI startup/size track
+      (orthogonal to throughput), worth pursuing on its own merits — `nlc publish --aot` is analysis-only today.
 
 ## Phase T — Tooling + language strategy
 
 - [ ] Route the columnar pipeline into the CLI (`nlc check`/`query`/`format`) and the LSP once stages 3–4 land
       (the LLM-first toolchain + IDE run on the fast N# path).
-- [~] Re-run the systems-vs-native harness after each Phase-P win; keep `systems-vs-native.md` numbers current.
-      P1+P2+P-minmax+P-ctrans wins MEASURED (2026-06-07, BDN): N# now beats C# ~4–4.5× on checksum-sum/count-ascii/
-      score-frame, **5.94×** on min-max-delta, **2.37×** on count-transitions (all tied before) → implied
-      ~2.0×/~1.6×/**~1.77×**/**~1.9×** behind native
-      (was 8.8×/6.3×/10.5×/4.5×) — ALL vectorizable kernels now at/below the ~2× DONE bar; only rolling-hash
-      (~1.5×, latency-bound floor) is left. Full cross-language re-run on a cool machine to refresh the Rust/C
-      columns is the remaining rigorous step.
+- [x] Re-run the systems-vs-native harness; keep `systems-vs-native.md` numbers current. **RIGOROUS
+      single-machine re-run DONE (2026-06-07):** N#(vectorized)/C#/Rust/C all re-measured back-to-back on one
+      cool, idle machine → the previously *implied* "~1.6–2× behind native" is now **MEASURED**: N#/best-native
+      ≤2.02× at 4096 (checksum 2.02×, count-ascii 1.63×, count-transitions 1.97×, min-max-delta 1.67×,
+      rolling-hash 1.62×, parse-eight-digits 1.80×); worst single cell 2.49× (min-max-delta @64, fixed
+      SIMD/call overhead). Down from 8.24–10.5×. N# beats C#/RyuJIT ~2–6× on the vectorizable kernels. Full
+      table + 2026-06-06 history in `systems-vs-native.md`.
 - [ ] Broader general-purpose language features per `project_roadmap_2026q2` — lower priority until self-host +
       perf land, then resumed.
 
@@ -173,8 +178,15 @@ latency-bound floor) is left, and it is not vectorizable.** Phase P's per-patter
 essentially DONE. Next up: the self-host spine — **Stage 3b — columnar diagnostics** (Phase S; definite-return /
 unreachable-after-terminal / unused-local, parity vs the C# analyzer), then Stage 4 (columnar codegen) — where
 end-to-end binder/output parity (incl. the binder reconciliation item) is verified — → 5 (route) → 6 (delete C#).
-Phase T (route columnar into CLI/LSP) follows stages 3–4. (P4 — LLVM/NativeAOT backend evaluation — the remaining
-structural perf bet — once the per-pattern wins plateau, which they now have.)
+Phase T (route columnar into CLI/LSP) follows stages 3–4.
+
+**Perf capstone (Track C) — COMPLETE 2026-06-07.** The rigorous single-machine cross-language re-run is done:
+N#/best-native is now **MEASURED ≤2.0× at 4096** (worst cell 2.49×), down from 8.24–10.5× — `systems-vs-native.md`
+leads with the authoritative post-vectorization table. **P4** (LLVM/NativeAOT backend) is **evaluated and
+deferred** — decision doc [`p4-llvm-nativeaot-backend-evaluation.md`](p4-llvm-nativeaot-backend-evaluation.md):
+the structural backend's order-of-magnitude prize was captured by Phase P's `Vector<T>` emission, so it stays
+deferred behind evidence gates G1–G4; NativeAOT image emission is split out as a separate, lower-risk CLI
+startup/size track. **Next: the self-host spine — Stage 3b (columnar diagnostics).**
 
 **Worktree note (2026-06-07):** P-minmax(c) AND P3/P-ctrans were developed on branch `systems-language-perf` (an
 isolated worktree off `ca9ba88e`) while a concurrent session held the shared `systems-language` tree. Merge

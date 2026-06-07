@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Track C perf capstone: rigorous single-machine native re-run + P4 backend decision
+
+Closed out Phase P with the rigorous step the roadmap reserved: a **cross-language re-run with all four
+languages measured back-to-back on one cool, idle machine** (Apple M4, .NET 10, rustc 1.96, Apple clang 17),
+using the **vectorizing N# compiler** (P1+P2+P-minmax+P-ctrans, default-on). This converts the previously
+*implied* "~1.6–2× behind native" into a **measured** result and refreshes the stale 2026-06-06
+pre-vectorization table in [`systems-vs-native.md`](systems-vs-native.md).
+
+**Measured N#/best-native (was scalar 2026-06-06 → now vectorized):** checksum-sum 8.78× → **2.02×**;
+count-ascii 6.30× → **1.63×**; count-transitions 4.54× → **1.97×**; min-max-delta 10.5× → **1.67×**;
+rolling-hash 1.61× → **1.62×** (non-vectorizable floor, correctly unchanged); parse-eight-digits 1.84× →
+**1.80×** (all at 4096). Worst single cell across the whole matrix is **2.49×** (min-max-delta @64, where the
+SIMD helper's fixed setup dominates a 4.5 ns native min/max) — down from 10.5×. N# now **beats C#/RyuJIT
+~2–6×** on the vectorizable kernels (it emits `Vector<T>`; RyuJIT runs scalar) and ties C# on the
+non-vectorizable ones (rolling-hash, scan-tag ≈1.0×). Native (Rust/C) columns are within run-to-run noise of
+2026-06-06 — only the N# column moved, by emitting SIMD. Internal consistency confirms the vectorized path
+(MinMaxDelta 5.9× faster than C# matches P-minmax(c); CountTransitions 2.2× matches P-ctrans; RollingHash/ScanTag
+correctly ≈1.0×).
+
+**P4 — LLVM/NativeAOT backend decision (DEFERRED, evidence-gated).** New decision doc
+[`p4-llvm-nativeaot-backend-evaluation.md`](p4-llvm-nativeaot-backend-evaluation.md). The structural backend's
+original justification was the 8.8–10.5× SIMD-vs-scalar gap; Phase P's per-pattern `Vector<T>` emission (the
+.NET-recommended approach, since RyuJIT does not auto-vectorize loops — dotnet/runtime#11263) already captured
+that prize. The residual ~1.6–2× is latency-bound / small-input / scalar-scheduling tax, which a backend swap
+does not cheaply remove: NativeAOT shares RyuJIT's codegen (no loop auto-vectorization either), and
+NativeAOT-LLVM is experimental and WASM-targeted. **Decision: defer the vectorizing structural backend (D/E)
+behind gates G1–G4; keep extending per-pattern `Vector<T>` only on measured need; treat NativeAOT *image
+emission* as a separate, lower-risk CLI startup/size track (orthogonal to throughput — `nlc publish --aot` is
+analysis-only today).** Cheapest next perf step: broaden the corpus from synthetic i32 kernels to a real
+compiler hot path before any structural bet. Docs-only slice; non-VS-Code gate green.
+
 ## 2026-06-07 — Rust-perf P-ctrans: shifted-compare SIMD count-transitions — the LAST vectorizable kernel, Rust-class
 
 Vectorizes the count-transitions kernel (the last addressable Rust gap, ~2.5–4.5× behind native). This is the

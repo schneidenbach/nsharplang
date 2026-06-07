@@ -1,127 +1,152 @@
-# Systems N# vs Rust vs C — head-to-head (2026-06-06)
+# Systems N# vs Rust vs C — head-to-head
 
-> ## 2026-06-07 UPDATE — auto-vectorization (P1+P2) landed: the two biggest gaps are now ~2× native
+> ## 2026-06-07 — RIGOROUS single-machine re-run: every vectorizable kernel is now MEASURED ≤2.0× behind native at 4096 (worst small-input cell 2.49×; was up to 10.5×)
 >
-> The original finding below was that **100% of the Rust gap on the vectorizable kernels is RyuJIT-vs-LLVM
-> codegen** — N# tied C#, and both ran scalar where LLVM emits SIMD. N# now emits SIMD directly for counted
-> reductions (P1 a–f) and range-predicate counts (P2 a–b), so on those kernels it no longer ties C# — it
-> **beats C# ~4–4.5×**. Measured 2026-06-07 (Apple M4, .NET 10, BenchmarkDotNet `SystemsHotPathBenchmarks`,
-> N# vectorized vs the C# scalar baseline; short job):
+> The table in **[Numbers](#numbers--rigorous-single-machine-re-run-2026-06-07-vectorized-n)** below is the
+> authoritative one. It supersedes the 2026-06-06 pre-vectorization run: N#, C#, Rust, and C were **all
+> re-measured back-to-back on the same cool, idle machine** (Apple M4, .NET 10, rustc 1.96, Apple clang 17),
+> with the **vectorizing N# compiler** (Phase P, `P1`+`P2`+`P-minmax`+`P-ctrans`, default-on). This turns the
+> previously *implied* "~1.6–2× behind native" into a **measured** number on one machine — the rigorous step
+> the roadmap reserved.
 >
-> | Kernel | Size | C# ns | N# ns | N#/C# | was 2026-06-06 (N#/C#) | implied vs best-native* |
-> |---|---|---|---|---|---|---|
-> | checksum-sum | 4096 | 994.7 | **222.5** | **0.22× (4.5× faster)** | ~1.0× (tied, scalar) | ~8.8× → **~2.0×** behind |
-> | checksum-sum | 64 | 17.37 | **4.19** | **0.24×** | ~1.0× | ~8.2× → ~2× |
-> | count-ascii | 4096 | 1172.9 | **296.4** | **0.25× (4.0× faster)** | ~1.0× | ~6.3× → **~1.6×** behind |
-> | count-ascii | 64 | 18.36 | **5.28** | **0.29×** | ~1.0× | ~5.7× → ~1.6× |
-> | score-frame (reduction) | 4096 | 1000.2 | **224.9** | **0.22× (4.5× faster)** | ~1.0× | bonus reduction win |
-> | min-max-delta (P-minmax c, fused) | 4096 | 1558.4 | **262.5** | **0.168× (5.94× faster)** | ~1.0× (tied, scalar) | ~10.5× → **~1.77×** behind |
-> | min-max-delta (P-minmax c, fused) | 64 | 23.93 | **18.4** | **0.768× (1.30× faster)** | ~1.0× | ~5.7× → ~4.4× |
-> | count-transitions (P-ctrans) | 4096 | 1119.8 | **471.9** | **0.421× (2.37× faster)** | ~1.0× (tied, scalar) | ~4.54× → **~1.9×** behind |
-> | count-transitions (P-ctrans) | 64 | 16.91 | **10.93** | **0.646× (1.55× faster)** | ~1.0× | ~2.45× → ~1.6× |
+> **Result:** on every vectorizable kernel N# now beats C#/RyuJIT **~2–6×** (it emits `Vector<T>` where
+> RyuJIT runs scalar), and **N# / best-native is ≤2.02× at the meaningful 4096 size** (checksum 2.02×,
+> count-ascii 1.63×, count-transitions 1.97×, min-max-delta 1.67×, rolling-hash 1.62×, parse-eight-digits
+> 1.80×). At the tiny 64-element size, fixed SIMD/call overhead pushes min-max-delta to **2.49×** (its best
+> native is Rust at 4.5 ns) and the rest sit **1.4–1.9×**. The worst single number anywhere in the matrix is
+> 2.49× — down from 10.5×. Non-vectorizable kernels are correctly unchanged: rolling-hash (carried
+> multiply-mask dependency, latency-bound — the floor) and scan-tag stay ≈1.0× C#, and parse-eight-digits
+> stays faster than C#.
 >
-> **2026-06-07 P-minmax + P-ctrans UPDATE:** the two largest remaining gaps now vectorize too. min-max-delta
-> (10.5×) → fused `MinMaxInt32` (one `Vector.Min`+`Vector.Max` scan) = **5.94× faster than C#, ~1.77× native**.
-> count-transitions (4.5×) → seeded shifted-compare `CountTransitionsInt32` (`~Vector.Equals` of `a[i]` vs
-> `a[i-1]`, the carried `previous` passed as seed so no init analysis) = **2.37× faster than C#, ~1.9× native**.
-> **With these, EVERY vectorizable kernel is Rust-class (within ~2× of native); only rolling-hash (~1.5×, the
-> latency-bound floor) is left, and it is not vectorizable.**
->
-> Remaining non-vectorizable kernels are correctly **unchanged**: ScanTag and RollingHash stay ≈1.0× C#;
-> ParseEightDigits 0.65× (already faster). The
-> KEY validation: this is measured on the `for`-form benchmark, so it confirms **P1(f) made the win real** — the
-> kernels tied C# (scalar) before, and beat it ~4.5× now. *The "implied vs best-native" column applies the
-> measured N# speedup to the prior (2026-06-06) native numbers on the same M4; the N#-vs-C# multiples (4–4.5×,
-> far above thermal noise) are freshly measured, but a full cross-language re-run on a cool machine remains the
-> rigorous way to refresh the Rust/C columns below. Evidence: 162 Simd parity/IL tests + 4 adversarial reviews
-> (commits `b1326cb8`..`34840802`).
+> **What this confirms:** the per-pattern auto-vectorization program (emit `System.Numerics.Vector<T>` IL
+> directly for the canonical hot-loop shapes — the .NET-recommended way, since RyuJIT does not auto-vectorize
+> loops) captured essentially the whole addressable native gap. The residual ~1.6–2× is not a
+> vectorization gap anymore; it is the latency-bound floor (rolling-hash), small-input fixed overhead, and
+> RyuJIT scalar regalloc/scheduling tax — none of which a different backend cheaply removes. See
+> **[Roadmap implication](#roadmap-implication)** and `P4` in
+> [`roadmap-to-done.md`](roadmap-to-done.md) for the structural-backend (LLVM/NativeAOT) decision this
+> evidence feeds.
 
-**Status:** First rigorous cross-language systems benchmark. Honest, with caveats. Generated by the
-`systems-nsharp-vs-rust-c` workflow (map+baseline → faithful Rust/C ports → serial measurement →
-adversarial fairness → synthesis). Reproducible harness in [`benchmarks/native-comparison/`](../../benchmarks/native-comparison/).
+**Status:** Rigorous cross-language systems benchmark, refreshed single-machine. Honest, with caveats.
+Originally generated by the `systems-nsharp-vs-rust-c` workflow (map+baseline → faithful Rust/C ports →
+serial measurement → adversarial fairness → synthesis); re-measured 2026-06-07 after Phase-P vectorization
+landed. Reproducible harness in [`benchmarks/native-comparison/`](../../benchmarks/native-comparison/).
 
 ## Bottom line
 
-- **systems-N# is top-of-class among CLR languages: it ties C# (RyuJIT) within ~1–5% on every kernel**,
-  and is slightly *faster* than C# on a couple. Routing a compiler hot path from C# to N# is
-  **performance-neutral today** — the self-host migration can proceed on correctness/ergonomics without a
-  speed regression. That is the load-bearing positive result.
-- **systems-N# is NOT yet top-of-class vs Rust/C.** On the four methodologically-clean workloads it trails
-  the best native build by **1.4×–8.8×**. The gap is shaped exactly like a CLR-vs-LLVM story: smallest
-  (1.4–1.6×) on latency-bound, non-vectorizable code; largest (5.7–8.8×) on straight-line auto-vectorizable
-  loops where **LLVM emits SIMD and RyuJIT emits scalar code**.
-- **100% of the native gap is RyuJIT codegen quality, not anything N#-specific** (N# ties C# everywhere).
-  To make "as fast as Rust/Go" a *truthful* claim rather than a CLR-relative one, the systems subset needs
-  auto-vectorization + unrolling, and ultimately an LLVM/NativeAOT-class backend.
+- **systems-N# is top-of-class among CLR languages, and on vectorizable hot loops it now *beats* C#/RyuJIT
+  ~2–6×.** It emits `Vector<T>` IL directly for counted reductions, range-predicate counts, min/max, and
+  count-transitions where RyuJIT leaves scalar code; on non-vectorizable kernels it still ties C# within
+  noise. Routing a compiler hot path from C# to N# is **performance-neutral or better** — the self-host
+  migration proceeds with no speed regression, and a speedup on the vectorizable paths.
+- **systems-N# is now within ~2× of best-native (Rust/C) on the vectorizable kernels — measured, single
+  machine.** It trails the best native build by **1.4×–2.0× at 4096** and **1.4×–2.5× at 64** (worst:
+  min-max-delta @64, 2.49×). The remaining gap is shaped like the residual after vectorization: latency-bound
+  code (rolling-hash 1.4–1.6×), tiny-input fixed overhead, and scalar regalloc tax — *not* a SIMD-vs-scalar
+  gap anymore.
+- **The native gap that remains is the RyuJIT scalar/latency floor, not anything N#-specific.** The large
+  (5.7–10.5×) SIMD-vs-scalar gaps the 2026-06-06 run found are closed: N# now emits the SIMD itself. To
+  shave the residual ~1.6–2× further would take a backend that also unrolls/schedules better than RyuJIT
+  (the `P4` LLVM/NativeAOT bet) — but the marginal prize is now small, which is the central finding.
 
-## Numbers (Apple M4; rustc 1.96.0; Apple clang 17; cool, serial)
+## Numbers — rigorous single-machine re-run (2026-06-07; vectorized N#)
 
-| Workload | Size | N# ns | C# ns | Rust ns | C ns | N# / best-native |
-|---|---|---|---|---|---|---|
-| checksum-sum | 64 | 16.18 | 16.22 | 2.393 | 1.964 | **8.24×** |
-| checksum-sum | 4096 | 975.83 | 986.92 | 111.17 | 114.38 | **8.78×** |
-| count-ascii | 64 | 19.02 | 20.13 | 3.362 | 3.336 | **5.70×** |
-| count-ascii | 4096 | 1159.21 | 1164.39 | 183.86 | 185.68 | **6.30×** |
-| count-transitions | 64 | 16.81 | 16.85 | 7.199 | 6.872 | 2.45× |
-| count-transitions | 4096 | 1132.37 | 1133.75 | 249.65 | 249.64 | 4.54× |
-| rolling-hash | 64 | 43.12 | 40.90 | 29.97 | 30.30 | 1.44× |
-| rolling-hash | 4096 | 4613.06 | 4614.47 | 2862.21 | 2867.10 | 1.61× |
-| min-max-delta | 64 | 23.30 | 23.29 | 4.09 | 8.11 | 5.70× |
-| min-max-delta | 4096 | 1466.94 | 1477.35 | 150.57 | 139.76 | 10.5× |
-| parse-eight-digits | 64 | 2.93 | 4.16 | 1.531 | 1.46 | 2.0× |
-| parse-eight-digits | 4096 | 2.70 | 4.18 | 1.531 | 1.47 | 1.84× |
+All four languages measured back-to-back on one cool, idle machine. **N# = the vectorizing compiler**
+(Phase P default-on). `best-native` = the faster of Rust/C for that cell; **N#/best-native** is therefore
+the most conservative (largest) native multiple. N#/C# via BenchmarkDotNet short job (`SystemsHotPath`);
+Rust/C via the hand-rolled `benchmarks/native-comparison/` micro-benches (median-of-15, black_box/volatile).
 
-The original min-max-delta/parse-eight-digits C harnesses were DCE'd by `clang -O3` (loop-invariant call
-hoisted out of the timed loop → bogus sub-ns, size-independent numbers). **Fixed** by laundering the input
-pointer through a per-iteration inline-asm barrier (`__asm__ volatile("" : "+r"(p))`, the C equivalent of
-Rust's `black_box`); the numbers above are the corrected, size-dependent values, so this is now **6-of-6
+| Workload | Size | N# ns | C# ns | N#/C# | Rust ns | C ns | best-native | **N#/best-native** |
+|---|---|---|---|---|---|---|---|---|
+| checksum-sum | 64 | 4.219 | 16.524 | **0.26× (3.9× faster)** | 2.634 | 2.256 | 2.256 (C) | **1.87×** |
+| checksum-sum | 4096 | 222.625 | 982.916 | **0.23× (4.4× faster)** | 111.272 | 110.180 | 110.180 (C) | **2.02×** |
+| count-ascii | 64 | 5.291 | 18.934 | **0.28× (3.6× faster)** | 3.388 | 3.369 | 3.369 (C) | **1.57×** |
+| count-ascii | 4096 | 298.051 | 1174.088 | **0.25× (3.9× faster)** | 183.151 | 183.020 | 183.020 (C) | **1.63×** |
+| count-transitions | 64 | 11.368 | 17.027 | **0.67× (1.5× faster)** | 7.012 | 6.702 | 6.702 (C) | **1.70×** |
+| count-transitions | 4096 | 477.331 | 1069.094 | **0.45× (2.2× faster)** | 241.827 | 245.100 | 241.827 (Rust) | **1.97×** |
+| min-max-delta | 64 | 11.130 | 23.699 | **0.47× (2.1× faster)** | 4.474 | 8.602 | 4.474 (Rust) | **2.49×** |
+| min-max-delta | 4096 | 253.578 | 1496.034 | **0.17× (5.9× faster)** | 155.317 | 151.840 | 151.840 (C) | **1.67×** |
+| rolling-hash | 64 | 42.251 | 41.707 | 1.01× (tie) | 29.655 | 31.265 | 29.655 (Rust) | 1.42× |
+| rolling-hash | 4096 | 4695.715 | 4708.774 | 1.00× (tie) | 2889.787 | 3066.720 | 2889.787 (Rust) | 1.62× |
+| parse-eight-digits | 64 | 2.787 | 4.159 | **0.67× (1.5× faster)** | 1.546 | 1.554 | 1.546 (Rust) | 1.80× |
+| parse-eight-digits | 4096 | 2.776 | 4.145 | **0.67× (1.5× faster)** | 1.546 | 1.552 | 1.546 (Rust) | 1.80× |
+
+Two additional BDN workloads have no native port and are not in the table; both behave as expected: **score-frame**
+(a counted reduction) vectorizes to **0.23× C# @4096 (4.4× faster)**, and **scan-tag** (early-exit search,
+not vectorizable) stays **0.99–1.00× C#**.
+
+> **Historical (2026-06-06, pre-vectorization).** The first run measured N# emitting *scalar* code (tied C#)
+> and found N#/best-native of **8.24×/8.78×** (checksum), **5.70×/6.30×** (count-ascii), **2.45×/4.54×**
+> (count-transitions), **5.70×/10.5×** (min-max-delta), **1.44×/1.61×** (rolling-hash), **2.0×/1.84×**
+> (parse-eight-digits). Those numbers are what motivated Phase P; the table above is the post-Phase-P
+> reality. The native (Rust/C) columns are within run-to-run noise of 2026-06-06 (the algorithms and native
+> compilers did not change) — only the N# column moved, by emitting SIMD.
+
+The min-max-delta and parse-eight-digits C harnesses were originally DCE'd by `clang -O3` (loop-invariant
+call hoisted out of the timed loop → bogus sub-ns, size-independent numbers). **Fixed** by laundering the
+input pointer through a per-iteration inline-asm barrier (`__asm__ volatile("" : "+r"(p))`, the C equivalent
+of Rust's `black_box`); the numbers above are the corrected, size-dependent values, so this is **6-of-6
 methodologically clean on both Rust and C**.
 
-## Why N# loses (root cause, smallest gap → largest)
+## Why the residual gap remains (root cause, smallest gap → largest)
+
+Post-vectorization, the gaps are no longer SIMD-vs-scalar — they are the residual floor:
 
 1. **rolling-hash (1.4–1.6×)** — carried multiply-mask dependency ⇒ latency-bound, nothing to vectorize.
-   The small gap here is residual register-allocation / scheduling / inlining tax. This is the floor.
-2. **count-transitions (2.5–4.5×, widens with size)** — per-iteration indexed-load + branch tax (ldelem
-   shape + bounds check), not fixed overhead.
-3. **count-ascii (5.7–6.3×)** — range-predicate count auto-vectorizes under LLVM (packed compares + masked
-   accumulate); RyuJIT runs it scalar. Nearly the whole gap is SIMD-vs-scalar.
-4. **checksum-sum (8.2–8.8×)** — the simplest reduction is what LLVM vectorizes+unrolls most and RyuJIT
-   leaves as one scalar add/iteration. The cleanest measurement of the auto-vectorization gap.
+   This is the irreducible floor: residual register-allocation / scheduling / inlining tax under RyuJIT.
+2. **count-ascii (1.6×), rolling-hash (1.6×), min-max-delta @4096 (1.7×)** — vectorized; the residual is
+   RyuJIT's `Vector<T>` codegen being a touch less unrolled/scheduled than LLVM's, plus horizontal-reduce tax.
+3. **checksum-sum (2.0×), count-transitions (2.0×) @4096** — the simplest reductions, where LLVM unrolls
+   most aggressively (multiple independent accumulators) and RyuJIT's `Vector<T>` lowering unrolls less.
+4. **min-max-delta @64 (2.5×, the worst cell)** — at 64 elements the SIMD helper's fixed setup + the tiny
+   native min/max (Rust 4.5 ns) make per-call overhead dominate; the same kernel is 1.67× at 4096.
 
-## Prioritized path to Rust/C parity (highest leverage first)
+## What's already done vs what's left
 
-1. **Auto-vectorize counted reductions and range-predicate loops** — recognize `for i<len { acc += a[i] }`
-   and `for i<len { if a[i] in [lo,hi] count++ }` in the N# compiler and emit `System.Numerics.Vector<T>`
-   codegen directly (RyuJIT won't auto-vectorize these). Could turn ~8× into ~2–3× on the commonest kernels.
-2. **Loop unrolling (4–8×) for counted loops with proven bounds** — exposes ILP; pairs with (1).
-3. **Per-iteration bounds-check elision** — prove the induction var in-range once at loop entry, emit
-   unchecked indexed loads for the body (count-transitions's size-scaling tax).
-4. **Fixed-trip-count bounds-check elimination** — parse-eight-digits's constant 8-trip loop.
-5. **Guarantee delegate-free, AggressiveInlining `[hot]` kernels** — kills the call-boundary on small inputs.
-6. **Scalar regalloc/scheduling quality** — the residual after vectorization is off the table (rolling-hash).
-7. **Strategic / long-pole: an LLVM-backed (or NativeAOT-with-vectorizer) codegen path for the systems
-   subset.** Items 1–6 fight RyuJIT's ceiling one pattern at a time; the durable way to broad Rust/C parity
-   on vectorizable kernels is a backend that already auto-vectorizes and unrolls. Frame as the long-pole bet.
+The 2026-06-06 "prioritized path to parity" listed auto-vectorization + unrolling as items 1–4. **Those are
+shipped (Phase P):**
+
+1. ✅ **Auto-vectorize counted reductions and range-predicate loops** — `for/while i<len { acc += a[i] }`
+   and `if a[i] in [lo,hi] count++` emit `System.Numerics.Vector<T>` directly (`P1`, `P2`). Turned ~8× into
+   ~2× on the commonest kernels.
+2. ✅ **min/max and count-transitions** — fused single-pass `MinMaxInt32` (`P-minmax`) and seeded
+   shifted-compare `CountTransitionsInt32` (`P-ctrans`). Turned 10.5× → 1.67× and 4.54× → 1.97×.
+3. ◻️ **Per-iteration / fixed-trip bounds-check elision** — subsumed for the vectorized kernels (the SIMD
+   helpers do their own bounds reasoning); would only help any *remaining* scalar indexed loops.
+4. ◻️ **Wider unrolling / scalar regalloc quality** — the residual 1.6–2× lever, but RyuJIT-internal and low
+   marginal value (see below).
+5. ◻️ **Strategic / long-pole: an LLVM-backed (or NativeAOT-with-vectorizer) codegen path** (`P4`). Items 1–2
+   fought RyuJIT's ceiling one pattern at a time and won most of the prize; `P4` is the structural bet for
+   the residual. **Decision is now evidence-gated — see Roadmap implication.**
 
 ## Caveats (do not over-read)
 
 - **Mixed instruments:** N#/C# via BenchmarkDotNet (carries ~1–2 ns/op harness+delegate overhead, material
-  only on the sub-5 ns rows); Rust/C via hand-rolled micro-benches (median-of-medians, black_box/volatile).
-  Large multiples (6–9×) dwarf this; small ones (1.4×, ~1.8×) sit near the methodology floor.
-- **(was: two C rows DCE'd — now fixed; 6-of-6 clean.)**
-- **Hand-picked, narrow set:** 6 i32-array scalar kernels, two sizes — chosen to probe scalar codegen, NOT
-  a representative application/compiler workload (no strings, structs, allocation, cache-miss access, real
-  hot paths). **Do not generalize to "N# is N× slower than Rust" in general.**
-- Single machine (ARM/M4); x64 vectorization ratios could differ.
+  only on the sub-5 ns rows — parse-eight-digits, and the 64-size cells); Rust/C via hand-rolled
+  micro-benches (median-of-medians, black_box/volatile). The ~2× multiples dwarf this; the 1.4× ones sit
+  near the methodology floor, so read them as "≈1.5×," not a precise ratio.
+- **6-of-6 methodologically clean** on both Rust and C (the two DCE'd C rows were fixed 2026-06-06).
+- **Hand-picked, narrow set:** 6 i32-array scalar kernels, two sizes — chosen to probe scalar/SIMD codegen,
+  NOT a representative application/compiler workload (no strings, structs, allocation, cache-miss access,
+  real hot paths). **Do not generalize to "N# is within 2× of Rust" in general** — generalize only to "on
+  these vectorizable i32 kernels, on this machine."
+- Single machine (ARM/M4); x64 vectorization ratios could differ (`Vector<int>.Count` = 8 on AVX2 vs 4 on
+  NEON changes the unroll math).
 
 ## Roadmap implication
 
-Two distinct bets fall out:
-- **Near-term, safe:** finish self-hosting the compiler in N# now — parity-with-C# is proven, so the
-  migration is performance-neutral. (Toward the "Roslyn-class N# entry point" goal.)
-- **Long-pole:** to make "top-of-class systems, as fast as Rust" truthful, do auto-vectorization+unrolling
-  (1–2) and ultimately the LLVM/NativeAOT backend (7).
+The 2026-06-06 run framed two bets. After this re-run:
 
-Next harness improvement (cheap, before the big bets): fix the two C-harness DCE barriers (→ 6-of-6 fair),
-then broaden the corpus toward an actual compiler hot path (token scan, symbol-table probe) so we measure
-the code we intend to ship in N#, not just synthetic i32 kernels.
+- **Near-term, safe (DONE / in progress):** finish self-hosting the compiler in N# — parity-with-C# is
+  proven and on the hot loops N# is now *faster* than C#, so the migration is performance-positive.
+- **Per-pattern vectorization (DONE):** items 1–2 above shipped; the vectorizable gap is closed to ~2×.
+- **Long-pole `P4` (LLVM / NativeAOT backend) — now an evidence-gated decision, not an obvious yes.** The
+  original justification was an 8.8–10.5× SIMD gap; that gap is gone. The residual ~1.6–2× is latency-bound
+  + small-input + scalar-scheduling, which a backend swap does **not** cheaply fix: NativeAOT shares RyuJIT's
+  codegen (no loop auto-vectorization either), and the only LLVM-for-.NET path (NativeAOT-LLVM) is
+  experimental and WASM-targeted. See [`p4-llvm-nativeaot-backend-evaluation.md`](p4-llvm-nativeaot-backend-evaluation.md)
+  for the full decision and the evidence gates that would reopen it.
+
+Next cheap evidence-sharpening (before any structural bet): broaden the corpus from synthetic i32 kernels to
+a real compiler hot path (token scan, symbol-table probe) so the gap is measured on the code we actually
+intend to ship in N#, not just micro-kernels.
