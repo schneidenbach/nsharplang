@@ -120,7 +120,7 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         form (locals, if/while, calls, non-int, value-less return, multi-func) → C# path unaffected.
         Adversarially verified (decline-safety strong; the one edge — value-less int return — fixed + tested).
       - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [ ] 4c unify into a real
-        dispatcher + the parity-vs-C#-path test harness · [ ] 4d locals (`x := a+b; return x`) · [ ] 4e unary ·
+        dispatcher + the parity-vs-C#-path test harness · [ ] 4d locals (a `:=` local feeding a `return`) · [ ] 4e unary ·
         [ ] 4g if/else · [ ] 4h while · [ ] 4i calls · [ ] 4j route via `DeclareFunction` (flagged) + benchmark
         never-slower · [ ] 4k C# fallback for declined forms + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no

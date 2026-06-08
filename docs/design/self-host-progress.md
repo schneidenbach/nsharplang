@@ -51,8 +51,8 @@ statement, or a parameter) does.
 
 **A first attempt got this wrong** and was reverted (`fe61aa51`): it used a naive "a local is unused iff its
 name never appears as an identifier anywhere in the source" GLOBAL rule. That over-suppresses — e.g.
-`func first(){x:=42} func second(){x:=100; return x}`: the Linter flags `first`'s `x` (its block closed before
-`second` was visited), but the global rule does not. The first adversarial review's *judge* approved it on
+`func first() { x := 42 }` (an unused `x`) followed by a `func second()` whose body reads `x`: the Linter flags
+`first`'s `x` (its block closed before `second` was visited), but the global rule does not. The first adversarial review's *judge* approved it on
 mirror-parity grounds, but a direct audit of `Linter.cs` (functions push a scope at `:631`, blocks at `:833`;
 the check at `PopScope`/`:285`) showed the mirror itself wasn't faithful to the Linter — so it was discarded.
 
