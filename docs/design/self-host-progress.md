@@ -11,6 +11,34 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — `void` functions (procedures) → DiagnosticDeduplication.nl (single-file 23→24, cluster 26→27)
+
+Diagnosed the last "0-feature but declines" mystery: `DiagnosticDeduplication.nl` is pure int/int[] EXCEPT its
+heapsort helpers `SortDiagnosticDeduplicationIndices` / `SiftDownDiagnosticDeduplicationIndices` return `void`
+(they mutate index arrays in place, called as statements). The emitter's `TryResolveType("void")` failed, so
+the WHOLE program declined at pass 1 — invisible to the construct-scan since `void` is a return type, not an
+expression form. Added void-function support (the function-emission CONTRACT now distinguishes value vs void):
+- Pass 1: `ReturnCanonical == "void"` → `returnType = typeof(void)` (void is valid ONLY as a return type; it is
+  NOT admitted by `IsSupportedType`, which gates params/locals/array-elements/values — so void can't leak).
+- New `EmitBody(bodyRoot, isVoid)`: a VALUE function still REQUIRES `AlwaysReturns` (NL305) then emits; a VOID
+  function emits the body, then a trailing `ret` IFF it can fall through (`!AlwaysReturns`) — so an
+  always-returns void body gets no trailing `ret` (no unreachable code), and a fall-through one ends in exactly
+  one reachable `ret`.
+- Return (kind 20): in a void function a value-less `return` emits a bare `ret`; a value-bearing `return`
+  declines (arity mismatch). (Value functions unchanged: value required, type-checked.)
+
+Flips `DiagnosticDeduplication.nl`. Parity-gated: `ColumnarCodegen_Parity_VoidFunctions` (all three void shapes —
+falls-through while-loop body, value-less early `return`, a void sibling invoked as a STATEMENT — with a
+non-void `driver` observing the in-place mutations so the EFFECTS are verified, plus the value-bearing-return
+decline) and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticDeduplication` (the real file's
+`DiagnosticDeduplicateStableChecksumInto` exercises the void heapsort, value-matched vs the C# pipeline).
+Adversarially reviewed (read-only, 2 lenses): void emission is CORRECT + VERIFIABLE for every body shape (the
+C# ILCompiler emits the trailing `ret` identically), void cannot leak into a value context, the value-function
+always-return contract is preserved, and the tests are non-vacuous. Ratchets: single-file floor 23→24,
+multi-file cluster 26→27. Coverage now **24/32 single-file, 27/32 via multi-file merge (~84%)**. (`DiagnosticClusters`
+also has 4 void funcs but needs StringBuilder/Math too; `IdentifierSpans` has 0 void funcs — its decline is a
+still-separate gap.)
+
 ## 2026-06-08 — lowercase `char.` static predicates (+ IsLetter/IsDigit) → LexerTokenKindScanner.nl (single-file 22→23, cluster 25→26)
 
 `char`/`int`/`string` are NOT reserved keywords in N# — they lex as plain Identifiers (confirmed: no Char/Int

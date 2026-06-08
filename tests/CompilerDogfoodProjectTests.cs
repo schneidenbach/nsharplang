@@ -2984,6 +2984,49 @@ class B
         Assert.False(RouteColumnarProgram("func f(a: ulong): long {\n    return (long)a\n}\n").Ok);
     }
 
+    // void functions (procedures): the body need NOT always-return (a trailing `ret` is emitted iff it can fall
+    // through); a value-less `return`; a void sibling invoked as a STATEMENT (call + no result); in-place array
+    // mutation observed by the non-void caller. A value-bearing `return` in a void function declines.
+    [Fact]
+    public void ColumnarCodegen_Parity_VoidFunctions()
+    {
+        var prog =
+            "func setAll(a: int[], v: int): void {\n    i := 0\n    while i < a.Length {\n        a[i] = v\n        i = i + 1\n    }\n}\n\n" +
+            "func clampLow(a: int[], lo: int): void {\n    i := 0\n    while i < a.Length {\n        if a[i] < lo {\n            a[i] = lo\n        }\n        i = i + 1\n    }\n}\n\n" +
+            "func earlyOut(a: int[]): void {\n    if a.Length == 0 {\n        return\n    }\n    a[0] = 99\n}\n\n" +
+            "func driver(a: int[], v: int): int {\n    setAll(a, v)\n    clampLow(a, 0)\n    earlyOut(a)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("driver", new object[] { new int[4], 5 }),
+            ("driver", new object[] { new int[1], -3 }),
+            ("driver", new object[] { new int[0], 7 }));
+
+        // DECLINE: a value-bearing `return` in a void function (arity mismatch).
+        Assert.False(RouteColumnarProgram("func f(): void {\n    return 5\n}\n").Ok);
+    }
+
+    // MILESTONE: DiagnosticDeduplication.nl compiles end-to-end with no C# AST. Enabling feature: void functions
+    // — its heapsort helpers SortDiagnosticDeduplicationIndices / SiftDownDiagnosticDeduplicationIndices return
+    // void and mutate index arrays in place (called as statements by the dedup-into entry points). It is pure
+    // int/int[] otherwise, which is exactly why it declined despite "no missing feature" until void landed.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticDeduplication()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "DiagnosticDeduplication.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real DiagnosticDeduplication.nl (expected full support).");
+        Assert.Contains("SortDiagnosticDeduplicationIndices", methodNames!); // the void heapsort helper.
+
+        // Parallel diagnostic arrays with a duplicate (rows 0 & 2 identical) so the dedup + void sort both run.
+        int[] codeIds = { 1, 2, 1, 3 }, fileIds = { 0, 0, 0, 1 }, lines = { 10, 20, 10, 5 };
+        int[] cols = { 1, 2, 1, 3 }, msgIds = { 100, 200, 100, 300 };
+        AssertColumnarProgramMatchesCSharp(source,
+            ("DiagnosticDeduplicateStableChecksumInto", new object[] { codeIds, fileIds, lines, cols, msgIds, new int[16], new int[4] }),
+            ("DiagnosticDeduplicateStableChecksumInto", new object[] { new[] { 1 }, new[] { 0 }, new[] { 1 }, new[] { 1 }, new[] { 9 }, new int[8], new int[1] }),
+            ("DiagnosticDeduplicationPositiveModulo", new object[] { 17, 5 }), ("DiagnosticDeduplicationPositiveModulo", new object[] { -17, 5 }),
+            ("DiagnosticDeduplicationMinInt", new object[] { 4, 9 }), ("DiagnosticDeduplicationMinInt", new object[] { 9, 4 }));
+    }
+
     // Lowercase `char` as a static-method receiver — the builtin alias (it lexes as an Identifier and binds to
     // System.Char like capital `Char`), e.g. `char.IsLetter(c)`. Adds IsLetter / IsDigit to the Char whitelist.
     [Fact]
@@ -3266,11 +3309,11 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
-            "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
-            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
-            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
-            "TextEditOrdering.nl", "TypeLookup.nl",
+            "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl",
+            "FormatterSafetyScan.nl", "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl",
+            "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl",
+            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
+            "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
@@ -3297,10 +3340,10 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
-            "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
-            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
-            "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+            "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl",
+            "FormatterSafetyScan.nl", "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl",
+            "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
+            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

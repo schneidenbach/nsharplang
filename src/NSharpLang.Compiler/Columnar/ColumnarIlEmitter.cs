@@ -263,7 +263,13 @@ public sealed class ColumnarIlEmitter
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
-            if (!TryResolveType(fn.ReturnCanonical, out var returnType) || !IsSupportedType(returnType))
+            // The return type may be `void` (a procedure — its body need not always-return and `return` takes
+            // no value); otherwise it must be a supported VALUE type. `void` is valid ONLY as a return type, so
+            // it is handled here and NOT admitted by IsSupportedType (which gates params/locals/arrays/values).
+            Type returnType;
+            if (fn.ReturnCanonical == "void")
+                returnType = typeof(void);
+            else if (!TryResolveType(fn.ReturnCanonical, out returnType) || !IsSupportedType(returnType))
                 return false;
             var paramTypes = new Type[fn.ParamNames.Length];
             var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -295,9 +301,7 @@ public sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
                 source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings);
-            // An int function must return on every path (NL305): the body must always return, else the emitted
-            // IL would fall off the end with no `ret` (invalid). Decline a non-returning body to the C# analyzer.
-            if (!emitter.AlwaysReturns(fn.BodyRoot) || !emitter.EmitStatement(fn.BodyRoot))
+            if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
         }
 
@@ -305,6 +309,23 @@ public sealed class ColumnarIlEmitter
         using var stream = new MemoryStream();
         builder.Save(stream);
         assembly = stream.ToArray();
+        return true;
+    }
+
+    // Emit a function body. A VALUE function (non-void) must always-return on every path (NL305) — else the IL
+    // would fall off the end with no `ret`; decline it to the C# analyzer. A VOID function (procedure) need not
+    // always-return: emit the body, then a trailing `ret` IFF control can fall through to the method end (when
+    // the body already always-returns via value-less `return`s, no trailing `ret` is emitted, so there is no
+    // unreachable code).
+    private bool EmitBody(int bodyRoot, bool isVoid)
+    {
+        if (!isVoid)
+            return AlwaysReturns(bodyRoot) && EmitStatement(bodyRoot);
+        var fallsThrough = !AlwaysReturns(bodyRoot);
+        if (!EmitStatement(bodyRoot))
+            return false;
+        if (fallsThrough)
+            _il.Emit(OpCodes.Ret);
         return true;
     }
 
@@ -345,8 +366,17 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 20: // Return [value] — a value is REQUIRED (a value-less `return` would emit `ret` with an empty
-                     // stack = invalid IL); decline it. The value's type must match the declared return type.
+            case 20: // Return [value?] — in a VOID function a value-less `return` emits a bare `ret`; in a VALUE
+                     // function a value is REQUIRED (a value-less `ret` with an empty stack is invalid IL) and its
+                     // type must match the declared return type. A value-bearing `return` in a void function, or a
+                     // value-less one in a value function, declines (mismatched arity).
+                if (_returnType == typeof(void))
+                {
+                    if (_childCount[idx] != 0)
+                        return false;
+                    _il.Emit(OpCodes.Ret);
+                    return true;
+                }
                 if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0), out var retType) || retType != _returnType)
                     return false;
                 _il.Emit(OpCodes.Ret);
