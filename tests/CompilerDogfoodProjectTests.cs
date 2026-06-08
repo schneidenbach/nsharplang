@@ -2288,10 +2288,14 @@ class B
         // nested if/else (the else branch is itself a both-returning if/else).
         AssertEmits("func sign(a: int): int {\n    if a > 0 {\n        return 1\n    } else {\n        if a < 0 {\n            return 0 - 1\n        } else {\n            return 0\n        }\n    }\n}\n", "sign",
             (new object[] { 5 }, 1), (new object[] { -3 }, -1), (new object[] { 0 }, 0));
+        // a simple `local = expr` assignment statement, then a return of the local.
+        AssertEmits("func acc(a: int, b: int): int {\n    x := a\n    x = x + b\n    return x\n}\n", "acc",
+            (new object[] { 3, 4 }, 7), (new object[] { 10, -10 }, 0));
+        // multiple reassignments of the same local.
+        AssertEmits("func bump(a: int): int {\n    x := a\n    x = x + 1\n    x = x * 2\n    return x\n}\n", "bump",
+            (new object[] { 3 }, 8));
 
         // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
-        // An assignment STATEMENT (`x = x + 1`, kind 23) is not handled yet (only `:=` declarations).
-        Assert.False(RouteColumnarEmit("func reassign(a: int): int {\n    x := a\n    x = x + 1\n    return x\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func two(): int {\n    return 1\n}\n\nfunc other(): int {\n    return 2\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func arr(): string[] {\n    return null\n}\n").Ok);
         // INT-ONLY restriction: non-int functions decline (no type-aware emission yet) -> C# path unaffected.
@@ -2309,6 +2313,13 @@ class B
         Assert.False(RouteColumnarEmit("func gt(a: int, b: int): int {\n    return a > b\n}\n").Ok);
         // unreachable code after a return (an NL312 diagnostic) must decline, not emit code after `ret`.
         Assert.False(RouteColumnarEmit("func unreach(a: int): int {\n    if a > 0 {\n        return 1\n        y := 2\n    } else {\n        return 0\n    }\n}\n").Ok);
+        // compound assignment (`+=`) is not lowered yet -> decline.
+        Assert.False(RouteColumnarEmit("func compound(a: int): int {\n    x := a\n    x += 1\n    return x\n}\n").Ok);
+        // assigning to a parameter (not a `:=` local) -> decline (starg not modeled).
+        Assert.False(RouteColumnarEmit("func setp(a: int): int {\n    a = a + 1\n    return a\n}\n").Ok);
+        // an int body that does NOT return on all paths (NL305) would emit IL with no final `ret` -> decline.
+        Assert.False(RouteColumnarEmit("func noRetAssign(a: int): int {\n    x := a\n    x = x + 1\n}\n").Ok);
+        Assert.False(RouteColumnarEmit("func noRetDecl(a: int): int {\n    x := a\n}\n").Ok);
     }
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)

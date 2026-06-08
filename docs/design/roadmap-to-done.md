@@ -133,7 +133,10 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         position, and unreachable code after a return (an NL312 case — the review caught that the Block emitter
         emitted past a `ret`; fixed: a returning statement must be last in its block).
       - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [ ] 4c unify into a real
-        dispatcher + the parity-vs-C#-path test harness · [ ] 4e unary · [ ] 4f assignment statements (`x = …`) ·
+        dispatcher + the parity-vs-C#-path test harness · [x] **4f simple assignment statements DONE** (`local =
+        expr` to a `:=` local: emit value, `stloc`; compound `+=`, param targets, and non-identifier targets
+        decline). Surfaced + fixed a latent bug: an int body that does not return on all paths (NL305) emitted IL
+        with no final `ret` — now the body must always-return or the source declines. · [ ] 4e unary ·
         [ ] 4g+ if-without-else / fall-through branches (merge labels) · [ ] 4h while · [ ] 4i calls ·
         [ ] 4j route via `DeclareFunction` (flagged) + benchmark never-slower · [ ] 4k C# fallback + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
@@ -279,9 +282,12 @@ everything else so the C# path is unaffected; adversarially verified. **4d (int 
 `stloc`/`ldloc`, chained locals invoke-tested, shadowing/redeclaration declined (keeping the C# analyzer
 authoritative). **4g (if/else, both-branches-return cut, with int comparisons) is also DONE.** So the emitter
 now covers params, int literals, `+/-/*`, paren, `:=` locals, and if/else — invoke-tested, every unsupported or
-diagnostic-bearing form (shadowing, unreachable-after-return, if-without-else, bool-in-value) declined. **Next:
-4c (a real columnar dispatcher + the parity-vs-C#-path harness) / 4h (while) / 4i (calls), then 4j (route via
-`DeclareFunction`).** This is the inflection point where C# begins to be deleted (Stages 5 route → 6 delete)
+diagnostic-bearing form (shadowing, unreachable-after-return, if-without-else, bool-in-value) declined. **4f
+(simple `local = expr` assignment statements) is also DONE** — and surfaced + fixed a latent fall-off-the-end
+bug (an int body must now always-return, else decline). So the emitter covers params, int literals, `+/-/*` +
+comparisons, paren, `:=` locals, assignment, and if/else. **Next: 4c (real dispatcher + parity-vs-C#-path
+harness) / 4h (while) / 4i (calls), then 4j (route via `DeclareFunction`).** This is the inflection point where
+C# begins to be deleted (Stages 5 route → 6 delete)
 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 

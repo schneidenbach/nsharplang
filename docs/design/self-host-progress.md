@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 4f: columnar codegen grows simple assignment statements
+
+Extends `ColumnarIlEmitter` with a simple `local = expr` assignment statement. An ExpressionStatement (kind 23)
+whose child is an Assignment (kind 14) with operator `=` and an Identifier target that is an existing `:=` local
+emits the value expression then `stloc` into that local. Invoke-tested: `acc` (`x = x + b`) and `bump` (two
+reassignments). Declines: compound assignment (`+=`/`-=`/… — the operator-token text is not `=`), assigning to
+a parameter or a non-identifier target (`arr[i]`, `obj.f`), and any non-assignment statement (a bare call). The
+columnar fact that made this clean: AssignmentExpression carries its operator token in its value span
+(`ParserExpressions.nl:578`), so `=` vs `+=` is a string check; and the corpus uses no compound assignments.
+
+**Adversarial review caught a latent codegen bug (present since 4d):** a function body that does not return on
+all paths — e.g. `func f(a: int): int { x := a` then `x = x + 1 }` (ends in an assignment) or `{ x := a }`
+(ends in a `:=`) — emitted IL that falls off the end with no `ret` = invalid (`InvalidProgramException` on load).
+All prior positive tests happened to end in `return`, so it slipped through. Fix: the emitter requires the
+function body to ALWAYS return (the same `AlwaysReturns` subset) before emitting; a non-returning body declines
+to the C# analyzer (which would flag NL305). Decline tests added for an assignment-ended and a `:=`-ended body.
+Gate green. Next: 4c (real dispatcher + parity-vs-C#-path harness), 4h (while), 4i (calls), 4j (route).
+
 ## 2026-06-07 — Stage 4g: columnar codegen grows if/else (first cut) + int comparisons
 
 Extends `ColumnarIlEmitter` with control flow. **First cut deliberately requires an `if`/`else` where BOTH

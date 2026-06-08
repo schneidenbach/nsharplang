@@ -15,8 +15,9 @@ namespace NSharpLang.Compiler.Columnar;
 /// codegen will emit; later slices grow the supported surface and route through <c>ILCompiler</c> proper.
 ///
 /// Deliberately narrow: top-level <c>func</c> with INT params/return only (mixed-type arithmetic would need
-/// conversions this spike does not emit). Statements: <c>:=</c> int locals, Return (value required), and an
-/// <c>if</c>/<c>else</c> where BOTH branches always return (no fall-through). Value expressions: a parameter, a
+/// conversions this spike does not emit). Statements: <c>:=</c> int locals, a simple <c>local = expr</c>
+/// assignment, Return (value required), and an <c>if</c>/<c>else</c> where BOTH branches always return (no
+/// fall-through). Value expressions: a parameter, a
 /// <c>:=</c> local, an int literal, a parenthesized expr, or an int +/-/* binary. <c>if</c> conditions are an
 /// int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) only. Anything else returns false (the adapter declines
 /// → the C# path is unaffected).
@@ -111,7 +112,9 @@ public sealed class ColumnarIlEmitter
 
         var emitter = new ColumnarIlEmitter(
             kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, ordinals, il);
-        if (!emitter.EmitStatement(bodyRoot))
+        // An int function must return on every path (NL305): the body must always return, else the emitted IL
+        // would fall off the end with no `ret` (invalid). Decline a non-returning body to the C# analyzer.
+        if (!emitter.AlwaysReturns(bodyRoot) || !emitter.EmitStatement(bodyRoot))
             return false;
 
         type.CreateType();
@@ -175,6 +178,21 @@ public sealed class ColumnarIlEmitter
                     return false;
                 _il.MarkLabel(elseLabel);
                 return EmitStatement(Child(idx, 2));      // else (always returns -> ends in `ret`)
+            }
+
+            case 23: // ExpressionStatement — FIRST CUT: only a SIMPLE `local = expr` assignment (kind 14, op `=`)
+            {        // to an existing `:=` local. Compound ops (`+=`) and non-local targets (param/field/index)
+                     // and side-effecting statements (a bare call) decline.
+                var expr = Child(idx, 0);
+                if (_kinds[expr] != 14 || Text(expr) != "=")
+                    return false;
+                var target = Child(expr, 0);
+                if (_kinds[target] != 6 || !_locals.TryGetValue(Text(target), out var assignTarget))
+                    return false;
+                if (!EmitExpression(Child(expr, 1)))
+                    return false;
+                _il.Emit(OpCodes.Stloc, assignTarget);
+                return true;
             }
 
             default: // spike: Block / Return / `:=` declaration / if-else-both-return only.
