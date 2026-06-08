@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4b-ii: columnar codegen grows `long` (i8 — first distinct stack representation)
+
+On the type-aware foundation, `long` slots in cleanly. A long literal is an `IntLiteral` token whose text
+keeps the `L`/`l` suffix (the lexer preserves it), so the emitter distinguishes `5L` → `ldc.i8` (type long)
+from `5` → `ldc.i4` (type int); unsigned suffixes (`u`/`U`, `UL`/`LU`) decline (uint/ulong unsupported).
+Long arithmetic/comparison/unary reuse the SAME opcodes as int (`add`/`sub`/`mul`/`neg`/`not`/`clt`/`cgt`/
+`ceq` all work on i8) — the only new opcode is `ldc.i8` — with the result type propagated as long. Long
+params/locals/returns work via the existing type machinery. Mixed int/long arithmetic (implicit widening)
+is NOT modelled — both operands must be the same type, else decline (safe: the C# path handles widening).
+
+This is the first type where the per-arg type check added in 4b-i genuinely matters: int and long have
+distinct stack representations (i4 vs i8), so passing an int where a long is expected would be invalid IL —
+the check declines it. Parity-gated (`ColumnarCodegen_Parity_LongType`) vs the C# pipeline, deliberately
+including VALUES BEYOND int range (`1e9 * 1e9 = 1e18`, `factL(20)`) to prove it is genuinely i8, not i4.
+Declines mixed int/long and a `ulong` literal. Updated the now-stale int-only decline tests (a pure-long
+function is no longer declined). Next: 4b-iii `double` (`ldc.r8`, float arithmetic), then `string`.
+
 ## 2026-06-08 — Stage 4b-i: TYPE-AWARE columnar emitter + bool (first type beyond int)
 
 The biggest Stage-4 refactor: `ColumnarIlEmitter` went from an UNTYPED int-only emitter to a TYPE-AWARE

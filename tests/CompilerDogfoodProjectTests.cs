@@ -2335,8 +2335,8 @@ class B
         // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
         Assert.False(RouteColumnarEmit("func two(): int {\n    return 1\n}\n\nfunc other(): int {\n    return 2\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func arr(): string[] {\n    return null\n}\n").Ok);
-        // INT-ONLY restriction: non-int functions decline (no type-aware emission yet) -> C# path unaffected.
-        Assert.False(RouteColumnarEmit("func longId(x: long): long {\n    return x\n}\n").Ok);
+        // MIXED int/long arithmetic (implicit widening) is not modelled -> decline (pure int/bool/long are now
+        // supported; long single-function coverage lives in ColumnarCodegen_Parity_LongType).
         Assert.False(RouteColumnarEmit("func mix(a: int, b: long): long {\n    return a + b\n}\n").Ok);
         // a value-less `return` in an int function would emit invalid IL -> must decline.
         Assert.False(RouteColumnarEmit("func novalue(): int {\n    return\n}\n").Ok);
@@ -2462,8 +2462,9 @@ class B
         AssertColumnarProgramMatchesCSharp("func id(x: int): int {\n    return x\n}\n",
             ("id", new object[] { 42 }), ("id", new object[] { -7 }));
 
-        // The whole program declines (no assembly) if ANY function is ineligible (here, a non-int second func).
-        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: long): long {\n    return x\n}\n").Ok);
+        // The whole program declines (no assembly) if ANY function is ineligible (here, a not-yet-supported
+        // `double` second func — int/bool/long are supported).
+        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: double): double {\n    return x\n}\n").Ok);
 
         // 4i SIBLING CALLS. A caller invoking a sibling, and a nested call (call result as an arg).
         var callHelper = "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc addThree(a: int, b: int, c: int): int {\n    return add(add(a, b), c)\n}\n";
@@ -2536,6 +2537,39 @@ class B
         // a CALL ARG type mismatch (int passed to a bool parameter) -> decline. int and bool are both i4, so
         // without the per-arg type check this would emit verifiable-but-wrong IL instead of declining.
         Assert.False(RouteColumnarProgram("func needsBool(flag: bool): bool {\n    return !flag\n}\n\nfunc caller(): bool {\n    return needsBool(5)\n}\n").Ok);
+    }
+
+    // Stage 4b-ii — `long` (i8), the first type with a distinct stack representation. Exercises long literals
+    // (L suffix -> ldc.i8), long arithmetic/comparison/unary (same opcodes as int but i8), long
+    // params/locals/returns, and VALUES BEYOND int range (proving it is genuinely i8, not i4). All vs the C# path.
+    [Fact]
+    public void ColumnarCodegen_Parity_LongType()
+    {
+        const long big = 1000000000L; // 1e9; big*big = 1e18 overflows int but fits long.
+        var prog = "func addL(a: long, b: long): long {\n    return a + b\n}\n\n" +
+                   "func mulL(a: long, b: long): long {\n    return a * b\n}\n\n" +
+                   "func incL(a: long): long {\n    return a + 1L\n}\n\n" +
+                   "func negL(a: long): long {\n    return -a\n}\n\n" +
+                   "func answerL(): long {\n    return 42L\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("addL", new object[] { big, big }), ("addL", new object[] { -5L, 5L }),
+            ("mulL", new object[] { big, big }), ("mulL", new object[] { -7L, 8L }),
+            ("incL", new object[] { big }), ("negL", new object[] { big }), ("answerL", System.Array.Empty<object>()));
+
+        // long comparisons -> bool, a long `:=` local, and long factorial (factL(20) > int.MaxValue).
+        var prog2 = "func ltL(a: long, b: long): bool {\n    return a < b\n}\n\n" +
+                    "func eqL(a: long, b: long): bool {\n    return a == b\n}\n\n" +
+                    "func twiceL(a: long): long {\n    x := a + 1L\n    return x * 2L\n}\n\n" +
+                    "func factL(n: long): long {\n    if n <= 1L {\n        return 1L\n    }\n    return n * factL(n - 1L)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog2,
+            ("ltL", new object[] { 3L, 9L }), ("ltL", new object[] { 9L, 3L }), ("ltL", new object[] { big, big }),
+            ("eqL", new object[] { big, big }), ("eqL", new object[] { 1L, 2L }),
+            ("twiceL", new object[] { big }),
+            ("factL", new object[] { 1L }), ("factL", new object[] { 13L }), ("factL", new object[] { 20L }));
+
+        // DECLINES: mixed int/long (implicit widening not modelled) and unsigned ulong literal.
+        Assert.False(RouteColumnarProgram("func mix(a: long): long {\n    return a + 1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func u(): ulong {\n    return 5\n}\n").Ok);
     }
 
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar

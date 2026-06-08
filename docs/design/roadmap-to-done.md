@@ -140,8 +140,11 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         per-arg type check vs callee params). bool: literals, comparisons-in-value (`EmitComparison`), logical `!`,
         bool params/locals/returns, bool conditions. Int subset proven behavior-preserving first, then bool added;
         parity-gated (`ColumnarCodegen_Parity_BoolType`) + declines `&&`/bool-from-int/bool+int/wrong-arg-type.
-        Adversarial review (ship-with-nits) caught the call-arg-type gap bool introduced → fixed + tested. · [ ]
-        4b-ii `long` (i8: `ldc.i8`, long arith/cmp) · [ ] 4b-iii `double` · [ ] 4b-iv `string`. · [x] **4c parity-vs-C#-path
+        Adversarial review (ship-with-nits) caught the call-arg-type gap bool introduced → fixed + tested. · [x]
+        **4b-ii `long` DONE** (i8: `5L`→`ldc.i8` via the preserved lexer suffix; arith/cmp/unary reuse int opcodes
+        on i8; long params/locals/returns; mixed int/long widening declines. First distinct stack rep, so the
+        per-arg type check now genuinely prevents i4-where-i8 invalid IL. Parity-gated incl. values > int range
+        — `1e9*1e9`, `factL(20)` — + ulong/mixed declines) · [ ] 4b-iii `double` · [ ] 4b-iv `string`. · [x] **4c parity-vs-C#-path
         harness DONE** (`ColumnarCodegen_Parity_MatchesCSharpPath`: compile each eligible fn via BOTH the columnar
         path AND `MultiFileCompiler`→`ILCompiler`, invoke over many inputs incl. negatives/boundaries/overflow,
         assert identical; 15 fns. Caught + fixed TWO latent C# codegen bugs of one class — `EmitIf` both-arms-return

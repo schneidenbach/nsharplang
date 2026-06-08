@@ -107,9 +107,10 @@ public sealed class ColumnarIlEmitter
         _siblings = siblings;
     }
 
-    // The builtin types the type-aware emitter currently handles. INT + BOOL for now (bool's representation is
-    // i4, so comparisons/branches already produce it); later slices add long/double/string.
-    private static bool IsSupportedType(Type t) => t == typeof(int) || t == typeof(bool);
+    // The builtin types the type-aware emitter currently handles: int, bool, and long (i8). Later slices add
+    // double/string. (Mixed int/long arithmetic — implicit widening — is not modelled yet; an all-long or
+    // all-int expression is required, else the function declines.)
+    private static bool IsSupportedType(Type t) => t == typeof(int) || t == typeof(bool) || t == typeof(long);
 
     /// <summary>Canonical N# primitive type name → its CLR <see cref="Type"/>. Non-builtins are unsupported.</summary>
     public static bool TryResolveBuiltin(string canonical, out Type type)
@@ -462,8 +463,26 @@ public sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 0: // IntLiteral — plain decimal int only.
-                if (int.TryParse(Text(idx), out var value))
+            case 0: // IntLiteral — plain decimal `int`, or a signed `long` literal (digits + L/l). The lexer keeps
+            {       // the suffix in the token text. Unsigned suffixes (u/U, UL/LU) are not in the supported set.
+                var text = Text(idx);
+                var last = text.Length > 0 ? text[text.Length - 1] : '\0';
+                if (last == 'L' || last == 'l')
+                {
+                    var digits = text.Substring(0, text.Length - 1);
+                    if (digits.Length > 0 && (digits[digits.Length - 1] == 'u' || digits[digits.Length - 1] == 'U'))
+                        return false; // UL/LU = ulong, unsupported.
+                    if (long.TryParse(digits, out var longValue))
+                    {
+                        _il.Emit(OpCodes.Ldc_I8, longValue);
+                        type = typeof(long);
+                        return true;
+                    }
+                    return false;
+                }
+                if (last == 'u' || last == 'U') // uint/ulong, unsupported.
+                    return false;
+                if (int.TryParse(text, out var value))
                 {
                     _il.Emit(OpCodes.Ldc_I4, value);
                     type = typeof(int);
@@ -471,6 +490,7 @@ public sealed class ColumnarIlEmitter
                 }
 
                 return false;
+            }
 
             case 4: // BoolLiteral — true/false (i4 1/0).
                 switch (Text(idx))
@@ -483,18 +503,18 @@ public sealed class ColumnarIlEmitter
             case 7: // Parenthesized — emit the inner expression, propagating its type.
                 return EmitExpression(Child(idx, 0), out type);
 
-            case 11: // Unary [operand] — int prefix `-`/`~`, or bool `!`. `++`/`--` decline.
+            case 11: // Unary [operand] — int/long prefix `-`/`~`, or bool `!`. `++`/`--` decline.
             {
                 if (!EmitExpression(Child(idx, 0), out var operandType))
                     return false;
                 switch (Text(idx))
                 {
-                    case "-":
-                        if (operandType != typeof(int)) return false;
-                        _il.Emit(OpCodes.Neg); type = typeof(int); return true;
-                    case "~":
-                        if (operandType != typeof(int)) return false;
-                        _il.Emit(OpCodes.Not); type = typeof(int); return true;
+                    case "-": // negate — Neg works on i4 and i8; result is the operand's numeric type.
+                        if (operandType != typeof(int) && operandType != typeof(long)) return false;
+                        _il.Emit(OpCodes.Neg); type = operandType; return true;
+                    case "~": // bitwise not — Not works on i4 and i8.
+                        if (operandType != typeof(int) && operandType != typeof(long)) return false;
+                        _il.Emit(OpCodes.Not); type = operandType; return true;
                     case "!": // logical not on a bool: x == false.
                         if (operandType != typeof(bool)) return false;
                         _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); type = typeof(bool); return true;
@@ -502,8 +522,8 @@ public sealed class ColumnarIlEmitter
                 }
             }
 
-            case 12: // Binary [left, right] — int `+`/`-`/`*`, or a comparison producing bool. Both operands must
-            {        // be the SAME type (no implicit conversions); the result type depends on the operator.
+            case 12: // Binary [left, right] — int/long `+`/`-`/`*`, or a comparison producing bool. Both operands
+            {        // must be the SAME type (no implicit conversions); the result type depends on the operator.
                 if (!EmitExpression(Child(idx, 0), out var leftType))
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var rightType))
@@ -514,17 +534,20 @@ public sealed class ColumnarIlEmitter
                 switch (op)
                 {
                     case "+": case "-": case "*":
-                        if (leftType != typeof(int)) return false; // int arithmetic only for now.
+                        // Add/Sub/Mul work on i4 and i8; the result is the operands' (shared) numeric type.
+                        if (leftType != typeof(int) && leftType != typeof(long)) return false;
                         _il.Emit(op == "+" ? OpCodes.Add : op == "-" ? OpCodes.Sub : OpCodes.Mul);
-                        type = typeof(int);
+                        type = leftType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
-                        if (leftType != typeof(int)) return false; // ordering on int only.
+                        // Ordering on int or long (Clt/Cgt work on i4 and i8, producing an i4 bool).
+                        if (leftType != typeof(int) && leftType != typeof(long)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
                     case "==": case "!=":
-                        if (leftType != typeof(int) && leftType != typeof(bool)) return false; // equality on int/bool.
+                        // Equality on int, long, or bool (Ceq works on i4 and i8).
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(bool)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
