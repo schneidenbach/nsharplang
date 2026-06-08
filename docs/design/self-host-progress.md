@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — lowercase `char.` static predicates (+ IsLetter/IsDigit) → LexerTokenKindScanner.nl (single-file 22→23, cluster 25→26)
+
+`char`/`int`/`string` are NOT reserved keywords in N# — they lex as plain Identifiers (confirmed: no Char/Int
+keyword token in Token.cs; the lexer's keyword table doesn't special-case them) and bind to the builtin types
+by context. So a static call `char.IsDigit(c)` arrives columnar-ly as a Call whose MemberAccess receiver is an
+Identifier node with text `"char"` — but `TryEmitStaticCall` only matched `"Char"` (capital, the System.Char
+type name via `using System`), declining the lowercase alias. Fixed: accept BOTH `"Char"` and `"char"` (they
+bind to the same System.Char in N#/C#), and added `IsLetter`/`IsDigit` to the Char static whitelist (alongside
+the existing IsLetterOrDigit/IsWhiteSpace/ToLowerInvariant/ToUpperInvariant).
+
+This flips `LexerTokenKindScanner.nl` (all 31 functions — its char classifiers `IsIdentifierStart`/`IsDigit`/
+`IsHexDigit`/etc. mirror the C# lexer's BCL `char.Is*` predicates; the earlier "for"/concat hits in it were all
+comments). Parity-gated: `ColumnarCodegen_Parity_LowercaseCharStatics` (lowercase `char.IsLetter/IsDigit/
+IsWhiteSpace/IsLetterOrDigit/ToLowerInvariant` + capital `Char.IsLetter` over letters/digits/whitespace/punct)
+and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_LexerTokenKindScanner` (the real file's classifiers
+value-matched vs the C# pipeline). Small, low-risk slice (whitelist + alias acceptance) — the parity oracle
+directly verifies each predicate's result, so no separate adversarial workflow. Ratchets: single-file floor
+22→23, multi-file cluster 25→26. Coverage now **23/32 single-file, 26/32 via multi-file merge (~81%)**.
+
 ## 2026-06-08 — `ulong` scalar (unsigned) + `BitOperations.PopCount` → CliQueryParsing.nl (single-file 21→22, cluster 24→25)
 
 Added `ulong` — the first UNSIGNED scalar. It is u8 on the stack like `long` (i8), but its operations use the

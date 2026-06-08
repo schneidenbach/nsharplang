@@ -1003,13 +1003,17 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitStaticCall(int callIdx, string typeName, string member, int argCount, out Type type)
     {
         type = null!;
-        if (typeName == "Char" && argCount == 1)
+        // The receiver may be the type NAME `Char` (via `using System`) or the builtin alias `char` (the
+        // lowercase keyword) — both bind to System.Char in N#/C#, so accept either.
+        if ((typeName == "Char" || typeName == "char") && argCount == 1)
         {
             // Static System.Char methods taking a single char: classifiers (-> bool) and invariant case
             // transforms (-> char). The result type comes from the resolved method.
             MethodInfo? method = member switch
             {
                 "IsLetterOrDigit" => typeof(char).GetMethod(nameof(char.IsLetterOrDigit), new[] { typeof(char) }),
+                "IsLetter" => typeof(char).GetMethod(nameof(char.IsLetter), new[] { typeof(char) }),
+                "IsDigit" => typeof(char).GetMethod(nameof(char.IsDigit), new[] { typeof(char) }),
                 "IsWhiteSpace" => typeof(char).GetMethod(nameof(char.IsWhiteSpace), new[] { typeof(char) }),
                 "ToLowerInvariant" => typeof(char).GetMethod(nameof(char.ToLowerInvariant), new[] { typeof(char) }),
                 "ToUpperInvariant" => typeof(char).GetMethod(nameof(char.ToUpperInvariant), new[] { typeof(char) }),

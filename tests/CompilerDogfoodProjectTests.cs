@@ -2984,6 +2984,47 @@ class B
         Assert.False(RouteColumnarProgram("func f(a: ulong): long {\n    return (long)a\n}\n").Ok);
     }
 
+    // Lowercase `char` as a static-method receiver — the builtin alias (it lexes as an Identifier and binds to
+    // System.Char like capital `Char`), e.g. `char.IsLetter(c)`. Adds IsLetter / IsDigit to the Char whitelist.
+    [Fact]
+    public void ColumnarCodegen_Parity_LowercaseCharStatics()
+    {
+        var prog =
+            "func isLet(c: char): bool {\n    return char.IsLetter(c)\n}\n\n" +
+            "func isDig(c: char): bool {\n    return char.IsDigit(c)\n}\n\n" +
+            "func isWs(c: char): bool {\n    return char.IsWhiteSpace(c)\n}\n\n" +
+            "func isLetDig(c: char): bool {\n    return char.IsLetterOrDigit(c)\n}\n\n" +
+            "func lo(c: char): char {\n    return char.ToLowerInvariant(c)\n}\n\n" +
+            "func capLet(c: char): bool {\n    return Char.IsLetter(c)\n}\n"; // capital Char + the new IsLetter
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("isLet", new object[] { 'A' }), ("isLet", new object[] { '5' }), ("isLet", new object[] { ' ' }),
+            ("isDig", new object[] { '7' }), ("isDig", new object[] { 'x' }),
+            ("isWs", new object[] { ' ' }), ("isWs", new object[] { '\t' }), ("isWs", new object[] { 'q' }),
+            ("isLetDig", new object[] { 'k' }), ("isLetDig", new object[] { '3' }), ("isLetDig", new object[] { '-' }),
+            ("lo", new object[] { 'Z' }),
+            ("capLet", new object[] { 'm' }), ("capLet", new object[] { '9' }));
+    }
+
+    // MILESTONE: LexerTokenKindScanner.nl compiles end-to-end with no C# AST. Enabling feature: lowercase
+    // `char.IsLetter`/`IsDigit`/`IsWhiteSpace`/`IsLetterOrDigit` static predicates (the file's char classifiers
+    // mirror the C# lexer's BCL predicates). Reads the actual file.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_LexerTokenKindScanner()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "LexerTokenKindScanner.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real LexerTokenKindScanner.nl (expected full support).");
+        Assert.Contains("IsIdentifierStart", methodNames!); // char.IsLetter user.
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("IsIdentifierStart", new object[] { 'a' }), ("IsIdentifierStart", new object[] { '_' }), ("IsIdentifierStart", new object[] { '3' }),
+            ("IsIdentifierPart", new object[] { 'Z' }), ("IsIdentifierPart", new object[] { '7' }), ("IsIdentifierPart", new object[] { '-' }),
+            ("IsDigit", new object[] { '5' }), ("IsDigit", new object[] { 'x' }),
+            ("IsHexDigit", new object[] { 'f' }), ("IsHexDigit", new object[] { 'F' }), ("IsHexDigit", new object[] { 'g' }), ("IsHexDigit", new object[] { '9' }),
+            ("IsWhitespaceExceptNewline", new object[] { ' ' }), ("IsWhitespaceExceptNewline", new object[] { '\n' }), ("IsWhitespaceExceptNewline", new object[] { 'x' }));
+    }
+
     // MILESTONE: CliQueryParsing.nl compiles end-to-end with no C# AST. Enabling features: the ulong scalar +
     // ulong[] + BitOperations.PopCount(ulong). The packed-success-count kernel masks a partial last word via
     // `(word << shift) >> shift` (exercising Shr_Un) and sums BitOperations.PopCount over ulong words.
@@ -3226,10 +3267,10 @@ class B
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
             "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
-            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl",
-            "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl",
-            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
-            "TypeLookup.nl",
+            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
+            "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
+            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
@@ -3257,9 +3298,9 @@ class B
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
             "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
-            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl",
-            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
-            "TextEditOrdering.nl", "TypeLookup.nl",
+            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
+            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
+            "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 
