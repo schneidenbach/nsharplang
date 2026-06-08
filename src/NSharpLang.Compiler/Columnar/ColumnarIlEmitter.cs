@@ -71,21 +71,27 @@ public sealed class ColumnarIlEmitter
     private readonly int[] _childIndices;
     private readonly string _source;
     private readonly Dictionary<string, int> _paramOrdinals;
+    private readonly IReadOnlyDictionary<string, Type> _paramTypes;
+    private readonly Type _returnType;
     private readonly ILGenerator _il;
-    // Sibling top-level functions callable from this body, by name -> (declared method, param count). All are
-    // declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to a MethodBuilder
-    // whose body is not yet emitted — the token is baked at CreateType/Save. Includes this function itself, so
-    // direct recursion works. Param count is carried because MethodBuilder.GetParameters() is unsupported
-    // before the type is created.
-    private readonly IReadOnlyDictionary<string, (MethodInfo Method, int ParamCount)> _siblings;
-    // `:=` locals declared so far, by name (int-only spike, so every local is typeof(int)).
+    // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
+    // type). All are declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to
+    // a MethodBuilder whose body is not yet emitted — the token is baked at CreateType/Save. Includes this
+    // function itself, so direct recursion works. Param/return types are carried (rather than reflected) because
+    // MethodBuilder.GetParameters()/ReturnType is unsupported before the type is created — and a Call checks each
+    // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
+    // produce verifiable-but-wrong IL rather than declining).
+    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> _siblings;
+    // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
+    // initializer), so the type-aware emitter checks assignments and reads against it.
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
 
     private ColumnarIlEmitter(
         int[] kinds, int[] valueStarts, int[] valueLengths,
         int[] childStart, int[] childCount, int[] childIndices, string source,
-        Dictionary<string, int> paramOrdinals, ILGenerator il,
-        IReadOnlyDictionary<string, (MethodInfo Method, int ParamCount)> siblings)
+        Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
+        ILGenerator il,
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> siblings)
     {
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -95,9 +101,15 @@ public sealed class ColumnarIlEmitter
         _childIndices = childIndices;
         _source = source;
         _paramOrdinals = paramOrdinals;
+        _paramTypes = paramTypes;
+        _returnType = returnType;
         _il = il;
         _siblings = siblings;
     }
+
+    // The builtin types the type-aware emitter currently handles. INT + BOOL for now (bool's representation is
+    // i4, so comparisons/branches already produce it); later slices add long/double/string.
+    private static bool IsSupportedType(Type t) => t == typeof(int) || t == typeof(bool);
 
     /// <summary>Canonical N# primitive type name → its CLR <see cref="Type"/>. Non-builtins are unsupported.</summary>
     public static bool TryResolveBuiltin(string canonical, out Type type)
@@ -164,27 +176,33 @@ public sealed class ColumnarIlEmitter
         // references and self-recursion — resolving to a MethodBuilder whose body is not yet emitted.
         var methods = new MethodBuilder[funcs.Count];
         var ordinalsByFunc = new Dictionary<string, int>[funcs.Count];
-        var siblings = new Dictionary<string, (MethodInfo Method, int ParamCount)>(StringComparer.Ordinal);
+        var paramTypesByFunc = new Dictionary<string, Type>[funcs.Count];
+        var returnTypeByFunc = new Type[funcs.Count];
+        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)>(StringComparer.Ordinal);
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
-            if (!TryResolveBuiltin(fn.ReturnCanonical, out var returnType) || returnType != typeof(int))
+            if (!TryResolveBuiltin(fn.ReturnCanonical, out var returnType) || !IsSupportedType(returnType))
                 return false;
             var paramTypes = new Type[fn.ParamNames.Length];
             var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
+            var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
             for (var i = 0; i < fn.ParamNames.Length; i++)
             {
-                if (!TryResolveBuiltin(fn.ParamCanonicals[i], out var pt) || pt != typeof(int))
+                if (!TryResolveBuiltin(fn.ParamCanonicals[i], out var pt) || !IsSupportedType(pt))
                     return false;
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
+                paramTypeMap[fn.ParamNames[i]] = pt;
             }
             methods[f] = type.DefineMethod(
                 fn.Name, MethodAttributes.Public | MethodAttributes.Static, returnType, paramTypes);
             ordinalsByFunc[f] = ordinals;
+            paramTypesByFunc[f] = paramTypeMap;
+            returnTypeByFunc[f] = returnType;
             // A duplicate top-level function name is an overload set the spike does not model — decline the
             // whole program rather than silently pick one (a real call would be ambiguous).
-            if (!siblings.TryAdd(fn.Name, (methods[f], fn.ParamNames.Length)))
+            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, returnType)))
                 return false;
         }
 
@@ -195,7 +213,7 @@ public sealed class ColumnarIlEmitter
             var il = methods[f].GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], il, siblings);
+                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings);
             // An int function must return on every path (NL305): the body must always return, else the emitted
             // IL would fall off the end with no `ret` (invalid). Decline a non-returning body to the C# analyzer.
             if (!emitter.AlwaysReturns(fn.BodyRoot) || !emitter.EmitStatement(fn.BodyRoot))
@@ -243,24 +261,24 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 20: // Return [value] — the spike is int-only, so a value is REQUIRED (a value-less `return`
-                     // would emit `ret` with an empty stack = invalid IL); decline it.
-                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0)))
+            case 20: // Return [value] — a value is REQUIRED (a value-less `return` would emit `ret` with an empty
+                     // stack = invalid IL); decline it. The value's type must match the declared return type.
+                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0), out var retType) || retType != _returnType)
                     return false;
                 _il.Emit(OpCodes.Ret);
                 return true;
 
-            case 24: // VariableDeclaration (`:=`): emit the initializer, declare an int local, store into it.
-            {
+            case 24: // VariableDeclaration (`:=`): emit the initializer, declare a local of the initializer's
+            {        // type (inferred), store into it.
                 var name = Text(idx);
                 // Decline a local that shadows a parameter or redeclares a local: N# treats shadowing as a
                 // diagnostic (and a same-`:=` redeclaration as an error), which the spike does not model —
                 // declining keeps the C# analyzer authoritative rather than silently compiling it.
                 if (_paramOrdinals.ContainsKey(name) || _locals.ContainsKey(name))
                     return false;
-                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0)))
+                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0), out var initType) || !IsSupportedType(initType))
                     return false;
-                var local = _il.DeclareLocal(typeof(int));
+                var local = _il.DeclareLocal(initType);
                 _il.Emit(OpCodes.Stloc, local);
                 _locals[name] = local;
                 return true;
@@ -334,7 +352,7 @@ public sealed class ColumnarIlEmitter
                 var target = Child(expr, 0);
                 if (_kinds[target] != 6 || !_locals.TryGetValue(Text(target), out var assignTarget))
                     return false;
-                if (!EmitExpression(Child(expr, 1)))
+                if (!EmitExpression(Child(expr, 1), out var valueType) || valueType != assignTarget.LocalType)
                     return false;
                 _il.Emit(OpCodes.Stloc, assignTarget);
                 return true;
@@ -378,27 +396,14 @@ public sealed class ColumnarIlEmitter
     }
 
     /// <summary>
-    /// Emit an `if` CONDITION as a bool (i4 0/1) on the stack. To keep types honest without a full type checker,
-    /// conditions are restricted to an int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) of two int value
-    /// expressions — so a comparison (a bool) can never leak into an int value/return position (which would
-    /// diverge from the C# type rules). Anything else declines.
+    /// Emit an `if`/`while` CONDITION as a bool (i4 0/1) on the stack for a following <c>brfalse</c>/<c>brtrue</c>.
+    /// Now that the expression emitter is type-aware, a condition is ANY bool expression — a comparison, a bool
+    /// literal/local/param, a bool-returning call, or a logical-not — verified by its reported type, so a
+    /// non-bool (e.g. an int) can never reach a branch. Anything that is not statically bool declines.
     /// </summary>
     private bool EmitCondition(int idx)
     {
-        if (_kinds[idx] != 12) // must be a Binary comparison.
-            return false;
-        if (!EmitExpression(Child(idx, 0)) || !EmitExpression(Child(idx, 1)))
-            return false;
-        switch (Text(idx))
-        {
-            case "<": _il.Emit(OpCodes.Clt); return true;
-            case ">": _il.Emit(OpCodes.Cgt); return true;
-            case "==": _il.Emit(OpCodes.Ceq); return true;
-            case "!=": _il.Emit(OpCodes.Ceq); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); return true;
-            case "<=": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); return true; // !(a > b)
-            case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); return true; // !(a < b)
-            default: return false;
-        }
+        return EmitExpression(idx, out var type) && type == typeof(bool);
     }
 
     /// <summary>
@@ -427,23 +432,30 @@ public sealed class ColumnarIlEmitter
         }
     }
 
-    private bool EmitExpression(int idx)
+    // Emit `idx` as a value on the stack and report its CLR type via `type`. Returns false (declining the whole
+    // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
+    // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
+    // would diverge from N#'s type rules.
+    private bool EmitExpression(int idx, out Type type)
     {
+        type = null!;
         switch (_kinds[idx])
         {
-            case 6: // Identifier — a `:=` local (ldloc) or a parameter (ldarg); the two name sets are disjoint
-                    // (a local that shadows a param is declined at its declaration).
+            case 6: // Identifier — a `:=` local (ldloc, type = LocalType) or a parameter (ldarg, type from the
+                    // signature); the two name sets are disjoint (a local shadowing a param is declined at decl).
             {
                 var name = Text(idx);
                 if (_locals.TryGetValue(name, out var local))
                 {
                     _il.Emit(OpCodes.Ldloc, local);
+                    type = local.LocalType;
                     return true;
                 }
 
                 if (_paramOrdinals.TryGetValue(name, out var ordinal))
                 {
                     EmitLoadArgument(ordinal);
+                    type = _paramTypes[name];
                     return true;
                 }
 
@@ -454,35 +466,68 @@ public sealed class ColumnarIlEmitter
                 if (int.TryParse(Text(idx), out var value))
                 {
                     _il.Emit(OpCodes.Ldc_I4, value);
+                    type = typeof(int);
                     return true;
                 }
 
                 return false;
 
-            case 7: // Parenthesized — emit the inner expression.
-                return EmitExpression(Child(idx, 0));
+            case 4: // BoolLiteral — true/false (i4 1/0).
+                switch (Text(idx))
+                {
+                    case "true": _il.Emit(OpCodes.Ldc_I4_1); type = typeof(bool); return true;
+                    case "false": _il.Emit(OpCodes.Ldc_I4_0); type = typeof(bool); return true;
+                    default: return false;
+                }
 
-            case 11: // Unary [operand] — int prefix `-` (negate) and `~` (bitwise not) only. `!`/`++`/`--` decline.
+            case 7: // Parenthesized — emit the inner expression, propagating its type.
+                return EmitExpression(Child(idx, 0), out type);
+
+            case 11: // Unary [operand] — int prefix `-`/`~`, or bool `!`. `++`/`--` decline.
             {
-                if (!EmitExpression(Child(idx, 0)))
+                if (!EmitExpression(Child(idx, 0), out var operandType))
                     return false;
                 switch (Text(idx))
                 {
-                    case "-": _il.Emit(OpCodes.Neg); return true;
-                    case "~": _il.Emit(OpCodes.Not); return true;
+                    case "-":
+                        if (operandType != typeof(int)) return false;
+                        _il.Emit(OpCodes.Neg); type = typeof(int); return true;
+                    case "~":
+                        if (operandType != typeof(int)) return false;
+                        _il.Emit(OpCodes.Not); type = typeof(int); return true;
+                    case "!": // logical not on a bool: x == false.
+                        if (operandType != typeof(bool)) return false;
+                        _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); type = typeof(bool); return true;
                     default: return false;
                 }
             }
 
-            case 12: // Binary [left, right] — int +/-/* only.
-            {
-                if (!EmitExpression(Child(idx, 0)) || !EmitExpression(Child(idx, 1)))
+            case 12: // Binary [left, right] — int `+`/`-`/`*`, or a comparison producing bool. Both operands must
+            {        // be the SAME type (no implicit conversions); the result type depends on the operator.
+                if (!EmitExpression(Child(idx, 0), out var leftType))
                     return false;
-                switch (Text(idx))
+                if (!EmitExpression(Child(idx, 1), out var rightType))
+                    return false;
+                if (leftType != rightType)
+                    return false;
+                var op = Text(idx);
+                switch (op)
                 {
-                    case "+": _il.Emit(OpCodes.Add); return true;
-                    case "-": _il.Emit(OpCodes.Sub); return true;
-                    case "*": _il.Emit(OpCodes.Mul); return true;
+                    case "+": case "-": case "*":
+                        if (leftType != typeof(int)) return false; // int arithmetic only for now.
+                        _il.Emit(op == "+" ? OpCodes.Add : op == "-" ? OpCodes.Sub : OpCodes.Mul);
+                        type = typeof(int);
+                        return true;
+                    case "<": case ">": case "<=": case ">=":
+                        if (leftType != typeof(int)) return false; // ordering on int only.
+                        EmitComparison(op);
+                        type = typeof(bool);
+                        return true;
+                    case "==": case "!=":
+                        if (leftType != typeof(int) && leftType != typeof(bool)) return false; // equality on int/bool.
+                        EmitComparison(op);
+                        type = typeof(bool);
+                        return true;
                     default: return false;
                 }
             }
@@ -499,19 +544,37 @@ public sealed class ColumnarIlEmitter
                 if (!_siblings.TryGetValue(name, out var target))
                     return false;
                 var argCount = _childCount[idx] - 1;
-                if (argCount != target.ParamCount) // arity must match (no overloads / defaults / params).
+                if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
                     return false;
+                // Each argument's type must match the callee's declared parameter type. int and bool are both i4
+                // on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool parameter)
+                // would emit verifiable-but-semantically-wrong IL instead of declining to the C# path.
                 for (var a = 1; a <= argCount; a++)
                 {
-                    if (!EmitExpression(Child(idx, a)))   // each int arg, left-to-right.
+                    if (!EmitExpression(Child(idx, a), out var argType) || argType != target.ParamTypes[a - 1])
                         return false;
                 }
                 _il.Emit(OpCodes.Call, target.Method);
+                type = target.ReturnType;
                 return true;
             }
 
             default:
                 return false;
+        }
+    }
+
+    // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
+    private void EmitComparison(string op)
+    {
+        switch (op)
+        {
+            case "<": _il.Emit(OpCodes.Clt); break;
+            case ">": _il.Emit(OpCodes.Cgt); break;
+            case "==": _il.Emit(OpCodes.Ceq); break;
+            case "!=": _il.Emit(OpCodes.Ceq); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break;
+            case "<=": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a > b)
+            case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a < b)
         }
     }
 

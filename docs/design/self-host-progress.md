@@ -11,6 +11,35 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4b-i: TYPE-AWARE columnar emitter + bool (first type beyond int)
+
+The biggest Stage-4 refactor: `ColumnarIlEmitter` went from an UNTYPED int-only emitter to a TYPE-AWARE
+one. `EmitExpression(int idx, out Type type)` now reports each expression's CLR type, and every consumer
+checks it — Return requires the value type == the declared return type; a `:=` local declares its type from
+the initializer (`DeclareLocal(initType)`); assignment requires value type == the local's `LocalType`; a
+Binary requires both operands the same type (no implicit conversions); a Call checks each argument's type
+against the callee's param types. This is the foundation for every type beyond int.
+
+Proven by adding **bool** alongside int: bool literals (`true`/`false` → i4 1/0), comparisons in VALUE
+position (the comparison opcodes moved from the old `EmitCondition` into `EmitExpression`'s Binary case via
+a shared `EmitComparison`; ordering `< > <= >=` on int, equality `== !=` on int or bool → bool), logical
+`!` (`ldc.i4.0; ceq`), bool params/locals/returns, and — since conditions are now any bool expression —
+a bool literal/param/local or a bool-returning call drives `if`/`while` directly. The type machinery
+prevents cross-type mixing (a bool can never leak into int arithmetic or an int return).
+
+Verified in two stages: FIRST the int subset was confirmed behavior-preserving (all existing int tests pass
+unchanged — the refactor adds type checks as a safeguard layer without altering int opcodes/control flow),
+THEN bool was added. Parity-gated (`ColumnarCodegen_Parity_BoolType`) vs the C# pipeline across all bool
+forms, plus declines for `&&` (short-circuit, not yet lowered), bool-from-int-return, and bool+int mixing.
+
+**Adversarial review (read-only) — ship-with-nits.** The int-regression probe confirmed behavior
+preservation (all-info findings); the soundness probe found ONE real gap that bool *introduced*: call
+ARGUMENT types weren't checked against callee param types, so (int and bool both being i4) `needsBool(5)`
+would emit verifiable-but-wrong IL. Fixed by carrying callee param types in the sibling map and checking
+each arg's type; added the judge's exact suggested cases (a `needsBool(5)` decline + a correct
+`needsBool(x > 0)` positive). Next: 4b-ii `long` (distinct i8 representation — `ldc.i8`, long arithmetic/
+comparisons), then `double`, then `string`.
+
 ## 2026-06-08 — Stage 4i: columnar codegen grows sibling calls (incl. recursion + mutual recursion)
 
 Direct calls to top-level functions (columnar Call, kind 9, `[callee, args...]`). The multi-function

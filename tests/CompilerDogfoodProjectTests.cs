@@ -2485,6 +2485,59 @@ class B
             ("isOdd", new object[] { 3 }), ("isOdd", new object[] { 8 }));
     }
 
+    // Stage 4b-i — the type-aware emitter, proven by adding BOOL alongside int. Comparisons now produce bool in
+    // value position, bool literals / params / locals / returns work, logical-not works, and a bool value drives
+    // conditions directly. The type machinery rejects cross-type mixing (a bool can't leak into int arithmetic).
+    [Fact]
+    public void ColumnarCodegen_Parity_BoolType()
+    {
+        // Comparison in return position, bool params, logical not, bool literal, bool == bool — all vs the C# path.
+        var prog = "func isPositive(a: int): bool {\n    return a > 0\n}\n\n" +
+                   "func isEqual(a: int, b: int): bool {\n    return a == b\n}\n\n" +
+                   "func negate(b: bool): bool {\n    return !b\n}\n\n" +
+                   "func always(): bool {\n    return true\n}\n\n" +
+                   "func sameBool(a: bool, b: bool): bool {\n    return a == b\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("isPositive", new object[] { 5 }), ("isPositive", new object[] { -2 }), ("isPositive", new object[] { 0 }),
+            ("isEqual", new object[] { 3, 3 }), ("isEqual", new object[] { 3, 4 }),
+            ("negate", new object[] { true }), ("negate", new object[] { false }),
+            ("always", System.Array.Empty<object>()),
+            ("sameBool", new object[] { true, true }), ("sameBool", new object[] { true, false }));
+
+        // A bool LOCAL (`:=` infers bool from the comparison initializer), and a bool param used as a condition.
+        var prog2 = "func bigFlag(a: int): bool {\n    flag := a > 100\n    return flag\n}\n\n" +
+                    "func choose(flag: bool, a: int, b: int): int {\n    if flag {\n        return a\n    } else {\n        return b\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog2,
+            ("bigFlag", new object[] { 200 }), ("bigFlag", new object[] { 50 }),
+            ("choose", new object[] { true, 7, 9 }), ("choose", new object[] { false, 7, 9 }));
+
+        // A bool ARGUMENT passed to a bool parameter (needsBool(x > 0)) — the correct-type call path, confirming
+        // the per-arg type check accepts a matching bool arg (and isn't over-rejecting).
+        var progBoolArg = "func needsBool(flag: bool): bool {\n    return !flag\n}\n\n" +
+                          "func rightCall(x: int): bool {\n    return needsBool(x > 0)\n}\n";
+        AssertColumnarProgramMatchesCSharp(progBoolArg,
+            ("needsBool", new object[] { true }), ("needsBool", new object[] { false }),
+            ("rightCall", new object[] { 5 }), ("rightCall", new object[] { -3 }));
+
+        // A bool-returning CALL used as a condition (if isZero(n) { ... }).
+        var prog3 = "func isZero(n: int): bool {\n    return n == 0\n}\n\n" +
+                    "func classify(n: int): int {\n    if isZero(n) {\n        return 0\n    }\n    if n > 0 {\n        return 1\n    }\n    return 0 - 1\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog3,
+            ("isZero", new object[] { 0 }), ("isZero", new object[] { 5 }),
+            ("classify", new object[] { 0 }), ("classify", new object[] { 8 }), ("classify", new object[] { -3 }));
+
+        // DECLINES (the type machinery / unsupported forms keep the C# path authoritative):
+        // logical && is not lowered (short-circuit branch form) -> decline.
+        Assert.False(RouteColumnarProgram("func f(a: int): bool {\n    return a > 0 && a < 10\n}\n").Ok);
+        // a type mismatch (a bool value returned from an int function) -> the type-aware emitter declines it.
+        Assert.False(RouteColumnarProgram("func g(a: int): int {\n    return a > 0\n}\n").Ok);
+        // mixing a bool into int arithmetic (bool + int) -> decline (operands must be the same supported type).
+        Assert.False(RouteColumnarProgram("func h(a: int): int {\n    flag := a > 0\n    return flag + 1\n}\n").Ok);
+        // a CALL ARG type mismatch (int passed to a bool parameter) -> decline. int and bool are both i4, so
+        // without the per-arg type check this would emit verifiable-but-wrong IL instead of declining.
+        Assert.False(RouteColumnarProgram("func needsBool(flag: bool): bool {\n    return !flag\n}\n\nfunc caller(): bool {\n    return needsBool(5)\n}\n").Ok);
+    }
+
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
     // codegen result equals the authoritative C# ILCompiler result. Fails loudly if the columnar
     // path declined a function this gate expects it to emit -- a silent decline would make the parity

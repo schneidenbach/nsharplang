@@ -135,7 +135,13 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         `sign`. Declines: if-without-else, a fall-through branch, a non-comparison condition, a comparison in value
         position, and unreachable code after a return (an NL312 case — the review caught that the Block emitter
         emitted past a `ret`; fixed: a returning statement must be last in its block).
-      - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [x] **4c parity-vs-C#-path
+      - [~] **4b types beyond int** — [x] **4b-i TYPE-AWARE emitter + bool DONE**: `EmitExpression(out Type)`
+        reports each expr's CLR type; Return/`:=`/assignment/Binary/Call all type-check (no implicit conversions;
+        per-arg type check vs callee params). bool: literals, comparisons-in-value (`EmitComparison`), logical `!`,
+        bool params/locals/returns, bool conditions. Int subset proven behavior-preserving first, then bool added;
+        parity-gated (`ColumnarCodegen_Parity_BoolType`) + declines `&&`/bool-from-int/bool+int/wrong-arg-type.
+        Adversarial review (ship-with-nits) caught the call-arg-type gap bool introduced → fixed + tested. · [ ]
+        4b-ii `long` (i8: `ldc.i8`, long arith/cmp) · [ ] 4b-iii `double` · [ ] 4b-iv `string`. · [x] **4c parity-vs-C#-path
         harness DONE** (`ColumnarCodegen_Parity_MatchesCSharpPath`: compile each eligible fn via BOTH the columnar
         path AND `MultiFileCompiler`→`ILCompiler`, invoke over many inputs incl. negatives/boundaries/overflow,
         assert identical; 15 fns. Caught + fixed TWO latent C# codegen bugs of one class — `EmitIf` both-arms-return
