@@ -747,31 +747,36 @@ public sealed class ColumnarIlEmitter
                 }
             }
 
-            case 9: // Call [callee, args...] — a DIRECT call to a sibling top-level function only (incl. self).
-            {
+            case 9: // Call [callee, args...] — a sibling top-level function (bare-identifier callee, incl.
+            {       // self/recursion), or a BCL method call (instance on a string, or static on a type like Char)
+                    // whose callee is a MemberAccess [receiver, method-name].
                 var callee = Child(idx, 0);
-                if (_kinds[callee] != 6) // callee must be a bare identifier — no member access / delegate expr.
-                    return false;
-                var name = Text(callee);
-                // A local/param of the same name is a delegate/closure invocation the spike does not model.
-                if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
-                    return false;
-                if (!_siblings.TryGetValue(name, out var target))
-                    return false;
-                var argCount = _childCount[idx] - 1;
-                if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
-                    return false;
-                // Each argument's type must match the callee's declared parameter type. int and bool are both i4
-                // on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool parameter)
-                // would emit verifiable-but-semantically-wrong IL instead of declining to the C# path.
-                for (var a = 1; a <= argCount; a++)
+                if (_kinds[callee] == 6) // bare identifier -> sibling function.
                 {
-                    if (!EmitExpression(Child(idx, a), out var argType) || argType != target.ParamTypes[a - 1])
+                    var name = Text(callee);
+                    // A local/param of the same name is a delegate/closure invocation the spike does not model.
+                    if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
                         return false;
+                    if (!_siblings.TryGetValue(name, out var target))
+                        return false;
+                    var argCount = _childCount[idx] - 1;
+                    if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
+                        return false;
+                    // Each argument's type must match the callee's declared parameter type. int and bool are both
+                    // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
+                    // parameter) would emit verifiable-but-semantically-wrong IL instead of declining.
+                    for (var a = 1; a <= argCount; a++)
+                    {
+                        if (!EmitExpression(Child(idx, a), out var argType) || argType != target.ParamTypes[a - 1])
+                            return false;
+                    }
+                    _il.Emit(OpCodes.Call, target.Method);
+                    type = target.ReturnType;
+                    return true;
                 }
-                _il.Emit(OpCodes.Call, target.Method);
-                type = target.ReturnType;
-                return true;
+                if (_kinds[callee] == 8) // MemberAccess callee -> a BCL instance/static method call.
+                    return TryEmitBclMethodCall(idx, callee, out type);
+                return false;
             }
 
             case 8: // MemberAccess [receiver] — `.Length` on an array or a string (-> int). The member name is
@@ -881,6 +886,81 @@ public sealed class ColumnarIlEmitter
             case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a < b)
         }
     }
+
+    // A BCL method call whose callee is a MemberAccess [receiver, method-name]. A STATIC call (receiver is a
+    // bare identifier naming a known type, e.g. `Char`) must be detected BEFORE the receiver is emitted (the
+    // type name is not a value); an INSTANCE call emits the receiver value then dispatches on its type.
+    private bool TryEmitBclMethodCall(int callIdx, int callee, out Type type)
+    {
+        type = null!;
+        var memberName = Text(callee);
+        var receiver = Child(callee, 0);
+        var argCount = _childCount[callIdx] - 1;
+
+        if (_kinds[receiver] == 6) // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
+        {
+            var receiverName = Text(receiver);
+            if (!_locals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName))
+                return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, out type);
+        }
+
+        if (!EmitExpression(receiver, out var receiverType)) // instance: receiver value goes on the stack first.
+            return false;
+        return TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, out type);
+    }
+
+    // Static BCL calls (no receiver on the stack): a small whitelist. Char.IsLetterOrDigit/IsWhiteSpace(char) -> bool.
+    private bool TryEmitStaticCall(int callIdx, string typeName, string member, int argCount, out Type type)
+    {
+        type = null!;
+        if (typeName == "Char" && argCount == 1)
+        {
+            MethodInfo? method = member switch
+            {
+                "IsLetterOrDigit" => typeof(char).GetMethod(nameof(char.IsLetterOrDigit), new[] { typeof(char) }),
+                "IsWhiteSpace" => typeof(char).GetMethod(nameof(char.IsWhiteSpace), new[] { typeof(char) }),
+                _ => null,
+            };
+            if (method == null || !EmitArg(callIdx, 1, typeof(char)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = method.ReturnType;
+            return true;
+        }
+        return false;
+    }
+
+    // Instance BCL calls (the receiver value is already on the stack): a small whitelist of string methods.
+    // string.IndexOf(char, int) -> int ; string.Substring(int, int) -> string.
+    private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
+    {
+        type = null!;
+        if (receiverType == typeof(string) && member == "IndexOf" && argCount == 2)
+        {
+            // string.IndexOf(char, int) -> int. Resolve + null-check the overload before emitting (defensive,
+            // mirroring TryEmitStaticCall) so an unexpectedly-absent method declines rather than faulting.
+            var method = typeof(string).GetMethod(nameof(string.IndexOf), new[] { typeof(char), typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(char)) || !EmitArg(callIdx, 2, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(int);
+            return true;
+        }
+        if (receiverType == typeof(string) && member == "Substring" && argCount == 2)
+        {
+            var method = typeof(string).GetMethod(nameof(string.Substring), new[] { typeof(int), typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)) || !EmitArg(callIdx, 2, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(string);
+            return true;
+        }
+        return false;
+    }
+
+    // Emit the argument at child position `argPosition` of the call and require its type to equal `expected`.
+    private bool EmitArg(int callIdx, int argPosition, Type expected)
+        => EmitExpression(Child(callIdx, argPosition), out var argType) && argType == expected;
 
     private void EmitLoadArgument(int index)
     {

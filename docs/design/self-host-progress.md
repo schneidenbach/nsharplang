@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — BCL METHOD DISPATCH (slice 1): instance string + static Char calls
+
+The columnar backend's first BCL method-call dispatch — the gateway to the string batch. Scoped first with a
+read-only understanding workflow (corpus method usage, columnar encoding, exact CLR signatures by reading how
+`ILCompiler` emits them). A method call is columnar Call (kind 9) whose callee is a MemberAccess (kind 8)
+`[receiver, method-name]`. The Call case now dispatches: a bare-identifier callee → sibling function (as
+before); a MemberAccess callee → `TryEmitBclMethodCall`, which **detects a STATIC call BEFORE emitting the
+receiver** (a bare-identifier receiver not in `_locals`/`_paramOrdinals`/`_siblings` is a type name like
+`Char`, not a value — emitting it would wrongly decline), else emits the receiver as a value and dispatches
+on its type. Supported (slice 1): instance `string.IndexOf(char,int)`→int and `string.Substring(int,int)`→
+string (`callvirt`); static `Char.IsLetterOrDigit(char)`→bool and `Char.IsWhiteSpace(char)`→bool (`call`).
+Each arg's type is checked against the BCL signature; unknown method/receiver/overload declines.
+
+Parity-gated (`ColumnarCodegen_Parity_StringMethods`) vs the C# pipeline — a wrong overload, `call`-vs-
+`callvirt`, or instance-vs-static mistake would diverge — across `IndexOf`/`Substring` over hits/misses, the
+static Char predicates, a `firstWsAt` scan combining `Char.IsWhiteSpace` + indexing + `.Length`, and
+unsupported-overload/method declines. Did NOT flip a file yet (still 11/32): the close files compound more
+methods (`Array.Fill`, `ToLowerInvariant`/`ToUpperInvariant`, `ToString`, `String.Compare`) — but the
+dispatch INFRASTRUCTURE (the hard part: instance/static detection, call/callvirt, arg-typing) is now in
+place, so adding each further method is incremental (slice 2+). Adversarial review (read-only): ship-with-
+nits — sound dispatch; the one nit (the instance path used a null-forgiving `GetMethod!` while the static
+path null-checked) is fixed (both now resolve + null-check before emitting), plus the judge's safe edge
+cases added (IndexOf on an empty string → -1, Substring length 0 → "").
+
 ## 2026-06-08 — literal escapes: char decoding + raw strings (matched to N#'s actual semantics)
 
 The parity oracle EARNED ITS KEEP again: my first cut decoded C-style escapes in BOTH char and string

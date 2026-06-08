@@ -2637,6 +2637,30 @@ class B
             ("charToLong", new object[] { 'A' }));
     }
 
+    // BCL method dispatch (slice 1): instance string.IndexOf(char,int)/Substring(int,int) (callvirt) and static
+    // Char.IsLetterOrDigit(char)/IsWhiteSpace(char) (call). All matched against the C# pipeline — a wrong
+    // overload, call-vs-callvirt, or instance-vs-static mistake would diverge.
+    [Fact]
+    public void ColumnarCodegen_Parity_StringMethods()
+    {
+        var prog = "func find(s: string, c: char, from: int): int {\n    return s.IndexOf(c, from)\n}\n\n" +
+                   "func sub(s: string, start: int, len: int): string {\n    return s.Substring(start, len)\n}\n\n" +
+                   "func isAlnum(c: char): bool {\n    return Char.IsLetterOrDigit(c)\n}\n\n" +
+                   "func isWs(c: char): bool {\n    return Char.IsWhiteSpace(c)\n}\n\n" +
+                   "func firstWsAt(s: string): int {\n    i := 0\n    while i < s.Length {\n        if Char.IsWhiteSpace(s[i]) {\n            return i\n        }\n        i = i + 1\n    }\n    return s.Length\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("find", new object[] { "hello world", 'o', 0 }), ("find", new object[] { "hello world", 'o', 5 }), ("find", new object[] { "hello", 'z', 0 }),
+            ("find", new object[] { "", 'a', 0 }), // IndexOf on an empty string -> -1 (no throw).
+            ("sub", new object[] { "hello world", 0, 5 }), ("sub", new object[] { "hello", 1, 3 }), ("sub", new object[] { "hello", 2, 0 }),
+            ("isAlnum", new object[] { 'a' }), ("isAlnum", new object[] { '5' }), ("isAlnum", new object[] { ' ' }), ("isAlnum", new object[] { '-' }),
+            ("isWs", new object[] { ' ' }), ("isWs", new object[] { '\t' }), ("isWs", new object[] { 'x' }),
+            ("firstWsAt", new object[] { "ab cd" }), ("firstWsAt", new object[] { "abcd" }));
+
+        // an unknown method, a non-string receiver, or a wrong arity/arg type declines (C# path authoritative).
+        Assert.False(RouteColumnarProgram("func f(s: string): int {\n    return s.IndexOf('a')\n}\n").Ok);          // unsupported 1-arg overload
+        Assert.False(RouteColumnarProgram("func f(s: string): string {\n    return s.ToUpper()\n}\n").Ok);          // unsupported method (this slice)
+    }
+
     // char type + string INDEXING `s[i]` (get_Chars -> char) + char literals + char comparisons. The dogfood
     // character-scan pattern: index into a string, compare the char against a literal/param/range.
     [Fact]
