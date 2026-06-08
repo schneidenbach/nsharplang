@@ -11,6 +11,34 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 4 SPIKE: columnar codegen proven end-to-end (columnar tables → runnable IL)
+
+The Stage 4 inflection point, de-risked. New `Columnar/ColumnarIlEmitter.cs` + adapter
+`TryEmitColumnarFunction` emit a real one-method .NET assembly whose body IL is generated **directly from the
+columnar statement/expression tables — no C# AST** — then the test **loads and invokes** it and checks results.
+This proves the columnar pipeline can drive codegen, which is the load-bearing assumption for routing C# out
+(stages 5–6).
+
+Self-contained (`PersistedAssemblyBuilder` → `Save` → `Assembly.Load`), so it touches NONE of the 25k-line
+`ILCompiler.cs` — the emit primitives (`ldarg`/`ldc.i4`/`add`/`sub`/`mul`/`ret`) are exactly what the full
+columnar codegen will emit, so the logic transfers; only the tiny assembly-build harness is spike-local (replaced
+by `ILCompiler`'s flow at slice 4j). Proven INT-ONLY for: param load, int literal, parenthesized expr, and int
+`+`/`-`/`*` binary including nested left-associative (`a - b - c`) and multi-param (`a * b - c`, `(a+b)*b`).
+Invoke-tested: `identity(42)==42`, `answer()==42`, `add(2,3)==5`, `poly(3,4,5)==7`, `chain(10,3,2)==5`,
+`paren(2,3)==15`, `inc(5)==6`.
+
+Adversarially verified (read-only Explore): decline-safety is strong — every unsupported form (locals, expr
+statements, if/while, calls, member/index, unary, comparison/logical/division operators, non-int types,
+multi-function sources, empty bodies) returns false (no assembly) so the C# path is untouched. Two mis-emit
+risks were caught and fixed proactively: (1) mixed-type arithmetic (`int + long`) would emit `add` on (i4, i8)
+= invalid IL → added an INT-ONLY guard (return + every param must be `int`); (2) a value-less `return` in an
+int function would emit `ret` with an empty stack → now declined. Both have decline tests.
+
+Folds in 4a (binary) + 4f (int literals) for the int subset. **Next:** 4c — turn the spike into a real columnar
+dispatcher + a parity-vs-C#-path harness (compare columnar-emitted output to `NSharpCompiledMethod.Bind`); then
+4d locals, 4g–4h if/while, and 4j route through `ILCompiler.DeclareFunction` (where emitted IL hits the
+ilverify gate).
+
 ## 2026-06-07 — Stage 3b-iii: columnar unused-local (NL001) — Stage 3b COMPLETE
 
 Third and last columnar diagnostic, completing Stage 3b. NL001 ("declared but never read") lives in the

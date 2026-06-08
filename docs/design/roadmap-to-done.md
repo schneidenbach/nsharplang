@@ -111,12 +111,18 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       local slots (assign in source order at `:=`); calls/method-tokens (`_methods` ~10593) and `External` types
       deferred. Parity gate: route columnar-emitted method → `Assembly.Load` → invoke vs the C# path oracle (same
       pattern as `NSharpCompiledMethod.Bind`), assert equal across inputs + ilverify green. Decompose:
-      - [ ] **4-spike** — emit & run `func identity(x: int): int { return x }` end-to-end, no fallback (load+invoke
-        `identity(42)==42`, IL = `ldarg.0; ret`). De-risks the seam (watch param off-by-one; dump IL to confirm).
-      - [ ] 4a binary (`add(a,b){return a+b}`) · [ ] 4b canonical→CLR type resolution · [ ] 4c unify dispatcher +
-        the parity-test harness · [ ] 4d locals (`x := a+b; return x`) · [ ] 4e unary · [ ] 4f literals ·
-        [ ] 4g if/else · [ ] 4h while · [ ] 4i calls · [ ] 4j route via `DeclareFunction` (flagged) +
-        benchmark never-slower · [ ] 4k C# fallback for declined forms + gate closure.
+      - [x] **4-spike DONE** — `Columnar/ColumnarIlEmitter.cs` + adapter `TryEmitColumnarFunction` emit a real
+        one-method assembly whose body IL comes straight from the columnar tables; the test LOADS + INVOKES it.
+        Proven end-to-end for INT-ONLY top-level funcs: param load, int literal, paren, and int `+`/`-`/`*`
+        binary (incl. nested left-assoc + multi-param) — `identity(42)==42`, `add(2,3)==5`, `poly(3,4,5)==7`,
+        `(a+b)*b`, `a-b-c`. Folds in 4a (binary) + 4f (int literals) for the int subset. Self-contained
+        (`PersistedAssemblyBuilder.Save` → `Assembly.Load`), no `ILCompiler` changes, declines every unsupported
+        form (locals, if/while, calls, non-int, value-less return, multi-func) → C# path unaffected.
+        Adversarially verified (decline-safety strong; the one edge — value-less int return — fixed + tested).
+      - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [ ] 4c unify into a real
+        dispatcher + the parity-vs-C#-path test harness · [ ] 4d locals (`x := a+b; return x`) · [ ] 4e unary ·
+        [ ] 4g if/else · [ ] 4h while · [ ] 4i calls · [ ] 4j route via `DeclareFunction` (flagged) + benchmark
+        never-slower · [ ] 4k C# fallback for declined forms + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
@@ -252,10 +258,12 @@ C#; positions resolved from the tokenizer's own line/col matching the AST; parit
 hand-built cases + the full 32-file corpus, each adversarially verified (the reviews caught + we fixed an async
 unit-task divergence in 3b-i and a global-rule ordering divergence in 3b-iii). **Stage 4 — columnar codegen
 is SCOPED** (read-only Explore workflow): reuse `ILCompiler._currentIL` via a separate columnar dispatcher, data
-~80% sufficient from stages 1–3, decomposed into a spike + 4a–4k (see the Stage 4 item above). **Next: the
-4-spike** — emit & run `func identity(x: int): int { return x }` end-to-end from the columnar tables (no
-fallback), de-risking the emission seam — then 4a (binary) onward. This is the inflection point where C# begins
-to be deleted (Stages 5 route → 6 delete)
+~80% sufficient from stages 1–3, decomposed into a spike + 4a–4k (see the Stage 4 item above). **The 4-spike
+is DONE** — `ColumnarIlEmitter` emits a runnable one-method assembly straight from the columnar tables (proven
+by load+invoke for int-only param/literal/paren/`+`/`-`/`*` functions), de-risking the emission seam; declines
+everything else so the C# path is unaffected; adversarially verified. **Next: 4c (a real columnar dispatcher +
+the parity-vs-C#-path harness) / 4d (locals) / 4g–4h (if/while), then 4j (route via `DeclareFunction`).** This
+is the inflection point where C# begins to be deleted (Stages 5 route → 6 delete)
 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 

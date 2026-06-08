@@ -2247,6 +2247,66 @@ class B
         }
     }
 
+    // COLUMNAR PIPELINE stage 4 SPIKE: emit a runnable .NET assembly for a trivial top-level function whose body
+    // IL is generated DIRECTLY from the columnar tables (no C# AST), then LOAD + INVOKE it and check results.
+    // Proves the columnar pipeline drives codegen end-to-end. Also checks the spike DECLINES (no assembly, C#
+    // path unaffected) on forms it does not yet support.
+    [Fact]
+    public void ColumnarCodegen_Spike_EmitsRunnableTrivialFunctions()
+    {
+        AssertEmits("func identity(x: int): int {\n    return x\n}\n", "identity",
+            (new object[] { 42 }, 42), (new object[] { -7 }, -7));
+        AssertEmits("func answer(): int {\n    return 42\n}\n", "answer",
+            (new object[] { }, 42));
+        AssertEmits("func add(a: int, b: int): int {\n    return a + b\n}\n", "add",
+            (new object[] { 2, 3 }, 5), (new object[] { -5, 10 }, 5));
+        AssertEmits("func poly(a: int, b: int, c: int): int {\n    return a * b - c\n}\n", "poly",
+            (new object[] { 3, 4, 5 }, 7));
+        AssertEmits("func paren(a: int, b: int): int {\n    return (a + b) * b\n}\n", "paren",
+            (new object[] { 2, 3 }, 15));
+        // nested binary keeps left-associativity ((a - b) - c).
+        AssertEmits("func chain(a: int, b: int, c: int): int {\n    return a - b - c\n}\n", "chain",
+            (new object[] { 10, 3, 2 }, 5));
+        // mixed parameter + int literal.
+        AssertEmits("func inc(a: int): int {\n    return a + 1\n}\n", "inc",
+            (new object[] { 5 }, 6), (new object[] { -1 }, 0));
+
+        // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
+        Assert.False(RouteColumnarEmit("func withLocal(a: int): int {\n    x := a\n    return x\n}\n").Ok);
+        Assert.False(RouteColumnarEmit("func two(): int {\n    return 1\n}\n\nfunc other(): int {\n    return 2\n}\n").Ok);
+        Assert.False(RouteColumnarEmit("func arr(): string[] {\n    return null\n}\n").Ok);
+        // INT-ONLY restriction: non-int functions decline (no type-aware emission yet) -> C# path unaffected.
+        Assert.False(RouteColumnarEmit("func longId(x: long): long {\n    return x\n}\n").Ok);
+        Assert.False(RouteColumnarEmit("func mix(a: int, b: long): long {\n    return a + b\n}\n").Ok);
+        // a value-less `return` in an int function would emit invalid IL -> must decline.
+        Assert.False(RouteColumnarEmit("func novalue(): int {\n    return\n}\n").Ok);
+    }
+
+    private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)
+    {
+        var (ok, assembly, typeName, methodName) = RouteColumnarEmit(source);
+        Assert.True(ok, $"Columnar codegen declined a supported spike function:\n{source}");
+        Assert.Equal(funcName, methodName);
+        var asm = System.Reflection.Assembly.Load(assembly!);
+        var type = asm.GetType(typeName!);
+        Assert.NotNull(type);
+        var method = type!.GetMethod(methodName!);
+        Assert.NotNull(method);
+        foreach (var (args, expected) in cases)
+            Assert.Equal(expected, (int)method!.Invoke(null, args)!);
+    }
+
+    private static (bool Ok, byte[]? Assembly, string? TypeName, string? MethodName) RouteColumnarEmit(string source)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryEmitColumnarFunction", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarFunction.");
+        var args = new object?[] { source, null, null, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (byte[]?)args[1], (string?)args[2], (string?)args[3]);
+    }
+
     private static (bool Ok, List<List<ColumnarNameRef>>? Refs) RouteFunctionNameRefs(string source)
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
