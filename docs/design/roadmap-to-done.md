@@ -119,8 +119,14 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         (`PersistedAssemblyBuilder.Save` → `Assembly.Load`), no `ILCompiler` changes, declines every unsupported
         form (locals, if/while, calls, non-int, value-less return, multi-func) → C# path unaffected.
         Adversarially verified (decline-safety strong; the one edge — value-less int return — fixed + tested).
+      - [x] **4d locals DONE** — `:=` int locals: the emitter declares an int local (`DeclareLocal`), emits the
+        initializer then `stloc`, and identifiers resolve to a local (`ldloc`) before a param. A local that
+        shadows a parameter or redeclares a local DECLINES (N# treats shadowing as a diagnostic; the spike keeps
+        the C# analyzer authoritative). Invoke-tested: chained locals (`y := x * 2`), local+param mixes; declines
+        shadowing, redeclaration, and assignment statements (`x = …`, kind 23 — not handled yet). Adversarially
+        verified (the review caught the param-shadow gap; fixed + tested).
       - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [ ] 4c unify into a real
-        dispatcher + the parity-vs-C#-path test harness · [ ] 4d locals (a `:=` local feeding a `return`) · [ ] 4e unary ·
+        dispatcher + the parity-vs-C#-path test harness · [ ] 4e unary · [ ] 4f assignment statements (`x = …`) ·
         [ ] 4g if/else · [ ] 4h while · [ ] 4i calls · [ ] 4j route via `DeclareFunction` (flagged) + benchmark
         never-slower · [ ] 4k C# fallback for declined forms + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
@@ -262,9 +268,11 @@ is SCOPED** (read-only Explore workflow): reuse `ILCompiler._currentIL` via a se
 ~80% sufficient from stages 1–3, decomposed into a spike + 4a–4k (see the Stage 4 item above). **The 4-spike
 is DONE** — `ColumnarIlEmitter` emits a runnable one-method assembly straight from the columnar tables (proven
 by load+invoke for int-only param/literal/paren/`+`/`-`/`*` functions), de-risking the emission seam; declines
-everything else so the C# path is unaffected; adversarially verified. **Next: 4c (a real columnar dispatcher +
-the parity-vs-C#-path harness) / 4d (locals) / 4g–4h (if/while), then 4j (route via `DeclareFunction`).** This
-is the inflection point where C# begins to be deleted (Stages 5 route → 6 delete)
+everything else so the C# path is unaffected; adversarially verified. **4d (int `:=` locals) is also DONE** —
+`stloc`/`ldloc`, chained locals invoke-tested, shadowing/redeclaration declined (keeping the C# analyzer
+authoritative). **Next: 4c (a real columnar dispatcher + the parity-vs-C#-path harness) / 4g–4h (if/while) /
+4i (calls), then 4j (route via `DeclareFunction`).** This is the inflection point where C# begins to be deleted
+(Stages 5 route → 6 delete)
 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 

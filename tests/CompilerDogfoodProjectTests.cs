@@ -2270,9 +2270,19 @@ class B
         // mixed parameter + int literal.
         AssertEmits("func inc(a: int): int {\n    return a + 1\n}\n", "inc",
             (new object[] { 5 }, 6), (new object[] { -1 }, 0));
+        // a `:=` local feeding a return.
+        AssertEmits("func sum(a: int, b: int): int {\n    x := a + b\n    return x\n}\n", "sum",
+            (new object[] { 2, 3 }, 5), (new object[] { -4, 4 }, 0));
+        // chained locals (the second reads the first).
+        AssertEmits("func chained(a: int): int {\n    x := a + 1\n    y := x * 2\n    return y\n}\n", "chained",
+            (new object[] { 3 }, 8));
+        // a local mixed with a parameter in the returned expression.
+        AssertEmits("func square(a: int): int {\n    t := a * a\n    return t + a\n}\n", "square",
+            (new object[] { 3 }, 12), (new object[] { 0 }, 0));
 
         // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
-        Assert.False(RouteColumnarEmit("func withLocal(a: int): int {\n    x := a\n    return x\n}\n").Ok);
+        // An assignment STATEMENT (`x = x + 1`, kind 23) is not handled yet (only `:=` declarations).
+        Assert.False(RouteColumnarEmit("func reassign(a: int): int {\n    x := a\n    x = x + 1\n    return x\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func two(): int {\n    return 1\n}\n\nfunc other(): int {\n    return 2\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func arr(): string[] {\n    return null\n}\n").Ok);
         // INT-ONLY restriction: non-int functions decline (no type-aware emission yet) -> C# path unaffected.
@@ -2280,6 +2290,10 @@ class B
         Assert.False(RouteColumnarEmit("func mix(a: int, b: long): long {\n    return a + b\n}\n").Ok);
         // a value-less `return` in an int function would emit invalid IL -> must decline.
         Assert.False(RouteColumnarEmit("func novalue(): int {\n    return\n}\n").Ok);
+        // a local shadowing a parameter is a diagnostic in N#; the spike must decline (not silently compile it).
+        Assert.False(RouteColumnarEmit("func shadow(x: int): int {\n    x := x + 1\n    return x\n}\n").Ok);
+        // redeclaring a local name with `:=` -> decline.
+        Assert.False(RouteColumnarEmit("func redecl(a: int): int {\n    x := a\n    x := x + 1\n    return x\n}\n").Ok);
     }
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)

@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 4d: columnar codegen grows `:=` locals
+
+Extends the Stage-4 spike (`ColumnarIlEmitter`) to int `:=` local variables. A VariableDeclaration (kind 24)
+emits its initializer, `DeclareLocal(typeof(int))`, then `stloc`; identifiers resolve to a local (`ldloc`)
+before a parameter (`ldarg`). Invoke-tested: a `:=` local feeding a return (`sum`), chained locals where the
+second reads the first (`chained`: `x := a + 1` then `y := x * 2`), and a local mixed with a param in the
+returned expression (`square`: `t := a * a` then `return t + a`).
+
+**Adversarial review caught a real divergence:** a local that shadows a parameter (`func shadow(x: int): int {
+x := x + 1 … }`) was accepted, but N# treats shadowing as a diagnostic — so the columnar path would silently
+compile a program the C# path flags. Fix: the VariableDeclaration case DECLINES when the name is already a
+parameter (shadow) or an already-declared local (redeclaration), keeping the C# analyzer authoritative. With
+that, the local and parameter name sets are disjoint for accepted programs. Decline tests added for shadowing,
+redeclaration, and assignment statements (`x = …`, kind 23 — an ExpressionStatement, not handled yet). Gate
+green. Next: 4c (turn the spike into a real dispatcher + a parity-vs-C#-path harness), 4g–4h (if/while), 4i
+(calls), then 4j (route through `ILCompiler.DeclareFunction`).
+
 ## 2026-06-07 — Stage 4 SPIKE: columnar codegen proven end-to-end (columnar tables → runnable IL)
 
 The Stage 4 inflection point, de-risked. New `Columnar/ColumnarIlEmitter.cs` + adapter

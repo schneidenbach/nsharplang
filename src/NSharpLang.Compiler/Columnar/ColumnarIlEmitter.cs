@@ -15,9 +15,9 @@ namespace NSharpLang.Compiler.Columnar;
 /// codegen will emit; later slices grow the supported surface and route through <c>ILCompiler</c> proper.
 ///
 /// Deliberately narrow: top-level <c>func</c> with INT params/return only (mixed-type arithmetic would need
-/// conversions this spike does not emit), a body that is a Block of a single Return, whose value is a
-/// parameter, an int literal, a parenthesized expr, or an int +/-/* binary of those. Anything else returns
-/// false (the adapter declines → the C# path is unaffected).
+/// conversions this spike does not emit), a body that is a Block of zero or more <c>:=</c> locals and a Return,
+/// where every expression is a parameter, a <c>:=</c> local, an int literal, a parenthesized expr, or an int
+/// +/-/* binary of those. Anything else returns false (the adapter declines → the C# path is unaffected).
 /// </summary>
 public sealed class ColumnarIlEmitter
 {
@@ -30,6 +30,8 @@ public sealed class ColumnarIlEmitter
     private readonly string _source;
     private readonly Dictionary<string, int> _paramOrdinals;
     private readonly ILGenerator _il;
+    // `:=` locals declared so far, by name (int-only spike, so every local is typeof(int)).
+    private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
 
     private ColumnarIlEmitter(
         int[] kinds, int[] valueStarts, int[] valueLengths,
@@ -137,7 +139,23 @@ public sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Ret);
                 return true;
 
-            default: // spike: only a block of returns is supported.
+            case 24: // VariableDeclaration (`:=`): emit the initializer, declare an int local, store into it.
+            {
+                var name = Text(idx);
+                // Decline a local that shadows a parameter or redeclares a local: N# treats shadowing as a
+                // diagnostic (and a same-`:=` redeclaration as an error), which the spike does not model —
+                // declining keeps the C# analyzer authoritative rather than silently compiling it.
+                if (_paramOrdinals.ContainsKey(name) || _locals.ContainsKey(name))
+                    return false;
+                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0)))
+                    return false;
+                var local = _il.DeclareLocal(typeof(int));
+                _il.Emit(OpCodes.Stloc, local);
+                _locals[name] = local;
+                return true;
+            }
+
+            default: // spike: Block / Return / `:=` declaration only.
                 return false;
         }
     }
@@ -146,14 +164,24 @@ public sealed class ColumnarIlEmitter
     {
         switch (_kinds[idx])
         {
-            case 6: // Identifier — only parameters are supported in the spike.
-                if (_paramOrdinals.TryGetValue(Text(idx), out var ordinal))
+            case 6: // Identifier — a `:=` local (ldloc) or a parameter (ldarg); the two name sets are disjoint
+                    // (a local that shadows a param is declined at its declaration).
+            {
+                var name = Text(idx);
+                if (_locals.TryGetValue(name, out var local))
+                {
+                    _il.Emit(OpCodes.Ldloc, local);
+                    return true;
+                }
+
+                if (_paramOrdinals.TryGetValue(name, out var ordinal))
                 {
                     EmitLoadArgument(ordinal);
                     return true;
                 }
 
                 return false;
+            }
 
             case 0: // IntLiteral — plain decimal int only.
                 if (int.TryParse(Text(idx), out var value))
