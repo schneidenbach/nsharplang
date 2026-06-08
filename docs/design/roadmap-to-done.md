@@ -198,12 +198,12 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       **PRODUCTION ROUTING LANDED (2026-06-08):** the columnar backend is wired into `MultiFileCompiler.
       CompileToIlAssembly` behind `NSHARP_COLUMNAR_BACKEND=1` (off by default) with C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
-      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage **24/32
-      (~75%) SINGLE-FILE, 27/32 (~84%) via MULTI-FILE merge** (2026-06-08: SourceTextLines via Array.Fill +
+      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage **25/32
+      (~78%) SINGLE-FILE, 28/32 (~88%) via MULTI-FILE merge** (2026-06-08: SourceTextLines via Array.Fill +
       void-call statement + parameter assignment; PathMatching via char arithmetic; LinterImports via
       discarded-call statement; CliDocOrdering via `new string(char[],int,int)`; CliQueryParsing via the `ulong`
-      unsigned scalar + `BitOperations.PopCount`; LexerTokenKindScanner via lowercase `char.` static predicates; DiagnosticDeduplication via void functions;
-      floor corrected 16→20 then →24).
+      unsigned scalar + `BitOperations.PopCount`; LexerTokenKindScanner via lowercase `char.` static predicates; DiagnosticDeduplication via void functions; IdentifierSpans via while-scan-loop (always-transferring body);
+      floor corrected 16→20 then →25).
       **MULTI-FILE merge LANDED** (`TryEmitColumnarProgramMultiFile`): the dogfood program is multi-file
       (cross-file public calls, e.g. ParserFunctionSignatures→ParserTypeReferences); the backend merges files into
       one columnar program so cross-file calls resolve, parity-gated vs a genuine separate-file MultiFileCompiler

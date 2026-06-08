@@ -2354,8 +2354,8 @@ class B
         // an int body that does NOT return on all paths (NL305) would emit IL with no final `ret` -> decline.
         Assert.False(RouteColumnarEmit("func noRetAssign(a: int): int {\n    x := a\n    x = x + 1\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func noRetDecl(a: int): int {\n    x := a\n}\n").Ok);
-        // a degenerate while whose body always returns (exits on the first iteration) -> decline.
-        Assert.False(RouteColumnarEmit("func degen(n: int): int {\n    while n > 0 {\n        return 1\n    }\n    return 0\n}\n").Ok);
+        // (a while whose body always-returns — a run-once `{ return X }` or a `continue`-scan loop — IS now
+        // modelled: the bottom back-edge is skipped as dead, see ColumnarCodegen_Parity_WhileAlwaysReturnsBody.)
         // a loop-body local referenced AFTER the loop is out of scope in N# -> block scoping declines it
         // (rather than reading a possibly-unassigned method-level slot).
         Assert.False(RouteColumnarEmit("func leak(n: int): int {\n    i := 0\n    while i < n {\n        temp := i\n        i = i + 1\n    }\n    return temp\n}\n").Ok);
@@ -2984,6 +2984,45 @@ class B
         Assert.False(RouteColumnarProgram("func f(a: ulong): long {\n    return (long)a\n}\n").Ok);
     }
 
+    // A `while` whose body ALWAYS transfers (every path returns or continues) — so the bottom back-edge is dead
+    // and skipped. (1) a run-once `{ return X }` body; (2) a SCAN loop that `continue`s past skippable elements
+    // and `return`s on the first "real" one — the IdentifierSpans pattern the old blanket "degenerate" decline
+    // wrongly rejected. PROVES the loop still ITERATES (firstTrue/allSkippable scan past leading skippables).
+    [Fact]
+    public void ColumnarCodegen_Parity_WhileAlwaysReturnsBody()
+    {
+        var prog =
+            "func firstTrue(flags: int[]): int {\n    i := 0\n    while i < flags.Length {\n        if flags[i] == 0 {\n            i = i + 1\n            continue\n        }\n        return i\n    }\n    return -1\n}\n\n" +
+            "func runOnce(n: int): int {\n    while n > 0 {\n        return 1\n    }\n    return 0\n}\n\n" +
+            "func allSkippable(a: int[], skip: int): bool {\n    i := 0\n    while i < a.Length {\n        if a[i] == skip {\n            i = i + 1\n            continue\n        }\n        return false\n    }\n    return true\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("firstTrue", new object[] { new[] { 0, 0, 1, 0 } }), ("firstTrue", new object[] { new[] { 0, 0 } }), ("firstTrue", new object[] { new int[0] }),
+            ("runOnce", new object[] { 5 }), ("runOnce", new object[] { 0 }),
+            ("allSkippable", new object[] { new[] { 7, 7, 7 }, 7 }), ("allSkippable", new object[] { new[] { 7, 3, 7 }, 7 }), ("allSkippable", new object[] { new int[0], 7 }));
+    }
+
+    // MILESTONE: IdentifierSpans.nl compiles end-to-end with no C# AST. Its lone blocker was
+    // IsCodeIntelligenceSnapFriendlyNeighbor — a `while` scan loop that `continue`s past whitespace/punctuation
+    // and `return`s on the first other char; the body always-transfers, which the old blanket decline rejected.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_IdentifierSpans()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "IdentifierSpans.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real IdentifierSpans.nl (expected full support).");
+        Assert.Contains("IsCodeIntelligenceSnapFriendlyNeighbor", methodNames!); // the fixed scan loop.
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("IsCodeIntelligenceSnapFriendlyNeighbor", new object[] { "ab  cd", 0, 6, 2, 3 }),   // both spaces -> friendly
+            ("IsCodeIntelligenceSnapFriendlyNeighbor", new object[] { "ab.cd", 0, 5, 2, 2 }),    // '.' punctuation -> friendly
+            ("IsCodeIntelligenceSnapFriendlyNeighbor", new object[] { "abxcd", 0, 5, 2, 2 }),    // 'x' -> NOT friendly
+            ("IsCodeIntelligenceSnapFriendlyNeighbor", new object[] { "abc", 0, 3, 5, 4 }),      // start > end -> true
+            ("IsCodeIntelligenceWhitespace", new object[] { ' ' }), ("IsCodeIntelligenceWhitespace", new object[] { 'x' }), ("IsCodeIntelligenceWhitespace", new object[] { '\t' }),
+            ("IsCodeIntelligenceSnapPunctuation", new object[] { '.' }), ("IsCodeIntelligenceSnapPunctuation", new object[] { 'a' }),
+            ("IsCodeIntelligenceIdentifierChar", new object[] { 'a' }), ("IsCodeIntelligenceIdentifierChar", new object[] { '5' }), ("IsCodeIntelligenceIdentifierChar", new object[] { '-' }));
+    }
+
     // void functions (procedures): the body need NOT always-return (a trailing `ret` is emitted iff it can fall
     // through); a value-less `return`; a void sibling invoked as a STATEMENT (call + no result); in-place array
     // mutation observed by the non-void caller. A value-bearing `return` in a void function declines.
@@ -3310,10 +3349,10 @@ class B
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
             "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl",
-            "FormatterSafetyScan.nl", "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl",
-            "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl",
-            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
-            "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+            "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl", "LinterImports.nl",
+            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl",
+            "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
+            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
@@ -3341,9 +3380,10 @@ class B
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
             "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl",
-            "FormatterSafetyScan.nl", "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl",
-            "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
-            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+            "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl", "LinterImports.nl",
+            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl",
+            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+            "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

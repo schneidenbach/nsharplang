@@ -522,13 +522,10 @@ public sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 26: // While [condition, body] — emit `check: cond; brfalse end; body; br check; end:`. The
+            case 26: // While [condition, body] — emit `check: cond; brfalse end; body; [br check]; end:`. The
             {        // stack is empty at both merge labels (cond pushes a bool, brfalse pops it; the body is
-                     // net-zero), so it is stack-consistent. The body must NOT always return (a degenerate
-                     // loop that exits on the first iteration) — decline that rather than emit a dead back-edge.
+                     // net-zero), so it is stack-consistent.
                 var body = Child(idx, 1);
-                if (AlwaysReturns(body))
-                    return false;
                 var checkLabel = _il.DefineLabel();
                 var endLabel = _il.DefineLabel();
                 _il.MarkLabel(checkLabel);
@@ -554,7 +551,14 @@ public sealed class ColumnarIlEmitter
 
                 foreach (var name in bodyLocals)
                     _locals.Remove(name);
-                _il.Emit(OpCodes.Br, checkLabel);
+                // The bottom back-edge is reachable ONLY if the body can FALL THROUGH to it. If the body always
+                // transfers on every path (a scan loop that `continue`s otherwise + `return`s, or a degenerate
+                // run-once `{ return X }` body), it never falls through, so the bottom `br check` would be dead
+                // code — skip it (the `continue`s already branch to checkLabel directly, so the loop still
+                // iterates). This both AVOIDS unreachable IL and ADMITS the common scan-loop pattern that the
+                // old blanket `AlwaysReturns(body)` decline wrongly rejected.
+                if (!AlwaysReturns(body))
+                    _il.Emit(OpCodes.Br, checkLabel);
                 _il.MarkLabel(endLabel);
                 return true;
             }

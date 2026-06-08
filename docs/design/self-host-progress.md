@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — `while` scan loops (always-transferring body) → IdentifierSpans.nl (single-file 24→25, cluster 27→28)
+
+A per-function stub probe (route each function with stub siblings so only the intrinsic gap remains) pinpointed
+`IdentifierSpans.nl`'s lone blocker: `IsCodeIntelligenceSnapFriendlyNeighbor`, a `while` SCAN loop that
+`continue`s past whitespace/punctuation and `return`s on the first other char (`while i <= end { if skippable {
+i++; continue } return false } return true`). Its body always-TRANSFERS (every path `continue`s or `return`s),
+so the emitter's `AlwaysReturns(body)` was true — and case 26's blanket `if (AlwaysReturns(body)) return false;`
+WRONGLY declined it as a "degenerate run-once loop," even though the `continue`s make it a real iterating scan.
+
+Fixed: removed the blanket decline; the bottom back-edge `br check` is now emitted ONLY `if (!AlwaysReturns(body))`
+— i.e. only when the body can FALL THROUGH to it. A body that always-transfers never falls through, so the
+bottom `br` would be dead code; skipping it both ADMITS the scan-loop pattern AND avoids emitting unreachable IL.
+The loop still iterates because `continue` branches directly to `checkLabel`. Soundness rests on a proven
+invariant (adversarially verified): `AlwaysReturns(block)==true` ⟹ the block's only always-returning child is its
+LAST (the "transfer must be last" rule rejects any earlier one) ⟹ no fall-through. This also makes the previously
+-declined degenerate `while c { return X }` form compile correctly (run-once; `c false` → exit, no missing
+iteration, no dead code).
+
+Flips `IdentifierSpans.nl` (1841 lines, 56 funcs — pure int/char/array otherwise). Parity-gated:
+`ColumnarCodegen_Parity_WhileAlwaysReturnsBody` (a `continue`-scan `firstTrue` that PROVES iteration — `{0,0,1,0}`
+→ 2 requires scanning past two leading zeros; `allSkippable`; the degenerate `runOnce`) and the milestone
+`ColumnarCodegen_CompilesRealDogfoodFile_IdentifierSpans` (the real scan function + char classifiers value-matched
+vs the C# pipeline). Updated the spike's now-stale `degen`-declines assertion (it compiles now). Adversarially
+reviewed (read-only, 2 lenses): the back-edge logic is correct for scan/run-once/normal/nested/braceless bodies,
+the IL is valid (the dogfood tests load+invoke it), tests are discriminating + non-vacuous. Ratchets: single-file
+floor 24→25, multi-file cluster 27→28. Coverage now **25/32 single-file, 28/32 via multi-file merge (~88%)**.
+
 ## 2026-06-08 — `void` functions (procedures) → DiagnosticDeduplication.nl (single-file 23→24, cluster 26→27)
 
 Diagnosed the last "0-feature but declines" mystery: `DiagnosticDeduplication.nl` is pure int/int[] EXCEPT its
