@@ -796,10 +796,36 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 16: // Cast [type, operand] — explicit numeric conversion among int/long/char. child[0] is a
+            {        // TYPE subtree (Simple); child[1] is the operand. Other casts (to/from string, bool, etc.)
+                     // decline (the C# path stays authoritative).
+                var castTypeNode = Child(idx, 0);
+                if (_kinds[castTypeNode] != 0 || !TryResolveBuiltin(Text(castTypeNode), out var targetType))
+                    return false;
+                if (!IsCastableScalar(targetType))
+                    return false;
+                if (!EmitExpression(Child(idx, 1), out var sourceType) || !IsCastableScalar(sourceType))
+                    return false;
+                // int/long/char are all i4/i8 on the stack; emit the narrowing/widening only when the
+                // representation differs (char->int and same-type casts are no-ops).
+                if (sourceType != targetType)
+                {
+                    if (targetType == typeof(long)) _il.Emit(OpCodes.Conv_I8);        // int/char -> long (widen)
+                    else if (targetType == typeof(char)) _il.Emit(OpCodes.Conv_U2);   // int/long -> char (truncate)
+                    else if (sourceType == typeof(long)) _il.Emit(OpCodes.Conv_I4);   // long -> int (truncate)
+                    // char -> int is identity (the char is already an i4 code point): no opcode.
+                }
+                type = targetType;
+                return true;
+            }
+
             default:
                 return false;
         }
     }
+
+    // Scalars that participate in explicit numeric casts (int/long/char — all i4/i8 on the stack).
+    private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char);
 
     // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
     private void EmitComparison(string op)

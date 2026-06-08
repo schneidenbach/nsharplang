@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — columnar codegen grows explicit casts `(int)char`/`(char)int`/int↔long
+
+Third string-subsystem slice — explicit numeric casts among int/long/char (columnar Cast, kind 16,
+`[type, operand]`; child[0] is a Simple TYPE subtree, child[1] the operand). int/long/char are all i4/i8 on
+the stack, so the conversion opcode is emitted only when the representation differs: `(long)` → `Conv_I8`
+(widen int/char), `(char)` → `Conv_U2` (truncate int/long), `(int)` from long → `Conv_I4`; `(int)char` and
+same-type casts are no-ops (a char is already an i4 code point). Casts to/from string/bool decline. This is
+the pervasive dogfood idiom `code := (int)s[i]` (index a string → char → int for arithmetic). Parity-gated
+(`ColumnarCodegen_Parity_Casts`): `(int)s[i]`, `(char)int`, a composite `(char)((int)c + 32)` lowercasing,
+and int↔long widen/truncate. Did NOT flip a file (still 11/32): the string-using files also need the BCL
+methods `IndexOf`/`Substring` (instance method-call dispatch) and `new char[]`/escapes — the next, meatier
+slices before the ~37% string batch starts compiling.
+
 ## 2026-06-08 — columnar codegen grows `char` + string indexing `s[i]` (character scanning)
 
 Second string slice — the character-scan capability the corpus uses pervasively. Added: `char` as a

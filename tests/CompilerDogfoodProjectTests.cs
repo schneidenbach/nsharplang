@@ -2616,6 +2616,27 @@ class B
             ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
     }
 
+    // explicit numeric casts among int/long/char (Conv_I4/I8/U2; char<->int is identity). The `code` case is the
+    // pervasive dogfood pattern `(int)s[i]` (index a string -> char -> int for arithmetic); `lower` composes
+    // char->int->arith->char.
+    [Fact]
+    public void ColumnarCodegen_Parity_Casts()
+    {
+        var prog = "func code(s: string, i: int): int {\n    return (int)s[i]\n}\n\n" +
+                   "func toChar(n: int): char {\n    return (char)n\n}\n\n" +
+                   "func lower(c: char): char {\n    return (char)((int)c + 32)\n}\n\n" +
+                   "func widen(n: int): long {\n    return (long)n\n}\n\n" +
+                   "func narrow(n: long): int {\n    return (int)n\n}\n\n" +
+                   "func charToLong(c: char): long {\n    return (long)c\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("code", new object[] { "ABC", 0 }), ("code", new object[] { "ABC", 2 }),
+            ("toChar", new object[] { 66 }), ("toChar", new object[] { 97 }),
+            ("lower", new object[] { 'A' }), ("lower", new object[] { 'Z' }),
+            ("widen", new object[] { 5 }), ("widen", new object[] { -3 }),
+            ("narrow", new object[] { 5000000007L }), ("narrow", new object[] { 42L }),
+            ("charToLong", new object[] { 'A' }));
+    }
+
     // char type + string INDEXING `s[i]` (get_Chars -> char) + char literals + char comparisons. The dogfood
     // character-scan pattern: index into a string, compare the char against a literal/param/range.
     [Fact]
