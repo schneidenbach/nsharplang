@@ -2616,6 +2616,27 @@ class B
             ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
     }
 
+    // char type + string INDEXING `s[i]` (get_Chars -> char) + char literals + char comparisons. The dogfood
+    // character-scan pattern: index into a string, compare the char against a literal/param/range.
+    [Fact]
+    public void ColumnarCodegen_Parity_CharAndStringIndex()
+    {
+        var prog = "func charAt(s: string, i: int): char {\n    return s[i]\n}\n\n" +
+                   "func firstIsCap(s: string): bool {\n    if s.Length > 0 {\n        return s[0] == 'A'\n    }\n    return false\n}\n\n" +
+                   "func countChar(s: string, target: char): int {\n    c := 0\n    i := 0\n    while i < s.Length {\n        if s[i] == target {\n            c = c + 1\n        }\n        i = i + 1\n    }\n    return c\n}\n\n" +
+                   "func isDigit(c: char): bool {\n    return c >= '0' && c <= '9'\n}\n\n" +
+                   "func echoChar(c: char): char {\n    return c\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("charAt", new object[] { "hello", 1 }), ("charAt", new object[] { "hello", 0 }),
+            ("firstIsCap", new object[] { "Apple" }), ("firstIsCap", new object[] { "apple" }), ("firstIsCap", new object[] { "" }),
+            ("countChar", new object[] { "banana", 'a' }), ("countChar", new object[] { "banana", 'z' }), ("countChar", new object[] { "", 'a' }),
+            ("isDigit", new object[] { '5' }), ("isDigit", new object[] { '0' }), ("isDigit", new object[] { '9' }), ("isDigit", new object[] { 'x' }),
+            ("echoChar", new object[] { 'Q' }));
+
+        // an escaped char literal ('\n') is not yet processed -> decline.
+        Assert.False(RouteColumnarProgram("func nl(): char {\n    return '\\n'\n}\n").Ok);
+    }
+
     // String basics: string params/returns/locals, string literals (Ldstr), `.Length` (get_Length), and value
     // equality `==`/`!=` (String.op_Equality, NOT reference ceq). The `eq` cases pass a runtime-built string
     // (new string('a', 3)) that is VALUE-equal to but a DISTINCT reference from the "aaa" literal, so a wrong

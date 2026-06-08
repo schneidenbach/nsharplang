@@ -114,7 +114,7 @@ public sealed class ColumnarIlEmitter
     // slices), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[]). (Mixed int/long
     // arithmetic — implicit widening — is not modelled; an all-long or all-int expression is required.)
     private static bool IsSupportedType(Type t) =>
-        t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(string)
+        t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(string) || t == typeof(char)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
     // Element types the array read/write paths can emit ldelem/stelem for (int/long today; string/bool/char
@@ -565,6 +565,18 @@ public sealed class ColumnarIlEmitter
                     default: return false;
                 }
 
+            case 2: // CharLiteral — `'x'` -> ldc.i4 of the code point (type char). Escaped/multi-char literals
+            {       // (e.g. '\n') are not yet processed -> decline (the C# path stays authoritative).
+                var raw = Text(idx);
+                if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
+                    raw = raw.Substring(1, raw.Length - 2);
+                if (raw.Length != 1)
+                    return false;
+                _il.Emit(OpCodes.Ldc_I4, (int)raw[0]);
+                type = typeof(char);
+                return true;
+            }
+
             case 3: // StringLiteral — emit Ldstr with the literal value. The token text is the source substring;
             {       // strip surrounding quotes if present. Escape sequences are NOT yet processed, so a literal
                     // containing a backslash declines (keeping the C# path authoritative for escapes).
@@ -669,8 +681,9 @@ public sealed class ColumnarIlEmitter
                         type = leftType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
-                        // Ordering on int or long (Clt/Cgt work on i4 and i8, producing an i4 bool).
-                        if (leftType != typeof(int) && leftType != typeof(long)) return false;
+                        // Ordering on int, long, or char (Clt/Cgt work on i4 and i8; a char is a non-negative i4
+                        // so signed compares are correct).
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(char)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -684,8 +697,8 @@ public sealed class ColumnarIlEmitter
                             type = typeof(bool);
                             return true;
                         }
-                        // Equality on int, long, or bool (Ceq works on i4 and i8).
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(bool)) return false;
+                        // Equality on int, long, bool, or char (Ceq works on i4 and i8).
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(bool) && leftType != typeof(char)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -742,11 +755,21 @@ public sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 10: // IndexAccess [object, index] — array element READ. The object is a supported-element array
-            {        // and the index is int; emit the element's ldelem. Result type = the element type.
-                if (!EmitExpression(Child(idx, 0), out var arrayType) || !arrayType.IsSZArray)
+            case 10: // IndexAccess [object, index] — array element READ (ldelem) or string char READ (get_Chars).
+            {        // The index is int; the result type is the element type (array) or char (string).
+                if (!EmitExpression(Child(idx, 0), out var indexedType))
                     return false;
-                var elementType = arrayType.GetElementType()!;
+                if (indexedType == typeof(string))
+                {
+                    if (!EmitExpression(Child(idx, 1), out var stringIndexType) || stringIndexType != typeof(int))
+                        return false;
+                    _il.Emit(OpCodes.Callvirt, typeof(string).GetMethod("get_Chars", new[] { typeof(int) })!);
+                    type = typeof(char);
+                    return true;
+                }
+                if (!indexedType.IsSZArray)
+                    return false;
+                var elementType = indexedType.GetElementType()!;
                 if (!EmitExpression(Child(idx, 1), out var indexType) || indexType != typeof(int))
                     return false;
                 if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);

@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — columnar codegen grows `char` + string indexing `s[i]` (character scanning)
+
+Second string slice — the character-scan capability the corpus uses pervasively. Added: `char` as a
+supported scalar type; char literals (`'x'` → `ldc.i4` of the code point; escaped/multi-char literals like
+`'\n'` decline, escapes not yet processed); string INDEXING `s[i]` (index-access kind 10 now branches:
+string → `callvirt get_Chars(int)` → char, array → `ldelem`); and char in the comparison guards (ordering
+`< > <= >=` and equality `== !=`) — a char is a non-negative i4, so the existing signed `clt`/`cgt`/`ceq`
+are correct (no `.un` needed). Parity-gated (`ColumnarCodegen_Parity_CharAndStringIndex`): index→char,
+`s[0] == 'A'`, the `countChar` scan loop, a `c >= '0' && c <= '9'` range check, char param/return round-trip,
+and an escaped-char-literal decline. Next toward the ~37% string batch: casts `(int)char`/`(char)int`
+(char↔int math the corpus does constantly), then the BCL string methods `IndexOf`/`Substring`.
+
 ## 2026-06-08 — STRING subsystem begins: type + literals + `.Length` + `==`/`!=` (the ~37% batch)
 
 First slice of the string subsystem (the gap analysis' next big batch — strings/char gate ~37% of the
