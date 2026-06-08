@@ -533,10 +533,17 @@ public sealed class ColumnarIlEmitter
                 var op = Text(idx);
                 switch (op)
                 {
-                    case "+": case "-": case "*":
-                        // Add/Sub/Mul work on i4 and i8; the result is the operands' (shared) numeric type.
+                    case "+": case "-": case "*": case "/": case "%":
+                        // Add/Sub/Mul/Div/Rem work on i4 and i8; the result is the operands' (shared) numeric
+                        // type. Div/Rem are the SIGNED forms (matching C# for int/long); divide-by-zero and
+                        // INT_MIN/-1 throw at runtime exactly as the C# path does.
                         if (leftType != typeof(int) && leftType != typeof(long)) return false;
-                        _il.Emit(op == "+" ? OpCodes.Add : op == "-" ? OpCodes.Sub : OpCodes.Mul);
+                        _il.Emit(
+                            op == "+" ? OpCodes.Add :
+                            op == "-" ? OpCodes.Sub :
+                            op == "*" ? OpCodes.Mul :
+                            op == "/" ? OpCodes.Div :
+                            OpCodes.Rem);
                         type = leftType;
                         return true;
                     case "<": case ">": case "<=": case ">=":

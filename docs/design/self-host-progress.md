@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4b-div: columnar codegen grows integer/long division & modulo
+
+Rounds out the arithmetic operators for int/long: `/` → `Div`, `%` → `Rem` (the SIGNED forms, matching C#
+for int/long). No type-system subtlety — both operands the same int/long type, result that type — and no
+new BCL/NaN complexity, so a small, low-risk slice. Divide-by-zero and `INT_MIN / -1` throw at runtime
+exactly as the C# path does. Parity-gated (`ColumnarCodegen_Parity_DivMod`) with NEGATIVE operands to pin
+the C#-matching semantics (truncation toward zero; the remainder's sign follows the dividend), an
+in-expression use (`(a + b) / 2`), and large long values. Useful for real compiler code (hashing, indexing
+math). Next on the type ladder: `double` (`ldc.r8` + NaN-correct `<=`/`>=` via the `.un` compare variants —
+deferred for fresh review of the NaN subtlety) and `string` (BCL `op_Equality`/`Concat`).
+
 ## 2026-06-08 — Stage 4b-ii: columnar codegen grows `long` (i8 — first distinct stack representation)
 
 On the type-aware foundation, `long` slots in cleanly. A long literal is an `IntLiteral` token whose text

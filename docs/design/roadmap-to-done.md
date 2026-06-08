@@ -144,7 +144,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         **4b-ii `long` DONE** (i8: `5L`→`ldc.i8` via the preserved lexer suffix; arith/cmp/unary reuse int opcodes
         on i8; long params/locals/returns; mixed int/long widening declines. First distinct stack rep, so the
         per-arg type check now genuinely prevents i4-where-i8 invalid IL. Parity-gated incl. values > int range
-        — `1e9*1e9`, `factL(20)` — + ulong/mixed declines) · [ ] 4b-iii `double` · [ ] 4b-iv `string`. · [x] **4c parity-vs-C#-path
+        — `1e9*1e9`, `factL(20)` — + ulong/mixed declines) · [x] **div/mod DONE** (int/long `/`→`Div`, `%`→`Rem`
+        signed; parity-gated w/ negatives + large long) · [ ] 4b-iii `double` (`ldc.r8`; NaN-correct `<=`/`>=`
+        need `.un` variants) · [ ] 4b-iv `string` (BCL `op_Equality`/`Concat`). · [x] **4c parity-vs-C#-path
         harness DONE** (`ColumnarCodegen_Parity_MatchesCSharpPath`: compile each eligible fn via BOTH the columnar
         path AND `MultiFileCompiler`→`ILCompiler`, invoke over many inputs incl. negatives/boundaries/overflow,
         assert identical; 15 fns. Caught + fixed TWO latent C# codegen bugs of one class — `EmitIf` both-arms-return

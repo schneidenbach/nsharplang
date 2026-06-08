@@ -2572,6 +2572,27 @@ class B
         Assert.False(RouteColumnarProgram("func u(): ulong {\n    return 5\n}\n").Ok);
     }
 
+    // Integer/long DIVISION and MODULO (signed Div/Rem). Negative operands exercise C#-matching truncation
+    // (toward zero) and the remainder's sign (follows the dividend). Divisors are non-zero / non-overflow.
+    [Fact]
+    public void ColumnarCodegen_Parity_DivMod()
+    {
+        var prog = "func divI(a: int, b: int): int {\n    return a / b\n}\n\n" +
+                   "func modI(a: int, b: int): int {\n    return a % b\n}\n\n" +
+                   "func avg(a: int, b: int): int {\n    return (a + b) / 2\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("divI", new object[] { 7, 2 }), ("divI", new object[] { -7, 2 }), ("divI", new object[] { 7, -2 }), ("divI", new object[] { -7, -2 }),
+            ("modI", new object[] { 7, 3 }), ("modI", new object[] { -7, 3 }), ("modI", new object[] { 7, -3 }), ("modI", new object[] { 8, 4 }),
+            ("avg", new object[] { 3, 6 }), ("avg", new object[] { -5, -1 }));
+
+        var progL = "func divL(a: long, b: long): long {\n    return a / b\n}\n\n" +
+                    "func modL(a: long, b: long): long {\n    return a % b\n}\n";
+        const long big = 1000000007L;
+        AssertColumnarProgramMatchesCSharp(progL,
+            ("divL", new object[] { big * big, big }), ("divL", new object[] { -100L, 7L }),
+            ("modL", new object[] { big * big, big }), ("modL", new object[] { -100L, 7L }));
+    }
+
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
     // codegen result equals the authoritative C# ILCompiler result. Fails loudly if the columnar
     // path declined a function this gate expects it to emit -- a silent decline would make the parity
