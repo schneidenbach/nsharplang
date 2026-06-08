@@ -125,10 +125,17 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         the C# analyzer authoritative). Invoke-tested: chained locals (`y := x * 2`), local+param mixes; declines
         shadowing, redeclaration, and assignment statements (`x = …`, kind 23 — not handled yet). Adversarially
         verified (the review caught the param-shadow gap; fixed + tested).
+      - [x] **4g if/else DONE** (first cut) — `if`/`else` where BOTH branches always return (no fall-through →
+        no merge-label/trailing-`ret` subtleties): `EmitCondition` (brfalse) + emit each branch (each ends in
+        `ret`). Conditions are an int comparison only (`< > <= >= == !=`; the negated ones via `cgt/clt` + `ceq 0`),
+        so a bool can't leak into an int value/return. Invoke-tested: `max` (`>`), `absish` (`>=`, `0 - a`), nested
+        `sign`. Declines: if-without-else, a fall-through branch, a non-comparison condition, a comparison in value
+        position, and unreachable code after a return (an NL312 case — the review caught that the Block emitter
+        emitted past a `ret`; fixed: a returning statement must be last in its block).
       - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [ ] 4c unify into a real
         dispatcher + the parity-vs-C#-path test harness · [ ] 4e unary · [ ] 4f assignment statements (`x = …`) ·
-        [ ] 4g if/else · [ ] 4h while · [ ] 4i calls · [ ] 4j route via `DeclareFunction` (flagged) + benchmark
-        never-slower · [ ] 4k C# fallback for declined forms + gate closure.
+        [ ] 4g+ if-without-else / fall-through branches (merge labels) · [ ] 4h while · [ ] 4i calls ·
+        [ ] 4j route via `DeclareFunction` (flagged) + benchmark never-slower · [ ] 4k C# fallback + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
@@ -270,9 +277,11 @@ is DONE** — `ColumnarIlEmitter` emits a runnable one-method assembly straight 
 by load+invoke for int-only param/literal/paren/`+`/`-`/`*` functions), de-risking the emission seam; declines
 everything else so the C# path is unaffected; adversarially verified. **4d (int `:=` locals) is also DONE** —
 `stloc`/`ldloc`, chained locals invoke-tested, shadowing/redeclaration declined (keeping the C# analyzer
-authoritative). **Next: 4c (a real columnar dispatcher + the parity-vs-C#-path harness) / 4g–4h (if/while) /
-4i (calls), then 4j (route via `DeclareFunction`).** This is the inflection point where C# begins to be deleted
-(Stages 5 route → 6 delete)
+authoritative). **4g (if/else, both-branches-return cut, with int comparisons) is also DONE.** So the emitter
+now covers params, int literals, `+/-/*`, paren, `:=` locals, and if/else — invoke-tested, every unsupported or
+diagnostic-bearing form (shadowing, unreachable-after-return, if-without-else, bool-in-value) declined. **Next:
+4c (a real columnar dispatcher + the parity-vs-C#-path harness) / 4h (while) / 4i (calls), then 4j (route via
+`DeclareFunction`).** This is the inflection point where C# begins to be deleted (Stages 5 route → 6 delete)
 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 

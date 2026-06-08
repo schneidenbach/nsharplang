@@ -2279,6 +2279,15 @@ class B
         // a local mixed with a parameter in the returned expression.
         AssertEmits("func square(a: int): int {\n    t := a * a\n    return t + a\n}\n", "square",
             (new object[] { 3 }, 12), (new object[] { 0 }, 0));
+        // if/else where both branches return (a comparison condition).
+        AssertEmits("func max(a: int, b: int): int {\n    if a > b {\n        return a\n    } else {\n        return b\n    }\n}\n", "max",
+            (new object[] { 3, 5 }, 5), (new object[] { 7, 2 }, 7), (new object[] { 4, 4 }, 4));
+        // `>=` plus subtraction-as-negation.
+        AssertEmits("func absish(a: int): int {\n    if a >= 0 {\n        return a\n    } else {\n        return 0 - a\n    }\n}\n", "absish",
+            (new object[] { 5 }, 5), (new object[] { -3 }, 3), (new object[] { 0 }, 0));
+        // nested if/else (the else branch is itself a both-returning if/else).
+        AssertEmits("func sign(a: int): int {\n    if a > 0 {\n        return 1\n    } else {\n        if a < 0 {\n            return 0 - 1\n        } else {\n            return 0\n        }\n    }\n}\n", "sign",
+            (new object[] { 5 }, 1), (new object[] { -3 }, -1), (new object[] { 0 }, 0));
 
         // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
         // An assignment STATEMENT (`x = x + 1`, kind 23) is not handled yet (only `:=` declarations).
@@ -2294,6 +2303,12 @@ class B
         Assert.False(RouteColumnarEmit("func shadow(x: int): int {\n    x := x + 1\n    return x\n}\n").Ok);
         // redeclaring a local name with `:=` -> decline.
         Assert.False(RouteColumnarEmit("func redecl(a: int): int {\n    x := a\n    x := x + 1\n    return x\n}\n").Ok);
+        // an `if` WITHOUT an else (or where a branch falls through) is declined in this first cut.
+        Assert.False(RouteColumnarEmit("func noElse(a: int): int {\n    if a > 0 {\n        return 1\n    }\n    return 0\n}\n").Ok);
+        // a comparison in value position (returning a bool from an int func) would diverge from N# types -> decline.
+        Assert.False(RouteColumnarEmit("func gt(a: int, b: int): int {\n    return a > b\n}\n").Ok);
+        // unreachable code after a return (an NL312 diagnostic) must decline, not emit code after `ret`.
+        Assert.False(RouteColumnarEmit("func unreach(a: int): int {\n    if a > 0 {\n        return 1\n        y := 2\n    } else {\n        return 0\n    }\n}\n").Ok);
     }
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)

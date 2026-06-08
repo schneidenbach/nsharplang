@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 4g: columnar codegen grows if/else (first cut) + int comparisons
+
+Extends `ColumnarIlEmitter` with control flow. **First cut deliberately requires an `if`/`else` where BOTH
+branches always return** — then there is no fall-through, so no merge label or trailing-`ret` analysis is
+needed: emit the condition, `brfalse elseLabel`, emit the then-branch (ends in `ret`), `MarkLabel(elseLabel)`,
+emit the else-branch (ends in `ret`). Conditions are restricted to an int comparison (`< > <= >= == !=`, the
+negated ones as `cgt`/`clt` followed by `ceq 0`), emitted via a separate `EmitCondition` so a comparison (a
+bool) can never leak into an int value/return position (which would diverge from N#'s type rules). A new
+`AlwaysReturns` helper (the same subset as the diagnostics pass) gates the both-branches-return requirement.
+Invoke-tested: `max` (via `>`), `absish` (via `>=` and `0 - a`), and a nested `sign` whose else branch is itself
+a both-returning if/else.
+
+**Adversarial review caught a real codegen bug:** `AlwaysReturns(Block)` is true if ANY statement returns, but
+the Block emitter emits ALL statements — so a block with code after a return (e.g. `{ return 1` then `y := 2 }`,
+which the parser accepts and NL312 flags as unreachable) would emit IL past a `ret`. Fix: a returning statement
+must be the LAST in its block; otherwise the emitter declines (keeping the C# analyzer/codegen authoritative —
+the dogfood corpus has zero unreachable code, so no coverage cost). Decline tests added for if-without-else, a
+fall-through branch, non-comparison conditions, a comparison in value position, and unreachable-after-return.
+Gate green. Next: 4c (real dispatcher + parity-vs-C#-path harness), 4h (while), 4i (calls), 4j (route).
+
 ## 2026-06-07 — Stage 4d: columnar codegen grows `:=` locals
 
 Extends the Stage-4 spike (`ColumnarIlEmitter`) to int `:=` local variables. A VariableDeclaration (kind 24)

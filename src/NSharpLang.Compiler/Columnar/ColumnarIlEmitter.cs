@@ -15,9 +15,11 @@ namespace NSharpLang.Compiler.Columnar;
 /// codegen will emit; later slices grow the supported surface and route through <c>ILCompiler</c> proper.
 ///
 /// Deliberately narrow: top-level <c>func</c> with INT params/return only (mixed-type arithmetic would need
-/// conversions this spike does not emit), a body that is a Block of zero or more <c>:=</c> locals and a Return,
-/// where every expression is a parameter, a <c>:=</c> local, an int literal, a parenthesized expr, or an int
-/// +/-/* binary of those. Anything else returns false (the adapter declines → the C# path is unaffected).
+/// conversions this spike does not emit). Statements: <c>:=</c> int locals, Return (value required), and an
+/// <c>if</c>/<c>else</c> where BOTH branches always return (no fall-through). Value expressions: a parameter, a
+/// <c>:=</c> local, an int literal, a parenthesized expr, or an int +/-/* binary. <c>if</c> conditions are an
+/// int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) only. Anything else returns false (the adapter declines
+/// → the C# path is unaffected).
 /// </summary>
 public sealed class ColumnarIlEmitter
 {
@@ -126,7 +128,13 @@ public sealed class ColumnarIlEmitter
             case 25: // Block — emit each statement in order.
                 for (var n = 0; n < _childCount[idx]; n++)
                 {
-                    if (!EmitStatement(Child(idx, n)))
+                    var child = Child(idx, n);
+                    if (!EmitStatement(child))
+                        return false;
+                    // A statement that always returns must be the LAST in its block; any statement after it is
+                    // unreachable (an NL312 diagnostic). Decline rather than emit code after a `ret`, keeping the
+                    // C# analyzer/codegen authoritative. (AlwaysReturns matches the diagnostics-pass subset.)
+                    if (AlwaysReturns(child) && n != _childCount[idx] - 1)
                         return false;
                 }
 
@@ -155,7 +163,71 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            default: // spike: Block / Return / `:=` declaration only.
+            case 27: // If [condition, then, else] — FIRST CUT: require an else where BOTH branches always return,
+            {        // so there is no fall-through (no merge label / trailing-ret subtleties). Decline otherwise.
+                if (_childCount[idx] != 3 || !AlwaysReturns(Child(idx, 1)) || !AlwaysReturns(Child(idx, 2)))
+                    return false;
+                if (!EmitCondition(Child(idx, 0)))
+                    return false;
+                var elseLabel = _il.DefineLabel();
+                _il.Emit(OpCodes.Brfalse, elseLabel);   // condition false -> else branch
+                if (!EmitStatement(Child(idx, 1)))       // then (always returns -> ends in `ret`)
+                    return false;
+                _il.MarkLabel(elseLabel);
+                return EmitStatement(Child(idx, 2));      // else (always returns -> ends in `ret`)
+            }
+
+            default: // spike: Block / Return / `:=` declaration / if-else-both-return only.
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Emit an `if` CONDITION as a bool (i4 0/1) on the stack. To keep types honest without a full type checker,
+    /// conditions are restricted to an int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) of two int value
+    /// expressions — so a comparison (a bool) can never leak into an int value/return position (which would
+    /// diverge from the C# type rules). Anything else declines.
+    /// </summary>
+    private bool EmitCondition(int idx)
+    {
+        if (_kinds[idx] != 12) // must be a Binary comparison.
+            return false;
+        if (!EmitExpression(Child(idx, 0)) || !EmitExpression(Child(idx, 1)))
+            return false;
+        switch (Text(idx))
+        {
+            case "<": _il.Emit(OpCodes.Clt); return true;
+            case ">": _il.Emit(OpCodes.Cgt); return true;
+            case "==": _il.Emit(OpCodes.Ceq); return true;
+            case "!=": _il.Emit(OpCodes.Ceq); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); return true;
+            case "<=": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); return true; // !(a > b)
+            case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); return true; // !(a < b)
+            default: return false;
+        }
+    }
+
+    /// <summary>
+    /// Whether this statement always exits via a return — the same columnar subset as the diagnostics pass
+    /// (Return; a Block whose any statement returns; an If with an else where both branches return). Used to
+    /// guarantee the emitted `if` has no fall-through.
+    /// </summary>
+    private bool AlwaysReturns(int idx)
+    {
+        switch (_kinds[idx])
+        {
+            case 20: // Return
+                return true;
+            case 25: // Block
+                for (var n = 0; n < _childCount[idx]; n++)
+                {
+                    if (AlwaysReturns(Child(idx, n)))
+                        return true;
+                }
+
+                return false;
+            case 27: // If [cond, then, else?]
+                return _childCount[idx] == 3 && AlwaysReturns(Child(idx, 1)) && AlwaysReturns(Child(idx, 2));
+            default:
                 return false;
         }
     }
