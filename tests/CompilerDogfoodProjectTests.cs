@@ -2296,6 +2296,15 @@ class B
         // nested if/else (the else branch is itself a both-returning if/else).
         AssertEmits("func sign(a: int): int {\n    if a > 0 {\n        return 1\n    } else {\n        if a < 0 {\n            return 0 - 1\n        } else {\n            return 0\n        }\n    }\n}\n", "sign",
             (new object[] { 5 }, 1), (new object[] { -3 }, -1), (new object[] { 0 }, 0));
+        // if WITHOUT an else (a guard clause). Three shapes: a then-branch that RETURNS (control falls
+        // through to a trailing return), a then-branch that FALLS THROUGH (a conditional assignment), and
+        // two sequential guards. The function-level always-returns gate ensures a statement follows each.
+        AssertEmits("func clampLow(a: int): int {\n    if a < 0 {\n        return 0\n    }\n    return a\n}\n", "clampLow",
+            (new object[] { -5 }, 0), (new object[] { 0 }, 0), (new object[] { 7 }, 7));
+        AssertEmits("func condAdd(a: int): int {\n    x := a\n    if x < 10 {\n        x = x + 1\n    }\n    return x\n}\n", "condAdd",
+            (new object[] { 3 }, 4), (new object[] { 10 }, 10), (new object[] { 20 }, 20));
+        AssertEmits("func clamp(a: int): int {\n    if a < 0 {\n        return 0 - 1\n    }\n    if a > 100 {\n        return 1\n    }\n    return 0\n}\n", "clamp",
+            (new object[] { -5 }, -1), (new object[] { 200 }, 1), (new object[] { 50 }, 0));
         // a simple `local = expr` assignment statement, then a return of the local.
         AssertEmits("func acc(a: int, b: int): int {\n    x := a\n    x = x + b\n    return x\n}\n", "acc",
             (new object[] { 3, 4 }, 7), (new object[] { 10, -10 }, 0));
@@ -2327,8 +2336,9 @@ class B
         Assert.False(RouteColumnarEmit("func shadow(x: int): int {\n    x := x + 1\n    return x\n}\n").Ok);
         // redeclaring a local name with `:=` -> decline.
         Assert.False(RouteColumnarEmit("func redecl(a: int): int {\n    x := a\n    x := x + 1\n    return x\n}\n").Ok);
-        // an `if` WITHOUT an else (or where a branch falls through) is declined in this first cut.
-        Assert.False(RouteColumnarEmit("func noElse(a: int): int {\n    if a > 0 {\n        return 1\n    }\n    return 0\n}\n").Ok);
+        // an if-WITH-else where a branch FALLS THROUGH (not both-return) is still declined — only the
+        // closed both-return else and the bare if-without-else are modelled so far.
+        Assert.False(RouteColumnarEmit("func elseFall(a: int): int {\n    r := 0\n    if a > 0 {\n        r = 1\n    } else {\n        return 0 - 1\n    }\n    return r\n}\n").Ok);
         // a comparison in value position (returning a bool from an int func) would diverge from N# types -> decline.
         Assert.False(RouteColumnarEmit("func gt(a: int, b: int): int {\n    return a > b\n}\n").Ok);
         // unreachable code after a return (an NL312 diagnostic) must decline, not emit code after `ret`.
@@ -2388,6 +2398,22 @@ class B
         // Nested if/else (three-way branch).
         AssertColumnarMatchesCSharp("func sign(a: int): int {\n    if a > 0 {\n        return 1\n    } else {\n        if a < 0 {\n            return 0 - 1\n        } else {\n            return 0\n        }\n    }\n}\n", "sign",
             new object[] { 9 }, new object[] { -9 }, new object[] { 0 });
+        // if WITHOUT else (guard clauses): then-returns, then-falls-through, and two sequential guards.
+        AssertColumnarMatchesCSharp("func clampLow(a: int): int {\n    if a < 0 {\n        return 0\n    }\n    return a\n}\n", "clampLow",
+            new object[] { -5 }, new object[] { -1 }, new object[] { 0 }, new object[] { 7 }, new object[] { int.MinValue });
+        AssertColumnarMatchesCSharp("func condAdd(a: int): int {\n    x := a\n    if x < 10 {\n        x = x + 1\n    }\n    return x\n}\n", "condAdd",
+            new object[] { 3 }, new object[] { 9 }, new object[] { 10 }, new object[] { 20 });
+        AssertColumnarMatchesCSharp("func clamp(a: int): int {\n    if a < 0 {\n        return 0 - 1\n    }\n    if a > 100 {\n        return 1\n    }\n    return 0\n}\n", "clamp",
+            new object[] { -5 }, new object[] { 0 }, new object[] { 100 }, new object[] { 200 });
+        // if-without-else at the risky positions (where a merge label could otherwise land badly): a guard
+        // NESTED in another guard's then-branch; a guard as the LAST statement of a while body (its merge
+        // label is followed by the loop back-edge); and a guard as a NON-last while-body statement.
+        AssertColumnarMatchesCSharp("func nested(a: int): int {\n    if a > 0 {\n        if a > 10 {\n            return 2\n        }\n        return 1\n    }\n    return 0\n}\n", "nested",
+            new object[] { -1 }, new object[] { 5 }, new object[] { 50 });
+        AssertColumnarMatchesCSharp("func guardLast(n: int): int {\n    x := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        if i > 2 {\n            x = x + 1\n        }\n    }\n    return x\n}\n", "guardLast",
+            new object[] { 0 }, new object[] { 2 }, new object[] { 5 });
+        AssertColumnarMatchesCSharp("func guardMid(n: int): int {\n    x := 0\n    i := 0\n    while i < n {\n        if i > 1 {\n            x = x + 10\n        }\n        i = i + 1\n    }\n    return x\n}\n", "guardMid",
+            new object[] { 0 }, new object[] { 2 }, new object[] { 5 });
         // := local + reassignment.
         AssertColumnarMatchesCSharp("func acc(a: int, b: int): int {\n    x := a\n    x = x + b\n    return x\n}\n", "acc",
             new object[] { 1, 2 }, new object[] { -3, 10 });

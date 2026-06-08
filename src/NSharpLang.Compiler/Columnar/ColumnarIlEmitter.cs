@@ -182,18 +182,50 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 27: // If [condition, then, else] — FIRST CUT: require an else where BOTH branches always return,
-            {        // so there is no fall-through (no merge label / trailing-ret subtleties). Decline otherwise.
-                if (_childCount[idx] != 3 || !AlwaysReturns(Child(idx, 1)) || !AlwaysReturns(Child(idx, 2)))
+            case 27: // If [condition, then, else?].
+            {
+                if (_childCount[idx] == 3)
+                {
+                    // Closed form: an else is present and BOTH branches always return, so there is no
+                    // fall-through merge (no trailing-ret subtleties). The general else-with-fall-through
+                    // shape is not yet modelled — decline it (the C# path stays authoritative).
+                    if (!AlwaysReturns(Child(idx, 1)) || !AlwaysReturns(Child(idx, 2)))
+                        return false;
+                    if (!EmitCondition(Child(idx, 0)))
+                        return false;
+                    var elseLabel = _il.DefineLabel();
+                    _il.Emit(OpCodes.Brfalse, elseLabel);   // condition false -> else branch
+                    if (!EmitStatement(Child(idx, 1)))       // then (always returns -> ends in `ret`)
+                        return false;
+                    _il.MarkLabel(elseLabel);
+                    return EmitStatement(Child(idx, 2));      // else (always returns -> ends in `ret`)
+                }
+
+                if (_childCount[idx] != 2)
                     return false;
+
+                // if-WITHOUT-else (a guard clause): `cond; brfalse end; then; end:`. Both paths reach
+                // `end` with an empty stack — the brfalse pops the condition bool, and a fall-through
+                // then-branch is net-zero (a then-branch that returns instead ends in `ret` and never
+                // reaches `end`). The function-level always-returns gate guarantees a later statement
+                // (e.g. a trailing `return`) follows this if, so `end` is never the bare method end
+                // (the EmitIf/EmitSwitch method-end-label hazard cannot arise here). Scope the
+                // then-branch's `:=` locals so a BRACELESS `:=` does not leak past the if (a Block
+                // then-branch already self-scopes; this also covers the braceless single-statement form).
                 if (!EmitCondition(Child(idx, 0)))
                     return false;
-                var elseLabel = _il.DefineLabel();
-                _il.Emit(OpCodes.Brfalse, elseLabel);   // condition false -> else branch
-                if (!EmitStatement(Child(idx, 1)))       // then (always returns -> ends in `ret`)
+                var endLabel = _il.DefineLabel();
+                _il.Emit(OpCodes.Brfalse, endLabel);
+                var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                if (!EmitStatement(Child(idx, 1)))
                     return false;
-                _il.MarkLabel(elseLabel);
-                return EmitStatement(Child(idx, 2));      // else (always returns -> ends in `ret`)
+                foreach (var name in new List<string>(_locals.Keys))
+                {
+                    if (!outerLocals.Contains(name))
+                        _locals.Remove(name);
+                }
+                _il.MarkLabel(endLabel);
+                return true;
             }
 
             case 23: // ExpressionStatement — FIRST CUT: only a SIMPLE `local = expr` assignment (kind 14, op `=`)

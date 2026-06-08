@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4g: columnar codegen grows if-WITHOUT-else (guard clauses, fall-through merge)
+
+Extends `ColumnarIlEmitter`'s `If` (kind 27) to the bare `if cond { then }` form (childCount 2) — the
+first fall-through branch with a merge label: `cond; brfalse end; then; end:`. Both edges reach `end` with
+an empty stack (the brfalse pops the condition bool; a fall-through then-branch is net-zero; a then-branch
+that returns ends in `ret` and never reaches `end`). The just-fixed EmitIf/EmitSwitch method-end-label
+hazard **cannot arise here**: an if-without-else has `AlwaysReturns == false`, and the block emitter
+declines any non-last statement that always-returns, so a successfully-emitted always-returning body always
+has a later statement after the guard (a loop back-edge, an enclosing merge, or a trailing `return`) — `end`
+is never the bare method end. The then-branch's `:=` locals are scoped (a braceless `:=` would otherwise
+leak), mirroring the while-body scoping. The if-WITH-else fall-through shape (else present, not both-return)
+is still declined — only the closed both-return else and the bare if-without-else are modelled so far.
+
+Verified empirically (the strongest check for codegen — it caught the EmitIf/EmitSwitch bugs the adversarial
+review missed): the parity oracle now compiles guard-clause functions via BOTH paths and asserts identical
+results across inputs, including the **risky merge-label positions** — a guard nested in another guard's
+then-branch, a guard as the LAST statement of a while body (merge label followed by the back-edge), and a
+guard as a non-last while-body statement. Plus spike invoke-tests for then-returns / then-falls-through /
+sequential guards. The former `noElse` decline is now a positive; a new `elseFall` case pins that the
+else-with-fall-through shape still declines.
+
 ## 2026-06-08 — Stage 4c: columnar↔C# parity oracle — and the two production codegen bugs it caught
 
 The Stage-4 inflection needs an acceptance gate before any routing: proof that the columnar emitter is

@@ -149,7 +149,11 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         rather than reading a possibly-unassigned slot. Invoke-tested: count/sumTo/fact accumulation loops, a
         loop-body-scoped local used within. Declines a degenerate (always-returning) body + both leak shapes. ·
         [x] **4e unary DONE** (int prefix `-`→`neg`, `~`→`not`; `!`/`++`/`--` decline; invoke-tested neg/bnot/
-        nested) · [ ] 4g+ if-without-else / fall-through branches (merge labels) · [ ] 4i calls ·
+        nested) · [~] **4g if-without-else DONE** (bare `if cond { then }`, kind-27 childCount 2: `cond; brfalse
+        end; then; end:` — the first fall-through merge label; empty stack at `end`; the EmitIf method-end-label
+        hazard can't arise since a guard never always-returns so a later statement always follows; then-branch
+        `:=` locals scoped. Parity-gated incl. nested/while-last/while-mid merge positions. Else-with-fall-through
+        still declines) · [ ] 4i calls ·
         [ ] 4j route via `DeclareFunction` (flagged) + benchmark never-slower · [ ] 4k C# fallback + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
