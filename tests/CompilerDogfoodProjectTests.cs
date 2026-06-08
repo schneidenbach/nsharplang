@@ -2616,6 +2616,22 @@ class B
             ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
     }
 
+    // break / continue in while loops. break exits the innermost loop (-> end label), continue re-tests it
+    // (-> check label). Includes nested loops (an inner break exits ONLY the inner loop).
+    [Fact]
+    public void ColumnarCodegen_Parity_BreakContinue()
+    {
+        var prog = "func firstMatch(a: int[], target: int): int {\n    i := 0\n    result := 0 - 1\n    while i < a.Length {\n        if a[i] == target {\n            result = i\n            break\n        }\n        i = i + 1\n    }\n    return result\n}\n\n" +
+                   "func sumUntilNeg(a: int[]): int {\n    total := 0\n    i := 0\n    while i < a.Length {\n        if a[i] < 0 {\n            break\n        }\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+                   "func countPos(a: int[]): int {\n    c := 0\n    i := 0\n    while i < a.Length {\n        if a[i] <= 0 {\n            i = i + 1\n            continue\n        }\n        c = c + 1\n        i = i + 1\n    }\n    return c\n}\n\n" +
+                   "func nestedBreak(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        j := 0\n        while j < n {\n            if j == 2 {\n                break\n            }\n            total = total + 1\n            j = j + 1\n        }\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("firstMatch", new object[] { new int[] { 5, 7, 9, 7 }, 7 }), ("firstMatch", new object[] { new int[] { 1, 2, 3 }, 9 }),
+            ("sumUntilNeg", new object[] { new int[] { 1, 2, 3, -1, 4 } }), ("sumUntilNeg", new object[] { new int[] { 1, 2, 3 } }),
+            ("countPos", new object[] { new int[] { -1, 2, 0, 3, -4, 5 } }), ("countPos", new object[] { new int[0] }),
+            ("nestedBreak", new object[] { 4 }), ("nestedBreak", new object[] { 1 }));
+    }
+
     // int[]/long[] arrays: parameters, `.Length`, and element READ `a[i]` — the universal dogfood pattern.
     // Includes the array-sum while-loop and a `&&`-guarded bounds-checked access (short-circuit + arrays: an
     // out-of-range index must short-circuit BEFORE indexing, or it would throw IndexOutOfRange).
@@ -2692,7 +2708,7 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "OverloadCandidates.nl",
-            "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+            "ParserDeclarations.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

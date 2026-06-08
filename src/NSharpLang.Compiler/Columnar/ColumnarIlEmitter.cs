@@ -85,6 +85,9 @@ public sealed class ColumnarIlEmitter
     // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
     // initializer), so the type-aware emitter checks assignments and reads against it.
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
+    // Enclosing loops' break/continue targets (innermost on top). `break` branches to the loop's end label,
+    // `continue` to its condition-check label. A break/continue outside any loop declines.
+    private readonly Stack<(Label Break, Label Continue)> _loopLabels = new();
 
     private ColumnarIlEmitter(
         int[] kinds, int[] valueStarts, int[] valueLengths,
@@ -268,10 +271,13 @@ public sealed class ColumnarIlEmitter
                     var child = Child(idx, n);
                     if (!EmitStatement(child))
                         return false;
-                    // A statement that always returns must be the LAST in its block; any statement after it is
-                    // unreachable (an NL312 diagnostic). Decline rather than emit code after a `ret`, keeping the
-                    // C# analyzer/codegen authoritative. (AlwaysReturns matches the diagnostics-pass subset.)
-                    if (AlwaysReturns(child) && n != _childCount[idx] - 1)
+                    // A statement that unconditionally transfers control — always-returns, or a direct
+                    // `break`/`continue` — must be the LAST in its block; anything after it is unreachable (an
+                    // NL312 diagnostic). Decline rather than emit code after the transfer `ret`/`br`, keeping the
+                    // C# analyzer/codegen authoritative. (A break/continue nested inside an `if` is conditional,
+                    // so only a DIRECT break/continue child counts here.)
+                    var transfers = AlwaysReturns(child) || _kinds[child] == 21 || _kinds[child] == 22;
+                    if (transfers && n != _childCount[idx] - 1)
                         return false;
                 }
 
@@ -417,7 +423,12 @@ public sealed class ColumnarIlEmitter
                 // Scope the body's `:=` locals so they leave scope at the loop end. A Block body self-scopes;
                 // this also covers a BRACELESS single-statement body (e.g. a bare `:=`), which is not a Block.
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
-                if (!EmitStatement(body))
+                // `break` exits to endLabel, `continue` re-tests at checkLabel; both reach their target with an
+                // empty stack (the body up to the transfer is net-zero), so they are stack-consistent.
+                _loopLabels.Push((endLabel, checkLabel));
+                var bodyEmitted = EmitStatement(body);
+                _loopLabels.Pop();
+                if (!bodyEmitted)
                     return false;
                 var bodyLocals = new List<string>();
                 foreach (var name in _locals.Keys)
@@ -433,7 +444,19 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            default: // spike: Block / Return / `:=` / assignment / if-else-both-return / while only.
+            case 21: // Break — branch to the innermost loop's end label.
+                if (_loopLabels.Count == 0)
+                    return false;
+                _il.Emit(OpCodes.Br, _loopLabels.Peek().Break);
+                return true;
+
+            case 22: // Continue — branch to the innermost loop's condition-check label.
+                if (_loopLabels.Count == 0)
+                    return false;
+                _il.Emit(OpCodes.Br, _loopLabels.Peek().Continue);
+                return true;
+
+            default: // spike: Block / Return / `:=` / assignment / if-else / while / break / continue.
                 return false;
         }
     }

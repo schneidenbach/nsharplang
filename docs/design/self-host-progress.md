@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — columnar codegen grows `break`/`continue` (corpus coverage 10 → 11 files)
+
+Loop `break`/`continue`. The emitter keeps a stack of the enclosing loops' (end, check) labels; `while`
+pushes (endLabel, checkLabel) around its body, `break` branches to the innermost loop's end label,
+`continue` to its check label (re-testing the condition). Both reach their target with an empty stack (the
+body up to the transfer is net-zero), so they are stack-consistent; nested loops work (an inner break exits
+only the inner loop). A `break`/`continue` outside any loop declines. The block emitter's "must be last"
+rule now also covers a DIRECT `break`/`continue` child (anything after it is unreachable NL312 code) — a
+break/continue nested inside an `if` is conditional, so only a direct child counts. Parity-gated
+(`ColumnarCodegen_Parity_BreakContinue`): break-on-match, break-until-negative, continue-to-skip, and nested
+loops. This unblocked one more real dogfood file (`ParserDeclarations.nl`), raising measured corpus coverage
+to **11 of 32 files**. Cheapest remaining unblocks: `new int[](n)` allocation, then strings/char/casts.
+
 ## 2026-06-08 — 🎯 MILESTONE: columnar backend compiles a REAL dogfood file (int[] arrays + Stage-5 proof)
 
 **The standalone columnar backend now compiles a real compiler-service file — `FormatterSafetyScan.nl` —
