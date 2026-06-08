@@ -12310,7 +12310,18 @@ public partial class ILCompiler
 
         // Emit then branch
         EmitStatement(ifStmt.ThenStatement);
-        if (ifStmt.ElseStatement != null)
+
+        // The unconditional branch that skips over the else-block is only needed -- and only valid --
+        // when the then-branch can actually fall through to it. When the then-branch always transfers
+        // control (return/throw/break/continue, or a nested if/else whose arms all do), the `br endLabel`
+        // is unreachable; worse, if nothing follows this `if`, endLabel lands at the very end of the
+        // method, so the branch targets an offset with no instruction -- unverifiable IL that crashes
+        // ilverify (MarkPredecessorWithLowerOffset) and faults the JIT (InvalidProgramException) on a
+        // perfectly valid source like `func max(a,b) { if a > b { return a } else { return b } }`. Gate
+        // both the skip-branch and its target on the then-branch completing normally; the reachable
+        // control flow is identical in every other case (the elided `br` was always dead code there).
+        var thenCompletesNormally = StatementCompletesNormally(ifStmt.ThenStatement);
+        if (ifStmt.ElseStatement != null && thenCompletesNormally)
         {
             _currentIL.Emit(OpCodes.Br, endLabel);
         }
@@ -12320,8 +12331,67 @@ public partial class ILCompiler
         if (ifStmt.ElseStatement != null)
         {
             EmitStatement(ifStmt.ElseStatement);
-            _currentIL.MarkLabel(endLabel);
+            if (thenCompletesNormally)
+            {
+                _currentIL.MarkLabel(endLabel);
+            }
         }
+    }
+
+    /// <summary>
+    /// Conservative control-flow probe for codegen: returns <c>false</c> ONLY when <paramref name="statement"/>
+    /// provably always transfers control (so it cannot fall through to the following instruction), and
+    /// <c>true</c> whenever that cannot be established. Callers rely on a SOUND "always transfers" signal —
+    /// a false positive would drop a needed fall-through branch and corrupt control flow — so every
+    /// unrecognized or uncertain form conservatively reports that it may complete normally.
+    /// </summary>
+    private static bool StatementCompletesNormally(Statement statement)
+    {
+        switch (statement)
+        {
+            case ReturnStatement:
+            case ThrowStatement:
+            case BreakStatement:
+            case ContinueStatement:
+                return false;
+            case BlockStatement block:
+                // The block transfers control as soon as one of its statements never completes
+                // normally (everything after that is unreachable); otherwise it falls through.
+                foreach (var inner in block.Statements)
+                {
+                    if (!StatementCompletesNormally(inner))
+                    {
+                        return false;
+                    }
+                }
+                return true;
+            case IfStatement ifStatement:
+                // An if transfers control only when it has an else AND both arms transfer; a bare
+                // if (no else) can always fall through via the false branch.
+                return ifStatement.ElseStatement == null
+                    || StatementCompletesNormally(ifStatement.ThenStatement)
+                    || StatementCompletesNormally(ifStatement.ElseStatement);
+            default:
+                return true;
+        }
+    }
+
+    /// <summary>
+    /// A straight-line statement sequence (e.g. a switch-case body) completes normally unless one of
+    /// its statements never does — after an unconditional transfer everything following is unreachable,
+    /// so the sequence transfers control there. Shares the conservative contract of
+    /// <see cref="StatementCompletesNormally(Statement)"/>: an empty sequence completes normally.
+    /// </summary>
+    private static bool StatementsCompleteNormally(IReadOnlyList<Statement> statements)
+    {
+        foreach (var statement in statements)
+        {
+            if (!StatementCompletesNormally(statement))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>
@@ -12721,7 +12791,19 @@ public partial class ILCompiler
                 {
                     EmitStatement(statement);
                 }
-                _currentIL.Emit(OpCodes.Br, endLabel);
+                // The implicit-break branch to the switch exit is only needed -- and only valid --
+                // when the case body can fall through to it. When every statement in the body
+                // transfers control (return/throw/break/continue), this `br endLabel` is dead; and
+                // when ALL case bodies transfer and the switch is the last statement of a non-void
+                // function (definite-return is satisfied by the cases), endLabel lands at the very
+                // end of the method, so a dead `br` here targets an offset with no instruction --
+                // the same unverifiable IL EmitIf produced (ilverify MarkPredecessorWithLowerOffset
+                // / JIT InvalidProgramException). endLabel itself stays unconditionally marked below
+                // because `break` and the no-default no-match dispatch path still target it.
+                if (StatementsCompleteNormally(switchCase.Statements))
+                {
+                    _currentIL.Emit(OpCodes.Br, endLabel);
+                }
 
                 if (!usedDispatch)
                 {

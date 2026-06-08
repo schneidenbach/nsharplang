@@ -620,6 +620,29 @@ func checkValue(x: int): int {
     }
 
     [Fact]
+    public void ILCompiler_IfElseBothBranchesReturn_NoTrailingStatement_IsRunnable()
+    {
+        // Regression: a function whose body is an if/else where BOTH branches return and nothing
+        // follows the `if` used to emit a dead `br` over the else-block to an end-label marked at
+        // the very end of the method -- i.e. a branch to an offset with no instruction. That IL
+        // crashed ilverify (MarkPredecessorWithLowerOffset) and faulted the JIT with
+        // InvalidProgramException the moment the method was INVOKED, even though the source is valid
+        // (definite return is satisfied by both arms). The prior `ILCompiler_CanCompileIfStatement`
+        // coverage only called Compile() and never invoked the method, so the bad IL slipped through;
+        // this invokes it. EmitIf now elides the skip-branch when the then-branch can't fall through.
+        var max = "func max(a: int, b: int): int {\n    if a > b {\n        return a\n    } else {\n        return b\n    }\n}\n";
+        Assert.Equal(5, (int)CompileAndInvoke(max, "max", 3, 5)!);
+        Assert.Equal(5, (int)CompileAndInvoke(max, "max", 5, 3)!);
+        Assert.Equal(4, (int)CompileAndInvoke(max, "max", 4, 4)!);
+
+        // The same shape one level deeper: a nested if/else whose every arm returns, nothing after.
+        var sign = "func sign(a: int): int {\n    if a > 0 {\n        return 1\n    } else {\n        if a < 0 {\n            return 0 - 1\n        } else {\n            return 0\n        }\n    }\n}\n";
+        Assert.Equal(1, (int)CompileAndInvoke(sign, "sign", 9)!);
+        Assert.Equal(-1, (int)CompileAndInvoke(sign, "sign", -9)!);
+        Assert.Equal(0, (int)CompileAndInvoke(sign, "sign", 0)!);
+    }
+
+    [Fact]
     public void ILCompiler_CanCompileWhileLoop()
     {
         var source = @"
@@ -4193,6 +4216,22 @@ func main(value: int): int {
 
         var result = CompileAndInvoke(source, "main", 2);
         Assert.Equal(20, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_SwitchAllCasesReturn_AsLastStatement_IsRunnable()
+    {
+        // Regression (same bug class as ILCompiler_IfElseBothBranchesReturn_...): a switch that is the
+        // last statement of a non-void function, where every case body INCLUDING default returns, used
+        // to emit a dead `br` to the switch exit-label marked at the very end of the method -- a branch
+        // to an offset with no instruction, the unverifiable IL that crashes ilverify
+        // (MarkPredecessorWithLowerOffset) and faults the JIT (InvalidProgramException) on invoke.
+        // Definite-return is satisfied by the cases so the source compiles; the method must actually
+        // run. EmitSwitch now elides the per-case exit-branch when that case body cannot fall through.
+        var source = "func classify(value: int): int {\n    switch value {\n        case 1 => return 10\n        case 2 => return 20\n        default => return 30\n    }\n}\n";
+        Assert.Equal(10, (int)CompileAndInvoke(source, "classify", 1)!);
+        Assert.Equal(20, (int)CompileAndInvoke(source, "classify", 2)!);
+        Assert.Equal(30, (int)CompileAndInvoke(source, "classify", 7)!);
     }
 
     [Fact]

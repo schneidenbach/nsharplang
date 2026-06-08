@@ -2351,6 +2351,112 @@ class B
         Assert.False(RouteColumnarEmit("func lnot(a: int): int {\n    return !a\n}\n").Ok);
     }
 
+    // Stage 4c -- the columnar codegen PARITY ORACLE. The Stage-4 emitter is verified not against
+    // hand-written expected constants (that only proves self-consistency) but against the
+    // AUTHORITATIVE production C# ILCompiler: the SAME N# source is compiled by BOTH the columnar
+    // path (TryEmitColumnarFunction) and the C# AST path, then each emitted method is invoked over a
+    // spread of inputs -- including negatives, zero, ordering boundaries for comparisons, and
+    // overflow extremes -- and the results MUST be identical. This is the acceptance gate every
+    // future codegen-routing slice must clear: it proves the columnar IL is semantically equivalent
+    // to the path it will eventually replace, catching any divergence (wrong opcode, operand, branch
+    // sense, operator precedence, loop bound) that a constants-only test would miss.
+    [Fact]
+    public void ColumnarCodegen_Parity_MatchesCSharpPath()
+    {
+        // Trivial returns / params / literals.
+        AssertColumnarMatchesCSharp("func identity(x: int): int {\n    return x\n}\n", "identity",
+            new object[] { 0 }, new object[] { 7 }, new object[] { -13 }, new object[] { int.MaxValue }, new object[] { int.MinValue });
+        AssertColumnarMatchesCSharp("func answer(): int {\n    return 42\n}\n", "answer",
+            new object[] { });
+        // Arithmetic + operator precedence + left-associativity + parenthesized grouping.
+        AssertColumnarMatchesCSharp("func add(a: int, b: int): int {\n    return a + b\n}\n", "add",
+            new object[] { 2, 3 }, new object[] { -5, 5 }, new object[] { -7, -8 }, new object[] { int.MaxValue, 1 });
+        AssertColumnarMatchesCSharp("func poly(a: int, b: int, c: int): int {\n    return a * b - c\n}\n", "poly",
+            new object[] { 3, 4, 5 }, new object[] { -2, 6, -1 }, new object[] { 0, 99, 7 });
+        AssertColumnarMatchesCSharp("func paren(a: int, b: int): int {\n    return (a + b) * b\n}\n", "paren",
+            new object[] { 2, 3 }, new object[] { -4, 5 }, new object[] { 7, -2 });
+        AssertColumnarMatchesCSharp("func chain(a: int, b: int, c: int): int {\n    return a - b - c\n}\n", "chain",
+            new object[] { 10, 3, 2 }, new object[] { -1, -2, -3 });
+        // Unary negate / bitwise-not.
+        AssertColumnarMatchesCSharp("func neg(a: int): int {\n    return -a\n}\n", "neg",
+            new object[] { 5 }, new object[] { -9 }, new object[] { 0 }, new object[] { int.MinValue });
+        AssertColumnarMatchesCSharp("func bnot(a: int): int {\n    return ~a\n}\n", "bnot",
+            new object[] { 0 }, new object[] { 5 }, new object[] { -1 }, new object[] { int.MaxValue });
+        // if/else, including the comparison-boundary case a == b.
+        AssertColumnarMatchesCSharp("func max(a: int, b: int): int {\n    if a > b {\n        return a\n    } else {\n        return b\n    }\n}\n", "max",
+            new object[] { 3, 5 }, new object[] { 5, 3 }, new object[] { 4, 4 }, new object[] { -2, -9 });
+        // Nested if/else (three-way branch).
+        AssertColumnarMatchesCSharp("func sign(a: int): int {\n    if a > 0 {\n        return 1\n    } else {\n        if a < 0 {\n            return 0 - 1\n        } else {\n            return 0\n        }\n    }\n}\n", "sign",
+            new object[] { 9 }, new object[] { -9 }, new object[] { 0 });
+        // := local + reassignment.
+        AssertColumnarMatchesCSharp("func acc(a: int, b: int): int {\n    x := a\n    x = x + b\n    return x\n}\n", "acc",
+            new object[] { 1, 2 }, new object[] { -3, 10 });
+        // while loops: empty-iteration, single-iteration, accumulation, and the multiply (fact) case.
+        AssertColumnarMatchesCSharp("func count(n: int): int {\n    x := 0\n    i := 0\n    while i < n {\n        x = x + 1\n        i = i + 1\n    }\n    return x\n}\n", "count",
+            new object[] { 0 }, new object[] { 1 }, new object[] { 5 }, new object[] { -3 });
+        AssertColumnarMatchesCSharp("func sumTo(n: int): int {\n    total := 0\n    i := 1\n    while i <= n {\n        total = total + i\n        i = i + 1\n    }\n    return total\n}\n", "sumTo",
+            new object[] { 0 }, new object[] { 1 }, new object[] { 5 }, new object[] { 10 });
+        AssertColumnarMatchesCSharp("func fact(n: int): int {\n    result := 1\n    i := 1\n    while i <= n {\n        result = result * i\n        i = i + 1\n    }\n    return result\n}\n", "fact",
+            new object[] { 0 }, new object[] { 1 }, new object[] { 5 }, new object[] { 7 });
+    }
+
+    // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
+    // codegen result equals the authoritative C# ILCompiler result. Fails loudly if the columnar
+    // path declined a function this gate expects it to emit -- a silent decline would make the parity
+    // assertion vacuous.
+    private static void AssertColumnarMatchesCSharp(string source, string funcName, params object[][] argSets)
+    {
+        var (ok, assembly, typeName, methodName) = RouteColumnarEmit(source);
+        Assert.True(ok, $"Columnar codegen declined a function the parity gate expects it to emit:\n{source}");
+        Assert.Equal(funcName, methodName);
+        var columnarMethod = System.Reflection.Assembly.Load(assembly!).GetType(typeName!)!.GetMethod(methodName!)!;
+
+        foreach (var args in argSets)
+        {
+            var columnar = columnarMethod.Invoke(null, args);
+            var oracle = InvokeViaCSharpPath(source, funcName, args);
+            Assert.Equal(oracle, columnar);
+        }
+    }
+
+    // The authoritative oracle: compile `source` through the FULL production pipeline (MultiFileCompiler
+    // -> ILCompiler, the path the columnar codegen will eventually replace -- not the raw ILCompiler,
+    // which skips the binding/analysis passes that production runs) and invoke `funcName`.
+    private static object? InvokeViaCSharpPath(string source, string funcName, object[] args)
+    {
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-columnar-parity-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectRoot);
+        var programPath = Path.Combine(projectRoot, "Program.nl");
+        var outputPath = Path.Combine(projectRoot, "bin", "ColumnarParity.dll");
+        System.Runtime.Loader.AssemblyLoadContext? loadContext = null;
+        try
+        {
+            File.WriteAllText(programPath, source);
+            var config = ProjectFileParser.CreateDefault("ColumnarParity");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
+            var result = compiler.CompileToIlAssembly("ColumnarParity", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
+            Assert.NotNull(result.OutputAssemblyPath);
+
+            loadContext = new System.Runtime.Loader.AssemblyLoadContext($"ColumnarParity_{Guid.NewGuid():N}", isCollectible: true);
+            var assembly = loadContext.LoadFromAssemblyPath(result.OutputAssemblyPath!);
+            // Lowercase N# function names are file-private, so the C# path emits them non-public.
+            var method = assembly.GetTypes()
+                .Select(t => t.GetMethod(funcName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                .FirstOrDefault(m => m != null)
+                ?? throw new InvalidOperationException($"C# path did not emit a static method '{funcName}'.");
+            return method.Invoke(null, args);
+        }
+        finally
+        {
+            loadContext?.Unload();
+            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
+        }
+    }
+
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)
     {
         var (ok, assembly, typeName, methodName) = RouteColumnarEmit(source);

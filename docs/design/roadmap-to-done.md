@@ -132,8 +132,14 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         `sign`. Declines: if-without-else, a fall-through branch, a non-comparison condition, a comparison in value
         position, and unreachable code after a return (an NL312 case — the review caught that the Block emitter
         emitted past a `ret`; fixed: a returning statement must be last in its block).
-      - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [ ] 4c unify into a real
-        dispatcher + the parity-vs-C#-path test harness · [x] **4f simple assignment statements DONE** (`local =
+      - [ ] 4b full canonical→CLR type resolution (beyond int; reuse `ResolveType`) · [x] **4c parity-vs-C#-path
+        harness DONE** (`ColumnarCodegen_Parity_MatchesCSharpPath`: compile each eligible fn via BOTH the columnar
+        path AND `MultiFileCompiler`→`ILCompiler`, invoke over many inputs incl. negatives/boundaries/overflow,
+        assert identical; 15 fns. Caught + fixed TWO latent C# codegen bugs of one class — `EmitIf` both-arms-return
+        and `EmitSwitch` all-cases-return both emitted a `br` to a label marked at method-end → ilverify
+        `MarkPredecessorWithLowerOffset` crash / JIT `InvalidProgramException` *on invoke*; gated by the new
+        `StatementCompletesNormally`. Two columnar-independent regression tests added. Unifying the spike into a
+        single production dispatcher folds into 4j routing.) · [x] **4f simple assignment statements DONE** (`local =
         expr` to a `:=` local: emit value, `stloc`; compound `+=`, param targets, and non-identifier targets
         decline). Surfaced + fixed a latent bug: an int body that does not return on all paths (NL305) emitted IL
         with no final `ret` — now the body must always-return or the source declines. · [x] **4h while loops

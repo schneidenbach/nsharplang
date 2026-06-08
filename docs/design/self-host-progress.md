@@ -11,6 +11,58 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4c: columnar↔C# parity oracle — and the two production codegen bugs it caught
+
+The Stage-4 inflection needs an acceptance gate before any routing: proof that the columnar emitter is
+semantically equivalent to the C# path it will replace, not merely self-consistent. New test
+`ColumnarCodegen_Parity_MatchesCSharpPath` compiles each eligible function **both** ways — the columnar
+path (`TryEmitColumnarFunction`) and the authoritative production pipeline (`MultiFileCompiler` →
+`ILCompiler`) — then invokes each emitted method over a spread of inputs (negatives, zero, comparison
+boundaries, overflow extremes) and asserts the results are identical. 15 functions spanning every
+supported form (literals, params, `+ - *`, unary `-`/`~`, paren, `:=` locals, assignment, if/else, nested
+if/else, while accumulation incl. `fact`). This is the gate every future codegen-routing slice must clear.
+
+**The oracle immediately earned its keep — it caught two real, latent production codegen bugs in the C#
+`ILCompiler`, both the same class** ("a `br` to a label marked at the very end of the method, i.e. an
+offset with no instruction" → IL that crashes ilverify with `MarkPredecessorWithLowerOffset` and faults
+the JIT with `InvalidProgramException` *on invoke*). Both compile cleanly and only fail when the method is
+actually run — which is why they hid: the prior coverage (`ILCompiler_CanCompileIfStatement`,
+`ILCompiler_CanExecuteSwitchStatement`) either never invoked, or never used the triggering shape.
+
+- **`EmitIf` (`ILCompiler.cs:~12312`)** — `if/else` where **both arms return and nothing follows the
+  `if`** (e.g. `func max(a,b) { if a > b { return a } else { return b } }`). It unconditionally emitted
+  `br endLabel` to skip the else, then marked `endLabel` at method-end. Fix: a sound, conservative
+  `StatementCompletesNormally(Statement)` helper (false only for provable always-transfer:
+  return/throw/break/continue, a block whose any statement transfers, an if whose both arms transfer;
+  everything else defaults to "may fall through"); the skip-branch and its label are emitted only when
+  the then-branch can fall through. Reachable control flow is unchanged in every other case (the elided
+  `br` was always dead).
+- **`EmitSwitch` (`ILCompiler.cs:~12776`)** — the **identical shape**: a `switch` as the last statement of
+  a non-void function where every case body **including `default`** returns (definite-return is satisfied
+  by the cases, so it compiles). Same fix: gate the per-case implicit-break `br endLabel` on
+  `StatementsCompleteNormally(case.Statements)`; `endLabel` stays unconditionally marked because `break`
+  and the no-default no-match dispatch path still target it.
+
+**Verification discipline:** standalone CLI repros confirmed each bug as an ilverify `MarkPredecessorWith­
+LowerOffset` crash *before* the fix and `CLEAN` after, with fall-through controls staying clean. A
+read-only adversarial workflow (Explore agents + judge) ruled the `EmitIf` fix **sound** (no unsound
+false-positive, no label-marking hazard). The judge under-rated `EmitSwitch` ("endLabel is always marked,
+so the branch is valid") — but that misdiagnoses the bug (the *original* `EmitIf` endLabel was also always
+marked; the hazard is a label at method-*end*, not an unmarked one). A direct ilverify repro proved the
+`EmitSwitch` bug real and in-scope. Lesson reaffirmed: **empirically reproduce, don't trust a judge's
+hand-wave.** Two columnar-independent regression tests added
+(`ILCompiler_IfElseBothBranchesReturn_NoTrailingStatement_IsRunnable`,
+`ILCompiler_SwitchAllCasesReturn_AsLastStatement_IsRunnable`) so the guards survive even if the spike is
+later removed. Gate green (3781 tests + IL-verification gate).
+
+**On 4j (routing into `ILCompiler`):** scoping confirmed `ILCompiler` consumes only the `CompilationUnit`
+AST and has **no access to raw source** (`CompilationUnit`/`FunctionDeclaration` carry `Line`/`Column` but
+no source text or byte span), while the columnar kernels parse source strings. So "inject columnar
+body-emit into `EmitFunctionBody`" as originally framed implies threading source through `ILCompiler` and
+**re-parsing each function** — a redundant second parse, blocked on unsolved per-function source
+extraction. 4c was the right fork-independent step regardless; the routing approach (re-parse-in-ILCompiler
+vs a standalone columnar codegen pipeline that Stage 5 routes to wholesale) is the open architecture fork.
+
 ## 2026-06-08 — Stage 4e: columnar codegen grows unary `-`/`~`
 
 Small slice: int prefix unary in `ColumnarIlEmitter` — `-`→`neg`, `~`→`not` (emit the operand, then the
