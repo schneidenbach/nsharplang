@@ -84,7 +84,23 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         otherwise). Parity vs a C#-AST mirror on 6 hand-built cases (incl. only-first-reported, nested, and the
         unreachable-before-missing-return ordering) + zero unreachable on the 32-file corpus. Adversarially
         verified (clean — no divergence).
-      - [ ] 3b-iii unused-local (next sub-slice).
+      - [ ] **3b-iii unused-local (NL001)** — next sub-slice. **Implementation note (from a discarded first
+        attempt + Linter source audit):** NL001 lives in `Linter.cs`, not the Analyzer. `CheckUnusedVariables`
+        flags a declared local iff `!used && !_usedVariables.Contains(name) && name != "_" && !name.StartsWith("_")`.
+        `MarkVariableUsed` (called for every identifier expression — INCLUDING assignment targets and call
+        callees — and for every parameter) sets the scope `used` flag AND unconditionally adds the name to the
+        file-level `_usedVariables` set. Crucially the check runs at each **block's `PopScope`** (functions push
+        their own scope at `Linter.cs:631`, blocks at `:833`) against `_usedVariables` **as of that moment**, and
+        `_usedVariables` accumulates in traversal order and is **never cleared between functions**. So NL001 is
+        time-/scope-ordered: a use that appears AFTER a block closes (a later sibling block, or a later function)
+        does NOT suppress that block's unused locals, but an EARLIER use (prior function, earlier statement, or a
+        param) does. A naive "a local is unused iff its name never appears as an identifier anywhere in the
+        source" global rule is WRONG here — it over-suppresses (e.g. `func first(){x:=42} func second(){x:=100;
+        return x}`: the Linter flags `first`'s `x`; a global rule does not). The faithful columnar impl must walk
+        in source order with a scope-list stack, accumulate `usedNames` as it goes, and check each block's direct
+        `:=` decls at block exit against `usedNames`-so-far. Also: the kernel REFUSES interpolated strings
+        (`$"..."`), so interpolation hidden-uses can't slip through (those sources decline → C# fallback) — keep
+        that property. Discards (`_` / `_`-prefixed) exempt; params always "used".
 - [ ] **Stage 4 — columnar codegen.** Emit IL directly from the columnar + resolved tables for the systems
       subset; compile a trivial then a real dogfood function with NO C# AST. Parity: emitted IL runs identically
       to the C# path (same outputs); IL-verification gate green.
