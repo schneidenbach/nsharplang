@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — literal escapes: char decoding + raw strings (matched to N#'s actual semantics)
+
+The parity oracle EARNED ITS KEEP again: my first cut decoded C-style escapes in BOTH char and string
+literals, but the C# path returned a RAW string for `"a\tb"` — revealing N#'s real (asymmetric) semantics,
+confirmed in `ILCompiler`: **char literals DECODE escapes** (`ParseCharLiteralValue` — `\n \r \t \\ \" \' \0
+\a \b \f \v`, no `\u`/`\x`), but **string literals are RAW** (`GetStringLiteralRuntimeValue` = `Value.Trim('"')`,
+no decode — a backslash stays literal). Matched both exactly: char literals decode via a shared
+`TryDecodeLiteralBody` (declining `\u`/`\x` and any unknown escape, exactly as `ParseCharLiteralValue`
+throws), and string literals emit `Ldstr` of `Text.Trim('"')` with NO decode. This both ADDS char-escape
+literals (`'\n'`, `'\t'`, … — previously declined) and makes string literals containing a backslash compile
+correctly as raw (the prior cut declined any backslash). Parity-gated (`ColumnarCodegen_Parity_Escapes`):
+char-escape code points (`(int)'\r'` etc.), an `isNewline` guard (`c == '\n' || c == '\r'`), raw strings
+with `\t`/`\n`/`\\`, and a `'A'` char decline. A reminder that codegen must MATCH the existing
+compiler's semantics (even quirky ones), not an assumed ideal — which only the parity oracle can enforce.
+
 ## 2026-06-08 — columnar codegen grows explicit casts `(int)char`/`(char)int`/int↔long
 
 Third string-subsystem slice — explicit numeric casts among int/long/char (columnar Cast, kind 16,

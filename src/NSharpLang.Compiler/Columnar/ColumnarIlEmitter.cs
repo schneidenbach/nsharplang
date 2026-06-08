@@ -140,6 +140,52 @@ public sealed class ColumnarIlEmitter
         return TryResolveBuiltin(canonical, out type);
     }
 
+    /// <summary>
+    /// Decode the (quote-stripped) body of a char/string literal, resolving the common C-style escape sequences
+    /// (<c>\n \r \t \\ \" \' \0 \a \b \f \v</c>) to their characters. Returns false for an unknown/unsupported
+    /// escape (e.g. <c>\u</c>/<c>\x</c> or a trailing backslash) so that literal declines — keeping the C# path
+    /// authoritative rather than mis-decoding. A body with no backslash is returned verbatim.
+    /// </summary>
+    private static bool TryDecodeLiteralBody(string body, out string decoded)
+    {
+        decoded = string.Empty;
+        if (!body.Contains('\\'))
+        {
+            decoded = body;
+            return true;
+        }
+        var sb = new System.Text.StringBuilder(body.Length);
+        for (var i = 0; i < body.Length; i++)
+        {
+            var ch = body[i];
+            if (ch != '\\')
+            {
+                sb.Append(ch);
+                continue;
+            }
+            if (i + 1 >= body.Length)
+                return false; // trailing backslash.
+            i++;
+            switch (body[i])
+            {
+                case 'n': sb.Append('\n'); break;
+                case 'r': sb.Append('\r'); break;
+                case 't': sb.Append('\t'); break;
+                case '\\': sb.Append('\\'); break;
+                case '"': sb.Append('"'); break;
+                case '\'': sb.Append('\''); break;
+                case '0': sb.Append('\0'); break;
+                case 'a': sb.Append('\a'); break;
+                case 'b': sb.Append('\b'); break;
+                case 'f': sb.Append('\f'); break;
+                case 'v': sb.Append('\v'); break;
+                default: return false; // \u, \x, or unknown escape — decline.
+            }
+        }
+        decoded = sb.ToString();
+        return true;
+    }
+
     /// <summary>Canonical N# primitive type name → its CLR <see cref="Type"/>. Non-builtins are unsupported.</summary>
     public static bool TryResolveBuiltin(string canonical, out Type type)
     {
@@ -565,27 +611,22 @@ public sealed class ColumnarIlEmitter
                     default: return false;
                 }
 
-            case 2: // CharLiteral — `'x'` -> ldc.i4 of the code point (type char). Escaped/multi-char literals
-            {       // (e.g. '\n') are not yet processed -> decline (the C# path stays authoritative).
+            case 2: // CharLiteral — `'x'` (or an escape like `'\n'`) -> ldc.i4 of the code point (type char).
+            {
                 var raw = Text(idx);
                 if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
                     raw = raw.Substring(1, raw.Length - 2);
-                if (raw.Length != 1)
+                if (!TryDecodeLiteralBody(raw, out var charValue) || charValue.Length != 1)
                     return false;
-                _il.Emit(OpCodes.Ldc_I4, (int)raw[0]);
+                _il.Emit(OpCodes.Ldc_I4, (int)charValue[0]);
                 type = typeof(char);
                 return true;
             }
 
-            case 3: // StringLiteral — emit Ldstr with the literal value. The token text is the source substring;
-            {       // strip surrounding quotes if present. Escape sequences are NOT yet processed, so a literal
-                    // containing a backslash declines (keeping the C# path authoritative for escapes).
-                var raw = Text(idx);
-                if (raw.Length >= 2 && raw[0] == '"' && raw[raw.Length - 1] == '"')
-                    raw = raw.Substring(1, raw.Length - 2);
-                if (raw.Contains('\\'))
-                    return false;
-                _il.Emit(OpCodes.Ldstr, raw);
+            case 3: // StringLiteral — N# string literals are RAW: the C# path emits `value.Trim('"')` with NO
+            {       // escape processing (ILCompiler.GetStringLiteralRuntimeValue), so a backslash stays literal.
+                    // Match that EXACTLY (Trim('"') over the source substring) — do NOT decode escapes here.
+                _il.Emit(OpCodes.Ldstr, Text(idx).Trim('"'));
                 type = typeof(string);
                 return true;
             }

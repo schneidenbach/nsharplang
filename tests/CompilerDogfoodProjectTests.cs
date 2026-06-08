@@ -2654,8 +2654,6 @@ class B
             ("isDigit", new object[] { '5' }), ("isDigit", new object[] { '0' }), ("isDigit", new object[] { '9' }), ("isDigit", new object[] { 'x' }),
             ("echoChar", new object[] { 'Q' }));
 
-        // an escaped char literal ('\n') is not yet processed -> decline.
-        Assert.False(RouteColumnarProgram("func nl(): char {\n    return '\\n'\n}\n").Ok);
     }
 
     // String basics: string params/returns/locals, string literals (Ldstr), `.Length` (get_Length), and value
@@ -2682,8 +2680,30 @@ class B
             ("echo", new object[] { "round-trip" }),
             ("isEmpty", new object[] { "" }), ("isEmpty", new object[] { "x" }));
 
-        // a string literal with an ESCAPE is not yet processed -> decline (C# path authoritative).
-        Assert.False(RouteColumnarProgram("func nl(): string {\n    return \"a\\nb\"\n}\n").Ok);
+    }
+
+    // Escape-sequence decoding in char/string literals (\n \r \t \\ \" \' \0 ...). The decoded value must match
+    // what C# emits; an unsupported escape (\u/\x) declines.
+    [Fact]
+    public void ColumnarCodegen_Parity_Escapes()
+    {
+        var prog = "func tab(): string {\n    return \"a\\tb\"\n}\n\n" +
+                   "func lines(): string {\n    return \"x\\ny\\rz\"\n}\n\n" +
+                   "func quoted(): string {\n    return \"say \\\"hi\\\"\"\n}\n\n" +
+                   "func backslash(): string {\n    return \"a\\\\b\"\n}\n\n" +
+                   "func crCode(): int {\n    return (int)'\\r'\n}\n\n" +
+                   "func nlCode(): int {\n    return (int)'\\n'\n}\n\n" +
+                   "func tabCode(): int {\n    return (int)'\\t'\n}\n\n" +
+                   "func isNewline(c: char): bool {\n    return c == '\\n' || c == '\\r'\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("tab", System.Array.Empty<object>()), ("lines", System.Array.Empty<object>()),
+            ("quoted", System.Array.Empty<object>()), ("backslash", System.Array.Empty<object>()),
+            ("crCode", System.Array.Empty<object>()), ("nlCode", System.Array.Empty<object>()), ("tabCode", System.Array.Empty<object>()),
+            ("isNewline", new object[] { '\n' }), ("isNewline", new object[] { '\r' }), ("isNewline", new object[] { 'x' }));
+
+        // a \u unicode escape in a CHAR literal is not supported -> decline (string literals are raw, so \u in a
+        // string is just literal characters and needs no decode).
+        Assert.False(RouteColumnarProgram("func u(): char {\n    return '\\u0041'\n}\n").Ok);
     }
 
     // `new int[](n)` / `new long[](n)` array ALLOCATION (Newarr). newarr zero-initializes; combined with the
