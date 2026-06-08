@@ -114,7 +114,7 @@ public sealed class ColumnarIlEmitter
     // slices), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[]). (Mixed int/long
     // arithmetic — implicit widening — is not modelled; an all-long or all-int expression is required.)
     private static bool IsSupportedType(Type t) =>
-        t == typeof(int) || t == typeof(bool) || t == typeof(long)
+        t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(string)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
     // Element types the array read/write paths can emit ldelem/stelem for (int/long today; string/bool/char
@@ -565,6 +565,19 @@ public sealed class ColumnarIlEmitter
                     default: return false;
                 }
 
+            case 3: // StringLiteral — emit Ldstr with the literal value. The token text is the source substring;
+            {       // strip surrounding quotes if present. Escape sequences are NOT yet processed, so a literal
+                    // containing a backslash declines (keeping the C# path authoritative for escapes).
+                var raw = Text(idx);
+                if (raw.Length >= 2 && raw[0] == '"' && raw[raw.Length - 1] == '"')
+                    raw = raw.Substring(1, raw.Length - 2);
+                if (raw.Contains('\\'))
+                    return false;
+                _il.Emit(OpCodes.Ldstr, raw);
+                type = typeof(string);
+                return true;
+            }
+
             case 7: // Parenthesized — emit the inner expression, propagating its type.
                 return EmitExpression(Child(idx, 0), out type);
 
@@ -662,6 +675,15 @@ public sealed class ColumnarIlEmitter
                         type = typeof(bool);
                         return true;
                     case "==": case "!=":
+                        if (leftType == typeof(string))
+                        {
+                            // String equality is VALUE equality (String.op_Equality), NOT `ceq` (which compares
+                            // references). `!=` negates the result.
+                            _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
+                            if (op == "!=") { _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); }
+                            type = typeof(bool);
+                            return true;
+                        }
                         // Equality on int, long, or bool (Ceq works on i4 and i8).
                         if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(bool)) return false;
                         EmitComparison(op);
@@ -698,16 +720,26 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 8: // MemberAccess [receiver] — only `.Length` on an array (-> int) for now. The member name is
-            {       // the value span. (Property/field/other member access is a host boundary; decline it.)
+            case 8: // MemberAccess [receiver] — `.Length` on an array or a string (-> int). The member name is
+            {       // the value span. (Other member/property/field access is a host boundary; decline it.)
                 if (Text(idx) != "Length")
                     return false;
-                if (!EmitExpression(Child(idx, 0), out var receiverType) || !receiverType.IsSZArray)
+                if (!EmitExpression(Child(idx, 0), out var receiverType))
                     return false;
-                _il.Emit(OpCodes.Ldlen);     // pushes the array length as a native int...
-                _il.Emit(OpCodes.Conv_I4);   // ...narrowed to int (N# array length is int).
-                type = typeof(int);
-                return true;
+                if (receiverType.IsSZArray)
+                {
+                    _il.Emit(OpCodes.Ldlen);     // pushes the array length as a native int...
+                    _il.Emit(OpCodes.Conv_I4);   // ...narrowed to int (N# array length is int).
+                    type = typeof(int);
+                    return true;
+                }
+                if (receiverType == typeof(string))
+                {
+                    _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod()!);
+                    type = typeof(int);
+                    return true;
+                }
+                return false;
             }
 
             case 10: // IndexAccess [object, index] — array element READ. The object is a supported-element array

@@ -2616,6 +2616,34 @@ class B
             ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
     }
 
+    // String basics: string params/returns/locals, string literals (Ldstr), `.Length` (get_Length), and value
+    // equality `==`/`!=` (String.op_Equality, NOT reference ceq). The `eq` cases pass a runtime-built string
+    // (new string('a', 3)) that is VALUE-equal to but a DISTINCT reference from the "aaa" literal, so a wrong
+    // ceq (reference) would diverge from the C# path's value equality.
+    [Fact]
+    public void ColumnarCodegen_Parity_StringBasics()
+    {
+        var prog = "func len(s: string): int {\n    return s.Length\n}\n\n" +
+                   "func eq(a: string, b: string): bool {\n    return a == b\n}\n\n" +
+                   "func neq(a: string, b: string): bool {\n    return a != b\n}\n\n" +
+                   "func isHi(s: string): bool {\n    return s == \"hi\"\n}\n\n" +
+                   "func greet(): string {\n    return \"hello\"\n}\n\n" +
+                   "func echo(s: string): string {\n    return s\n}\n\n" +
+                   "func isEmpty(s: string): bool {\n    if s.Length == 0 {\n        return true\n    }\n    return false\n}\n";
+        var aaa = new string('a', 3); // value-equal to "aaa" but a distinct reference.
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("len", new object[] { "hello" }), ("len", new object[] { "" }),
+            ("eq", new object[] { aaa, "aaa" }), ("eq", new object[] { "aaa", "aab" }),
+            ("neq", new object[] { aaa, "aaa" }), ("neq", new object[] { "x", "y" }),
+            ("isHi", new object[] { new string(new[] { 'h', 'i' }) }), ("isHi", new object[] { "bye" }),
+            ("greet", System.Array.Empty<object>()),
+            ("echo", new object[] { "round-trip" }),
+            ("isEmpty", new object[] { "" }), ("isEmpty", new object[] { "x" }));
+
+        // a string literal with an ESCAPE is not yet processed -> decline (C# path authoritative).
+        Assert.False(RouteColumnarProgram("func nl(): string {\n    return \"a\\nb\"\n}\n").Ok);
+    }
+
     // `new int[](n)` / `new long[](n)` array ALLOCATION (Newarr). newarr zero-initializes; combined with the
     // write/read/.Length paths this allocates a temp buffer, fills it, and reads it back — the dogfood pattern
     // (e.g. ParserStatements `st := new int[](6)`).

@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — STRING subsystem begins: type + literals + `.Length` + `==`/`!=` (the ~37% batch)
+
+First slice of the string subsystem (the gap analysis' next big batch — strings/char gate ~37% of the
+corpus). Added: `string` as a supported scalar type (params/returns/locals via the existing type machinery);
+string literals (columnar kind 3 → `Ldstr` of the quote-stripped value; a literal containing a backslash
+declines, since escapes are not yet processed — the C# path stays authoritative for those); `.Length` on a
+string (member-access kind 8 now branches: array → `Ldlen;Conv_I4`, string → `callvirt get_Length`); and
+value equality `==`/`!=` (`String.op_Equality`, NOT reference `ceq` — `!=` negates). This is the first BCL
+interop in the columnar backend (a property getter + a static operator method, resolved by reflection).
+
+Parity-gated (`ColumnarCodegen_Parity_StringBasics`) vs the C# pipeline: `.Length`, literal returns,
+param round-trip, literal-in-`==`, empty-string check, and — crucially — a value-equality PROOF: `eq` is
+invoked with a runtime-built `new string('a', 3)` that is value-equal to but a DISTINCT reference from the
+`"aaa"` literal, so a wrong reference `ceq` would diverge (it returns true via op_Equality, matching C#).
+Plus an escape-literal decline. Still building toward string-using files: the next pieces are string
+INDEXING `s[i]` (→ `char`), then the methods `IndexOf`/`Substring` (BCL method-call dispatch), then `char`
++ casts — after which the ~37% string batch starts compiling. (No file flipped yet; same as `new int[]`.)
+
 ## 2026-06-08 — columnar codegen grows `new int[](n)` array allocation
 
 `new T[](size)` allocation (columnar New, kind 15, `[type, args...]`) for supported element arrays
