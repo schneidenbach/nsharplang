@@ -522,13 +522,36 @@ public sealed class ColumnarIlEmitter
                 }
             }
 
-            case 12: // Binary [left, right] — int/long arithmetic & bitwise, shifts, or a comparison producing
-            {        // bool. Most operators need both operands the SAME type; shifts are the exception.
+            case 12: // Binary [left, right] — int/long arithmetic & bitwise, shifts, short-circuit `&&`/`||`, or a
+            {        // comparison producing bool. Most operators need both operands the SAME type.
+                var op = Text(idx);
+
+                // Short-circuit `&&`/`||` MUST conditionally evaluate the right operand — both for C# semantics
+                // and for safety (e.g. `i < n && a[i] == x` must not index a[i] when i >= n). So handle these
+                // BEFORE evaluating either operand: emit left, branch on it, evaluate right only on the
+                // non-short-circuiting path. Both operands and the result are bool.
+                if (op == "&&" || op == "||")
+                {
+                    if (!EmitExpression(Child(idx, 0), out var shortLeftType) || shortLeftType != typeof(bool))
+                        return false;
+                    var shortLabel = _il.DefineLabel();
+                    var endLabel = _il.DefineLabel();
+                    // `&&` short-circuits to false when left is false; `||` to true when left is true.
+                    _il.Emit(op == "&&" ? OpCodes.Brfalse : OpCodes.Brtrue, shortLabel);
+                    if (!EmitExpression(Child(idx, 1), out var shortRightType) || shortRightType != typeof(bool))
+                        return false;
+                    _il.Emit(OpCodes.Br, endLabel);
+                    _il.MarkLabel(shortLabel);
+                    _il.Emit(op == "&&" ? OpCodes.Ldc_I4_0 : OpCodes.Ldc_I4_1);
+                    _il.MarkLabel(endLabel);
+                    type = typeof(bool);
+                    return true;
+                }
+
                 if (!EmitExpression(Child(idx, 0), out var leftType))
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var rightType))
                     return false;
-                var op = Text(idx);
 
                 // Shifts are special: the value is int/long, the shift COUNT is always int (not necessarily the
                 // value's type), and the result is the value's type. Shr is the SIGNED (arithmetic) right shift,

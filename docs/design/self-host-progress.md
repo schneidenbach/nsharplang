@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — GAP ANALYSIS (target-driven pivot) + short-circuit `&&`/`||`
+
+A read-only gap-analysis workflow surveyed the real 32-file dogfood corpus
+(`Compiler.Dogfood/CompilerServices/*.nl` — the compiler's own services in N#) against the backend's
+coverage. Findings drove a strategy decision (memory `project_columnar_gap_analysis`): the corpus is
+**procedural and array-heavy with NO custom types** (structs/records/classes/enums/unions, generics, match,
+foreach, lambdas, exceptions are rare-to-ABSENT — so none are needed for self-host), and **`double` is 0% of
+the corpus — a dead end**. Universal needs: int/bool, `int[]` arrays (`a[i]`, `.Length`), if/else, while,
+funcs, calls. Very common: casts `(int)char`, string ops, `&&`/`||`. **Decision: go TARGET-DRIVEN** — build
+arrays + `&&`/`||` toward compiling the simplest real file (`FormatterSafetyScan.nl`: int[] params, `.Length`,
+read+write indexing, `&&`/`||`, sibling calls — nothing else), then the ~13 pure-int[] kernels (~40%), then
+strings (~37%). Skip `double`. This replaces the naive scalar-ladder plan (`double`/`string` next).
+
+First slice toward that: **short-circuit `&&`/`||`**. Handled BEFORE evaluating either operand (emit left,
+branch on it, evaluate right only on the non-short-circuiting path) — `&&` branches to a `0` on a false left,
+`||` to a `1` on a true left. This is both C#-correct AND safety-critical: `i < n && a[i] == x` must not index
+`a[i]` when `i >= n`. Both operands and the result are bool. Parity-gated (`ColumnarCodegen_Parity_ShortCircuit`)
+incl. chained `a > 0 && b > 0 && c > 0` and a `safeDiv(a, b) = b != 0 && a / b > 0` case that PROVES
+short-circuit — with `b == 0`, evaluating `a / b` would throw, so a correct (no-throw) result requires not
+evaluating the right side. The former `&&` decline test is now removed. Next: int[] arrays
+(param type + `a[i]` read + `.Length`, then `a[i] = x` write) → compile the first real file.
+
 ## 2026-06-08 — Stage 4b-bit: columnar codegen grows bitwise & shift operators (int/long)
 
 Bitwise `&`/`|`/`^` (And/Or/Xor) and shifts `<<`/`>>` (Shl/Shr) for int/long — mechanically simple, no

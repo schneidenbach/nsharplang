@@ -2528,8 +2528,6 @@ class B
             ("classify", new object[] { 0 }), ("classify", new object[] { 8 }), ("classify", new object[] { -3 }));
 
         // DECLINES (the type machinery / unsupported forms keep the C# path authoritative):
-        // logical && is not lowered (short-circuit branch form) -> decline.
-        Assert.False(RouteColumnarProgram("func f(a: int): bool {\n    return a > 0 && a < 10\n}\n").Ok);
         // a type mismatch (a bool value returned from an int function) -> the type-aware emitter declines it.
         Assert.False(RouteColumnarProgram("func g(a: int): int {\n    return a > 0\n}\n").Ok);
         // mixing a bool into int arithmetic (bool + int) -> decline (operands must be the same supported type).
@@ -2616,6 +2614,25 @@ class B
         AssertColumnarProgramMatchesCSharp(progL,
             ("andL", new object[] { 0xFF00L, 0x0FF0L }),
             ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
+    }
+
+    // Short-circuit logical && / || — the right operand is conditionally evaluated. The `safeDiv` case PROVES
+    // short-circuit: with b == 0, evaluating `a / b` would throw DivideByZeroException, so a correct (no-throw)
+    // result requires NOT evaluating the right side when the left guard is false.
+    [Fact]
+    public void ColumnarCodegen_Parity_ShortCircuit()
+    {
+        var prog = "func bothPos(a: int, b: int): bool {\n    return a > 0 && b > 0\n}\n\n" +
+                   "func eitherPos(a: int, b: int): bool {\n    return a > 0 || b > 0\n}\n\n" +
+                   "func inRange(a: int): bool {\n    return a > 0 && a < 10\n}\n\n" +
+                   "func all3(a: int, b: int, c: int): bool {\n    return a > 0 && b > 0 && c > 0\n}\n\n" +
+                   "func safeDiv(a: int, b: int): bool {\n    return b != 0 && a / b > 0\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("bothPos", new object[] { 3, 5 }), ("bothPos", new object[] { 3, -5 }), ("bothPos", new object[] { -3, 5 }),
+            ("eitherPos", new object[] { -3, 5 }), ("eitherPos", new object[] { -3, -5 }),
+            ("inRange", new object[] { 5 }), ("inRange", new object[] { 0 }), ("inRange", new object[] { 15 }),
+            ("all3", new object[] { 1, 1, 1 }), ("all3", new object[] { 1, 1, 0 }), ("all3", new object[] { 0, 1, 1 }),
+            ("safeDiv", new object[] { 6, 2 }), ("safeDiv", new object[] { 6, 0 }), ("safeDiv", new object[] { -6, 3 }));
     }
 
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
