@@ -72,13 +72,20 @@ public sealed class ColumnarIlEmitter
     private readonly string _source;
     private readonly Dictionary<string, int> _paramOrdinals;
     private readonly ILGenerator _il;
+    // Sibling top-level functions callable from this body, by name -> (declared method, param count). All are
+    // declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to a MethodBuilder
+    // whose body is not yet emitted — the token is baked at CreateType/Save. Includes this function itself, so
+    // direct recursion works. Param count is carried because MethodBuilder.GetParameters() is unsupported
+    // before the type is created.
+    private readonly IReadOnlyDictionary<string, (MethodInfo Method, int ParamCount)> _siblings;
     // `:=` locals declared so far, by name (int-only spike, so every local is typeof(int)).
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
 
     private ColumnarIlEmitter(
         int[] kinds, int[] valueStarts, int[] valueLengths,
         int[] childStart, int[] childCount, int[] childIndices, string source,
-        Dictionary<string, int> paramOrdinals, ILGenerator il)
+        Dictionary<string, int> paramOrdinals, ILGenerator il,
+        IReadOnlyDictionary<string, (MethodInfo Method, int ParamCount)> siblings)
     {
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -89,6 +96,7 @@ public sealed class ColumnarIlEmitter
         _source = source;
         _paramOrdinals = paramOrdinals;
         _il = il;
+        _siblings = siblings;
     }
 
     /// <summary>Canonical N# primitive type name → its CLR <see cref="Type"/>. Non-builtins are unsupported.</summary>
@@ -151,9 +159,12 @@ public sealed class ColumnarIlEmitter
         var module = builder.DefineDynamicModule(typeName);
         var type = module.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class);
 
-        // Pass 1: resolve every signature (int-only) and declare all methods up front.
+        // Pass 1: resolve every signature (int-only) and declare all methods up front. Build the sibling map
+        // (name -> declared method + param count) so pass-2 bodies can `call` any function — including forward
+        // references and self-recursion — resolving to a MethodBuilder whose body is not yet emitted.
         var methods = new MethodBuilder[funcs.Count];
         var ordinalsByFunc = new Dictionary<string, int>[funcs.Count];
+        var siblings = new Dictionary<string, (MethodInfo Method, int ParamCount)>(StringComparer.Ordinal);
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
@@ -171,6 +182,10 @@ public sealed class ColumnarIlEmitter
             methods[f] = type.DefineMethod(
                 fn.Name, MethodAttributes.Public | MethodAttributes.Static, returnType, paramTypes);
             ordinalsByFunc[f] = ordinals;
+            // A duplicate top-level function name is an overload set the spike does not model — decline the
+            // whole program rather than silently pick one (a real call would be ambiguous).
+            if (!siblings.TryAdd(fn.Name, (methods[f], fn.ParamNames.Length)))
+                return false;
         }
 
         // Pass 2: emit each body into its declared method's IL stream.
@@ -180,7 +195,7 @@ public sealed class ColumnarIlEmitter
             var il = methods[f].GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], il);
+                source, ordinalsByFunc[f], il, siblings);
             // An int function must return on every path (NL305): the body must always return, else the emitted
             // IL would fall off the end with no `ret` (invalid). Decline a non-returning body to the C# analyzer.
             if (!emitter.AlwaysReturns(fn.BodyRoot) || !emitter.EmitStatement(fn.BodyRoot))
@@ -470,6 +485,29 @@ public sealed class ColumnarIlEmitter
                     case "*": _il.Emit(OpCodes.Mul); return true;
                     default: return false;
                 }
+            }
+
+            case 9: // Call [callee, args...] — a DIRECT call to a sibling top-level function only (incl. self).
+            {
+                var callee = Child(idx, 0);
+                if (_kinds[callee] != 6) // callee must be a bare identifier — no member access / delegate expr.
+                    return false;
+                var name = Text(callee);
+                // A local/param of the same name is a delegate/closure invocation the spike does not model.
+                if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
+                    return false;
+                if (!_siblings.TryGetValue(name, out var target))
+                    return false;
+                var argCount = _childCount[idx] - 1;
+                if (argCount != target.ParamCount) // arity must match (no overloads / defaults / params).
+                    return false;
+                for (var a = 1; a <= argCount; a++)
+                {
+                    if (!EmitExpression(Child(idx, a)))   // each int arg, left-to-right.
+                        return false;
+                }
+                _il.Emit(OpCodes.Call, target.Method);
+                return true;
             }
 
             default:

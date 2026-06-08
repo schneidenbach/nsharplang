@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4i: columnar codegen grows sibling calls (incl. recursion + mutual recursion)
+
+Direct calls to top-level functions (columnar Call, kind 9, `[callee, args...]`). The multi-function
+backend's two-pass structure makes this clean: pass 1 declares ALL methods and builds a sibling map
+(name → declared `MethodBuilder` + param count) BEFORE any body is emitted, so a body can `call` any
+function — including a forward reference (a callee declared later) and **itself** (the map includes the
+current function, so direct recursion works for free). The Call case: require a bare-identifier callee
+(kind 6) not shadowed by a local/param (a delegate/closure invocation declines), look it up in the sibling
+map, check arity (no overloads/defaults/params-array), emit each int arg left-to-right, then
+`call` the `MethodBuilder` (the token is baked at `CreateType`/`Save`). Param count is carried in the map
+because `MethodBuilder.GetParameters()` is unsupported before the type is created. A duplicate top-level
+function name (an overload set the spike does not model) declines the whole program.
+
+Parity-gated (extends `ColumnarCodegen_Parity_MultiFunction`) and matched to the C# pipeline across: a
+sibling call + a NESTED call (`add(add(a,b), c)`); **self-recursion** (`fact`, two-call `fib`); and
+**mutual recursion** with a FORWARD reference (`isEven` calls `isOdd` declared after it). With calls the
+columnar backend can now compile genuinely recursive int programs end-to-end with no C# AST. Next: 4b
+(types beyond int — long/bool/double/string via the builtin map + type-aware emission).
+
 ## 2026-06-08 — ROUTING DECISION + Stage 4-multi: standalone columnar backend, multi-function emission
 
 **Architecture decision (user, 2026-06-08):** route columnar codegen into production via a **standalone

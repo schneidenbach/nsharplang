@@ -161,9 +161,12 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         top-level func into one assembly (type "ColumnarProgram") via a two-pass declare-then-emit
         (`ColumnarIlEmitter.TryEmitColumnarAssembly` + adapter `TryEmitColumnarProgram`); the whole program
         declines if any func is ineligible. Two-pass (declare all methods, then emit bodies) is the foundation
-        for sibling calls. Parity-gated (`ColumnarCodegen_Parity_MultiFunction`). · [ ] 4i sibling calls (emit
-        `call` to a declared sibling MethodBuilder — the declare-first pass enables this) · [ ] 4b types beyond
-        int (long/bool/double/string via the builtin map + type-aware emission).
+        for sibling calls. Parity-gated (`ColumnarCodegen_Parity_MultiFunction`). · [x] **4i sibling calls DONE**
+        (columnar Call kind 9: bare-identifier callee resolved in the pass-1 sibling map → `call` the declared
+        MethodBuilder; arity-checked, int args left-to-right; declines shadowed/overloaded/delegate callees.
+        Forward references + self/mutual RECURSION work via declare-first. Parity-gated: nested call, `fact`,
+        `fib`, mutual `isEven`/`isOdd`) · [ ] 4b types beyond int (long/bool/double/string via the builtin map +
+        type-aware emission).
 - [~] **Stage 4j ROUTING — STANDALONE columnar pipeline (user decision 2026-06-08; NOT re-parse-in-ILCompiler).**
       Grow `TryEmitColumnarProgram` into a `ColumnarCompiler` parallel to the C# `ILCompiler` that OWNS
       parse→bind→analyze→codegen→assembly from columnar tables with NO C# AST. This SUPERSEDES the 2026-06-07

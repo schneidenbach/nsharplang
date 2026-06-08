@@ -2464,6 +2464,25 @@ class B
 
         // The whole program declines (no assembly) if ANY function is ineligible (here, a non-int second func).
         Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: long): long {\n    return x\n}\n").Ok);
+
+        // 4i SIBLING CALLS. A caller invoking a sibling, and a nested call (call result as an arg).
+        var callHelper = "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc addThree(a: int, b: int, c: int): int {\n    return add(add(a, b), c)\n}\n";
+        AssertColumnarProgramMatchesCSharp(callHelper,
+            ("add", new object[] { 2, 3 }),
+            ("addThree", new object[] { 1, 2, 3 }), ("addThree", new object[] { -4, 5, -6 }));
+
+        // SELF-RECURSION (the sibling map includes the function itself): factorial and two-call fibonacci.
+        AssertColumnarProgramMatchesCSharp("func fact(n: int): int {\n    if n <= 1 {\n        return 1\n    }\n    return n * fact(n - 1)\n}\n",
+            ("fact", new object[] { 0 }), ("fact", new object[] { 1 }), ("fact", new object[] { 5 }), ("fact", new object[] { 7 }));
+        AssertColumnarProgramMatchesCSharp("func fib(n: int): int {\n    if n < 2 {\n        return n\n    }\n    return fib(n - 1) + fib(n - 2)\n}\n",
+            ("fib", new object[] { 0 }), ("fib", new object[] { 1 }), ("fib", new object[] { 7 }), ("fib", new object[] { 10 }));
+
+        // MUTUAL RECURSION (a FORWARD reference: isEven calls isOdd declared AFTER it — the two-pass declare-first
+        // design resolves it to a not-yet-emitted MethodBuilder).
+        var mutual = "func isEven(n: int): int {\n    if n == 0 {\n        return 1\n    }\n    return isOdd(n - 1)\n}\n\nfunc isOdd(n: int): int {\n    if n == 0 {\n        return 0\n    }\n    return isEven(n - 1)\n}\n";
+        AssertColumnarProgramMatchesCSharp(mutual,
+            ("isEven", new object[] { 0 }), ("isEven", new object[] { 4 }), ("isEven", new object[] { 7 }),
+            ("isOdd", new object[] { 3 }), ("isOdd", new object[] { 8 }));
     }
 
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
