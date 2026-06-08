@@ -2294,6 +2294,18 @@ class B
         // multiple reassignments of the same local.
         AssertEmits("func bump(a: int): int {\n    x := a\n    x = x + 1\n    x = x * 2\n    return x\n}\n", "bump",
             (new object[] { 3 }, 8));
+        // a while loop: count up to n (and n<=0 runs the loop zero times).
+        AssertEmits("func count(n: int): int {\n    x := 0\n    i := 0\n    while i < n {\n        x = x + 1\n        i = i + 1\n    }\n    return x\n}\n", "count",
+            (new object[] { 5 }, 5), (new object[] { 0 }, 0), (new object[] { -3 }, 0));
+        // sum 1..n via a while loop with `<=`.
+        AssertEmits("func sumTo(n: int): int {\n    total := 0\n    i := 1\n    while i <= n {\n        total = total + i\n        i = i + 1\n    }\n    return total\n}\n", "sumTo",
+            (new object[] { 5 }, 15), (new object[] { 1 }, 1), (new object[] { 0 }, 0));
+        // factorial via a while loop (exercises a local read+write each iteration).
+        AssertEmits("func fact(n: int): int {\n    result := 1\n    i := 1\n    while i <= n {\n        result = result * i\n        i = i + 1\n    }\n    return result\n}\n", "fact",
+            (new object[] { 5 }, 120), (new object[] { 0 }, 1), (new object[] { 1 }, 1));
+        // a `:=` local declared INSIDE the loop body and used within it (block-scoped, fine).
+        AssertEmits("func twice(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        step := 2\n        total = total + step\n        i = i + 1\n    }\n    return total\n}\n", "twice",
+            (new object[] { 3 }, 6), (new object[] { 0 }, 0));
 
         // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
         Assert.False(RouteColumnarEmit("func two(): int {\n    return 1\n}\n\nfunc other(): int {\n    return 2\n}\n").Ok);
@@ -2320,6 +2332,13 @@ class B
         // an int body that does NOT return on all paths (NL305) would emit IL with no final `ret` -> decline.
         Assert.False(RouteColumnarEmit("func noRetAssign(a: int): int {\n    x := a\n    x = x + 1\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func noRetDecl(a: int): int {\n    x := a\n}\n").Ok);
+        // a degenerate while whose body always returns (exits on the first iteration) -> decline.
+        Assert.False(RouteColumnarEmit("func degen(n: int): int {\n    while n > 0 {\n        return 1\n    }\n    return 0\n}\n").Ok);
+        // a loop-body local referenced AFTER the loop is out of scope in N# -> block scoping declines it
+        // (rather than reading a possibly-unassigned method-level slot).
+        Assert.False(RouteColumnarEmit("func leak(n: int): int {\n    i := 0\n    while i < n {\n        temp := i\n        i = i + 1\n    }\n    return temp\n}\n").Ok);
+        // same leak via a BRACELESS single-statement loop body (`:=` directly, not a block) -> still declines.
+        Assert.False(RouteColumnarEmit("func bleak(n: int): int {\n    i := 0\n    while i < n  x := i\n    return x\n}\n").Ok);
     }
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)

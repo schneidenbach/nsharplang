@@ -16,8 +16,8 @@ namespace NSharpLang.Compiler.Columnar;
 ///
 /// Deliberately narrow: top-level <c>func</c> with INT params/return only (mixed-type arithmetic would need
 /// conversions this spike does not emit). Statements: <c>:=</c> int locals, a simple <c>local = expr</c>
-/// assignment, Return (value required), and an <c>if</c>/<c>else</c> where BOTH branches always return (no
-/// fall-through). Value expressions: a parameter, a
+/// assignment, Return (value required), an <c>if</c>/<c>else</c> where BOTH branches always return (no
+/// fall-through), and a <c>while</c> loop whose body does not always return. Value expressions: a parameter, a
 /// <c>:=</c> local, an int literal, a parenthesized expr, or an int +/-/* binary. <c>if</c> conditions are an
 /// int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) only. Anything else returns false (the adapter declines
 /// → the C# path is unaffected).
@@ -129,6 +129,11 @@ public sealed class ColumnarIlEmitter
         switch (_kinds[idx])
         {
             case 25: // Block — emit each statement in order.
+            {
+                // Block scoping: a `:=` local declared in this block leaves scope when the block ends, so a
+                // later reference (e.g. a loop-body local read after the loop) correctly resolves to nothing
+                // and declines, rather than reading a method-level slot that may be unassigned (invalid IL).
+                var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
                 for (var n = 0; n < _childCount[idx]; n++)
                 {
                     var child = Child(idx, n);
@@ -141,7 +146,17 @@ public sealed class ColumnarIlEmitter
                         return false;
                 }
 
+                var blockLocals = new List<string>();
+                foreach (var name in _locals.Keys)
+                {
+                    if (!outerLocals.Contains(name))
+                        blockLocals.Add(name);
+                }
+
+                foreach (var name in blockLocals)
+                    _locals.Remove(name);
                 return true;
+            }
 
             case 20: // Return [value] — the spike is int-only, so a value is REQUIRED (a value-less `return`
                      // would emit `ret` with an empty stack = invalid IL); decline it.
@@ -195,7 +210,39 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            default: // spike: Block / Return / `:=` declaration / if-else-both-return only.
+            case 26: // While [condition, body] — emit `check: cond; brfalse end; body; br check; end:`. The
+            {        // stack is empty at both merge labels (cond pushes a bool, brfalse pops it; the body is
+                     // net-zero), so it is stack-consistent. The body must NOT always return (a degenerate
+                     // loop that exits on the first iteration) — decline that rather than emit a dead back-edge.
+                var body = Child(idx, 1);
+                if (AlwaysReturns(body))
+                    return false;
+                var checkLabel = _il.DefineLabel();
+                var endLabel = _il.DefineLabel();
+                _il.MarkLabel(checkLabel);
+                if (!EmitCondition(Child(idx, 0)))
+                    return false;
+                _il.Emit(OpCodes.Brfalse, endLabel);
+                // Scope the body's `:=` locals so they leave scope at the loop end. A Block body self-scopes;
+                // this also covers a BRACELESS single-statement body (e.g. a bare `:=`), which is not a Block.
+                var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                if (!EmitStatement(body))
+                    return false;
+                var bodyLocals = new List<string>();
+                foreach (var name in _locals.Keys)
+                {
+                    if (!outerLocals.Contains(name))
+                        bodyLocals.Add(name);
+                }
+
+                foreach (var name in bodyLocals)
+                    _locals.Remove(name);
+                _il.Emit(OpCodes.Br, checkLabel);
+                _il.MarkLabel(endLabel);
+                return true;
+            }
+
+            default: // spike: Block / Return / `:=` / assignment / if-else-both-return / while only.
                 return false;
         }
     }

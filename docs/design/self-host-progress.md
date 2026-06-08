@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 4h: columnar codegen grows while loops (general control flow) + block scoping
+
+The first GENERAL (fall-through) control flow in the columnar emitter. A While (kind 26) emits
+`check: cond; brfalse end; body; br check; end:` — the stack is empty at both merge labels (the condition
+pushes a bool that `brfalse` pops; the body is net-zero), so it is stack-consistent and verifiable. A
+degenerate loop whose body always returns (exits on the first iteration) declines rather than emit a dead
+back-edge. Invoke-tested with real iterative computations: `count` (accumulate to n), `sumTo` (1..n with `<=`),
+`fact` (`fact(5)==120`, a local read+written each iteration), and `twice` (a `:=` local declared inside the
+loop body and used within it).
+
+Also added BLOCK SCOPING: a `:=` local declared in a block leaves scope when the block ends (snapshot the local
+names on entry, remove the ones added on exit). Without it, a flat name table would let a loop-body local leak
+into the post-loop scope — and a reference there (out of scope in N#) could read a method-level slot that is
+unassigned when the loop runs zero times (invalid IL), or just wrong. **Adversarial review surfaced a gap in
+the first cut:** block scoping only covered `{ }` Block bodies, but the kernel also allows a BRACELESS
+single-statement loop body (a bare `:=`), which isn't a Block and leaked. Fix: the while case scopes its body
+directly too. Decline tests for both the braced and braceless leak shapes, plus the degenerate loop.
+
+Note the if/else first cut still requires BOTH branches to always return, so an `if` with non-returning branches
+(the common in-loop conditional) currently declines — the general fall-through `if` is deferred to 4g+. Gate
+green. Next: 4c (real dispatcher + parity-vs-C#-path harness), 4i (calls), 4j (route).
+
 ## 2026-06-07 — Stage 4f: columnar codegen grows simple assignment statements
 
 Extends `ColumnarIlEmitter` with a simple `local = expr` assignment statement. An ExpressionStatement (kind 23)
