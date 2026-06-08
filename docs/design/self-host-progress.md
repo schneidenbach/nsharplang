@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — MULTI-FILE coverage measured: 23/32 (~72%) compile as a merged cluster
+
+Follow-up to the multi-file merge: a probe established exactly which declining files are PURELY cross-file-blocked
+(eligible, just need the merge) vs feature-blocked. Merging the 20 single-file-compiling files with the three
+cross-file-only files — `ParserExpressions`, `ParserStatements` (depends on ParserExpressions),
+`ParserFunctionSignatures` (depends on ParserTypeReferences) — yields a CLOSED 23-file cluster that compiles
+end-to-end as one columnar program (the merge declines on any unresolved cross-file call, so success proves
+closure). That is **23 of 32 (~72%)** of the corpus compilable via the columnar backend with no C# AST. Pinned
+by the ratcheting `ColumnarCodegen_MultiFile_EligibleClusterCompiles` (asserts the merge compiles, the assembly
+loads, and the three newly-flipped files' public functions are emitted). `DiagnosticDeduplication` and
+`IdentifierSpans` decline even merged (a real feature gap the closeness analysis missed, or a dep on a
+feature-blocked file); `SemanticScopes` is parse-blocked (a parser-kernel limit). The remaining feature gaps
+gating the rest: `StringBuilder`, `StringComparison` enum + `String.Compare`, `ulong` + `BitOperations`, the
+`new string(char[],int,int)` ctor, lowercase `char.IsLetter`/`IsDigit`.
+
 ## 2026-06-08 — MULTI-FILE merge: cross-file calls resolve (the dogfood program is multi-file)
 
 A per-file gap analysis (read-only workflow over the 16 not-in-floor files) surfaced that **6 declining files

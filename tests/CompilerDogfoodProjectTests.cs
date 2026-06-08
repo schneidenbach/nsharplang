@@ -3100,6 +3100,37 @@ class B
             ("ParseFunctionSignatureInto", FuncG()));
     }
 
+    // MULTI-FILE COVERAGE (ratcheting): the feature-eligible dogfood files that form a CLOSED cross-file cluster
+    // all compile MERGED into one columnar program. The 20 single-file-compiling files PLUS the three that are
+    // eligible but cross-file-blocked single-file — ParserExpressions, ParserStatements, ParserFunctionSignatures
+    // (they call public functions in ParserTypeReferences / each other) — = 23 of 32 files (~72%) compile via
+    // multi-file merge with NO C# AST. The merge declines on ANY unresolved cross-file call, so its success
+    // proves the 23 are closed under their public calls. A regression breaking any file's multi-file
+    // compatibility fails here. Deep cross-file VALUE parity lives in ColumnarCodegen_MultiFile_RealParserCluster.
+    [Fact]
+    public void ColumnarCodegen_MultiFile_EligibleClusterCompiles()
+    {
+        var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var cluster = new[]
+        {
+            "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
+            "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl", "ErrorSuggestions.nl",
+            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "OverloadCandidates.nl",
+            "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl",
+            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
+            "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+        };
+        var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
+        var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
+        Assert.True(ok, $"Columnar backend declined the merged {cluster.Length}-file eligible cluster.");
+        Assert.NotNull(System.Reflection.Assembly.Load(assembly!)); // the merged IL is a valid, loadable assembly.
+        // The three files eligible ONLY via cross-file resolution must contribute their public functions —
+        // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
+        Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
+        Assert.Contains("ParsePrimaryExpressionNode", methodNames!); // ParserExpressions
+        Assert.Contains("ParseStatementNodesInto", methodNames!);    // ParserStatements -> ParserExpressions
+    }
+
     // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files the standalone columnar
     // backend can compile end-to-end with no C# AST. Each named file below must compile (a regression that breaks
     // one fails here), each emitting a loadable assembly with at least one function. The total compiling count
