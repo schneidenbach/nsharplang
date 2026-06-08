@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — `new string(char[], int, int)` ctor → CliDocOrdering.nl (single-file 20→21, cluster 23→24)
+
+Added the `String(char[] value, int startIndex, int length)` constructor — the columnar backend's first
+constructor invocation (`newobj`). In `EmitExpression`'s New case (kind 15), a Simple type node (kind 0) named
+`string` with 3 args now emits the char[] arg + two int args then `newobj instance void
+System.String::.ctor(char[], int32, int32)` → string. (The array-alloc path — an Array type node, kind 2 — is
+unchanged; the `String(char,int)` repeat overload and any other constructor decline.) This flips
+`CliDocOrdering.nl`, whose slug builder copies filtered/lowercased chars into a `char[]` buffer and returns
+`new string(buffer, 0, slugLength)` — everything else it uses (string indexing, `(int)`/`(char)` casts, capital
+`Char.IsLetterOrDigit`/`ToLowerInvariant`, int[]/string[]/char[], `new char[]`) was already modelled, and all
+its calls are self-defined siblings (no cross-file dep).
+
+Parity-gated: `ColumnarCodegen_Parity_StringFromChars` (full-buffer + sub-slice + empty char[] + the
+`new string('a', 3)` repeat-ctor decline) and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_CliDocOrdering`
+— which reads the real file and invokes `CliDocSlugInto` (it RETURNS the built string, so slug-content parity vs
+the C# pipeline is directly checked) over hyphen/digit/punctuation/empty inputs, plus `CliDocSlugsInto`,
+`SymbolKindFilter{Indices,Checksum}Into`, `CliDocOrderingMinInt`. Ratchets raised: single-file coverage floor
+20→21, multi-file eligible cluster 23→24 (~75%). Coverage now **21/32 single-file, 24/32 via multi-file merge**.
+
 ## 2026-06-08 — MULTI-FILE coverage measured: 23/32 (~72%) compile as a merged cluster
 
 Follow-up to the multi-file merge: a probe established exactly which declining files are PURELY cross-file-blocked

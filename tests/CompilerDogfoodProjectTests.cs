@@ -2924,6 +2924,48 @@ class B
             ("twice", new object[] { new int[1] }));
     }
 
+    // new string(char[] value, int startIndex, int length) — the String(char[],int,int) constructor (copy a
+    // char[] slice into a string). CliDocOrdering.nl builds a slug into a char[] buffer then returns a string of
+    // it. Covers full-buffer + sub-slice + empty; declines the unmodeled String(char,int) repeat-ctor overload.
+    [Fact]
+    public void ColumnarCodegen_Parity_StringFromChars()
+    {
+        var prog = "func build(chars: char[], start: int, len: int): string {\n    return new string(chars, start, len)\n}\n\n" +
+                   "func buildLen(chars: char[]): string {\n    return new string(chars, 0, chars.Length)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("build", new object[] { new[] { 'h', 'e', 'l', 'l', 'o' }, 0, 5 }),
+            ("build", new object[] { new[] { 'h', 'e', 'l', 'l', 'o' }, 1, 3 }),
+            ("build", new object[] { new[] { 'a', 'b' }, 0, 0 }),
+            ("buildLen", new object[] { new[] { 'x', 'y', 'z' } }),
+            ("buildLen", new object[] { new char[0] }));
+
+        // DECLINE: the String(char, int) repeat-ctor overload (2 args, not the char[] slice form) is not modelled.
+        Assert.False(RouteColumnarProgram("func f(): string {\n    return new string('a', 3)\n}\n").Ok);
+    }
+
+    // MILESTONE: CliDocOrdering.nl compiles end-to-end with no C# AST. Enabling feature: new string(char[],int,int)
+    // (the slug builder copies filtered/lowercased chars into a buffer, then returns a string of the slice). Reads
+    // the actual file. CliDocSlugInto directly returns the built string, so slug CONTENT parity is checked.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_CliDocOrdering()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CliDocOrdering.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real CliDocOrdering.nl (expected full support).");
+        Assert.Contains("CliDocSlugInto", methodNames!); // the new string(char[],int,int) user.
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("CliDocSlugInto", new object[] { "Hello-World", 11, new char[128] }),
+            ("CliDocSlugInto", new object[] { "ABC123", 6, new char[16] }),
+            ("CliDocSlugInto", new object[] { "a.b/c", 5, new char[8] }),
+            ("CliDocSlugInto", new object[] { "", 0, new char[4] }),
+            ("CliDocSlugsInto", new object[] { new[] { "Foo Bar", "BAZ" }, new string[2] }),
+            ("SymbolKindFilterIndicesInto", new object[] { new[] { 1, 2, 1, 3, 1 }, 1, new int[5] }),
+            ("SymbolKindFilterChecksumInto", new object[] { new[] { 1, 2, 1, 3, 1 }, 1, new int[5] }),
+            ("CliDocOrderingMinInt", new object[] { 4, 9 }), ("CliDocOrderingMinInt", new object[] { 9, 4 }));
+    }
+
     // char arithmetic promotes to int (ECMA §12.4.7, matching the C# binder's GetWiderType): `c1 - c2` is an
     // int, NOT a u2-wrapped char — so a NEGATIVE difference (`'A' - 'z'`) must stay negative. PathMatching.nl
     // uses `left - 'A' == right - 'a'` for case-insensitive comparison.
@@ -3114,11 +3156,11 @@ class B
         var cluster = new[]
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
-            "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl", "ErrorSuggestions.nl",
-            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "OverloadCandidates.nl",
-            "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl",
-            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
-            "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+            "CliDocOrdering.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl",
+            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl",
+            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl",
+            "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
+            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
@@ -3144,10 +3186,11 @@ class B
         var expectedCompiling = new[]
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
-            "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl", "ErrorSuggestions.nl",
-            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "OverloadCandidates.nl",
-            "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
-            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+            "CliDocOrdering.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl",
+            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl",
+            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl",
+            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+            "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

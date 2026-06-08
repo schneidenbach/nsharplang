@@ -865,10 +865,29 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 15: // New [type, args...] — only `new T[](size)` array allocation. child[0] is a TYPE subtree
-            {        // (TYPE-kind semantics: 2 = Array, 0 = Simple); the single arg is the int length.
+            case 15: // New [type, args...] — `new T[](size)` array allocation, OR `new string(char[], int, int)`
+            {        // (the String(char[],int,int) constructor). child[0] is a TYPE subtree (2 = Array, 0 = Simple).
                 var typeNode = Child(idx, 0);
-                if (_childCount[idx] != 2 || _kinds[typeNode] != 2) // exactly one ctor arg; type must be Array.
+                if (_kinds[typeNode] == 0) // a Simple type -> a constructor call (the only one modelled: string).
+                {
+                    // `new string(char[] value, int startIndex, int length)` — copy a char[] slice into a string.
+                    // Emit the char[] then the two int args, then `newobj` the String ctor. (Other constructors
+                    // are a host boundary; decline them so the C# path stays authoritative.)
+                    if (Text(typeNode) != "string" || _childCount[idx] != 4)
+                        return false;
+                    if (!EmitExpression(Child(idx, 1), out var charArrType)
+                        || !charArrType.IsSZArray || charArrType.GetElementType() != typeof(char))
+                        return false;
+                    if (!EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int)))
+                        return false;
+                    var stringCtor = typeof(string).GetConstructor(new[] { typeof(char[]), typeof(int), typeof(int) });
+                    if (stringCtor == null)
+                        return false;
+                    _il.Emit(OpCodes.Newobj, stringCtor);
+                    type = typeof(string);
+                    return true;
+                }
+                if (_childCount[idx] != 2 || _kinds[typeNode] != 2) // array alloc: exactly one ctor arg; type must be Array.
                     return false;
                 var elementNode = Child(typeNode, 0); // the array's element type subtree.
                 if (_kinds[elementNode] != 0) // element must be a Simple builtin (not jagged/generic).
