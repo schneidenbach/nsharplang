@@ -810,6 +810,48 @@ internal static class NSharpCompilerDogfoodAdapter
         typeName = string.Empty;
         methodName = string.Empty;
 
+        // Single-function entry (the original spike surface): decline anything but exactly one top-level func.
+        if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count != 1)
+            return false;
+        var fn = inputs[0];
+        if (!Columnar.ColumnarIlEmitter.TryEmitSingleFunctionAssembly(
+                fn.Name, fn.ReturnCanonical, fn.ParamNames, fn.ParamCanonicals,
+                fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
+                source, fn.BodyRoot, out assembly))
+            return false;
+        typeName = "ColumnarSpike";
+        methodName = fn.Name;
+        return true;
+    }
+
+    // Multi-function entry — the standalone columnar backend (the chosen Stage 4j routing: a columnar-first
+    // pipeline that owns emission, not a re-parse hook into the C# ILCompiler). Emit EVERY top-level function
+    // into one assembly (type "ColumnarProgram") directly from the columnar tables, with NO C# AST; decline the
+    // whole program if any function is ineligible. Foundation for sibling calls (4i) and whole-program emission.
+    internal static bool TryEmitColumnarProgram(string source, out byte[] assembly, out string typeName, out string[] methodNames)
+    {
+        assembly = System.Array.Empty<byte>();
+        typeName = string.Empty;
+        methodNames = System.Array.Empty<string>();
+
+        if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count == 0)
+            return false;
+        if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly("ColumnarProgram", inputs, source, out assembly))
+            return false;
+
+        typeName = "ColumnarProgram";
+        methodNames = new string[inputs.Count];
+        for (var i = 0; i < inputs.Count; i++)
+            methodNames[i] = inputs[i].Name;
+        return true;
+    }
+
+    // Tokenize + compact `source`, require EVERY top-level declaration to be a `func`, and parse each into a
+    // ColumnarFunctionInput (signature + body node tables). Returns false on any tokenize/parse failure or a
+    // non-func top-level declaration, so the standalone backend declines and the C# path stays authoritative.
+    private static bool TryGetColumnarFunctionInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarFunctionInput> inputs)
+    {
+        inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
         var bindings = s_bindings.Value;
         if (bindings == null || string.IsNullOrEmpty(source))
             return false;
@@ -829,8 +871,13 @@ internal static class NSharpCompilerDogfoodAdapter
 
             var declKinds = new int[rawCount + 1];
             var declCount = bindings.TopLevelDeclarationKinds(rawKinds, rawCount, declKinds);
-            if (declCount != 1 || declKinds[0] != 7)
+            if (declCount <= 0)
                 return false;
+            for (var d = 0; d < declCount; d++)
+            {
+                if (declKinds[d] != 7)   // 7 = func; any other top-level declaration kind is unsupported.
+                    return false;
+            }
 
             var ck = new int[rawCount];
             var cs = new int[rawCount];
@@ -847,63 +894,72 @@ internal static class NSharpCompilerDogfoodAdapter
             }
 
             var funcIndices = TopLevelFuncIndices(ck, n);
-            if (funcIndices.Count != 1)
+            if (funcIndices.Count == 0)
                 return false;
-            var funcIndex = funcIndices[0];
-            var cap = n + 1;
-
-            var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
-            var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
-            var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-            var sres = new int[5];
-            var paramCount = bindings.ParseFunctionSignature(
-                ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                pNameStart, pNameLen, pTypeRoot, sres);
-            if (paramCount < 0 || sres[3] < 0 || sres[1] < 0)
-                return false;
-
-            var fname = source.Substring(sres[3], sres[4]);
-            var returnCanonical = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]);
-            var paramNames = new string[paramCount];
-            var paramCanonicals = new string[paramCount];
-            for (var p = 0; p < paramCount; p++)
+            foreach (var funcIndex in funcIndices)
             {
-                paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
-                paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcIndex, source, out var input))
+                    return false;
+                inputs.Add(input);
             }
-
-            var bodyBrace = -1;
-            for (var t = funcIndex + 1; t < n; t++)
-            {
-                if (ck[t] == 129) { bodyBrace = t; break; }
-            }
-            if (bodyBrace < 0)
-                return false;
-
-            var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
-            var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
-            var bres = new int[2];
-            var bodyNodeCount = bindings.ParseStatementNodes(
-                ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
-            if (bodyNodeCount <= 0)
-                return false;
-
-            if (!Columnar.ColumnarIlEmitter.TryEmitSingleFunctionAssembly(
-                    fname, returnCanonical, paramNames, paramCanonicals,
-                    bk, bvs, bvl, bcs, bcc, bci, source, bres[0], out assembly))
-                return false;
-
-            typeName = "ColumnarSpike";
-            methodName = fname;
             return true;
         }
         catch
         {
-            assembly = System.Array.Empty<byte>();
-            typeName = string.Empty;
-            methodName = string.Empty;
+            inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
             return false;
         }
+    }
+
+    // Parse ONE top-level function (at compacted token index `funcIndex`) into its signature + columnar body
+    // node tables. Returns false on any parse failure or a missing body brace.
+    private static bool TryParseColumnarFunctionAt(
+        Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
+        out Columnar.ColumnarFunctionInput input)
+    {
+        input = null!;
+        var cap = n + 1;
+
+        var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+        var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+        var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+        var sres = new int[5];
+        var paramCount = bindings.ParseFunctionSignature(
+            ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
+            pNameStart, pNameLen, pTypeRoot, sres);
+        if (paramCount < 0 || sres[3] < 0 || sres[1] < 0)
+            return false;
+
+        var fname = source.Substring(sres[3], sres[4]);
+        var returnCanonical = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]);
+        var paramNames = new string[paramCount];
+        var paramCanonicals = new string[paramCount];
+        for (var p = 0; p < paramCount; p++)
+        {
+            paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
+            paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+        }
+
+        var bodyBrace = -1;
+        for (var t = funcIndex + 1; t < n; t++)
+        {
+            if (ck[t] == 129) { bodyBrace = t; break; }
+        }
+        if (bodyBrace < 0)
+            return false;
+
+        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+        var bres = new int[2];
+        var bodyNodeCount = bindings.ParseStatementNodes(
+            ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
+        if (bodyNodeCount <= 0)
+            return false;
+
+        input = new Columnar.ColumnarFunctionInput(
+            fname, returnCanonical, paramNames, paramCanonicals,
+            bk, bvs, bvl, bcs, bcc, bci, bres[0]);
+        return true;
     }
 
     // Canonical type string from a columnar TYPE subtree (kinds 0 Simple,1 Generic,2 Array,3 Nullable,

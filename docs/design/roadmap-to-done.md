@@ -99,6 +99,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
 - [~] **Stage 4 — columnar codegen.** Emit IL directly from the columnar + resolved tables for the systems
       subset; compile a trivial then a real dogfood function with NO C# AST. Parity: emitted IL runs identically
       to the C# path (same outputs); IL-verification gate green.
+      **NOTE (2026-06-08): the emission-seam scoping below is SUPERSEDED** by the Stage 4j ROUTING decision
+      (standalone columnar pipeline, NOT re-parse-in-`ILCompiler`) — kept for history. The columnar emitter
+      grows as its own backend; it does not reuse `ILCompiler`'s `ILGenerator`.
       **SCOPED (read-only Explore workflow, 2026-06-07).** Emission seam: REUSE the existing
       `ILGenerator` (`ILCompiler._currentIL`) — it is already AST-decoupled — via a SEPARATE columnar dispatcher
       (`EmitColumnarBody`/`EmitColumnarExpression`) that switches on columnar node kinds and calls the same
@@ -154,9 +157,21 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         through]; else; [end:]`. The skip-`br`/`end` are gated on then-falling-through — the EmitIf fix carried
         into the columnar emitter; the always-returns gate keeps the merge off the bare method end. Both-return
         `max`/`sign` unchanged. Parity-gated across the full state space incl. nested/while-last/while-mid merge
-        positions and braceless guard locals scoped) · [ ] 4i calls ·
-        [ ] 4j route via `DeclareFunction` (flagged) + benchmark never-slower · [ ] 4k C# fallback + gate closure.
-- [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
+        positions and braceless guard locals scoped) · [x] **4-multi DONE** — multi-function emission: emit EVERY
+        top-level func into one assembly (type "ColumnarProgram") via a two-pass declare-then-emit
+        (`ColumnarIlEmitter.TryEmitColumnarAssembly` + adapter `TryEmitColumnarProgram`); the whole program
+        declines if any func is ineligible. Two-pass (declare all methods, then emit bodies) is the foundation
+        for sibling calls. Parity-gated (`ColumnarCodegen_Parity_MultiFunction`). · [ ] 4i sibling calls (emit
+        `call` to a declared sibling MethodBuilder — the declare-first pass enables this) · [ ] 4b types beyond
+        int (long/bool/double/string via the builtin map + type-aware emission).
+- [~] **Stage 4j ROUTING — STANDALONE columnar pipeline (user decision 2026-06-08; NOT re-parse-in-ILCompiler).**
+      Grow `TryEmitColumnarProgram` into a `ColumnarCompiler` parallel to the C# `ILCompiler` that OWNS
+      parse→bind→analyze→codegen→assembly from columnar tables with NO C# AST. This SUPERSEDES the 2026-06-07
+      re-parse-in-`ILCompiler` scoping above — that path needs source threaded into the AST-only `ILCompiler`
+      plus a redundant second parse (the columnar kernels parse source; `ILCompiler` has no source access), so
+      it was rejected. Flagged off; the C# pipeline stays default until parity + never-slower are proven
+      end-to-end. See memory `project_routing_standalone_columnar_pipeline`.
+- [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the standalone columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted.

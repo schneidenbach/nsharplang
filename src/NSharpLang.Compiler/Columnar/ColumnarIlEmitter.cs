@@ -7,6 +7,44 @@ using System.Reflection.Emit;
 namespace NSharpLang.Compiler.Columnar;
 
 /// <summary>
+/// One top-level function's parsed signature plus its columnar body node tables, as consumed by
+/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. The body table arrays are produced per-function by
+/// the parser kernel <c>ParseStatementNodes</c>; <see cref="BodyRoot"/> is that body's root statement index.
+/// </summary>
+public sealed class ColumnarFunctionInput
+{
+    public ColumnarFunctionInput(
+        string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
+        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
+        int bodyRoot)
+    {
+        Name = name;
+        ReturnCanonical = returnCanonical;
+        ParamNames = paramNames;
+        ParamCanonicals = paramCanonicals;
+        Kinds = kinds;
+        ValueStarts = valueStarts;
+        ValueLengths = valueLengths;
+        ChildStart = childStart;
+        ChildCount = childCount;
+        ChildIndices = childIndices;
+        BodyRoot = bodyRoot;
+    }
+
+    public string Name { get; }
+    public string ReturnCanonical { get; }
+    public string[] ParamNames { get; }
+    public string[] ParamCanonicals { get; }
+    public int[] Kinds { get; }
+    public int[] ValueStarts { get; }
+    public int[] ValueLengths { get; }
+    public int[] ChildStart { get; }
+    public int[] ChildCount { get; }
+    public int[] ChildIndices { get; }
+    public int BodyRoot { get; }
+}
+
+/// <summary>
 /// COLUMNAR PIPELINE — stage 4 SPIKE (docs/design/roadmap-to-done.md). Proof that the columnar node tables can
 /// drive IL emission END-TO-END with no C# AST: for a single trivial function it emits a real .NET assembly
 /// (one static method) whose body IL is generated DIRECTLY from the columnar statement/expression tables, then
@@ -79,44 +117,75 @@ public sealed class ColumnarIlEmitter
     /// <summary>
     /// Build a one-method assembly for <paramref name="funcName"/> whose body IL is emitted from the columnar
     /// tables. Returns false (no assembly) for any unsupported type or body shape. The emitted type is
-    /// <c>ColumnarSpike</c> and the method is static.
+    /// <c>ColumnarSpike</c> and the method is static. Thin wrapper over <see cref="TryEmitColumnarAssembly"/>.
     /// </summary>
     public static bool TryEmitSingleFunctionAssembly(
         string funcName, string returnCanonical, string[] paramNames, string[] paramCanonicals,
         int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
         string source, int bodyRoot, out byte[] assembly)
     {
-        assembly = Array.Empty<byte>();
+        var input = new ColumnarFunctionInput(
+            funcName, returnCanonical, paramNames, paramCanonicals,
+            kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
+        return TryEmitColumnarAssembly("ColumnarSpike", new[] { input }, source, out assembly);
+    }
 
-        // Spike restriction: INT-ONLY. The expression emitter uses untyped integer `add`/`sub`/`mul` and `ldc.i4`,
-        // which is only valid when every operand is `int` — a mixed-type binary (e.g. int + long) would emit
-        // `add` on (i4, i8) = invalid IL. Resolve via the builtin map (the type-resolution seam later slices
-        // reuse), then require `int` throughout; later slices add type-aware emission for the full builtin set.
-        if (!TryResolveBuiltin(returnCanonical, out var returnType) || returnType != typeof(int))
+    /// <summary>
+    /// Build a single assembly containing ALL of <paramref name="funcs"/> as static methods on one type
+    /// (<paramref name="typeName"/>), each body's IL emitted from its columnar tables. This is the standalone
+    /// columnar backend's assembly seam (the chosen Stage 4j routing — a columnar-first pipeline that owns
+    /// emission, not a re-parse hook into the C# ILCompiler). Two-pass: pass 1 resolves types and DECLARES every
+    /// method (so a body can later resolve a call to a sibling method that is declared but not yet emitted —
+    /// the foundation for slice 4i); pass 2 emits each body. Returns false (no assembly) if ANY function is
+    /// ineligible (non-int type or an unsupported body shape) — the whole program declines, keeping the C# path
+    /// authoritative. INT-ONLY for now (untyped <c>add</c>/<c>ldc.i4</c>); later slices add type-aware emission.
+    /// </summary>
+    public static bool TryEmitColumnarAssembly(
+        string typeName, IReadOnlyList<ColumnarFunctionInput> funcs, string source, out byte[] assembly)
+    {
+        assembly = Array.Empty<byte>();
+        if (funcs.Count == 0)
             return false;
-        var paramTypes = new Type[paramNames.Length];
-        var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
-        for (var i = 0; i < paramNames.Length; i++)
+
+        var builder = new PersistedAssemblyBuilder(new AssemblyName(typeName), typeof(object).Assembly);
+        var module = builder.DefineDynamicModule(typeName);
+        var type = module.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class);
+
+        // Pass 1: resolve every signature (int-only) and declare all methods up front.
+        var methods = new MethodBuilder[funcs.Count];
+        var ordinalsByFunc = new Dictionary<string, int>[funcs.Count];
+        for (var f = 0; f < funcs.Count; f++)
         {
-            if (!TryResolveBuiltin(paramCanonicals[i], out var pt) || pt != typeof(int))
+            var fn = funcs[f];
+            if (!TryResolveBuiltin(fn.ReturnCanonical, out var returnType) || returnType != typeof(int))
                 return false;
-            paramTypes[i] = pt;
-            ordinals[paramNames[i]] = i;
+            var paramTypes = new Type[fn.ParamNames.Length];
+            var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (var i = 0; i < fn.ParamNames.Length; i++)
+            {
+                if (!TryResolveBuiltin(fn.ParamCanonicals[i], out var pt) || pt != typeof(int))
+                    return false;
+                paramTypes[i] = pt;
+                ordinals[fn.ParamNames[i]] = i;
+            }
+            methods[f] = type.DefineMethod(
+                fn.Name, MethodAttributes.Public | MethodAttributes.Static, returnType, paramTypes);
+            ordinalsByFunc[f] = ordinals;
         }
 
-        var builder = new PersistedAssemblyBuilder(new AssemblyName("ColumnarSpike"), typeof(object).Assembly);
-        var module = builder.DefineDynamicModule("ColumnarSpike");
-        var type = module.DefineType("ColumnarSpike", TypeAttributes.Public | TypeAttributes.Class);
-        var method = type.DefineMethod(
-            funcName, MethodAttributes.Public | MethodAttributes.Static, returnType, paramTypes);
-        var il = method.GetILGenerator();
-
-        var emitter = new ColumnarIlEmitter(
-            kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, ordinals, il);
-        // An int function must return on every path (NL305): the body must always return, else the emitted IL
-        // would fall off the end with no `ret` (invalid). Decline a non-returning body to the C# analyzer.
-        if (!emitter.AlwaysReturns(bodyRoot) || !emitter.EmitStatement(bodyRoot))
-            return false;
+        // Pass 2: emit each body into its declared method's IL stream.
+        for (var f = 0; f < funcs.Count; f++)
+        {
+            var fn = funcs[f];
+            var il = methods[f].GetILGenerator();
+            var emitter = new ColumnarIlEmitter(
+                fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
+                source, ordinalsByFunc[f], il);
+            // An int function must return on every path (NL305): the body must always return, else the emitted
+            // IL would fall off the end with no `ret` (invalid). Decline a non-returning body to the C# analyzer.
+            if (!emitter.AlwaysReturns(fn.BodyRoot) || !emitter.EmitStatement(fn.BodyRoot))
+                return false;
+        }
 
         type.CreateType();
         using var stream = new MemoryStream();

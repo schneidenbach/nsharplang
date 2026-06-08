@@ -2438,6 +2438,34 @@ class B
             new object[] { 0 }, new object[] { 1 }, new object[] { 5 }, new object[] { 7 });
     }
 
+    // The standalone columnar backend's first MULTI-FUNCTION slice: emit EVERY top-level function of a source
+    // into ONE assembly (type "ColumnarProgram") via the columnar path, then invoke each and assert parity with
+    // the authoritative C# pipeline. This exercises the two-pass declare-then-emit structure (all methods
+    // declared before any body is emitted) that sibling calls (4i) and whole-program emission build on.
+    [Fact]
+    public void ColumnarCodegen_Parity_MultiFunction()
+    {
+        // Two independent int functions in one assembly, each matched against the C# path.
+        var twoFns = "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc mul(a: int, b: int): int {\n    return a * b\n}\n";
+        AssertColumnarProgramMatchesCSharp(twoFns,
+            ("add", new object[] { 2, 3 }), ("add", new object[] { -5, 5 }),
+            ("mul", new object[] { 4, 6 }), ("mul", new object[] { -3, 7 }));
+
+        // Three functions with varied control flow (guard clause, while accumulation, if/else) in one assembly.
+        var threeFns = "func clampLow(a: int): int {\n    if a < 0 {\n        return 0\n    }\n    return a\n}\n\nfunc sumTo(n: int): int {\n    total := 0\n    i := 1\n    while i <= n {\n        total = total + i\n        i = i + 1\n    }\n    return total\n}\n\nfunc pick(a: int, b: int): int {\n    if a > b {\n        return a\n    } else {\n        return b\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(threeFns,
+            ("clampLow", new object[] { -5 }), ("clampLow", new object[] { 7 }),
+            ("sumTo", new object[] { 5 }), ("sumTo", new object[] { 0 }),
+            ("pick", new object[] { 3, 9 }), ("pick", new object[] { 9, 3 }));
+
+        // A single function routed through the multi-function path still works (a degenerate one-func program).
+        AssertColumnarProgramMatchesCSharp("func id(x: int): int {\n    return x\n}\n",
+            ("id", new object[] { 42 }), ("id", new object[] { -7 }));
+
+        // The whole program declines (no assembly) if ANY function is ineligible (here, a non-int second func).
+        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: long): long {\n    return x\n}\n").Ok);
+    }
+
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
     // codegen result equals the authoritative C# ILCompiler result. Fails loudly if the columnar
     // path declined a function this gate expects it to emit -- a silent decline would make the parity
@@ -2493,6 +2521,34 @@ class B
             loadContext?.Unload();
             if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
         }
+    }
+
+    // Emit ALL of `source`'s functions into one columnar-program assembly, then for each (func, args) invoke the
+    // columnar method and assert it equals the authoritative C# pipeline result. Fails loudly if the columnar
+    // program path declined (a silent decline would make the parity assertion vacuous).
+    private static void AssertColumnarProgramMatchesCSharp(string source, params (string Func, object[] Args)[] calls)
+    {
+        var (ok, assembly, typeName, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, $"Columnar program codegen declined a source the multi-function gate expects:\n{source}");
+        var type = System.Reflection.Assembly.Load(assembly!).GetType(typeName!)!;
+        foreach (var (func, args) in calls)
+        {
+            Assert.Contains(func, methodNames!);
+            var columnar = type.GetMethod(func)!.Invoke(null, args);
+            var oracle = InvokeViaCSharpPath(source, func, args);
+            Assert.Equal(oracle, columnar);
+        }
+    }
+
+    private static (bool Ok, byte[]? Assembly, string? TypeName, string[]? MethodNames) RouteColumnarProgram(string source)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryEmitColumnarProgram", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarProgram.");
+        var args = new object?[] { source, null, null, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (byte[]?)args[1], (string?)args[2], (string[]?)args[3]);
     }
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)

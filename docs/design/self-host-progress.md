@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — ROUTING DECISION + Stage 4-multi: standalone columnar backend, multi-function emission
+
+**Architecture decision (user, 2026-06-08):** route columnar codegen into production via a **standalone
+columnar pipeline** — a columnar-first backend that OWNS parse→bind→analyze→codegen→assembly with NO
+internal C# AST — NOT by re-parsing each function inside the AST-driven `ILCompiler`. The scoping (two
+read-only workflows) found the load-bearing constraint: `ILCompiler` consumes only the `CompilationUnit`
+AST and has no source access (`CompilationUnit`/`FunctionDeclaration` carry Line/Column but no source text
+or byte span), while the columnar kernels parse source strings — so the re-parse-in-ILCompiler path means a
+redundant second parse + unsolved per-function source extraction. The standalone pipeline avoids both and
+IS the Stage 5/6 endgame. (Recorded in memory `project_routing_standalone_columnar_pipeline`.) The Stage-4
+spike's `TryEmitColumnarFunction` already builds a real assembly (PersistedAssemblyBuilder→DefineType→
+DefineMethod→Save) — it is the seed of this backend, not throwaway.
+
+**First slice — multi-function emission.** Generalised the single-function spike into
+`ColumnarIlEmitter.TryEmitColumnarAssembly(typeName, funcs[], source)`: emit EVERY top-level function into
+ONE assembly/type via a **two-pass** structure — pass 1 resolves each signature (int-only) and DECLARES all
+methods up front; pass 2 emits each body. Declaring all methods before emitting any body is the foundation
+for sibling calls (4i): a body will resolve a call to a sibling `MethodBuilder` that is declared but not yet
+emitted. The whole program declines if ANY function is ineligible (keeping the C# path authoritative). New
+`ColumnarFunctionInput` carries one function's signature + columnar body tables; the adapter's orchestration
+was refactored into a shared `TryGetColumnarFunctionInputs` (tokenize+compact, require every top-level decl
+to be a `func`, parse each) + `TryParseColumnarFunctionAt` (one function's signature+body), with
+`TryEmitColumnarFunction` (single, unchanged surface) and the new `TryEmitColumnarProgram` (multi) on top.
+
+Parity-gated by the new `ColumnarCodegen_Parity_MultiFunction`: two/three independent int functions
+(arithmetic, guard clause, while accumulation, if/else) emitted into one assembly, each invoked and matched
+to the C# pipeline; a single function through the multi path; and a decline when a second function is
+non-int. The single-function spike + parity tests still pass (back-compat preserved). Next: 4i (sibling
+calls — emit `call` to a declared MethodBuilder), then 4b (types beyond int).
+
 ## 2026-06-08 — Stage 4g-ii: columnar if/else completed — general fall-through merge (all four arm combos)
 
 Unifies `ColumnarIlEmitter`'s `If` (kind 27) into one general algorithm covering all four
