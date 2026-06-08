@@ -41,6 +41,15 @@ suggested decline-boundary cases.
 Next real targets (per `project_columnar_gap_analysis`): the ~13 pure-`int[]` dogfood kernels (~40% of the
 corpus) now within reach, then strings (`string` type + `.Length` + `str[i]` + IndexOf/Substring) for ~37%.
 
+**Measured corpus coverage: 10 of 32 real dogfood files (~31%, 39 functions) now compile** end-to-end through
+the columnar backend with NO C# AST: `AnalyzerExhaustiveness`, `AnonymousUnionShims`, `AotRequirements`,
+`CliTreeDependencies`, `CompletionGrouping`, `FormatterImportOrdering`, `FormatterSafetyScan`,
+`OverloadCandidates`, `StructCopyAnalysis`, `TextEditOrdering`. Pinned by a ratcheting coverage test
+(`ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage`): each named file must compile to a loadable assembly,
+and the total compiling count is asserted ≥ the floor, so new features only RAISE coverage. The 22 declines
+are blocked by (in rough order): strings/char (most), `break`/`continue`, `new int[](n)` allocation,
+match/foreach, casts — the cheapest next unblocks are `break`/`continue` + array allocation, then strings.
+
 ## 2026-06-08 — GAP ANALYSIS (target-driven pivot) + short-circuit `&&`/`||`
 
 A read-only gap-analysis workflow surveyed the real 32-file dogfood corpus

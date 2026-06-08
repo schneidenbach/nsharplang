@@ -2678,6 +2678,38 @@ class B
             ("FormatterSafetyErrorIndicesChecksumInto", new object[] { noErr, new int[3] }));
     }
 
+    // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files the standalone columnar
+    // backend can compile end-to-end with no C# AST. Each named file below must compile (a regression that breaks
+    // one fails here), each emitting a loadable assembly with at least one function. The total compiling count
+    // is asserted >= the named floor, so future features only RAISE coverage. As more files compile, add them to
+    // the list. (Deep per-function parity on a real file lives in
+    // ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan; this test proves COMPILATION breadth.)
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodCorpus_Coverage()
+    {
+        // The pure int / int[] / control-flow / sibling-call kernels the backend fully models today.
+        var expectedCompiling = new[]
+        {
+            "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "CliTreeDependencies.nl",
+            "CompletionGrouping.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "OverloadCandidates.nl",
+            "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+        };
+        var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+
+        foreach (var name in expectedCompiling)
+        {
+            var (ok, assembly, _, methodNames) = RouteColumnarProgram(File.ReadAllText(Path.Combine(dir, name)));
+            Assert.True(ok, $"Expected the columnar backend to compile dogfood file {name}, but it declined.");
+            Assert.NotEmpty(methodNames!);
+            Assert.NotNull(System.Reflection.Assembly.Load(assembly!)); // the emitted IL is a loadable assembly.
+        }
+
+        var totalCompiling = Directory.EnumerateFiles(dir, "*.nl")
+            .Count(f => RouteColumnarProgram(File.ReadAllText(f)).Ok);
+        Assert.True(totalCompiling >= expectedCompiling.Length,
+            $"Corpus coverage regressed: {totalCompiling} files compile, expected >= {expectedCompiling.Length}.");
+    }
+
     // Array element WRITE `a[i] = value` (Stelem). The functions DETERMINISTICALLY overwrite the slots they
     // then read, so the array reference shared between the columnar and C# invocations is harmless (both write
     // the same values). `collectInto` is the real dogfood pattern (write matching indices into a result array,
