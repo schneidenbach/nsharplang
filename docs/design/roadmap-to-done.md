@@ -140,7 +140,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
 ## Phase P — Rust-class performance
 
 - [x] Ceiling measured: unrolled `Vector<int>` = 4.5× over scalar (checksum-sum 8.8× → ~2× behind native)
-- [x] **P1 — auto-vectorize counted reductions** (the `while`-form `i:=0; while i<len { acc=acc+a[i]; i=i+1 }`).
+- [x] **P1 — auto-vectorize counted reductions** (the `while`-form counted reduction: an `i := 0` init, then
+      `while i < len` accumulating `acc = acc + a[i]` and incrementing `i`).
       Sub-slices: [x] (a) pattern detection (`ReductionLoopShape.TryMatch` + 11 tests, no emission change);
       [x] (b) lowering to the unrolled `Vector<int>` SIMD helper (`SimdReductions.SumInt32` in NSharpLang.Runtime;
       `ILCompiler.TryEmitVectorizedReduction` hooks EmitWhile), behind an off-by-default thread-local flag, with

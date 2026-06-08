@@ -229,7 +229,7 @@ isolated worktree (`systems-language-perf` off `ca9ba88e`) after a concurrent se
 
 The codegen that vectorizes the min-max-delta kernel — the single LARGEST remaining native gap (10.5× behind
 best-native at size 4096 when N# tied C#). min-max-delta is two min/max reductions in one loop body
-(`value := a[i]; if value < min { min = value }; if value > max { max = value }`). Signed integer min and max
+(per element `value := a[i]`, then `if value < min { min = value }` and `if value > max { max = value }`). Signed integer min and max
 are associative AND commutative (a total order), so lane-wise `Vector.Min`/`Vector.Max` across SIMD lanes and
 four accumulators is value-identical to the sequential scalar fold — the same class of safe rewrite as P1's
 integer sum, just a different operator and the conditional-assignment shape.
@@ -280,8 +280,9 @@ lane-accumulators; then `Vector.Sum` + a scalar tail. It reuses P1's empty/OOB/e
 (`end <= start` early-out; SIMD only over a provably in-bounds range; the scalar tail throws
 `IndexOutOfRangeException` at the same element as the scalar loop — not the Vector ctor's
 `ArgumentOutOfRangeException`). `ILCompiler.TryEmitMatchedRangeCount` (hooked into `EmitWhile` + `EmitFor`
-after the reduction hook) lowers a matched `[value := a[i];] if a[i] >= lo && a[i] <= hi { count++ }` to
-`count = count + CountInRangeInt32(a, i, bound, lo, hi); i = max(i, bound)`. Fires for an `int[]` array, int
+after the reduction hook) lowers a matched `if a[i] >= lo && a[i] <= hi { count++ }` loop body (optionally
+preceded by `value := a[i]`) to `count = count + CountInRangeInt32(a, i, bound, lo, hi)` then `i = max(i, bound)`.
+Fires for an `int[]` array, int
 counter/index, int side-effect-free bound, and int side-effect-free `lo`/`hi` (evaluated ONCE — the masked
 compare must match the scalar `int a[i]` comparison exactly, so non-int `lo`/`hi` or a non-`int[]` array fall
 back to scalar). Counts are order-independent, so the result is value-identical to the scalar loop.
