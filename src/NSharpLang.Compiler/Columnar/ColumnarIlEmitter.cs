@@ -18,7 +18,8 @@ namespace NSharpLang.Compiler.Columnar;
 /// conversions this spike does not emit). Statements: <c>:=</c> int locals, a simple <c>local = expr</c>
 /// assignment, Return (value required), an <c>if</c>/<c>else</c> where BOTH branches always return (no
 /// fall-through), and a <c>while</c> loop whose body does not always return. Value expressions: a parameter, a
-/// <c>:=</c> local, an int literal, a parenthesized expr, or an int +/-/* binary. <c>if</c> conditions are an
+/// <c>:=</c> local, an int literal, a parenthesized expr, an int unary <c>-</c>/<c>~</c>, or an int +/-/* binary.
+/// <c>if</c> conditions are an
 /// int comparison (<c>&lt; &gt; &lt;= &gt;= == !=</c>) only. Anything else returns false (the adapter declines
 /// → the C# path is unaffected).
 /// </summary>
@@ -331,6 +332,18 @@ public sealed class ColumnarIlEmitter
 
             case 7: // Parenthesized — emit the inner expression.
                 return EmitExpression(Child(idx, 0));
+
+            case 11: // Unary [operand] — int prefix `-` (negate) and `~` (bitwise not) only. `!`/`++`/`--` decline.
+            {
+                if (!EmitExpression(Child(idx, 0)))
+                    return false;
+                switch (Text(idx))
+                {
+                    case "-": _il.Emit(OpCodes.Neg); return true;
+                    case "~": _il.Emit(OpCodes.Not); return true;
+                    default: return false;
+                }
+            }
 
             case 12: // Binary [left, right] — int +/-/* only.
             {

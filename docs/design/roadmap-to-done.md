@@ -142,7 +142,8 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         also scopes a braceless single-statement body), so a loop-body local referenced after the loop declines
         rather than reading a possibly-unassigned slot. Invoke-tested: count/sumTo/fact accumulation loops, a
         loop-body-scoped local used within. Declines a degenerate (always-returning) body + both leak shapes. ·
-        [ ] 4e unary · [ ] 4g+ if-without-else / fall-through branches (merge labels) · [ ] 4i calls ·
+        [x] **4e unary DONE** (int prefix `-`→`neg`, `~`→`not`; `!`/`++`/`--` decline; invoke-tested neg/bnot/
+        nested) · [ ] 4g+ if-without-else / fall-through branches (merge labels) · [ ] 4i calls ·
         [ ] 4j route via `DeclareFunction` (flagged) + benchmark never-slower · [ ] 4k C# fallback + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
@@ -291,10 +292,12 @@ diagnostic-bearing form (shadowing, unreachable-after-return, if-without-else, b
 (simple `local = expr` assignment statements) is also DONE** — and surfaced + fixed a latent fall-off-the-end
 bug (an int body must now always-return, else decline). **4h while loops is also DONE** — the first general
 fall-through control flow (`brfalse`/back-edge, stack-empty merge labels), with block scoping so loop-body
-locals don't leak (`fact(5)==120` invoke-tested). So the emitter covers params, int literals, `+/-/*` +
-comparisons, paren, `:=` locals, assignment, if/else, and while. **Next: 4c (real dispatcher + parity-vs-C#-path
-harness) / 4i (calls), then 4j (route via `DeclareFunction`).** This is the inflection point where C# begins to
-be deleted (Stages 5 route → 6 delete)
+locals don't leak (`fact(5)==120` invoke-tested). **4e (unary `-`/`~`) is also DONE.** So the emitter covers
+params, int literals, unary `-`/`~`, `+/-/*` + comparisons, paren, `:=` locals, assignment, if/else, and while —
+enough to compile real int functions. The spike has now thoroughly proven the columnar→IL question. **Next, the
+strategic pivot: 4c (parity-vs-C#-path harness) then 4j (route into `ILCompiler` with C# fallback) — the
+inflection where columnar codegen starts REPLACING C#** (Stages 5 route → 6 delete). Remaining small emitter
+gaps (4g+ general if, 4i calls) are pulled in as the routed corpus needs them.
 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 

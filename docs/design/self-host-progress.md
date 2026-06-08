@@ -11,6 +11,20 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4e: columnar codegen grows unary `-`/`~`
+
+Small slice: int prefix unary in `ColumnarIlEmitter` — `-`→`neg`, `~`→`not` (emit the operand, then the
+opcode). `!` (logical not), `++`, and `--` decline (the operator-token text isn't `-`/`~`). Invoke-tested:
+`neg(5)==-5`, `bnot(0)==-1` / `bnot(5)==-6` (one's-complement = two's-complement minus one), and unary inside a
+larger expression (`x := -a; return x + b`). Nested `- -a` parses as nested unary and works; the unsupported
+`!a` declines. Proportionate to a 2-opcode slice, this skipped the heavy adversarial workflow — the direct
+load+invoke test across signs/edge cases plus the gate's IL-verification are dispositive here.
+
+With this the spike covers params, int literals, unary `-`/`~`, `+/-/*` and comparisons, paren, `:=` locals,
+assignment, if/else, and while — enough to compile real int functions, and the columnar→IL question is well
+proven. The strategic next step is the inflection itself: 4c (a parity-vs-C#-path harness) then 4j (routing the
+columnar codegen into `ILCompiler` with C# fallback), where it starts replacing C#.
+
 ## 2026-06-07 — Stage 4h: columnar codegen grows while loops (general control flow) + block scoping
 
 The first GENERAL (fall-through) control flow in the columnar emitter. A While (kind 26) emits

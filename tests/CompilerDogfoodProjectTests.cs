@@ -2279,6 +2279,14 @@ class B
         // a local mixed with a parameter in the returned expression.
         AssertEmits("func square(a: int): int {\n    t := a * a\n    return t + a\n}\n", "square",
             (new object[] { 3 }, 12), (new object[] { 0 }, 0));
+        // unary negate and bitwise-not.
+        AssertEmits("func neg(a: int): int {\n    return -a\n}\n", "neg",
+            (new object[] { 5 }, -5), (new object[] { -7 }, 7), (new object[] { 0 }, 0));
+        AssertEmits("func bnot(a: int): int {\n    return ~a\n}\n", "bnot",
+            (new object[] { 0 }, -1), (new object[] { 5 }, -6));
+        // unary in a larger expression.
+        AssertEmits("func shift(a: int, b: int): int {\n    x := -a\n    return x + b\n}\n", "shift",
+            (new object[] { 3, 10 }, 7));
         // if/else where both branches return (a comparison condition).
         AssertEmits("func max(a: int, b: int): int {\n    if a > b {\n        return a\n    } else {\n        return b\n    }\n}\n", "max",
             (new object[] { 3, 5 }, 5), (new object[] { 7, 2 }, 7), (new object[] { 4, 4 }, 4));
@@ -2339,6 +2347,8 @@ class B
         Assert.False(RouteColumnarEmit("func leak(n: int): int {\n    i := 0\n    while i < n {\n        temp := i\n        i = i + 1\n    }\n    return temp\n}\n").Ok);
         // same leak via a BRACELESS single-statement loop body (`:=` directly, not a block) -> still declines.
         Assert.False(RouteColumnarEmit("func bleak(n: int): int {\n    i := 0\n    while i < n  x := i\n    return x\n}\n").Ok);
+        // an unsupported unary operator (logical `!`, also a type error on an int) -> decline.
+        Assert.False(RouteColumnarEmit("func lnot(a: int): int {\n    return !a\n}\n").Ok);
     }
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)
