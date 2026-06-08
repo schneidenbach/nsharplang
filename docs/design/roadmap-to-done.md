@@ -63,8 +63,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       numeric promotion to unary -/~ (ECMA §12.4 gaps). The columnar inferer currently MATCHES the binder
       (behavior-preserving). Decide + do: fix the binder to ECMA-correct (then update ColumnarTypeLattice to
       the promoted types and re-verify), or keep matching. Low-risk localized binder change; gate for regress.
-- [~] **Stage 3b — columnar diagnostics** (pure-structural: definite-return, unreachable-after-terminal,
-      unused-local). Parity vs the C# analyzer.
+- [x] **Stage 3b — columnar diagnostics** (pure-structural: definite-return, unreachable-after-terminal,
+      unused-local). Parity vs the C# analyzer. **COMPLETE** — all three sub-slices below landed, each
+      parity-gated vs a C#-AST mirror on hand-built cases + the full 32-file corpus and adversarially verified.
       - [x] **3b-i definite-return (NL305)** — `ColumnarDiagnosticsPass.StatementAlwaysReturns` is the columnar
         subset of `Analyzer.StatementAlwaysReturns` (Return exits; Block exits if any stmt exits; If exits only
         with an else where both branches exit; Break/Continue/ExprStmt/VarDecl/While non-exiting). The kernel
@@ -84,23 +85,17 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         otherwise). Parity vs a C#-AST mirror on 6 hand-built cases (incl. only-first-reported, nested, and the
         unreachable-before-missing-return ordering) + zero unreachable on the 32-file corpus. Adversarially
         verified (clean — no divergence).
-      - [ ] **3b-iii unused-local (NL001)** — next sub-slice. **Implementation note (from a discarded first
-        attempt + Linter source audit):** NL001 lives in `Linter.cs`, not the Analyzer. `CheckUnusedVariables`
-        flags a declared local iff `!used && !_usedVariables.Contains(name) && name != "_" && !name.StartsWith("_")`.
-        `MarkVariableUsed` (called for every identifier expression — INCLUDING assignment targets and call
-        callees — and for every parameter) sets the scope `used` flag AND unconditionally adds the name to the
-        file-level `_usedVariables` set. Crucially the check runs at each **block's `PopScope`** (functions push
-        their own scope at `Linter.cs:631`, blocks at `:833`) against `_usedVariables` **as of that moment**, and
-        `_usedVariables` accumulates in traversal order and is **never cleared between functions**. So NL001 is
-        time-/scope-ordered: a use that appears AFTER a block closes (a later sibling block, or a later function)
-        does NOT suppress that block's unused locals, but an EARLIER use (prior function, earlier statement, or a
-        param) does. A naive "a local is unused iff its name never appears as an identifier anywhere in the
-        source" global rule is WRONG here — it over-suppresses (e.g. `func first(){x:=42} func second(){x:=100;
-        return x}`: the Linter flags `first`'s `x`; a global rule does not). The faithful columnar impl must walk
-        in source order with a scope-list stack, accumulate `usedNames` as it goes, and check each block's direct
-        `:=` decls at block exit against `usedNames`-so-far. Also: the kernel REFUSES interpolated strings
-        (`$"..."`), so interpolation hidden-uses can't slip through (those sources decline → C# fallback) — keep
-        that property. Discards (`_` / `_`-prefixed) exempt; params always "used".
+      - [x] **3b-iii unused-local (NL001)** — `ColumnarDiagnosticsPass.CollectUnusedLocals` walks the body in
+        SOURCE ORDER, faithful to the Linter's time-/scope-ordered NL001 (a first naive "global" attempt was
+        reverted — see `fe61aa51`). The adapter processes functions in source order sharing one `usedNames` set
+        that accumulates every identifier use (the file-level `_usedVariables` analog), seeded with each
+        function's params and NEVER cleared between functions; each Block's `:=` locals are checked at the
+        Block's exit against `usedNames` AS OF THEN — so a use after the block closes (later sibling block / later
+        function) does NOT suppress, while an earlier use does. Discards (`_`/`_`-prefixed) exempt; params always
+        used; assignment-target counts as a use; interpolated strings decline upstream (kernel refuses `$"..."`).
+        Parity vs a C#-AST mirror reproducing the exact ordering on 9 hand-built cases (both ordering directions,
+        nesting, assignment, discard) + the full 32-file corpus. Adversarially verified (the prior global rule's
+        divergence is fixed; APPROVE, clean).
 - [ ] **Stage 4 — columnar codegen.** Emit IL directly from the columnar + resolved tables for the systems
       subset; compile a trivial then a real dogfood function with NO C# AST. Parity: emitted IL runs identically
       to the C# path (same outputs); IL-verification gate green.
@@ -231,13 +226,15 @@ codegen; c: FUSED single-pass MinMaxInt32 — MEASURED **5.94× faster than C#**
 vectorized as a seeded shifted-compare count — MEASURED **2.37× faster than C#** @4096, ~1.9× behind native).
 **EVERY vectorizable systems kernel is now Rust-class (within ~2× of native); only rolling-hash (~1.5×, the
 latency-bound floor) is left, and it is not vectorizable.** Phase P's per-pattern auto-vectorization program is
-essentially DONE. Now in progress: the self-host spine — **Stage 3b — columnar diagnostics** (Phase S).
-**3b-i definite-return (NL305) and 3b-ii unreachable-after-terminal (NL312) are DONE** (`ColumnarDiagnosticsPass`:
-the columnar subset of the real `StatementAlwaysReturns` + `CollectUnreachable` mirroring
-`Analyzer.AnalyzeStatements`; async/generator sources decline to C#; unreachable positions resolved from the
-tokenizer's own line/col, matching the AST; parity vs a C#-AST mirror on hand-built cases + the full 32-file
-corpus with zero false positives; both adversarially verified — the 3b-i review caught + we fixed an async
-unit-task divergence). **Next: 3b-iii unused-local**, then Stage 4
+essentially DONE. **Stage 3b — columnar diagnostics (Phase S) is COMPLETE**: 3b-i definite-return (NL305),
+3b-ii unreachable-after-terminal (NL312), and 3b-iii unused-local (NL001) all landed in `ColumnarDiagnosticsPass`
+(the columnar subset of `StatementAlwaysReturns`; `CollectUnreachable` mirroring `Analyzer.AnalyzeStatements`;
+`CollectUnusedLocals` reproducing the Linter's time-/scope-ordered NL001) — async/generator sources decline to
+C#; positions resolved from the tokenizer's own line/col matching the AST; parity vs a C#-AST mirror on
+hand-built cases + the full 32-file corpus, each adversarially verified (the reviews caught + we fixed an async
+unit-task divergence in 3b-i and a global-rule ordering divergence in 3b-iii). **Next: Stage 4 — columnar
+codegen** (emit IL directly from the columnar + resolved tables; the inflection point where C# begins to be
+deleted), then Stage 5 (route) → 6 (delete C#)
 (columnar codegen) — where end-to-end binder/output parity (incl. the binder reconciliation item) is verified —
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 

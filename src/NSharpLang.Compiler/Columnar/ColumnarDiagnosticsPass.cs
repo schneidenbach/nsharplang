@@ -6,7 +6,8 @@ namespace NSharpLang.Compiler.Columnar;
 /// COLUMNAR PIPELINE — stage 3b (docs/design/columnar-pipeline.md). Pure-structural semantic diagnostics
 /// computed DIRECTLY over the columnar statement tables — no C# AST. These are the analyzer's
 /// control-flow-shaped checks that need no type information: definite-return (NL305, "not all code paths
-/// return a value"), unreachable-after-terminal (NL312), and — added in a later sub-slice — unused-local.
+/// return a value"), unreachable-after-terminal (NL312), and unused-local (NL001, via
+/// <see cref="CollectUnusedLocals"/> walked in source order with the adapter's cross-function name set).
 ///
 /// This walks the SAME node tables Stage 3 (<see cref="ColumnarTypeInferer"/>) walks, over the statement node
 /// kinds the parser kernel emits: 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement,
@@ -148,5 +149,74 @@ public sealed class ColumnarDiagnosticsPass
         }
     }
 
+    /// <summary>
+    /// Stage 3b-iii (unused-local, NL001) over one function body, walked in SOURCE ORDER. This faithfully
+    /// reproduces the Linter's time-/scope-ordered behaviour: every identifier expression (kind 6) adds its
+    /// name to <paramref name="usedNames"/> as it is encountered (the analog of the file-level
+    /// <c>_usedVariables</c> the Linter's <c>MarkVariableUsed</c> populates — which the caller seeds with each
+    /// function's parameters and does NOT clear between functions). Each <c>:=</c> local (kind 24) is recorded
+    /// in the innermost enclosing Block's scope; when a Block (kind 25) finishes, its locals are checked against
+    /// <paramref name="usedNames"/> AS OF THAT MOMENT — so a use appearing after the block closes (a later
+    /// sibling block, or a later function) does NOT suppress it, while an earlier use (a prior function, an
+    /// earlier statement, or a parameter) does. Discards (<c>_</c> / <c>_</c>-prefixed) are exempt. Reported at
+    /// the declaration's line:col. Interpolated strings can't hide a use: the kernel refuses them, so such
+    /// sources decline upstream.
+    /// </summary>
+    public void CollectUnusedLocals(int bodyRoot, System.Collections.Generic.HashSet<string> usedNames, List<string> unused)
+        => WalkUnused(bodyRoot, usedNames, new List<List<(string Name, int Line, int Column)>>(), unused);
+
+    private void WalkUnused(
+        int idx, System.Collections.Generic.HashSet<string> usedNames,
+        List<List<(string Name, int Line, int Column)>> blockStack, List<string> unused)
+    {
+        switch (_kinds[idx])
+        {
+            case 6: // Identifier expression — a use of its name, recorded in traversal order.
+                usedNames.Add(Text(idx));
+                return;
+
+            case 25: // Block — its own scope: collect its direct `:=` locals, then check them at block exit.
+            {
+                var scope = new List<(string Name, int Line, int Column)>();
+                blockStack.Add(scope);
+                for (var n = 0; n < _childCount[idx]; n++)
+                    WalkUnused(Child(idx, n), usedNames, blockStack, unused);
+
+                foreach (var (name, line, column) in scope)
+                {
+                    if (name != "_"
+                        && !name.StartsWith("_", System.StringComparison.Ordinal)
+                        && !usedNames.Contains(name))
+                    {
+                        unused.Add("unused-local:" + name + "@" + line + ":" + column);
+                    }
+                }
+
+                blockStack.RemoveAt(blockStack.Count - 1);
+                return;
+            }
+
+            case 24: // VariableDeclaration (`:=`): declared in the innermost block; then its initializer's uses.
+            {
+                if (blockStack.Count > 0)
+                {
+                    var (line, column) = _positionOf(_spanStarts[idx]);
+                    blockStack[blockStack.Count - 1].Add((Text(idx), line, column));
+                }
+
+                for (var n = 0; n < _childCount[idx]; n++)
+                    WalkUnused(Child(idx, n), usedNames, blockStack, unused);
+                return;
+            }
+
+            default: // every other statement/expression: recurse so nested identifiers, blocks, and decls are seen.
+                for (var n = 0; n < _childCount[idx]; n++)
+                    WalkUnused(Child(idx, n), usedNames, blockStack, unused);
+                return;
+        }
+    }
+
     private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];
+
+    private string Text(int idx) => _source.Substring(_valueStarts[idx], _valueLengths[idx]);
 }

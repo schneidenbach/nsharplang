@@ -2073,6 +2073,180 @@ class B
         }
     }
 
+    // COLUMNAR PIPELINE stage 3b-iii: unused-local (NL001). The Linter is time-/scope-ordered: it checks each
+    // block's locals at PopScope against a file-level _usedVariables set that accumulates in traversal order and
+    // is never cleared between functions, so a use AFTER a block closes (later sibling block / later function)
+    // does NOT suppress, while an earlier use does. Verified equal to a C#-AST-walk mirror that reproduces that
+    // exact ordering; descriptors sorted per function for comparison (identity, not the Linter's Dictionary
+    // emission order, is the contract). Covers ordering both ways, nesting, assignment-marks-used, discard, and
+    // the full 32-file corpus.
+    [Fact]
+    public void ColumnarDiagnostics_UnusedLocal_MatchesAstWalk()
+    {
+        var cases = new (string Src, int Unused)[]
+        {
+            // never referenced -> unused.
+            ("func f(): int {\n    unused := 1\n    return 2\n}\n", 1),
+            // read -> used.
+            ("func g(): int {\n    x := 1\n    return x\n}\n", 0),
+            // assignment target marks the variable used.
+            ("func h(): int {\n    x := 1\n    x = 2\n    return 3\n}\n", 0),
+            // a discard ("_"-prefixed) local is exempt.
+            ("func k(): int {\n    _unused := 1\n    return 2\n}\n", 0),
+            // used inside another local's initializer -> both used.
+            ("func m(): int {\n    a := 1\n    b := a + 1\n    return b\n}\n", 0),
+            // ORDER (later use does NOT suppress): 'shared' is unused in p; q references it LATER, so the
+            // Linter flags p's 'shared' (its block closed before q was visited).
+            ("func p(): int {\n    shared := 1\n    return 2\n}\n\nfunc q(): int {\n    return shared\n}\n", 1),
+            // ORDER (earlier use DOES suppress): 'helper' is read in 'earlier' (visited first), so 'later's
+            // unused 'helper' is suppressed by the accumulated usedNames.
+            ("func earlier(): int {\n    return helper\n}\n\nfunc later(): int {\n    helper := 1\n    return 2\n}\n", 0),
+            // nested-block local, never read -> unused (checked at the inner block's exit).
+            ("func nested(ok: bool): int {\n    if ok {\n        inner := 1\n    }\n    return 2\n}\n", 1),
+            // two unused locals.
+            ("func r(): int {\n    a := 1\n    b := 2\n    return 3\n}\n", 2),
+        };
+
+        foreach (var (src, unused) in cases)
+        {
+            var (ok, diags) = RouteUnusedLocals(src);
+            Assert.True(ok, $"Columnar unused-local declined a supported corpus:\n{src}");
+            Assert.NotNull(diags);
+            Assert.Equal(SortPerFunction(CSharpCollectUnusedLocals(src, "corpus.nl")), SortPerFunction(diags!));
+            Assert.Equal(unused, diags!.SelectMany(d => d).Count(d => d.StartsWith("unused-local:", StringComparison.Ordinal)));
+        }
+
+        var repoRoot = FindRepoRoot();
+        var servicesDir = Path.Combine(repoRoot, "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var files = Directory.EnumerateFiles(servicesDir, "*.nl").OrderBy(p => p, StringComparer.Ordinal).ToList();
+        var analyzed = 0;
+        foreach (var file in files)
+        {
+            var src = File.ReadAllText(file);
+            var (ok, diags) = RouteUnusedLocals(src);
+            Assert.True(ok, $"Columnar unused-local declined its own systems source: {file}.");
+            Assert.Equal(SortPerFunction(CSharpCollectUnusedLocals(src, file)), SortPerFunction(diags!));
+            analyzed++;
+        }
+
+        Assert.Equal(files.Count, analyzed);
+        Assert.True(analyzed >= 30, $"Expected the full dogfood corpus to analyze; only {analyzed} did.");
+    }
+
+    private static List<List<string>> SortPerFunction(List<List<string>> perFunction)
+        => perFunction.Select(f => f.OrderBy(s => s, StringComparer.Ordinal).ToList()).ToList();
+
+    private static (bool Ok, List<List<string>>? Unused) RouteUnusedLocals(string source)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryCollectUnusedLocals", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryCollectUnusedLocals.");
+        var args = new object?[] { source, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (List<List<string>>?)args[1]);
+    }
+
+    // C# AST mirror of TryCollectUnusedLocals — the SAME time-/scope-ordered walk on the object-graph AST:
+    // functions in source order share an accumulating usedNames (seeded with each function's params); each
+    // block's `:=` locals are checked at the block's exit against usedNames as-of-then.
+    private static List<List<string>> CSharpCollectUnusedLocals(string source, string filePath)
+    {
+        var cu = CSharpCompilationUnit(source, filePath);
+        var funcs = cu!.Declarations.OfType<FunctionDeclaration>().ToList();
+
+        var usedNames = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<List<string>>();
+        foreach (var fn in funcs)
+        {
+            foreach (var p in fn.Parameters) usedNames.Add(p.Name);
+            var unused = new List<string>();
+            if (fn.Body != null)
+                MirrorWalkUnused(fn.Body, usedNames, new List<List<(string, int, int)>>(), unused);
+            result.Add(unused);
+        }
+
+        return result;
+    }
+
+    private static void MirrorWalkUnused(
+        Statement s, HashSet<string> used, List<List<(string Name, int Line, int Column)>> stack, List<string> unused)
+    {
+        switch (s)
+        {
+            case BlockStatement b:
+            {
+                var scope = new List<(string Name, int Line, int Column)>();
+                stack.Add(scope);
+                foreach (var st in b.Statements) MirrorWalkUnused(st, used, stack, unused);
+                foreach (var (name, line, column) in scope)
+                {
+                    if (name != "_" && !name.StartsWith("_", StringComparison.Ordinal) && !used.Contains(name))
+                        unused.Add("unused-local:" + name + "@" + line + ":" + column);
+                }
+
+                stack.RemoveAt(stack.Count - 1);
+                break;
+            }
+
+            case VariableDeclarationStatement v:
+                if (stack.Count > 0) stack[stack.Count - 1].Add((v.Name, v.Line, v.Column));
+                if (v.Initializer != null) MirrorCollectIds(v.Initializer, used);
+                break;
+            case IfStatement i:
+                MirrorCollectIds(i.Condition, used);
+                MirrorWalkUnused(i.ThenStatement, used, stack, unused);
+                if (i.ElseStatement != null) MirrorWalkUnused(i.ElseStatement, used, stack, unused);
+                break;
+            case WhileStatement w:
+                MirrorCollectIds(w.Condition, used);
+                MirrorWalkUnused(w.Body, used, stack, unused);
+                break;
+            case ReturnStatement r:
+                if (r.Value != null) MirrorCollectIds(r.Value, used);
+                break;
+            case ExpressionStatement e:
+                MirrorCollectIds(e.Expression, used);
+                break;
+        }
+    }
+
+    private static void MirrorCollectIds(Expression e, HashSet<string> used)
+    {
+        switch (e)
+        {
+            case IdentifierExpression id: used.Add(id.Name); break;
+            case ParenthesizedExpression p: MirrorCollectIds(p.Inner, used); break;
+            case MemberAccessExpression m: MirrorCollectIds(m.Object, used); break;
+            case CallExpression c:
+                MirrorCollectIds(c.Callee, used);
+                foreach (var a in c.Arguments) MirrorCollectIds(a.Value, used);
+                break;
+            case IndexAccessExpression ix:
+                MirrorCollectIds(ix.Object, used);
+                MirrorCollectIds(ix.Index, used);
+                break;
+            case UnaryExpression u: MirrorCollectIds(u.Operand, used); break;
+            case BinaryExpression b:
+                MirrorCollectIds(b.Left, used);
+                MirrorCollectIds(b.Right, used);
+                break;
+            case TernaryExpression t:
+                MirrorCollectIds(t.Condition, used);
+                MirrorCollectIds(t.ThenExpression, used);
+                MirrorCollectIds(t.ElseExpression, used);
+                break;
+            case AssignmentExpression asn:
+                MirrorCollectIds(asn.Target, used);
+                MirrorCollectIds(asn.Value, used);
+                break;
+            case NewExpression nw:
+                foreach (var a in nw.ConstructorArguments) MirrorCollectIds(a.Value, used);
+                break;
+            case CastExpression cast: MirrorCollectIds(cast.Expression, used); break;
+        }
+    }
+
     private static (bool Ok, List<List<ColumnarNameRef>>? Refs) RouteFunctionNameRefs(string source)
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")

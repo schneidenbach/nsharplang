@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-07 — Stage 3b-iii: columnar unused-local (NL001) — Stage 3b COMPLETE
+
+Third and last columnar diagnostic, completing Stage 3b. NL001 ("declared but never read") lives in the
+**Linter** (not the Analyzer), and it is **time-/scope-ordered**: `CheckUnusedVariables` runs at each block's
+`PopScope` against a file-level `_usedVariables` set that `MarkVariableUsed` populates for every identifier use
+(including assignment targets and call callees) plus every parameter, accumulates in traversal order, and is
+**never cleared between functions**. So a use appearing AFTER a block closes (a later sibling block, or a later
+function) does NOT suppress that block's unused locals, while an EARLIER use (a prior function, an earlier
+statement, or a parameter) does.
+
+**A first attempt got this wrong** and was reverted (`fe61aa51`): it used a naive "a local is unused iff its
+name never appears as an identifier anywhere in the source" GLOBAL rule. That over-suppresses — e.g.
+`func first(){x:=42} func second(){x:=100; return x}`: the Linter flags `first`'s `x` (its block closed before
+`second` was visited), but the global rule does not. The first adversarial review's *judge* approved it on
+mirror-parity grounds, but a direct audit of `Linter.cs` (functions push a scope at `:631`, blocks at `:833`;
+the check at `PopScope`/`:285`) showed the mirror itself wasn't faithful to the Linter — so it was discarded.
+
+**The faithful implementation** (`ColumnarDiagnosticsPass.CollectUnusedLocals` + the adapter's
+`TryCollectUnusedLocals`): process functions in source order sharing one `usedNames` set (seeded per function
+with its params, never cleared); walk each body in source order with a stack of per-Block scopes; record each
+`:=` local (kind 24) in the innermost block; and at each Block (kind 25) exit, flag its locals whose name is not
+`_`/`_`-prefixed and not in `usedNames` AS OF THEN. The per-scope `used` flag is correctly subsumed (used=true ⟹
+name in `_usedVariables`, so the check reduces to "name not in `usedNames` at block exit"). Braceless bodies
+(`if c x := 1`) attribute the local to the enclosing block — matching the Linter, which pushes no scope for a
+non-block body. Interpolated strings (`$"...{x}..."`) can't hide a use: the kernel refuses them, so such sources
+decline (`bodyNodeCount <= 0`) to the C# linter (verified empirically). Reported at the declaration's line:col.
+
+**Parity:** a new `MirrorWalkUnused` reproduces the exact time-ordered walk on the C# AST; 9 hand-built cases
+pin both ordering directions (later use does NOT suppress / earlier use DOES), nesting, assignment-marks-used,
+and discard exemption; plus the full 32-file dogfood corpus (sorted columnar == sorted mirror). Re-verified
+clean (APPROVE) after the rewrite. **Stage 3b is now COMPLETE** (NL305 + NL312 + NL001). Next: Stage 4 —
+columnar codegen, the inflection point where the C# binder/analyzer begin to be routed out and deleted.
+
 ## 2026-06-07 — Stage 3b-ii: columnar unreachable-after-terminal (NL312), parity-gated
 
 Second columnar diagnostic. `ColumnarDiagnosticsPass.CollectUnreachable` mirrors `Analyzer.AnalyzeStatements`
