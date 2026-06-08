@@ -2593,6 +2593,31 @@ class B
             ("modL", new object[] { big * big, big }), ("modL", new object[] { -100L, 7L }));
     }
 
+    // BITWISE (& | ^) and SHIFTS (<< >>) for int/long. `>>` is the signed/arithmetic right shift (sign-extends a
+    // negative value, matching C#); the shift count is int. Includes the `Modifiers`-flag idiom (1 << 11 | ...).
+    [Fact]
+    public void ColumnarCodegen_Parity_Bitwise()
+    {
+        var prog = "func andI(a: int, b: int): int {\n    return a & b\n}\n\n" +
+                   "func orI(a: int, b: int): int {\n    return a | b\n}\n\n" +
+                   "func xorI(a: int, b: int): int {\n    return a ^ b\n}\n\n" +
+                   "func shlI(a: int, n: int): int {\n    return a << n\n}\n\n" +
+                   "func shrI(a: int, n: int): int {\n    return a >> n\n}\n\n" +
+                   "func flags(): int {\n    return 1 << 11 | 1 << 12\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("andI", new object[] { 0xF0, 0x3C }), ("orI", new object[] { 0xF0, 0x0C }), ("xorI", new object[] { 0xFF, 0x0F }),
+            ("shlI", new object[] { 1, 11 }), ("shlI", new object[] { 5, 4 }),
+            ("shrI", new object[] { 256, 3 }), ("shrI", new object[] { -8, 1 }), ("shrI", new object[] { -1, 4 }),
+            ("flags", System.Array.Empty<object>()));
+
+        var progL = "func andL(a: long, b: long): long {\n    return a & b\n}\n\n" +
+                    "func shlL(a: long, n: int): long {\n    return a << n\n}\n\n" +
+                    "func shrL(a: long, n: int): long {\n    return a >> n\n}\n";
+        AssertColumnarProgramMatchesCSharp(progL,
+            ("andL", new object[] { 0xFF00L, 0x0FF0L }),
+            ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
+    }
+
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
     // codegen result equals the authoritative C# ILCompiler result. Fails loudly if the columnar
     // path declined a function this gate expects it to emit -- a silent decline would make the parity

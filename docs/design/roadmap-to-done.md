@@ -145,7 +145,9 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         on i8; long params/locals/returns; mixed int/long widening declines. First distinct stack rep, so the
         per-arg type check now genuinely prevents i4-where-i8 invalid IL. Parity-gated incl. values > int range
         — `1e9*1e9`, `factL(20)` — + ulong/mixed declines) · [x] **div/mod DONE** (int/long `/`→`Div`, `%`→`Rem`
-        signed; parity-gated w/ negatives + large long) · [ ] 4b-iii `double` (`ldc.r8`; NaN-correct `<=`/`>=`
+        signed; parity-gated w/ negatives + large long) · [x] **bitwise/shift DONE** (int/long `& | ^`→And/Or/Xor,
+        `<< >>`→Shl/Shr signed; shift count is int; parity-gated w/ negative `>>` sign-extend, `1L<<40`, flag idiom)
+        · [ ] 4b-iii `double` (`ldc.r8`; NaN-correct `<=`/`>=`
         need `.un` variants) · [ ] 4b-iv `string` (BCL `op_Equality`/`Concat`). · [x] **4c parity-vs-C#-path
         harness DONE** (`ColumnarCodegen_Parity_MatchesCSharpPath`: compile each eligible fn via BOTH the columnar
         path AND `MultiFileCompiler`→`ILCompiler`, invoke over many inputs incl. negatives/boundaries/overflow,

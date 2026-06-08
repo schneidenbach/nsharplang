@@ -522,15 +522,30 @@ public sealed class ColumnarIlEmitter
                 }
             }
 
-            case 12: // Binary [left, right] — int/long `+`/`-`/`*`, or a comparison producing bool. Both operands
-            {        // must be the SAME type (no implicit conversions); the result type depends on the operator.
+            case 12: // Binary [left, right] — int/long arithmetic & bitwise, shifts, or a comparison producing
+            {        // bool. Most operators need both operands the SAME type; shifts are the exception.
                 if (!EmitExpression(Child(idx, 0), out var leftType))
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var rightType))
                     return false;
+                var op = Text(idx);
+
+                // Shifts are special: the value is int/long, the shift COUNT is always int (not necessarily the
+                // value's type), and the result is the value's type. Shr is the SIGNED (arithmetic) right shift,
+                // matching C# for int/long; the columnar `>>` is a single binary operator here (the `>>` token
+                // split only applies inside generic type arguments, not expression context).
+                if (op == "<<" || op == ">>")
+                {
+                    if ((leftType != typeof(int) && leftType != typeof(long)) || rightType != typeof(int))
+                        return false;
+                    _il.Emit(op == "<<" ? OpCodes.Shl : OpCodes.Shr);
+                    type = leftType;
+                    return true;
+                }
+
+                // Every other binary operator requires both operands to be the SAME type (no implicit conversions).
                 if (leftType != rightType)
                     return false;
-                var op = Text(idx);
                 switch (op)
                 {
                     case "+": case "-": case "*": case "/": case "%":
@@ -544,6 +559,12 @@ public sealed class ColumnarIlEmitter
                             op == "*" ? OpCodes.Mul :
                             op == "/" ? OpCodes.Div :
                             OpCodes.Rem);
+                        type = leftType;
+                        return true;
+                    case "&": case "|": case "^":
+                        // Bitwise on int/long (And/Or/Xor work on i4 and i8); result is the shared numeric type.
+                        if (leftType != typeof(int) && leftType != typeof(long)) return false;
+                        _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
                         type = leftType;
                         return true;
                     case "<": case ">": case "<=": case ">=":

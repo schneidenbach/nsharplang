@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4b-bit: columnar codegen grows bitwise & shift operators (int/long)
+
+Bitwise `&`/`|`/`^` (And/Or/Xor) and shifts `<<`/`>>` (Shl/Shr) for int/long — mechanically simple, no
+NaN/BCL complexity. `&`/`|`/`^` require both operands the same int/long type (result that type). Shifts are
+the exception to the same-type rule: the value is int/long but the shift COUNT is always int, and the result
+is the value's type; `>>` is the SIGNED/arithmetic right shift (sign-extends a negative value), matching C#.
+Confirmed the columnar `>>` is a single binary operator in expression context (the `>>` token split only
+applies inside generic type arguments). Parity-gated (`ColumnarCodegen_Parity_Bitwise`) incl. negative `>>`
+sign-extension (`-8 >> 1`, `-1 >> 4`), long shifts past 32 bits (`1L << 40`), and the `Modifiers`-flag idiom
+`1 << 11 | 1 << 12` — directly relevant to compiling the compiler's own flag code. Next on the type ladder:
+`double` (NaN-correct `<=`/`>=` deferred for fresh review) and `string` (BCL `op_Equality`/`Concat`).
+
 ## 2026-06-08 — Stage 4b-div: columnar codegen grows integer/long division & modulo
 
 Rounds out the arithmetic operators for int/long: `/` → `Div`, `%` → `Rem` (the SIGNED forms, matching C#
