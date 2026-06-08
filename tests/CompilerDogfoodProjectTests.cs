@@ -2305,6 +2305,14 @@ class B
             (new object[] { 3 }, 4), (new object[] { 10 }, 10), (new object[] { 20 }, 20));
         AssertEmits("func clamp(a: int): int {\n    if a < 0 {\n        return 0 - 1\n    }\n    if a > 100 {\n        return 1\n    }\n    return 0\n}\n", "clamp",
             (new object[] { -5 }, -1), (new object[] { 200 }, 1), (new object[] { 50 }, 0));
+        // if-WITH-else, general fall-through merge (not both-return): then-falls/else-returns,
+        // then-returns/else-falls, and both-fall-through. (Both-return is covered by max/sign above.)
+        AssertEmits("func tf(a: int): int {\n    r := 0\n    if a > 0 {\n        r = 1\n    } else {\n        return 0 - 1\n    }\n    return r\n}\n", "tf",
+            (new object[] { 5 }, 1), (new object[] { -5 }, -1), (new object[] { 0 }, -1));
+        AssertEmits("func tr(a: int): int {\n    r := 0\n    if a > 0 {\n        return 9\n    } else {\n        r = 2\n    }\n    return r\n}\n", "tr",
+            (new object[] { 5 }, 9), (new object[] { -5 }, 2), (new object[] { 0 }, 2));
+        AssertEmits("func bf(a: int): int {\n    r := 0\n    if a > 0 {\n        r = 1\n    } else {\n        r = 2\n    }\n    return r\n}\n", "bf",
+            (new object[] { 5 }, 1), (new object[] { -5 }, 2), (new object[] { 0 }, 2));
         // a simple `local = expr` assignment statement, then a return of the local.
         AssertEmits("func acc(a: int, b: int): int {\n    x := a\n    x = x + b\n    return x\n}\n", "acc",
             (new object[] { 3, 4 }, 7), (new object[] { 10, -10 }, 0));
@@ -2336,9 +2344,6 @@ class B
         Assert.False(RouteColumnarEmit("func shadow(x: int): int {\n    x := x + 1\n    return x\n}\n").Ok);
         // redeclaring a local name with `:=` -> decline.
         Assert.False(RouteColumnarEmit("func redecl(a: int): int {\n    x := a\n    x := x + 1\n    return x\n}\n").Ok);
-        // an if-WITH-else where a branch FALLS THROUGH (not both-return) is still declined — only the
-        // closed both-return else and the bare if-without-else are modelled so far.
-        Assert.False(RouteColumnarEmit("func elseFall(a: int): int {\n    r := 0\n    if a > 0 {\n        r = 1\n    } else {\n        return 0 - 1\n    }\n    return r\n}\n").Ok);
         // a comparison in value position (returning a bool from an int func) would diverge from N# types -> decline.
         Assert.False(RouteColumnarEmit("func gt(a: int, b: int): int {\n    return a > b\n}\n").Ok);
         // unreachable code after a return (an NL312 diagnostic) must decline, not emit code after `ret`.
@@ -2414,6 +2419,13 @@ class B
             new object[] { 0 }, new object[] { 2 }, new object[] { 5 });
         AssertColumnarMatchesCSharp("func guardMid(n: int): int {\n    x := 0\n    i := 0\n    while i < n {\n        if i > 1 {\n            x = x + 10\n        }\n        i = i + 1\n    }\n    return x\n}\n", "guardMid",
             new object[] { 0 }, new object[] { 2 }, new object[] { 5 });
+        // if-WITH-else, general fall-through merge: then-falls/else-returns, then-returns/else-falls, both-fall.
+        AssertColumnarMatchesCSharp("func tf(a: int): int {\n    r := 0\n    if a > 0 {\n        r = 1\n    } else {\n        return 0 - 1\n    }\n    return r\n}\n", "tf",
+            new object[] { 5 }, new object[] { -5 }, new object[] { 0 });
+        AssertColumnarMatchesCSharp("func tr(a: int): int {\n    r := 0\n    if a > 0 {\n        return 9\n    } else {\n        r = 2\n    }\n    return r\n}\n", "tr",
+            new object[] { 5 }, new object[] { -5 }, new object[] { 0 });
+        AssertColumnarMatchesCSharp("func bf(a: int): int {\n    r := 0\n    if a > 0 {\n        r = 1\n    } else {\n        r = 2\n    }\n    return r\n}\n", "bf",
+            new object[] { 5 }, new object[] { -5 }, new object[] { 0 });
         // := local + reassignment.
         AssertColumnarMatchesCSharp("func acc(a: int, b: int): int {\n    x := a\n    x = x + b\n    return x\n}\n", "acc",
             new object[] { 1, 2 }, new object[] { -3, 10 });

@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Stage 4g-ii: columnar if/else completed — general fall-through merge (all four arm combos)
+
+Unifies `ColumnarIlEmitter`'s `If` (kind 27) into one general algorithm covering all four
+then/else fall-through-vs-return combinations, replacing the two special cases (closed both-return else +
+bare if-without-else). The merge: `cond; brfalse else; then; [br end (if then falls through)]; else:
+<else>; [end: (if then falls through)]`. The skip-`br` over the else-block and the `end` label it targets
+are emitted **only when the then-branch can fall through** — exactly the just-landed EmitIf fix carried into
+the columnar emitter; if the then-branch always returns, that `br` is dead and would risk a method-end
+label. The function-level always-returns gate guarantees a later statement follows whenever the if itself
+falls through, so the merge is never the bare method end. Both branches' `:=` locals are scoped. The
+both-return form (`max`/`sign`) is unchanged behaviorally — it now flows through the same code with
+`thenFallsThrough == false`, so no `br`/`end` is emitted (identical IL).
+
+Parity-gated across the full if/else state space, each over multiple inputs: then-falls/else-returns,
+then-returns/else-falls, both-fall-through (and both-return via the existing `max`/`sign`), plus the 4g
+guard-clause and merge-position cases. The former `elseFall` decline is now the positive `tf`. The if/else
+control flow is now complete in the columnar emitter.
+
 ## 2026-06-08 — Stage 4g: columnar codegen grows if-WITHOUT-else (guard clauses, fall-through merge)
 
 Extends `ColumnarIlEmitter`'s `If` (kind 27) to the bare `if cond { then }` form (childCount 2) — the

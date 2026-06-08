@@ -149,11 +149,12 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
         rather than reading a possibly-unassigned slot. Invoke-tested: count/sumTo/fact accumulation loops, a
         loop-body-scoped local used within. Declines a degenerate (always-returning) body + both leak shapes. ·
         [x] **4e unary DONE** (int prefix `-`→`neg`, `~`→`not`; `!`/`++`/`--` decline; invoke-tested neg/bnot/
-        nested) · [~] **4g if-without-else DONE** (bare `if cond { then }`, kind-27 childCount 2: `cond; brfalse
-        end; then; end:` — the first fall-through merge label; empty stack at `end`; the EmitIf method-end-label
-        hazard can't arise since a guard never always-returns so a later statement always follows; then-branch
-        `:=` locals scoped. Parity-gated incl. nested/while-last/while-mid merge positions. Else-with-fall-through
-        still declines) · [ ] 4i calls ·
+        nested) · [x] **4g if/else COMPLETE** (kind 27 unified into one general fall-through-merge algorithm
+        covering all four then/else fall-vs-return combos: `cond; brfalse else; then; [br end iff then falls
+        through]; else; [end:]`. The skip-`br`/`end` are gated on then-falling-through — the EmitIf fix carried
+        into the columnar emitter; the always-returns gate keeps the merge off the bare method end. Both-return
+        `max`/`sign` unchanged. Parity-gated across the full state space incl. nested/while-last/while-mid merge
+        positions and braceless guard locals scoped) · [ ] 4i calls ·
         [ ] 4j route via `DeclareFunction` (flagged) + benchmark never-slower · [ ] 4k C# fallback + gate closure.
 - [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the full columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.

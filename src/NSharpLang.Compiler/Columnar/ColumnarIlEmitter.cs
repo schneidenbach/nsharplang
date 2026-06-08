@@ -182,49 +182,62 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 27: // If [condition, then, else?].
-            {
-                if (_childCount[idx] == 3)
-                {
-                    // Closed form: an else is present and BOTH branches always return, so there is no
-                    // fall-through merge (no trailing-ret subtleties). The general else-with-fall-through
-                    // shape is not yet modelled — decline it (the C# path stays authoritative).
-                    if (!AlwaysReturns(Child(idx, 1)) || !AlwaysReturns(Child(idx, 2)))
-                        return false;
-                    if (!EmitCondition(Child(idx, 0)))
-                        return false;
-                    var elseLabel = _il.DefineLabel();
-                    _il.Emit(OpCodes.Brfalse, elseLabel);   // condition false -> else branch
-                    if (!EmitStatement(Child(idx, 1)))       // then (always returns -> ends in `ret`)
-                        return false;
-                    _il.MarkLabel(elseLabel);
-                    return EmitStatement(Child(idx, 2));      // else (always returns -> ends in `ret`)
-                }
-
-                if (_childCount[idx] != 2)
+            case 27: // If [condition, then, else?] — general form covering all four then/else
+            {        // fall-through-vs-return combinations, with a fall-through merge label.
+                var childCount = _childCount[idx];
+                if (childCount != 2 && childCount != 3)
                     return false;
-
-                // if-WITHOUT-else (a guard clause): `cond; brfalse end; then; end:`. Both paths reach
-                // `end` with an empty stack — the brfalse pops the condition bool, and a fall-through
-                // then-branch is net-zero (a then-branch that returns instead ends in `ret` and never
-                // reaches `end`). The function-level always-returns gate guarantees a later statement
-                // (e.g. a trailing `return`) follows this if, so `end` is never the bare method end
-                // (the EmitIf/EmitSwitch method-end-label hazard cannot arise here). Scope the
-                // then-branch's `:=` locals so a BRACELESS `:=` does not leak past the if (a Block
-                // then-branch already self-scopes; this also covers the braceless single-statement form).
                 if (!EmitCondition(Child(idx, 0)))
                     return false;
-                var endLabel = _il.DefineLabel();
-                _il.Emit(OpCodes.Brfalse, endLabel);
-                var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
-                if (!EmitStatement(Child(idx, 1)))
+
+                var thenStmt = Child(idx, 1);
+                var elseLabel = _il.DefineLabel();
+                _il.Emit(OpCodes.Brfalse, elseLabel);   // condition false -> else branch (or the merge end if no else)
+
+                // then-branch. Scope its `:=` locals so a BRACELESS `:=` does not leak past the if (a Block
+                // then-branch already self-scopes; this also covers the braceless single-statement form).
+                var beforeThen = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                if (!EmitStatement(thenStmt))
                     return false;
                 foreach (var name in new List<string>(_locals.Keys))
                 {
-                    if (!outerLocals.Contains(name))
+                    if (!beforeThen.Contains(name))
                         _locals.Remove(name);
                 }
-                _il.MarkLabel(endLabel);
+
+                if (childCount == 2)
+                {
+                    // if-WITHOUT-else (a guard clause): the brfalse already targets the merge. Both edges
+                    // reach it with an empty stack (a fall-through then-branch is net-zero; a returning
+                    // then-branch ends in `ret` and never reaches it).
+                    _il.MarkLabel(elseLabel);
+                    return true;
+                }
+
+                // if-WITH-else. The unconditional branch over the else-block (and the end label it targets)
+                // are emitted ONLY when the then-branch can FALL THROUGH to them — exactly the EmitIf fix.
+                // If the then-branch always returns, that `br` is dead and would mark a label that could
+                // land at the bare method end (the EmitIf/EmitSwitch hazard). The function-level
+                // always-returns gate guarantees that when the if itself falls through (both branches
+                // fall, or one falls), a later statement follows, so the merge is never the bare method end.
+                var thenFallsThrough = !AlwaysReturns(thenStmt);
+                var endLabel = _il.DefineLabel();
+                if (thenFallsThrough)
+                    _il.Emit(OpCodes.Br, endLabel);
+                _il.MarkLabel(elseLabel);
+
+                var elseStmt = Child(idx, 2);
+                var beforeElse = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                if (!EmitStatement(elseStmt))
+                    return false;
+                foreach (var name in new List<string>(_locals.Keys))
+                {
+                    if (!beforeElse.Contains(name))
+                        _locals.Remove(name);
+                }
+
+                if (thenFallsThrough)
+                    _il.MarkLabel(endLabel);
                 return true;
             }
 
