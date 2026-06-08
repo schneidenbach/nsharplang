@@ -724,6 +724,23 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 15: // New [type, args...] — only `new T[](size)` array allocation. child[0] is a TYPE subtree
+            {        // (TYPE-kind semantics: 2 = Array, 0 = Simple); the single arg is the int length.
+                var typeNode = Child(idx, 0);
+                if (_childCount[idx] != 2 || _kinds[typeNode] != 2) // exactly one ctor arg; type must be Array.
+                    return false;
+                var elementNode = Child(typeNode, 0); // the array's element type subtree.
+                if (_kinds[elementNode] != 0) // element must be a Simple builtin (not jagged/generic).
+                    return false;
+                if (!TryResolveBuiltin(Text(elementNode), out var newElementType) || !IsSupportedElementType(newElementType))
+                    return false;
+                if (!EmitExpression(Child(idx, 1), out var sizeType) || sizeType != typeof(int)) // length: int.
+                    return false;
+                _il.Emit(OpCodes.Newarr, newElementType);
+                type = newElementType.MakeArrayType();
+                return true;
+            }
+
             default:
                 return false;
         }

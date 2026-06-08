@@ -11,6 +11,18 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — columnar codegen grows `new int[](n)` array allocation
+
+`new T[](size)` allocation (columnar New, kind 15, `[type, args...]`) for supported element arrays
+(int/long). child[0] is a TYPE subtree (TYPE-kind semantics: 2 = Array, its child[0] the Simple element);
+the single arg is the int length. Emit the length, then `Newarr <element>` (which zero-initialises); result
+type is the array type. Jagged/generic element types, a non-array `new`, and wrong arg counts decline.
+Parity-gated (`ColumnarCodegen_Parity_ArrayAlloc`): alloc + `.Length`, zero-init sum, allocate/fill/read-back
+(`a[i] = i * 2`), a sized expression (`new int[](n + 1)`), and `new long[](n)`. This completes the int[]/long[]
+array story (resolve, alloc, `.Length`, read, write). It did NOT raise file coverage (still 11/32): the files
+that allocate arrays also use strings/char, so allocation alone doesn't flip them — confirming the remaining
+declines are gated on STRINGS, the next (bigger) batch. The cheap int[] unblocks are now exhausted.
+
 ## 2026-06-08 — columnar codegen grows `break`/`continue` (corpus coverage 10 → 11 files)
 
 Loop `break`/`continue`. The emitter keeps a stack of the enclosing loops' (end, check) labels; `while`

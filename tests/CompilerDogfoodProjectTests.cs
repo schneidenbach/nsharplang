@@ -2616,6 +2616,26 @@ class B
             ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
     }
 
+    // `new int[](n)` / `new long[](n)` array ALLOCATION (Newarr). newarr zero-initializes; combined with the
+    // write/read/.Length paths this allocates a temp buffer, fills it, and reads it back — the dogfood pattern
+    // (e.g. ParserStatements `st := new int[](6)`).
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayAlloc()
+    {
+        var prog = "func allocLen(n: int): int {\n    a := new int[](n)\n    return a.Length\n}\n\n" +
+                   "func zeros(n: int): int {\n    a := new int[](n)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+                   "func makeAndSum(n: int): int {\n    a := new int[](n)\n    i := 0\n    while i < a.Length {\n        a[i] = i * 2\n        i = i + 1\n    }\n    total := 0\n    i = 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+                   "func sized(n: int): int {\n    a := new int[](n + 1)\n    return a.Length\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("allocLen", new object[] { 5 }), ("allocLen", new object[] { 0 }),
+            ("zeros", new object[] { 4 }), ("zeros", new object[] { 0 }),
+            ("makeAndSum", new object[] { 5 }), ("makeAndSum", new object[] { 1 }), ("makeAndSum", new object[] { 0 }),
+            ("sized", new object[] { 6 }));
+
+        var progL = "func makeL(n: int): long {\n    a := new long[](n)\n    a[0] = 5000000000L\n    total := 0L\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(progL, ("makeL", new object[] { 3 }));
+    }
+
     // break / continue in while loops. break exits the innermost loop (-> end label), continue re-tests it
     // (-> check label). Includes nested loops (an inner break exits ONLY the inner loop).
     [Fact]
