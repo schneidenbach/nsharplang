@@ -198,10 +198,11 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       **PRODUCTION ROUTING LANDED (2026-06-08):** the columnar backend is wired into `MultiFileCompiler.
       CompileToIlAssembly` behind `NSHARP_COLUMNAR_BACKEND=1` (off by default) with C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
-      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage 14/32
-      (~44%) compile via the backend (SourceTextLines.nl added 2026-06-08 via Array.Fill + void-call statement
-      + parameter assignment). Remaining for default-on: more coverage + never-slower benchmarks + multi-file
-      merge + columnar-owned analysis (stages 1–3b replacing the C# analyze step).
+      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage 16/32
+      (~50%) compile via the backend (2026-06-08: SourceTextLines.nl via Array.Fill + void-call statement +
+      parameter assignment; PathMatching.nl via char arithmetic; LinterImports.nl via discarded-call statement).
+      Remaining for default-on: more coverage + never-slower benchmarks + multi-file merge + columnar-owned
+      analysis (stages 1–3b replacing the C# analyze step).
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **BLOCKED on coverage:** the columnar
       backend models ~41% of the systems dogfood subset and ~0% of the rich language (classes/generics/match/

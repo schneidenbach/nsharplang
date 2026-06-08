@@ -423,18 +423,21 @@ public sealed class ColumnarIlEmitter
             }
 
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
-            {        // element `a[i] = value`, OR a bare VOID call statement (a void-returning BCL call such as
-                     // `Array.Fill(...)`). Compound ops (`+=`), param/field targets decline.
+            {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
+                     // or a sibling/BCL call whose non-void result is discarded). Compound ops (`+=`) decline.
                 var expr = Child(idx, 0);
 
-                if (_kinds[expr] == 9) // a bare call statement — only a VOID-returning call is a valid statement.
+                if (_kinds[expr] == 9) // a bare call statement.
                 {
-                    // Emit the call; require it to produce NO value (void). A call whose result is non-void would
-                    // leave a value on the stack with no consumer (discarding it is a form the spike does not
-                    // model) — decline it so the C# path stays authoritative. The only void calls today are the
-                    // void BCL statics (e.g. Array.Fill); siblings are never void (a void return declines at decl).
-                    if (!EmitExpression(expr, out var callType) || callType != typeof(void))
+                    // Emit the call. A void call (e.g. Array.Fill) leaves nothing on the stack; a NON-void call
+                    // leaves its result, which is unused in statement position — discard it with `pop` (exactly
+                    // what the C# path emits for a discarded call result, so the side effects + result are
+                    // identical). This is the `helper(args)`-as-statement idiom (e.g. LinterImports.nl clearing
+                    // flags for its side effect and ignoring the returned count).
+                    if (!EmitExpression(expr, out var callType))
                         return false;
+                    if (callType != typeof(void))
+                        _il.Emit(OpCodes.Pop);
                     return true;
                 }
 
@@ -736,15 +739,19 @@ public sealed class ColumnarIlEmitter
                     case "+": case "-": case "*": case "/": case "%":
                         // Add/Sub/Mul/Div/Rem work on i4 and i8; the result is the operands' (shared) numeric
                         // type. Div/Rem are the SIGNED forms (matching C# for int/long); divide-by-zero and
-                        // INT_MIN/-1 throw at runtime exactly as the C# path does.
-                        if (leftType != typeof(int) && leftType != typeof(long)) return false;
+                        // INT_MIN/-1 throw at runtime exactly as the C# path does. CHAR arithmetic promotes to
+                        // INT (ECMA §12.4.7: byte/sbyte/short/ushort/char all promote to int — matches the C#
+                        // binder's GetWiderType, Analyzer.cs:12820): a char is already an i4 code point, so the
+                        // same opcode applies and the result TYPE is int (e.g. `c - 'A'` is int, so a negative
+                        // difference stays int, NOT a u2-wrapped char).
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(char)) return false;
                         _il.Emit(
                             op == "+" ? OpCodes.Add :
                             op == "-" ? OpCodes.Sub :
                             op == "*" ? OpCodes.Mul :
                             op == "/" ? OpCodes.Div :
                             OpCodes.Rem);
-                        type = leftType;
+                        type = leftType == typeof(char) ? typeof(int) : leftType;
                         return true;
                     case "&": case "|": case "^":
                         // Bitwise on int/long (And/Or/Xor work on i4 and i8); result is the shared numeric type.

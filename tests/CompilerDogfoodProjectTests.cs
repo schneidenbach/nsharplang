@@ -2903,10 +2903,42 @@ class B
         // DECLINE SURFACE — keep the C# path authoritative for forms the backend does not model.
         Assert.False(RouteColumnarProgram(  // the 2-arg Array.Fill<T>(T[], T) overload is not modelled.
             "func f(a: int[], v: int): int {\n    Array.Fill(a, v)\n    return 0\n}\n").Ok);
-        Assert.False(RouteColumnarProgram(  // a discarded NON-void result in statement position declines.
-            "func helper(x: int): int {\n    return x * 2\n}\n\nfunc caller(x: int): int {\n    helper(x)\n    return x\n}\n").Ok);
         Assert.False(RouteColumnarProgram(  // the fill value's type must match the element type (long into int[]).
             "func f(a: int[]): int {\n    Array.Fill(a, 5L, 0, a.Length)\n    return 0\n}\n").Ok);
+    }
+
+    // A bare CALL statement whose result is DISCARDED: emit the call, then `pop` the non-void result (a void
+    // call leaves nothing). The C# path emits the same pop, so the side effects + ignored result are identical.
+    // This is the `helper(args)`-as-statement idiom (LinterImports.nl calls a flag-clearing helper for its side
+    // effect and ignores the returned count). `mutate` PROVES the side effect ran (the array write is observed
+    // by the following read) even though the call's int return is discarded.
+    [Fact]
+    public void ColumnarCodegen_Parity_DiscardedCallResult()
+    {
+        var prog = "func mutate(a: int[], v: int): int {\n    a[0] = v\n    return v * 2\n}\n\n" +
+                   "func driver(a: int[], v: int): int {\n    mutate(a, v)\n    return a[0]\n}\n\n" +
+                   "func twice(a: int[]): int {\n    mutate(a, 5)\n    mutate(a, 9)\n    return a[0]\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("driver", new object[] { new int[2], 7 }),
+            ("driver", new object[] { new int[1], -4 }),
+            ("twice", new object[] { new int[1] }));
+    }
+
+    // char arithmetic promotes to int (ECMA §12.4.7, matching the C# binder's GetWiderType): `c1 - c2` is an
+    // int, NOT a u2-wrapped char — so a NEGATIVE difference (`'A' - 'z'`) must stay negative. PathMatching.nl
+    // uses `left - 'A' == right - 'a'` for case-insensitive comparison.
+    [Fact]
+    public void ColumnarCodegen_Parity_CharArithmetic()
+    {
+        var prog = "func diff(a: char, b: char): int {\n    return a - b\n}\n\n" +
+                   "func caseFold(a: char, b: char): bool {\n    return a - 'A' == b - 'a'\n}\n\n" +
+                   "func addChars(a: char, b: char): int {\n    return a + b\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("diff", new object[] { 'C', 'A' }),   // 2
+            ("diff", new object[] { 'A', 'z' }),   // -57 (proves int, not u2 wrap)
+            ("diff", new object[] { 'a', 'a' }),   // 0
+            ("caseFold", new object[] { 'A', 'a' }), ("caseFold", new object[] { 'B', 'a' }),
+            ("addChars", new object[] { 'a', 'b' }));   // 195
     }
 
     // MILESTONE: the standalone columnar backend compiles SourceTextLines.nl — the heaviest line-mapping I/O
@@ -2950,6 +2982,64 @@ class B
         AssertColumnarProgramMatchesCSharp(source, calls.ToArray());
     }
 
+    // MILESTONE: PathMatching.nl compiles end-to-end with no C# AST. Enabled by char arithmetic (`left - 'A'`
+    // promotes to int) on top of char-parameter assignment (`left = CodeIntelligencePathNormalizeSlash(left)`).
+    // The case-insensitive path matcher exercises char indexing, char compares, sibling calls, and the char
+    // subtraction case-fold. Reads the actual file.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_PathMatching()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "PathMatching.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real PathMatching.nl (expected full support).");
+        Assert.Contains("CodeIntelligencePathCharsEqualIgnoreCase", methodNames!); // the char-subtraction case-fold.
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("CodeIntelligencePathMatches", new object[] { "src/Foo.nl", "Foo.nl" }),
+            ("CodeIntelligencePathMatches", new object[] { "src\\Foo.nl", "foo.nl" }),
+            ("CodeIntelligencePathMatches", new object[] { "abc", "xyz" }),
+            ("CodeIntelligencePathMatches", new object[] { "Foo.nl", "Foo.nl" }),
+            ("CodeIntelligencePathEqualsNormalizedIgnoreCase", new object[] { "A/b", "a\\B" }),
+            ("CodeIntelligencePathEqualsNormalizedIgnoreCase", new object[] { "abc", "abd" }),
+            ("CodeIntelligencePathEndsWithNormalizedIgnoreCase", new object[] { "src/bar.nl", "BAR.NL" }),
+            ("CodeIntelligencePathCharsEqualIgnoreCase", new object[] { 'A', 'a' }),
+            ("CodeIntelligencePathCharsEqualIgnoreCase", new object[] { '/', '\\' }),
+            ("CodeIntelligencePathCharsEqualIgnoreCase", new object[] { 'x', 'y' }),
+            ("CodeIntelligencePathNormalizeSlash", new object[] { '\\' }),
+            ("CodeIntelligencePathNormalizeSlash", new object[] { 'q' }),
+            ("CodeIntelligencePathMatchFlagsInto", new object[] { new[] { "a/x.nl", "b" }, new[] { "x.nl", "y" }, new int[2] }),
+            ("CodeIntelligencePathMatchChecksumInto", new object[] { new[] { "a/x.nl", "b" }, new[] { "x.nl", "y" }, new int[2] }));
+    }
+
+    // MILESTONE: LinterImports.nl compiles end-to-end with no C# AST. It is pure int / int[] / control-flow,
+    // and its one previously-blocking form was a bare sibling-call STATEMENT discarding an int result
+    // (`LinterImportsClearAllUsedFlags(...)` for its side effect) — now emitted as call + pop. The functions
+    // mutate `usedNamespaceFlags` but restore it (clearing every touched rank), so the array shared between the
+    // columnar and C# invocations is benign. Reads the actual file.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_LinterImports()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "LinterImports.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real LinterImports.nl (expected full support).");
+        Assert.Contains("LinterUnusedKnownNamespaceImportIndicesInto", methodNames!); // contains the discarded-result call.
+
+        // ranks 1 and 3 used (by a type + a member); rank 2 import is unused. Arrays sized knownCount+1.
+        object[] FreshArgs() => new object[]
+        {
+            new[] { 1, 2, 3 }, 3, new[] { 1 }, 1, new[] { 3 }, 1, 3, new int[4], new int[4], new int[4],
+        };
+        AssertColumnarProgramMatchesCSharp(source,
+            ("LinterUnusedKnownNamespaceImportIndicesInto", FreshArgs()),
+            ("LinterUnusedKnownNamespaceImportChecksumInto", FreshArgs()),
+            // overflow of touchedNamespaceRanks (size 0) -> the early-return-(-1) path with the discarded clear call.
+            ("LinterUnusedKnownNamespaceImportIndicesInto", new object[] { new[] { 1, 2 }, 2, new[] { 1, 2 }, 2, new int[0], 0, 2, new int[3], new int[0], new int[3] }),
+            ("LinterImportsClearAllUsedFlags", new object[] { new int[] { 0, 1, 1, 1 }, 3 }),
+            ("LinterImportsMinInt", new object[] { 4, 9 }), ("LinterImportsMinInt", new object[] { 9, 4 }));
+    }
+
     // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files the standalone columnar
     // backend can compile end-to-end with no C# AST. Each named file below must compile (a regression that breaks
     // one fails here), each emitting a loadable assembly with at least one function. The total compiling count
@@ -2964,8 +3054,8 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "DocQuery.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
-            "OverloadCandidates.nl", "ParserDeclarations.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
-            "TextEditOrdering.nl", "TypeLookup.nl",
+            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "PathMatching.nl",
+            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

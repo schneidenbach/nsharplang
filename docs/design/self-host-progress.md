@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — char arithmetic + discarded-call statement → corpus coverage 14 → 16 (PathMatching, LinterImports)
+
+Two small, independent gap-fills, each flipping a real dogfood file:
+
+1. **`char` arithmetic promotes to `int`** (ECMA §12.4.7). The arithmetic operators (`+ - * / %`) now accept
+   `char OP char`, emitting the SAME signed opcode (char is already an i4 code point on the stack) and
+   reporting the result TYPE as `int` — matching the C# binder's `GetWiderType` (Analyzer.cs:12820:
+   "byte/sbyte/short/ushort/char promote to int") AND the C# ILCompiler (Operators.cs:1024 + EmitValueCoercion
+   to int, signed Div/Rem). So a NEGATIVE difference like `'A' - 'z'` stays `-57` (int), NOT a u2-wrapped char.
+   This flips **`PathMatching.nl`** — its case-insensitive matcher uses `left - 'A' == right - 'a'` (on top of
+   the char-param assignment from the prior slice). char-int / int-char MIXES still decline (the pre-switch
+   `leftType != rightType` guard is intact), and char is still excluded from bitwise ops.
+2. **Discarded non-void call result in statement position** (`pop`). The prior slice's bare-void-call statement
+   is generalized: a bare call statement now emits the call and, if the result is non-void, discards it with
+   `pop` (a void call emits nothing extra) — exactly what the C# ILCompiler emits (`EmitExpressionStatement`,
+   ILCompiler.cs:12500). This flips **`LinterImports.nl`**, which is otherwise pure int/int[]/control-flow but
+   calls a flag-clearing helper `LinterImportsClearAllUsedFlags(...)` as a statement for its side effect,
+   ignoring the returned count. (The earlier void-only restriction was tighter than N# / the C# path require.)
+
+Parity-gated: `ColumnarCodegen_Parity_CharArithmetic` (incl. the negative `'A' - 'z'` = -57 case that would
+catch a u2-wrap bug, the case-fold `==` idiom, char addition); `ColumnarCodegen_Parity_DiscardedCallResult`
+(a side-effecting call whose result is dropped — the side effect is PROVEN to still run via a following read);
+and the milestone tests `ColumnarCodegen_CompilesRealDogfoodFile_PathMatching` /
+`..._LinterImports` (read the real files, assert acceptance, parity-match representative functions incl. the
+early-return-(-1) path that exercises the discarded clear-call). Updated the `Array.Fill` test's stale
+"discarded result declines" assertion (it now compiles). Corpus coverage **14 → 16 of 32 (~50%)**; ratcheting
+`..._Coverage` floor raised to 16. Adversarially reviewed (read-only, 2 lenses): both CORRECT, no divergence —
+char-char emission matches the ILCompiler (signed opcodes, int result, no missing conv), the discarded-call
+pop matches `EmitExpressionStatement`, stack balance holds (one value → one pop; void → none), and the
+"transfer must be last" + decline-surface guards are intact.
+
 ## 2026-06-08 — Array.Fill + void-call statement + parameter assignment → corpus coverage 13 → 14 (SourceTextLines)
 
 Three composing features land together, flipping the heaviest line-mapping I/O kernel `SourceTextLines.nl`
