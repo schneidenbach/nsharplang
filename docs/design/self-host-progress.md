@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — `ulong` scalar (unsigned) + `BitOperations.PopCount` → CliQueryParsing.nl (single-file 21→22, cluster 24→25)
+
+Added `ulong` — the first UNSIGNED scalar. It is u8 on the stack like `long` (i8), but its operations use the
+UNSIGNED opcodes, matching the C# binder (`ulong` promotes to `ulong`, ECMA §12.4.7) and the C# ILCompiler's
+`UsesUnsignedNumericOpcode` path exactly: `>>` → `Shr_Un` (logical, zero-fill, NOT the signed `Shr`), `/` →
+`Div_Un`, `%` → `Rem_Un`, ordering `< > <= >=` → `Clt_Un`/`Cgt_Un` (the `<=`/`>=` via `!(a>b)`/`!(a<b)`); `<<`,
+`& | ^`, `==`/`!=` share long's opcodes (bit-identical). `~` is allowed (Not); unary `-` DECLINES (C# forbids
+unary minus on unsigned). `ulong` literals (a `u`/`U` AND `l`/`L` suffix in any order — UL/LU/…) load via
+`Ldc_I8(unchecked((long)value))` (the bit pattern; bare `u`/`U` = uint still declines). `ulong[]` reads/writes
+reuse `Ldelem_I8`/`Stelem_I8` (8-byte slot; unsignedness is purely in how the value is operated on). Casts
+involving `ulong` and mixed `ulong`/other-type operands DECLINE (C# fallback). Added
+`System.Numerics.BitOperations.PopCount(ulong)` → int to the static-call whitelist.
+
+This flips `CliQueryParsing.nl`, whose packed-result kernels store success bits in `ulong[]` words, mask a
+partial last word via `(word << shift) >> shift` (exercising `Shr_Un`), and sum `BitOperations.PopCount` over
+the words. Parity-gated: `ColumnarCodegen_Parity_ULong` — every operator tested with a HIGH-BIT-SET value
+(> long.MaxValue) so a wrong SIGNED opcode would diverge (e.g. `0x8000…UL >> 1` logical 0x4000… not signed
+0xC000…; `0x8000…UL < 1UL` is FALSE unsigned but TRUE signed), plus `ulong.MaxValue` literal, `ulong[]` read,
+`~`, and the unary-minus / cast declines — and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing`
+(the real file: `CliBatchResultPackedSuccessCount` over high-bit-set words, `CliBatchResultPopCount64`,
+`CliTryParsePositionInto`, `CliQueryIsWhiteSpace`). Adversarially reviewed (read-only, 2 lenses): every unsigned
+opcode matches the C# ILCompiler with file:line evidence (15604/15618/15652…), the literal matches
+`EmitUnsignedIntegerLiteralMagnitude`, the tests are discriminating + non-vacuous, declines are safe. The one
+implementation difference (`Ldelem_I8` vs the C# generic `Ldelem` for `ulong[]`) is benign — same bit pattern,
+both verifiable, empirically parity-confirmed (identical to how `long[]` already ships). Ratchets: single-file
+floor 21→22, multi-file cluster 24→25. Coverage now **22/32 single-file, 25/32 via multi-file merge (~78%)**.
+
 ## 2026-06-08 — `new string(char[], int, int)` ctor → CliDocOrdering.nl (single-file 20→21, cluster 23→24)
 
 Added the `String(char[] value, int startIndex, int length)` constructor — the columnar backend's first

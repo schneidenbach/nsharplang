@@ -110,17 +110,22 @@ public sealed class ColumnarIlEmitter
         _siblings = siblings;
     }
 
-    // The types the type-aware emitter currently handles: int/bool/long scalars (double/string are later
-    // slices), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[]). (Mixed int/long
-    // arithmetic — implicit widening — is not modelled; an all-long or all-int expression is required.)
+    // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
+    // slice), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[], ulong[]). (Mixed
+    // arithmetic — implicit widening — is not modelled; an expression's operands must share one type.) ulong is
+    // u8 on the stack like long (i8), but its arithmetic uses the UNSIGNED opcodes (Shr_Un/Div_Un/Rem_Un and
+    // unsigned compares) — see the binary/comparison cases.
     private static bool IsSupportedType(Type t) =>
-        t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(string) || t == typeof(char)
+        t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(ulong)
+        || t == typeof(string) || t == typeof(char)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
-    // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long (i4/i8),
+    // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long/ulong (i4/i8),
     // char (u2), and string (a reference element). bool/double are excluded until their element opcodes land.
+    // ulong shares long's 8-byte slot (Ldelem_I8/Stelem_I8 move the bit pattern; the unsignedness is purely in
+    // how the VALUE is operated on, not how it is stored/loaded).
     private static bool IsSupportedElementType(Type t) =>
-        t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(string);
+        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(string);
 
     /// <summary>
     /// Resolve a canonical N# type string (e.g. "int", "int[]") to its CLR <see cref="Type"/>. Handles a single
@@ -456,7 +461,7 @@ public sealed class ColumnarIlEmitter
                     if (!EmitExpression(Child(expr, 1), out var elementValueType) || elementValueType != elementType)
                         return false;
                     if (elementType == typeof(int)) _il.Emit(OpCodes.Stelem_I4);
-                    else if (elementType == typeof(long)) _il.Emit(OpCodes.Stelem_I8);
+                    else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Stelem_I8);
                     else if (elementType == typeof(char)) _il.Emit(OpCodes.Stelem_I2);
                     else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
                     else return false; // other element types arrive with their type slices.
@@ -608,15 +613,33 @@ public sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 0: // IntLiteral — plain decimal `int`, or a signed `long` literal (digits + L/l). The lexer keeps
-            {       // the suffix in the token text. Unsigned suffixes (u/U, UL/LU) are not in the supported set.
+            case 0: // IntLiteral — decimal `int`, a signed `long` (L/l), or a `ulong` (a u/U AND an l/L suffix in
+            {       // any order: UL/LU/ul/...). The lexer keeps the suffix in the token text. A BARE u/U (uint) is
+                    // not in the supported set. Strip the trailing [uUlL] run and classify by which letters appear.
                 var text = Text(idx);
-                var last = text.Length > 0 ? text[text.Length - 1] : '\0';
-                if (last == 'L' || last == 'l')
+                var end = text.Length;
+                var sawU = false;
+                var sawL = false;
+                while (end > 0 && (text[end - 1] is 'u' or 'U' or 'l' or 'L'))
                 {
-                    var digits = text.Substring(0, text.Length - 1);
-                    if (digits.Length > 0 && (digits[digits.Length - 1] == 'u' || digits[digits.Length - 1] == 'U'))
-                        return false; // UL/LU = ulong, unsupported.
+                    if (text[end - 1] is 'u' or 'U') sawU = true; else sawL = true;
+                    end--;
+                }
+                var digits = text.Substring(0, end);
+                if (sawU && sawL) // ulong (u8): load the bit pattern via Ldc_I8.
+                {
+                    if (ulong.TryParse(digits, out var ulongValue))
+                    {
+                        _il.Emit(OpCodes.Ldc_I8, unchecked((long)ulongValue));
+                        type = typeof(ulong);
+                        return true;
+                    }
+                    return false;
+                }
+                if (sawU) // bare uint, not modelled.
+                    return false;
+                if (sawL) // signed long.
+                {
                     if (long.TryParse(digits, out var longValue))
                     {
                         _il.Emit(OpCodes.Ldc_I8, longValue);
@@ -625,8 +648,6 @@ public sealed class ColumnarIlEmitter
                     }
                     return false;
                 }
-                if (last == 'u' || last == 'U') // uint/ulong, unsupported.
-                    return false;
                 if (int.TryParse(text, out var value))
                 {
                     _il.Emit(OpCodes.Ldc_I4, value);
@@ -674,11 +695,12 @@ public sealed class ColumnarIlEmitter
                     return false;
                 switch (Text(idx))
                 {
-                    case "-": // negate — Neg works on i4 and i8; result is the operand's numeric type.
+                    case "-": // negate — Neg works on i4 and i8; result is the operand's numeric type. NOT valid
+                              // on ulong (C# forbids unary minus on an unsigned type) — decline it.
                         if (operandType != typeof(int) && operandType != typeof(long)) return false;
                         _il.Emit(OpCodes.Neg); type = operandType; return true;
-                    case "~": // bitwise not — Not works on i4 and i8.
-                        if (operandType != typeof(int) && operandType != typeof(long)) return false;
+                    case "~": // bitwise not — Not works on i4 and i8 (and on ulong's u8 bit pattern).
+                        if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong)) return false;
                         _il.Emit(OpCodes.Not); type = operandType; return true;
                     case "!": // logical not on a bool: x == false.
                         if (operandType != typeof(bool)) return false;
@@ -724,9 +746,12 @@ public sealed class ColumnarIlEmitter
                 // split only applies inside generic type arguments, not expression context).
                 if (op == "<<" || op == ">>")
                 {
-                    if ((leftType != typeof(int) && leftType != typeof(long)) || rightType != typeof(int))
+                    if ((leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong)) || rightType != typeof(int))
                         return false;
-                    _il.Emit(op == "<<" ? OpCodes.Shl : OpCodes.Shr);
+                    // Shl is the same for signed/unsigned. `>>` is the SIGNED (arithmetic) Shr for int/long, but
+                    // the UNSIGNED (logical, zero-fill) Shr_Un for ulong — matching C#'s ulong `>>`. A wrong Shr
+                    // here would sign-extend a high-bit-set ulong.
+                    _il.Emit(op == "<<" ? OpCodes.Shl : (leftType == typeof(ulong) ? OpCodes.Shr_Un : OpCodes.Shr));
                     type = leftType;
                     return true;
                 }
@@ -744,26 +769,29 @@ public sealed class ColumnarIlEmitter
                         // binder's GetWiderType, Analyzer.cs:12820): a char is already an i4 code point, so the
                         // same opcode applies and the result TYPE is int (e.g. `c - 'A'` is int, so a negative
                         // difference stays int, NOT a u2-wrapped char).
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(char)) return false;
+                        // ulong adds the UNSIGNED Div_Un/Rem_Un (Add/Sub/Mul are bit-identical signed/unsigned).
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong) && leftType != typeof(char)) return false;
+                        var unsignedDivRem = leftType == typeof(ulong);
                         _il.Emit(
                             op == "+" ? OpCodes.Add :
                             op == "-" ? OpCodes.Sub :
                             op == "*" ? OpCodes.Mul :
-                            op == "/" ? OpCodes.Div :
-                            OpCodes.Rem);
+                            op == "/" ? (unsignedDivRem ? OpCodes.Div_Un : OpCodes.Div) :
+                            (unsignedDivRem ? OpCodes.Rem_Un : OpCodes.Rem));
                         type = leftType == typeof(char) ? typeof(int) : leftType;
                         return true;
                     case "&": case "|": case "^":
-                        // Bitwise on int/long (And/Or/Xor work on i4 and i8); result is the shared numeric type.
-                        if (leftType != typeof(int) && leftType != typeof(long)) return false;
+                        // Bitwise on int/long/ulong (And/Or/Xor work on i4 and i8); result is the shared type.
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong)) return false;
                         _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
                         type = leftType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
-                        // Ordering on int, long, or char (Clt/Cgt work on i4 and i8; a char is a non-negative i4
-                        // so signed compares are correct).
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(char)) return false;
-                        EmitComparison(op);
+                        // Ordering on int, long, char (signed Clt/Cgt; a char is a non-negative i4 so signed is
+                        // correct), or ulong (UNSIGNED Clt_Un/Cgt_Un — a ulong > long.MaxValue must compare as a
+                        // large positive, not a negative i8).
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong) && leftType != typeof(char)) return false;
+                        EmitComparison(op, leftType == typeof(ulong));
                         type = typeof(bool);
                         return true;
                     case "==": case "!=":
@@ -776,8 +804,8 @@ public sealed class ColumnarIlEmitter
                             type = typeof(bool);
                             return true;
                         }
-                        // Equality on int, long, bool, or char (Ceq works on i4 and i8).
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(bool) && leftType != typeof(char)) return false;
+                        // Equality on int, long, ulong, bool, or char (Ceq is bit-identical signed/unsigned).
+                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong) && leftType != typeof(bool) && leftType != typeof(char)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -857,7 +885,7 @@ public sealed class ColumnarIlEmitter
                 if (!EmitExpression(Child(idx, 1), out var indexType) || indexType != typeof(int))
                     return false;
                 if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
-                else if (elementType == typeof(long)) _il.Emit(OpCodes.Ldelem_I8);
+                else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
                 else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
                 else if (elementType == typeof(string)) _il.Emit(OpCodes.Ldelem_Ref);
                 else return false; // other element types arrive with their type slices.
@@ -933,16 +961,19 @@ public sealed class ColumnarIlEmitter
     private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char);
 
     // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
-    private void EmitComparison(string op)
+    // `unsigned` selects the unsigned ordering opcodes (Clt_Un/Cgt_Un) for ulong — equality (Ceq) is identical.
+    private void EmitComparison(string op, bool unsigned = false)
     {
+        var lt = unsigned ? OpCodes.Clt_Un : OpCodes.Clt;
+        var gt = unsigned ? OpCodes.Cgt_Un : OpCodes.Cgt;
         switch (op)
         {
-            case "<": _il.Emit(OpCodes.Clt); break;
-            case ">": _il.Emit(OpCodes.Cgt); break;
+            case "<": _il.Emit(lt); break;
+            case ">": _il.Emit(gt); break;
             case "==": _il.Emit(OpCodes.Ceq); break;
             case "!=": _il.Emit(OpCodes.Ceq); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break;
-            case "<=": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a > b)
-            case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a < b)
+            case "<=": _il.Emit(gt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a > b)
+            case ">=": _il.Emit(lt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a < b)
         }
     }
 
@@ -988,6 +1019,17 @@ public sealed class ColumnarIlEmitter
                 return false;
             _il.Emit(OpCodes.Call, method);
             type = method.ReturnType;
+            return true;
+        }
+        if (typeName == "BitOperations" && member == "PopCount" && argCount == 1)
+        {
+            // System.Numerics.BitOperations.PopCount(ulong) -> int (population count / set-bit count). The arg
+            // is a ulong; emit `call` (static). CliQueryParsing.nl uses it to count packed success bits.
+            var method = typeof(System.Numerics.BitOperations).GetMethod(nameof(System.Numerics.BitOperations.PopCount), new[] { typeof(ulong) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(ulong)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(int);
             return true;
         }
         if (typeName == "Array" && member == "Fill" && argCount == 4)

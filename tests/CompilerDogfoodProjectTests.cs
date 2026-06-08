@@ -2943,6 +2943,74 @@ class B
         Assert.False(RouteColumnarProgram("func f(): string {\n    return new string('a', 3)\n}\n").Ok);
     }
 
+    // ulong — an UNSIGNED 64-bit scalar (u8 on the stack like long, but unsigned ops): `>>` = Shr_Un (logical,
+    // zero-fill), `/` = Div_Un, `%` = Rem_Un, ordering = Clt_Un/Cgt_Un, `<<`/`&`/`|`/`^`/`==` shared with long.
+    // Every case uses a value with the HIGH BIT SET (> long.MaxValue) so a wrong SIGNED opcode would diverge.
+    // Plus ulong literals (UL), ulong[] reads, and `~`. CliQueryParsing.nl packs success bits in ulong words.
+    [Fact]
+    public void ColumnarCodegen_Parity_ULong()
+    {
+        var prog =
+            "func shr(a: ulong, n: int): ulong {\n    return a >> n\n}\n\n" +
+            "func shl(a: ulong, n: int): ulong {\n    return a << n\n}\n\n" +
+            "func udiv(a: ulong, b: ulong): ulong {\n    return a / b\n}\n\n" +
+            "func umod(a: ulong, b: ulong): ulong {\n    return a % b\n}\n\n" +
+            "func ult(a: ulong, b: ulong): bool {\n    return a < b\n}\n\n" +
+            "func uge(a: ulong, b: ulong): bool {\n    return a >= b\n}\n\n" +
+            "func uand(a: ulong, b: ulong): ulong {\n    return a & b\n}\n\n" +
+            "func unot(a: ulong): ulong {\n    return ~a\n}\n\n" +
+            "func ueq(a: ulong, b: ulong): bool {\n    return a == b\n}\n\n" +
+            "func litMax(): ulong {\n    return 18446744073709551615UL\n}\n\n" +
+            "func readArr(a: ulong[], i: int): ulong {\n    return a[i]\n}\n";
+        var hi = 0x8000000000000000UL; // > long.MaxValue (high bit set; as a signed i8 this is long.MinValue).
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("shr", new object[] { hi, 1 }),                         // logical -> 0x4000..; signed Shr would give 0xC000..
+            ("shr", new object[] { 18446744073709551615UL, 4 }),
+            ("shl", new object[] { 1UL, 63 }),
+            ("udiv", new object[] { 18446744073709551614UL, 2UL }), // operands > long.Max -> unsigned divide
+            ("udiv", new object[] { hi, 3UL }),
+            ("umod", new object[] { 18446744073709551615UL, 7UL }),
+            ("ult", new object[] { hi, 1UL }),                      // unsigned: huge < 1 is FALSE (signed would be TRUE)
+            ("ult", new object[] { 1UL, hi }),                      // TRUE
+            ("uge", new object[] { hi, 1UL }),                      // TRUE (signed would be FALSE)
+            ("uand", new object[] { hi, 18446744073709551615UL }),
+            ("unot", new object[] { 0UL }),                         // ~0 = ulong.MaxValue
+            ("ueq", new object[] { hi, hi }), ("ueq", new object[] { hi, 1UL }),
+            ("litMax", new object[] { }),
+            ("readArr", new object[] { new ulong[] { 1UL, hi, 7UL }, 1 }));
+
+        // DECLINE: unary minus on ulong (C# forbids it), and casts involving ulong (not modelled).
+        Assert.False(RouteColumnarProgram("func f(a: ulong): ulong {\n    return -a\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(a: ulong): long {\n    return (long)a\n}\n").Ok);
+    }
+
+    // MILESTONE: CliQueryParsing.nl compiles end-to-end with no C# AST. Enabling features: the ulong scalar +
+    // ulong[] + BitOperations.PopCount(ulong). The packed-success-count kernel masks a partial last word via
+    // `(word << shift) >> shift` (exercising Shr_Un) and sums BitOperations.PopCount over ulong words.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_CliQueryParsing()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CliQueryParsing.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real CliQueryParsing.nl (expected full support).");
+        Assert.Contains("CliBatchResultPackedSuccessCount", methodNames!); // ulong[] + Shr_Un + PopCount.
+
+        var full = 0xFFFFFFFFFFFFFFFFUL;
+        AssertColumnarProgramMatchesCSharp(source,
+            ("CliBatchResultPopCount64", new object[] { full }),
+            ("CliBatchResultPopCount64", new object[] { 0x8000000000000001UL }),
+            ("CliBatchResultPopCount64", new object[] { 0UL }),
+            ("CliBatchResultPackedSuccessCount", new object[] { new[] { full, 0x000000000000000FUL }, 68 }),
+            ("CliBatchResultPackedSuccessCount", new object[] { new[] { full }, 64 }),
+            ("CliBatchResultPackedSuccessCount", new object[] { new ulong[] { 0xAAAAAAAAAAAAAAAAUL }, 40 }),
+            ("CliBatchResultPackedCountChecksum", new object[] { new[] { full, 0x00000000000000FFUL }, 72 }),
+            ("CliQueryIsWhiteSpace", new object[] { ' ' }), ("CliQueryIsWhiteSpace", new object[] { 'x' }),
+            ("CliTryParsePositionInto", new object[] { "12:34", new int[2] }),
+            ("CliTryParsePositionInto", new object[] { "bad", new int[2] }),
+            ("CliQueryMinInt", new object[] { 4, 9 }));
+    }
+
     // MILESTONE: CliDocOrdering.nl compiles end-to-end with no C# AST. Enabling feature: new string(char[],int,int)
     // (the slug builder copies filtered/lowercased chars into a buffer, then returns a string of the slice). Reads
     // the actual file. CliDocSlugInto directly returns the built string, so slug CONTENT parity is checked.
@@ -3156,11 +3224,12 @@ class B
         var cluster = new[]
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
-            "CliDocOrdering.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl",
-            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl",
-            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl",
-            "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
-            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+            "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
+            "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
+            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl",
+            "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl",
+            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+            "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
@@ -3186,11 +3255,11 @@ class B
         var expectedCompiling = new[]
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
-            "CliDocOrdering.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl",
-            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl",
-            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl",
-            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
-            "TypeLookup.nl",
+            "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
+            "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
+            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl",
+            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 
