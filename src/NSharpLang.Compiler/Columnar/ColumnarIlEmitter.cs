@@ -423,9 +423,21 @@ public sealed class ColumnarIlEmitter
             }
 
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
-            {        // element `a[i] = value`. Compound ops (`+=`), param/field targets, and bare side-effecting
-                     // calls decline.
+            {        // element `a[i] = value`, OR a bare VOID call statement (a void-returning BCL call such as
+                     // `Array.Fill(...)`). Compound ops (`+=`), param/field targets decline.
                 var expr = Child(idx, 0);
+
+                if (_kinds[expr] == 9) // a bare call statement — only a VOID-returning call is a valid statement.
+                {
+                    // Emit the call; require it to produce NO value (void). A call whose result is non-void would
+                    // leave a value on the stack with no consumer (discarding it is a form the spike does not
+                    // model) — decline it so the C# path stays authoritative. The only void calls today are the
+                    // void BCL statics (e.g. Array.Fill); siblings are never void (a void return declines at decl).
+                    if (!EmitExpression(expr, out var callType) || callType != typeof(void))
+                        return false;
+                    return true;
+                }
+
                 if (_kinds[expr] != 14 || Text(expr) != "=")
                     return false;
                 var target = Child(expr, 0);
@@ -448,12 +460,28 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (_kinds[target] != 6 || !_locals.TryGetValue(Text(target), out var assignTarget))
+                if (_kinds[target] != 6)
                     return false;
-                if (!EmitExpression(Child(expr, 1), out var valueType) || valueType != assignTarget.LocalType)
-                    return false;
-                _il.Emit(OpCodes.Stloc, assignTarget);
-                return true;
+                var targetName = Text(target);
+                if (_locals.TryGetValue(targetName, out var assignTarget))
+                {
+                    // `local = expr` — store into the `:=` local (value type must match the local's type).
+                    if (!EmitExpression(Child(expr, 1), out var valueType) || valueType != assignTarget.LocalType)
+                        return false;
+                    _il.Emit(OpCodes.Stloc, assignTarget);
+                    return true;
+                }
+                if (_paramOrdinals.TryGetValue(targetName, out var paramOrdinal))
+                {
+                    // `param = expr` — store into the argument slot (`starg`). N# permits mutating a parameter
+                    // (value params have value semantics, so the mutation is method-local, matching the C# path).
+                    // The value's type must match the parameter's declared type.
+                    if (!EmitExpression(Child(expr, 1), out var paramValueType) || paramValueType != _paramTypes[targetName])
+                        return false;
+                    EmitStoreArgument(paramOrdinal);
+                    return true;
+                }
+                return false;
             }
 
             case 26: // While [condition, body] — emit `check: cond; brfalse end; body; br check; end:`. The
@@ -936,7 +964,39 @@ public sealed class ColumnarIlEmitter
             type = method.ReturnType;
             return true;
         }
+        if (typeName == "Array" && member == "Fill" && argCount == 4)
+        {
+            // Array.Fill<T>(T[] array, T value, int startIndex, int count) -> void. The array's element type
+            // drives the generic instantiation; the value must match the element type; startIndex/count are int.
+            // (The 2-arg Fill<T>(T[], T) is a separate overload — only the 4-arg span-fill is modelled here.)
+            if (!EmitExpression(Child(callIdx, 1), out var arrayType) || !arrayType.IsSZArray)
+                return false;
+            var elementType = arrayType.GetElementType()!;
+            if (!IsSupportedElementType(elementType))
+                return false;
+            if (!EmitArg(callIdx, 2, elementType) || !EmitArg(callIdx, 3, typeof(int)) || !EmitArg(callIdx, 4, typeof(int)))
+                return false;
+            var fill = ResolveArrayFill4();
+            if (fill == null)
+                return false;
+            _il.Emit(OpCodes.Call, fill.MakeGenericMethod(elementType));
+            type = typeof(void);
+            return true;
+        }
         return false;
+    }
+
+    // System.Array.Fill&lt;T&gt;(T[] array, T value, int startIndex, int count) — the 4-arg overload as a generic
+    // method DEFINITION (the 2-arg Fill&lt;T&gt;(T[], T) is excluded by the parameter count). The caller binds T via
+    // MakeGenericMethod(elementType). Returns null if the method is unexpectedly absent (then the call declines).
+    private static MethodInfo? ResolveArrayFill4()
+    {
+        foreach (var m in typeof(System.Array).GetMethods(BindingFlags.Public | BindingFlags.Static))
+        {
+            if (m.Name == "Fill" && m.IsGenericMethodDefinition && m.GetParameters().Length == 4)
+                return m;
+        }
+        return null;
     }
 
     // Instance BCL calls (the receiver value is already on the stack): a small whitelist of string methods.
@@ -986,6 +1046,16 @@ public sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Ldarg, index);
                 break;
         }
+    }
+
+    // Store the value on the stack into argument slot `index` (`starg`/`starg.s`). N# parameters are ordinary
+    // argument slots, so a `param = expr` assignment mutates the slot directly (method-local value semantics).
+    private void EmitStoreArgument(int index)
+    {
+        if (index <= 255)
+            _il.Emit(OpCodes.Starg_S, (byte)index);
+        else
+            _il.Emit(OpCodes.Starg, index);
     }
 
     private int Child(int idx, int n) => _childIndices[_childStart[idx] + n];

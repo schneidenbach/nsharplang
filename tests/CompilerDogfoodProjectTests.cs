@@ -2350,8 +2350,7 @@ class B
         Assert.False(RouteColumnarEmit("func unreach(a: int): int {\n    if a > 0 {\n        return 1\n        y := 2\n    } else {\n        return 0\n    }\n}\n").Ok);
         // compound assignment (`+=`) is not lowered yet -> decline.
         Assert.False(RouteColumnarEmit("func compound(a: int): int {\n    x := a\n    x += 1\n    return x\n}\n").Ok);
-        // assigning to a parameter (not a `:=` local) -> decline (starg not modeled).
-        Assert.False(RouteColumnarEmit("func setp(a: int): int {\n    a = a + 1\n    return a\n}\n").Ok);
+        // (parameter assignment `a = a + 1` -> `starg` IS now modelled; see ColumnarCodegen_Parity_ParamAssignment.)
         // an int body that does NOT return on all paths (NL305) would emit IL with no final `ret` -> decline.
         Assert.False(RouteColumnarEmit("func noRetAssign(a: int): int {\n    x := a\n    x = x + 1\n}\n").Ok);
         Assert.False(RouteColumnarEmit("func noRetDecl(a: int): int {\n    x := a\n}\n").Ok);
@@ -2858,6 +2857,99 @@ class B
             ("FormatterSafetyErrorIndicesChecksumInto", new object[] { noErr, new int[3] }));
     }
 
+    // Parameter assignment (`param = expr` -> `starg`): N# permits mutating a value parameter, with method-local
+    // value semantics (the mutation does not escape to the caller), exactly as the C# path emits it. The
+    // SourceTextLines.nl clamp idiom (`if offset < 0 { offset = 0 }`) needs this. Covers int + long params,
+    // mutation inside `if` and `while`, and a re-read of the mutated parameter.
+    [Fact]
+    public void ColumnarCodegen_Parity_ParamAssignment()
+    {
+        var clamp = "func clamp(x: int, lo: int, hi: int): int {\n    if x < lo {\n        x = lo\n    }\n    if x > hi {\n        x = hi\n    }\n    return x\n}\n\n";
+        var sumDown = "func sumDown(n: int): int {\n    total := 0\n    while n > 0 {\n        total = total + n\n        n = n - 1\n    }\n    return total\n}\n\n";
+        var reassignLong = "func reassignLong(x: long): long {\n    if x < 0L {\n        x = 0L\n    }\n    return x * 2L\n}\n";
+        var prog = clamp + sumDown + reassignLong;
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("clamp", new object[] { -5, 0, 10 }), ("clamp", new object[] { 99, 0, 10 }), ("clamp", new object[] { 5, 0, 10 }),
+            ("sumDown", new object[] { 5 }), ("sumDown", new object[] { 0 }),
+            ("reassignLong", new object[] { -3L }), ("reassignLong", new object[] { 4L }));
+
+        // DECLINE: the assigned value's type must match the parameter's type (a long into an int param).
+        Assert.False(RouteColumnarProgram("func f(x: int): int {\n    x = 5L\n    return x\n}\n").Ok);
+    }
+
+    // Array.Fill<T>(T[] array, T value, int startIndex, int count) -> void, invoked as a bare VOID STATEMENT
+    // (the new void-call-statement form). The 4-arg span-fill is the generic static SourceTextLines.nl uses.
+    // Each function FULLY/idempotently overwrites the slots it then reads, so the array reference shared
+    // between the columnar and C# invocations is benign (both write the same values). Covers int/long/char/
+    // string elements (a distinct generic instantiation per element type) plus a partial (start/count) range.
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayFill()
+    {
+        var fillIntWhole = "func fillIntWhole(a: int[], value: int): int {\n    Array.Fill(a, value, 0, a.Length)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var fillIntPartial = "func fillIntPartial(a: int[], value: int, start: int, count: int): int {\n    Array.Fill(a, value, start, count)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var fillLong = "func fillLong(a: long[], value: long): long {\n    Array.Fill(a, value, 0, a.Length)\n    total := 0L\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var fillChar = "func fillChar(a: char[], value: char): int {\n    Array.Fill(a, value, 0, a.Length)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + (int)a[i]\n        i = i + 1\n    }\n    return total\n}\n\n";
+        var fillString = "func fillString(a: string[], value: string): int {\n    Array.Fill(a, value, 0, a.Length)\n    matches := 0\n    i := 0\n    while i < a.Length {\n        if a[i] == value {\n            matches = matches + 1\n        }\n        i = i + 1\n    }\n    return matches\n}\n";
+        var prog = fillIntWhole + fillIntPartial + fillLong + fillChar + fillString;
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("fillIntWhole", new object[] { new int[5], 7 }),
+            ("fillIntWhole", new object[] { new int[0], 9 }),
+            ("fillIntPartial", new object[] { new int[6], 3, 1, 4 }),
+            ("fillIntPartial", new object[] { new int[6], -2, 0, 0 }),
+            ("fillLong", new object[] { new long[4], 5000000000L }),
+            ("fillChar", new object[] { new char[3], 'x' }),
+            ("fillString", new object[] { new string[4], "z" }));
+
+        // DECLINE SURFACE — keep the C# path authoritative for forms the backend does not model.
+        Assert.False(RouteColumnarProgram(  // the 2-arg Array.Fill<T>(T[], T) overload is not modelled.
+            "func f(a: int[], v: int): int {\n    Array.Fill(a, v)\n    return 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // a discarded NON-void result in statement position declines.
+            "func helper(x: int): int {\n    return x * 2\n}\n\nfunc caller(x: int): int {\n    helper(x)\n    return x\n}\n").Ok);
+        Assert.False(RouteColumnarProgram(  // the fill value's type must match the element type (long into int[]).
+            "func f(a: int[]): int {\n    Array.Fill(a, 5L, 0, a.Length)\n    return 0\n}\n").Ok);
+    }
+
+    // MILESTONE: the standalone columnar backend compiles SourceTextLines.nl — the heaviest line-mapping I/O
+    // kernel — end-to-end with NO C# AST, every exercised function matching the authoritative C# pipeline. The
+    // enabling feature is Array.Fill<int>(int[], int, int, int) invoked as a bare void statement (the new
+    // void-call-statement form); everything else (string IndexOf/Substring/indexing/.Length, int[]/string[]
+    // read+write, shifts, sibling calls, if/while/break) was already modelled. Reads the actual file so it
+    // tracks the real source.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_SourceTextLines()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "SourceTextLines.nl");
+        var source = File.ReadAllText(path);
+
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real SourceTextLines.nl (expected full support).");
+        Assert.Contains("BuildDenseLineRangesAndOffsetLineIndicesInto", methodNames!); // the Array.Fill function.
+        Assert.Contains("LineMapCachedChecksumInto", methodNames!);
+        Assert.Contains("SplitLogicalLines", methodNames!);
+
+        // Representative inputs across line-ending shapes: empty, no-break, simple \n, mixed \n/\r\n/\r, only-\n.
+        // Array-filling functions get fresh, adequately-sized zero arrays per call (they fill deterministically
+        // from `source`, so the array shared between the columnar and C# invocations is benign). Offsets include
+        // out-of-range values (-5, 9999) to exercise the clamping paths; query lines include invalid 0/5.
+        string[] sources = { "", "hello", "a\nb\nc", "abc\ndef\r\nghi\rjkl", "\n\n\n" };
+        var calls = new List<(string, object[])>();
+        foreach (var s in sources)
+        {
+            var n = s.Length + 2;
+            calls.Add(("CountLogicalLines", new object[] { s }));
+            calls.Add(("SplitLogicalLines", new object[] { s }));
+            calls.Add(("SplitLogicalLineRangesInto", new object[] { s, new int[n], new int[n] }));
+            calls.Add(("BuildLogicalLineStartsInto", new object[] { s, new int[n] }));
+            calls.Add(("BuildDenseLineRangesAndOffsetLineIndicesInto", new object[] { s, new int[n], new int[n], new int[n] }));
+            var offsets = new int[] { 0, 1, 3, 7, 10, s.Length, -5, 9999 };
+            var queryLines = new int[] { 1, 2, 3, 4, 1, 0, 5, 2 };
+            var queryColumns = new int[] { 0, 1, 0, 2, 3, 0, 0, 1 };
+            calls.Add(("LineMapChecksumInto", new object[] { s, new int[n], new int[n], offsets, queryLines, queryColumns }));
+            calls.Add(("LineMapCachedChecksumInto", new object[] { s, new int[n], new int[n], new int[n], offsets, queryLines, queryColumns }));
+        }
+        AssertColumnarProgramMatchesCSharp(source, calls.ToArray());
+    }
+
     // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files the standalone columnar
     // backend can compile end-to-end with no C# AST. Each named file below must compile (a regression that breaks
     // one fails here), each emitting a loadable assembly with at least one function. The total compiling count
@@ -2872,8 +2964,8 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "CliTreeDependencies.nl",
             "CompletionGrouping.nl", "DocQuery.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
-            "OverloadCandidates.nl", "ParserDeclarations.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
-            "TypeLookup.nl",
+            "OverloadCandidates.nl", "ParserDeclarations.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

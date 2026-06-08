@@ -11,6 +11,42 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Array.Fill + void-call statement + parameter assignment → corpus coverage 13 → 14 (SourceTextLines)
+
+Three composing features land together, flipping the heaviest line-mapping I/O kernel `SourceTextLines.nl`
+(the actual dogfood compiler-service file) to compile end-to-end through the columnar backend with NO C# AST:
+
+1. **Bare VOID-call statement.** `ExpressionStatement` (columnar kind 23) previously handled only a `=`
+   assignment (to a `:=` local or `a[i] = v`). It now also accepts a Call (kind 9) whose emitted result type
+   is `typeof(void)` — emit the call, no stack residue, done. A NON-void result in statement position declines
+   (the spike does not model discarding a value), keeping the C# path authoritative; siblings are never void
+   (a void return type fails to resolve and declines at declaration), so today the only void statement-call is
+   the BCL `Array.Fill`.
+2. **`Array.Fill<T>(T[], T, int, int)`** — the columnar backend's first GENERIC static method. `TryEmitStaticCall`
+   matches `Array.Fill` with argCount 4: emit the array (must be an SZ array of a supported element int/long/
+   char/string), then value (type-checked == element type), startIndex (int), count (int); resolve the 4-arg
+   generic method DEFINITION (`ResolveArrayFill4` filters `typeof(System.Array).GetMethods` for name `Fill`,
+   `IsGenericMethodDefinition`, 4 params — excluding the 2-arg `Fill<T>(T[],T)` overload), then
+   `Emit(Call, fill.MakeGenericMethod(elementType))`; result type void.
+3. **Parameter assignment (`param = expr` → `starg`).** The assignment statement now stores into the argument
+   slot (`EmitStoreArgument`: `Starg_S` for ordinal ≤255 else `Starg`) when the target is a parameter, after
+   checking the value's type == the parameter's declared type. N# value params have method-local value
+   semantics (a reassignment does not escape to the caller — identical to C# by-value params), so `starg` is
+   a faithful lowering. This is the pervasive clamp idiom `if offset < 0 { offset = 0 }`.
+
+Parity-gated (`ColumnarCodegen_Parity_ArrayFill`: int/long/char/string element fills + a partial start/count
+range + decline surface — 2-arg overload, discarded non-void result, value/element type mismatch;
+`ColumnarCodegen_Parity_ParamAssignment`: int/long param mutation inside if/while + re-read + a wrong-type
+decline). The milestone test `ColumnarCodegen_CompilesRealDogfoodFile_SourceTextLines` reads the actual file,
+asserts the backend accepts it, and invokes representative functions (incl. the `Array.Fill`-using
+`BuildDenseLineRangesAndOffsetLineIndicesInto` directly, and `LineMapCachedChecksumInto` which exercises it
+transitively) over five line-ending shapes (empty / no-break / `\n` / mixed `\n\r\n\r` / only-`\n`) with
+out-of-range offsets + invalid query lines, asserting identical results vs the C# pipeline. A diagnostic pass
+confirmed **parameter assignment was the LAST gap** — the other declines in isolation were sibling-call
+artifacts of the per-function probe (all four called siblings absent from a single-function program). Corpus
+coverage **13 → 14 of 32 (~44%)**; the ratcheting `..._Coverage` floor raised to 14. Removed a now-stale
+spike decline assertion (`setp` param assignment used to decline; it is now a parity-tested feature).
+
 ## 2026-06-08 — 🚦 STAGE 5: columnar backend ROUTED into the production compile path (flagged)
 
 **The inflection where C# starts being replaced.** The standalone columnar backend is now wired into the
