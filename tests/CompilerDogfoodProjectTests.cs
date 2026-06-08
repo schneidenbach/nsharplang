@@ -3040,6 +3040,66 @@ class B
             ("LinterImportsMinInt", new object[] { 4, 9 }), ("LinterImportsMinInt", new object[] { 9, 4 }));
     }
 
+    // MULTI-FILE merge: the dogfood compiler-service is a multi-file program — a function in one file calls
+    // PUBLIC functions in another. Single-file emission can't resolve such a cross-file call (the callee is not
+    // a sibling), so the file declines even though every construct it uses is modelled. The merged columnar
+    // program unifies the sibling map so the call resolves, producing results IDENTICAL to a genuine multi-file
+    // C# build (the oracle compiles the files SEPARATELY via MultiFileCompiler, not a concatenation).
+    [Fact]
+    public void ColumnarCodegen_MultiFile_CrossFileCalls()
+    {
+        var fileA = "func HelperAdd(a: int, b: int): int {\n    return a + b\n}\n\n" +
+                    "func HelperScale(x: int): int {\n    return x * 3\n}\n";
+        var fileB = "func UseHelpers(x: int): int {\n    return HelperAdd(HelperScale(x), 10)\n}\n\n" +
+                    "func ChainHelpers(x: int, y: int): int {\n    return HelperAdd(x, HelperAdd(y, HelperScale(y)))\n}\n";
+        // fileB ALONE declines: HelperAdd / HelperScale are defined in fileA, not siblings within fileB.
+        Assert.False(RouteColumnarProgram(fileB).Ok);
+        // Merged, it compiles and matches the multi-file C# build (incl. a fileA function invoked directly).
+        AssertColumnarMultiFileMatchesCSharp(new[] { fileA, fileB },
+            ("UseHelpers", new object[] { 5 }), ("UseHelpers", new object[] { 0 }), ("UseHelpers", new object[] { -4 }),
+            ("ChainHelpers", new object[] { 4, 6 }), ("ChainHelpers", new object[] { 0, 0 }),
+            ("HelperAdd", new object[] { 2, 3 }), ("HelperScale", new object[] { 7 }));
+    }
+
+    // MULTI-FILE on REAL corpus: ParserFunctionSignatures.ParseFunctionSignatureInto calls
+    // ParserTypeReferences.ParseUnionTypeReferenceNode — an actual cross-file dependency. The signatures file
+    // ALONE declines (the call is unresolved); merged with the types file, the columnar backend compiles both
+    // with NO C# AST. Value-parity is checked by invoking ParseFunctionSignatureInto on hand-built token
+    // streams for `func f(x: int)` and `func g(): int` — exercising the real cross-file ParseUnionTypeReferenceNode
+    // call — and asserting the result equals the multi-file C# build (both paths process the same tokens
+    // deterministically, so identity holds regardless of whether the tokens are "realistic").
+    [Fact]
+    public void ColumnarCodegen_MultiFile_RealParserCluster()
+    {
+        var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
+        var types = File.ReadAllText(Path.Combine(dir, "ParserTypeReferences.nl"));
+        var sigs = File.ReadAllText(Path.Combine(dir, "ParserFunctionSignatures.nl"));
+
+        Assert.False(RouteColumnarProgram(sigs).Ok); // the signatures file alone cannot resolve the cross-file call.
+        var (ok, _, _, methodNames) = RouteColumnarMultiFile(new[] { types, sigs });
+        Assert.True(ok, "Columnar backend declined the merged ParserTypeReferences + ParserFunctionSignatures.");
+        Assert.Contains("ParseFunctionSignatureInto", methodNames!);
+        Assert.Contains("ParseUnionTypeReferenceNode", methodNames!); // the cross-file callee, from the other file.
+
+        // `func f(x: int)`: Func Id ( Id : Id ) -> exercises ParseUnionTypeReferenceNode on the param type "int".
+        object[] FuncF() => new object[]
+        {
+            new[] { 7, 0, 127, 0, 122, 0, 128 }, new[] { 0, 5, 6, 7, 8, 9, 12 }, new[] { 4, 1, 1, 1, 1, 3, 1 }, 7, 0,
+            new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15],
+            new int[15], new int[15], new int[15], new int[5],
+        };
+        // `func g(): int`: Func Id ( ) : Id -> exercises ParseUnionTypeReferenceNode on the RETURN type "int".
+        object[] FuncG() => new object[]
+        {
+            new[] { 7, 0, 127, 128, 122, 0 }, new[] { 0, 5, 6, 7, 8, 9 }, new[] { 4, 1, 1, 1, 1, 3 }, 6, 0,
+            new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15],
+            new int[15], new int[15], new int[15], new int[5],
+        };
+        AssertColumnarMultiFileMatchesCSharp(new[] { types, sigs },
+            ("ParseFunctionSignatureInto", FuncF()),
+            ("ParseFunctionSignatureInto", FuncG()));
+    }
+
     // CORPUS COVERAGE (ratcheting): how many REAL dogfood compiler-service files the standalone columnar
     // backend can compile end-to-end with no C# AST. Each named file below must compile (a regression that breaks
     // one fails here), each emitting a loadable assembly with at least one function. The total compiling count
@@ -3052,9 +3112,10 @@ class B
         // The pure int / int[] / control-flow / sibling-call kernels the backend fully models today.
         var expectedCompiling = new[]
         {
-            "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "CliTreeDependencies.nl",
-            "CompletionGrouping.nl", "DocQuery.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
-            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "PathMatching.nl",
+            "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
+            "CliTreeDependencies.nl", "CompletionGrouping.nl", "DocQuery.nl", "ErrorSuggestions.nl",
+            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "LinterImports.nl", "OverloadCandidates.nl",
+            "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
             "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
@@ -3277,6 +3338,77 @@ class B
         var args = new object?[] { source, null, null, null };
         var ok = (bool)(method.Invoke(null, args) ?? false);
         return (ok, (byte[]?)args[1], (string?)args[2], (string[]?)args[3]);
+    }
+
+    // MULTI-FILE: emit `sources` (separate file contents) as ONE merged columnar program, then for each
+    // (func, args) invoke the columnar method and assert it equals the authoritative C# MULTI-FILE pipeline
+    // result (the files compiled separately via MultiFileCompiler, exactly as the real project builds). Proves
+    // cross-file sibling calls resolve identically to the C# binder. Fails loudly if the columnar path declined.
+    private static void AssertColumnarMultiFileMatchesCSharp(string[] sources, params (string Func, object[] Args)[] calls)
+    {
+        var (ok, assembly, typeName, methodNames) = RouteColumnarMultiFile(sources);
+        Assert.True(ok, "Columnar multi-file codegen declined a source set the gate expects it to emit.");
+        var type = System.Reflection.Assembly.Load(assembly!).GetType(typeName!)!;
+        foreach (var (func, args) in calls)
+        {
+            Assert.Contains(func, methodNames!);
+            var columnar = type.GetMethod(func)!.Invoke(null, args);
+            var oracle = InvokeViaCSharpPathMultiFile(sources, func, args);
+            Assert.Equal(oracle, columnar);
+        }
+    }
+
+    private static (bool Ok, byte[]? Assembly, string? TypeName, string[]? MethodNames) RouteColumnarMultiFile(string[] sources)
+    {
+        var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
+            ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
+        var method = adapterType.GetMethod("TryEmitColumnarProgramMultiFile", BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarProgramMultiFile.");
+        var args = new object?[] { sources, "ColumnarMultiFile", "ColumnarMultiFile", null, null, null };
+        var ok = (bool)(method.Invoke(null, args) ?? false);
+        return (ok, (byte[]?)args[3], (string?)args[4], (string[]?)args[5]);
+    }
+
+    // The MULTI-FILE oracle: write each source to its own .nl file and compile them together via the production
+    // MultiFileCompiler (the path the columnar backend will replace), then invoke `funcName`. This is how the
+    // real dogfood project builds (separate files, cross-file resolution), so it validates that the columnar
+    // merge is behaviorally identical to a genuine multi-file C# build (not a concatenation on both sides).
+    private static object? InvokeViaCSharpPathMultiFile(string[] sources, string funcName, object[] args)
+    {
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-columnar-mf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectRoot);
+        var paths = new string[sources.Length];
+        for (var i = 0; i < sources.Length; i++)
+        {
+            paths[i] = Path.Combine(projectRoot, $"File{i}.nl");
+            File.WriteAllText(paths[i], sources[i]);
+        }
+        var outputPath = Path.Combine(projectRoot, "bin", "ColumnarMfParity.dll");
+        System.Runtime.Loader.AssemblyLoadContext? loadContext = null;
+        try
+        {
+            var config = ProjectFileParser.CreateDefault("ColumnarMfParity");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            var compiler = new MultiFileCompiler(paths, projectRoot, config);
+            var result = compiler.CompileToIlAssembly("ColumnarMfParity", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
+            Assert.NotNull(result.OutputAssemblyPath);
+
+            loadContext = new System.Runtime.Loader.AssemblyLoadContext($"ColumnarMfParity_{Guid.NewGuid():N}", isCollectible: true);
+            var assembly = loadContext.LoadFromAssemblyPath(result.OutputAssemblyPath!);
+            var method = assembly.GetTypes()
+                .Select(t => t.GetMethod(funcName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                .FirstOrDefault(m => m != null)
+                ?? throw new InvalidOperationException($"C# multi-file path did not emit a static method '{funcName}'.");
+            return method.Invoke(null, args);
+        }
+        finally
+        {
+            loadContext?.Unload();
+            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
+        }
     }
 
     private static void AssertEmits(string source, string funcName, params (object[] Args, int Expected)[] cases)

@@ -853,6 +853,35 @@ internal static class NSharpCompilerDogfoodAdapter
         return true;
     }
 
+    // MULTI-FILE entry (Stage-5 remaining work: the columnar backend was single-file only). The dogfood
+    // compiler-service is a MULTI-FILE program — a function in one file calls public functions in others (e.g.
+    // ParserFunctionSignatures.ParseFunctionSignatureInto calls ParserTypeReferences.ParseUnionTypeReferenceNode).
+    // A single-file emit cannot resolve such a cross-file call (the callee is not a sibling), so those files
+    // decline even though every construct they use is modelled. This merges the files by concatenating their
+    // sources into ONE columnar program (separated by blank lines so the top-level func scan stays correct);
+    // the unified sibling map built in pass 1 then resolves every cross-file call exactly as the C#
+    // MultiFileCompiler binds declarations across files. The emitted IL for each function body is independent of
+    // how the program is assembled, so the merged program runs identically to the multi-file C# build. Declines
+    // (C# fallback) if any file fails to parse or any function is ineligible. LIMITATIONS (none arise for the
+    // single-package dogfood corpus, which uses unique PascalCase names; refine if they ever do): (1) two files
+    // with a colliding top-level function name decline at the duplicate-name guard rather than being per-file
+    // mangled; (2) concatenation flattens files into one scope, so file-private (camelCase) and cross-PACKAGE
+    // visibility are NOT enforced — a call the C# build would reject across a package boundary could resolve
+    // here. The corpus has no camelCase top-level funcs and is one package, and the multi-file parity oracle
+    // (a genuine separate-file MultiFileCompiler build) would surface any such divergence as a compile failure.
+    internal static bool TryEmitColumnarProgramMultiFile(
+        System.Collections.Generic.IReadOnlyList<string> sources, string assemblyName, string typeName,
+        out byte[] assembly, out string emittedTypeName, out string[] methodNames)
+    {
+        assembly = System.Array.Empty<byte>();
+        emittedTypeName = string.Empty;
+        methodNames = System.Array.Empty<string>();
+        if (sources == null || sources.Count == 0)
+            return false;
+        var combined = string.Join("\n\n", sources);
+        return TryEmitColumnarProgram(combined, assemblyName, typeName, out assembly, out emittedTypeName, out methodNames);
+    }
+
     // Tokenize + compact `source`, require EVERY top-level declaration to be a `func`, and parse each into a
     // ColumnarFunctionInput (signature + body node tables). Returns false on any tokenize/parse failure or a
     // non-func top-level declaration, so the standalone backend declines and the C# path stays authoritative.

@@ -198,11 +198,16 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       **PRODUCTION ROUTING LANDED (2026-06-08):** the columnar backend is wired into `MultiFileCompiler.
       CompileToIlAssembly` behind `NSHARP_COLUMNAR_BACKEND=1` (off by default) with C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
-      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage 16/32
-      (~50%) compile via the backend (2026-06-08: SourceTextLines.nl via Array.Fill + void-call statement +
-      parameter assignment; PathMatching.nl via char arithmetic; LinterImports.nl via discarded-call statement).
-      Remaining for default-on: more coverage + never-slower benchmarks + multi-file merge + columnar-owned
-      analysis (stages 1–3b replacing the C# analyze step).
+      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage 20/32
+      (~63%) compile SINGLE-FILE via the backend (2026-06-08: SourceTextLines.nl via Array.Fill + void-call
+      statement + parameter assignment; PathMatching.nl via char arithmetic; LinterImports.nl via discarded-call
+      statement; floor corrected 16→20 — BindingLookup/ErrorSuggestions/ParserTypeReferences/ProjectSourceFilter
+      already compiled but were unnamed). **MULTI-FILE merge LANDED** (`TryEmitColumnarProgramMultiFile`): the
+      dogfood program is multi-file (cross-file public calls, e.g. ParserFunctionSignatures→ParserTypeReferences);
+      the backend now merges files into one columnar program so cross-file calls resolve, parity-gated vs a
+      genuine separate-file MultiFileCompiler oracle. Remaining for default-on: route multi-file into the Stage-5
+      production path (currently single-file) + more feature coverage (StringBuilder/StringComparison/ulong gate
+      ~7 files) + never-slower benchmarks + columnar-owned analysis (stages 1–3b replacing the C# analyze step).
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **BLOCKED on coverage:** the columnar
       backend models ~41% of the systems dogfood subset and ~0% of the rich language (classes/generics/match/

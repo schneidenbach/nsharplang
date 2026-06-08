@@ -11,6 +11,46 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — MULTI-FILE merge: cross-file calls resolve (the dogfood program is multi-file)
+
+A per-file gap analysis (read-only workflow over the 16 not-in-floor files) surfaced that **6 declining files
+have NO unmodeled language feature** — they decline for a STRUCTURAL reason. Ground-truth routing of all 32
+files (a throwaway probe) showed the real state: **20/32 compile single-file** (the ratcheting floor under-counted
+at 16 — `BindingLookup`, `ErrorSuggestions`, `ParserTypeReferences`, `ProjectSourceFilter` already compiled but
+were unnamed; floor raised to 20), and the declines split into PARSE-level (SemanticScopes — a parser-kernel
+limit on its 9th function) vs EMIT-level. The key discovery: several emit-declining files call PUBLIC functions
+defined in OTHER files — e.g. `ParserFunctionSignatures.ParseFunctionSignatureInto` calls
+`ParserTypeReferences.ParseUnionTypeReferenceNode`. Single-file emission can't resolve a cross-file callee (it
+is not a sibling), so the file declines even though every construct it uses is modelled — and the C# path
+ALSO can't compile such a file standalone (it's part of a multi-file program). This is the **multi-file merge**
+remaining-work item, NOT a language gap.
+
+Added `NSharpCompilerDogfoodAdapter.TryEmitColumnarProgramMultiFile(IReadOnlyList<string> sources, …)`: it merges
+the files by concatenating their sources (blank-line separated) into ONE columnar program, so the unified
+sibling map (pass 1 of `TryEmitColumnarAssembly`) resolves every cross-file call exactly as the C#
+`MultiFileCompiler` binds declarations across files. A function body's IL is independent of how the program is
+assembled, so the merged program runs identically to a genuine multi-file C# build. Declines (C# fallback) if
+any file fails to parse or any function is ineligible.
+
+Parity-gated by a MULTI-FILE harness whose ORACLE is a GENUINE separate-file `MultiFileCompiler` build (each
+source written to its own `File{i}.nl`, all paths compiled together — NOT a concatenation on both sides, which
+would prove nothing): `ColumnarCodegen_MultiFile_CrossFileCalls` (a synthetic two-file program where file B
+calls file A's public helpers — proven to DECLINE single-file, then compile + value-match merged) and
+`ColumnarCodegen_MultiFile_RealParserCluster` (the real `ParserTypeReferences` + `ParserFunctionSignatures`
+merge: the signatures file declines alone, compiles merged, and `ParseFunctionSignatureInto` value-matches the
+multi-file C# build on hand-built `func f(x: int)` / `func g(): int` token streams that exercise the real
+cross-file `ParseUnionTypeReferenceNode` call). Adversarially reviewed (read-only, 2 lenses): concatenation is
+SOUND for the single-package corpus (all-PascalCase public names, no collisions, no parse hazards across the
+blank-line join, imports ignored) and the harness is NON-VACUOUS (independent multi-file oracle, asserts the
+merge did not decline + the oracle compiled, deterministic out-arrays). Documented limitations (none arise for
+the corpus): cross-file name collisions decline rather than per-file mangle; file-private/cross-package
+visibility is not enforced under concatenation — and the genuine-multi-file oracle would catch any such
+divergence as a compile failure. This is the foundational capability for Stage-5 whole-program routing
+(production currently routes single-file only) and Stage 6; it does not by itself raise whole-program coverage
+(the corpus still has feature-ineligible files — StringBuilder/StringComparison/ulong/etc. — so an all-32 merge
+still declines), but it unblocks the cross-file-dependent feature-eligible files once the whole eligible set is
+merged.
+
 ## 2026-06-08 — char arithmetic + discarded-call statement → corpus coverage 14 → 16 (PathMatching, LinterImports)
 
 Two small, independent gap-fills, each flipping a real dogfood file:
