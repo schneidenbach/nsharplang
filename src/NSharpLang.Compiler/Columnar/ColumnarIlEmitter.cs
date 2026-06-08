@@ -117,9 +117,10 @@ public sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(string) || t == typeof(char)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
-    // Element types the array read/write paths can emit ldelem/stelem for (int/long today; string/bool/char
-    // arrive with those types). bool/double are intentionally excluded until their element opcodes are added.
-    private static bool IsSupportedElementType(Type t) => t == typeof(int) || t == typeof(long);
+    // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long (i4/i8),
+    // char (u2), and string (a reference element). bool/double are excluded until their element opcodes land.
+    private static bool IsSupportedElementType(Type t) =>
+        t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(string);
 
     /// <summary>
     /// Resolve a canonical N# type string (e.g. "int", "int[]") to its CLR <see cref="Type"/>. Handles a single
@@ -441,6 +442,8 @@ public sealed class ColumnarIlEmitter
                         return false;
                     if (elementType == typeof(int)) _il.Emit(OpCodes.Stelem_I4);
                     else if (elementType == typeof(long)) _il.Emit(OpCodes.Stelem_I8);
+                    else if (elementType == typeof(char)) _il.Emit(OpCodes.Stelem_I2);
+                    else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
                     else return false; // other element types arrive with their type slices.
                     return true;
                 }
@@ -820,6 +823,8 @@ public sealed class ColumnarIlEmitter
                     return false;
                 if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
                 else if (elementType == typeof(long)) _il.Emit(OpCodes.Ldelem_I8);
+                else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
+                else if (elementType == typeof(string)) _il.Emit(OpCodes.Ldelem_Ref);
                 else return false; // other element types arrive with their type slices.
                 type = elementType;
                 return true;

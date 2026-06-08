@@ -2775,6 +2775,27 @@ class B
             ("nestedBreak", new object[] { 4 }), ("nestedBreak", new object[] { 1 }));
     }
 
+    // string[] / char[] arrays: parameters, element read/write, `new T[](n)` alloc, `.Length` (Ldelem_Ref/
+    // Stelem_Ref for string; Ldelem_U2/Stelem_I2 for char; Newarr). Extends int[]/long[] array support to a
+    // reference element (string) and a u2 element (char).
+    [Fact]
+    public void ColumnarCodegen_Parity_StringCharArrays()
+    {
+        var prog = "func getStr(a: string[], i: int): string {\n    return a[i]\n}\n\n" +
+                   "func setStr(a: string[], i: int, v: string): string {\n    a[i] = v\n    return a[i]\n}\n\n" +
+                   "func strLen(a: string[]): int {\n    return a.Length\n}\n\n" +
+                   "func makeStrs(n: int): int {\n    a := new string[](n)\n    return a.Length\n}\n\n" +
+                   "func getCh(a: char[], i: int): char {\n    return a[i]\n}\n\n" +
+                   "func fillChars(n: int): char {\n    a := new char[](n)\n    i := 0\n    while i < a.Length {\n        a[i] = 'x'\n        i = i + 1\n    }\n    return a[0]\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("getStr", new object[] { new[] { "a", "b", "c" }, 1 }), ("getStr", new object[] { new[] { "hi" }, 0 }),
+            ("setStr", new object[] { new string[3], 2, "z" }), ("setStr", new object[] { new string[1], 0, "q" }),
+            ("strLen", new object[] { new[] { "a", "b", "c" } }), ("strLen", new object[] { System.Array.Empty<string>() }),
+            ("makeStrs", new object[] { 4 }), ("makeStrs", new object[] { 0 }),
+            ("getCh", new object[] { new[] { 'p', 'q', 'r' }, 2 }),
+            ("fillChars", new object[] { 3 }), ("fillChars", new object[] { 1 }));
+    }
+
     // int[]/long[] arrays: parameters, `.Length`, and element READ `a[i]` — the universal dogfood pattern.
     // Includes the array-sum while-loop and a `&&`-guarded bounds-checked access (short-circuit + arrays: an
     // out-of-range index must short-circuit BEFORE indexing, or it would throw IndexOutOfRange).
@@ -2850,8 +2871,9 @@ class B
         var expectedCompiling = new[]
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "CliTreeDependencies.nl",
-            "CompletionGrouping.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "OverloadCandidates.nl",
-            "ParserDeclarations.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+            "CompletionGrouping.nl", "DocQuery.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl",
+            "OverloadCandidates.nl", "ParserDeclarations.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+            "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

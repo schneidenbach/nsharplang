@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — string[]/char[] arrays → corpus coverage 11 → 13 files (DocQuery, TypeLookup)
+
+Extends the int[]/long[] array infrastructure to a REFERENCE element (`string`) and a u2 element (`char`):
+`IsSupportedElementType` now admits string/char, element READ adds `Ldelem_Ref` (string) / `Ldelem_U2`
+(char), element WRITE adds `Stelem_Ref` / `Stelem_I2`, and `new string[](n)`/`new char[](n)` work via the
+existing `Newarr` path. Parity-gated (`ColumnarCodegen_Parity_StringCharArrays`): string[] read/write/alloc/
+`.Length`, char[] alloc+fill+read, empty arrays. Int[] regression intact.
+
+**This crossed the threshold for two real dogfood files — corpus coverage 11 → 13 (~41%):** `DocQuery.nl`
+and `TypeLookup.nl` now compile end-to-end with no C# AST (the ratcheting `..._Coverage` floor raised to 13).
+A satisfying payoff for the accumulated string subsystem: a file flips when its FULL compound of features is
+present (here string/char + arrays + IndexOf/Substring/Char.* + control flow + casts + escapes together), not
+from any single slice. SourceTextLines still needs `Array.Fill` (a generic static void method + bare-call
+statements); other string files need `String.Compare` + the `StringComparison` enum.
+
 ## 2026-06-08 — BCL method dispatch slice 2: `Char.ToLowerInvariant`/`ToUpperInvariant`
 
 Incremental on the slice-1 dispatch infrastructure: two more static Char methods (`ToLowerInvariant(char)`,
