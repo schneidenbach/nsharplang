@@ -187,8 +187,14 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       plus a redundant second parse (the columnar kernels parse source; `ILCompiler` has no source access), so
       it was rejected. Flagged off; the C# pipeline stays default until parity + never-slower are proven
       end-to-end. See memory `project_routing_standalone_columnar_pipeline`.
-- [ ] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the standalone columnar pipeline with no
+- [~] **Stage 5 — end-to-end route.** Compile the dogfood corpus through the standalone columnar pipeline with no
       internal materialization; behind a flag, then default-on once never-slower + parity proven end-to-end.
+      **FIRST REAL FILE COMPILES (2026-06-08):** `FormatterSafetyScan.nl` (the actual dogfood compiler-service
+      file) is compiled end-to-end by the columnar backend with NO C# AST, all 3 functions parity-matched to the
+      C# pipeline (`ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan`). Enabled by int[]/long[] arrays
+      (resolve, `.Length`, `Ldelem`/`Stelem`) + short-circuit `&&`/`||`. Per `project_columnar_gap_analysis` the
+      next batch is the ~13 pure-int[] kernels (~40%), then strings (~37%). The corpus has NO structs/generics/
+      match (rare-to-absent) and 0% double, so those are OFF the self-host path.
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted.
 - [ ] **Coverage expansion** (pulled in as stages need them): class/struct/enum/record/interface/union decls

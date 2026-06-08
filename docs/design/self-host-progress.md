@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — 🎯 MILESTONE: columnar backend compiles a REAL dogfood file (int[] arrays + Stage-5 proof)
+
+**The standalone columnar backend now compiles a real compiler-service file — `FormatterSafetyScan.nl` —
+end-to-end straight from its columnar tables with NO C# AST, and every function matches the authoritative C#
+pipeline.** This is the Stage-5 proof-of-concept: the inflection where the columnar pipeline does real
+self-host work, not just synthetic spike functions. The new test
+`ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan` reads the ACTUAL file (so it tracks the real
+source), asserts the backend accepts it (a silent decline fails the test), and invokes all three functions
+(`FormatterSafetyHasError`, `FormatterSafetyErrorIndicesInto`, `FormatterSafetyErrorIndicesChecksumInto`)
+via BOTH paths over error/no-error/empty inputs, asserting identical results.
+
+The enabling feature: **`int[]`/`long[]` arrays**. `TryResolveType` maps a canonical `int[]` to the CLR
+array type (a single trailing `[]` → `MakeArrayType()`); `IsSupportedType` admits an `IsSZArray` of a
+supported element (int/long); `.Length` (member access kind 8) emits `Ldlen; Conv_I4` → int; element read
+`a[i]` (index access kind 10) emits `Ldelem_I4`/`Ldelem_I8` (result = element type); element write `a[i] = x`
+(assignment to a kind-10 target) emits `Stelem_I4`/`Stelem_I8` after checking the value type == element type.
+Index must be int. Jagged (`int[][]`), multi-dimensional (`int[,]`), and unsupported-element (`bool[]`,
+`string[]`, `double[]`) arrays all DECLINE (resolution fails → C# path stays authoritative).
+
+Parity-gated across synthetic arrays (sum loops; `safeAt` proving `&&` short-circuits BEFORE indexing so an
+out-of-range index can't throw; long[] past int range), array writes (`collectInto` — the real
+`FormatterSafetyErrorIndicesInto` pattern; deterministic-overwrite so the shared array across the two
+invocations is benign), the decline surface, AND the real file. **Adversarial review (read-only): SHIP** —
+array support is SOUND (every seam type-checked; no jagged/multi-dim/element-opcode/stack hole), and the
+milestone test is GENUINE (asserts Ok, truly compares both paths, exercises real logic). Added the judge's
+suggested decline-boundary cases.
+
+Next real targets (per `project_columnar_gap_analysis`): the ~13 pure-`int[]` dogfood kernels (~40% of the
+corpus) now within reach, then strings (`string` type + `.Length` + `str[i]` + IndexOf/Substring) for ~37%.
+
 ## 2026-06-08 — GAP ANALYSIS (target-driven pivot) + short-circuit `&&`/`||`
 
 A read-only gap-analysis workflow surveyed the real 32-file dogfood corpus

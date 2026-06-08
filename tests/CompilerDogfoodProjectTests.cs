@@ -2616,6 +2616,88 @@ class B
             ("shlL", new object[] { 1L, 40 }), ("shrL", new object[] { -1024L, 2 }));
     }
 
+    // int[]/long[] arrays: parameters, `.Length`, and element READ `a[i]` — the universal dogfood pattern.
+    // Includes the array-sum while-loop and a `&&`-guarded bounds-checked access (short-circuit + arrays: an
+    // out-of-range index must short-circuit BEFORE indexing, or it would throw IndexOutOfRange).
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayRead()
+    {
+        var prog = "func first(a: int[]): int {\n    return a[0]\n}\n\n" +
+                   "func len(a: int[]): int {\n    return a.Length\n}\n\n" +
+                   "func at(a: int[], i: int): int {\n    return a[i]\n}\n\n" +
+                   "func sumArr(a: int[]): int {\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+                   "func safeAt(a: int[], i: int): int {\n    if i >= 0 && i < a.Length {\n        return a[i]\n    }\n    return 0 - 1\n}\n";
+        var arr = new int[] { 10, 20, 30, 40 };
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("first", new object[] { arr }), ("len", new object[] { arr }), ("len", new object[] { new int[0] }),
+            ("at", new object[] { arr, 2 }), ("at", new object[] { arr, 0 }),
+            ("sumArr", new object[] { arr }), ("sumArr", new object[] { new int[0] }),
+            ("safeAt", new object[] { arr, 2 }), ("safeAt", new object[] { arr, 10 }), ("safeAt", new object[] { arr, -1 }));
+
+        var progL = "func firstL(a: long[]): long {\n    return a[0]\n}\n\n" +
+                    "func sumL(a: long[]): long {\n    total := 0L\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(progL,
+            ("firstL", new object[] { new long[] { 5000000000L, 2L } }),
+            ("sumL", new object[] { new long[] { 5000000000L, 5000000000L, 5000000000L } }));
+
+        // DECLINE SURFACE — array shapes/elements not yet modelled keep the C# path authoritative.
+        Assert.False(RouteColumnarProgram("func jag(a: int[][]): int {\n    return 0\n}\n").Ok);       // jagged array
+        Assert.False(RouteColumnarProgram("func md(a: int[,]): int {\n    return 0\n}\n").Ok);          // multi-dimensional
+        Assert.False(RouteColumnarProgram("func bools(a: bool[]): int {\n    return 0\n}\n").Ok);       // unsupported element type
+        Assert.False(RouteColumnarProgram("func badWrite(a: int[]): int {\n    a[0] = 5L\n    return 0\n}\n").Ok); // long value into an int[] slot
+    }
+
+    // MILESTONE (Stage 5 proof-of-concept): the standalone columnar backend compiles a REAL dogfood
+    // compiler-service file — FormatterSafetyScan.nl — end-to-end straight from its columnar tables with NO C#
+    // AST, and every function produces results IDENTICAL to the authoritative C# pipeline. This is the first
+    // real self-host target: it uses only int[] params, `.Length`, read+write indexing, `&&`/`||`, if/while,
+    // and a sibling call — exactly the feature set just built. The test reads the actual file (so it tracks the
+    // real source, not a copy).
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_FormatterSafetyScan()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "FormatterSafetyScan.nl");
+        var source = File.ReadAllText(path);
+
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real FormatterSafetyScan.nl (expected full support).");
+        Assert.Contains("FormatterSafetyHasError", methodNames!);
+        Assert.Contains("FormatterSafetyErrorIndicesInto", methodNames!);
+        Assert.Contains("FormatterSafetyErrorIndicesChecksumInto", methodNames!);
+
+        var sev = new int[] { 0, 1, 0, 0, 1, 1 };
+        var noErr = new int[] { 0, 0, 0 };
+        AssertColumnarProgramMatchesCSharp(source,
+            ("FormatterSafetyHasError", new object[] { sev }),
+            ("FormatterSafetyHasError", new object[] { noErr }),
+            ("FormatterSafetyHasError", new object[] { new int[0] }),
+            ("FormatterSafetyErrorIndicesInto", new object[] { sev, new int[6] }),
+            ("FormatterSafetyErrorIndicesInto", new object[] { sev, new int[2] }),
+            ("FormatterSafetyErrorIndicesInto", new object[] { noErr, new int[3] }),
+            ("FormatterSafetyErrorIndicesChecksumInto", new object[] { sev, new int[6] }),
+            ("FormatterSafetyErrorIndicesChecksumInto", new object[] { noErr, new int[3] }));
+    }
+
+    // Array element WRITE `a[i] = value` (Stelem). The functions DETERMINISTICALLY overwrite the slots they
+    // then read, so the array reference shared between the columnar and C# invocations is harmless (both write
+    // the same values). `collectInto` is the real dogfood pattern (write matching indices into a result array,
+    // return the count — mirrors FormatterSafetyErrorIndicesInto).
+    [Fact]
+    public void ColumnarCodegen_Parity_ArrayWrite()
+    {
+        var prog = "func setAndGet(a: int[], idx: int, val: int): int {\n    a[idx] = val\n    return a[idx]\n}\n\n" +
+                   "func fillSquares(a: int[]): int {\n    i := 0\n    while i < a.Length {\n        a[i] = i * i\n        i = i + 1\n    }\n    total := 0\n    i = 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+                   "func collectInto(src: int[], dst: int[]): int {\n    c := 0\n    i := 0\n    while i < src.Length {\n        if src[i] == 1 {\n            if c < dst.Length {\n                dst[c] = i\n            }\n            c = c + 1\n        }\n        i = i + 1\n    }\n    return c\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("setAndGet", new object[] { new int[4], 2, 99 }), ("setAndGet", new object[] { new int[1], 0, -7 }),
+            ("fillSquares", new object[] { new int[6] }), ("fillSquares", new object[] { new int[0] }),
+            ("collectInto", new object[] { new int[] { 0, 1, 0, 1, 1 }, new int[5] }),
+            ("collectInto", new object[] { new int[] { 1, 1 }, new int[1] }));
+
+        var progL = "func fillL(a: long[]): long {\n    i := 0\n    while i < a.Length {\n        a[i] = 5000000000L\n        i = i + 1\n    }\n    total := 0L\n    i = 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(progL, ("fillL", new object[] { new long[3] }));
+    }
+
     // Short-circuit logical && / || — the right operand is conditionally evaluated. The `safeDiv` case PROVES
     // short-circuit: with b == 0, evaluating `a / b` would throw DivideByZeroException, so a correct (no-throw)
     // result requires NOT evaluating the right side when the left guard is false.

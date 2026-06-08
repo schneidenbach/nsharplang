@@ -107,10 +107,35 @@ public sealed class ColumnarIlEmitter
         _siblings = siblings;
     }
 
-    // The builtin types the type-aware emitter currently handles: int, bool, and long (i8). Later slices add
-    // double/string. (Mixed int/long arithmetic — implicit widening — is not modelled yet; an all-long or
-    // all-int expression is required, else the function declines.)
-    private static bool IsSupportedType(Type t) => t == typeof(int) || t == typeof(bool) || t == typeof(long);
+    // The types the type-aware emitter currently handles: int/bool/long scalars (double/string are later
+    // slices), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[]). (Mixed int/long
+    // arithmetic — implicit widening — is not modelled; an all-long or all-int expression is required.)
+    private static bool IsSupportedType(Type t) =>
+        t == typeof(int) || t == typeof(bool) || t == typeof(long)
+        || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
+
+    // Element types the array read/write paths can emit ldelem/stelem for (int/long today; string/bool/char
+    // arrive with those types). bool/double are intentionally excluded until their element opcodes are added.
+    private static bool IsSupportedElementType(Type t) => t == typeof(int) || t == typeof(long);
+
+    /// <summary>
+    /// Resolve a canonical N# type string (e.g. "int", "int[]") to its CLR <see cref="Type"/>. Handles a single
+    /// trailing "[]" as a single-dimension array of a builtin element; non-builtins/unsupported shapes fail.
+    /// </summary>
+    private static bool TryResolveType(string canonical, out Type type)
+    {
+        if (canonical.EndsWith("[]", StringComparison.Ordinal))
+        {
+            if (TryResolveBuiltin(canonical.Substring(0, canonical.Length - 2), out var elementType))
+            {
+                type = elementType.MakeArrayType();
+                return true;
+            }
+            type = null!;
+            return false;
+        }
+        return TryResolveBuiltin(canonical, out type);
+    }
 
     /// <summary>Canonical N# primitive type name → its CLR <see cref="Type"/>. Non-builtins are unsupported.</summary>
     public static bool TryResolveBuiltin(string canonical, out Type type)
@@ -183,14 +208,14 @@ public sealed class ColumnarIlEmitter
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
-            if (!TryResolveBuiltin(fn.ReturnCanonical, out var returnType) || !IsSupportedType(returnType))
+            if (!TryResolveType(fn.ReturnCanonical, out var returnType) || !IsSupportedType(returnType))
                 return false;
             var paramTypes = new Type[fn.ParamNames.Length];
             var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
             var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
             for (var i = 0; i < fn.ParamNames.Length; i++)
             {
-                if (!TryResolveBuiltin(fn.ParamCanonicals[i], out var pt) || !IsSupportedType(pt))
+                if (!TryResolveType(fn.ParamCanonicals[i], out var pt) || !IsSupportedType(pt))
                     return false;
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
@@ -344,13 +369,30 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 23: // ExpressionStatement — FIRST CUT: only a SIMPLE `local = expr` assignment (kind 14, op `=`)
-            {        // to an existing `:=` local. Compound ops (`+=`) and non-local targets (param/field/index)
-                     // and side-effecting statements (a bare call) decline.
+            case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
+            {        // element `a[i] = value`. Compound ops (`+=`), param/field targets, and bare side-effecting
+                     // calls decline.
                 var expr = Child(idx, 0);
                 if (_kinds[expr] != 14 || Text(expr) != "=")
                     return false;
                 var target = Child(expr, 0);
+
+                if (_kinds[target] == 10) // array element write: a[i] = value
+                {
+                    // Stelem order is (array, index, value): emit the array ref, the int index, the value, store.
+                    if (!EmitExpression(Child(target, 0), out var arrayType) || !arrayType.IsSZArray)
+                        return false;
+                    var elementType = arrayType.GetElementType()!;
+                    if (!EmitExpression(Child(target, 1), out var indexType) || indexType != typeof(int))
+                        return false;
+                    if (!EmitExpression(Child(expr, 1), out var elementValueType) || elementValueType != elementType)
+                        return false;
+                    if (elementType == typeof(int)) _il.Emit(OpCodes.Stelem_I4);
+                    else if (elementType == typeof(long)) _il.Emit(OpCodes.Stelem_I8);
+                    else return false; // other element types arrive with their type slices.
+                    return true;
+                }
+
                 if (_kinds[target] != 6 || !_locals.TryGetValue(Text(target), out var assignTarget))
                     return false;
                 if (!EmitExpression(Child(expr, 1), out var valueType) || valueType != assignTarget.LocalType)
@@ -630,6 +672,32 @@ public sealed class ColumnarIlEmitter
                 }
                 _il.Emit(OpCodes.Call, target.Method);
                 type = target.ReturnType;
+                return true;
+            }
+
+            case 8: // MemberAccess [receiver] — only `.Length` on an array (-> int) for now. The member name is
+            {       // the value span. (Property/field/other member access is a host boundary; decline it.)
+                if (Text(idx) != "Length")
+                    return false;
+                if (!EmitExpression(Child(idx, 0), out var receiverType) || !receiverType.IsSZArray)
+                    return false;
+                _il.Emit(OpCodes.Ldlen);     // pushes the array length as a native int...
+                _il.Emit(OpCodes.Conv_I4);   // ...narrowed to int (N# array length is int).
+                type = typeof(int);
+                return true;
+            }
+
+            case 10: // IndexAccess [object, index] — array element READ. The object is a supported-element array
+            {        // and the index is int; emit the element's ldelem. Result type = the element type.
+                if (!EmitExpression(Child(idx, 0), out var arrayType) || !arrayType.IsSZArray)
+                    return false;
+                var elementType = arrayType.GetElementType()!;
+                if (!EmitExpression(Child(idx, 1), out var indexType) || indexType != typeof(int))
+                    return false;
+                if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
+                else if (elementType == typeof(long)) _il.Emit(OpCodes.Ldelem_I8);
+                else return false; // other element types arrive with their type slices.
+                type = elementType;
                 return true;
             }
 
