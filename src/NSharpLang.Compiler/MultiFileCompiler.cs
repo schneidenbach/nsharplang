@@ -958,7 +958,11 @@ public class MultiFileCompiler
                     _allErrors.AddRange(emitResult.Diagnostics);
                 }
             }
-            else
+            // STAGE 5 ROUTING: when the columnar backend is enabled (off by default) and it can emit the whole
+            // program, route emission through it (a standalone columnar pipeline that owns assembly emission with
+            // NO C# AST). It declines anything outside the systems subset it models, falling back to the C#
+            // ILCompiler below — so production is unchanged unless the flag is set, and always safe.
+            else if (!(ColumnarBackendEnabled && TryEmitWithColumnarBackend(assemblyName, outputPath)))
             {
                 var mergedCompilationUnit = CreateMergedCompilationUnit();
                 var compiler = new ILCompiler.ILCompiler(mergedCompilationUnit, assemblyName, outputPath, _config)
@@ -984,6 +988,29 @@ public class MultiFileCompiler
             success,
             _allErrors,
             success ? outputPath : null);
+    }
+
+    // STAGE 5 routing flag: opt in to the standalone columnar backend via env var (off by default, mirroring
+    // the parser front-end / vectorization flags). When unset, emission is unchanged (the C# ILCompiler).
+    private static bool ColumnarBackendEnabled =>
+        Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND") == "1";
+
+    // Try to emit the whole assembly via the standalone columnar backend (no C# AST). Single-file only for now
+    // (the backend parses one source string); the assembly is `assemblyName` and the type is "Program",
+    // matching the C# ILCompiler's output so the result is a drop-in replacement. Returns false (-> fall back to
+    // the C# ILCompiler) when there are multiple files, the source text is unavailable, or the backend declines
+    // any function (a construct outside the systems subset it models). The program has already been parsed and
+    // analyzed by this point, so the columnar backend only does codegen on validated input.
+    private bool TryEmitWithColumnarBackend(string assemblyName, string outputPath)
+    {
+        if (_sourceFiles.Count != 1)
+            return false;
+        if (!_sourceTexts.TryGetValue(Path.GetFullPath(_sourceFiles[0]), out var source))
+            return false;
+        if (!NSharpCompilerDogfoodAdapter.TryEmitColumnarProgram(source, assemblyName, "Program", out var assembly, out _, out _))
+            return false;
+        File.WriteAllBytes(outputPath, assembly);
+        return true;
     }
 
     private CompilationUnit CreateMergedCompilationUnit()

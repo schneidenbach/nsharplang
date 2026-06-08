@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — 🚦 STAGE 5: columnar backend ROUTED into the production compile path (flagged)
+
+**The inflection where C# starts being replaced.** The standalone columnar backend is now wired into the
+PRODUCTION entry point (`MultiFileCompiler.CompileToIlAssembly`): when `NSHARP_COLUMNAR_BACKEND=1` is set and
+the program is eligible (single-file, all top-level funcs in the systems subset), emission is routed through
+the columnar backend — which OWNS the assembly (its own `PersistedAssemblyBuilder`, NO C# AST) — producing a
+drop-in replacement (assembly named after the project, type `Program`, matching the C# `ILCompiler` output).
+Anything it declines (a class/struct/match/double/multi-file/etc.) falls back to the C# `ILCompiler`. The
+flag is OFF by default, so production is unchanged unless opted in, and always safe (decline → fallback).
+The program is parsed + analysed by the existing pipeline first (diagnostics), so the columnar backend only
+does codegen on validated input; full columnar-owned analysis (stages 1–3b) replaces that later.
+
+Parameterised the emitter (`TryEmitColumnarAssembly`/`TryEmitColumnarProgram` now take an assembly name + a
+type name) so the routed output names match the C# path. Proven end-to-end by
+`Stage5_ColumnarBackend_RoutesEligibleProgramThroughProduction`: the same source compiled through the
+production path with the flag OFF vs ON yields DIFFERENT assemblies (so the flag really re-routed the
+backend) that run IDENTICALLY (`add(2,3)=5`, `fib(10)=55`) — i.e. the production-routed columnar output is
+correct. `Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram` proves a `double` program declines
+and the C# path still produces it. 599 MultiFileCompiler-using tests unaffected.
+
+**Stage 6 (delete C#) remains correctly blocked:** the columnar backend models ~41% of the *systems dogfood
+subset* and ~0% of the rich language (classes/generics/match/async/LINQ — all the examples + full suite).
+Deleting the C# `ILCompiler` now would break the product. Stage 6 is gated on the columnar pipeline reaching
+full-language coverage; until then the flag stays off-by-default and the C# path is the production default.
+
+---
+
 ## 2026-06-08 — string[]/char[] arrays → corpus coverage 11 → 13 files (DocQuery, TypeLookup)
 
 Extends the int[]/long[] array infrastructure to a REFERENCE element (`string`) and a u2 element (`char`):

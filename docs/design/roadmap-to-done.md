@@ -195,8 +195,17 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       (resolve, `.Length`, `Ldelem`/`Stelem`) + short-circuit `&&`/`||`. Per `project_columnar_gap_analysis` the
       next batch is the ~13 pure-int[] kernels (~40%), then strings (~37%). The corpus has NO structs/generics/
       match (rare-to-absent) and 0% double, so those are OFF the self-host path.
+      **PRODUCTION ROUTING LANDED (2026-06-08):** the columnar backend is wired into `MultiFileCompiler.
+      CompileToIlAssembly` behind `NSHARP_COLUMNAR_BACKEND=1` (off by default) with C# fallback on decline —
+      flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
+      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage 13/32
+      (~41%) compile via the backend. Remaining for default-on: more coverage + never-slower benchmarks +
+      multi-file merge + columnar-owned analysis (stages 1–3b replacing the C# analyze step).
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
-      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted.
+      shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **BLOCKED on coverage:** the columnar
+      backend models ~41% of the systems dogfood subset and ~0% of the rich language (classes/generics/match/
+      async/LINQ — the examples + full suite still need the C# `ILCompiler`). Deleting it now breaks the
+      product; Stage 6 waits until the columnar pipeline covers everything the product compiles.
 - [ ] **Coverage expansion** (pulled in as stages need them): class/struct/enum/record/interface/union decls
       + members; for/foreach/let/match/lambdas/generics/tuples/is-as/range/`new[size]`/`new{init}`. Each is a
       parser-kernel form added + parity-gated, then threaded through stages 1–4.

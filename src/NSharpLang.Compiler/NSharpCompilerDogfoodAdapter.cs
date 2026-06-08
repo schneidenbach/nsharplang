@@ -829,17 +829,24 @@ internal static class NSharpCompilerDogfoodAdapter
     // into one assembly (type "ColumnarProgram") directly from the columnar tables, with NO C# AST; decline the
     // whole program if any function is ineligible. Foundation for sibling calls (4i) and whole-program emission.
     internal static bool TryEmitColumnarProgram(string source, out byte[] assembly, out string typeName, out string[] methodNames)
+        => TryEmitColumnarProgram(source, "ColumnarProgram", "ColumnarProgram", out assembly, out typeName, out methodNames);
+
+    // Production-facing entry (Stage 5 routing): emit into an assembly named `assemblyName` and type
+    // `typeName`. The MultiFileCompiler uses this (behind a flag) to produce a drop-in replacement for the C#
+    // ILCompiler's output — assembly name + type "Program" matching the C# path — for the systems subset it
+    // models, falling back to the C# path on decline.
+    internal static bool TryEmitColumnarProgram(string source, string assemblyName, string typeName, out byte[] assembly, out string emittedTypeName, out string[] methodNames)
     {
         assembly = System.Array.Empty<byte>();
-        typeName = string.Empty;
+        emittedTypeName = string.Empty;
         methodNames = System.Array.Empty<string>();
 
         if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count == 0)
             return false;
-        if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly("ColumnarProgram", inputs, source, out assembly))
+        if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, source, out assembly))
             return false;
 
-        typeName = "ColumnarProgram";
+        emittedTypeName = typeName;
         methodNames = new string[inputs.Count];
         for (var i = 0; i < inputs.Count; i++)
             methodNames[i] = inputs[i].Name;

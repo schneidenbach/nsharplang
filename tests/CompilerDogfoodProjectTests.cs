@@ -2891,6 +2891,86 @@ class B
             $"Corpus coverage regressed: {totalCompiling} files compile, expected >= {expectedCompiling.Length}.");
     }
 
+    // STAGE 5 ROUTING: with the NSHARP_COLUMNAR_BACKEND flag set, the PRODUCTION compile path
+    // (MultiFileCompiler.CompileToIlAssembly) emits an eligible program via the standalone columnar backend
+    // instead of the C# ILCompiler. Proven by: (1) the emitted IL DIFFERS from the C# path (so the flag really
+    // re-routed the backend), and (2) the columnar-emitted assembly runs IDENTICALLY to the C# one (so the
+    // routed output is correct). The flag is off by default, so production is unchanged otherwise.
+    [Fact]
+    public void Stage5_ColumnarBackend_RoutesEligibleProgramThroughProduction()
+    {
+        var source = "func add(a: int, b: int): int {\n    return a + b\n}\n\n" +
+                     "func fib(n: int): int {\n    if n < 2 {\n        return n\n    }\n    return fib(n - 1) + fib(n - 2)\n}\n";
+        var csharp = CompileViaProduction(source, columnarBackend: false);
+        var columnar = CompileViaProduction(source, columnarBackend: true);
+
+        // The flag actually changed the backend: the emitted assemblies differ (columnar IL vs C# IL).
+        Assert.NotEqual(Convert.ToBase64String(csharp), Convert.ToBase64String(columnar));
+        // ...and the columnar assembly, produced through the production path, runs identically to the C# one.
+        Assert.Equal(InvokeFromAssemblyBytes(csharp, "add", 2, 3), InvokeFromAssemblyBytes(columnar, "add", 2, 3));
+        Assert.Equal(InvokeFromAssemblyBytes(csharp, "fib", 10), InvokeFromAssemblyBytes(columnar, "fib", 10));
+        Assert.Equal(55, InvokeFromAssemblyBytes(columnar, "fib", 10));
+    }
+
+    [Fact]
+    public void Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram()
+    {
+        // `double` is outside the systems subset the columnar backend models -> it declines -> the production
+        // path falls back to the C# ILCompiler even with the flag on (the build still succeeds and runs).
+        var source = "func scale(x: double): double {\n    return x * 2.0\n}\n";
+        var columnar = CompileViaProduction(source, columnarBackend: true);
+        Assert.NotEmpty(columnar);
+        Assert.Equal(7.0, InvokeFromAssemblyBytes(columnar, "scale", 3.5));
+    }
+
+    // Compile `source` as a single-file library through the production MultiFileCompiler path, optionally with
+    // the columnar backend flag set (tightly scoped + restored), and return the emitted assembly bytes.
+    private static byte[] CompileViaProduction(string source, bool columnarBackend)
+    {
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-stage5-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectRoot);
+        var programPath = Path.Combine(projectRoot, "Program.nl");
+        var outputPath = Path.Combine(projectRoot, "bin", "Stage5.dll");
+        var previous = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
+        try
+        {
+            File.WriteAllText(programPath, source);
+            var config = ProjectFileParser.CreateDefault("Stage5");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : null);
+            var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
+            var result = compiler.CompileToIlAssembly("Stage5", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
+            return File.ReadAllBytes(result.OutputAssemblyPath!);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", previous);
+            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
+        }
+    }
+
+    private static object? InvokeFromAssemblyBytes(byte[] assemblyBytes, string funcName, params object[] args)
+    {
+        var loadContext = new System.Runtime.Loader.AssemblyLoadContext($"Stage5_{Guid.NewGuid():N}", isCollectible: true);
+        try
+        {
+            using var stream = new MemoryStream(assemblyBytes);
+            var assembly = loadContext.LoadFromStream(stream);
+            var method = assembly.GetTypes()
+                .Select(t => t.GetMethod(funcName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+                .FirstOrDefault(m => m != null)
+                ?? throw new InvalidOperationException($"No static method '{funcName}' in the emitted assembly.");
+            return method.Invoke(null, args);
+        }
+        finally
+        {
+            loadContext.Unload();
+        }
+    }
+
     // Array element WRITE `a[i] = value` (Stelem). The functions DETERMINISTICALLY overwrite the slots they
     // then read, so the array reference shared between the columnar and C# invocations is harmless (both write
     // the same values). `collectInto` is the real dogfood pattern (write matching indices into a result array,
@@ -3008,7 +3088,9 @@ class B
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
             ?? throw new InvalidOperationException("Compiler dogfood adapter type was not emitted.");
-        var method = adapterType.GetMethod("TryEmitColumnarProgram", BindingFlags.Static | BindingFlags.NonPublic)
+        // The 4-arg overload (there is now also a 6-arg production overload, so disambiguate by signature).
+        var method = adapterType.GetMethod("TryEmitColumnarProgram", BindingFlags.Static | BindingFlags.NonPublic,
+            new[] { typeof(string), typeof(byte[]).MakeByRefType(), typeof(string).MakeByRefType(), typeof(string[]).MakeByRefType() })
             ?? throw new InvalidOperationException("Dogfood adapter did not emit TryEmitColumnarProgram.");
         var args = new object?[] { source, null, null, null };
         var ok = (bool)(method.Invoke(null, args) ?? false);

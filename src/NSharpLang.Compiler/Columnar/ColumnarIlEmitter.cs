@@ -223,7 +223,7 @@ public sealed class ColumnarIlEmitter
         var input = new ColumnarFunctionInput(
             funcName, returnCanonical, paramNames, paramCanonicals,
             kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
-        return TryEmitColumnarAssembly("ColumnarSpike", new[] { input }, source, out assembly);
+        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, source, out assembly);
     }
 
     /// <summary>
@@ -237,14 +237,14 @@ public sealed class ColumnarIlEmitter
     /// authoritative. INT-ONLY for now (untyped <c>add</c>/<c>ldc.i4</c>); later slices add type-aware emission.
     /// </summary>
     public static bool TryEmitColumnarAssembly(
-        string typeName, IReadOnlyList<ColumnarFunctionInput> funcs, string source, out byte[] assembly)
+        string assemblyName, string typeName, IReadOnlyList<ColumnarFunctionInput> funcs, string source, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
         if (funcs.Count == 0)
             return false;
 
-        var builder = new PersistedAssemblyBuilder(new AssemblyName(typeName), typeof(object).Assembly);
-        var module = builder.DefineDynamicModule(typeName);
+        var builder = new PersistedAssemblyBuilder(new AssemblyName(assemblyName), typeof(object).Assembly);
+        var module = builder.DefineDynamicModule(assemblyName);
         var type = module.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class);
 
         // Pass 1: resolve every signature (int-only) and declare all methods up front. Build the sibling map
