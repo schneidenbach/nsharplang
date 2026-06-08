@@ -2656,6 +2656,15 @@ class B
             ("isWs", new object[] { ' ' }), ("isWs", new object[] { '\t' }), ("isWs", new object[] { 'x' }),
             ("firstWsAt", new object[] { "ab cd" }), ("firstWsAt", new object[] { "abcd" }));
 
+        // static Char case transforms (char -> char), incl. the case-insensitive compare pattern.
+        var progCase = "func toLow(c: char): char {\n    return Char.ToLowerInvariant(c)\n}\n\n" +
+                       "func toUp(c: char): char {\n    return Char.ToUpperInvariant(c)\n}\n\n" +
+                       "func eqIgnoreCase(a: char, b: char): bool {\n    return Char.ToLowerInvariant(a) == Char.ToLowerInvariant(b)\n}\n";
+        AssertColumnarProgramMatchesCSharp(progCase,
+            ("toLow", new object[] { 'A' }), ("toLow", new object[] { 'z' }), ("toLow", new object[] { '5' }),
+            ("toUp", new object[] { 'a' }), ("toUp", new object[] { 'Q' }),
+            ("eqIgnoreCase", new object[] { 'A', 'a' }), ("eqIgnoreCase", new object[] { 'A', 'b' }));
+
         // an unknown method, a non-string receiver, or a wrong arity/arg type declines (C# path authoritative).
         Assert.False(RouteColumnarProgram("func f(s: string): int {\n    return s.IndexOf('a')\n}\n").Ok);          // unsupported 1-arg overload
         Assert.False(RouteColumnarProgram("func f(s: string): string {\n    return s.ToUpper()\n}\n").Ok);          // unsupported method (this slice)

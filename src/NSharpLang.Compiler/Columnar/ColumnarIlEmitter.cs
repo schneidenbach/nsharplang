@@ -915,10 +915,14 @@ public sealed class ColumnarIlEmitter
         type = null!;
         if (typeName == "Char" && argCount == 1)
         {
+            // Static System.Char methods taking a single char: classifiers (-> bool) and invariant case
+            // transforms (-> char). The result type comes from the resolved method.
             MethodInfo? method = member switch
             {
                 "IsLetterOrDigit" => typeof(char).GetMethod(nameof(char.IsLetterOrDigit), new[] { typeof(char) }),
                 "IsWhiteSpace" => typeof(char).GetMethod(nameof(char.IsWhiteSpace), new[] { typeof(char) }),
+                "ToLowerInvariant" => typeof(char).GetMethod(nameof(char.ToLowerInvariant), new[] { typeof(char) }),
+                "ToUpperInvariant" => typeof(char).GetMethod(nameof(char.ToUpperInvariant), new[] { typeof(char) }),
                 _ => null,
             };
             if (method == null || !EmitArg(callIdx, 1, typeof(char)))

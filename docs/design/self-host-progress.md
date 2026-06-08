@@ -11,6 +11,17 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — BCL method dispatch slice 2: `Char.ToLowerInvariant`/`ToUpperInvariant`
+
+Incremental on the slice-1 dispatch infrastructure: two more static Char methods (`ToLowerInvariant(char)`,
+`ToUpperInvariant(char)` → char) — two whitelist entries in `TryEmitStaticCall`, the result type taken from
+the resolved method. Parity-gated (extends `ColumnarCodegen_Parity_StringMethods`): `toLow`/`toUp` over
+mixed-case/digit chars + the case-insensitive compare idiom `Char.ToLowerInvariant(a) == Char.ToLowerInvariant(b)`
+(the `PathMatching` pattern). Still 11/32 files — `DocQuery`/`PathMatching` compound further needs (`new char[]`,
+`String.Compare`+`StringComparison`), so a per-method addition doesn't flip a file alone. Confirms the
+breadth-first method approach yields correct, parity-proven building blocks but the next coverage flip needs
+a TARGETED file effort (pick one declining file, add exactly its remaining compound of methods/features).
+
 ## 2026-06-08 — BCL METHOD DISPATCH (slice 1): instance string + static Char calls
 
 The columnar backend's first BCL method-call dispatch — the gateway to the string batch. Scoped first with a
