@@ -790,46 +790,52 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                // Every other binary operator requires both operands to be the SAME type (no implicit conversions).
-                if (leftType != rightType)
+                // NUMERIC PROMOTION (ECMA §12.4.7) for the modelled int-like types: int and char are BOTH i4 on
+                // the stack, so a char/int mix promotes both to int with NO conversion IL (e.g. `c * (i + 1)` is
+                // int). long/ulong/bool/string do NOT auto-promote (an int/long mix would need a conv) — they must
+                // match exactly. `opType` is the type the operation runs as.
+                Type opType;
+                if (leftType == rightType)
+                    opType = leftType;
+                else if ((leftType == typeof(int) || leftType == typeof(char)) && (rightType == typeof(int) || rightType == typeof(char)))
+                    opType = typeof(int);
+                else
                     return false;
                 switch (op)
                 {
                     case "+": case "-": case "*": case "/": case "%":
-                        // Add/Sub/Mul/Div/Rem work on i4 and i8; the result is the operands' (shared) numeric
-                        // type. Div/Rem are the SIGNED forms (matching C# for int/long); divide-by-zero and
-                        // INT_MIN/-1 throw at runtime exactly as the C# path does. CHAR arithmetic promotes to
-                        // INT (ECMA §12.4.7: byte/sbyte/short/ushort/char all promote to int — matches the C#
-                        // binder's GetWiderType, Analyzer.cs:12820): a char is already an i4 code point, so the
-                        // same opcode applies and the result TYPE is int (e.g. `c - 'A'` is int, so a negative
-                        // difference stays int, NOT a u2-wrapped char).
-                        // ulong adds the UNSIGNED Div_Un/Rem_Un (Add/Sub/Mul are bit-identical signed/unsigned).
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong) && leftType != typeof(char)) return false;
-                        var unsignedDivRem = leftType == typeof(ulong);
+                        // Add/Sub/Mul/Div/Rem work on i4 and i8; the result is `opType`'s numeric type. Div/Rem are
+                        // SIGNED for int/long (UNSIGNED Div_Un/Rem_Un for ulong); divide-by-zero / INT_MIN÷-1 throw
+                        // at runtime exactly as the C# path does. A CHAR result promotes to INT (a char never
+                        // survives an arithmetic op — `c - 'A'` is int, so a negative difference stays int, NOT a
+                        // u2-wrapped char; matches the C# binder's GetWiderType, Analyzer.cs:12820).
+                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char)) return false;
+                        var unsignedDivRem = opType == typeof(ulong);
                         _il.Emit(
                             op == "+" ? OpCodes.Add :
                             op == "-" ? OpCodes.Sub :
                             op == "*" ? OpCodes.Mul :
                             op == "/" ? (unsignedDivRem ? OpCodes.Div_Un : OpCodes.Div) :
                             (unsignedDivRem ? OpCodes.Rem_Un : OpCodes.Rem));
-                        type = leftType == typeof(char) ? typeof(int) : leftType;
+                        type = opType == typeof(char) ? typeof(int) : opType;
                         return true;
                     case "&": case "|": case "^":
-                        // Bitwise on int/long/ulong (And/Or/Xor work on i4 and i8); result is the shared type.
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong)) return false;
+                        // Bitwise on int/long/ulong (And/Or/Xor work on i4 and i8); result is `opType` (a char/int
+                        // mix is opType=int, so `c & mask` works; a pure char&char declines as i4-but-not-int).
+                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong)) return false;
                         _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
-                        type = leftType;
+                        type = opType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
                         // Ordering on int, long, char (signed Clt/Cgt; a char is a non-negative i4 so signed is
                         // correct), or ulong (UNSIGNED Clt_Un/Cgt_Un — a ulong > long.MaxValue must compare as a
                         // large positive, not a negative i8).
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong) && leftType != typeof(char)) return false;
-                        EmitComparison(op, leftType == typeof(ulong));
+                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char)) return false;
+                        EmitComparison(op, opType == typeof(ulong));
                         type = typeof(bool);
                         return true;
                     case "==": case "!=":
-                        if (leftType == typeof(string))
+                        if (opType == typeof(string))
                         {
                             // String equality is VALUE equality (String.op_Equality), NOT `ceq` (which compares
                             // references). `!=` negates the result.
@@ -839,7 +845,7 @@ public sealed class ColumnarIlEmitter
                             return true;
                         }
                         // Equality on int, long, ulong, bool, or char (Ceq is bit-identical signed/unsigned).
-                        if (leftType != typeof(int) && leftType != typeof(long) && leftType != typeof(ulong) && leftType != typeof(bool) && leftType != typeof(char)) return false;
+                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(bool) && opType != typeof(char)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -879,8 +885,25 @@ public sealed class ColumnarIlEmitter
                 return false;
             }
 
-            case 8: // MemberAccess [receiver] — `.Length` on an array or a string (-> int). The member name is
-            {       // the value span. (Other member/property/field access is a host boundary; decline it.)
+            case 8: // MemberAccess [receiver] — an ENUM CONSTANT (e.g. StringComparison.Ordinal), or `.Length` on
+            {       // an array/string/StringBuilder (-> int). The member name is the value span.
+                // An enum constant: a bare-identifier receiver naming the enum TYPE (not a value) + a member that
+                // is one of its named constants -> load the constant's underlying int (an enum is its underlying
+                // value on the stack). Only StringComparison is modelled (the corpus' only enum).
+                var memberAccessReceiver = Child(idx, 0);
+                if (_kinds[memberAccessReceiver] == 6)
+                {
+                    var receiverIdent = Text(memberAccessReceiver);
+                    if (receiverIdent == "StringComparison"
+                        && !_locals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
+                    {
+                        if (!TryGetStringComparisonValue(Text(idx), out var enumValue))
+                            return false;
+                        _il.Emit(OpCodes.Ldc_I4, enumValue);
+                        type = typeof(StringComparison);
+                        return true;
+                    }
+                }
                 if (Text(idx) != "Length")
                     return false;
                 if (!EmitExpression(Child(idx, 0), out var receiverType))
@@ -1024,6 +1047,23 @@ public sealed class ColumnarIlEmitter
     // Scalars that participate in explicit numeric casts (int/long/char — all i4/i8 on the stack).
     private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char);
 
+    // The underlying int value of a System.StringComparison named constant (the enum's documented stable values).
+    // An enum on the CLR stack is just its underlying int, so an enum constant emits `ldc.i4 <value>`.
+    private static bool TryGetStringComparisonValue(string name, out int value)
+    {
+        value = name switch
+        {
+            nameof(StringComparison.CurrentCulture) => 0,
+            nameof(StringComparison.CurrentCultureIgnoreCase) => 1,
+            nameof(StringComparison.InvariantCulture) => 2,
+            nameof(StringComparison.InvariantCultureIgnoreCase) => 3,
+            nameof(StringComparison.Ordinal) => 4,
+            nameof(StringComparison.OrdinalIgnoreCase) => 5,
+            _ => -1,
+        };
+        return value >= 0;
+    }
+
     // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
     // `unsigned` selects the unsigned ordering opcodes (Clt_Un/Cgt_Un) for ulong — equality (Ceq) is identical.
     private void EmitComparison(string op, bool unsigned = false)
@@ -1140,16 +1180,45 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
     {
         type = null!;
-        if (receiverType == typeof(string) && member == "IndexOf" && argCount == 2)
+        if (receiverType == typeof(string) && member == "IndexOf")
         {
-            // string.IndexOf(char, int) -> int. Resolve + null-check the overload before emitting (defensive,
-            // mirroring TryEmitStaticCall) so an unexpectedly-absent method declines rather than faulting.
-            var method = typeof(string).GetMethod(nameof(string.IndexOf), new[] { typeof(char), typeof(int) });
-            if (method == null || !EmitArg(callIdx, 1, typeof(char)) || !EmitArg(callIdx, 2, typeof(int)))
+            // string.IndexOf overloads -> int. 1-arg: IndexOf(char). 2-arg: distinguished by the FIRST arg's
+            // type — IndexOf(char, int) vs IndexOf(string, StringComparison) — so emit arg1, read its type, then
+            // bind the matching overload + arg2.
+            if (argCount == 1)
+            {
+                var method1 = typeof(string).GetMethod(nameof(string.IndexOf), new[] { typeof(char) });
+                if (method1 == null || !EmitArg(callIdx, 1, typeof(char)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, method1);
+                type = typeof(int);
+                return true;
+            }
+            if (argCount == 2)
+            {
+                if (!EmitExpression(Child(callIdx, 1), out var arg1Type))
+                    return false;
+                if (arg1Type == typeof(char))
+                {
+                    var m = typeof(string).GetMethod(nameof(string.IndexOf), new[] { typeof(char), typeof(int) });
+                    if (m == null || !EmitArg(callIdx, 2, typeof(int)))
+                        return false;
+                    _il.Emit(OpCodes.Callvirt, m);
+                    type = typeof(int);
+                    return true;
+                }
+                if (arg1Type == typeof(string))
+                {
+                    var m = typeof(string).GetMethod(nameof(string.IndexOf), new[] { typeof(string), typeof(StringComparison) });
+                    if (m == null || !EmitArg(callIdx, 2, typeof(StringComparison)))
+                        return false;
+                    _il.Emit(OpCodes.Callvirt, m);
+                    type = typeof(int);
+                    return true;
+                }
                 return false;
-            _il.Emit(OpCodes.Callvirt, method);
-            type = typeof(int);
-            return true;
+            }
+            return false;
         }
         if (receiverType == typeof(string) && member == "Substring" && argCount == 2)
         {

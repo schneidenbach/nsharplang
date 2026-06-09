@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — StringComparison enum + IndexOf overloads + char/int promotion → CliArguments.nl (single-file 26→27, cluster 29→30)
+
+A per-function stub probe of `CliArguments.nl` (4125 lines, 83 funcs) — after adding the obvious string features
+— left ONE culprit, `CliExportCSharpFirstOperandChecksumInto`, on `checksum + arg[i] * (i + 1)`: a `char * int`
+mix. Three features land:
+1. **`StringComparison` enum** — the corpus' only enum. `StringComparison.Ordinal`/`.OrdinalIgnoreCase`/… is a
+   MemberAccess whose receiver names the enum TYPE (not a value); it emits `ldc.i4 <underlying value>` (an enum
+   IS its underlying int on the stack; values 0–5 per the documented enum) typed `StringComparison`.
+2. **`string.IndexOf` overloads** — `IndexOf(char)` (1-arg) and `IndexOf(string, StringComparison)` (2-arg,
+   distinguished from `IndexOf(char, int)` by the first arg's type) → int. The case-insensitive "contains" idiom
+   `text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0`.
+3. **char/int NUMERIC PROMOTION** (ECMA §12.4.7) — the blanket same-type binary-operator gate became a promotion:
+   int and char are BOTH i4 on the stack, so a char/int mix promotes both to int with NO conversion IL (an
+   `opType` drives the opcode + result type). long/ulong/bool/string still require exact match (an int/long mix
+   would need a conv the backend doesn't emit → declines safely). This makes `c * (i+1)`, `c + n`, `c < n`,
+   `c == n` work as int, matching the C# binder's GetWiderType (Analyzer.cs:12820); char-char arithmetic→int and
+   char comparison-signed behavior is preserved.
+
+Flips `CliArguments.nl` (the heaviest CLI file). Parity-gated: `ColumnarCodegen_Parity_StringComparisonAndIndexOf`
+(the case-insensitive containsCI cases PROVE the OrdinalIgnoreCase=5 value — a wrong value would flip the match),
+`ColumnarCodegen_Parity_CharIntPromotion` (weight `s[i]*(i+1)`, char±int, char</>== int with negatives), and the
+milestone `ColumnarCodegen_CompilesRealDogfoodFile_CliArguments` (`CliSymbolNameContainsAsciiIgnoreCase` +
+`CliExportCSharpFirstOperandChecksumInto` value-matched vs the C# pipeline). Updated a now-stale `IndexOf('a')`
+1-arg decline assertion (it's supported now). Adversarially reviewed (read-only, 2 lenses): NO wrong promotions
+(only char/int → int; all other mixes decline safely, none emit i4/i8-mismatched IL), enum values correct,
+IndexOf dispatch correct, same-type behavior preserved, tests discriminating + non-vacuous. Ratchets: single-file
+floor 26→27, multi-file cluster 29→30. Coverage now **27/32 single-file, 30/32 via multi-file merge (~94%)** —
+only `DiagnosticClusters` (needs Math.Abs + String.Compare + Trim + ToString(fmt) atop the now-modeled
+StringBuilder/StringComparison/void) and `SemanticScopes` (parser-kernel-blocked) remain.
+
 ## 2026-06-08 — `StringBuilder` (first mutable reference type) → CompletionReceivers.nl (single-file 25→26, cluster 28→29)
 
 Added `System.Text.StringBuilder` — the columnar backend's first MUTABLE reference type with instance methods:

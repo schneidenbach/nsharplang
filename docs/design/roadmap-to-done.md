@@ -198,19 +198,19 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       **PRODUCTION ROUTING LANDED (2026-06-08):** the columnar backend is wired into `MultiFileCompiler.
       CompileToIlAssembly` behind `NSHARP_COLUMNAR_BACKEND=1` (off by default) with C# fallback on decline —
       flag-on emits an eligible program via the columnar pipeline (drop-in: assembly name + type `Program`),
-      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage **26/32
-      (~81%) SINGLE-FILE, 29/32 (~91%) via MULTI-FILE merge** (2026-06-08: SourceTextLines via Array.Fill +
+      proven to differ from the C# IL yet run identically (`Stage5_ColumnarBackend_*`). Corpus coverage **27/32
+      (~84%) SINGLE-FILE, 30/32 (~94%) via MULTI-FILE merge** (2026-06-08: SourceTextLines via Array.Fill +
       void-call statement + parameter assignment; PathMatching via char arithmetic; LinterImports via
       discarded-call statement; CliDocOrdering via `new string(char[],int,int)`; CliQueryParsing via the `ulong`
-      unsigned scalar + `BitOperations.PopCount`; LexerTokenKindScanner via lowercase `char.` static predicates; DiagnosticDeduplication via void functions; IdentifierSpans via while-scan-loop; CompletionReceivers via StringBuilder;
-      floor corrected 16→20 then →26).
+      unsigned scalar + `BitOperations.PopCount`; LexerTokenKindScanner via lowercase `char.` static predicates; DiagnosticDeduplication via void functions; IdentifierSpans via while-scan-loop; CompletionReceivers via StringBuilder; CliArguments via StringComparison enum + IndexOf overloads + char/int promotion;
+      floor corrected 16→20 then →27).
       **MULTI-FILE merge LANDED** (`TryEmitColumnarProgramMultiFile`): the dogfood program is multi-file
       (cross-file public calls, e.g. ParserFunctionSignatures→ParserTypeReferences); the backend merges files into
       one columnar program so cross-file calls resolve, parity-gated vs a genuine separate-file MultiFileCompiler
       oracle — the eligible cross-file cluster (ParserExpressions/ParserStatements/ParserFunctionSignatures + the
       22 single-file files) compiles merged. Remaining for default-on: route multi-file into the Stage-5
-      production path (currently single-file) + more feature coverage (StringComparison enum + StringBuilder/Math.Abs/String.Compare gate
-      CliArguments, DiagnosticClusters; the "0-feature" emit-decliners DiagnosticDeduplication + IdentifierSpans need
+      production path (currently single-file) + more feature coverage (Math.Abs + String.Compare + Trim + ToString(fmt) gate
+      DiagnosticClusters (atop the now-modeled StringBuilder/StringComparison/void); the "0-feature" emit-decliners DiagnosticDeduplication + IdentifierSpans need
       per-function diagnosis; SemanticScopes is parse-blocked) + never-slower benchmarks + columnar-owned
       analysis (stages 1–3b replacing the C# analyze step).
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;

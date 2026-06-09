@@ -2665,8 +2665,9 @@ class B
             ("eqIgnoreCase", new object[] { 'A', 'a' }), ("eqIgnoreCase", new object[] { 'A', 'b' }));
 
         // an unknown method, a non-string receiver, or a wrong arity/arg type declines (C# path authoritative).
-        Assert.False(RouteColumnarProgram("func f(s: string): int {\n    return s.IndexOf('a')\n}\n").Ok);          // unsupported 1-arg overload
-        Assert.False(RouteColumnarProgram("func f(s: string): string {\n    return s.ToUpper()\n}\n").Ok);          // unsupported method (this slice)
+        // (s.IndexOf(char) 1-arg IS now modelled — see ColumnarCodegen_Parity_StringComparisonAndIndexOf.)
+        Assert.False(RouteColumnarProgram("func f(s: string): string {\n    return s.ToUpper()\n}\n").Ok);          // unsupported method
+        Assert.False(RouteColumnarProgram("func f(s: string): int {\n    return s.IndexOf('a', 'b')\n}\n").Ok);     // IndexOf(char, char) — unsupported overload
     }
 
     // char type + string INDEXING `s[i]` (get_Chars -> char) + char literals + char comparisons. The dogfood
@@ -2982,6 +2983,63 @@ class B
         // DECLINE: unary minus on ulong (C# forbids it), and casts involving ulong (not modelled).
         Assert.False(RouteColumnarProgram("func f(a: ulong): ulong {\n    return -a\n}\n").Ok);
         Assert.False(RouteColumnarProgram("func f(a: ulong): long {\n    return (long)a\n}\n").Ok);
+    }
+
+    // string.IndexOf(char) (1-arg) and string.IndexOf(string, StringComparison) with the StringComparison ENUM
+    // constant (Ordinal / OrdinalIgnoreCase — emitted as the underlying int). The case-insensitive "contains"
+    // idiom `text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0` is CliArguments.nl's pattern.
+    [Fact]
+    public void ColumnarCodegen_Parity_StringComparisonAndIndexOf()
+    {
+        var prog =
+            "import System\n\n" +
+            "func dotAt(s: string): int {\n    return s.IndexOf('.')\n}\n\n" +
+            "func containsCI(text: string, part: string): bool {\n    return text.IndexOf(part, StringComparison.OrdinalIgnoreCase) >= 0\n}\n\n" +
+            "func findOrd(text: string, part: string): int {\n    return text.IndexOf(part, StringComparison.Ordinal)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("dotAt", new object[] { "a.b.c" }), ("dotAt", new object[] { "abc" }),
+            ("containsCI", new object[] { "Hello World", "WORLD" }), ("containsCI", new object[] { "Hello", "xyz" }), ("containsCI", new object[] { "ABC", "abc" }),
+            ("findOrd", new object[] { "Hello World", "World" }), ("findOrd", new object[] { "Hello", "WORLD" }));
+    }
+
+    // char/int NUMERIC PROMOTION (ECMA §12.4.7): a char/int mix promotes both to int (char is already i4 on the
+    // stack, no conversion) — `arg[i] * (i + 1)` (CliArguments.nl) is int. Covers mixed +/-/*, ordering, equality.
+    [Fact]
+    public void ColumnarCodegen_Parity_CharIntPromotion()
+    {
+        var prog =
+            "func weight(s: string): int {\n    total := 0\n    i := 0\n    while i < s.Length {\n        total = total + s[i] * (i + 1)\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            "func charPlusInt(c: char, n: int): int {\n    return c + n\n}\n\n" +
+            "func intMinusChar(n: int, c: char): int {\n    return n - c\n}\n\n" +
+            "func charLtInt(c: char, n: int): bool {\n    return c < n\n}\n\n" +
+            "func charEqInt(c: char, n: int): bool {\n    return c == n\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("weight", new object[] { "abc" }), ("weight", new object[] { "" }),
+            ("charPlusInt", new object[] { 'A', 5 }), ("charPlusInt", new object[] { 'z', -3 }),
+            ("intMinusChar", new object[] { 100, 'A' }),
+            ("charLtInt", new object[] { 'A', 66 }), ("charLtInt", new object[] { 'A', -1 }),
+            ("charEqInt", new object[] { 'A', 65 }), ("charEqInt", new object[] { 'A', 66 }));
+    }
+
+    // MILESTONE: CliArguments.nl (4125 lines, 83 funcs) compiles end-to-end with no C# AST. Enabling features:
+    // string.IndexOf(char) (1-arg) + string.IndexOf(string, StringComparison) with the StringComparison enum, and
+    // char/int promotion (`arg[i] * (i + 1)`). Reads the actual file.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_CliArguments()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CliArguments.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real CliArguments.nl (expected full support).");
+        Assert.Contains("CliSymbolNameContainsAsciiIgnoreCase", methodNames!); // IndexOf(string, StringComparison)
+        Assert.Contains("CliExportCSharpFirstOperandChecksumInto", methodNames!); // char/int promotion
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "barbaz" }),
+            ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "FooBarBaz", "xyz" }),
+            ("CliSymbolNameContainsAsciiIgnoreCase", new object[] { "abc", "ABC" }),
+            ("CliExportCSharpFirstOperandChecksumInto", new object[] { new[] { "a", "bb" }, new int[2], new int[2], new int[2], new int[2], new int[2] }),
+            ("CliExportCSharpFirstOperandChecksumInto", new object[] { new string[0], new int[0], new int[0], new int[0], new int[0], new int[0] }));
     }
 
     // StringBuilder — the first mutable reference type: new StringBuilder([capacity]); .Append(char/string/int)
@@ -3388,13 +3446,13 @@ class B
         var cluster = new[]
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
-            "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
-            "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl",
-            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl",
-            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl",
-            "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl",
-            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
-            "TypeLookup.nl",
+            "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
+            "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
+            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
+            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
+            "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
+            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
@@ -3420,12 +3478,12 @@ class B
         var expectedCompiling = new[]
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
-            "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
-            "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl",
-            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl",
-            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl",
-            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
-            "TextEditOrdering.nl", "TypeLookup.nl",
+            "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
+            "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
+            "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
+            "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
+            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
+            "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 
