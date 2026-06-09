@@ -3657,6 +3657,68 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: int }\n    None { tag: int }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // UNION + `when` GUARDS — a union-case pattern that binds a field, then a `when` guard over that binding gates the
+    // arm. EMERGENT from composing the union-case pattern (kind 37, dispatched at the arm top level) with the existing
+    // GuardedPattern (kind 19) unwrap: the binding is in scope when the guard is emitted, and a guarded arm does NOT
+    // count toward exhaustiveness (so an UNGUARDED arm or catch-all must still cover every case). Value-matched vs the
+    // C# ILCompiler. Pins this composition so a future refactor cannot silently break it.
+    [Fact]
+    public void ColumnarCodegen_Parity_UnionMatchWhenGuards()
+    {
+        var prog =
+            "union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\n" +
+            "func makeS(v: int): Result {\n    return new Result.Success { value: v }\n}\n\n" +
+            "func makeF(c: int): Result {\n    return new Result.Failure { code: c }\n}\n\n" +
+            // multiple guarded arms over the SAME case, then an unguarded fallthrough, then the other case — the
+            // unguarded Success arm + the Failure arm make the match exhaustive (guarded arms don't count).
+            "func classify(r: Result): int {\n    return match r {\n        Result.Success { value } when value > 100 => 2,\n        Result.Success { value } when value > 0 => 1,\n        Result.Success { value } => 0,\n        Result.Failure { code } => 0 - code\n    }\n}\n\n" +
+            "func cls(v: int): int {\n    return classify(makeS(v))\n}\n\n" +
+            "func clsF(c: int): int {\n    return classify(makeF(c))\n}\n\n" +
+            // a guarded union arm with a `_` catch-all providing exhaustiveness (guarded Success does not cover it).
+            "func bigSuccess(r: Result): int {\n    return match r {\n        Result.Success { value } when value > 10 => value,\n        _ => -1\n    }\n}\n\n" +
+            "func big(v: int): int {\n    return bigSuccess(makeS(v))\n}\n\n" +
+            "func bigF(c: int): int {\n    return bigSuccess(makeF(c))\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("cls", new object[] { 150 }), ("cls", new object[] { 50 }), ("cls", new object[] { 0 }), ("cls", new object[] { -5 }),
+            ("clsF", new object[] { 7 }), ("clsF", new object[] { 0 }),
+            ("big", new object[] { 42 }), ("big", new object[] { 5 }), ("big", new object[] { 11 }),
+            ("bigF", new object[] { 99 }));
+
+        // DECLINE: a match whose ONLY coverage of a case is a GUARDED arm (no unguarded arm / catch-all) is NOT
+        // exhaustive (the guard may be false at runtime) — C# reports NL501, so columnar must decline.
+        Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A { x } when x > 0 => x,\n        U.B { y } => y\n    }\n}\n").Ok);
+    }
+
+    // UNION with ZERO-FIELD (payload-free) cases — `union Color { Red {} Green {} }`. C# ALLOWS constructing them
+    // (`new Color.Red {}` — an empty object initializer) and matching via a catch-all, but REJECTS destructuring one
+    // with a `{ }` property pattern (NL503 — "doesn't carry any data — you can't destructure it with property
+    // patterns"; a payload-free case is matched as a BARE type pattern instead, which columnar does not model). So
+    // columnar value-matches C# on construction + catch-all, and DECLINES a `Case {}` property pattern on a zero-field
+    // case — never accepting a destructuring C# refuses.
+    [Fact]
+    public void ColumnarCodegen_Parity_UnionZeroFieldCases()
+    {
+        var prog =
+            "union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\n" +
+            "func makeC(n: int): Color {\n    if n == 0 {\n        return new Color.Red {}\n    }\n    if n == 1 {\n        return new Color.Green {}\n    }\n    return new Color.Blue {}\n}\n\n" +
+            // a zero-field case is constructed, then matched only via a catch-all (no NL503 property pattern).
+            "func anyColor(n: int): int {\n    return match makeC(n) {\n        _ => 7\n    }\n}\n\n" +
+            // a zero-field case mixed with a PAYLOAD case in one union: construct either, match the payload case by
+            // property pattern and the zero-field case by the catch-all.
+            "union Tok {\n    Eof {}\n    Num { value: int }\n}\n\n" +
+            "func makeTok(n: int): Tok {\n    if n < 0 {\n        return new Tok.Eof {}\n    }\n    return new Tok.Num { value: n }\n}\n\n" +
+            "func tokVal(n: int): int {\n    return match makeTok(n) {\n        Tok.Num { value } => value,\n        _ => -1\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("anyColor", new object[] { 0 }), ("anyColor", new object[] { 1 }), ("anyColor", new object[] { 2 }),
+            ("tokVal", new object[] { 5 }), ("tokVal", new object[] { 0 }), ("tokVal", new object[] { -1 }));
+
+        // DECLINE: destructuring a zero-field case with a `{ }` property pattern — C# rejects it (NL503), so columnar
+        // must decline rather than emit an isinst-only test for a program the language refuses.
+        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red {} => 1,\n        Color.Green {} => 2\n    }\n}\n").Ok);
+        // a zero-field case destructured even with a catch-all present still declines (the `{ }` pattern itself is NL503).
+        Assert.False(RouteColumnarProgram("union Tok {\n    Eof {}\n    Num { value: int }\n}\n\nfunc f(t: Tok): int {\n    return match t {\n        Tok.Num { value } => value,\n        Tok.Eof {} => -1\n    }\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

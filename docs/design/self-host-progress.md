@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-10b: union match completeness — `when` guards + zero-field cases (+ a soundness fix)
+
+Extends D-10 toward complete union match. Two increments, both verify-first against the C# ILCompiler:
+- **`when`-guarded union arms** (EMERGENT — no production change, pinned by a parity test): a union-case pattern
+  that binds a field composes with the existing GuardedPattern (kind 19) unwrap, so the binding is in scope when
+  the guard is emitted. Verified over multiple guarded arms on one case + an unguarded fallthrough, and a guarded
+  arm with a `_` catch-all; a match whose ONLY coverage of a case is a guarded arm correctly DECLINES (NL501 — a
+  guard may be false at runtime).
+- **Zero-field (payload-free) cases** + a **SOUNDNESS FIX** that verify-first surfaced: C# ALLOWS constructing a
+  payload-free case (`new Color.Red {}` — an empty object initializer) and matching it via a catch-all (or a bare
+  type pattern, not modelled), but REJECTS destructuring one with a `{ }` property pattern (NL503 — "doesn't carry
+  any data"). The committed D-10 `EmitUnionCasePattern` was emitting an `isinst`-only test for `Case {}` on a
+  zero-field case — ACCEPTING a program C# refuses (an over-acceptance vs the parity oracle, which the D-10
+  3-lens review missed because it never probed payload-free cases). FIX: `EmitUnionCasePattern` declines when
+  `caseDef.Fields.Count == 0`. Construction + catch-all match of zero-field cases value-matches C#; the `Case {}`
+  property pattern now declines, matching NL503.
+
+Parity-gated: `ColumnarCodegen_Parity_UnionMatchWhenGuards` (guarded arms, value-matched, + the guarded-only-coverage
+decline) and `ColumnarCodegen_Parity_UnionZeroFieldCases` (zero-field construct + catch-all value-matched, + the
+`Case {}`-on-payload-free decline). A TARGETED read-only over-acceptance re-review (2 soundness lenses — construction
++ pattern/exhaustiveness — + adversarial verify), run specifically because the D-10 review missed the zero-field
+gap: its single candidate (`Case { value, value }` duplicate binding) was refuted — columnar already declines it via
+the shadowing guard, matching C#'s NL019. No remaining union over-acceptance. 111 columnar tests green; full non-IDE
+gate green (fresh isolated). LESSON: verify-first against the C# oracle is the real soundness backstop — it caught
+what a 7-agent adversarial review did not, because the review reasoned about the code while verify-first exercises
+the actual analyzer. Next union work: nested/renamed `{ f: <pat> }` sub-patterns, bare type patterns, generic unions
+(needs generics).
+
+---
+
 ## 2026-06-09 — Phase D-10: UNION — the FOURTH user-defined type (the rich-type-system centerpiece)
 
 The columnar backend gains DISCRIMINATED UNIONS — declaration, object-initializer construction, and union-case

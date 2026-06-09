@@ -2299,6 +2299,11 @@ public sealed class ColumnarIlEmitter
         var qualifiedCase = Text(caseRecv) + "." + Text(memberNode);
         if (!_unionCaseRegistry.TryGetValue(qualifiedCase, out var caseDef) || matchValueType != caseDef.UnionBase)
             return false; // not a registered case of THIS union -> decline.
+        // A `{ }` PROPERTY pattern on a PAYLOAD-FREE case is rejected by C# (NL503 — "doesn't carry any data — you
+        // can't destructure it with property patterns"); a zero-field case is matched as a BARE type pattern instead
+        // (not modelled here). Decline so columnar never accepts a destructuring C# refuses.
+        if (caseDef.Fields.Count == 0)
+            return false;
 
         // `ldloc value; isinst Case; dup; brtrue ok; pop; br fail; ok: stloc caseLocal`. The dup keeps a copy so the
         // success path stores the (non-null) case ref; the fail path pops the null before branching — leaving the
