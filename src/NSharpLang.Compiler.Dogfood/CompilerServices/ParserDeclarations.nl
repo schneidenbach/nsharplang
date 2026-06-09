@@ -413,12 +413,15 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // method (`func`), a field initializer (`=`), a composed/array/tuple field type (a non-Identifier after `:`), a
 // missing name/colon/brace, or an empty body — so the host declines the whole program to the C# path. Slice-1
 // scope: fields-only structs with single-builtin-token field types.
-// Also used for RECORD declarations (token 13): the `record Name { fields  methods }` body syntax is identical to a
-// struct's, so the same kernel parses both — the host distinguishes a value-type struct from a reference-type record
-// by which keyword index it passed in. Accepts the `struct` (9) or `record` (13) keyword.
+// Also used for RECORD declarations (token 13) and CLASS declarations (token 8): the `record/class Name { fields
+// methods }` body syntax is identical to a struct's, so the same kernel parses all three — the host distinguishes a
+// value-type struct from a reference-type record/class by which keyword index it passed in. Accepts the `struct` (9),
+// `record` (13), or `class` (8) keyword. A class with a user `constructor` (slice 1b) is NOT yet parsed here: the
+// `constructor` keyword is neither a field-name identifier nor `func`/`}`, so the field loop returns -1 and the host
+// declines that class to the C# path until constructors are modelled.
 func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outResult: int[]): int {
     pos := structIndex
-    if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13) {
+    if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
     }
     pos = pos + 1

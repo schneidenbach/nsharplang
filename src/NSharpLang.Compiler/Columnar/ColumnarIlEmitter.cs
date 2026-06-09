@@ -646,10 +646,10 @@ public sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
-            // Record (reference-type) instance methods need a different `this`/call shape (ref, not managed pointer);
-            // deferred — a record with methods declines for now. Records support fields + object-init + field read.
-            if (def.IsReference && structs[s].Methods.Count > 0)
-                return false;
+            // Reference-type (record/class) instance methods are supported: the body emit (bare field -> `ldarg.0;
+            // ldfld`) is identical to a value type's (ldfld works on both a managed pointer and an object ref), and
+            // the instance CALL branches on IsReference (ldloc + callvirt for a ref receiver vs ldloca + call for a
+            // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
             foreach (var m in structs[s].Methods)
             {
                 if (m.ReturnCanonical == "void")
@@ -2591,10 +2591,12 @@ public sealed class ColumnarIlEmitter
     {
         type = null!;
 
-        // A USER-STRUCT INSTANCE method (`receiver.Method(args)`): the receiver VALUE is already on the stack. A
-        // value-type instance call needs the receiver's ADDRESS, so spill to a temp and `ldloca temp; <args>; call
-        // <MethodBuilder>` (a non-virtual `call`, since value-type instance methods are sealed). Args are emitted
-        // AFTER the receiver address, in order, with each type checked against the method's declared param type.
+        // A USER-TYPE INSTANCE method (`receiver.Method(args)`): the receiver VALUE/REF is already on the stack.
+        // - VALUE type (struct): the instance method needs the receiver's ADDRESS, so spill to a temp and
+        //   `ldloca temp; <args>; call <MethodBuilder>` (non-virtual `call` — value-type instance methods are sealed).
+        // - REFERENCE type (record/class): the receiver IS the object ref, so spill and `ldloc temp; <args>; callvirt`
+        //   (callvirt gives the standard null check; the method is non-virtual but callvirt calls it directly).
+        // Args are emitted AFTER the receiver, in order, each type-checked against the method's declared param type.
         if (receiverType is TypeBuilder)
         {
             foreach (var d in _structRegistry.Values)
@@ -2605,13 +2607,13 @@ public sealed class ColumnarIlEmitter
                         return false;
                     var receiverTemp = _il.DeclareLocal(receiverType);
                     _il.Emit(OpCodes.Stloc, receiverTemp);
-                    _il.Emit(OpCodes.Ldloca, receiverTemp);
+                    _il.Emit(d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, receiverTemp);
                     for (var a = 0; a < argCount; a++)
                     {
                         if (!EmitExpression(Child(callIdx, 1 + a), out var argType) || argType != structMethod.ParamTypes[a])
                             return false;
                     }
-                    _il.Emit(OpCodes.Call, structMethod.Builder);
+                    _il.Emit(d.IsReference ? OpCodes.Callvirt : OpCodes.Call, structMethod.Builder);
                     type = structMethod.ReturnType;
                     return true;
                 }

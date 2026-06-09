@@ -3327,9 +3327,9 @@ class B
 
         // Explicit member values are now supported (see ColumnarCodegen_Parity_EnumIntCastAndExplicitValues).
         Assert.True(RouteColumnarProgram("enum E { A = 5, B }\n\nfunc f(): E { return E.A }\n").Ok);
-        // A class/union/record declaration is still unsupported -> decline. (struct is now supported, see
-        // ColumnarCodegen_Parity_StructFieldsAndObjectInit.)
-        Assert.False(RouteColumnarProgram("class C {\n    x: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // An INTERFACE declaration is still unsupported -> decline. (struct/record/class/union/enum are all now
+        // supported; an interface — token 10 — is not in the gate's allow-list.)
+        Assert.False(RouteColumnarProgram("interface I {\n    func F(): int\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // An enum element inside a TUPLE is not modelled (ValueTuple over a TypeBuilder cannot reflect its members)
         // -> the whole program declines to C# rather than throwing a hard emit error.
         Assert.False(RouteColumnarProgram("enum Color { Red, Green }\n\nfunc f(): (Color, int) { return (Color.Red, 5) }\n").Ok);
@@ -3582,10 +3582,10 @@ class B
         var fields = pointType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
         Assert.Equal(new[] { "X", "Y" }, fields.Select(f => f.Name).ToArray());
 
-        // DECLINES (slice scope): a record with a METHOD, a record field MUTATION (records may be init-only), a class.
-        Assert.False(RouteColumnarProgram("record R {\n    X: int\n    func a(): int { return X }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // DECLINES (slice scope): a record field MUTATION (records may be init-only; case-23 field write is for a
+        // `:=` local value-struct only). (Record METHODS are now SUPPORTED — see ColumnarCodegen_Parity_ClassObjectInitAndMethods,
+        // which constructs `Pt` with a `Manhattan()` method; classes too.)
         Assert.False(RouteColumnarProgram("record R {\n    X: int\n}\n\nfunc f(a: int): int {\n    p := new R { X: a }\n    p.X = 9\n    return p.X\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("class C {\n    X: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // UNION — the FOURTH user-defined type: a discriminated union, emitted as an ABSTRACT base reference class with a
@@ -3761,7 +3761,60 @@ class B
         Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red or Color.Green => 1,\n        Color.Blue => 2\n    }\n}\n").Ok);
     }
 
+    // CLASS (slice 1a) — the FIFTH user-defined type. A `class` (token 8) reuses the record infrastructure: it is a
+    // REFERENCE type (DefineType class + a public default ctor), constructed via an object initializer
+    // (`new Box { Value: v }`), with fields read via ldfld on the ref. The NEW capability is INSTANCE METHODS on a
+    // reference type (records/classes) — previously declined: the body emit (bare field -> `ldarg.0; ldfld`) is
+    // identical to a value type's, and the instance CALL branches on IsReference (`ldloc` + `callvirt` for a ref
+    // receiver vs `ldloca` + `call` for a value receiver). This also UNBLOCKS record methods. Slice 1a has NO user
+    // constructor (object-init only); a `constructor` declines (slice 1b). Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassObjectInitAndMethods()
+    {
+        var prog =
+            "class Box {\n    Value: int\n    Tag: int\n    func Get(): int {\n        return Value\n    }\n    func Plus(n: int): int {\n        return Value + n\n    }\n    func Sum(): int {\n        return Value + Tag\n    }\n    func Scaled(k: int): int {\n        return Value * k\n    }\n}\n\n" +
+            "func boxGet(v: int): int {\n    b := new Box { Value: v }\n    return b.Get()\n}\n\n" +
+            "func boxPlus(v: int, n: int): int {\n    b := new Box { Value: v }\n    return b.Plus(n)\n}\n\n" +
+            "func boxSum(v: int, t: int): int {\n    b := new Box { Value: v, Tag: t }\n    return b.Sum()\n}\n\n" +
+            "func boxScaled(v: int, k: int): int {\n    b := new Box { Value: v }\n    return b.Scaled(k)\n}\n\n" +
+            // direct field read on a class ref (ldfld), no method.
+            "func boxField(v: int, t: int): int {\n    b := new Box { Value: v, Tag: t }\n    return b.Value + b.Tag\n}\n\n" +
+            // a RECORD with a method — previously DECLINED (reference-type methods), now enabled by this slice.
+            "record Pt {\n    X: int\n    Y: int\n    func Manhattan(): int {\n        return X + Y\n    }\n}\n\n" +
+            "func ptDist(x: int, y: int): int {\n    p := new Pt { X: x, Y: y }\n    return p.Manhattan()\n}\n\n" +
+            // a method whose NAME collides with a synthesized member (GetHashCode): the N# pipeline ACCEPTS this
+            // (verified — it is NOT C#'s CS0114) and columnar value-matches it (callvirt dispatches to the USER
+            // method). Pinned so a future "decline synthesized-name methods" change (which a review WRONGLY suggested)
+            // would fail here — declining it would be under-acceptance vs the N# oracle.
+            "record Hsh {\n    X: int\n    func GetHashCode(): int {\n        return X * 2\n    }\n}\n\n" +
+            "func hsh(v: int): int {\n    h := new Hsh { X: v }\n    return h.GetHashCode()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("boxGet", new object[] { 5 }), ("boxGet", new object[] { 0 }),
+            ("boxPlus", new object[] { 5, 3 }), ("boxPlus", new object[] { -2, 10 }),
+            ("boxSum", new object[] { 5, 7 }), ("boxSum", new object[] { 0, 0 }),
+            ("boxScaled", new object[] { 6, 4 }), ("boxScaled", new object[] { 5, 0 }),
+            ("boxField", new object[] { 5, 7 }), ("boxField", new object[] { -3, 3 }),
+            ("ptDist", new object[] { 3, 4 }), ("ptDist", new object[] { 0, 0 }),
+            ("hsh", new object[] { 7 }), ("hsh", new object[] { 0 }));
 
+        // Metadata: Box is a reference type (class) with public int fields + public instance methods.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the class-with-methods program");
+        var boxType = System.Reflection.Assembly.Load(asm!).GetType("Box")!;
+        Assert.True(boxType.IsClass);
+        Assert.False(boxType.IsValueType);
+        var getM = boxType.GetMethod("Get")!;
+        Assert.False(getM.IsStatic);
+        Assert.Equal(typeof(int), getM.ReturnType);
+
+        // DECLINES (slice 1a scope): a class with a user CONSTRUCTOR (slice 1b), a PRIMARY constructor, INHERITANCE,
+        // and a method that MUTATES a field (bare-field WRITE in a body — the assignment path has no this-field
+        // fallback yet; slice 1b). All decline to the C# path; slice 1a is object-init + field-READING methods only.
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class C(x: int) {\n    func g(): int { return x }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n}\n\nclass D: Base {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    func Bump(): int {\n        X = X + 1\n        return X\n    }\n}\n\nfunc f(v: int): int {\n    c := new C { X: v }\n    return c.Bump()\n}\n").Ok);
+    }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).

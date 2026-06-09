@@ -752,12 +752,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
             for (var d = 0; d < declCount; d++)
             {
-                // 7 = func, 14 = enum, 9 = struct, 13 = record, 12 = union; any other top-level declaration kind
-                // (class/…) is unsupported and declines the whole program. Enum/struct/record/union decls are
+                // 7 = func, 14 = enum, 9 = struct, 13 = record, 12 = union, 8 = class; any other top-level declaration
+                // kind is unsupported and declines the whole program. Enum/struct/record/class/union decls are
                 // collected separately (TryGetColumnarEnumInputs / TryGetColumnarStructInputs /
                 // TryGetColumnarUnionInputs); the func scan below (TopLevelFuncIndices) only picks `func` tokens, so
                 // type decls are skipped here rather than mis-parsed as functions.
-                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13 && declKinds[d] != 12)
+                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13 && declKinds[d] != 12 && declKinds[d] != 8)
                     return false;
             }
 
@@ -925,11 +925,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 n++;
             }
 
-            // Collect value-type structs (keyword 9, IsReference=false) AND reference-type records (keyword 13,
-            // IsReference=true) — both share the identical decl kernel + body syntax.
+            // Collect value-type structs (keyword 9, IsReference=false) AND reference-type records (keyword 13) and
+            // classes (keyword 8), both IsReference=true — all three share the identical decl kernel + body syntax.
             var decls = new System.Collections.Generic.List<(int Index, bool IsReference)>();
             foreach (var i in TopLevelStructIndices(ck, n)) decls.Add((i, false));
             foreach (var i in TopLevelRecordIndices(ck, n)) decls.Add((i, true));
+            foreach (var i in TopLevelClassIndices(ck, n)) decls.Add((i, true));
             foreach (var (structIndex, isReference) in decls)
             {
                 var cap = n + 1;
@@ -1287,6 +1288,35 @@ internal static class NSharpCompilerDogfoodAdapter
                 case 127: paren++; break;
                 case 128: if (paren > 0) paren--; break;
                 case 13:
+                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    // The compacted-token indices of each top-level `class` keyword (token 8) — at depth 0. Mirrors
+    // TopLevelStructIndices for the class keyword (classes share the struct/record decl kernel + collection,
+    // IsReference=true). A class with a primary-ctor `(` after the name, or a user `constructor`, declines in the
+    // decl kernel (slice 1a: fields + methods + object-init only).
+    private static List<int> TopLevelClassIndices(int[] kinds, int count)
+    {
+        var result = new List<int>();
+        var brace = 0;
+        var bracket = 0;
+        var paren = 0;
+        for (var i = 0; i < count; i++)
+        {
+            switch (kinds[i])
+            {
+                case 129: brace++; break;
+                case 130: if (brace > 0) brace--; break;
+                case 131: bracket++; break;
+                case 132: if (bracket > 0) bracket--; break;
+                case 127: paren++; break;
+                case 128: if (paren > 0) paren--; break;
+                case 8:
                     if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
                     break;
             }

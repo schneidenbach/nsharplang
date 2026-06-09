@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11a: CLASS slice 1a — the FIFTH user-defined type + reference-type METHODS
+
+Data-driven priority: `class` is the most common construct in the example corpus (41 of 113 N# files, vs record
+14 / union 7 / enum 7 / struct 6). Slice 1a lands the foundation, REUSING the record infrastructure.
+- **A `class` (token 8) = a RECORD** in the columnar emitter: a reference type (`DefineType` class + a public
+  default ctor + public fields), constructed via an object initializer (`new Box { Value: v }`), fields read via
+  ldfld on the ref. The parser kernel `ParseStructDeclarationInto` now accepts `class` (8) alongside `struct` (9)
+  and `record` (13); the adapter gate permits decl kind 8; `TopLevelClassIndices` collects classes (IsReference=true).
+- **NEW: instance METHODS on a REFERENCE type** (class AND record — records previously DECLINED methods). The PASS 0b
+  `IsReference && Methods.Count > 0` decline is removed; the body emit is shared with value types (bare field →
+  `ldarg.0; ldfld`, valid for both a managed pointer and an object ref); `TryEmitInstanceCall` branches on
+  IsReference — a REFERENCE receiver emits `stloc temp; ldloc temp; <args>; callvirt method`, a VALUE receiver keeps
+  `ldloca temp; <args>; call`. This unblocks record methods as a bonus.
+
+Parity-gated: `ColumnarCodegen_Parity_ClassObjectInitAndMethods` value-matches the C# ILCompiler over a class with
+four methods (field reads + params), a direct field read on the ref, and a RECORD with a method (the unblock);
+metadata-asserts the class is a reference type with public instance methods. DECLINES (slice-1a scope, all safe
+under-acceptance, verify-first-confirmed): a user `constructor` (the kernel stops at the `constructor` keyword), a
+PRIMARY constructor `class C(x)` (the kernel needs `{` after the name), INHERITANCE `class D: Base` (the `:`), and a
+method that WRITES a field (the assignment path has no this-field fallback — returns false). Slice 1a is object-init
++ field-READING methods only. Stale decline assertions updated (record-method + bare-class now compile; the enum
+test's "non-enum decl declines" now pins an `interface`). VERIFY-FIRST confirmed the whole surface in C# before
+building (boxGet/boxPlus/boxSum correct). A 2-lens read-only review CONFIRMED 3 "soundness" findings — a record/class
+method named like a synthesized member (`Equals`/`GetHashCode`/`ToString`) supposedly rejected by CS0114 — but
+VERIFY-FIRST OVERTURNED ALL THREE (the THIRD review-overturn this session): the N# pipeline ACCEPTS such methods (it
+is NOT C#-the-language) and columnar value-matches (callvirt dispatches to the USER method, e.g. a `GetHashCode(): int
+{ return X*2 }` returns X*2 on both paths). Pinned as a parity case (`hsh`) so the review's wrong "decline" fix can't
+be applied later. 112 columnar/dogfood tests green; full non-IDE gate green (fresh isolated).
+Next: class slice 1b — user CONSTRUCTORS (with bodies — field assignment via `ldarg.0; <value>; stfld`) + positional
+construction `new C(args)`; then ctor chaining (this/base), inheritance, properties.
+
+---
+
 ## 2026-06-09 — Phase D-10c: union BARE TYPE patterns — `Color.Red => …` (union match now complete)
 
 A match arm `Result.Success => …` (NO braces) matches a union case by TYPE without destructuring/binding (the
