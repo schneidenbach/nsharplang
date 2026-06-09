@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Phase D-2: `float` scalar (r4) in the columnar emitter — completes the numeric-scalar tier
+
+A per-construct parse-vs-emit probe (route each candidate, check `TryGetColumnarFunctionInputs` parse vs
+`RouteColumnarProgram` emit) showed `float` is the only remaining EMITTER-ONLY rich construct — tuples, for,
+foreach, struct decls all parse=False (need N# parser-kernel work). float directly mirrors the just-shipped double:
+`IsSupportedType`/`IsSupportedElementType` admit float + float[]; the FloatLiteral case now narrows an f/F-suffixed
+literal to `Ldc_R4 (float)value` (a bare/d-suffixed literal stays double; m/M decimal declines); FP `+-*/%`, `Neg`,
+NaN-correct comparisons (the existing `isFloat` complement path now covers float too), target-driven casts
+(→float=`Conv_R4`, float→int=`Conv_I4`, float↔double via Conv_R4/Conv_R8), and float[] `Ldelem_R4`/`Stelem_R4`.
+Mixed float+double / float+int still DECLINE (no implicit widening — operand types must match).
+
+Parity-gated: `ColumnarCodegen_Parity_FloatScalar` value-matches the C# ILCompiler over NaN/±Inf, all comparisons,
+casts in 4 directions (incl. `d2f` double→float overflow→+Inf and NaN→int), float[] read + new+write+read, f-literals,
+and the mixed-type + bare-literal-as-float declines. Not separately heavy-reviewed — it's a mechanical r4 mirror of
+the double slice (already adversarially reviewed: same FP comparison/cast/literal logic, R4 opcodes). All 89 dogfood
+tests green (the multi-function "ineligible function" example moved float→decimal, still unmodelled). The numeric
+scalar tier (int/long/uint?/ulong/char/double/float) is now columnar-complete; the next ILCompiler-retirement slices
+(for/foreach/tuples/match/structs) require N# parser-kernel work.
+
 ## 2026-06-08 — Phase D-1: `double` scalar (r8) in the columnar emitter — first rich-language coverage toward retiring the C# ILCompiler
 
 A 7-agent read-only landscape map (what columnar already replaces, gating deps, the #1 next slice) picked `double`

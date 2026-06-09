@@ -2205,9 +2205,9 @@ class B
         AssertColumnarProgramMatchesCSharp("func id(x: int): int {\n    return x\n}\n",
             ("id", new object[] { 42 }), ("id", new object[] { -7 }));
 
-        // The whole program declines (no assembly) if ANY function is ineligible (here, a not-yet-supported
-        // `float`/Single second func — int/bool/long/double are supported, but float is not modelled).
-        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: float): float {\n    return x\n}\n").Ok);
+        // The whole program declines (no assembly) if ANY function is ineligible (here, a `decimal` second func —
+        // decimal is method-based arithmetic, outside the modelled scalar set, so the whole program declines).
+        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: decimal): decimal {\n    return x\n}\n").Ok);
 
         // 4i SIBLING CALLS. A caller invoking a sibling, and a nested call (call result as an arg).
         var callHelper = "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc addThree(a: int, b: int, c: int): int {\n    return add(add(a, b), c)\n}\n";
@@ -3047,8 +3047,56 @@ class B
         // Mixed int+double has NO implicit widening in the columnar backend (the operands' types must match) ->
         // it declines, so the C# fallback (which DOES widen) stays authoritative. Verifies the safe decline.
         Assert.False(RouteColumnarProgram("func mix(a: int, b: double): double {\n    return a + b\n}\n").Ok);
-        // A float-suffixed literal (System.Single) is a different type -> declines (this slice models double only).
+        // Returning a `float` literal from a `double` function declines too (no implicit float->double widening on
+        // return — the value type must match the return type exactly).
         Assert.False(RouteColumnarProgram("func f(): double {\n    return 3.5f\n}\n").Ok);
+    }
+
+    // FLOAT (System.Single, r4) — the second floating-point type, mirroring double: f/F-suffixed literals (Ldc_R4),
+    // FP arithmetic, NaN-correct comparisons (unordered complement for `<=`/`>=`), unary negate, casts (incl.
+    // float<->double via Conv_R4/Conv_R8), and float[] (Ldelem_R4/Stelem_R4). Value-matched vs the C# ILCompiler
+    // over NaN/+-Inf/cast inputs. A bare/`d`-suffixed literal stays double; mixed float+double/int still declines.
+    [Fact]
+    public void ColumnarCodegen_Parity_FloatScalar()
+    {
+        var prog =
+            "func addF(a: float, b: float): float {\n    return a + b\n}\n\n" +
+            "func divF(a: float, b: float): float {\n    return a / b\n}\n\n" +
+            "func negF(a: float): float {\n    return -a\n}\n\n" +
+            "func litF(): float {\n    return 1.5f + 0.25f\n}\n\n" +
+            "func leF(a: float, b: float): bool {\n    return a <= b\n}\n\n" +
+            "func geF(a: float, b: float): bool {\n    return a >= b\n}\n\n" +
+            "func ltF(a: float, b: float): bool {\n    return a < b\n}\n\n" +
+            "func eqF(a: float, b: float): bool {\n    return a == b\n}\n\n" +
+            "func neF(a: float, b: float): bool {\n    return a != b\n}\n\n" +
+            "func f2i(a: float): int {\n    return (int)a\n}\n\n" +
+            "func i2f(a: int): float {\n    return (float)a\n}\n\n" +
+            "func f2d(a: float): double {\n    return (double)a\n}\n\n" +
+            "func d2f(a: double): float {\n    return (float)a\n}\n\n" +
+            "func sumF(a: float[]): float {\n    total := 0.0f\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            "func fillScaleSumF(n: int, v: float, f: float): float {\n    a := new float[](n)\n    i := 0\n    while i < n {\n        a[i] = v\n        i = i + 1\n    }\n    i = 0\n    while i < n {\n        a[i] = a[i] * f\n        i = i + 1\n    }\n    total := 0.0f\n    i = 0\n    while i < n {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("addF", new object[] { 1.5f, 2.5f }), ("addF", new object[] { float.PositiveInfinity, 1.0f }), ("addF", new object[] { float.NaN, 1.0f }),
+            ("divF", new object[] { 7.5f, 2.5f }), ("divF", new object[] { 1.0f, 0.0f }), ("divF", new object[] { 0.0f, 0.0f }),
+            ("negF", new object[] { 3.5f }), ("negF", new object[] { float.NaN }), ("negF", new object[] { 0.0f }),
+            ("litF", new object[0]),
+            ("leF", new object[] { 1.0f, 2.0f }), ("leF", new object[] { 2.0f, 2.0f }), ("leF", new object[] { 3.0f, 2.0f }), ("leF", new object[] { float.NaN, 2.0f }),
+            ("geF", new object[] { 3.0f, 2.0f }), ("geF", new object[] { float.NaN, 2.0f }),
+            ("ltF", new object[] { 1.0f, 2.0f }), ("ltF", new object[] { float.NaN, 2.0f }),
+            ("eqF", new object[] { 2.0f, 2.0f }), ("eqF", new object[] { float.NaN, float.NaN }),
+            ("neF", new object[] { 2.0f, 3.0f }), ("neF", new object[] { float.NaN, float.NaN }),
+            ("f2i", new object[] { 3.7f }), ("f2i", new object[] { -3.7f }), ("f2i", new object[] { float.NaN }),
+            ("i2f", new object[] { 5 }), ("i2f", new object[] { -7 }),
+            ("f2d", new object[] { 1.5f }), ("f2d", new object[] { float.NaN }),
+            ("d2f", new object[] { 1.5 }), ("d2f", new object[] { 1.0e40 }), // overflow -> +Inf, matching C#
+            ("sumF", new object[] { new float[] { 1.5f, 2.5f, 3.0f } }), ("sumF", new object[] { new float[0] }),
+            ("fillScaleSumF", new object[] { 3, 2.0f, 1.5f }), ("fillScaleSumF", new object[] { 0, 9.0f, 2.0f }));
+
+        // Mixed float+double / float+int still DECLINE (no implicit widening; operand types must match exactly).
+        Assert.False(RouteColumnarProgram("func mfd(a: float, b: double): double {\n    return a + b\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func mfi(a: float, b: int): float {\n    return a + b\n}\n").Ok);
+        // A bare (3.5) or d-suffixed (3.5d) literal is a DOUBLE, not a float -> returning it as float declines.
+        Assert.False(RouteColumnarProgram("func bare(): float {\n    return 3.5\n}\n").Ok);
     }
 
     // IMPLICIT-VOID functions: a `func f(...) {` with NO `: ReturnType` (omitted return) is an implicit-void
