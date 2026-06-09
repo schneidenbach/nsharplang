@@ -143,6 +143,15 @@ public sealed class ColumnarIlEmitter
             type = null!;
             return false;
         }
+        // StringBuilder — the modelled mutable reference type — is a valid param/return/local type (a builder is
+        // commonly passed IN to an append helper, e.g. AppendQuotedDiagnosticCommandArgument(builder, value)). It
+        // is resolved here (param/return/local), NOT in TryResolveBuiltin, so `StringBuilder[]` stays unsupported
+        // (array elements resolve through TryResolveBuiltin / IsSupportedElementType, which exclude it).
+        if (canonical == "StringBuilder")
+        {
+            type = typeof(System.Text.StringBuilder);
+            return true;
+        }
         return TryResolveBuiltin(canonical, out type);
     }
 
@@ -801,6 +810,16 @@ public sealed class ColumnarIlEmitter
                     opType = typeof(int);
                 else
                     return false;
+
+                // String CONCATENATION: `s1 + s2` -> String.Concat(string, string) (VALUE concat, matching the C#
+                // path's result). Both operands are already on the stack. Only string+string is modelled (the
+                // corpus' shape, e.g. `"diag-" + Math.Abs(hash).ToString("x")`); string+int etc. decline.
+                if (op == "+" && opType == typeof(string))
+                {
+                    _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
+                    type = typeof(string);
+                    return true;
+                }
                 switch (op)
                 {
                     case "+": case "-": case "*": case "/": case "%":
@@ -1140,6 +1159,52 @@ public sealed class ColumnarIlEmitter
             type = typeof(int);
             return true;
         }
+        if (typeName == "Math" && member == "Abs" && argCount == 1)
+        {
+            // System.Math.Abs(int) -> int (absolute value). The arg is an int; emit `call` (static). Negative
+            // inputs return the magnitude; int.MinValue throws OverflowException — identical to the C# path,
+            // which binds the same overload, so parity holds (the columnar and C# results match, throw included).
+            var method = typeof(Math).GetMethod(nameof(Math.Abs), new[] { typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(int);
+            return true;
+        }
+        if ((typeName == "String" || typeName == "string") && member == "Compare")
+        {
+            // String.Compare overloads -> int (ordinal/culture comparison sign). Two shapes are modelled:
+            //   3-arg: Compare(string, string, StringComparison)
+            //   6-arg: Compare(string, int, string, int, int, StringComparison)
+            // Both take a StringComparison enum constant as the LAST arg (emitted as its underlying int). The
+            // return is the comparison sign (<0 / 0 / >0), matching the C# binder's pick of the same overload.
+            if (argCount == 3)
+            {
+                var method = typeof(string).GetMethod(nameof(string.Compare),
+                    new[] { typeof(string), typeof(string), typeof(StringComparison) });
+                if (method == null
+                    || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string))
+                    || !EmitArg(callIdx, 3, typeof(StringComparison)))
+                    return false;
+                _il.Emit(OpCodes.Call, method);
+                type = typeof(int);
+                return true;
+            }
+            if (argCount == 6)
+            {
+                var method = typeof(string).GetMethod(nameof(string.Compare),
+                    new[] { typeof(string), typeof(int), typeof(string), typeof(int), typeof(int), typeof(StringComparison) });
+                if (method == null
+                    || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(int))
+                    || !EmitArg(callIdx, 3, typeof(string)) || !EmitArg(callIdx, 4, typeof(int))
+                    || !EmitArg(callIdx, 5, typeof(int)) || !EmitArg(callIdx, 6, typeof(StringComparison)))
+                    return false;
+                _il.Emit(OpCodes.Call, method);
+                type = typeof(int);
+                return true;
+            }
+            return false;
+        }
         if (typeName == "Array" && member == "Fill" && argCount == 4)
         {
             // Array.Fill<T>(T[] array, T value, int startIndex, int count) -> void. The array's element type
@@ -1219,6 +1284,35 @@ public sealed class ColumnarIlEmitter
                 return false;
             }
             return false;
+        }
+        if (receiverType == typeof(string) && member == "Trim" && argCount == 0)
+        {
+            // string.Trim() -> string (strip leading/trailing whitespace). The receiver string is on the stack;
+            // `callvirt` the parameterless overload. DiagnosticClusters.nl: `builder.ToString().Trim()`.
+            var method = typeof(string).GetMethod(nameof(string.Trim), Type.EmptyTypes);
+            if (method == null)
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(string);
+            return true;
+        }
+        if (receiverType == typeof(int) && member == "ToString" && argCount == 1)
+        {
+            // int.ToString(string format) -> string (e.g. .ToString("x") for lowercase hex). Int32.ToString is a
+            // VALUE-TYPE instance method, so `this` must be a managed pointer: spill the receiver int (already on
+            // the stack) to a temp local and `ldloca` its address, then push the format string and `call`. The
+            // C# path binds the same Int32.ToString(string) overload, so the formatted text matches exactly.
+            var method = typeof(int).GetMethod(nameof(int.ToString), new[] { typeof(string) });
+            if (method == null)
+                return false;
+            var temp = _il.DeclareLocal(typeof(int));
+            _il.Emit(OpCodes.Stloc, temp);
+            _il.Emit(OpCodes.Ldloca, temp);
+            if (!EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
         }
         if (receiverType == typeof(string) && member == "Substring" && argCount == 2)
         {

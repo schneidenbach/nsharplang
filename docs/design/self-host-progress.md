@@ -11,6 +11,40 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Math.Abs + int.ToString(fmt) + string concat + String.Compare(3/6-arg) + Trim + StringBuilder params → DiagnosticClusters.nl (single-file 27→28, cluster 30→31)
+
+The LAST emit-blocked systems-dogfood file falls. The roadmap predicted DiagnosticClusters.nl needed "exactly"
+four BCL features; a per-function STUB probe (route each of the 49 funcs solo, tag leaf-vs-sibling-call declines)
+found the four PLUS two the construct-scan missed — string concatenation and a StringBuilder PARAMETER type:
+1. **`Math.Abs(int)→int`** (static `call`); **`String.Compare`** 3-arg `(string,string,StringComparison)` and
+   6-arg `(string,int,string,int,int,StringComparison)` → int (the `StartsWithIgnoreCase` sub-range prefix check);
+   **`string.Trim()→string`** (instance `callvirt`, parameterless).
+2. **`int.ToString(string)→string`** — the first VALUE-TYPE instance call. `Int32.ToString(string)` needs a
+   managed-pointer `this`, so the receiver int (already on the stack) is spilled to a temp local and `ldloca`'d,
+   then the format string is pushed and `call`ed. `.ToString("x")` (lowercase hex) is the `FormatDiagnosticClusterId`
+   small-buffer path; the parity test PROVES the format overload (255 → "ff", not the decimal "255").
+3. **string concatenation** `s1 + s2 → String.Concat(string,string)` — the binary `+` case only handled numerics;
+   `opType==string && op=="+"` now emits Concat (the exact line-554 shape `"diag-" + Math.Abs(hash).ToString("x")`).
+   Only string+string is modelled; string+int etc. still decline (the opType gate rejects the mix).
+4. **`StringBuilder` as a param/return type** — the root single-file blocker. StringBuilder was modelled as a
+   `new`-created local/return and admitted by `IsSupportedType`, but `TryResolveType` (which resolves param/return
+   CANONICAL strings in pass 1) only knew builtins, so a function taking `builder: StringBuilder` IN (e.g.
+   `AppendQuotedDiagnosticCommandArgument`) declined the whole program at pass 1. `TryResolveType` now maps the
+   canonical `"StringBuilder"` → `typeof(StringBuilder)`; it is resolved there (param/return/local), NOT in
+   `TryResolveBuiltin`, so `StringBuilder[]` stays unsupported (array elements gate through TryResolveBuiltin /
+   IsSupportedElementType, which exclude it).
+
+Flips `DiagnosticClusters.nl` (1505 lines, 49 funcs). Parity-gated: `ColumnarCodegen_Parity_MathAbsCompareTrimToString`
+(absInt; hex PROVES "x" hex-format; diagId the literal+hex concat shape; cmpCI PROVES OrdinalIgnoreCase ("ABC","abc")→0;
+startsCI the 6-arg sub-range; trimmed) and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticClusters`
+(`FormatDiagnosticClusterId` over both buffer paths, `StartsWithIgnoreCase`, `IsDiagnosticClusterRootBefore`,
+`NormalizeDiagnosticMessagePattern`, `ContainsIgnoreCase` — value-matched vs the C# pipeline). Adversarially reviewed
+(read-only workflow, 3 lenses + judge → SHIP): IL/stack balance correct (Ldloca+Call, not Callvirt, for the value-type
+ToString; temp local cannot alias a named local), every added overload binds exactly what the C# binder picks, and the
+decline surface has no holes (string+int / StringBuilder[] / Trim-on-non-string / wrong-arity Compare all decline).
+Ratchets: single-file floor 27→28, multi-file cluster 30→31. Coverage now **28/32 single-file, 31/32 via multi-file
+merge (~97%)** — only `SemanticScopes` (parser-kernel-blocked) remains for 32/32.
+
 ## 2026-06-08 — StringComparison enum + IndexOf overloads + char/int promotion → CliArguments.nl (single-file 26→27, cluster 29→30)
 
 A per-function stub probe of `CliArguments.nl` (4125 lines, 83 funcs) — after adding the obvious string features

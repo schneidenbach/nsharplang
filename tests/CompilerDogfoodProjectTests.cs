@@ -3186,6 +3186,72 @@ class B
             ("capLet", new object[] { 'm' }), ("capLet", new object[] { '9' }));
     }
 
+    // Math.Abs(int) + int.ToString(format) + string CONCATENATION + String.Compare (3-arg + 6-arg, with the
+    // StringComparison enum) + string.Trim() — the BCL features DiagnosticClusters.nl needs. `hex` PROVES the
+    // ToString("x") overload (lowercase hex "ff", NOT the decimal "255" the parameterless ToString gives);
+    // `diagId` is the exact line-554 shape (string `+` of a literal and the hex of Math.Abs); `cmpCI` PROVES
+    // OrdinalIgnoreCase (("ABC","abc") -> 0); `startsCI` PROVES the 6-arg sub-range Compare.
+    [Fact]
+    public void ColumnarCodegen_Parity_MathAbsCompareTrimToString()
+    {
+        var prog =
+            "import System\n\n" +
+            "func absInt(n: int): int {\n    return Math.Abs(n)\n}\n\n" +
+            "func hex(n: int): string {\n    return Math.Abs(n).ToString(\"x\")\n}\n\n" +
+            "func diagId(hash: int): string {\n    return \"diag-\" + Math.Abs(hash).ToString(\"x\")\n}\n\n" +
+            "func cmpCI(a: string, b: string): int {\n    return String.Compare(a, b, StringComparison.OrdinalIgnoreCase)\n}\n\n" +
+            "func startsCI(text: string, start: int, needle: string): bool {\n    return String.Compare(text, start, needle, 0, needle.Length, StringComparison.OrdinalIgnoreCase) == 0\n}\n\n" +
+            "func trimmed(s: string): string {\n    return s.Trim()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("absInt", new object[] { 5 }), ("absInt", new object[] { -5 }), ("absInt", new object[] { 0 }), ("absInt", new object[] { -2147483647 }),
+            ("hex", new object[] { 255 }), ("hex", new object[] { 16 }), ("hex", new object[] { 0 }), ("hex", new object[] { -255 }),
+            ("diagId", new object[] { 255 }), ("diagId", new object[] { 0 }), ("diagId", new object[] { -4096 }),
+            ("cmpCI", new object[] { "ABC", "abc" }), ("cmpCI", new object[] { "a", "b" }), ("cmpCI", new object[] { "b", "a" }),
+            ("startsCI", new object[] { "HelloWorld", 5, "world" }), ("startsCI", new object[] { "HelloWorld", 0, "world" }),
+            ("startsCI", new object[] { "abc", 0, "ABC" }),
+            ("trimmed", new object[] { "  hi  " }), ("trimmed", new object[] { "x" }), ("trimmed", new object[] { "   " }));
+    }
+
+    // MILESTONE: DiagnosticClusters.nl compiles end-to-end with no C# AST — the LAST emit-blocked systems-dogfood
+    // file. Enabling features: Math.Abs(int), int.ToString("x"), string.Trim(), String.Compare (3-arg + 6-arg),
+    // atop the already-modelled StringBuilder/StringComparison/void. FormatDiagnosticClusterId exercises Math.Abs
+    // + ToString("x") (small-buffer path) AND new string(buffer,...) (large-buffer path); StartsWithIgnoreCase the
+    // 6-arg Compare; IsDiagnosticClusterRootBefore the 3-arg Compare; NormalizeDiagnosticMessagePattern Trim.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_DiagnosticClusters()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "DiagnosticClusters.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real DiagnosticClusters.nl (expected full support).");
+        Assert.Contains("FormatDiagnosticClusterId", methodNames!);  // Math.Abs + int.ToString("x") + new string
+        Assert.Contains("StartsWithIgnoreCase", methodNames!);       // 6-arg String.Compare
+        Assert.Contains("NormalizeDiagnosticMessagePattern", methodNames!); // string.Trim()
+
+        AssertColumnarProgramMatchesCSharp(source,
+            // Small buffer (< 13) -> "diag-" + Math.Abs(hash).ToString("x"); large buffer -> built into the buffer.
+            ("FormatDiagnosticClusterId", new object[] { 255, new char[4] }),
+            ("FormatDiagnosticClusterId", new object[] { 0, new char[4] }),
+            ("FormatDiagnosticClusterId", new object[] { -255, new char[4] }),
+            ("FormatDiagnosticClusterId", new object[] { 255, new char[16] }),
+            ("FormatDiagnosticClusterId", new object[] { 4096, new char[16] }),
+            ("FormatDiagnosticClusterId", new object[] { 0, new char[16] }),
+            // 6-arg String.Compare sub-range (StartsWithIgnoreCase): the case-insensitive prefix check + guard.
+            ("StartsWithIgnoreCase", new object[] { "HelloWorld", 5, "world" }),
+            ("StartsWithIgnoreCase", new object[] { "HelloWorld", 0, "world" }),
+            ("StartsWithIgnoreCase", new object[] { "abc", 0, "ABC" }),
+            ("StartsWithIgnoreCase", new object[] { "ab", 5, "x" }),
+            // 3-arg String.Compare (IsDiagnosticClusterRootBefore tie-breaks on the file name, OrdinalIgnoreCase).
+            ("IsDiagnosticClusterRootBefore", new object[] { 0, 1, new[] { "b.cs", "a.cs" }, new[] { 10, 10 }, new[] { 1, 1 } }),
+            ("IsDiagnosticClusterRootBefore", new object[] { 1, 0, new[] { "b.cs", "a.cs" }, new[] { 10, 10 }, new[] { 1, 1 } }),
+            // string.Trim() + StringBuilder normalizer; IndexOf(string, StringComparison) contains-ignore-case.
+            ("NormalizeDiagnosticMessagePattern", new object[] { "  Error 42  " }),
+            ("NormalizeDiagnosticMessagePattern", new object[] { "plain" }),
+            ("NormalizeDiagnosticMessagePattern", new object[] { "   " }),
+            ("ContainsIgnoreCase", new object[] { "HelloWorld", "WORLD" }),
+            ("ContainsIgnoreCase", new object[] { "Hello", "xyz" }));
+    }
+
     // MILESTONE: LexerTokenKindScanner.nl compiles end-to-end with no C# AST. Enabling feature: lowercase
     // `char.IsLetter`/`IsDigit`/`IsWhiteSpace`/`IsLetterOrDigit` static predicates (the file's char classifiers
     // mirror the C# lexer's BCL predicates). Reads the actual file.
@@ -3447,7 +3513,7 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
-            "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
+            "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
@@ -3479,7 +3545,7 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliArguments.nl", "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl",
-            "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
+            "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
