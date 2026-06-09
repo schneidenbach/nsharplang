@@ -11,6 +11,35 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Phase D-1: `double` scalar (r8) in the columnar emitter — first rich-language coverage toward retiring the C# ILCompiler
+
+A 7-agent read-only landscape map (what columnar already replaces, gating deps, the #1 next slice) picked `double`
+as the highest-leverage, lowest-risk first Phase-D slice: bounded, IEEE-754-standardized, fully parity-gateable,
+matching the existing int/long/ulong scalar pattern. A per-construct probe confirmed the N# parser kernel ALREADY
+parses double types + float literals (FloatLiteral = node kind 1) — so this is a pure EMITTER slice (no kernel
+work). (Note: this reverses the self-host-only "skip double" guidance — correct, since the goal is now covering
+the whole language to retire C#, not just the dogfood corpus.)
+
+Added to `ColumnarIlEmitter`: `IsSupportedType`/`IsSupportedElementType` admit double + double[]; a FloatLiteral
+case (`Ldc_R8`; parses via `TryParseDoubleLiteral` mirroring the C# `ParseFloatLiteralValue` — strip a d/D suffix,
+drop `_`, invariant parse; an f/F float or m/M decimal suffix DECLINES); unary `Neg` on r8; FP `+-*/%` (double is
+NOT unsignedDivRem, so plain `Div`/`Rem` are IEEE FP — x/0.0→±Inf, 0.0/0.0→NaN, no throw); NaN-CORRECT comparisons
+(`EmitComparison` gained an `isFloat` flag — `<`/`>` use ordered Clt/Cgt, but `<=`/`>=` negate the UNORDERED
+complement Cgt_Un/Clt_Un so a NaN operand yields false, matching C#'s `a<=b ⇒ !(a cgt.un b)`; `==`/`!=` use Ceq);
+target-driven casts matching the C# `TryGetNumericConversionOpcode` (→double=Conv_R8, →long=Conv_I8, →char=Conv_U2,
+long/double→int=Conv_I4); double[] `Ldelem_R8`/`Stelem_R8`/`Newarr`. Mixed int+double still DECLINES (no implicit
+widening — the operands' types must match), as do bitwise/shift on double and float/decimal.
+
+Parity-gated: `ColumnarCodegen_Parity_DoubleScalar` value-matches the C# ILCompiler over 50+ cases — every
+arithmetic op with NaN/±Inf/signed-zero, all 6 comparisons with NaN on each side, negate, casts in 4 directions
+(incl. NaN→int and large double→long), double[] read + new+write+read, float literals, and the int+double / `3.5f`
+declines. Adversarially reviewed (read-only, 3 lenses: IEEE/NaN semantics, casts+literals, decline surface). All
+88 dogfood tests green (one now-stale assertion updated: the multi-function "ineligible function" example switched
+from double, now supported, to float/Single, still unmodelled). Unlocks vectorization examples + float benchmarks;
+the next ILCompiler-retirement slices are for/foreach, then tuples/match/structs (per the retirement map).
+
+---
+
 ## 2026-06-08 — Phase C: never-slower benchmark — columnar emit backend is end-to-end TIED-to-marginally-faster vs C# (REAL numbers)
 
 Added `ColumnarBackendEmitBenchmarks` — the Phase-C never-slower gate. It compiles a systems-subset program

@@ -117,15 +117,16 @@ public sealed class ColumnarIlEmitter
     // unsigned compares) — see the binary/comparison cases.
     private static bool IsSupportedType(Type t) =>
         t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(ulong)
-        || t == typeof(string) || t == typeof(char) || t == typeof(System.Text.StringBuilder)
+        || t == typeof(string) || t == typeof(char) || t == typeof(double) || t == typeof(System.Text.StringBuilder)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
     // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long/ulong (i4/i8),
-    // char (u2), and string (a reference element). bool/double are excluded until their element opcodes land.
-    // ulong shares long's 8-byte slot (Ldelem_I8/Stelem_I8 move the bit pattern; the unsignedness is purely in
-    // how the VALUE is operated on, not how it is stored/loaded).
+    // char (u2), double (r8 via Ldelem_R8/Stelem_R8), and string (a reference element). bool is excluded until its
+    // element opcodes land. ulong shares long's 8-byte slot (Ldelem_I8/Stelem_I8 move the bit pattern; the
+    // unsignedness is purely in how the VALUE is operated on, not how it is stored/loaded).
     private static bool IsSupportedElementType(Type t) =>
-        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(string);
+        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(string)
+        || t == typeof(double);
 
     /// <summary>
     /// Resolve a canonical N# type string (e.g. "int", "int[]") to its CLR <see cref="Type"/>. Handles a single
@@ -199,6 +200,23 @@ public sealed class ColumnarIlEmitter
         }
         decoded = sb.ToString();
         return true;
+    }
+
+    // Parse a double literal's raw token text to its value, mirroring the C# path's ParseFloatLiteralValue: strip a
+    // trailing `d`/`D` suffix (an explicit double marker), drop `_` digit separators, then parse invariant-culture.
+    // (An `f`/`F` float or `m`/`M` decimal suffix is rejected by the caller before this is reached.)
+    private static bool TryParseDoubleLiteral(string raw, out double value)
+    {
+        value = 0;
+        var s = raw.Trim();
+        if (s.Length > 0 && (s[s.Length - 1] == 'd' || s[s.Length - 1] == 'D'))
+            s = s.Substring(0, s.Length - 1);
+        s = s.Replace("_", string.Empty);
+        return double.TryParse(
+            s,
+            System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out value);
     }
 
     /// <summary>Canonical N# primitive type name → its CLR <see cref="Type"/>. Non-builtins are unsupported.</summary>
@@ -502,6 +520,7 @@ public sealed class ColumnarIlEmitter
                     if (elementType == typeof(int)) _il.Emit(OpCodes.Stelem_I4);
                     else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Stelem_I8);
                     else if (elementType == typeof(char)) _il.Emit(OpCodes.Stelem_I2);
+                    else if (elementType == typeof(double)) _il.Emit(OpCodes.Stelem_R8);
                     else if (elementType == typeof(string)) _il.Emit(OpCodes.Stelem_Ref);
                     else return false; // other element types arrive with their type slices.
                     return true;
@@ -701,6 +720,23 @@ public sealed class ColumnarIlEmitter
                 return false;
             }
 
+            case 1: // FloatLiteral — `3.5` / `3.5d` (double, r8). An `f`/`F` (float) or `m`/`M` (decimal) suffix is
+            {       // a DIFFERENT type -> decline (this slice models double only). Parse mirrors the C# path's
+                    // ParseFloatLiteralValue (strip a d/D suffix, drop `_` separators, invariant-culture parse).
+                var raw = Text(idx);
+                if (raw.Length > 0)
+                {
+                    var last = raw[raw.Length - 1];
+                    if (last == 'f' || last == 'F' || last == 'm' || last == 'M')
+                        return false;
+                }
+                if (!TryParseDoubleLiteral(raw, out var doubleValue))
+                    return false;
+                _il.Emit(OpCodes.Ldc_R8, doubleValue);
+                type = typeof(double);
+                return true;
+            }
+
             case 4: // BoolLiteral — true/false (i4 1/0).
                 switch (Text(idx))
                 {
@@ -738,9 +774,10 @@ public sealed class ColumnarIlEmitter
                     return false;
                 switch (Text(idx))
                 {
-                    case "-": // negate — Neg works on i4 and i8; result is the operand's numeric type. NOT valid
-                              // on ulong (C# forbids unary minus on an unsigned type) — decline it.
-                        if (operandType != typeof(int) && operandType != typeof(long)) return false;
+                    case "-": // negate — Neg works on i4/i8/r8; result is the operand's numeric type. NOT valid on
+                              // ulong (C# forbids unary minus on an unsigned type) — decline it. On double, Neg is
+                              // the IEEE negate (-NaN stays NaN, -0.0 is distinct from 0.0), matching the C# path.
+                        if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(double)) return false;
                         _il.Emit(OpCodes.Neg); type = operandType; return true;
                     case "~": // bitwise not — Not works on i4 and i8 (and on ulong's u8 bit pattern).
                         if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(ulong)) return false;
@@ -823,12 +860,13 @@ public sealed class ColumnarIlEmitter
                 switch (op)
                 {
                     case "+": case "-": case "*": case "/": case "%":
-                        // Add/Sub/Mul/Div/Rem work on i4 and i8; the result is `opType`'s numeric type. Div/Rem are
-                        // SIGNED for int/long (UNSIGNED Div_Un/Rem_Un for ulong); divide-by-zero / INT_MIN÷-1 throw
-                        // at runtime exactly as the C# path does. A CHAR result promotes to INT (a char never
-                        // survives an arithmetic op — `c - 'A'` is int, so a negative difference stays int, NOT a
-                        // u2-wrapped char; matches the C# binder's GetWiderType, Analyzer.cs:12820).
-                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char)) return false;
+                        // Add/Sub/Mul/Div/Rem work on i4, i8, and r8 (double); the result is `opType`'s numeric type.
+                        // Div/Rem are SIGNED for int/long (UNSIGNED Div_Un/Rem_Un for ulong); on DOUBLE the same
+                        // `div`/`rem` opcodes do IEEE FP division/remainder (x/0.0 -> ±Inf, 0.0/0.0 -> NaN — no
+                        // throw, matching the C# path), so double is NOT unsignedDivRem. Integer divide-by-zero /
+                        // INT_MIN÷-1 still throw exactly as the C# path does. A CHAR result promotes to INT (a char
+                        // never survives an arithmetic op — `c - 'A'` is int; matches Analyzer.cs:12820's GetWiderType).
+                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char) && opType != typeof(double)) return false;
                         var unsignedDivRem = opType == typeof(ulong);
                         _il.Emit(
                             op == "+" ? OpCodes.Add :
@@ -847,10 +885,11 @@ public sealed class ColumnarIlEmitter
                         return true;
                     case "<": case ">": case "<=": case ">=":
                         // Ordering on int, long, char (signed Clt/Cgt; a char is a non-negative i4 so signed is
-                        // correct), or ulong (UNSIGNED Clt_Un/Cgt_Un — a ulong > long.MaxValue must compare as a
-                        // large positive, not a negative i8).
-                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char)) return false;
-                        EmitComparison(op, opType == typeof(ulong));
+                        // correct), ulong (UNSIGNED Clt_Un/Cgt_Un — a ulong > long.MaxValue must compare as a large
+                        // positive, not a negative i8), or double (ORDERED Clt/Cgt for `<`/`>`; the UNORDERED
+                        // complement for `<=`/`>=` so a NaN operand yields false — see EmitComparison's isFloat path).
+                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char) && opType != typeof(double)) return false;
+                        EmitComparison(op, opType == typeof(ulong), opType == typeof(double));
                         type = typeof(bool);
                         return true;
                     case "==": case "!=":
@@ -863,8 +902,10 @@ public sealed class ColumnarIlEmitter
                             type = typeof(bool);
                             return true;
                         }
-                        // Equality on int, long, ulong, bool, or char (Ceq is bit-identical signed/unsigned).
-                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(bool) && opType != typeof(char)) return false;
+                        // Equality on int, long, ulong, bool, char, or double (Ceq is bit-identical signed/unsigned;
+                        // on double it is the IEEE ordered equal — NaN == NaN is false and NaN != NaN is true, which
+                        // the `!=` negation of Ceq produces correctly).
+                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(bool) && opType != typeof(char) && opType != typeof(double)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -969,6 +1010,7 @@ public sealed class ColumnarIlEmitter
                 if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
                 else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
                 else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
+                else if (elementType == typeof(double)) _il.Emit(OpCodes.Ldelem_R8);
                 else if (elementType == typeof(string)) _il.Emit(OpCodes.Ldelem_Ref);
                 else return false; // other element types arrive with their type slices.
                 type = elementType;
@@ -1045,13 +1087,16 @@ public sealed class ColumnarIlEmitter
                     return false;
                 if (!EmitExpression(Child(idx, 1), out var sourceType) || !IsCastableScalar(sourceType))
                     return false;
-                // int/long/char are all i4/i8 on the stack; emit the narrowing/widening only when the
-                // representation differs (char->int and same-type casts are no-ops).
+                // Emit the conversion only when the stack representation differs (char->int and same-type casts
+                // are no-ops). The opcode is TARGET-driven, matching the C# path (TryGetNumericConversionOpcode):
+                // -> double = conv.r8, -> long = conv.i8, -> char = conv.u2, -> int = conv.i4. double->int truncates
+                // toward zero exactly as the C# path's conv.i4 does (both emit the same opcode, so NaN/overflow agree).
                 if (sourceType != targetType)
                 {
-                    if (targetType == typeof(long)) _il.Emit(OpCodes.Conv_I8);        // int/char -> long (widen)
-                    else if (targetType == typeof(char)) _il.Emit(OpCodes.Conv_U2);   // int/long -> char (truncate)
-                    else if (sourceType == typeof(long)) _il.Emit(OpCodes.Conv_I4);   // long -> int (truncate)
+                    if (targetType == typeof(double)) _il.Emit(OpCodes.Conv_R8);      // int/long/char -> double (widen)
+                    else if (targetType == typeof(long)) _il.Emit(OpCodes.Conv_I8);   // int/char/double -> long
+                    else if (targetType == typeof(char)) _il.Emit(OpCodes.Conv_U2);   // int/long/double -> char (truncate)
+                    else if (sourceType == typeof(long) || sourceType == typeof(double)) _il.Emit(OpCodes.Conv_I4); // long/double -> int (truncate)
                     // char -> int is identity (the char is already an i4 code point): no opcode.
                 }
                 type = targetType;
@@ -1063,8 +1108,8 @@ public sealed class ColumnarIlEmitter
         }
     }
 
-    // Scalars that participate in explicit numeric casts (int/long/char — all i4/i8 on the stack).
-    private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char);
+    // Scalars that participate in explicit numeric casts (int/long/char on the i4/i8 slots; double on r8).
+    private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double);
 
     // The underlying int value of a System.StringComparison named constant (the enum's documented stable values).
     // An enum on the CLR stack is just its underlying int, so an enum constant emits `ldc.i4 <value>`.
@@ -1085,18 +1130,23 @@ public sealed class ColumnarIlEmitter
 
     // Emit the comparison opcode(s) for `op` over two like-typed values already on the stack, leaving an i4 bool.
     // `unsigned` selects the unsigned ordering opcodes (Clt_Un/Cgt_Un) for ulong — equality (Ceq) is identical.
-    private void EmitComparison(string op, bool unsigned = false)
+    // `isFloat` (double) uses the ORDERED Clt/Cgt for `<`/`>` (a NaN operand yields false), but `<=`/`>=` must
+    // negate the UNORDERED complement (Cgt_Un/Clt_Un) so a NaN operand yields false too — matching C#'s float
+    // comparison lowering (`a <= b` is `!(a cgt.un b)`). For int/ulong (no NaN) the complement equals the ordering.
+    private void EmitComparison(string op, bool unsigned = false, bool isFloat = false)
     {
         var lt = unsigned ? OpCodes.Clt_Un : OpCodes.Clt;
         var gt = unsigned ? OpCodes.Cgt_Un : OpCodes.Cgt;
+        var ltComplement = isFloat ? OpCodes.Clt_Un : lt;
+        var gtComplement = isFloat ? OpCodes.Cgt_Un : gt;
         switch (op)
         {
             case "<": _il.Emit(lt); break;
             case ">": _il.Emit(gt); break;
             case "==": _il.Emit(OpCodes.Ceq); break;
             case "!=": _il.Emit(OpCodes.Ceq); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break;
-            case "<=": _il.Emit(gt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a > b)
-            case ">=": _il.Emit(lt); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a < b)
+            case "<=": _il.Emit(gtComplement); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a > b)
+            case ">=": _il.Emit(ltComplement); _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); break; // !(a < b)
         }
     }
 

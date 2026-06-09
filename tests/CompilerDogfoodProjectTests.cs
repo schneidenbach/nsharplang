@@ -2206,8 +2206,8 @@ class B
             ("id", new object[] { 42 }), ("id", new object[] { -7 }));
 
         // The whole program declines (no assembly) if ANY function is ineligible (here, a not-yet-supported
-        // `double` second func — int/bool/long are supported).
-        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: double): double {\n    return x\n}\n").Ok);
+        // `float`/Single second func — int/bool/long/double are supported, but float is not modelled).
+        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: float): float {\n    return x\n}\n").Ok);
 
         // 4i SIBLING CALLS. A caller invoking a sibling, and a nested call (call result as an arg).
         var callHelper = "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc addThree(a: int, b: int, c: int): int {\n    return add(add(a, b), c)\n}\n";
@@ -2994,6 +2994,61 @@ class B
             ("NormalizeDiagnosticMessagePattern", new object[] { "   " }),
             ("ContainsIgnoreCase", new object[] { "HelloWorld", "WORLD" }),
             ("ContainsIgnoreCase", new object[] { "Hello", "xyz" }));
+    }
+
+    // DOUBLE scalar (r8): float literals (ldc.r8), arithmetic (FP add/sub/mul/div/rem — x/0.0 -> Inf, 0.0/0.0 ->
+    // NaN, no throw), unary negate, NaN-CORRECT comparisons (a <= NaN is false via the unordered complement),
+    // casts (int/long <-> double), and double[] (new/read/write). Value-matched vs the C# ILCompiler over normal,
+    // NaN, +/-Inf and signed-zero inputs — the strongest check that the emitted r8 IL matches the C# path exactly.
+    [Fact]
+    public void ColumnarCodegen_Parity_DoubleScalar()
+    {
+        var prog =
+            "func addD(a: double, b: double): double {\n    return a + b\n}\n\n" +
+            "func subD(a: double, b: double): double {\n    return a - b\n}\n\n" +
+            "func mulD(a: double, b: double): double {\n    return a * b\n}\n\n" +
+            "func divD(a: double, b: double): double {\n    return a / b\n}\n\n" +
+            "func remD(a: double, b: double): double {\n    return a % b\n}\n\n" +
+            "func negD(a: double): double {\n    return -a\n}\n\n" +
+            "func lits(): double {\n    return 3.5 + 0.25\n}\n\n" +
+            "func leD(a: double, b: double): bool {\n    return a <= b\n}\n\n" +
+            "func geD(a: double, b: double): bool {\n    return a >= b\n}\n\n" +
+            "func ltD(a: double, b: double): bool {\n    return a < b\n}\n\n" +
+            "func gtD(a: double, b: double): bool {\n    return a > b\n}\n\n" +
+            "func eqD(a: double, b: double): bool {\n    return a == b\n}\n\n" +
+            "func neD(a: double, b: double): bool {\n    return a != b\n}\n\n" +
+            "func d2i(a: double): int {\n    return (int)a\n}\n\n" +
+            "func i2d(a: int): double {\n    return (double)a\n}\n\n" +
+            "func d2l(a: double): long {\n    return (long)a\n}\n\n" +
+            "func l2d(a: long): double {\n    return (double)a\n}\n\n" +
+            "func sumD(a: double[]): double {\n    total := 0.0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            "func fillScaleSum(n: int, v: double, f: double): double {\n    a := new double[](n)\n    i := 0\n    while i < n {\n        a[i] = v\n        i = i + 1\n    }\n    i = 0\n    while i < n {\n        a[i] = a[i] * f\n        i = i + 1\n    }\n    total := 0.0\n    i = 0\n    while i < n {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("addD", new object[] { 1.5, 2.5 }), ("addD", new object[] { double.PositiveInfinity, 1.0 }), ("addD", new object[] { double.NaN, 1.0 }),
+            ("subD", new object[] { 5.0, 2.5 }), ("subD", new object[] { 0.0, 0.0 }),
+            ("mulD", new object[] { 3.0, 4.0 }), ("mulD", new object[] { 0.0, double.PositiveInfinity }),
+            ("divD", new object[] { 7.5, 2.5 }), ("divD", new object[] { 1.0, 0.0 }), ("divD", new object[] { -1.0, 0.0 }), ("divD", new object[] { 0.0, 0.0 }),
+            ("remD", new object[] { 7.5, 2.0 }), ("remD", new object[] { 5.0, 0.0 }),
+            ("negD", new object[] { 3.5 }), ("negD", new object[] { double.NaN }), ("negD", new object[] { 0.0 }),
+            ("lits", new object[0]),
+            ("leD", new object[] { 1.0, 2.0 }), ("leD", new object[] { 2.0, 2.0 }), ("leD", new object[] { 3.0, 2.0 }), ("leD", new object[] { double.NaN, 2.0 }), ("leD", new object[] { 2.0, double.NaN }),
+            ("geD", new object[] { 3.0, 2.0 }), ("geD", new object[] { 2.0, 2.0 }), ("geD", new object[] { 1.0, 2.0 }), ("geD", new object[] { double.NaN, 2.0 }),
+            ("ltD", new object[] { 1.0, 2.0 }), ("ltD", new object[] { 2.0, 1.0 }), ("ltD", new object[] { double.NaN, 2.0 }),
+            ("gtD", new object[] { 3.0, 2.0 }), ("gtD", new object[] { 2.0, 3.0 }), ("gtD", new object[] { double.NaN, 2.0 }),
+            ("eqD", new object[] { 2.0, 2.0 }), ("eqD", new object[] { 2.0, 3.0 }), ("eqD", new object[] { double.NaN, double.NaN }),
+            ("neD", new object[] { 2.0, 3.0 }), ("neD", new object[] { 2.0, 2.0 }), ("neD", new object[] { double.NaN, double.NaN }),
+            ("d2i", new object[] { 3.7 }), ("d2i", new object[] { -3.7 }), ("d2i", new object[] { double.NaN }),
+            ("i2d", new object[] { 5 }), ("i2d", new object[] { -7 }),
+            ("d2l", new object[] { 3.7 }), ("d2l", new object[] { 5000000000.9 }),
+            ("l2d", new object[] { 5000000000L }),
+            ("sumD", new object[] { new double[] { 1.5, 2.5, 3.0 } }), ("sumD", new object[] { new double[0] }),
+            ("fillScaleSum", new object[] { 3, 2.0, 1.5 }), ("fillScaleSum", new object[] { 0, 9.0, 2.0 }));
+
+        // Mixed int+double has NO implicit widening in the columnar backend (the operands' types must match) ->
+        // it declines, so the C# fallback (which DOES widen) stays authoritative. Verifies the safe decline.
+        Assert.False(RouteColumnarProgram("func mix(a: int, b: double): double {\n    return a + b\n}\n").Ok);
+        // A float-suffixed literal (System.Single) is a different type -> declines (this slice models double only).
+        Assert.False(RouteColumnarProgram("func f(): double {\n    return 3.5f\n}\n").Ok);
     }
 
     // IMPLICIT-VOID functions: a `func f(...) {` with NO `: ReturnType` (omitted return) is an implicit-void
