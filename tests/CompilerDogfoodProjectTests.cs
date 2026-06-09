@@ -2996,6 +2996,45 @@ class B
             ("ContainsIgnoreCase", new object[] { "Hello", "xyz" }));
     }
 
+    // FOR loops — the first construct needing BOTH N# parser-kernel work (ParserStatements.nl now parses
+    // `for <init>; <cond>; <incr> { body }` -> node kind 28) AND emitter work (init; check: cond; brfalse end;
+    // body; cont: incr; br check; end:). `continue` targets the INCREMENT (then re-test); `break` the end. Covers
+    // counting loops, array iteration, continue/break, early return, NESTED for, and SEQUENTIAL for (the loop
+    // variable is scoped to its loop, so a second `for i := 0` re-declares it). Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ForLoop()
+    {
+        var prog =
+            "func sumTo(n: int): int {\n    total := 0\n    for i := 0; i < n; i = i + 1 {\n        total = total + i\n    }\n    return total\n}\n\n" +
+            "func sumArr(a: int[]): int {\n    total := 0\n    for i := 0; i < a.Length; i = i + 1 {\n        total = total + a[i]\n    }\n    return total\n}\n\n" +
+            "func sumEven(n: int): int {\n    total := 0\n    for i := 0; i < n; i = i + 1 {\n        if i % 2 == 1 {\n            continue\n        }\n        total = total + i\n    }\n    return total\n}\n\n" +
+            "func firstNeg(a: int[]): int {\n    for i := 0; i < a.Length; i = i + 1 {\n        if a[i] < 0 {\n            return i\n        }\n    }\n    return -1\n}\n\n" +
+            "func grid(n: int): int {\n    total := 0\n    for i := 0; i < n; i = i + 1 {\n        for j := 0; j < n; j = j + 1 {\n            total = total + 1\n        }\n    }\n    return total\n}\n\n" +
+            "func twoLoops(n: int): int {\n    total := 0\n    for i := 0; i < n; i = i + 1 {\n        total = total + i\n    }\n    for i := 0; i < n; i = i + 1 {\n        total = total + i\n    }\n    return total\n}\n\n" +
+            "func breakAt(a: int[], stop: int): int {\n    total := 0\n    for i := 0; i < a.Length; i = i + 1 {\n        if a[i] == stop {\n            break\n        }\n        total = total + a[i]\n    }\n    return total\n}\n\n" +
+            "func countDown(n: int): int {\n    c := 0\n    for i := n; i > 0; i = i - 1 {\n        c = c + 1\n    }\n    return c\n}\n\n" +
+            // for CONTAINING a while (mixed loop nesting — the inner while's continue/break must target the WHILE,
+            // not the for, via the LIFO loop-label stack).
+            "func forWhile(n: int): int {\n    total := 0\n    for i := 0; i < n; i = i + 1 {\n        j := 0\n        while j <= i {\n            total = total + 1\n            j = j + 1\n        }\n    }\n    return total\n}\n\n" +
+            // for-init as an ASSIGNMENT to a PRE-DECLARED outer variable (`i = 0`, not `i := 0`) — `i` is an outer
+            // local, so the loop must NOT remove it (and `total` before the loop is preserved either way).
+            "func initOuter(n: int): int {\n    total := 0\n    i := 0\n    for i = 0; i < n; i = i + 1 {\n        total = total + i\n    }\n    return total + i\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sumTo", new object[] { 5 }), ("sumTo", new object[] { 0 }), ("sumTo", new object[] { 1 }),
+            ("sumArr", new object[] { new[] { 1, 2, 3, 4 } }), ("sumArr", new object[] { new int[0] }),
+            ("sumEven", new object[] { 6 }), ("sumEven", new object[] { 7 }), ("sumEven", new object[] { 0 }),
+            ("firstNeg", new object[] { new[] { 1, 2, -3, 4 } }), ("firstNeg", new object[] { new[] { 1, 2, 3 } }), ("firstNeg", new object[] { new int[0] }),
+            ("grid", new object[] { 3 }), ("grid", new object[] { 0 }), ("grid", new object[] { 1 }),
+            ("twoLoops", new object[] { 4 }), ("twoLoops", new object[] { 0 }),
+            ("breakAt", new object[] { new[] { 1, 2, 3, 4 }, 3 }), ("breakAt", new object[] { new[] { 1, 2 }, 9 }),
+            ("countDown", new object[] { 5 }), ("countDown", new object[] { 0 }),
+            ("forWhile", new object[] { 3 }), ("forWhile", new object[] { 0 }), ("forWhile", new object[] { 1 }),
+            ("initOuter", new object[] { 4 }), ("initOuter", new object[] { 0 }));
+
+        // A for-loop whose body ALWAYS returns (never falls through) is degenerate -> declines to the C# path.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    for i := 0; i < n; i = i + 1 {\n        return i\n    }\n    return -1\n}\n").Ok);
+    }
+
     // DOUBLE scalar (r8): float literals (ldc.r8), arithmetic (FP add/sub/mul/div/rem — x/0.0 -> Inf, 0.0/0.0 ->
     // NaN, no throw), unary negate, NaN-CORRECT comparisons (a <= NaN is false via the unordered complement),
     // casts (int/long <-> double), and double[] (new/read/write). Value-matched vs the C# ILCompiler over normal,

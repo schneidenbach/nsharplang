@@ -14,12 +14,13 @@
 //   BlockStatement               -> kind 25  ( { stmt* }; children = the statements, variable arity )
 //   WhileStatement               -> kind 26  ( while cond <body>; children [condition, body] )
 //   IfStatement                  -> kind 27  ( if cond <then> [else <else>]; children [cond, then, else?] )
+//   ForStatement                 -> kind 28  ( for <init>; <cond>; <incr> <body>; children [init, cond, incr, body] )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: for/foreach, let/const/readonly + typed `name: Type = init` declarations, tuple deconstruction,
+// Deferred: foreach, let/const/readonly + typed `name: Type = init` declarations, tuple deconstruction,
 // throw/try/using/lock/switch/yield/print/assert/local-functions, and statements whose expression parts use
 // a not-yet-supported form (e.g. `new`/`alloc`). Block statement-list gathers child node ids on the LIFO
 // `argStack` (recursion is LIFO) and appends the contiguous child run after `}`, exactly as calls/generics do.
@@ -28,8 +29,8 @@
 //   outResult[0] = root statement node id (== nodeCount-1), outResult[1] = token index past the statement.
 // Returns the node count, or -1 on refusal / a malformed statement / an unsupported expression part.
 //
-// TokenType ordinals (Token.cs): Identifier 0, If 23, Else 24, While 27, Return 29, Break 35, Continue 36,
-// ColonAssign 121, LeftBrace 129, RightBrace 130, Eof 135, Newline 136.
+// TokenType ordinals (Token.cs): Identifier 0, If 23, Else 24, For 25, While 27, Return 29, Break 35, Continue 36,
+// Assign 93, ColonAssign 121, LeftBrace 129, RightBrace 130, Semicolon 133, Eof 135, Newline 136.
 
 // Parse a `{ ... }` block: a sequence of statements until the matching `}`. BlockStatement (kind 25),
 // children = the contained statement node ids (variable arity -> LIFO arg-stack). st[0] must be at the `{`.
@@ -103,6 +104,53 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         AppendExpressionChild(st, outChildIndices, condition)
         AppendExpressionChild(st, outChildIndices, body)
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 26, -1, 0, childRunStart, 2, whileStart, bodyEnd - whileStart)
+    }
+
+    if kind == 25 {
+        forStart := tokenStarts[start]
+        st[0] = start + 1
+
+        // C-style `for <init>; <cond>; <incr> { body }`. init/incr are simple statements (a `:=` declaration or
+        // an assignment expression statement); cond is an expression. All three clauses are required (an empty
+        // clause makes a sub-parse refuse -> the whole statement declines to the C# parser). Children, in order:
+        // [init, cond, incr, body] -> ForStatement kind 28.
+        initNode := ParseSimpleStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths)
+        if initNode < 0 {
+            return -1
+        }
+
+        if st[0] >= count || tokenKinds[st[0]] != 133 {
+            return -1
+        }
+        st[0] = st[0] + 1
+
+        forCondition := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        if forCondition < 0 {
+            return -1
+        }
+
+        if st[0] >= count || tokenKinds[st[0]] != 133 {
+            return -1
+        }
+        st[0] = st[0] + 1
+
+        increment := ParseSimpleStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths)
+        if increment < 0 {
+            return -1
+        }
+
+        forBody := ParseStatementCoreNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if forBody < 0 {
+            return -1
+        }
+
+        forBodyEnd := outSpanStarts[forBody] + outSpanLengths[forBody]
+        forChildRunStart := st[2]
+        AppendExpressionChild(st, outChildIndices, initNode)
+        AppendExpressionChild(st, outChildIndices, forCondition)
+        AppendExpressionChild(st, outChildIndices, increment)
+        AppendExpressionChild(st, outChildIndices, forBody)
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 28, -1, 0, forChildRunStart, 4, forStart, forBodyEnd - forStart)
     }
 
     if kind == 23 {

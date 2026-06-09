@@ -590,6 +590,53 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 28: // For [init, cond, incr, body] — C-style: emit `init; check: cond; brfalse end; body;
+            {        // cont: incr; br check; end:`. `break` -> end, `continue` -> cont (the increment, THEN the
+                     // re-test), matching C# for-loop semantics. The loop's own locals (the `init` declaration's
+                     // variable + any body `:=` locals) are scoped to the loop and removed at its end.
+                var init = Child(idx, 0);
+                var cond = Child(idx, 1);
+                var incr = Child(idx, 2);
+                var body = Child(idx, 3);
+
+                // A for-body that always transfers on every path (never falls through) would make the increment +
+                // back-edge unreachable (a `continue` aside) — a degenerate shape; decline it to the C# path. A
+                // normal counting loop falls through, and a `continue` body still falls through on its other path.
+                if (AlwaysReturns(body))
+                    return false;
+
+                var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                if (!EmitStatement(init)) // runs once before the loop; declares the loop variable.
+                    return false;
+
+                var checkLabel = _il.DefineLabel();
+                var contLabel = _il.DefineLabel();
+                var endLabel = _il.DefineLabel();
+                _il.MarkLabel(checkLabel);
+                if (!EmitCondition(cond))
+                    return false;
+                _il.Emit(OpCodes.Brfalse, endLabel);
+
+                _loopLabels.Push((endLabel, contLabel));
+                var forBodyEmitted = EmitStatement(body);
+                _loopLabels.Pop();
+                if (!forBodyEmitted)
+                    return false;
+
+                _il.MarkLabel(contLabel);     // `continue` lands here -> run the increment, then re-test.
+                if (!EmitStatement(incr))
+                    return false;
+                _il.Emit(OpCodes.Br, checkLabel);
+                _il.MarkLabel(endLabel);
+
+                foreach (var name in new List<string>(_locals.Keys))
+                {
+                    if (!outerLocals.Contains(name))
+                        _locals.Remove(name);
+                }
+                return true;
+            }
+
             case 21: // Break — branch to the innermost loop's end label.
                 if (_loopLabels.Count == 0)
                     return false;

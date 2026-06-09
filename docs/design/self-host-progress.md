@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Phase D-3: C-style `for` loops — the FIRST two-sided slice (N# parser kernel + emitter)
+
+The first rich-language construct needing BOTH the N# parser kernel AND the emitter (the scalar slices were
+emitter-only — the kernel already parsed them). Establishes the two-sided pattern for the remaining Phase-D work
+(foreach/tuples/match/structs).
+
+- **Parser kernel** (`ParserStatements.nl`, itself systems-N# compiled to the dogfood assembly): `ParseStatementCoreNode`
+  gained a `for` branch (For token = 25) that parses `for <init>; <cond>; <incr> { body }` → columnar node kind 28,
+  children `[init, cond, incr, body]`. init/incr parse via `ParseSimpleStatementNode` (a `:=` decl or assignment
+  expr-statement), cond via `ParseAssignmentExpressionNode`, each clause separated by a required `Semicolon` (133);
+  a missing `;`/clause/body refuses with -1 → declines to the C# parser. Mirrors the proven `while` branch (child-run
+  captured AFTER the sub-parses; contiguous 4-node run). Token ordinals verified empirically (For=25, Semicolon=133
+  — the naive line-offset would have given 137; gaps in the enum).
+- **Emitter** (`ColumnarIlEmitter` case 28): `init; check: cond; brfalse end; body; cont: incr; br check; end:`.
+  `continue` targets the INCREMENT (`contLabel`, then re-test — C# for-loop semantics, vs `while`'s direct re-test);
+  `break` targets the end. The loop variable + body locals are scoped to the loop (removed after, so a second
+  `for i := 0` re-declares `i`); an outer local (e.g. `total` before the loop) is preserved. A body that ALWAYS
+  returns (never falls through) is declined (degenerate — the increment would be unreachable).
+
+Parity-gated: `ColumnarCodegen_Parity_ForLoop` value-matches the C# ILCompiler over counting loops, array iteration,
+`continue` (→increment), `break` (→end), NESTED for (inner/outer loop-label discipline), SEQUENTIAL for re-declaring
+`i`, early `return` from the body, and a count-down (`i = i - 1`); plus the always-returns-body decline. Adversarially
+reviewed (read-only, 3 lenses: parser kernel, emit semantics, control-flow edges). All 90 dogfood tests green. Next:
+foreach (array iterator), then tuples/match per the retirement map.
+
 ## 2026-06-08 — Phase D-2: `float` scalar (r4) in the columnar emitter — completes the numeric-scalar tier
 
 A per-construct parse-vs-emit probe (route each candidate, check `TryGetColumnarFunctionInputs` parse vs
