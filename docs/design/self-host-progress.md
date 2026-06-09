@@ -11,6 +11,38 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-10c: union BARE TYPE patterns — `Color.Red => …` (union match now complete)
+
+A match arm `Result.Success => …` (NO braces) matches a union case by TYPE without destructuring/binding (the
+proven oracle `ILCompiler_CanExecuteUnionMatchWithoutPropertyBinding`). EMITTER-ONLY — a bare `Union.Case` already
+parses as a MemberAccess (kind 8, no `{` suffix).
+- **`EmitPatternMatch` case 8** now has two branches: the existing `Enum.Member` constant (underlying-int Ceq) and a
+  NEW union branch — if `recvName.member` is a registered union case and the match value is that case's union base
+  (and `recvName` is not shadowed), emit `ldloc value; isinst Case; brtrue success; br fail` (isinst-only, NO
+  binding). Because it binds nothing it is SAFE inside `and`/`or`/`not` combinators (reached by EmitPatternMatch),
+  unlike the binding property pattern (kind 37, top-level only).
+- **case 18 union exhaustiveness** now counts a bare kind-8 `Union.Case` arm toward coverage (with kind-37 property
+  patterns + the kind-6 catch-all). This is the IDIOMATIC way to match a payload-free case (where `Case {}` is NL503).
+
+Parity-gated: `ColumnarCodegen_Parity_UnionBareTypePatterns` value-matches the C# ILCompiler over bare patterns on a
+PAYLOAD union (no destructure), a ZERO-FIELD union (Color as a named enum), a MIXED match (bare type pattern + a
+property pattern), a bare-arm + `_` catch-all, and `Color.Red or Color.Green` (a bare pattern composed with `or`);
+decline-pinned for a non-exhaustive bare match and for an `or`-combinator arm that doesn't make the match exhaustive.
+Capstone read-only review (2 lenses + adversarial verify) confirmed 2 findings, BOTH safe-direction (columnar
+declines, never over-accepts): (1) the exhaustiveness check doesn't re-check receiver shadowing that the EMIT phase
+declines anyway — net decline, harmless (a `func f(c: Color, Color: int)` param shadowing the type, pathological);
+(2) the exhaustiveness check ignores combinator arms, declining `Color.Red or Color.Green => …, Color.Blue => …`
+(no catch-all). VERIFY-FIRST OVERTURNED the review's suggested fix for (2): C# ALSO rejects that program (NL501
+"Pattern matching is not exhaustive" — the C# analyzer likewise ignores `or` coverage), so columnar's decline is
+CORRECT; counting `or` coverage would have ACCEPTED a program C# rejects. Duplicate union-case arms verified
+consistent (C# accepts the unreachable arm, columnar matches). 112 columnar tests green; full non-IDE gate green
+(fresh isolated). LESSON (again): verify-first is the arbiter — it overturned a confident adversarial review for the
+SECOND time this arc. **Union MATCH is now complete for the modeled surface**: property patterns, `when` guards,
+bare type patterns, zero-field handling (construct + catch-all; `{}` declines), exhaustiveness. Remaining union work
+(separate slices): nested/renamed `{ f: <pat> }` sub-patterns, generic unions (needs generics), match STATEMENTS.
+
+---
+
 ## 2026-06-09 — Phase D-10b: union match completeness — `when` guards + zero-field cases (+ a soundness fix)
 
 Extends D-10 toward complete union match. Two increments, both verify-first against the C# ILCompiler:

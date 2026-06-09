@@ -3719,6 +3719,50 @@ class B
         Assert.False(RouteColumnarProgram("union Tok {\n    Eof {}\n    Num { value: int }\n}\n\nfunc f(t: Tok): int {\n    return match t {\n        Tok.Num { value } => value,\n        Tok.Eof {} => -1\n    }\n}\n").Ok);
     }
 
+    // UNION BARE TYPE patterns — `Result.Success => …` (no `{ }`): match a case by TYPE without destructuring/binding
+    // (the proven ILCompiler oracle ILCompiler_CanExecuteUnionMatchWithoutPropertyBinding). A bare `Union.Case` parses
+    // as a MemberAccess (kind 8, no `{` suffix) and emits an `isinst`-only test. This is the IDIOMATIC way to match a
+    // payload-free case (where `Case {}` is NL503), and to match a payload case by type alone; it counts toward
+    // exhaustiveness and composes with property-pattern arms. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_UnionBareTypePatterns()
+    {
+        var prog =
+            // bare patterns over a PAYLOAD union (no destructuring) — exhaustive by the two bare arms.
+            "union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\n" +
+            "func makeR(ok: bool): Result {\n    if ok {\n        return new Result.Success { value: 1 }\n    }\n    return new Result.Failure { code: 2 }\n}\n\n" +
+            "func tag(ok: bool): int {\n    return match makeR(ok) {\n        Result.Success => 1,\n        Result.Failure => 0\n    }\n}\n\n" +
+            // bare patterns over a ZERO-FIELD union — the idiomatic payload-free match (Color acts as a named enum).
+            "union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\n" +
+            "func makeC(n: int): Color {\n    if n == 0 {\n        return new Color.Red {}\n    }\n    if n == 1 {\n        return new Color.Green {}\n    }\n    return new Color.Blue {}\n}\n\n" +
+            "func colorCode(n: int): int {\n    return match makeC(n) {\n        Color.Red => 10,\n        Color.Green => 20,\n        Color.Blue => 30\n    }\n}\n\n" +
+            // MIXED: a bare TYPE pattern for the payload-free case + a property pattern for the payload case.
+            "union Tok {\n    Eof {}\n    Num { value: int }\n}\n\n" +
+            "func makeT(n: int): Tok {\n    if n < 0 {\n        return new Tok.Eof {}\n    }\n    return new Tok.Num { value: n }\n}\n\n" +
+            "func tokVal(n: int): int {\n    return match makeT(n) {\n        Tok.Eof => -1,\n        Tok.Num { value } => value\n    }\n}\n\n" +
+            // a bare type pattern + a `_` catch-all (bare arm covers one case, catch-all the rest).
+            "func isRed(n: int): int {\n    return match makeC(n) {\n        Color.Red => 1,\n        _ => 0\n    }\n}\n\n" +
+            // bare type patterns COMPOSE with `or` (they bind nothing, so combinators are safe over them).
+            "func warm(n: int): int {\n    return match makeC(n) {\n        Color.Red or Color.Green => 1,\n        _ => 0\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("tag", new object[] { true }), ("tag", new object[] { false }),
+            ("colorCode", new object[] { 0 }), ("colorCode", new object[] { 1 }), ("colorCode", new object[] { 2 }),
+            ("tokVal", new object[] { -1 }), ("tokVal", new object[] { 5 }), ("tokVal", new object[] { 0 }),
+            ("isRed", new object[] { 0 }), ("isRed", new object[] { 1 }), ("isRed", new object[] { 2 }),
+            ("warm", new object[] { 0 }), ("warm", new object[] { 1 }), ("warm", new object[] { 2 }));
+
+        // a bare-pattern match that leaves a case UNCOVERED with no catch-all is non-exhaustive -> decline (NL501).
+        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red => 1,\n        Color.Green => 2\n    }\n}\n").Ok);
+        // an OR-combinator arm does NOT contribute to exhaustiveness — `Color.Red or Color.Green => …, Color.Blue => …`
+        // (no catch-all) is non-exhaustive in C# too (verified: NL501 "Pattern matching is not exhaustive"), so columnar
+        // correctly DECLINES it. (The columnar exhaustiveness check counts only top-level UNGUARDED simple arms —
+        // bare/property/`_` — exactly like the C# analyzer, which also ignores combinator coverage. Counting `or`
+        // coverage here would ACCEPT a program C# rejects.)
+        Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red or Color.Green => 1,\n        Color.Blue => 2\n    }\n}\n").Ok);
+    }
+
+
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

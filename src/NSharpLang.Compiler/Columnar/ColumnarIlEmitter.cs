@@ -2059,7 +2059,7 @@ public sealed class ColumnarIlEmitter
                             continue;
                         if (_kinds[rawP] == 6) // `_` discard or an unguarded binding -> a catch-all.
                             hasCatchAll = true;
-                        else if (_kinds[rawP] == 37) // union-case pattern -> covers that case (if it is THIS union's).
+                        else if (_kinds[rawP] == 37) // union-case PROPERTY pattern -> covers that case (if THIS union's).
                         {
                             var mem = Child(rawP, 0);
                             if (_kinds[mem] == 8)
@@ -2071,6 +2071,16 @@ public sealed class ColumnarIlEmitter
                                     if (matchUnionDef.Cases.ContainsKey(qualified))
                                         coveredCases.Add(qualified);
                                 }
+                            }
+                        }
+                        else if (_kinds[rawP] == 8) // bare `Union.Case` TYPE pattern -> covers that case (no binding).
+                        {
+                            var bareRecv = Child(rawP, 0);
+                            if (_kinds[bareRecv] == 6)
+                            {
+                                var qualified = Text(bareRecv) + "." + Text(rawP);
+                                if (matchUnionDef.Cases.ContainsKey(qualified))
+                                    coveredCases.Add(qualified);
                             }
                         }
                     }
@@ -2241,28 +2251,44 @@ public sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Br, failLabel);
                 return true;
             }
-            case 8: // MemberAccess pattern `Enum.Member` -> an enum-constant equality test on the underlying int.
-            {
-                // The receiver must be a bare identifier naming a REGISTERED enum (not shadowed by a local/param/
-                // sibling), the member one of its constants, and the match value must be THAT enum's type (the same
-                // EnumBuilder instance). Otherwise decline (a non-enum member access is not a constant pattern).
+            case 8: // MemberAccess pattern: `Enum.Member` (enum-constant equality) OR `Union.Case` (a bare union TYPE
+            {        // pattern — match the case by type, NO destructuring/binding).
                 var recv = Child(patternNode, 0);
                 if (_kinds[recv] != 6)
                     return false;
                 var recvName = Text(recv);
-                if (!_enumRegistry.TryGetValue(recvName, out var enumDef)
-                    || _locals.ContainsKey(recvName) || _paramOrdinals.ContainsKey(recvName) || _siblings.ContainsKey(recvName))
-                    return false;
-                if (matchValueType != enumDef.Builder)
-                    return false;
-                if (!enumDef.Constants.TryGetValue(Text(patternNode), out var memberValue))
-                    return false;
-                _il.Emit(OpCodes.Ldloc, matchLocal);
-                _il.Emit(OpCodes.Ldc_I4, memberValue);
-                _il.Emit(OpCodes.Ceq);                 // underlying-int equality (matches C#'s Beq-on-underlying-int).
-                _il.Emit(OpCodes.Brtrue, successLabel);
-                _il.Emit(OpCodes.Br, failLabel);
-                return true;
+                // ENUM constant: the receiver names a REGISTERED enum (not shadowed by a local/param/sibling), the
+                // member is one of its constants, and the match value is THAT enum's type. Underlying-int Ceq.
+                if (_enumRegistry.TryGetValue(recvName, out var enumDef)
+                    && !_locals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                {
+                    if (matchValueType != enumDef.Builder)
+                        return false;
+                    if (!enumDef.Constants.TryGetValue(Text(patternNode), out var memberValue))
+                        return false;
+                    _il.Emit(OpCodes.Ldloc, matchLocal);
+                    _il.Emit(OpCodes.Ldc_I4, memberValue);
+                    _il.Emit(OpCodes.Ceq);             // underlying-int equality (matches C#'s Beq-on-underlying-int).
+                    _il.Emit(OpCodes.Brtrue, successLabel);
+                    _il.Emit(OpCodes.Br, failLabel);
+                    return true;
+                }
+                // UNION bare TYPE pattern `Union.Case` (no `{ }`): an `isinst` test against the case's concrete type,
+                // matching WITHOUT binding any field — the idiomatic way to match a payload-free case (where `Case {}`
+                // is NL503), and to match a payload case by type alone. Binds nothing, so it is SAFE inside `and`/`or`/
+                // `not` combinators (unlike the binding property pattern, which is top-level only). The match value
+                // must be THIS union's base. No `dup`/`pop` needed: the isinst result is consumed by the branch.
+                var qualifiedCase = recvName + "." + Text(patternNode);
+                if (_unionCaseRegistry.TryGetValue(qualifiedCase, out var bareCaseDef) && matchValueType == bareCaseDef.UnionBase
+                    && !_locals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                {
+                    _il.Emit(OpCodes.Ldloc, matchLocal);
+                    _il.Emit(OpCodes.Isinst, bareCaseDef.CaseType);
+                    _il.Emit(OpCodes.Brtrue, successLabel);
+                    _il.Emit(OpCodes.Br, failLabel);
+                    return true;
+                }
+                return false; // not a registered enum constant or union case -> decline.
             }
             default: // literal pattern (kinds 0-4) -> equality test; any other primary (null/paren/call/index/…) declines.
             {
