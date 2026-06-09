@@ -2984,6 +2984,47 @@ class B
         Assert.False(RouteColumnarProgram("func f(a: ulong): long {\n    return (long)a\n}\n").Ok);
     }
 
+    // StringBuilder — the first mutable reference type: new StringBuilder([capacity]); .Append(char/string/int)
+    // (fluent, the result is discarded as a statement -> pop); .Clear(); .ToString(); .Length. appendInts PROVES
+    // the Append(int) overload (decimal text "012", NOT char code points); wrap mixes char+string Append.
+    [Fact]
+    public void ColumnarCodegen_Parity_StringBuilder()
+    {
+        var prog =
+            "import System.Text\n\n" +
+            "func buildChars(a: char[]): string {\n    sb := new StringBuilder(a.Length)\n    i := 0\n    while i < a.Length {\n        sb.Append(a[i])\n        i = i + 1\n    }\n    return sb.ToString()\n}\n\n" +
+            "func wrap(s: string): string {\n    sb := new StringBuilder()\n    sb.Append('(')\n    sb.Append(s)\n    sb.Append(')')\n    return sb.ToString()\n}\n\n" +
+            "func appendInts(n: int): string {\n    sb := new StringBuilder()\n    i := 0\n    while i < n {\n        sb.Append(i)\n        i = i + 1\n    }\n    return sb.ToString()\n}\n\n" +
+            "func lenAfter(s: string): int {\n    sb := new StringBuilder()\n    sb.Append(s)\n    sb.Append(s)\n    return sb.Length\n}\n\n" +
+            "func clearIt(s: string): string {\n    sb := new StringBuilder()\n    sb.Append(s)\n    sb.Clear()\n    sb.Append('x')\n    return sb.ToString()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("buildChars", new object[] { new[] { 'h', 'i' } }), ("buildChars", new object[] { new char[0] }),
+            ("wrap", new object[] { "abc" }), ("wrap", new object[] { "" }),
+            ("appendInts", new object[] { 3 }), ("appendInts", new object[] { 0 }),
+            ("lenAfter", new object[] { "ab" }),
+            ("clearIt", new object[] { "junk" }));
+    }
+
+    // MILESTONE: CompletionReceivers.nl compiles end-to-end with no C# AST. Enabling feature: StringBuilder
+    // (new StringBuilder(int) + Append(char) + ToString()). NormalizeCodeIntelligenceCompletionReceiverCalls
+    // builds a normalized receiver string into a builder (also a while-scan loop with continue — already modelled).
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_CompletionReceivers()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "CompletionReceivers.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real CompletionReceivers.nl (expected full support).");
+        Assert.Contains("NormalizeCodeIntelligenceCompletionReceiverCalls", methodNames!); // the StringBuilder user.
+
+        AssertColumnarProgramMatchesCSharp(source,
+            ("NormalizeCodeIntelligenceCompletionReceiverCalls", new object[] { "foo(a, b)", 0, 9 }),
+            ("NormalizeCodeIntelligenceCompletionReceiverCalls", new object[] { "x.y(p(q))z", 0, 10 }),
+            ("NormalizeCodeIntelligenceCompletionReceiverCalls", new object[] { "plain", 0, 5 }),
+            ("NormalizeCodeIntelligenceCompletionReceiverCalls", new object[] { "ab", 0, 0 }),
+            ("CompletionReceiverMinInt", new object[] { 4, 9 }), ("CompletionReceiverMinInt", new object[] { 9, 4 }));
+    }
+
     // A `while` whose body ALWAYS transfers (every path returns or continues) — so the bottom back-edge is dead
     // and skipped. (1) a run-once `{ return X }` body; (2) a SCAN loop that `continue`s past skippable elements
     // and `return`s on the first "real" one — the IdentifierSpans pattern the old blanket "degenerate" decline
@@ -3348,11 +3389,12 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
-            "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl",
-            "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl", "LinterImports.nl",
-            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl", "ParserFunctionSignatures.nl",
-            "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl",
-            "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
+            "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl",
+            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl",
+            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserExpressions.nl",
+            "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl", "PathMatching.nl",
+            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
+            "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
@@ -3379,11 +3421,11 @@ class B
         {
             "AnalyzerExhaustiveness.nl", "AnonymousUnionShims.nl", "AotRequirements.nl", "BindingLookup.nl",
             "CliDocOrdering.nl", "CliQueryParsing.nl", "CliTreeDependencies.nl", "CompletionGrouping.nl",
-            "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl", "FormatterImportOrdering.nl",
-            "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl", "LinterImports.nl",
-            "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl", "PathMatching.nl",
-            "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl", "TextEditOrdering.nl",
-            "TypeLookup.nl",
+            "CompletionReceivers.nl", "DiagnosticDeduplication.nl", "DocQuery.nl", "ErrorSuggestions.nl",
+            "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl", "LexerTokenKindScanner.nl",
+            "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl", "ParserTypeReferences.nl",
+            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");
 

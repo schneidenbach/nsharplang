@@ -11,6 +11,29 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — `StringBuilder` (first mutable reference type) → CompletionReceivers.nl (single-file 25→26, cluster 28→29)
+
+Added `System.Text.StringBuilder` — the columnar backend's first MUTABLE reference type with instance methods:
+`new StringBuilder()` / `new StringBuilder(int capacity)` (`newobj`); `.Append(char|string|int)` (the overload is
+bound by the ARGUMENT'S columnar type — exact-match reflection, so `Append(char)` appends one char while
+`Append(int)` appends the DECIMAL text, matching the C# binder's exact-overload pick); `.Clear()`; `.ToString()`
+→ string; `.Length` → int. The fluent `.Append(...)`/`.Clear()` result (a StringBuilder) is normally discarded
+as a statement — the existing bare-call-statement path `pop`s it. `IsSupportedType` admits StringBuilder (valid
+local/param/return) but NOT `IsSupportedElementType` (no StringBuilder[] arrays). Unmodeled Append arg types,
+other ctor overloads, other methods (Insert/Remove/Replace/AppendLine), and non-StringBuilder `new Foo(...)` all
+DECLINE (C# fallback).
+
+This flips `CompletionReceivers.nl`, whose `NormalizeCodeIntelligenceCompletionReceiverCalls` builds a normalized
+receiver string into a `new StringBuilder(end - start)` via `Append(char)` + `ToString()` (also a while-scan loop
+with continue — relying on the prior slice). Parity-gated: `ColumnarCodegen_Parity_StringBuilder` (buildChars
+Append(char); wrap mixing char+string Append → "(abc)"; appendInts PROVING `Append(int)` is DECIMAL text "012"
+not char code points; lenAfter `.Length`; clearIt `.Clear()`) and the milestone
+`ColumnarCodegen_CompilesRealDogfoodFile_CompletionReceivers` (the real paren-normalizer over nested-paren inputs,
+value-matched vs the C# pipeline). Adversarially reviewed (read-only, 2 lenses): Append/ctor/dispatch/`.Length`
+all match the C# pipeline (exact-type reflection binding is deterministic and picks the same overloads), the
+decline surface is comprehensive, tests discriminating + non-vacuous. Ratchets: single-file floor 25→26,
+multi-file cluster 28→29. Coverage now **26/32 single-file, 29/32 via multi-file merge (~91%)**.
+
 ## 2026-06-08 — `while` scan loops (always-transferring body) → IdentifierSpans.nl (single-file 24→25, cluster 27→28)
 
 A per-function stub probe (route each function with stub siblings so only the intrinsic gap remains) pinpointed

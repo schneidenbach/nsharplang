@@ -117,7 +117,7 @@ public sealed class ColumnarIlEmitter
     // unsigned compares) — see the binary/comparison cases.
     private static bool IsSupportedType(Type t) =>
         t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(ulong)
-        || t == typeof(string) || t == typeof(char)
+        || t == typeof(string) || t == typeof(char) || t == typeof(System.Text.StringBuilder)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
 
     // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long/ulong (i4/i8),
@@ -898,6 +898,12 @@ public sealed class ColumnarIlEmitter
                     type = typeof(int);
                     return true;
                 }
+                if (receiverType == typeof(System.Text.StringBuilder))
+                {
+                    _il.Emit(OpCodes.Callvirt, typeof(System.Text.StringBuilder).GetProperty(nameof(System.Text.StringBuilder.Length))!.GetGetMethod()!);
+                    type = typeof(int);
+                    return true;
+                }
                 return false;
             }
 
@@ -930,24 +936,48 @@ public sealed class ColumnarIlEmitter
             case 15: // New [type, args...] — `new T[](size)` array allocation, OR `new string(char[], int, int)`
             {        // (the String(char[],int,int) constructor). child[0] is a TYPE subtree (2 = Array, 0 = Simple).
                 var typeNode = Child(idx, 0);
-                if (_kinds[typeNode] == 0) // a Simple type -> a constructor call (the only one modelled: string).
+                if (_kinds[typeNode] == 0) // a Simple type -> a constructor call (string or StringBuilder).
                 {
-                    // `new string(char[] value, int startIndex, int length)` — copy a char[] slice into a string.
-                    // Emit the char[] then the two int args, then `newobj` the String ctor. (Other constructors
-                    // are a host boundary; decline them so the C# path stays authoritative.)
-                    if (Text(typeNode) != "string" || _childCount[idx] != 4)
-                        return false;
-                    if (!EmitExpression(Child(idx, 1), out var charArrType)
-                        || !charArrType.IsSZArray || charArrType.GetElementType() != typeof(char))
-                        return false;
-                    if (!EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int)))
-                        return false;
-                    var stringCtor = typeof(string).GetConstructor(new[] { typeof(char[]), typeof(int), typeof(int) });
-                    if (stringCtor == null)
-                        return false;
-                    _il.Emit(OpCodes.Newobj, stringCtor);
-                    type = typeof(string);
-                    return true;
+                    var newTypeName = Text(typeNode);
+                    if (newTypeName == "string")
+                    {
+                        // `new string(char[] value, int startIndex, int length)` — copy a char[] slice into a
+                        // string. Emit the char[] then the two int args, then `newobj` the String ctor.
+                        if (_childCount[idx] != 4)
+                            return false;
+                        if (!EmitExpression(Child(idx, 1), out var charArrType)
+                            || !charArrType.IsSZArray || charArrType.GetElementType() != typeof(char))
+                            return false;
+                        if (!EmitArg(idx, 2, typeof(int)) || !EmitArg(idx, 3, typeof(int)))
+                            return false;
+                        var stringCtor = typeof(string).GetConstructor(new[] { typeof(char[]), typeof(int), typeof(int) });
+                        if (stringCtor == null)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, stringCtor);
+                        type = typeof(string);
+                        return true;
+                    }
+                    if (newTypeName == "StringBuilder")
+                    {
+                        // `new StringBuilder()` or `new StringBuilder(int capacity)`. (Other ctor overloads
+                        // decline.)
+                        var ctorArgCount = _childCount[idx] - 1;
+                        System.Reflection.ConstructorInfo? sbCtor;
+                        if (ctorArgCount == 0)
+                            sbCtor = typeof(System.Text.StringBuilder).GetConstructor(Type.EmptyTypes);
+                        else if (ctorArgCount == 1)
+                            sbCtor = EmitArg(idx, 1, typeof(int))
+                                ? typeof(System.Text.StringBuilder).GetConstructor(new[] { typeof(int) })
+                                : null;
+                        else
+                            return false;
+                        if (sbCtor == null)
+                            return false;
+                        _il.Emit(OpCodes.Newobj, sbCtor);
+                        type = typeof(System.Text.StringBuilder);
+                        return true;
+                    }
+                    return false; // other Simple-type constructors are a host boundary; decline.
                 }
                 if (_childCount[idx] != 2 || _kinds[typeNode] != 2) // array alloc: exactly one ctor arg; type must be Array.
                     return false;
@@ -1129,6 +1159,41 @@ public sealed class ColumnarIlEmitter
             _il.Emit(OpCodes.Callvirt, method);
             type = typeof(string);
             return true;
+        }
+        if (receiverType == typeof(System.Text.StringBuilder))
+        {
+            // Mutating-builder instance methods (the receiver builder is already on the stack):
+            //   .Append(char|string|int) -> StringBuilder (fluent; result usually discarded as a statement)
+            //   .Clear()                 -> StringBuilder
+            //   .ToString()              -> string
+            var sb = typeof(System.Text.StringBuilder);
+            if (member == "ToString" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(object.ToString), Type.EmptyTypes)!);
+                type = typeof(string);
+                return true;
+            }
+            if (member == "Clear" && argCount == 0)
+            {
+                _il.Emit(OpCodes.Callvirt, sb.GetMethod(nameof(System.Text.StringBuilder.Clear), Type.EmptyTypes)!);
+                type = sb;
+                return true;
+            }
+            if (member == "Append" && argCount == 1)
+            {
+                // Resolve the overload by the ARGUMENT'S type (char/string/int): emit the arg, then bind
+                // Append(thatType). (The receiver is already on the stack, so the arg goes on top — correct order.)
+                if (!EmitExpression(Child(callIdx, 1), out var appendArgType)
+                    || (appendArgType != typeof(char) && appendArgType != typeof(string) && appendArgType != typeof(int)))
+                    return false;
+                var append = sb.GetMethod(nameof(System.Text.StringBuilder.Append), new[] { appendArgType });
+                if (append == null)
+                    return false;
+                _il.Emit(OpCodes.Callvirt, append);
+                type = sb;
+                return true;
+            }
+            return false;
         }
         return false;
     }
