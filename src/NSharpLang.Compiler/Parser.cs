@@ -2593,7 +2593,11 @@ public class Parser
         }
         else
         {
-            initializerToken = Previous;
+            // Double failure: the ':='/'=' is still missing after skipping the
+            // offending token above. Anchor the "expected an initializer
+            // expression" recovery at the CURRENT token — where the initializer is
+            // actually expected — not the just-skipped bad token.
+            initializerToken = Current;
         }
 
         var initializer = ParseRequiredExpressionAfter(

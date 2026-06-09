@@ -1581,6 +1581,69 @@ func test() {
     }
 
     [Fact]
+    public void Parser_TupleDeconstruction_MalformedSeparator_ReportsSensibleDiagnostic()
+    {
+        // A stray token sits where ':='/'=' is expected. The parser should report
+        // a single, helpful "requires ':=' or '='" diagnostic anchored at the bad
+        // token, then recover and still capture the deconstruction names + initializer.
+        var source = """
+func test() {
+    let (x, y) err := getTuple()
+}
+""";
+
+        var result = Parse(source);
+
+        var diagnostic = Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Message.Contains("Tuple deconstruction requires ':=' or '='"));
+        Assert.Equal(2, diagnostic.Line);
+        Assert.Contains("Got 'err'", diagnostic.Message);
+
+        // Recovery: skipping the stray token still yields the deconstruction.
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        var deconstruction = Assert.Single(function.Body!.Statements.OfType<TupleDeconstructionStatement>());
+        Assert.Equal(new[] { "x", "y" }, deconstruction.Names);
+        Assert.NotNull(deconstruction.Initializer);
+    }
+
+    [Fact]
+    public void Parser_TupleDeconstruction_DoubleSeparatorFailure_AnchorsInitializerPlaceholderAtCurrentToken()
+    {
+        // Double failure: the ':='/'=' is still missing after the parser skips the
+        // first offending token ('err' on line 2), leaving the current token at the
+        // '}' on line 3. The primary "requires ':=' or '='" diagnostic trips panic
+        // mode, which suppresses the follow-on "expected an initializer expression"
+        // diagnostic, so only one error surfaces. The observable artifact of the
+        // recovery is the '<error>' placeholder the parser substitutes for the
+        // missing initializer: it must anchor at the CURRENT token (line 3, where the
+        // initializer is actually expected), NOT the just-skipped 'err' token on
+        // line 2. Regression test for the error-recovery anchoring bug in
+        // ParseTupleDeconstruction.
+        var source = """
+func test() {
+    let (x, y) err
+}
+""";
+
+        var result = Parse(source);
+
+        // The missing separator is reported once, anchored at the stray token.
+        Assert.Single(result.Errors, error =>
+            error.Code == ErrorCode.ExpectedToken &&
+            error.Line == 2 &&
+            error.Message.Contains("Tuple deconstruction requires ':=' or '='"));
+
+        // Recovery still yields the deconstruction; its initializer is the '<error>'
+        // placeholder, anchored at the current token (line 3), not the skipped 'err'.
+        var function = Assert.Single(result.CompilationUnit!.Declarations.OfType<FunctionDeclaration>());
+        var deconstruction = Assert.Single(function.Body!.Statements.OfType<TupleDeconstructionStatement>());
+        var placeholder = Assert.IsType<IdentifierExpression>(deconstruction.Initializer);
+        Assert.Equal("<error>", placeholder.Name);
+        Assert.Equal(3, placeholder.Line);
+    }
+
+    [Fact]
     public void Parser_MultipleStatementsWithErrors_InSameBlock_AllReported()
     {
         // Multiple distinct bad statements inside a single function body
