@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — N# ILCompiler fix: INHERITED instance-method resolution (unblocks columnar inheritance)
+
+Surfaced while scoping the columnar inheritance slice: the N# pipeline ITSELF rejected a call to an inherited
+instance method on a derived receiver — `d.GetX()` where `GetX` is declared on the base reported
+`NL103: … Method GetX not found on type D` — even though inheritance and inherited FIELD/property access both
+worked. Root cause: the C# ILCompiler's instance-method-call resolution (`EmitMemberAccessCall` + the call-type
+inference path) keyed only on the receiver's OWN type (`GetMethodKey(D, "GetX")`) and never walked the base-class
+chain, whereas field/property resolution (`TryResolveCurrentTypeMember`) did. FIX: both resolution sites now walk
+`typeBuilder.BaseType` up the chain (binding the inherited overload on the declaring base type; the derived receiver
+is implicitly upcast by the call). Regression-tested: `ILCompiler_CanCallInheritedInstanceMethodOnDerivedReceiver`
+(the exact repro) + `ILCompiler_CanCallInheritedMethodAlongsideOwnMembers` (a derived class with its own field +
+method); 489 ILCompilerTests + 123 columnar tests green. This UNBLOCKS the columnar inheritance slice — the parity
+oracle can now value-match inherited method calls. (Pure C#-pipeline fix; no columnar change.)
+
+---
+
 ## 2026-06-09 — Phase D-11b-iv: constructor CHAINING (`: this(args)`)
 
 A constructor can delegate to another constructor of the same class: `constructor(x): this(x, 0) { … }`.

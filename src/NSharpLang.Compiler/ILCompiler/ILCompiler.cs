@@ -16237,6 +16237,25 @@ public partial class ILCompiler
                     call,
                     targetType: objectType,
                     predicate: overload => !overload.Builder.IsStatic);
+                // INHERITED instance methods: when the method is not declared on the receiver's own type, walk the
+                // base-class chain (mirroring inherited field/property resolution in TryResolveCurrentTypeMember). The
+                // receiver — a derived reference — is implicitly upcast to the declaring base type by the call, so the
+                // emission below (which loads `memberAccess.Object` and calls the bound method) is unchanged.
+                for (var inheritedBaseType = typeBuilder.BaseType;
+                     boundInstanceCall == null && inheritedBaseType != null && inheritedBaseType != typeof(object);
+                     inheritedBaseType = inheritedBaseType.BaseType)
+                {
+                    if (!TryGetUserTypeDefinition(inheritedBaseType, out var inheritedBaseBuilder))
+                    {
+                        break;
+                    }
+
+                    boundInstanceCall = BindDeclaredMethodCall(
+                        GetMethodKey(inheritedBaseBuilder, memberAccess.MemberName),
+                        call,
+                        targetType: inheritedBaseType,
+                        predicate: overload => !overload.Builder.IsStatic);
+                }
                 if (boundInstanceCall != null)
                 {
                     var useAddressReceiverForBoundCall = IsValueTypeLike(objectType) && !objectType.IsGenericParameter;
@@ -19887,6 +19906,24 @@ public partial class ILCompiler
                     call,
                     targetType: objectType,
                     predicate: overload => !overload.Builder.IsStatic);
+                // INHERITED instance methods: walk the base-class chain when the method is not declared on the
+                // receiver's own type, so the call's RETURN TYPE is inferred from the inherited declaration (matching
+                // the emit-side base-chain resolution in EmitMemberAccessCall).
+                for (var inheritedBaseType = typeBuilder.BaseType;
+                     boundInstanceCall == null && inheritedBaseType != null && inheritedBaseType != typeof(object);
+                     inheritedBaseType = inheritedBaseType.BaseType)
+                {
+                    if (!TryGetUserTypeDefinition(inheritedBaseType, out var inheritedBaseBuilder))
+                    {
+                        break;
+                    }
+
+                    boundInstanceCall = BindDeclaredMethodCall(
+                        GetMethodKey(inheritedBaseBuilder, memberAccess.MemberName),
+                        call,
+                        targetType: inheritedBaseType,
+                        predicate: overload => !overload.Builder.IsStatic);
+                }
                 if (boundInstanceCall != null)
                 {
                     return GetBoundDeclaredMethodReturnType(boundInstanceCall);

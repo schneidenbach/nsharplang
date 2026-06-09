@@ -4474,6 +4474,72 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanCallInheritedInstanceMethodOnDerivedReceiver()
+    {
+        // Regression: calling an INHERITED instance method on a derived receiver (without `base.`) was reported as
+        // "Method GetX not found on type D" — the instance-method-call resolution looked up only the receiver's own
+        // type's methods, never the base-class chain (whereas inherited FIELD/property resolution did walk it). The
+        // resolution now walks BaseType, so a derived instance can call a method declared on its base.
+        var source = @"
+class Base {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+    func GetX(): int {
+        return X
+    }
+}
+
+class D: Base {
+    constructor(x: int): base(x) {
+    }
+}
+
+func f(v: int): int {
+    d := new D(v)
+    return d.GetX()
+}";
+        Assert.Equal(5, Assert.IsType<int>(CompileAndInvoke(source, "f", 5)));
+        Assert.Equal(0, Assert.IsType<int>(CompileAndInvoke(source, "f", 0)));
+    }
+
+    [Fact]
+    public void ILCompiler_CanCallInheritedMethodAlongsideOwnMembers()
+    {
+        // A derived class with its OWN field + method, calling an INHERITED method on the derived receiver. The
+        // inherited method (GetBase) returns the base field; the derived's own method (Combined) reads both. Both
+        // calls go through the (now base-chain-walking) instance-method resolution.
+        var source = @"
+class Base {
+    A: int
+    constructor(a: int) {
+        A = a
+    }
+    func GetBase(): int {
+        return A
+    }
+}
+
+class D: Base {
+    B: int
+    constructor(a: int, b: int): base(a) {
+        B = b
+    }
+    func GetOwn(): int {
+        return B
+    }
+}
+
+func sum(a: int, b: int): int {
+    d := new D(a, b)
+    return d.GetBase() + d.GetOwn()
+}";
+        Assert.Equal(8, Assert.IsType<int>(CompileAndInvoke(source, "sum", 5, 3)));
+        Assert.Equal(-2, Assert.IsType<int>(CompileAndInvoke(source, "sum", 1, -3)));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteClassPrimaryConstructor()
     {
         var source = @"
