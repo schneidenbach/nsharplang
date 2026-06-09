@@ -1463,7 +1463,14 @@ public sealed class ColumnarIlEmitter
                     return false;
                 if (!IsCastableScalar(targetType))
                     return false;
-                if (!EmitExpression(Child(idx, 1), out var sourceType) || !IsCastableScalar(sourceType))
+                if (!EmitExpression(Child(idx, 1), out var sourceType))
+                    return false;
+                // An i4-underlying enum operand is its int on the stack, so `enum as <numeric>` is a cast FROM int:
+                // enum->int is identity (no opcode), enum->long/double/etc. widens exactly like int->long/double. The
+                // C# path emits the same (the underlying-int value, then the same numeric conversion).
+                if (sourceType is EnumBuilder)
+                    sourceType = typeof(int);
+                if (!IsCastableScalar(sourceType))
                     return false;
                 // Emit the conversion only when the stack representation differs (char->int and same-type casts
                 // are no-ops). The opcode is TARGET-driven, matching the C# path (TryGetNumericConversionOpcode):

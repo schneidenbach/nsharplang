@@ -847,12 +847,28 @@ internal static class NSharpCompilerDogfoodAdapter
                 var enumName = source.Substring(outResult[0], outResult[1]);
                 var memberNames = new string[memberCount];
                 var memberValues = new int[memberCount];
+                // C#'s enum value rule (ILCompiler.cs ~21174): nextValue starts at 0; an explicit `= <int>` member
+                // sets its value AND resets nextValue to value+1; an implicit member takes the running nextValue.
+                // (e.g. `A = 5, B, C = 20, D` -> 5, 6, 20, 21.) Mirror it EXACTLY so the underlying ints byte-match.
+                var nextValue = 0;
                 for (var m = 0; m < memberCount; m++)
                 {
+                    int constantValue;
                     if (outHasValue[m] != 0)
-                        return false; // explicit `= N` is sub-slice C; decline the whole program for now.
+                    {
+                        // An explicit plain-decimal literal — mirror C#'s int.Parse(intLiteral.Value). A non-decimal
+                        // (hex / underscore) or overflowing value declines the whole program to the C# path.
+                        var litText = source.Substring(outValueStarts[m], outValueLengths[m]);
+                        if (!int.TryParse(litText, out constantValue))
+                            return false;
+                    }
+                    else
+                    {
+                        constantValue = nextValue;
+                    }
                     memberNames[m] = source.Substring(outNameStarts[m], outNameLengths[m]);
-                    memberValues[m] = m; // auto-increment 0,1,2,... (the C# default with no explicit values).
+                    memberValues[m] = constantValue;
+                    nextValue = constantValue + 1;
                 }
                 enums.Add(new Columnar.ColumnarEnumInput(enumName, memberNames, memberValues));
             }

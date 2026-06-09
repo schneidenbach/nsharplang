@@ -3325,8 +3325,8 @@ class B
         // Enum-typed `:=` LOCAL round-trip.
         Assert.Equal(2, Convert.ToInt32(type.GetMethod("viaLocal")!.Invoke(null, null)));
 
-        // Explicit member values are sub-slice C — decline the whole program to the C# pipeline for now.
-        Assert.False(RouteColumnarProgram("enum E { A = 5, B }\n\nfunc f(): E { return E.A }\n").Ok);
+        // Explicit member values are now supported (see ColumnarCodegen_Parity_EnumIntCastAndExplicitValues).
+        Assert.True(RouteColumnarProgram("enum E { A = 5, B }\n\nfunc f(): E { return E.A }\n").Ok);
         // A class/struct/etc. declaration is still unsupported -> decline.
         Assert.False(RouteColumnarProgram("struct P { x: int }\n\nfunc f(): int { return 1 }\n").Ok);
         // An enum element inside a TUPLE is not modelled (ValueTuple over a TypeBuilder cannot reflect its members)
@@ -3376,6 +3376,49 @@ class B
         Assert.True(RouteColumnarProgram("enum Color { Red, Green, Blue }\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red => 1,\n        Color.Green => 2,\n        Color.Blue => 3\n    }\n}\n").Ok);
         // A catch-all makes a partial enum match exhaustive -> ACCEPTS.
         Assert.True(RouteColumnarProgram("enum Color { Red, Green, Blue }\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red => 1,\n        _ => 0\n    }\n}\n").Ok);
+    }
+
+    // ENUM `(int)` conversion + EXPLICIT member values (sub-slice C). `(int)enumValue` reads the underlying int (an
+    // i4-underlying enum is its int on the stack, so enum->int is identity and enum->long widens like int->long).
+    // Explicit `= N` member values follow C#'s rule (nextValue=0; explicit sets + resets, implicit takes nextValue).
+    // Both are observable as plain int/long, so the parity oracle value-matches directly across the two pipelines.
+    [Fact]
+    public void ColumnarCodegen_Parity_EnumIntCastAndExplicitValues()
+    {
+        var autoInc =
+            "enum Color { Red, Green, Blue }\n\n" +
+            "func redInt(): int { return (int)Color.Red }\n\n" +
+            "func greenInt(): int { return (int)Color.Green }\n\n" +
+            "func blueInt(): int { return (int)Color.Blue }\n\n" +
+            "func toInt(c: Color): int { return (int)c }\n\n" +
+            "func toLong(c: Color): long { return (long)c }\n\n" +
+            "func pick(which: int): Color {\n    return match which {\n        0 => Color.Red,\n        1 => Color.Green,\n        _ => Color.Blue\n    }\n}\n\n" +
+            // routes through the enum-typed `toInt`/`toLong` params (int-in/int-out so the oracle can compare).
+            "func viaInt(which: int): int { return toInt(pick(which)) }\n\n" +
+            "func viaLong(which: int): long { return toLong(pick(which)) }\n";
+        AssertColumnarProgramMatchesCSharp(autoInc,
+            ("redInt", new object[] { }), ("greenInt", new object[] { }), ("blueInt", new object[] { }),
+            ("viaInt", new object[] { 0 }), ("viaInt", new object[] { 1 }), ("viaInt", new object[] { 2 }),
+            ("viaLong", new object[] { 0 }), ("viaLong", new object[] { 1 }), ("viaLong", new object[] { 2 }));
+
+        // EXPLICIT values: A=5, B=6 (auto from 5), C=20, D=21 (auto from 20).
+        var explicitVals =
+            "enum E { A = 5, B, C = 20, D }\n\n" +
+            "func aVal(): int { return (int)E.A }\n\n" +
+            "func bVal(): int { return (int)E.B }\n\n" +
+            "func cVal(): int { return (int)E.C }\n\n" +
+            "func dVal(): int { return (int)E.D }\n";
+        AssertColumnarProgramMatchesCSharp(explicitVals,
+            ("aVal", new object[] { }), ("bVal", new object[] { }), ("cVal", new object[] { }), ("dVal", new object[] { }));
+
+        // Pin the exact explicit-then-auto-increment values columnar emits.
+        var (ok, asm, typeName, _) = RouteColumnarProgram(explicitVals);
+        Assert.True(ok);
+        var type = System.Reflection.Assembly.Load(asm!).GetType(typeName!)!;
+        Assert.Equal(5, type.GetMethod("aVal")!.Invoke(null, null));
+        Assert.Equal(6, type.GetMethod("bVal")!.Invoke(null, null));
+        Assert.Equal(20, type.GetMethod("cVal")!.Invoke(null, null));
+        Assert.Equal(21, type.GetMethod("dVal")!.Invoke(null, null));
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

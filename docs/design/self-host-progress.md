@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-7c: ENUM `(int)` conversion + explicit member values — enums COMPLETE
+
+The final enum slice — observe the underlying int, and honor explicit values.
+- **Emitter** (`ColumnarIlEmitter` case 16, cast): an `EnumBuilder` cast operand is treated as its underlying
+  `int` (an i4-underlying enum is its int on the stack), so `(int)c` is identity (no opcode) and `(long)c`/`(double)c`
+  widen exactly like `int`→that type via the existing target-driven conversion switch. A non-numeric cast target
+  (string/bool) and the reverse `(Color)5` int→enum cast still decline (TryResolveBuiltin doesn't know enums).
+- **Adapter** (`TryGetColumnarEnumInputs`): explicit `= N` member values are now honored, computed via C#'s exact
+  rule (`ILCompiler.NestedTypes.cs` ~415): `nextValue=0`; an explicit member sets its value AND resets
+  `nextValue=value+1`; an implicit member takes the running `nextValue` (`A=5, B, C=20, D` → 5,6,20,21). A
+  non-decimal/overflowing literal declines (`int.TryParse`); negative/hex/underscore values decline at parse or
+  collect (safe C# fallback, no value divergence).
+
+Parity-gated: `ColumnarCodegen_Parity_EnumIntCastAndExplicitValues` value-matches the C# ILCompiler over `(int)`/
+`(long)` of auto-incremented AND explicit enums, and pins the explicit values 5/6/20/21 by invoking the compiled
+methods. (Note: for `(int)enum`, columnar emits no opcode while C# emits a redundant `conv.i4` — different IL, but a
+verifiable no-op yielding the identical value, so the value-matching oracle holds.) Adversarially reviewed (read-only,
+2 lenses + judge: cast parity, explicit-value algorithm) → SHIP, no in-scope defects (the value algorithm byte-matches
+C#; cast/decline edges all safe). 73 columnar tests green; full non-IDE gate green (fresh isolated). **ENUMS COMPLETE**
+(declaration, member access, typing, param/return/local, match patterns + exhaustiveness, `(int)` casts, explicit
+values). Next user-defined type: struct.
+
+---
+
 ## 2026-06-09 — Phase D-7b: ENUM in match patterns (`match c { Color.Red => … }`) + exhaustiveness decline
 
 Enums become first-class match scrutinees.
