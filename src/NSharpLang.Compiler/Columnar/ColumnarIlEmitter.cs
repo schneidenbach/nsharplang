@@ -778,6 +778,29 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
+                if (_kinds[target] == 8) // struct field write: `local.Field = value`
+                {
+                    // Slice scope: the receiver is a `:=` LOCAL of a registered struct type; the field is mutated IN
+                    // PLACE via the local's ADDRESS (ldloca; <value>; stfld <FieldBuilder>). A param receiver, a
+                    // nested receiver (`p.q.X`), or a non-struct/non-field target declines (no modelled addressable
+                    // storage) → C# fallback.
+                    var fieldReceiver = Child(target, 0);
+                    if (_kinds[fieldReceiver] != 6 || !_locals.TryGetValue(Text(fieldReceiver), out var recLocal))
+                        return false;
+                    ColumnarStructDef? targetStruct = null;
+                    foreach (var d in _structRegistry.Values)
+                    {
+                        if (d.Builder == recLocal.LocalType) { targetStruct = d; break; }
+                    }
+                    if (targetStruct == null || !targetStruct.Fields.TryGetValue(Text(target), out var targetField))
+                        return false;
+                    _il.Emit(OpCodes.Ldloca, recLocal);
+                    if (!EmitExpression(Child(expr, 1), out var fieldValueType) || fieldValueType != targetField.FieldType)
+                        return false;
+                    _il.Emit(OpCodes.Stfld, targetField);
+                    return true;
+                }
+
                 if (_kinds[target] != 6)
                     return false;
                 var targetName = Text(target);

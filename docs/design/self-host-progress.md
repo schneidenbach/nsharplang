@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-8b: struct field MUTATION + (locking in) struct passing & nested fields
+
+- **Emitter** (`ColumnarIlEmitter` case 23, assignment): a struct field write `local.Field = value` on a `:=` LOCAL
+  struct receiver now emits `ldloca <local>; <value>; stfld <FieldBuilder>` (mutate in place). The receiver must be a
+  bare-identifier local of a registered struct; a PARAM receiver, a nested receiver (`p.q.X`), or a non-struct/
+  non-field target declines → C# fallback.
+- **No new code needed** for two capabilities the type plumbing already provided (confirmed by probe + the slice-8a
+  review): a struct PARAM + RETURN across sibling functions (`make(): Point` / `dot(p: Point)`), and NESTED
+  struct-typed fields (`o.In.V`). This slice adds parity TESTS that lock them in.
+
+Parity-gated: `ColumnarCodegen_Parity_StructMutationAndPassing` value-matches the C# ILCompiler over read-modify-write
+and direct field sets on a local struct, a struct round-trip through sibling `make`/`dot`, and nested struct-typed
+field reads; decline-pinned for a param-receiver mutation. (C# acceptance of struct field mutation verified before
+implementing — `bump(5)` = 6.) 75 columnar tests green; full non-IDE gate green (fresh isolated). Next struct slices:
+param-receiver mutation, struct methods, primary constructors; then record/union toward the rich type system.
+
+---
+
 ## 2026-06-09 — Phase D-8a: STRUCT — the SECOND user-defined type (fields + object-init + field read)
 
 The columnar backend gains value-type structs, reusing the enum type-emission architecture.

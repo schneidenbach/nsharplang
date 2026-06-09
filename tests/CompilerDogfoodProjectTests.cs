@@ -3464,6 +3464,40 @@ class B
         Assert.False(RouteColumnarProgram("struct P(x: int) {\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // STRUCT slice 2 — field MUTATION (`p.X = v` on a `:=` local struct: ldloca; <value>; stfld), plus locking in the
+    // EMERGENT capabilities the type plumbing already provides: a struct PARAM + RETURN across sibling functions, and
+    // NESTED struct-typed fields (`o.In.V`). All exposed via scalar in/out so the distinct columnar/C# struct types
+    // never cross the assembly boundary. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_StructMutationAndPassing()
+    {
+        var prog =
+            "struct Point {\n    X: int\n    Y: int\n}\n\n" +
+            // field MUTATION on a `:=` local (read-modify-write and direct set).
+            "func bump(a: int): int {\n    p := new Point { X: a, Y: 0 }\n    p.X = p.X + 1\n    return p.X\n}\n\n" +
+            "func setBoth(a: int, b: int): int {\n    p := new Point { X: 0, Y: 0 }\n    p.X = a\n    p.Y = b\n    return p.X * p.Y\n}\n\n" +
+            // struct PARAM + RETURN across sibling funcs.
+            "func make(a: int, b: int): Point {\n    return new Point { X: a, Y: b }\n}\n\n" +
+            "func dot(p: Point): int {\n    return p.X * p.Y\n}\n\n" +
+            "func roundTrip(a: int, b: int): int {\n    p := make(a, b)\n    return dot(p)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("bump", new object[] { 5 }), ("bump", new object[] { -1 }),
+            ("setBoth", new object[] { 3, 4 }), ("setBoth", new object[] { 7, 0 }),
+            ("roundTrip", new object[] { 6, 7 }), ("roundTrip", new object[] { -2, 5 }));
+
+        // NESTED struct-typed fields — read a field of a struct-typed field. (Inner declared before Outer so Outer's
+        // field type resolves in PASS-0 declaration order.)
+        var nested =
+            "struct Inner {\n    V: int\n}\n\n" +
+            "struct Outer {\n    In: Inner\n    K: int\n}\n\n" +
+            "func combine(a: int, b: int): int {\n    i := new Inner { V: a }\n    o := new Outer { In: i, K: b }\n    return o.In.V + o.K\n}\n";
+        AssertColumnarProgramMatchesCSharp(nested,
+            ("combine", new object[] { 10, 3 }), ("combine", new object[] { -5, 5 }));
+
+        // A PARAM-receiver field mutation declines this slice (only `:=` local receivers are modelled) -> C# fallback.
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n}\n\nfunc f(p: P): int {\n    p.X = 9\n    return p.X\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,
