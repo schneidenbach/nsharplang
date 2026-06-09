@@ -3807,9 +3807,9 @@ class B
         Assert.False(getM.IsStatic);
         Assert.Equal(typeof(int), getM.ReturnType);
 
-        // DECLINES (slice 1a scope): a class with a user CONSTRUCTOR (slice 1b), a PRIMARY constructor, INHERITANCE.
-        // (A class method that MUTATES a field is now supported — see ColumnarCodegen_Parity_ClassFieldMutationInMethod.)
-        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // DECLINES (slice 1a scope): a PRIMARY constructor `class C(x)`, INHERITANCE `class D: Base`. (A user
+        // `constructor` and a field-mutating method are now supported — see ColumnarCodegen_Parity_ClassConstructor /
+        // ColumnarCodegen_Parity_ClassFieldMutationInMethod.)
         Assert.False(RouteColumnarProgram("class C(x: int) {\n    func g(): int { return x }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class Base {\n    X: int\n}\n\nclass D: Base {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
@@ -3846,6 +3846,53 @@ class B
         // DECLINE: a STRUCT (value type) field mutation in a method — the receiver is spilled to a temp copy, so the
         // mutation would not persist to the caller's variable (diverging from C#'s in-place value semantics).
         Assert.False(RouteColumnarProgram("struct S {\n    X: int\n    func Inc(): int {\n        X = X + 1\n        return X\n    }\n}\n\nfunc f(v: int): int {\n    s := new S { X: v }\n    return s.Inc()\n}\n").Ok);
+    }
+
+    // CLASS slice 1b-ii — a user CONSTRUCTOR (with a body that assigns fields) + POSITIONAL construction `new C(args)`.
+    // The kernel delimits a `constructor(...) { body }` member (an Identifier "constructor" followed by `(`); the
+    // adapter verifies the text and parses it as a nameless void function via the existing signature/statement
+    // kernels; the emitter DefineConstructor + emits the body (`ldarg.0; call object::.ctor()`, then field writes via
+    // the reference-type field-write path, then ret). A class with a user ctor has NO default ctor, so object-init on
+    // it declines. Positional `new C(args)` (node kind 15) matches the single ctor and `newobj`s it. Value-matched vs
+    // the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassConstructor()
+    {
+        var prog =
+            "class Counter {\n    Count: int\n    Step: int\n    constructor(start: int, step: int) {\n        Count = start\n        Step = step\n    }\n    func Get(): int {\n        return Count\n    }\n    func Next(): int {\n        return Count + Step\n    }\n    func Scaled(k: int): int {\n        return Count * k\n    }\n}\n\n" +
+            "func cGet(start: int, step: int): int {\n    c := new Counter(start, step)\n    return c.Get()\n}\n\n" +
+            "func cNext(start: int, step: int): int {\n    c := new Counter(start, step)\n    return c.Next()\n}\n\n" +
+            "func cScaled(start: int, step: int, k: int): int {\n    c := new Counter(start, step)\n    return c.Scaled(k)\n}\n\n" +
+            // a ctor body with ARITHMETIC (Birth = year - age) and a STRING field.
+            "class Person {\n    Name: string\n    Age: int\n    Birth: int\n    constructor(name: string, age: int, year: int) {\n        Name = name\n        Age = age\n        Birth = year - age\n    }\n    func NameLen(): int {\n        return Name.Length\n    }\n    func BirthYear(): int {\n        return Birth\n    }\n}\n\n" +
+            "func pNameLen(age: int, year: int): int {\n    p := new Person(\"alice\", age, year)\n    return p.NameLen()\n}\n\n" +
+            "func pBirth(age: int, year: int): int {\n    p := new Person(\"bob\", age, year)\n    return p.BirthYear()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("cGet", new object[] { 5, 2 }), ("cGet", new object[] { 0, 0 }),
+            ("cNext", new object[] { 5, 2 }), ("cNext", new object[] { -3, 10 }),
+            ("cScaled", new object[] { 5, 2, 3 }), ("cScaled", new object[] { 4, 0, -2 }),
+            ("pNameLen", new object[] { 30, 2020 }),
+            ("pBirth", new object[] { 25, 2020 }), ("pBirth", new object[] { 0, 1999 }));
+
+        // Metadata: Counter is a class with a single 2-arg ctor and NO parameterless ctor.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the class-with-constructor program");
+        var counterType = System.Reflection.Assembly.Load(asm!).GetType("Counter")!;
+        var ctors = counterType.GetConstructors();
+        Assert.Single(ctors);
+        Assert.Equal(2, ctors[0].GetParameters().Length);
+
+        // DECLINES (slice scope / N#-pipeline-rejected, verify-first confirmed):
+        // object-init on a class WITH a user ctor (no parameterless ctor — N# rejects too).
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(v: int): int {\n    c := new C { X: v }\n    return c.X\n}\n").Ok);
+        // constructor OVERLOADS (a 2nd ctor), and a VALUE-type struct constructor.
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n    constructor() {\n        X = 0\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("struct S {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a ctor that does NOT assign every field — the N# pipeline reports NL304 (definite assignment), so columnar
+        // must DECLINE (else it accepts a program N# rejects, defaulting the unassigned field).
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    Y: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X + c.Y\n}\n").Ok);
+        // a ctor containing a `return` — the N# pipeline reports NL103 (`return` only inside a function), so decline.
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n        return\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X\n}\n").Ok);
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

@@ -89,12 +89,13 @@ internal sealed class ColumnarEnumDef
 /// </summary>
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, bool isReference)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarFunctionInput> constructors, bool isReference)
     {
         Name = name;
         FieldNames = fieldNames;
         FieldTypeCanonicals = fieldTypeCanonicals;
         Methods = methods;
+        Constructors = constructors;
         IsReference = isReference;
     }
 
@@ -104,8 +105,12 @@ public sealed class ColumnarStructInput
     // Instance methods declared in the struct body (parsed exactly like a top-level function — signature + body
     // node tables). Models scalar/struct-returning methods (with or without parameters) reading fields by bare name.
     public IReadOnlyList<ColumnarFunctionInput> Methods { get; }
-    // True for a RECORD (a reference type — class base object, constructed via newobj + a default ctor, fields read
-    // directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
+    // User CONSTRUCTORS declared in the body (reference types only this slice). Each is parsed like a function whose
+    // name is "constructor" and whose return is void — its params + body node tables drive a DefineConstructor + a
+    // ctor body (base call + field assignments). Empty when the type has no user constructor (object-init only).
+    public IReadOnlyList<ColumnarFunctionInput> Constructors { get; }
+    // True for a RECORD or CLASS (a reference type — class base object, constructed via newobj + a default ctor or a
+    // user ctor, fields read directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
     public bool IsReference { get; }
 }
 
@@ -158,6 +163,10 @@ internal sealed class ColumnarStructDef
     // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
     // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
     public Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
+    // User CONSTRUCTORS (reference types this slice): each declared ConstructorBuilder + its param types. Positional
+    // construction `new T(args)` matches a ctor by arg count + arg types. Empty when the type has no user ctor (then
+    // DefaultCtor drives object-init). A type with ≥1 user ctor has NO DefaultCtor (object-init on it declines).
+    public List<(ConstructorBuilder Builder, Type[] ParamTypes)> Constructors { get; } = new();
 }
 
 /// <summary>
@@ -632,7 +641,10 @@ public sealed class ColumnarIlEmitter
                 if (!fields.TryAdd(st.FieldNames[fi], fb))
                     return false; // a duplicate field name within one struct is malformed.
             }
-            var defaultCtor = st.IsReference ? tb.DefineDefaultConstructor(MethodAttributes.Public) : null;
+            // A reference type with NO user constructor gets a synthesized public parameterless DefaultCtor (the
+            // object-init `newobj` target). A reference type WITH a user constructor has no implicit default ctor —
+            // the user ctors are defined in PASS 0c and drive positional construction; object-init on it declines.
+            var defaultCtor = (st.IsReference && st.Constructors.Count == 0) ? tb.DefineDefaultConstructor(MethodAttributes.Public) : null;
             structBuilders[s] = tb;
             if (!structRegistry.TryAdd(st.Name, new ColumnarStructDef(tb, st.FieldNames, fields, st.IsReference, defaultCtor)))
                 return false; // a duplicate struct name is an ambiguous type.
@@ -678,6 +690,37 @@ public sealed class ColumnarIlEmitter
                     return false; // a duplicate method name on one struct is an overload set the slice does not model.
                 structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap));
             }
+        }
+
+        // PASS 0c (constructors): declare each reference-type's user constructor. A constructor is a nameless,
+        // void-returning member whose body assigns fields; `this` is arg 0 so user param ordinals shift by +1. Slice
+        // scope: a SINGLE constructor on a REFERENCE type (class/record), no chaining (declined at parse). A value-type
+        // struct constructor (no base call; definite-assignment rules) is deferred. The ConstructorBuilder + its param
+        // types are stored for positional-construction resolution; the body is emitted in PASS 2.
+        var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
+        for (var s = 0; s < structs.Count; s++)
+        {
+            if (structs[s].Constructors.Count == 0)
+                continue;
+            var def = structRegistry[structs[s].Name];
+            // Value-type constructors and constructor OVERLOADS are deferred — decline (a struct ctor / a 2nd ctor).
+            if (!def.IsReference || structs[s].Constructors.Count > 1)
+                return false;
+            var ctor = structs[s].Constructors[0];
+            var cParamTypes = new Type[ctor.ParamNames.Length];
+            var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+            var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+            for (var i = 0; i < ctor.ParamNames.Length; i++)
+            {
+                if (!TryResolveType(ctor.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                    return false;
+                cParamTypes[i] = pt;
+                cOrdinals[ctor.ParamNames[i]] = i + 1;
+                cParamTypeMap[ctor.ParamNames[i]] = pt;
+            }
+            var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
+            def.Constructors.Add((cb, cParamTypes));
+            structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
         }
 
         // PASS 0 (unions): define every user union — an ABSTRACT base class plus one SEALED nested case class per
@@ -797,6 +840,27 @@ public sealed class ColumnarIlEmitter
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
             if (!emitter.EmitBody(job.Method.BodyRoot, false))
+                return false;
+        }
+
+        // Emit user-constructor bodies. Each chains to the base `object` ctor first (`ldarg.0; call object::.ctor()`),
+        // then emits the ctor body (field assignments via the reference-type field-write path), with `_currentStruct`
+        // set and the ctor's param ordinals (arg 0 = `this`). The body is VOID (no return value), so EmitBody(isVoid:
+        // true) appends a trailing `ret` where control falls through.
+        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes)!;
+        foreach (var job in structCtorJobs)
+        {
+            var cil = job.Builder.GetILGenerator();
+            var emitter = new ColumnarIlEmitter(
+                job.Ctor.Kinds, job.Ctor.ValueStarts, job.Ctor.ValueLengths, job.Ctor.ChildStart, job.Ctor.ChildCount, job.Ctor.ChildIndices,
+                source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
+            // The N# pipeline requires a constructor to (1) contain no `return` (NL103) and (2) assign every field
+            // (NL304). Validate BEFORE emitting anything — declining here discards the whole assembly (→ C# path).
+            if (!emitter.IsValidReferenceCtorBody(job.Ctor.BodyRoot))
+                return false;
+            cil.Emit(OpCodes.Ldarg_0);
+            cil.Emit(OpCodes.Call, objectCtor);
+            if (!emitter.EmitBody(job.Ctor.BodyRoot, isVoid: true))
                 return false;
         }
 
@@ -1333,6 +1397,46 @@ public sealed class ColumnarIlEmitter
         }
     }
 
+    // A reference-type CONSTRUCTOR body is valid for columnar emit iff it (1) contains NO `return` statement — the
+    // N# pipeline rejects `return` in a constructor (NL103, "there's no function to return from") — and (2) ASSIGNS
+    // EVERY field of the type — the N# pipeline requires definite assignment of non-nullable fields (NL304), and all
+    // MODELLED fields are non-nullable (a nullable/composed field type declines at the parser kernel). The assignment
+    // check is conservative: only a TOP-LEVEL `field = expr` statement counts, so a field assigned only inside an
+    // `if`/loop declines to the C# path (safe under-acceptance) rather than risking a partial-coverage mis-accept.
+    private bool IsValidReferenceCtorBody(int bodyRoot)
+    {
+        if (_currentStruct == null || _kinds[bodyRoot] != 25 || ContainsReturnStatement(bodyRoot))
+            return false;
+        var assigned = new HashSet<string>(StringComparer.Ordinal);
+        for (var n = 0; n < _childCount[bodyRoot]; n++)
+        {
+            var stmt = Child(bodyRoot, n);
+            if (_kinds[stmt] != 23) // an expression statement
+                continue;
+            var e = Child(stmt, 0);
+            if (_kinds[e] != 14 || Text(e) != "=") // a simple `=` assignment
+                continue;
+            var target = Child(e, 0);
+            if (_kinds[target] == 6 && _currentStruct.Fields.ContainsKey(Text(target)))
+                assigned.Add(Text(target));
+        }
+        return assigned.Count == _currentStruct.Fields.Count;
+    }
+
+    // Whether the subtree rooted at `idx` contains a Return statement (kind 20) anywhere. Expression kinds are 0-19,
+    // so a kind-20 node only ever appears in statement position — walking all children is safe.
+    private bool ContainsReturnStatement(int idx)
+    {
+        if (_kinds[idx] == 20)
+            return true;
+        for (var n = 0; n < _childCount[idx]; n++)
+        {
+            if (ContainsReturnStatement(Child(idx, n)))
+                return true;
+        }
+        return false;
+    }
+
     // Emit `idx` as a value on the stack and report its CLR type via `type`. Returns false (declining the whole
     // function) on any unsupported form or a type mismatch the spike does not model. The reported type drives
     // correct opcode selection and prevents cross-type mixing (e.g. a bool leaking into int arithmetic) that
@@ -1832,6 +1936,26 @@ public sealed class ColumnarIlEmitter
                         type = typeof(System.Text.StringBuilder);
                         return true;
                     }
+                    // A user CLASS/RECORD with a positional constructor: `new T(args)`. The type names a registered
+                    // reference type carrying exactly one user ctor (slice scope); match its single ctor by arg count,
+                    // emit each arg (type-checked against the ctor's param type), then `newobj <ctor>`. The result's
+                    // type is the class. (Value-type construction is via object-init; a 0-ctor class declines here —
+                    // it constructs via object-init instead.)
+                    if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.IsReference && ctorDef.Constructors.Count == 1)
+                    {
+                        var (ctorBuilder, ctorParamTypes) = ctorDef.Constructors[0];
+                        var ctorArgCount = _childCount[idx] - 1;
+                        if (ctorParamTypes.Length != ctorArgCount)
+                            return false;
+                        for (var a = 0; a < ctorArgCount; a++)
+                        {
+                            if (!EmitExpression(Child(idx, 1 + a), out var ctorArgType) || ctorArgType != ctorParamTypes[a])
+                                return false;
+                        }
+                        _il.Emit(OpCodes.Newobj, ctorBuilder);
+                        type = ctorDef.Builder;
+                        return true;
+                    }
                     return false; // other Simple-type constructors are a host boundary; decline.
                 }
                 if (_childCount[idx] != 2 || _kinds[typeNode] != 2) // array alloc: exactly one ctor arg; type must be Array.
@@ -1957,10 +2081,13 @@ public sealed class ColumnarIlEmitter
                     return false; // not a registered struct/record/union-case type.
                 if (initStructDef.IsReference)
                 {
-                    // RECORD (reference type): `newobj <ctor>` then per named field `dup; <value>; stfld`. The object
-                    // ref stays on the stack between assignments (and as the result) via dup — mirrors C#'s
-                    // reference-type object initializer.
-                    _il.Emit(OpCodes.Newobj, initStructDef.DefaultCtor!);
+                    // RECORD/CLASS (reference type): `newobj <default ctor>` then per named field `dup; <value>;
+                    // stfld`. The object ref stays on the stack between assignments (and as the result) via dup —
+                    // mirrors C#'s reference-type object initializer. A class with a USER constructor has NO default
+                    // (parameterless) ctor, so object-init on it declines (it must be constructed positionally).
+                    if (initStructDef.DefaultCtor == null)
+                        return false;
+                    _il.Emit(OpCodes.Newobj, initStructDef.DefaultCtor);
                     for (var p = 0; p < pairCount; p++)
                     {
                         var nameNode = Child(idx, 1 + (2 * p));

@@ -939,10 +939,11 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
                 var outMethodFuncIndices = new int[cap];
-                var outResult = new int[3];
+                var outCtorIndices = new int[cap];
+                var outResult = new int[4];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
-                    outFieldTypeLengths, outMethodFuncIndices, outResult);
+                    outFieldTypeLengths, outMethodFuncIndices, outCtorIndices, outResult);
                 if (fieldCount <= 0 || outResult[1] <= 0)
                     return false;
 
@@ -966,7 +967,20 @@ internal static class NSharpCompilerDogfoodAdapter
                         return false;
                     methods.Add(methodInput);
                 }
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, isReference));
+
+                // Each user CONSTRUCTOR (its `constructor`-identifier token index recorded by the kernel) is parsed
+                // like a nameless, void-returning function — the adapter verifies the identifier text is literally
+                // "constructor" and that there is no return type / chaining initializer (decline otherwise).
+                var ctorCount = outResult[3];
+                var constructors = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>(ctorCount);
+                for (var c = 0; c < ctorCount; c++)
+                {
+                    if (!TryParseColumnarConstructorAt(bindings, ck, cs, cv, n, outCtorIndices[c], source, out var ctorInput))
+                        return false;
+                    constructors.Add(ctorInput);
+                }
+
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, isReference));
             }
             return true;
         }
@@ -1121,6 +1135,64 @@ internal static class NSharpCompilerDogfoodAdapter
 
         input = new Columnar.ColumnarFunctionInput(
             fname, returnCanonical, paramNames, paramCanonicals,
+            bk, bvs, bvl, bcs, bcc, bci, bres[0]);
+        return true;
+    }
+
+    // Parse ONE user CONSTRUCTOR (at compacted token index `ctorIndex`, the "constructor" identifier) into a
+    // ColumnarFunctionInput whose name is "constructor" and whose return is "void". Reuses the function-signature
+    // kernel (a constructor has no name token and no `: ret`, so it yields funcNameStart = -1 and returnRoot = -1)
+    // and the statement kernel for the body. Declines if the identifier text is not literally "constructor", if the
+    // signature has a return type (a `: this(...)`/`base(...)` chaining initializer makes the kernel's return-type
+    // parse fail → paramCount < 0), or the body is missing.
+    private static bool TryParseColumnarConstructorAt(
+        Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int ctorIndex, string source,
+        out Columnar.ColumnarFunctionInput input)
+    {
+        input = null!;
+        if (string.CompareOrdinal(source, cs[ctorIndex], "constructor", 0, "constructor".Length) != 0
+            || cv[ctorIndex] != "constructor".Length)
+            return false; // an `id(...)` member whose identifier is not "constructor" is not modelled.
+
+        var cap = n + 1;
+        var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
+        var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
+        var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
+        var sres = new int[5];
+        var paramCount = bindings.ParseFunctionSignature(
+            ck, cs, cv, n, ctorIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
+            pNameStart, pNameLen, pTypeRoot, sres);
+        // A constructor must have NO return type (sres[1] = -1). A non-negative return root means a `: <type>` was
+        // parsed — for a constructor that is malformed (or a chaining initializer the kernel rejected differently).
+        if (paramCount < 0 || sres[1] >= 0)
+            return false;
+
+        var paramNames = new string[paramCount];
+        var paramCanonicals = new string[paramCount];
+        for (var p = 0; p < paramCount; p++)
+        {
+            paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
+            paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+        }
+
+        var bodyBrace = -1;
+        for (var t = ctorIndex + 1; t < n; t++)
+        {
+            if (ck[t] == 129) { bodyBrace = t; break; }
+        }
+        if (bodyBrace < 0)
+            return false;
+
+        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+        var bres = new int[2];
+        var bodyNodeCount = bindings.ParseStatementNodes(
+            ck, cs, cv, n, bodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
+        if (bodyNodeCount <= 0)
+            return false;
+
+        input = new Columnar.ColumnarFunctionInput(
+            "constructor", "void", paramNames, paramCanonicals,
             bk, bvs, bvl, bcs, bcc, bci, bres[0]);
         return true;
     }
@@ -2548,7 +2620,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseStructDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        int[] outMethodFuncIndices, int[] outResult);
+        int[] outMethodFuncIndices, int[] outCtorIndices, int[] outResult);
     private delegate int ParseUnionDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,

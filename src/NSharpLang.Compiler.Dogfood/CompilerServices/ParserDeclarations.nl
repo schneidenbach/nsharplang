@@ -419,7 +419,7 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // `record` (13), or `class` (8) keyword. A class with a user `constructor` (slice 1b) is NOT yet parsed here: the
 // `constructor` keyword is neither a field-name identifier nor `func`/`}`, so the field loop returns -1 and the host
 // declines that class to the C# path until constructors are modelled.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outResult: int[]): int {
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outCtorIndices: int[], outResult: int[]): int {
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -438,40 +438,61 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     }
     pos = pos + 1
 
-    // Fields first (`Name : Type`), stopping at the struct close `}` (130) or the first method `func` (7).
+    // Fields first (`Name : Type`), stopping at the type close `}` (130), the first method `func` (7), or a
+    // CONSTRUCTOR member — an Identifier (0) immediately followed by `(` (127). A field is `id : type` (a `:` after
+    // the name), so an `id (` is unambiguously a constructor, not a field, and ends the field section.
     fieldCount := 0
-    while pos < count && tokenKinds[pos] != 130 && tokenKinds[pos] != 7 {
-        if tokenKinds[pos] != 0 {
-            return -1
-        }
-        outFieldNameStarts[fieldCount] = tokenStarts[pos]
-        outFieldNameLengths[fieldCount] = tokenValueLengths[pos]
-        pos = pos + 1
+    fieldsDone := 0
+    while fieldsDone == 0 && pos < count && tokenKinds[pos] != 130 && tokenKinds[pos] != 7 {
+        if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
+            fieldsDone = 1
+        } else {
+            if tokenKinds[pos] != 0 {
+                return -1
+            }
+            outFieldNameStarts[fieldCount] = tokenStarts[pos]
+            outFieldNameLengths[fieldCount] = tokenValueLengths[pos]
+            pos = pos + 1
 
-        if pos >= count || tokenKinds[pos] != 122 {
-            return -1
-        }
-        pos = pos + 1
+            if pos >= count || tokenKinds[pos] != 122 {
+                return -1
+            }
+            pos = pos + 1
 
-        if pos >= count || tokenKinds[pos] != 0 {
-            return -1
-        }
-        outFieldTypeStarts[fieldCount] = tokenStarts[pos]
-        outFieldTypeLengths[fieldCount] = tokenValueLengths[pos]
-        pos = pos + 1
+            if pos >= count || tokenKinds[pos] != 0 {
+                return -1
+            }
+            outFieldTypeStarts[fieldCount] = tokenStarts[pos]
+            outFieldTypeLengths[fieldCount] = tokenValueLengths[pos]
+            pos = pos + 1
 
-        fieldCount = fieldCount + 1
+            fieldCount = fieldCount + 1
+        }
     }
 
-    // Methods next (`func name(...): ret { body }`): DELIMIT each — record its `func` token index, then skip its
-    // signature to the body `{` and scan to the matching `}` (balanced). The signatures/bodies are parsed by the
-    // host via the existing function kernels at the recorded indices. A method with no `{` body (expression-bodied
-    // `=>` / abstract), or a field appearing AFTER a method (the struct `}` check below fails), declines the program.
+    // Members next, in any order: METHODS (`func name(...): ret { body }`) and CONSTRUCTORS (`constructor(...) {
+    // body }` — lexed as an Identifier followed by `(`). DELIMIT each: record its keyword/identifier token index
+    // (outMethodFuncIndices for a method, outCtorIndices for a constructor), then skip its signature to the body `{`
+    // and scan to the matching `}` (balanced). The host parses the signatures/bodies via the existing function
+    // kernels at the recorded indices (a constructor's `(params)` and `{body}` parse via the same signature/statement
+    // kernels — it has no name token and no `: ret`, so the signature kernel yields name=-1, returnRoot=-1; a
+    // constructor INITIALIZER `: this(...)`/`base(...)` makes the signature kernel's return-type parse fail, so a
+    // chained ctor declines). A member with no `{` body declines. The host verifies each ctor identifier's text is
+    // literally "constructor".
     methodCount := 0
-    while pos < count && tokenKinds[pos] == 7 {
-        outMethodFuncIndices[methodCount] = pos
-        methodCount = methodCount + 1
-        pos = pos + 1
+    ctorCount := 0
+    while pos < count && tokenKinds[pos] != 130 {
+        if tokenKinds[pos] == 7 {
+            outMethodFuncIndices[methodCount] = pos
+            methodCount = methodCount + 1
+            pos = pos + 1
+        } else if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
+            outCtorIndices[ctorCount] = pos
+            ctorCount = ctorCount + 1
+            pos = pos + 1
+        } else {
+            return -1
+        }
 
         while pos < count && tokenKinds[pos] != 129 && tokenKinds[pos] != 130 {
             pos = pos + 1
@@ -505,6 +526,7 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         return -1
     }
     outResult[2] = methodCount
+    outResult[3] = ctorCount
     return fieldCount
 }
 

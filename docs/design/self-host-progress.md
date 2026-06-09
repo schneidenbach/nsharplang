@@ -11,6 +11,42 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11b-ii: class user CONSTRUCTORS + positional construction
+
+The key class feature: `class Counter { Count: int  constructor(start, step) { Count = start  Step = step } … }`
+constructed positionally `new Counter(a, b)`. Spans all three layers, reusing the function-signature/statement
+kernels.
+- **Kernel** (`ParseStructDeclarationInto`): the field loop now STOPS at an `Identifier (` member (a constructor —
+  `constructor` is NOT a keyword, it is an Identifier recognized by text), and the member loop delimits BOTH `func`
+  methods and `id (` constructors (recording the ctor's identifier index in a new `outCtorIndices`; outResult[3]=
+  ctorCount). New `outCtorIndices` parameter threaded through the delegate.
+- **Adapter** (`TryParseColumnarConstructorAt`): verifies the identifier text is literally "constructor", then parses
+  the ctor via the EXISTING `ParseFunctionSignature` (a ctor yields name=-1, returnRoot=-1) + `ParseStatementNodes` —
+  declining a chaining initializer (`: this(...)`/`base(...)` makes the return-type parse fail). `ColumnarStructInput`
+  gains a `Constructors` list.
+- **Emitter**: a reference type with a user ctor gets NO default ctor (object-init on it declines — matches the N#
+  pipeline, which rejects `new C { … }` with no parameterless ctor). PASS 0c `DefineConstructor(paramTypes)` for a
+  SINGLE ctor on a REFERENCE type (declines a 2nd ctor / a struct ctor). PASS 2 emits the ctor body: `ldarg.0; call
+  object::.ctor()`, then field assignments (the IsReference field-write path from D-11b-i), then a trailing `ret`.
+  case 15 (New): `new C(args)` matches the single ctor by arg count, emits args (type-checked), `newobj <ctor>`.
+
+Two OVER-ACCEPTANCES caught by VERIFY-FIRST (before the review even returned) + fixed with `IsValidReferenceCtorBody`:
+(1) NL304 — the N# pipeline requires DEFINITE ASSIGNMENT of every non-nullable field in a ctor; columnar now declines
+a ctor that doesn't assign every field (conservative: only top-level `field = expr` counts — a conditionally-
+assigned field declines). (2) NL103 — the N# pipeline rejects `return` inside a constructor; columnar now declines a
+ctor body containing any Return statement. (All modelled fields are non-nullable — a nullable/composed field type
+declines at the kernel — so "assign every field" == NL304 exactly.)
+
+Parity-gated: `ColumnarCodegen_Parity_ClassConstructor` value-matches the C# ILCompiler over Counter (2-arg ctor,
+field assignment, Get/Next/Scaled) and Person (string field + arithmetic `Birth = year - age` in the ctor body);
+metadata-asserts a single 2-arg ctor with no parameterless ctor; decline-pinned for object-init-on-user-ctor-class,
+ctor OVERLOADS, a struct ctor, NL304 partial assignment, and NL103 return-in-ctor. The slice-1a "class-with-ctor
+declines" assertion is flipped. A 2-lens read-only review found 0 issues (it read the post-fix code; verify-first had
+already caught the only two real bugs). 114 columnar tests green; full non-IDE gate green (fresh isolated). Next:
+ctor OVERLOADS + chaining (this/base), then INHERITANCE, properties.
+
+---
+
 ## 2026-06-09 — Phase D-11b-i: field WRITE in a reference-type method body
 
 The foundation for constructor bodies (which assign fields): an assignment to a bare field name inside an instance
