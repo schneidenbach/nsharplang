@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-8d: struct instance methods WITH PARAMETERS
+
+Extends D-8c (parameterless methods) to methods that take arguments.
+- **Emitter** (`ColumnarIlEmitter` PASS 0b): a method's params now resolve to types and `DefineMethod` declares them;
+  the per-method ordinal map shifts user params by +1 (arg 0 is the value-type `this`), so inside the body a bare
+  name resolves param-before-field (a param shadows a like-named field, matching C#). `ColumnarStructDef.Methods`
+  carries the param types. The instance call `r.m(args)` spills the receiver, `ldloca temp`, emits each arg (type-
+  checked against the declared param type), then `call` — arg count must match.
+- No parser/adapter change: the method-delimit + `TryParseColumnarFunctionAt` path from D-8c already parses a full
+  signature (params included).
+
+Parity-gated: `ColumnarCodegen_Parity_StructInstanceMethod` extended with one- and two-parameter methods
+(`scaled(k)`, `plus(dw, dh)`) value-matched vs the C# ILCompiler over several argument sets, alongside the
+parameterless cases. 76 columnar tests green; full non-IDE gate green (fresh isolated). Next: mutating struct methods,
+static methods; then record/union toward the rich type system.
+
+---
+
 ## 2026-06-09 — Phase D-8c: struct INSTANCE METHODS (parameterless, bare-field, value-returning)
 
 The columnar backend gains BEHAVIOR on user types — the emit model now supports instance methods on a user struct.

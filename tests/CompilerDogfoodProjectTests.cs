@@ -3459,9 +3459,9 @@ class B
         // DECLINES (sub-slice scope): positional ctor on a fields-only struct (C# rejects it too), a struct with a
         // method, a field initializer, a primary-ctor struct, struct-in-tuple.
         Assert.False(RouteColumnarProgram("struct P {\n    X: int\n}\n\nfunc f(a: int): int {\n    p := new P(a)\n    return p.X\n}\n").Ok);
-        // (A struct with a parameterless bare-field method is now supported — see
-        // ColumnarCodegen_Parity_StructInstanceMethod. A method with a PARAMETER still declines.)
-        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n    func g(k: int): int { return X + k }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // (A struct with a bare-field method — with or without parameters — is now supported; see
+        // ColumnarCodegen_Parity_StructInstanceMethod. A VOID method still declines.)
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n    func g() { return }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("struct P {\n    X: int = 5\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("struct P(x: int) {\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
@@ -3511,15 +3511,19 @@ class B
     public void ColumnarCodegen_Parity_StructInstanceMethod()
     {
         var prog =
-            "struct Rect {\n    W: int\n    H: int\n\n    func area(): int {\n        return W * H\n    }\n\n    func perimeter(): int {\n        return (W + H) * 2\n    }\n}\n\n" +
+            "struct Rect {\n    W: int\n    H: int\n\n    func area(): int {\n        return W * H\n    }\n\n    func perimeter(): int {\n        return (W + H) * 2\n    }\n\n    func scaled(k: int): int {\n        return W * H * k\n    }\n\n    func plus(dw: int, dh: int): int {\n        return (W + dw) * (H + dh)\n    }\n}\n\n" +
             "struct Sq {\n    S: int\n\n    func area(): int {\n        return S * S\n    }\n\n    func four(): int {\n        return 4\n    }\n}\n\n" +
             "func rectArea(a: int, b: int): int {\n    r := new Rect { W: a, H: b }\n    return r.area()\n}\n\n" +
             "func rectPerim(a: int, b: int): int {\n    r := new Rect { W: a, H: b }\n    return r.perimeter()\n}\n\n" +
+            "func rectScaled(a: int, b: int, k: int): int {\n    r := new Rect { W: a, H: b }\n    return r.scaled(k)\n}\n\n" +
+            "func rectPlus(a: int, b: int, dw: int, dh: int): int {\n    r := new Rect { W: a, H: b }\n    return r.plus(dw, dh)\n}\n\n" +
             "func sqArea(s: int): int {\n    q := new Sq { S: s }\n    return q.area()\n}\n\n" +
             "func sqFour(s: int): int {\n    q := new Sq { S: s }\n    return q.four()\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("rectArea", new object[] { 6, 7 }), ("rectArea", new object[] { 0, 5 }), ("rectArea", new object[] { -3, 4 }),
             ("rectPerim", new object[] { 6, 7 }), ("rectPerim", new object[] { 2, 3 }),
+            ("rectScaled", new object[] { 3, 4, 2 }), ("rectScaled", new object[] { 5, 5, 0 }),
+            ("rectPlus", new object[] { 2, 3, 1, 1 }), ("rectPlus", new object[] { 10, 10, -5, -5 }),
             ("sqArea", new object[] { 5 }), ("sqArea", new object[] { -4 }),
             ("sqFour", new object[] { 99 }));
 
@@ -3535,8 +3539,6 @@ class B
         // DECLINES (slice scope / C# oracle-broken forms):
         // `this.X` field access (C# returns garbage — decline).
         Assert.False(RouteColumnarProgram("struct R {\n    W: int\n    func a(): int { return this.W }\n}\n\nfunc f(x: int): int {\n    r := new R { W: x }\n    return r.a()\n}\n").Ok);
-        // a method WITH a parameter.
-        Assert.False(RouteColumnarProgram("struct R {\n    W: int\n    func scaled(k: int): int { return W * k }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // a `void` method.
         Assert.False(RouteColumnarProgram("struct R {\n    W: int\n    func noop() { return }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // a FIELD declared AFTER a method (fields-then-methods only).

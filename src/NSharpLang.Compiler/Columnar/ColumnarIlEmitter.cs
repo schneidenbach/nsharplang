@@ -123,10 +123,9 @@ internal sealed class ColumnarStructDef
     public TypeBuilder Builder { get; }
     public string[] FieldOrder { get; }
     public Dictionary<string, FieldBuilder> Fields { get; }
-    // Instance methods declared on this struct, by name -> (the declared MethodBuilder, return type). Populated in
-    // PASS 0; lets `receiver.Method()` resolve the instance call (ldloca receiver; call). Param types are empty in
-    // slice 1 (parameterless methods).
-    public Dictionary<string, (MethodBuilder Builder, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
+    // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
+    // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
+    public Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -534,17 +533,17 @@ public sealed class ColumnarIlEmitter
         }
 
         // PASS 0b (struct methods): now that all struct TYPES exist, DECLARE each struct's instance methods (a second
-        // pass so a method's return type may reference any struct). Slice 1: PARAMETERLESS, scalar-returning methods
-        // (params / void / mutating methods decline). The MethodBuilder is stored for instance-call resolution; the
-        // body is emitted in PASS 2 (before the struct is finalized).
-        var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType)>();
+        // pass so a method's return type may reference any struct). Scalar/struct-returning instance methods, with or
+        // without parameters; `this` is arg 0, so user param ordinals shift by +1. (void / mutating methods decline.)
+        // The MethodBuilder + param types are stored for instance-call resolution; the body is emitted in PASS 2.
+        var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
             foreach (var m in structs[s].Methods)
             {
-                if (m.ParamNames.Length != 0 || m.ReturnCanonical == "void")
-                    return false; // params / void methods are a later slice.
+                if (m.ReturnCanonical == "void")
+                    return false; // void methods are a later slice.
                 // A method whose name collides with a FIELD is rejected by the N# binder (NL306 — a name must be
                 // unique within the struct scope), so decline to keep the columnar path from accepting a program the
                 // language refuses.
@@ -552,10 +551,22 @@ public sealed class ColumnarIlEmitter
                     return false;
                 if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, out var mReturn) || !IsSupportedType(mReturn))
                     return false;
-                var mb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.HideBySig, mReturn, Type.EmptyTypes);
-                if (!def.Methods.TryAdd(m.Name, (mb, mReturn)))
+                // Resolve param types; ordinals shift by +1 because arg 0 is the value-type `this`.
+                var mParamTypes = new Type[m.ParamNames.Length];
+                var mOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+                var mParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+                for (var i = 0; i < m.ParamNames.Length; i++)
+                {
+                    if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, out var pt) || !IsSupportedType(pt))
+                        return false;
+                    mParamTypes[i] = pt;
+                    mOrdinals[m.ParamNames[i]] = i + 1;
+                    mParamTypeMap[m.ParamNames[i]] = pt;
+                }
+                var mb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.HideBySig, mReturn, mParamTypes);
+                if (!def.Methods.TryAdd(m.Name, (mb, mParamTypes, mReturn)))
                     return false; // a duplicate method name on one struct is an overload set the slice does not model.
-                structMethodJobs.Add((def, m, mb, mReturn));
+                structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap));
             }
         }
 
@@ -623,8 +634,7 @@ public sealed class ColumnarIlEmitter
             var mil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
-                source, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal),
-                job.ReturnType, mil, siblings, enumRegistry, structRegistry, job.Struct);
+                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, job.Struct);
             if (!emitter.EmitBody(job.Method.BodyRoot, false))
                 return false;
         }
@@ -2199,20 +2209,26 @@ public sealed class ColumnarIlEmitter
     {
         type = null!;
 
-        // A USER-STRUCT INSTANCE method (`receiver.Method()`): the receiver VALUE is already on the stack. A
-        // value-type instance call needs the receiver's ADDRESS, so spill to a temp and `ldloca; call <MethodBuilder>`
-        // (a non-virtual `call`, since value-type instance methods are sealed). Slice 1: parameterless methods only.
+        // A USER-STRUCT INSTANCE method (`receiver.Method(args)`): the receiver VALUE is already on the stack. A
+        // value-type instance call needs the receiver's ADDRESS, so spill to a temp and `ldloca temp; <args>; call
+        // <MethodBuilder>` (a non-virtual `call`, since value-type instance methods are sealed). Args are emitted
+        // AFTER the receiver address, in order, with each type checked against the method's declared param type.
         if (receiverType is TypeBuilder)
         {
             foreach (var d in _structRegistry.Values)
             {
                 if (d.Builder == receiverType && d.Methods.TryGetValue(member, out var structMethod))
                 {
-                    if (argCount != 0)
+                    if (argCount != structMethod.ParamTypes.Length)
                         return false;
                     var receiverTemp = _il.DeclareLocal(receiverType);
                     _il.Emit(OpCodes.Stloc, receiverTemp);
                     _il.Emit(OpCodes.Ldloca, receiverTemp);
+                    for (var a = 0; a < argCount; a++)
+                    {
+                        if (!EmitExpression(Child(callIdx, 1 + a), out var argType) || argType != structMethod.ParamTypes[a])
+                            return false;
+                    }
                     _il.Emit(OpCodes.Call, structMethod.Builder);
                     type = structMethod.ReturnType;
                     return true;
