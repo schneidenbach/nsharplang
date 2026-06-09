@@ -3327,8 +3327,9 @@ class B
 
         // Explicit member values are now supported (see ColumnarCodegen_Parity_EnumIntCastAndExplicitValues).
         Assert.True(RouteColumnarProgram("enum E { A = 5, B }\n\nfunc f(): E { return E.A }\n").Ok);
-        // A class/struct/etc. declaration is still unsupported -> decline.
-        Assert.False(RouteColumnarProgram("struct P { x: int }\n\nfunc f(): int { return 1 }\n").Ok);
+        // A class/union/record declaration is still unsupported -> decline. (struct is now supported, see
+        // ColumnarCodegen_Parity_StructFieldsAndObjectInit.)
+        Assert.False(RouteColumnarProgram("class C {\n    x: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // An enum element inside a TUPLE is not modelled (ValueTuple over a TypeBuilder cannot reflect its members)
         // -> the whole program declines to C# rather than throwing a hard emit error.
         Assert.False(RouteColumnarProgram("enum Color { Red, Green }\n\nfunc f(): (Color, int) { return (Color.Red, 5) }\n").Ok);
@@ -3419,6 +3420,48 @@ class B
         Assert.Equal(6, type.GetMethod("bVal")!.Invoke(null, null));
         Assert.Equal(20, type.GetMethod("cVal")!.Invoke(null, null));
         Assert.Equal(21, type.GetMethod("dVal")!.Invoke(null, null));
+    }
+
+    // STRUCT slice 1 — the SECOND user-defined type: a fields-only `struct Point { X: int  Y: int }` constructed via
+    // an OBJECT INITIALIZER `new Point { X: a, Y: b }` (the columnar emit zero-inits a temp then stfld's each named
+    // field) and read via `p.X`/`p.Y` (ldfld). C# REJECTS positional `new Point(a, b)` for a fields-only struct, so
+    // the object-initializer is the only valid construction (verified). The struct stays inside ONE function
+    // (scalar in/out), so the distinct columnar/C# Point types never cross the assembly boundary — the parity oracle
+    // compares plain ints. Plus metadata assertions on the emitted value type.
+    [Fact]
+    public void ColumnarCodegen_Parity_StructFieldsAndObjectInit()
+    {
+        var prog =
+            "struct Point {\n    X: int\n    Y: int\n}\n\n" +
+            "func sumP(a: int, b: int): int {\n    p := new Point { X: a, Y: b }\n    return p.X + p.Y\n}\n\n" +
+            "func firstP(a: int, b: int): int {\n    p := new Point { X: a, Y: b }\n    return p.X\n}\n\n" +
+            // reversed initializer order, and an arithmetic field value.
+            "func diff(a: int, b: int): int {\n    p := new Point { Y: b, X: a * 2 }\n    return p.X - p.Y\n}\n\n" +
+            // a partial initializer leaves the unset field at its default 0.
+            "func onlyX(a: int): int {\n    p := new Point { X: a }\n    return p.X + p.Y\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sumP", new object[] { 3, 4 }), ("sumP", new object[] { -5, 5 }), ("sumP", new object[] { 0, 0 }),
+            ("firstP", new object[] { 7, 9 }),
+            ("diff", new object[] { 10, 3 }), ("diff", new object[] { 0, 8 }),
+            ("onlyX", new object[] { 42 }));
+
+        // Metadata: the emitted Point is a value type with public int fields X, Y in order.
+        var (ok, asm, typeName, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the fields-only struct program");
+        var asmLoaded = System.Reflection.Assembly.Load(asm!);
+        var pointType = asmLoaded.GetType("Point")!;
+        Assert.True(pointType.IsValueType);
+        Assert.Equal(typeof(ValueType), pointType.BaseType);
+        var fields = pointType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        Assert.Equal(new[] { "X", "Y" }, fields.Select(f => f.Name).ToArray());
+        Assert.All(fields, f => Assert.Equal(typeof(int), f.FieldType));
+
+        // DECLINES (sub-slice scope): positional ctor on a fields-only struct (C# rejects it too), a struct with a
+        // method, a field initializer, a primary-ctor struct, struct-in-tuple.
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n}\n\nfunc f(a: int): int {\n    p := new P(a)\n    return p.X\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n    func g(): int { return X }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int = 5\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("struct P(x: int) {\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

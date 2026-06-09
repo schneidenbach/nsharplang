@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-8a: STRUCT — the SECOND user-defined type (fields + object-init + field read)
+
+The columnar backend gains value-type structs, reusing the enum type-emission architecture.
+- **Parser kernel**: `ParseStructDeclarationInto` (`ParserDeclarations.nl`) parses a fields-only
+  `struct Point { X: int  Y: int }` — name + `{` + a sequence of `Identifier : <single builtin-token type>` fields
+  (no separator; newlines are stripped, so fields are detected by the repeating `name : type` pattern) until `}`.
+  Declines primary-ctor `(`, methods, field initializers `=`, composed field types, empty bodies. `ParserExpressions.nl`
+  gained OBJECT-INITIALIZER parsing in the New-expr branch: `new <type> { Field: value, ... }` →
+  `ObjectInitializerExpression` kind 36, children `[typeRoot, name0 (Identifier kind 6), value0, …]`. (C# REJECTS
+  positional `new Point(a, b)` for a fields-only struct — object-init is the only valid construction, verified.)
+- **Emitter** (`ColumnarIlEmitter`): a PASS 0 (after enums) calls `module.DefineType(name, Public|Sealed, ValueType)`
+  + `DefineField` per field (matching C#'s `DeclareStruct` — no `SequentialLayout`), building a `structRegistry`
+  (name → `TypeBuilder` + `FieldBuilder` map); structs `CreateType()` after enums, before the Program type.
+  `TryResolveType` resolves a struct name to its `TypeBuilder`; `IsSupportedType` admits `t is TypeBuilder`;
+  `IsSupportedValueTuple` excludes it (struct-in-tuple declines, like enums). Case 36 constructs:
+  `ldloca temp; initobj struct; per field: ldloca temp; <value>; stfld <FieldBuilder>; ldloc temp` (unknown/dup/
+  type-mismatched field declines). Case 8 reads a struct field: spill the receiver, `ldloca; ldfld <FieldBuilder>`.
+  FieldBuilders are stored at DefineField and used directly (never `GetField`, which throws on a TypeBuilder).
+- **Adapter**: the gate permits decl kind 9; `TopLevelStructIndices` + `TryGetColumnarStructInputs` collect each
+  struct; the emit stays in the try/catch (declines on any Reflection.Emit surprise).
+
+Parity-gated: `ColumnarCodegen_Parity_StructFieldsAndObjectInit` value-matches the C# ILCompiler over field sum/first,
+reversed-order + arithmetic-valued init, and partial init (unset field = 0 via `initobj`), plus metadata assertions
+(IsValueType, `ValueType` base, fields X/Y:int in order); decline-pinned for positional ctor / method / field
+initializer / primary-ctor struct. Adversarially reviewed (read-only, 3 lenses + judge: parser/obj-init, emitter IL,
+parity/over-accept) → SHIP, no in-scope defects (assignment-valued init declines = C# parity; nested struct-typed
+fields emergently work). 74 columnar tests green; full non-IDE gate green (fresh isolated). Next struct slices: field
+mutation `p.X = v`, struct param/return across funcs, then methods / primary ctors.
+
+---
+
 ## 2026-06-09 — Phase D-7c: ENUM `(int)` conversion + explicit member values — enums COMPLETE
 
 The final enum slice — observe the underlying int, and honor explicit values.

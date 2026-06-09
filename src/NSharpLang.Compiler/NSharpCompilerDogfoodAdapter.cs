@@ -667,6 +667,8 @@ internal static class NSharpCompilerDogfoodAdapter
             return false;
         if (!TryGetColumnarEnumInputs(source, out var enums))
             return false;
+        if (!TryGetColumnarStructInputs(source, out var structs))
+            return false;
         // The columnar emit is a best-effort, DECLINE-on-failure optimization: it must never throw a hard error the
         // authoritative C# path would not. Any unexpected emit exception (e.g. a Reflection.Emit limitation on a
         // not-yet-fully-modelled type shape) is caught here and declines → C# fallback, matching the try/catch the
@@ -674,7 +676,7 @@ internal static class NSharpCompilerDogfoodAdapter
         // (which assert Ok == true), so this net cannot silently hide a regression from the gate.
         try
         {
-            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, source, out assembly))
+            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, structs, source, out assembly))
                 return false;
         }
         catch
@@ -748,11 +750,11 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
             for (var d = 0; d < declCount; d++)
             {
-                // 7 = func, 14 = enum; any other top-level declaration kind (class/struct/union/record/…) is
-                // unsupported and declines the whole program. Enum decls are collected separately
-                // (TryGetColumnarEnumInputs); the func scan below (TopLevelFuncIndices) only picks `func` tokens, so
-                // enum decls are skipped here rather than mis-parsed as functions.
-                if (declKinds[d] != 7 && declKinds[d] != 14)
+                // 7 = func, 14 = enum, 9 = struct; any other top-level declaration kind (class/union/record/…) is
+                // unsupported and declines the whole program. Enum/struct decls are collected separately
+                // (TryGetColumnarEnumInputs / TryGetColumnarStructInputs); the func scan below (TopLevelFuncIndices)
+                // only picks `func` tokens, so enum/struct decls are skipped here rather than mis-parsed as functions.
+                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9)
                     return false;
             }
 
@@ -877,6 +879,79 @@ internal static class NSharpCompilerDogfoodAdapter
         catch
         {
             enums = new System.Collections.Generic.List<Columnar.ColumnarEnumInput>();
+            return false;
+        }
+    }
+
+    // Collect every top-level fields-only `struct` declaration into a ColumnarStructInput (name + field names + field
+    // TYPE canonical strings). Tokenizes + compacts exactly like TryGetColumnarEnumInputs, finds each struct keyword
+    // (TopLevelStructIndices), and parses its body via the ParseStructDeclaration kernel. Returns true (possibly an
+    // empty list) for a program with no structs. Returns FALSE — declining the whole program to C# — on any parse
+    // failure (a primary-ctor struct, a method, a field initializer, a composed field type, an empty struct).
+    private static bool TryGetColumnarStructInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarStructInput> structs)
+    {
+        structs = new System.Collections.Generic.List<Columnar.ColumnarStructInput>();
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+
+        try
+        {
+            var capacity = 3 * (source.Length + 1) + 8;
+            var rawKinds = new int[capacity];
+            var rawStarts = new int[capacity];
+            var rawValueLengths = new int[capacity];
+            var rawLines = new int[capacity];
+            var rawColumns = new int[capacity];
+            var rawCount = bindings.TokenizeMetadataWithIndentation(
+                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+            if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            var ck = new int[rawCount];
+            var cs = new int[rawCount];
+            var cv = new int[rawCount];
+            var n = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                ck[n] = rawKinds[i];
+                cs[n] = rawStarts[i];
+                cv[n] = rawValueLengths[i];
+                n++;
+            }
+
+            var structIndices = TopLevelStructIndices(ck, n);
+            foreach (var structIndex in structIndices)
+            {
+                var cap = n + 1;
+                var outFieldNameStarts = new int[cap];
+                var outFieldNameLengths = new int[cap];
+                var outFieldTypeStarts = new int[cap];
+                var outFieldTypeLengths = new int[cap];
+                var outResult = new int[2];
+                var fieldCount = bindings.ParseStructDeclaration(
+                    ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
+                    outFieldTypeLengths, outResult);
+                if (fieldCount <= 0 || outResult[1] <= 0)
+                    return false;
+
+                var structName = source.Substring(outResult[0], outResult[1]);
+                var fieldNames = new string[fieldCount];
+                var fieldTypes = new string[fieldCount];
+                for (var f = 0; f < fieldCount; f++)
+                {
+                    fieldNames[f] = source.Substring(outFieldNameStarts[f], outFieldNameLengths[f]);
+                    fieldTypes[f] = source.Substring(outFieldTypeStarts[f], outFieldTypeLengths[f]);
+                }
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes));
+            }
+            return true;
+        }
+        catch
+        {
+            structs = new System.Collections.Generic.List<Columnar.ColumnarStructInput>();
             return false;
         }
     }
@@ -1048,6 +1123,33 @@ internal static class NSharpCompilerDogfoodAdapter
                 case 127: paren++; break;
                 case 128: if (paren > 0) paren--; break;
                 case 14:
+                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    // The compacted-token indices of each top-level `struct` keyword (token 9) — at depth 0. Mirrors
+    // TopLevelEnumIndices for the struct keyword.
+    private static List<int> TopLevelStructIndices(int[] kinds, int count)
+    {
+        var result = new List<int>();
+        var brace = 0;
+        var bracket = 0;
+        var paren = 0;
+        for (var i = 0; i < count; i++)
+        {
+            switch (kinds[i])
+            {
+                case 129: brace++; break;
+                case 130: if (brace > 0) brace--; break;
+                case 131: bracket++; break;
+                case 132: if (bracket > 0) bracket--; break;
+                case 127: paren++; break;
+                case 128: if (paren > 0) paren--; break;
+                case 9:
                     if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
                     break;
             }
@@ -2063,7 +2165,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "ParseStatementNodesInto"),
                 CreateDelegate<ParseEnumDeclarationInto>(
                     programType,
-                    "ParseEnumDeclarationInto"));
+                    "ParseEnumDeclarationInto"),
+                CreateDelegate<ParseStructDeclarationInto>(
+                    programType,
+                    "ParseStructDeclarationInto"));
         }
         catch
         {
@@ -2243,6 +2348,10 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
         int[] outNameStarts, int[] outNameLengths, int[] outValueStarts, int[] outValueLengths,
         int[] outHasValue, int[] outResult);
+    private delegate int ParseStructDeclarationInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
+        int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
+        int[] outResult);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -2269,7 +2378,8 @@ internal static class NSharpCompilerDogfoodAdapter
         PackageNameSpanInto PackageNameSpan,
         ParseFunctionSignatureInto ParseFunctionSignature,
         ParseStatementNodesInto ParseStatementNodes,
-        ParseEnumDeclarationInto ParseEnumDeclaration);
+        ParseEnumDeclarationInto ParseEnumDeclaration,
+        ParseStructDeclarationInto ParseStructDeclaration);
 
     private sealed class SemanticScopeCache
     {

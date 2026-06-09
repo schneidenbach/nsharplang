@@ -401,3 +401,66 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
     }
     return memberCount
 }
+
+// Parser slice (struct bodies): parse ONE fields-only struct declaration's fields into flat parallel arrays.
+// `structIndex` is the compacted token index of the `struct` keyword (token 9). Reads the struct NAME (the
+// Identifier after `struct`) into outResult[0]=nameStart / outResult[1]=nameLength, then `{` (129), then a sequence
+// of FIELDS until `}` (130). Each field is `Identifier : <type-name>` where the type is a SINGLE Identifier token
+// (a builtin like int/double/string, which the lexer tokenizes as an Identifier, kind 0). There is no field
+// separator (newlines are stripped before this runs), so fields are detected by the repeating `name : type`
+// pattern: outFieldNameStarts/Lengths[f] = the field name span, outFieldTypeStarts/Lengths[f] = the field
+// TYPE-name span. Returns the field count, or -1 on any unexpected token — a primary-ctor `(` after the name, a
+// method (`func`), a field initializer (`=`), a composed/array/tuple field type (a non-Identifier after `:`), a
+// missing name/colon/brace, or an empty body — so the host declines the whole program to the C# path. Slice-1
+// scope: fields-only structs with single-builtin-token field types.
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outResult: int[]): int {
+    pos := structIndex
+    if pos >= count || tokenKinds[pos] != 9 {
+        return -1
+    }
+    pos = pos + 1
+
+    if pos >= count || tokenKinds[pos] != 0 {
+        return -1
+    }
+    outResult[0] = tokenStarts[pos]
+    outResult[1] = tokenValueLengths[pos]
+    pos = pos + 1
+
+    if pos >= count || tokenKinds[pos] != 129 {
+        return -1
+    }
+    pos = pos + 1
+
+    fieldCount := 0
+    while pos < count && tokenKinds[pos] != 130 {
+        if tokenKinds[pos] != 0 {
+            return -1
+        }
+        outFieldNameStarts[fieldCount] = tokenStarts[pos]
+        outFieldNameLengths[fieldCount] = tokenValueLengths[pos]
+        pos = pos + 1
+
+        if pos >= count || tokenKinds[pos] != 122 {
+            return -1
+        }
+        pos = pos + 1
+
+        if pos >= count || tokenKinds[pos] != 0 {
+            return -1
+        }
+        outFieldTypeStarts[fieldCount] = tokenStarts[pos]
+        outFieldTypeLengths[fieldCount] = tokenValueLengths[pos]
+        pos = pos + 1
+
+        fieldCount = fieldCount + 1
+    }
+
+    if pos >= count || tokenKinds[pos] != 130 {
+        return -1
+    }
+    if fieldCount == 0 {
+        return -1
+    }
+    return fieldCount
+}

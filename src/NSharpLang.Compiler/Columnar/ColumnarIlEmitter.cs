@@ -82,6 +82,46 @@ internal sealed class ColumnarEnumDef
 }
 
 /// <summary>
+/// One top-level fields-only <c>struct</c> declaration's parsed fields, as consumed by
+/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. <see cref="FieldTypeCanonicals"/> are the canonical type
+/// strings (e.g. "int") positionally aligned with <see cref="FieldNames"/>. The parser kernel
+/// <c>ParseStructDeclarationInto</c> produces the field spans; the adapter materializes the names and type strings.
+/// </summary>
+public sealed class ColumnarStructInput
+{
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals)
+    {
+        Name = name;
+        FieldNames = fieldNames;
+        FieldTypeCanonicals = fieldTypeCanonicals;
+    }
+
+    public string Name { get; }
+    public string[] FieldNames { get; }
+    public string[] FieldTypeCanonicals { get; }
+}
+
+/// <summary>
+/// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
+/// type) plus its field-name → <see cref="FieldBuilder"/> map (so construction and field access emit ldfld/stfld
+/// against the builder handles directly — never <c>GetField</c>, which throws on an un-finalized TypeBuilder). Built
+/// in PASS 0 of <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>.
+/// </summary>
+internal sealed class ColumnarStructDef
+{
+    public ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields)
+    {
+        Builder = builder;
+        FieldOrder = fieldOrder;
+        Fields = fields;
+    }
+
+    public TypeBuilder Builder { get; }
+    public string[] FieldOrder { get; }
+    public Dictionary<string, FieldBuilder> Fields { get; }
+}
+
+/// <summary>
 /// COLUMNAR PIPELINE — stage 4 SPIKE (docs/design/roadmap-to-done.md). Proof that the columnar node tables can
 /// drive IL emission END-TO-END with no C# AST: for a single trivial function it emits a real .NET assembly
 /// (one static method) whose body IL is generated DIRECTLY from the columnar statement/expression tables, then
@@ -122,6 +162,9 @@ public sealed class ColumnarIlEmitter
     // User-defined enums in this program, by name -> (EnumBuilder, member->value). Lets member access `Enum.Member`
     // and enum match patterns resolve their underlying-int constant, and types resolve `Color` to its EnumBuilder.
     private readonly IReadOnlyDictionary<string, ColumnarEnumDef> _enumRegistry;
+    // User-defined structs in this program, by name -> (TypeBuilder, field->FieldBuilder). Lets object-initializer
+    // construction and field access resolve their FieldBuilders, and types resolve `Point` to its TypeBuilder.
+    private readonly IReadOnlyDictionary<string, ColumnarStructDef> _structRegistry;
     // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
     // initializer), so the type-aware emitter checks assignments and reads against it.
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
@@ -135,7 +178,8 @@ public sealed class ColumnarIlEmitter
         Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
         ILGenerator il,
         IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> siblings,
-        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry)
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef> structRegistry)
     {
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -150,6 +194,7 @@ public sealed class ColumnarIlEmitter
         _il = il;
         _siblings = siblings;
         _enumRegistry = enumRegistry;
+        _structRegistry = structRegistry;
     }
 
     // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
@@ -162,6 +207,8 @@ public sealed class ColumnarIlEmitter
         || t == typeof(string) || t == typeof(char) || t == typeof(double) || t == typeof(float)
         || t == typeof(System.Text.StringBuilder)
         || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
+        || t is TypeBuilder                       // a user-defined struct value type (only structs reach here as a
+                                                  // resolved param/return/local type; the Program type is never one)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsSupportedValueTuple(t);
 
@@ -177,11 +224,11 @@ public sealed class ColumnarIlEmitter
             return false;
         foreach (var arg in t.GetGenericArguments())
         {
-            // Exclude an EnumBuilder element: a ValueTuple<…> instantiated over a TypeBuilder cannot resolve its
-            // ctor/ItemN fields via plain reflection (GetConstructor/GetField throw NotSupportedException at emit),
-            // so enum-in-tuple must DECLINE here (→ C# fallback) — consistent with the enum-array decline
-            // (IsSupportedElementType excludes EnumBuilder). Enums are modelled as scalars only in this slice.
-            if (arg is EnumBuilder || !IsSupportedType(arg))
+            // Exclude an EnumBuilder OR a user-struct TypeBuilder element: a ValueTuple<…> instantiated over a
+            // builder type cannot resolve its ctor/ItemN fields via plain reflection (GetConstructor/GetField throw
+            // NotSupportedException at emit), so enum-in-tuple / struct-in-tuple must DECLINE here (→ C# fallback) —
+            // consistent with the array-element decline. Enums and structs are modelled as scalars/locals only.
+            if (arg is EnumBuilder || arg is TypeBuilder || !IsSupportedType(arg))
                 return false;
         }
 
@@ -200,7 +247,8 @@ public sealed class ColumnarIlEmitter
     /// Resolve a canonical N# type string (e.g. "int", "int[]") to its CLR <see cref="Type"/>. Handles a single
     /// trailing "[]" as a single-dimension array of a builtin element; non-builtins/unsupported shapes fail.
     /// </summary>
-    private static bool TryResolveType(string canonical, IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry, out Type type)
+    private static bool TryResolveType(string canonical, IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry, out Type type)
     {
         if (canonical.EndsWith("[]", StringComparison.Ordinal))
         {
@@ -244,7 +292,7 @@ public sealed class ColumnarIlEmitter
                 var resolved = true;
                 for (var i = 0; i < elements.Count; i++)
                 {
-                    if (!TryResolveType(elements[i], enumRegistry, out elementTypes[i]))
+                    if (!TryResolveType(elements[i], enumRegistry, structRegistry, out elementTypes[i]))
                     {
                         resolved = false;
                         break;
@@ -267,6 +315,12 @@ public sealed class ColumnarIlEmitter
         if (enumRegistry != null && enumRegistry.TryGetValue(canonical, out var enumDef))
         {
             type = enumDef.Builder;
+            return true;
+        }
+        // A bare name matching a user-defined struct resolves to its TypeBuilder (a valid param/return/local type).
+        if (structRegistry != null && structRegistry.TryGetValue(canonical, out var structDef))
+        {
+            type = structDef.Builder;
             return true;
         }
         return TryResolveBuiltin(canonical, out type);
@@ -392,7 +446,7 @@ public sealed class ColumnarIlEmitter
         var input = new ColumnarFunctionInput(
             funcName, returnCanonical, paramNames, paramCanonicals,
             kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
-        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), source, out assembly);
+        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), source, out assembly);
     }
 
     /// <summary>
@@ -407,7 +461,7 @@ public sealed class ColumnarIlEmitter
     /// </summary>
     public static bool TryEmitColumnarAssembly(
         string assemblyName, string typeName, IReadOnlyList<ColumnarFunctionInput> funcs,
-        IReadOnlyList<ColumnarEnumInput> enums, string source, out byte[] assembly)
+        IReadOnlyList<ColumnarEnumInput> enums, IReadOnlyList<ColumnarStructInput> structs, string source, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
         if (funcs.Count == 0)
@@ -440,6 +494,32 @@ public sealed class ColumnarIlEmitter
                 return false;
         }
 
+        // PASS 0 (structs): define every user struct as a module-level VALUE TYPE — System.ValueType base, attributes
+        // `Public | Sealed` with NO explicit layout (default auto), matching the C# ILCompiler's DeclareStruct exactly
+        // — plus a public instance field per declared field. The FieldBuilder handles are stored in the registry and
+        // used DIRECTLY for ldfld/stfld/construction (never GetField, which throws on an un-finalized TypeBuilder).
+        // Field types resolve via TryResolveType (single builtins in this slice). Defined after enums so a struct may
+        // have an enum-typed field; a struct-typed field resolves only if that struct was declared earlier.
+        var structRegistry = new Dictionary<string, ColumnarStructDef>(StringComparer.Ordinal);
+        var structBuilders = new TypeBuilder[structs.Count];
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var st = structs[s];
+            var tb = module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
+            var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
+            for (var fi = 0; fi < st.FieldNames.Length; fi++)
+            {
+                if (!TryResolveType(st.FieldTypeCanonicals[fi], enumRegistry, structRegistry, out var fieldType) || !IsSupportedType(fieldType))
+                    return false;
+                var fb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public);
+                if (!fields.TryAdd(st.FieldNames[fi], fb))
+                    return false; // a duplicate field name within one struct is malformed.
+            }
+            structBuilders[s] = tb;
+            if (!structRegistry.TryAdd(st.Name, new ColumnarStructDef(tb, st.FieldNames, fields)))
+                return false; // a duplicate struct name is an ambiguous type.
+        }
+
         var type = module.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class);
 
         // Pass 1: resolve every signature (int-only) and declare all methods up front. Build the sibling map
@@ -459,14 +539,14 @@ public sealed class ColumnarIlEmitter
             Type returnType;
             if (fn.ReturnCanonical == "void")
                 returnType = typeof(void);
-            else if (!TryResolveType(fn.ReturnCanonical, enumRegistry, out returnType) || !IsSupportedType(returnType))
+            else if (!TryResolveType(fn.ReturnCanonical, enumRegistry, structRegistry, out returnType) || !IsSupportedType(returnType))
                 return false;
             var paramTypes = new Type[fn.ParamNames.Length];
             var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
             var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
             for (var i = 0; i < fn.ParamNames.Length; i++)
             {
-                if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, out var pt) || !IsSupportedType(pt))
+                if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, structRegistry, out var pt) || !IsSupportedType(pt))
                     return false;
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
@@ -490,16 +570,18 @@ public sealed class ColumnarIlEmitter
             var il = methods[f].GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry);
+                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
         }
 
-        // Finalize the enum types before the Program type (the spike's ordering). Each member literal is already
-        // defined, so CreateType bakes the enum's fields/metadata; the methods that reference the EnumBuilder
-        // resolve to the finalized type at Save.
+        // Finalize the enum and struct types before the Program type (the spike's ordering). Each enum member
+        // literal / struct field is already defined, so CreateType bakes the type's metadata; the methods that
+        // reference the un-finalized builders resolve to the finalized types at Save.
         foreach (var eb in enumBuilders)
             eb.CreateType();
+        foreach (var sb in structBuilders)
+            sb.CreateType();
 
         type.CreateType();
         using var stream = new MemoryStream();
@@ -1327,7 +1409,27 @@ public sealed class ColumnarIlEmitter
                 // decline early without emitting the receiver); the actual element is still gated by GetField below.
                 var isTupleItem = member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4]);
                 if (member != "Length" && !isTupleItem)
-                    return false;
+                {
+                    // A USER-STRUCT FIELD read `p.Field`: emit the receiver, and if it is a registered struct value
+                    // with a field named `member`, read it. A value-type field read needs the value's ADDRESS, so
+                    // spill the receiver to a temp and `ldloca; ldfld <FieldBuilder>` (mirrors the tuple `.ItemN`
+                    // path). Otherwise decline (the emitted receiver is discarded with the whole assembly on false).
+                    if (!EmitExpression(Child(idx, 0), out var structReceiverType))
+                        return false;
+                    ColumnarStructDef? fieldStruct = null;
+                    foreach (var d in _structRegistry.Values)
+                    {
+                        if (d.Builder == structReceiverType) { fieldStruct = d; break; }
+                    }
+                    if (fieldStruct == null || !fieldStruct.Fields.TryGetValue(member, out var structField))
+                        return false;
+                    var fieldTemp = _il.DeclareLocal(structReceiverType);
+                    _il.Emit(OpCodes.Stloc, fieldTemp);
+                    _il.Emit(OpCodes.Ldloca, fieldTemp);
+                    _il.Emit(OpCodes.Ldfld, structField);
+                    type = structField.FieldType;
+                    return true;
+                }
                 if (!EmitExpression(Child(idx, 0), out var receiverType))
                     return false;
                 if (member == "Length")
@@ -1518,6 +1620,40 @@ public sealed class ColumnarIlEmitter
                     return false;
                 _il.Emit(OpCodes.Newobj, tupleCtor);
                 type = tupleType;
+                return true;
+            }
+
+            case 36: // ObjectInitializer [typeRoot, name0, value0, ...] — `new Struct { Field: value, ... }`. Build a
+            {        // user-struct value: a temp local, `ldloca; initobj` (zero all fields), then per named field
+                     // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the C# struct
+                     // object-initializer (default + per-field assignment). Only a registered struct type is modelled.
+                var typeRootNode = Child(idx, 0);
+                if (_kinds[typeRootNode] != 0 || !_structRegistry.TryGetValue(Text(typeRootNode), out var initStructDef))
+                    return false; // not a Simple type-ref naming a registered struct.
+                var initChildCount = _childCount[idx];
+                if ((initChildCount % 2) != 1) // typeRoot + (name, value) pairs.
+                    return false;
+                var pairCount = (initChildCount - 1) / 2;
+                var structValue = _il.DeclareLocal(initStructDef.Builder);
+                _il.Emit(OpCodes.Ldloca, structValue);
+                _il.Emit(OpCodes.Initobj, initStructDef.Builder); // zero every field (defaults).
+                var assigned = new HashSet<string>(StringComparer.Ordinal);
+                for (var p = 0; p < pairCount; p++)
+                {
+                    var nameNode = Child(idx, 1 + (2 * p));
+                    var valueNode = Child(idx, 2 + (2 * p));
+                    if (_kinds[nameNode] != 6)
+                        return false;
+                    var fieldName = Text(nameNode);
+                    if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
+                        return false; // unknown or duplicately-assigned field -> decline.
+                    _il.Emit(OpCodes.Ldloca, structValue);
+                    if (!EmitExpression(valueNode, out var initValueType) || initValueType != initField.FieldType)
+                        return false;
+                    _il.Emit(OpCodes.Stfld, initField);
+                }
+                _il.Emit(OpCodes.Ldloc, structValue);
+                type = initStructDef.Builder;
                 return true;
             }
 

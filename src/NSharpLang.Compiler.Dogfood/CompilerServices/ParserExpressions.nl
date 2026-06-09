@@ -41,6 +41,8 @@
 //   AndPattern              -> kind 33  ( <pat> and <pat> -- match-case combinator, children [left, right]. )
 //   OrPattern               -> kind 34  ( <pat> or <pat>  -- match-case combinator, children [left, right]. )
 //   NotPattern              -> kind 35  ( not <pat>       -- match-case combinator, 1 child [inner]. )
+//   ObjectInitializer       -> kind 36  ( new <type> { Field: value, ... } -- children [typeRoot, name0 (Identifier
+//                                         kind 6), value0, name1, value1, ...]. Constructs a fields-only struct. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -349,9 +351,10 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         // `new <type> ( args )` -- the array/object construction form the dogfood kernels use
         // (e.g. new int[](length + 1)). COMPOSES the type kernel (the element/constructed type, via the
         // now-unified shared st + argStack) with the expression kernel (the positional constructor args).
-        // NewExpression (kind 15): children = [typeRoot, arg0, arg1, ...]. The `new <type> [size]` (sized
-        // array) and `new <type> { init }` (object initializer) and target-typed `new ( ... )` forms are
-        // deferred (refused). Named / ref / out constructor arguments are also refused.
+        // NewExpression (kind 15): children = [typeRoot, arg0, arg1, ...]. The `new <type> { Field: value, ... }`
+        // OBJECT INITIALIZER form is handled below (ObjectInitializerExpression kind 36). The `new <type> [size]`
+        // (sized array) and target-typed `new ( ... )` forms are deferred (refused). Named / ref / out constructor
+        // arguments are also refused.
         newStart := tokenStart
         st[0] = pos + 1
         // The type kernel assumes splitGreaterDepth (st[4]) is 0 on entry (it is only set/cleared while
@@ -363,6 +366,59 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         typeRoot := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
         if typeRoot < 0 {
             return -1
+        }
+
+        // `new <type> { Field: value, ... }` -- OBJECT INITIALIZER (ObjectInitializerExpression kind 36): children
+        // [typeRoot, name0, value0, name1, value1, ...] where each nameN is an Identifier node (kind 6, the field
+        // name in its value span) and valueN is the field's value expression. Used to construct a fields-only
+        // struct (the emitter zero-inits the value then assigns each named field). A `:` after the name is required.
+        if st[0] < count && tokenKinds[st[0]] == 129 {
+            st[0] = st[0] + 1
+            objArgBase := st[3]
+            argStack[st[3]] = typeRoot
+            st[3] = st[3] + 1
+            while st[0] < count && tokenKinds[st[0]] != 130 {
+                if tokenKinds[st[0]] != 0 {
+                    st[3] = objArgBase
+                    return -1
+                }
+                fieldNameStart := tokenStarts[st[0]]
+                fieldNameLen := tokenValueLengths[st[0]]
+                st[0] = st[0] + 1
+                if st[0] >= count || tokenKinds[st[0]] != 122 {
+                    st[3] = objArgBase
+                    return -1
+                }
+                st[0] = st[0] + 1
+                fieldNameNode := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, fieldNameStart, fieldNameLen, -1, 0, fieldNameStart, fieldNameLen)
+                argStack[st[3]] = fieldNameNode
+                st[3] = st[3] + 1
+                fieldVal := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if fieldVal < 0 {
+                    st[3] = objArgBase
+                    return -1
+                }
+                argStack[st[3]] = fieldVal
+                st[3] = st[3] + 1
+                if st[0] < count && tokenKinds[st[0]] == 134 {
+                    st[0] = st[0] + 1
+                }
+            }
+            if st[0] >= count || tokenKinds[st[0]] != 130 {
+                st[3] = objArgBase
+                return -1
+            }
+            objInitEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            objInitChildCount := st[3] - objArgBase
+            objInitChildRun := st[2]
+            objArg := objArgBase
+            while objArg < st[3] {
+                AppendExpressionChild(st, outChildIndices, argStack[objArg])
+                objArg = objArg + 1
+            }
+            st[3] = objArgBase
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 36, -1, 0, objInitChildRun, objInitChildCount, newStart, objInitEnd - newStart)
         }
 
         if st[0] >= count || tokenKinds[st[0]] != 127 {
