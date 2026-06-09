@@ -1471,6 +1471,34 @@ public sealed class ColumnarIlEmitter
                             _locals[patName] = bindLocal;
                         }
                     }
+                    else if (_kinds[patternNode] == 32) // relational pattern `<op> <constant>` -> ordered comparison.
+                    {
+                        // A relational pattern tests `matchValue <op> constant` with op in {< <= > >=} (the operator
+                        // text is in the node's value span). It is only modelled for ORDERED scalar types (numeric/
+                        // char — bool/string have no ordering), and the operand must be a LITERAL (a `< x` against a
+                        // variable is not a constant pattern; C# rejects it). Otherwise decline to the C# path.
+                        if (_childCount[patternNode] != 1 || !IsOrderedMatchType(matchValueType))
+                            return false;
+                        var operandNode = Child(patternNode, 0);
+                        if (!IsLiteralPatternKind(_kinds[operandNode]))
+                            return false;
+                        _il.Emit(OpCodes.Ldloc, matchLocal);
+                        if (!EmitExpression(operandNode, out var relType) || relType != matchValueType)
+                            return false;
+                        // Mirror the C# EmitPatternTest RelationalPattern lowering EXACTLY (plain ordered Clt/Cgt for
+                        // ALL types — no _Un float/unsigned variants — so columnar value-matches C# even on NaN and
+                        // large ulong): `<`/`>` take the arm when Clt/Cgt is TRUE (skip on false); `<=`/`>=` are the
+                        // negations — take the arm when Cgt/Clt is FALSE (skip on true). `Brfalse`/`Brtrue nextCase`
+                        // performs the skip, falling through to the result when the arm is taken.
+                        switch (Text(patternNode))
+                        {
+                            case "<": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Brfalse, nextCase); break;
+                            case ">": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Brfalse, nextCase); break;
+                            case "<=": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Brtrue, nextCase); break;
+                            case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Brtrue, nextCase); break;
+                            default: return false;
+                        }
+                    }
                     else // literal pattern -> equality test against the matched value.
                     {
                         // Only an actual LITERAL (int/float/char/string/bool — node kinds 0-4) is a modelled
@@ -1535,6 +1563,12 @@ public sealed class ColumnarIlEmitter
     // so the match declines to the C# path rather than emitting a misleading equality test. Identifier patterns
     // (kind 6 — `_` discard / binding) are handled separately, before this is consulted.
     private static bool IsLiteralPatternKind(int kind) => kind >= 0 && kind <= 4;
+
+    // Ordered scalar types a RELATIONAL match pattern (`< c`, `>= c`, …) may test — numeric + char. bool and string
+    // have no `<`/`>` ordering in the modelled set, so a relational pattern over them declines to the C# path.
+    private static bool IsOrderedMatchType(Type t) =>
+        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
+        || t == typeof(double) || t == typeof(float);
 
     // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality) and
     // string (op_Equality). Unions/records/etc. are not modelled, so a match over them declines to the C# path.

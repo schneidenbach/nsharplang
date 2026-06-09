@@ -35,6 +35,9 @@
 //   GuardedPattern          -> kind 19  ( <pattern> when <guard> -- a `when` (token 54) after a match pattern;
 //                                         children [pattern, guard]. Appears ONLY as a match-case pattern slot.
 //                                         The emitter tests the inner pattern, then the guard, before the result. )
+//   RelationalPattern       -> kind 32  ( <op> <constant> at the start of a match pattern, op in {< <= > >=}
+//                                         (tokens 100/101/102/103); operator in the value span, 1 child = the
+//                                         operand. Appears ONLY as a match-case pattern slot (incl. under a guard). )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -170,7 +173,29 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 
         matchCaseCount := 0
         while st[0] < count && tokenKinds[st[0]] != 130 {
-            matchPattern := ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            // A relational operator (`<` 100, `<=` 101, `>` 102, `>=` 103) at the START of a pattern is a
+            // RELATIONAL pattern `<op> <constant>` -> RelationalPattern node kind 32: the operator token lives in
+            // the value span, the single child is the operand (a primary expression). The emitter tests
+            // `matchValue <op> constant`. Otherwise the pattern is an ordinary primary (literal / identifier /
+            // refused-richer). (`>=` is a single token, so there is no `>`-split here.)
+            relTok := tokenKinds[st[0]]
+            matchPattern := -1
+            if relTok == 100 || relTok == 101 || relTok == 102 || relTok == 103 {
+                relOpStart := tokenStarts[st[0]]
+                relOpLen := tokenValueLengths[st[0]]
+                st[0] = st[0] + 1
+                relOperand := ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if relOperand < 0 {
+                    st[3] = matchArgBase
+                    return -1
+                }
+                relChildRun := st[2]
+                AppendExpressionChild(st, outChildIndices, relOperand)
+                relSpanEnd := outSpanStarts[relOperand] + outSpanLengths[relOperand]
+                matchPattern = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 32, relOpStart, relOpLen, relChildRun, 1, relOpStart, relSpanEnd - relOpStart)
+            } else {
+                matchPattern = ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            }
             if matchPattern < 0 {
                 st[3] = matchArgBase
                 return -1

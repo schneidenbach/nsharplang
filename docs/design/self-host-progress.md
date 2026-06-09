@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-6d: `match` relational patterns (`< c`, `<= c`, `> c`, `>= c`)
+
+Extends match patterns with relational comparisons against a constant.
+- **Parser kernel** (`ParserExpressions.nl`): a relational operator (`<` 100 / `<=` 101 / `>` 102 / `>=` 103) at the
+  start of a pattern slot parses the operand (a primary) and emits a `RelationalPattern` node kind 32 — operator in
+  the value span, 1 child = the operand. (`>=` is a single token, no `>`-split.) Bare/literal/identifier patterns are
+  unchanged; a `when` guard still composes (kind 19 over a kind-32 inner).
+- **Emitter** (`ColumnarIlEmitter` case 18, relational arm): requires an ORDERED match type (`IsOrderedMatchType` —
+  int/long/ulong/char/double/float, NOT bool/string) and a LITERAL operand (`IsLiteralPatternKind`), then
+  `ldloc matchLocal; <operand>;` and a switch that MIRRORS the C# `EmitPatternTest` RelationalPattern lowering
+  EXACTLY — plain ordered `Clt`/`Cgt` for ALL types (no `_Un` float/unsigned variants): `<`/`>` skip the arm on a
+  false compare (`Brfalse nextCase`), `<=`/`>=` are the negations and skip on a true compare (`Brtrue nextCase`).
+  Identical opcodes ⇒ columnar value-matches C# even on NaN and large ulong.
+
+Parity-gated: `ColumnarCodegen_Parity_MatchRelational` value-matches the C# ILCompiler over all four operators on
+int/long/char/double/**float**, chained `>=` arms (first-match-wins), relational MIXED with a literal arm and a
+`when`-guarded arm, boundary values, and **NaN inputs** (which agree precisely because the lowering is identical).
+Decline-pinned: a non-literal operand (`< k`), and relational over string/bool (unordered) → C# fallback.
+Adversarially reviewed (read-only, 3 lenses + judge: opcode/NaN parity, parser correctness, accept/decline boundary)
+→ SHIP, no in-scope defects (the float arm proven live by the `fband` case). Full non-IDE gate green (fresh
+isolated, 309s). Next: `and`/`or` combinator patterns, then type declarations (enum first).
+
+---
+
 ## 2026-06-09 — Phase D-6c: harden match patterns (decline non-literal patterns)
 
 A correctness fix closing the over-acceptance hole surfaced by the `when`-guard adversarial review. The match-arm

@@ -3163,6 +3163,51 @@ class B
         Assert.True(RouteColumnarProgram("func ok2(n: int): int {\n    return match n {\n        x when x > 0 => 1,\n        _ => 0\n    }\n}\n").Ok);
     }
 
+    // MATCH RELATIONAL PATTERNS — `match v { < c => …, >= c => …, … }` (a relational op `< <= > >=` then a constant).
+    // Parser kernel: a relational op (tokens 100-103) at a pattern slot -> RelationalPattern node kind 32 (operator
+    // in the value span, 1 child = the operand). Emitter (case 18 relational arm): mirrors the C# EmitPatternTest
+    // RelationalPattern lowering EXACTLY — plain ordered Clt/Cgt (no _Un variants) so columnar value-matches C# even
+    // on NaN and large ulong. Covers all four operators over int/long/char/double, chained relational arms (first
+    // match wins), relational MIXED with a literal arm and a `when` guard in one match, NaN inputs (which agree
+    // because the lowering is identical), and boundary values. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_MatchRelational()
+    {
+        var prog =
+            "func sign(n: int): string {\n    return match n {\n        < 0 => \"neg\",\n        > 0 => \"pos\",\n        _ => \"zero\"\n    }\n}\n\n" +
+            "func bucket(n: int): int {\n    return match n {\n        < 10 => 1,\n        < 100 => 2,\n        _ => 3\n    }\n}\n\n" +
+            // chained `>=` arms — first match wins, so order matters; covers boundary values.
+            "func grade(s: int): string {\n    return match s {\n        >= 90 => \"A\",\n        >= 80 => \"B\",\n        >= 70 => \"C\",\n        _ => \"F\"\n    }\n}\n\n" +
+            // char ordering (`<`/`<=` on char code points).
+            "func charBand(c: char): int {\n    return match c {\n        < 'a' => 0,\n        <= 'z' => 1,\n        _ => 2\n    }\n}\n\n" +
+            // double `<`/`>` — NaN agrees (Clt/Cgt ordered, NaN -> false on both arms -> falls to `_`).
+            "func dband(x: double): int {\n    return match x {\n        < 0.0 => -1,\n        > 100.0 => 1,\n        _ => 0\n    }\n}\n\n" +
+            // double `<=`/`>=` — the negated forms; NaN still agrees because columnar mirrors C#'s exact opcodes.
+            "func dle(x: double): int {\n    return match x {\n        <= 0.0 => -1,\n        >= 100.0 => 1,\n        _ => 0\n    }\n}\n\n" +
+            // float ordering (Clt/Cgt on r4) — proves the `float` arm of IsOrderedMatchType is live, NaN included.
+            "func fband(x: float): int {\n    return match x {\n        < 0.0f => -1,\n        >= 100.0f => 1,\n        _ => 0\n    }\n}\n\n" +
+            // long ordering (Clt/Cgt on i8, large magnitudes).
+            "func lband(v: long): int {\n    return match v {\n        < 0L => -1,\n        >= 1000000000000L => 2,\n        _ => 1\n    }\n}\n\n" +
+            // relational MIXED with a literal arm and a `when`-guarded arm in one match.
+            "func mixed(n: int): string {\n    return match n {\n        0 => \"zero\",\n        < 0 => \"neg\",\n        x when x > 100 => \"big\",\n        _ => \"small\"\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sign", new object[] { -5 }), ("sign", new object[] { 7 }), ("sign", new object[] { 0 }),
+            ("bucket", new object[] { 5 }), ("bucket", new object[] { 50 }), ("bucket", new object[] { 500 }), ("bucket", new object[] { 10 }), ("bucket", new object[] { 100 }),
+            ("grade", new object[] { 95 }), ("grade", new object[] { 90 }), ("grade", new object[] { 85 }), ("grade", new object[] { 80 }), ("grade", new object[] { 70 }), ("grade", new object[] { 69 }),
+            ("charBand", new object[] { 'A' }), ("charBand", new object[] { 'm' }), ("charBand", new object[] { 'z' }), ("charBand", new object[] { '~' }),
+            ("dband", new object[] { -1.5 }), ("dband", new object[] { 150.0 }), ("dband", new object[] { 50.0 }), ("dband", new object[] { 0.0 }), ("dband", new object[] { double.NaN }),
+            ("dle", new object[] { -1.0 }), ("dle", new object[] { 0.0 }), ("dle", new object[] { 100.0 }), ("dle", new object[] { 50.0 }), ("dle", new object[] { double.NaN }),
+            ("fband", new object[] { -1.5f }), ("fband", new object[] { 150.0f }), ("fband", new object[] { 50.0f }), ("fband", new object[] { 100.0f }), ("fband", new object[] { float.NaN }),
+            ("lband", new object[] { -5L }), ("lband", new object[] { 2000000000000L }), ("lband", new object[] { 5L }),
+            ("mixed", new object[] { 0 }), ("mixed", new object[] { -3 }), ("mixed", new object[] { 150 }), ("mixed", new object[] { 50 }));
+
+        // Relational operand must be a LITERAL constant: `< k` against a variable is not a constant pattern -> decline.
+        Assert.False(RouteColumnarProgram("func f(n: int, k: int): int {\n    return match n {\n        < k => 1,\n        _ => 0\n    }\n}\n").Ok);
+        // Relational pattern only applies to ORDERED scalar types — string/bool have no `<`/`>` ordering -> decline.
+        Assert.False(RouteColumnarProgram("func f(s: string): int {\n    return match s {\n        < \"m\" => 1,\n        _ => 0\n    }\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(b: bool): int {\n    return match b {\n        < true => 1,\n        _ => 0\n    }\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,
