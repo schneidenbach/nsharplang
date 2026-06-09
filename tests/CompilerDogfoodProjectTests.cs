@@ -3885,14 +3885,42 @@ class B
         // DECLINES (slice scope / N#-pipeline-rejected, verify-first confirmed):
         // object-init on a class WITH a user ctor (no parameterless ctor — N# rejects too).
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(v: int): int {\n    c := new C { X: v }\n    return c.X\n}\n").Ok);
-        // constructor OVERLOADS (a 2nd ctor), and a VALUE-type struct constructor.
-        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n    constructor() {\n        X = 0\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a VALUE-type struct constructor. (Constructor OVERLOADS are now supported — see
+        // ColumnarCodegen_Parity_ClassConstructorOverloads.)
         Assert.False(RouteColumnarProgram("struct S {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // a ctor that does NOT assign every field — the N# pipeline reports NL304 (definite assignment), so columnar
         // must DECLINE (else it accepts a program N# rejects, defaulting the unassigned field).
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    Y: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X + c.Y\n}\n").Ok);
         // a ctor containing a `return` — the N# pipeline reports NL103 (`return` only inside a function), so decline.
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n        return\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X\n}\n").Ok);
+    }
+
+    // CLASS constructor OVERLOADS — multiple constructors distinguished by PARAM COUNT. Each ctor independently
+    // assigns every field (NL304). Positional `new P(args)` resolves the overload by arg count (exactly one ctor of
+    // that arity). Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassConstructorOverloads()
+    {
+        var prog =
+            "class P {\n    X: int\n    Y: int\n    constructor(x: int, y: int) {\n        X = x\n        Y = y\n    }\n    constructor(x: int) {\n        X = x\n        Y = 0\n    }\n    func Sum(): int {\n        return X + Y\n    }\n    func Diff(): int {\n        return X - Y\n    }\n}\n\n" +
+            "func two(x: int, y: int): int {\n    p := new P(x, y)\n    return p.Sum()\n}\n\n" +
+            "func one(x: int): int {\n    p := new P(x)\n    return p.Sum()\n}\n\n" +
+            "func twoDiff(x: int, y: int): int {\n    p := new P(x, y)\n    return p.Diff()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("two", new object[] { 3, 4 }), ("two", new object[] { -5, 5 }),
+            ("one", new object[] { 5 }), ("one", new object[] { 0 }),
+            ("twoDiff", new object[] { 10, 3 }), ("twoDiff", new object[] { 4, 9 }));
+
+        // Metadata: P has two public constructors (arity 2 and 1).
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the overloaded-constructor program");
+        var pType = System.Reflection.Assembly.Load(asm!).GetType("P")!;
+        Assert.Equal(2, pType.GetConstructors().Length);
+
+        // DECLINES: a DUPLICATE-signature ctor (both `(int)` — the N# binder rejects the duplicate). An
+        // AMBIGUOUS-by-count construction (two same-arity ctors, constructed with that arity) declines to C#.
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(a: int) {\n        X = a\n    }\n    constructor(b: int) {\n        X = b\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    Y: int\n    constructor(a: int) {\n        X = a\n        Y = 0\n    }\n    constructor(s: string) {\n        X = s.Length\n        Y = 1\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X\n}\n").Ok);
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

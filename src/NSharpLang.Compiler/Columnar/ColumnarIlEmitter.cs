@@ -692,35 +692,53 @@ public sealed class ColumnarIlEmitter
             }
         }
 
-        // PASS 0c (constructors): declare each reference-type's user constructor. A constructor is a nameless,
+        // PASS 0c (constructors): declare each reference-type's user constructor(s). A constructor is a nameless,
         // void-returning member whose body assigns fields; `this` is arg 0 so user param ordinals shift by +1. Slice
-        // scope: a SINGLE constructor on a REFERENCE type (class/record), no chaining (declined at parse). A value-type
-        // struct constructor (no base call; definite-assignment rules) is deferred. The ConstructorBuilder + its param
-        // types are stored for positional-construction resolution; the body is emitted in PASS 2.
+        // scope: one or more OVERLOADED constructors on a REFERENCE type (class/record), no chaining (declined at
+        // parse). Overload resolution at construction is by PARAM COUNT (see case 15): two ctors with the same arg
+        // count are ambiguous-by-count and any `new T(...)` with that count declines — so type-distinguished
+        // same-count overloads route to C#. A value-type struct constructor is deferred. The ConstructorBuilder + its
+        // param types are stored for positional-construction resolution; the body is emitted (+ validated) in PASS 2.
         var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Constructors.Count == 0)
                 continue;
             var def = structRegistry[structs[s].Name];
-            // Value-type constructors and constructor OVERLOADS are deferred — decline (a struct ctor / a 2nd ctor).
-            if (!def.IsReference || structs[s].Constructors.Count > 1)
+            // Value-type (struct) constructors are deferred — decline.
+            if (!def.IsReference)
                 return false;
-            var ctor = structs[s].Constructors[0];
-            var cParamTypes = new Type[ctor.ParamNames.Length];
-            var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
-            var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
-            for (var i = 0; i < ctor.ParamNames.Length; i++)
+            foreach (var ctor in structs[s].Constructors)
             {
-                if (!TryResolveType(ctor.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
-                    return false;
-                cParamTypes[i] = pt;
-                cOrdinals[ctor.ParamNames[i]] = i + 1;
-                cParamTypeMap[ctor.ParamNames[i]] = pt;
+                var cParamTypes = new Type[ctor.ParamNames.Length];
+                var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+                var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+                for (var i = 0; i < ctor.ParamNames.Length; i++)
+                {
+                    if (!TryResolveType(ctor.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                        return false;
+                    cParamTypes[i] = pt;
+                    cOrdinals[ctor.ParamNames[i]] = i + 1;
+                    cParamTypeMap[ctor.ParamNames[i]] = pt;
+                }
+                // A constructor whose param-type signature DUPLICATES an already-declared one is a duplicate member
+                // the N# binder rejects — decline rather than emit two ctors with the same signature.
+                foreach (var (_, existingParamTypes) in def.Constructors)
+                {
+                    if (existingParamTypes.Length != cParamTypes.Length)
+                        continue;
+                    var sameSignature = true;
+                    for (var i = 0; i < cParamTypes.Length; i++)
+                    {
+                        if (existingParamTypes[i] != cParamTypes[i]) { sameSignature = false; break; }
+                    }
+                    if (sameSignature)
+                        return false;
+                }
+                var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
+                def.Constructors.Add((cb, cParamTypes));
+                structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
             }
-            var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
-            def.Constructors.Add((cb, cParamTypes));
-            structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
         }
 
         // PASS 0 (unions): define every user union — an ABSTRACT base class plus one SEALED nested case class per
@@ -1937,22 +1955,32 @@ public sealed class ColumnarIlEmitter
                         return true;
                     }
                     // A user CLASS/RECORD with a positional constructor: `new T(args)`. The type names a registered
-                    // reference type carrying exactly one user ctor (slice scope); match its single ctor by arg count,
-                    // emit each arg (type-checked against the ctor's param type), then `newobj <ctor>`. The result's
-                    // type is the class. (Value-type construction is via object-init; a 0-ctor class declines here —
-                    // it constructs via object-init instead.)
-                    if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.IsReference && ctorDef.Constructors.Count == 1)
+                    // reference type with ≥1 user ctor; resolve the OVERLOAD by arg COUNT — exactly one ctor must have
+                    // that param count (two with the same count are ambiguous-by-count → decline to C#). Emit each arg
+                    // (type-checked against the chosen ctor's param type), then `newobj <ctor>`; the result's type is
+                    // the class. (Value-type construction is via object-init; a 0-ctor class declines here.)
+                    if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.IsReference && ctorDef.Constructors.Count > 0)
                     {
-                        var (ctorBuilder, ctorParamTypes) = ctorDef.Constructors[0];
                         var ctorArgCount = _childCount[idx] - 1;
-                        if (ctorParamTypes.Length != ctorArgCount)
-                            return false;
+                        ConstructorBuilder? chosenCtor = null;
+                        Type[]? chosenParamTypes = null;
+                        var ambiguous = false;
+                        foreach (var (cb, cpt) in ctorDef.Constructors)
+                        {
+                            if (cpt.Length != ctorArgCount)
+                                continue;
+                            if (chosenCtor != null) { ambiguous = true; break; }
+                            chosenCtor = cb;
+                            chosenParamTypes = cpt;
+                        }
+                        if (chosenCtor == null || ambiguous)
+                            return false; // no ctor of that arity, or ambiguous-by-count overloads -> decline.
                         for (var a = 0; a < ctorArgCount; a++)
                         {
-                            if (!EmitExpression(Child(idx, 1 + a), out var ctorArgType) || ctorArgType != ctorParamTypes[a])
+                            if (!EmitExpression(Child(idx, 1 + a), out var ctorArgType) || ctorArgType != chosenParamTypes![a])
                                 return false;
                         }
-                        _il.Emit(OpCodes.Newobj, ctorBuilder);
+                        _il.Emit(OpCodes.Newobj, chosenCtor);
                         type = ctorDef.Builder;
                         return true;
                     }

@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11b-iii: constructor OVERLOADS
+
+Extends the single-constructor slice (D-11b-ii) to multiple overloaded constructors distinguished by PARAM COUNT.
+- **Emitter PASS 0c**: loops over ALL of a reference type's constructors (the `Constructors.Count > 1` decline is
+  removed), `DefineConstructor` + validating each (NL304 all-fields-assigned + NL103 no-return, per ctor). A
+  DUPLICATE-signature ctor (identical param types) declines — the N# binder rejects the duplicate member.
+- **Emitter case 15** (positional construction): resolves the overload by arg COUNT — exactly one ctor must have
+  that param count; two ctors of the same arity are ambiguous-by-count, so any `new T(...)` with that count declines
+  to C# (type-distinguished same-count overloads route to the C# overload resolver). The chosen ctor's args are
+  type-checked, then `newobj`.
+
+Parity-gated: `ColumnarCodegen_Parity_ClassConstructorOverloads` value-matches the C# ILCompiler over a `P` with a
+2-arg and a 1-arg ctor, each constructed and consumed (Sum/Diff); metadata-asserts two public constructors;
+decline-pinned for a duplicate-signature ctor and an ambiguous-by-count construction. Verify-first confirmed C#
+accepts count-distinguished overloads (P(5) → the 1-arg ctor). 115 columnar tests green; full non-IDE gate green
+(fresh isolated). Next: ctor CHAINING (this/base), then INHERITANCE (the N# pipeline itself rejects object-init of
+an inherited field — needs a ctor-based surface), PROPERTIES (need the correct N# property syntax — `X: int { get }`
+is NL102).
+
+---
+
 ## 2026-06-09 — Phase D-11b-ii: class user CONSTRUCTORS + positional construction
 
 The key class feature: `class Counter { Count: int  constructor(start, step) { Count = start  Step = step } … }`
