@@ -30,19 +30,6 @@ public class Parser
 
     public ParseResult ParseCompilationUnit()
     {
-        // N#-native parser front-end routing (off by default; see NSharpCompilerDogfoodAdapter
-        // .ParserFrontEndRoutingEnabled). When enabled and the source is fully within the forms the front-end
-        // supports, parse with the columnar N# kernels instead of this C# parser; otherwise fall through. The
-        // orchestrator only returns a unit for clean, fully-supported files, so error reporting and every
-        // unsupported construct keep flowing through the C# path below.
-        if (NSharpCompilerDogfoodAdapter.ParserFrontEndRoutingEnabled
-            && _sourceCode != null
-            && NSharpCompilerDogfoodAdapter.TryParseCompilationUnit(_sourceCode, _fileName, out var routedUnit)
-            && routedUnit != null)
-        {
-            return new ParseResult { CompilationUnit = routedUnit, Errors = new List<CompilerError>() };
-        }
-
         CompilationUnit? unit = null;
 
         try

@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Phase B: route multi-file through columnar in production + DELETE the parser-front-end dead-end route (~1205 net LOC removed)
+
+Two Phase-B slices. (1) **Multi-file production routing:** `MultiFileCompiler.TryEmitWithColumnarBackend` was
+single-file-only — a multi-file program fell back to the C# ILCompiler even with `NSHARP_COLUMNAR_BACKEND=1`. It
+now gathers every source in `_sourceFiles` order and routes >1 file through `TryEmitColumnarProgramMultiFile`
+(the already-parity-tested merge); a single file still uses the single-file entry. Gated by
+`Stage5_ColumnarBackend_RoutesEligibleMultiFileProgramThroughProduction` (a 2-file program with a cross-file
+public call compiled BOTH ways through the production path — columnar IL differs from C#, the cross-file call
+resolves + runs identically). Flag off by default → production unchanged.
+
+(2) **Deleted the deliberately-off `NSHARP_PARSER_FRONTEND` route** — the materialize-the-columnar-tables-back-
+into-the-C#-AST path (`NSharpCompilerDogfoodAdapter.TryParseCompilationUnit` + `ParserFrontEndRoutingEnabled` +
+the `ColumnarAstMaterializer` class + the `Parser.ParseCompilationUnit` hook + the `CompilationUnitRoutingBenchmarks`
++ the `Materializer_*`/`Router_*` tests + their `RouteCompilationUnit`/`StructuralJson`/`WriteStructural` helpers).
+It was a MEASURED dead-end (~4.4× slower / ~18× more allocation — materializing re-incurred the full C# AST
+allocation on top of the table cost; see the removed benchmark's own header) and is superseded by the standalone
+columnar backend, which consumes the columnar tables DIRECTLY. Parse correctness is now validated by the columnar
+symbol/type/diagnostic parity tests + the emit backend (parses + emits the whole corpus, value-matched vs C#),
+so the materialize-to-AST oracle is redundant. Shared pieces preserved: the kernel binding delegates +
+`RoutingCorpusSources` (relocated to `benchmarks/RoutingCorpusSources.cs` for `ColumnarSemanticPassBenchmarks`),
+and `CSharpCompilationUnit` (still the parity reference for the live columnar kernel tests). Net **~1205 LOC
+removed** (529 benchmark + 240 materializer + 184 adapter + 323 test + 13 parser, −84 relocated). All 87 dogfood
+tests + the full gate green; zero production behavior change (the route was off by default). Directly serves
+AGENTS.md "shrink/remove the *DogfoodAdapter bridges."
+
 ## 2026-06-08 — implicit-void return type (`func f(...) {`) → SemanticScopes.nl: **the systems-dogfood corpus is now 32/32 via merge** (single-file 28→29, cluster 31→32)
 
 The LAST parse-blocked file falls — Phase A self-host coverage COMPLETE. SemanticScopes.nl declined at PARSE

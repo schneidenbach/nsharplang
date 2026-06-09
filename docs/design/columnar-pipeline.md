@@ -39,9 +39,15 @@ source ──► [N# Lexer kernel] ──► tokens (int columns: kind/start/len
 
 The columnar node tables (kind, value-span, child-run, source-span columns; see
 [`project_nsharp_parser_kernel_pattern`] in memory) are the *single intermediate representation* end-to-end.
-The C# object-graph AST is materialized **only at the public API boundary** (e.g. when a caller asks for an
-`Ast.CompilationUnit`), never internally. `ColumnarAstMaterializer` stays as that boundary adapter and as the
-parser **correctness oracle**, not as an internal pipeline stage.
+The standalone columnar backend consumes those tables DIRECTLY (parse → symbol/type/diagnostic services →
+`ColumnarIlEmitter`), never materializing an internal C# AST. The earlier `ColumnarAstMaterializer` +
+`TryParseCompilationUnit` route — which materialized the tables back into the C# `CompilationUnit` AST as a
+parser correctness oracle and a (deliberately-off) front-end routing path — was REMOVED (2026-06-08): it was a
+measured dead-end (~4.4× slower / ~18× more allocation, because materializing re-incurred the full C# AST
+allocation on top of the table cost), and parse correctness is now validated directly by the columnar services'
+parity tests and the standalone emit backend (which parses + emits the whole dogfood corpus, value-matched vs
+the C# pipeline). If a future public-API boundary ever needs an `Ast.CompilationUnit`, a fresh boundary adapter
+is reintroduced then — it is not carried as dead scaffolding now.
 
 ## Non-negotiable design rules (pinned by the spikes)
 

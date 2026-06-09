@@ -913,10 +913,9 @@ internal static class DogfoodCompilerSources
         ParserExpressions + Environment.NewLine +
         ParserStatements;
 
-    // The FULL parser front-end used by the whole-file routing path (NSharpCompilerDogfoodAdapter
-    // .TryParseCompilationUnit): adds the declarations kernel (top-level decl kinds / imports / package) and
-    // the function-signature kernel to ParserFrontEnd, so a single compiled Program exposes every method the
-    // CompilationUnit orchestrator binds.
+    // The FULL parser front-end kernel set: adds the declarations kernel (top-level decl kinds / imports /
+    // package) and the function-signature kernel to ParserFrontEnd, so a single compiled Program exposes every
+    // method the columnar function-input builder (TryGetColumnarFunctionInputs) binds.
     public static string ParserFrontEndFull =>
         LexerTokenKindScanner + Environment.NewLine +
         ParserDeclarations + Environment.NewLine +
