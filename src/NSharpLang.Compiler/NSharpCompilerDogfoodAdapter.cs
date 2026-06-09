@@ -1209,12 +1209,12 @@ internal static class NSharpCompilerDogfoodAdapter
         return true;
     }
 
-    // Parse ONE get-only computed PROPERTY (at compacted token index `propIndex`, the property NAME). The kernel
-    // recorded it as `Name : Type { … }`; the layout is name(propIndex) `:`(+1) Type(+2) `{`(+3, property block)
-    // `get`(+4, identifier "get") `{`(+5, get body). The getter body parses as a statement block (like a method body)
-    // into a ColumnarFunctionInput named "get_Name" returning the property type, with no params. A property with a
-    // `set` accessor (the get body's matching `}` is NOT immediately followed by the property block `}`) or an
-    // expression-bodied `get => …` (no `{` at +5) declines — get-only this slice.
+    // Parse ONE computed PROPERTY (at compacted token index `propIndex`, the property NAME). The kernel recorded it
+    // as `Name : Type { … }`; the layout is name(propIndex) `:`(+1) Type(+2) `{`(+3, property block) `get`(+4,
+    // identifier "get") `{`(+5, get body). The getter body parses into a ColumnarFunctionInput named "get_Name"
+    // (no params, returning the property type). After the get body's `}`, an OPTIONAL `set { … }` accessor parses
+    // into "set_Name" (one param "value": Type, returning void); else the property block must close with `}`. A
+    // set-first ordering, an expression-bodied accessor, or a third accessor declines (get / get-set this slice).
     private static bool TryParseColumnarPropertyAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int propIndex, string source,
         out Columnar.ColumnarPropertyInput input)
@@ -1231,34 +1231,64 @@ internal static class NSharpCompilerDogfoodAdapter
 
         var propName = source.Substring(cs[propIndex], cv[propIndex]);
         var propType = source.Substring(cs[propIndex + 2], cv[propIndex + 2]);
-
-        // The get body's matching `}` must be immediately followed by the property block's `}` — else there is a
-        // `set` (or another accessor) and the get-only slice declines.
-        var getBodyBrace = propIndex + 5;
-        var depth = 0;
-        var getBodyEnd = -1;
-        for (var t = getBodyBrace; t < n; t++)
-        {
-            if (ck[t] == 129) depth++;
-            else if (ck[t] == 130) { depth--; if (depth == 0) { getBodyEnd = t; break; } }
-        }
-        if (getBodyEnd < 0 || getBodyEnd + 1 >= n || ck[getBodyEnd + 1] != 130)
-            return false;
-
         var cap = n + 1;
-        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
-        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
-        var bres = new int[2];
-        var bodyNodeCount = bindings.ParseStatementNodes(
-            ck, cs, cv, n, getBodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
-        if (bodyNodeCount <= 0)
-            return false;
 
+        // Parse the get body. Find its matching `}` to locate what follows (the property `}` for get-only, or a `set`).
+        var getBodyBrace = propIndex + 5;
+        var getBodyEnd = MatchingCloseBrace(ck, n, getBodyBrace);
+        if (getBodyEnd < 0)
+            return false;
+        var gk = new int[cap]; var gvs = new int[cap]; var gvl = new int[cap]; var gcs = new int[cap];
+        var gcc = new int[cap]; var gci = new int[cap]; var gss = new int[cap]; var gsl = new int[cap];
+        var gres = new int[2];
+        if (bindings.ParseStatementNodes(ck, cs, cv, n, getBodyBrace, gk, gvs, gvl, gcs, gcc, gci, gss, gsl, gres) <= 0)
+            return false;
         var getter = new Columnar.ColumnarFunctionInput(
             "get_" + propName, propType, System.Array.Empty<string>(), System.Array.Empty<string>(),
-            bk, bvs, bvl, bcs, bcc, bci, bres[0]);
-        input = new Columnar.ColumnarPropertyInput(propName, propType, getter);
+            gk, gvs, gvl, gcs, gcc, gci, gres[0]);
+
+        Columnar.ColumnarFunctionInput? setter = null;
+        var after = getBodyEnd + 1;
+        if (after < n && ck[after] == 130)
+        {
+            // get-only: the property block closes right after the getter.
+        }
+        else if (after + 1 < n && ck[after] == 0 && cv[after] == 3 && string.CompareOrdinal(source, cs[after], "set", 0, 3) == 0 && ck[after + 1] == 129)
+        {
+            // `set { setBody }` — implicit `value` parameter of the property type, void return. The set body's `}`
+            // must be immediately followed by the property block `}` (a third accessor declines).
+            var setBodyBrace = after + 1;
+            var setBodyEnd = MatchingCloseBrace(ck, n, setBodyBrace);
+            if (setBodyEnd < 0 || setBodyEnd + 1 >= n || ck[setBodyEnd + 1] != 130)
+                return false;
+            var stk = new int[cap]; var stvs = new int[cap]; var stvl = new int[cap]; var stcs = new int[cap];
+            var stcc = new int[cap]; var stci = new int[cap]; var stss = new int[cap]; var stsl = new int[cap];
+            var stres = new int[2];
+            if (bindings.ParseStatementNodes(ck, cs, cv, n, setBodyBrace, stk, stvs, stvl, stcs, stcc, stci, stss, stsl, stres) <= 0)
+                return false;
+            setter = new Columnar.ColumnarFunctionInput(
+                "set_" + propName, "void", new[] { "value" }, new[] { propType },
+                stk, stvs, stvl, stcs, stcc, stci, stres[0]);
+        }
+        else
+        {
+            return false; // a set-first ordering / expression-bodied / unrecognized accessor -> decline.
+        }
+
+        input = new Columnar.ColumnarPropertyInput(propName, propType, getter, setter);
         return true;
+    }
+
+    // The compacted-token index of the `}` (130) that closes the `{` (129) at `open`, or -1 if unbalanced.
+    private static int MatchingCloseBrace(int[] ck, int n, int open)
+    {
+        var depth = 0;
+        for (var t = open; t < n; t++)
+        {
+            if (ck[t] == 129) depth++;
+            else if (ck[t] == 130) { depth--; if (depth == 0) return t; }
+        }
+        return -1;
     }
 
     // Canonical type string from a columnar TYPE subtree (kinds 0 Simple,1 Generic,2 Array,3 Nullable,

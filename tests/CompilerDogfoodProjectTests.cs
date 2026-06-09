@@ -3952,12 +3952,43 @@ class B
         Assert.NotNull(getDoubled);
         Assert.Equal(typeof(int), getDoubled.ReturnType);
 
-        // DECLINES (slice scope): a property with a SET accessor (get-only this slice), a VALUE-type struct property.
-        Assert.False(RouteColumnarProgram("class C {\n    backing: int\n    Value: int {\n        get {\n            return backing\n        }\n        set {\n            backing = value\n        }\n    }\n    constructor() {\n        backing = 0\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // DECLINES (slice scope): a VALUE-type struct property. (A SET accessor is now supported — see
+        // ColumnarCodegen_Parity_ClassGetSetProperty.)
         Assert.False(RouteColumnarProgram("struct S {\n    v: int\n    Doubled: int {\n        get {\n            return v * 2\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // a property `Double` whose synthesized getter `get_Double` collides with a user method `get_Double` — the N#
         // pipeline accepts the two as distinct symbols, but two identical-signature CLR methods would clash, so decline.
         Assert.False(RouteColumnarProgram("class C {\n    val: int\n    func get_Double(): int {\n        return val + val\n    }\n    Double: int {\n        get {\n            return val * 2\n        }\n    }\n    constructor(v: int) {\n        val = v\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.Double\n}\n").Ok);
+    }
+
+    // CLASS get/SET computed PROPERTIES — `Value: int { get { … } set { backing = value } }`. The setter has an
+    // implicit `value` parameter (arg 1); a `receiver.Name = v` write resolves to `callvirt set_Name`. Value-matched
+    // vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassGetSetProperty()
+    {
+        var prog =
+            "class Box {\n    backing: int\n    Value: int {\n        get {\n            return backing\n        }\n        set {\n            backing = value\n        }\n    }\n    constructor() {\n        backing = 0\n    }\n}\n\n" +
+            "func setGet(v: int): int {\n    b := new Box()\n    b.Value = v\n    return b.Value\n}\n\n" +
+            // read the property in the RHS of its own setter call (get then set then get).
+            "func setTwice(a: int, c: int): int {\n    box := new Box()\n    box.Value = a\n    box.Value = box.Value + c\n    return box.Value\n}\n\n" +
+            // a setter that does ARITHMETIC on the implicit `value`.
+            "class Scaled {\n    raw: int\n    Doubled: int {\n        get {\n            return raw\n        }\n        set {\n            raw = value * 2\n        }\n    }\n    constructor() {\n        raw = 0\n    }\n}\n\n" +
+            "func scaledSet(v: int): int {\n    s := new Scaled()\n    s.Doubled = v\n    return s.Doubled\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("setGet", new object[] { 7 }), ("setGet", new object[] { 0 }), ("setGet", new object[] { -5 }),
+            ("setTwice", new object[] { 5, 3 }), ("setTwice", new object[] { 10, -4 }),
+            ("scaledSet", new object[] { 6 }), ("scaledSet", new object[] { 0 }));
+
+        // Metadata: Box has get_Value and set_Value accessors.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the get/set-property program");
+        var boxType = System.Reflection.Assembly.Load(asm!).GetType("Box")!;
+        Assert.NotNull(boxType.GetMethod("get_Value"));
+        Assert.NotNull(boxType.GetMethod("set_Value"));
+
+        // DECLINE: assigning a GET-ONLY property (no setter) — the N# pipeline reports NL103 (member not found), so
+        // columnar declines (no set_Name).
+        Assert.False(RouteColumnarProgram("class C {\n    v: int\n    D: int {\n        get {\n            return v\n        }\n    }\n    constructor(x: int) {\n        v = x\n    }\n}\n\nfunc f(x: int): int {\n    c := new C(x)\n    c.D = 9\n    return c.D\n}\n").Ok);
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

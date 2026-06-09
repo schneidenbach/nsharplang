@@ -88,22 +88,27 @@ internal sealed class ColumnarEnumDef
 /// <c>ParseStructDeclarationInto</c> produces the field spans; the adapter materializes the names and type strings.
 /// </summary>
 /// <summary>
-/// One get-only computed PROPERTY on a class/record: its name, its type canonical, and its getter BODY (a function
-/// whose name is the IL accessor "get_Name", no params, returning the property type). The emitter declares a
-/// get_Name instance method and resolves a `receiver.Name` read to a call of it.
+/// One computed PROPERTY on a class/record: its name, its type canonical, its getter BODY (a function whose name is
+/// the IL accessor "get_Name", no params, returning the property type), and an optional setter BODY (a function whose
+/// name is "set_Name", one parameter "value" of the property type, returning void). The emitter declares get_Name (+
+/// set_Name when present) instance methods and resolves a `receiver.Name` read to get_Name / a `receiver.Name = v`
+/// write to set_Name.
 /// </summary>
 public sealed class ColumnarPropertyInput
 {
-    public ColumnarPropertyInput(string name, string typeCanonical, ColumnarFunctionInput getter)
+    public ColumnarPropertyInput(string name, string typeCanonical, ColumnarFunctionInput getter, ColumnarFunctionInput? setter)
     {
         Name = name;
         TypeCanonical = typeCanonical;
         Getter = getter;
+        Setter = setter;
     }
 
     public string Name { get; }
     public string TypeCanonical { get; }
     public ColumnarFunctionInput Getter { get; }
+    // The setter body ("set_Name", param "value": Type, returns void), or null for a get-only property.
+    public ColumnarFunctionInput? Setter { get; }
 }
 
 public sealed class ColumnarStructInput
@@ -190,9 +195,10 @@ internal sealed class ColumnarStructDef
     // construction `new T(args)` matches a ctor by arg count + arg types. Empty when the type has no user ctor (then
     // DefaultCtor drives object-init). A type with ≥1 user ctor has NO DefaultCtor (object-init on it declines).
     public List<(ConstructorBuilder Builder, Type[] ParamTypes)> Constructors { get; } = new();
-    // Get-only computed PROPERTIES, by name -> (the get_Name getter MethodBuilder, the property type). A
-    // `receiver.Name` read resolves to a `callvirt get_Name` (vs a field's ldfld).
-    public Dictionary<string, (MethodBuilder Getter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
+    // Computed PROPERTIES, by name -> (the get_Name getter MethodBuilder, the set_Name setter MethodBuilder or null,
+    // the property type). A `receiver.Name` read resolves to `callvirt get_Name`; a `receiver.Name = v` write (when a
+    // setter exists) to `callvirt set_Name`.
+    public Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -718,11 +724,13 @@ public sealed class ColumnarIlEmitter
             }
         }
 
-        // PASS 0b' (property getters): declare each reference-type's get-only computed property as a `get_Name`
-        // instance method (no params, returning the property type) — its body reads fields exactly like a method, so
-        // it is emitted via the same structMethodJobs path in PASS 2. The property is registered for `receiver.Name`
-        // read resolution (case 8 -> callvirt get_Name). Declines: a value-type property (deferred), a property name
-        // colliding with a field or method (a duplicate member the N# binder rejects).
+        // PASS 0b' (property accessors): declare each reference-type's computed property as a `get_Name` instance
+        // method (no params, returning the property type) and — when the property has a setter — a `set_Name` method
+        // (one param "value": property type, returning void). The accessor bodies read/write fields exactly like a
+        // method, so they emit via the same structMethodJobs path in PASS 2. The property is registered for
+        // `receiver.Name` read (case 8 -> callvirt get_Name) + `receiver.Name = v` write (case 23 -> callvirt
+        // set_Name). Declines: a value-type property (deferred), a property name colliding with a field/method/another
+        // property, or a synthesized get_Name/set_Name colliding with a user method of that name.
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Properties.Count == 0)
@@ -734,16 +742,26 @@ public sealed class ColumnarIlEmitter
             {
                 if (def.Fields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name))
                     return false; // a property colliding with a field/method/another property is a duplicate member.
-                // The synthesized getter name "get_Name" must not collide with a user method of the same name (the N#
-                // pipeline accepts a `Name` property + a `get_Name` method as distinct symbols, but two CLR methods of
-                // identical signature would throw at CreateType) — decline so columnar never emits the duplicate.
-                if (def.Methods.ContainsKey("get_" + prop.Name))
+                // A synthesized accessor name ("get_Name"/"set_Name") must not collide with a user method of the same
+                // name (the N# pipeline accepts them as distinct symbols, but two CLR methods of identical signature
+                // would throw at CreateType) — decline so columnar never emits the duplicate.
+                if (def.Methods.ContainsKey("get_" + prop.Name) || (prop.Setter != null && def.Methods.ContainsKey("set_" + prop.Name)))
                     return false;
                 if (!TryResolveType(prop.TypeCanonical, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
                     return false;
                 var getter = def.Builder.DefineMethod("get_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, propType, Type.EmptyTypes);
-                def.Properties[prop.Name] = (getter, propType);
                 structMethodJobs.Add((def, prop.Getter, getter, propType, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal)));
+                MethodBuilder? setter = null;
+                if (prop.Setter != null)
+                {
+                    setter = def.Builder.DefineMethod("set_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, typeof(void), new[] { propType });
+                    // The setter's `value` parameter is arg 1 (arg 0 = this); its body assigns fields via the
+                    // reference-type field-write path. Emitted via structMethodJobs (a void method).
+                    var setOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 1 };
+                    var setParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
+                    structMethodJobs.Add((def, prop.Setter, setter, typeof(void), setOrdinals, setParamTypes));
+                }
+                def.Properties[prop.Name] = (getter, setter, propType);
             }
         }
 
@@ -912,7 +930,9 @@ public sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
-            if (!emitter.EmitBody(job.Method.BodyRoot, false))
+            // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
+            // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
+            if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
                 return false;
         }
 
@@ -1146,13 +1166,43 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (_kinds[target] == 8) // struct field write: `local.Field = value`
+                if (_kinds[target] == 8) // a member-access target: a class PROPERTY setter OR a value-type struct field.
                 {
-                    // Slice scope: the receiver is a `:=` LOCAL of a registered struct type; the field is mutated IN
-                    // PLACE via the local's ADDRESS (ldloca; <value>; stfld <FieldBuilder>). A param receiver, a
-                    // nested receiver (`p.q.X`), or a non-struct/non-field target declines (no modelled addressable
-                    // storage) → C# fallback.
                     var fieldReceiver = Child(target, 0);
+                    var memberName = Text(target);
+                    // PROPERTY setter write `receiver.Name = value` on a reference type: emit the receiver ref, the
+                    // value (type-checked against the property type), then `callvirt set_Name`. The receiver must be a
+                    // bare local/param (the modelled receiver forms) of a registered reference type with a settable
+                    // property `Name`. A get-only property (no setter) falls through and declines.
+                    if (_kinds[fieldReceiver] == 6)
+                    {
+                        var recvName = Text(fieldReceiver);
+                        Type? recvStaticType = null;
+                        if (_locals.TryGetValue(recvName, out var recvLocalForProp))
+                            recvStaticType = recvLocalForProp.LocalType;
+                        else if (_paramTypes.TryGetValue(recvName, out var recvParamType))
+                            recvStaticType = recvParamType;
+                        if (recvStaticType is TypeBuilder)
+                        {
+                            foreach (var d in _structRegistry.Values)
+                            {
+                                if (d.Builder == recvStaticType && d.IsReference
+                                    && d.Properties.TryGetValue(memberName, out var propWrite) && propWrite.Setter != null)
+                                {
+                                    if (!EmitExpression(fieldReceiver, out _))
+                                        return false;
+                                    if (!EmitExpression(Child(expr, 1), out var setValueType) || setValueType != propWrite.PropertyType)
+                                        return false;
+                                    _il.Emit(OpCodes.Callvirt, propWrite.Setter);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    // VALUE-TYPE struct field write: the receiver is a `:=` LOCAL of a registered struct type; the
+                    // field is mutated IN PLACE via the local's ADDRESS (ldloca; <value>; stfld). A param receiver, a
+                    // nested receiver (`p.q.X`), or a non-struct/non-field target declines (no modelled addressable
+                    // storage; a RECORD field may be init-only) → C# fallback.
                     if (_kinds[fieldReceiver] != 6 || !_locals.TryGetValue(Text(fieldReceiver), out var recLocal))
                         return false;
                     ColumnarStructDef? targetStruct = null;
@@ -1160,8 +1210,8 @@ public sealed class ColumnarIlEmitter
                     {
                         if (d.Builder == recLocal.LocalType) { targetStruct = d; break; }
                     }
-                    if (targetStruct == null || targetStruct.IsReference || !targetStruct.Fields.TryGetValue(Text(target), out var targetField))
-                        return false; // a RECORD field may be init-only (immutable) — decline, let C# decide.
+                    if (targetStruct == null || targetStruct.IsReference || !targetStruct.Fields.TryGetValue(memberName, out var targetField))
+                        return false;
                     _il.Emit(OpCodes.Ldloca, recLocal);
                     if (!EmitExpression(Child(expr, 1), out var fieldValueType) || fieldValueType != targetField.FieldType)
                         return false;

@@ -11,6 +11,29 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11c2: class get/SET computed PROPERTIES
+
+Extends get-only properties (D-11c) with a setter + property assignment.
+- **Adapter** (`TryParseColumnarPropertyAt`): after the get body's `}`, an OPTIONAL `set { … }` accessor parses into a
+  "set_Name" function with one implicit parameter `value` of the property type, returning void (vs the property block
+  closing `}` for get-only). A set-first ordering / expression-bodied / third accessor declines. `ColumnarPropertyInput`
+  carries the optional setter. (A small `MatchingCloseBrace` helper factors the balanced-brace scan.)
+- **Emitter**: PASS 0b' also declares `set_Name` (SpecialName, param `value`: property type, void) when present, its
+  body emitted via structMethodJobs — the emit loop now passes `isVoid` by the job's declared return type (a void
+  setter body falls through to a trailing `ret`; a getter/method always-returns). case 23 (assignment) gains a
+  PROPERTY setter branch: `receiver.Name = value` on a reference-type local/param with a settable property `Name`
+  emits `<receiver ref>; <value>; callvirt set_Name` (a get-only property has no setter → falls through to decline).
+  `def.Properties` now carries the setter MethodBuilder; the get_Name/set_Name collision check covers both accessors.
+
+Parity-gated: `ColumnarCodegen_Parity_ClassGetSetProperty` value-matches the C# ILCompiler over `b.Value = v; return
+b.Value`, a property read in the RHS of its own write (`box.Value = box.Value + c`), and a setter doing arithmetic on
+the implicit `value` (`raw = value * 2`); metadata-asserts get_Value + set_Value; decline-pinned for assigning a
+get-only property (N# NL103). The get-only test's "set accessor declines" assertion is flipped. 117 columnar tests
+green; full non-IDE gate green (fresh isolated). **Class PROPERTIES (get + get/set) complete** for the modelled
+surface. Next: ctor chaining (this), then INHERITANCE.
+
+---
+
 ## 2026-06-09 — Phase D-11c: class get-only computed PROPERTIES
 
 A class/record can expose a computed read-only property: `Doubled: int { get { return val * 2 } }`, read via
