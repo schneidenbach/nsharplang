@@ -89,20 +89,24 @@ internal sealed class ColumnarEnumDef
 /// </summary>
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, bool isReference)
     {
         Name = name;
         FieldNames = fieldNames;
         FieldTypeCanonicals = fieldTypeCanonicals;
         Methods = methods;
+        IsReference = isReference;
     }
 
     public string Name { get; }
     public string[] FieldNames { get; }
     public string[] FieldTypeCanonicals { get; }
     // Instance methods declared in the struct body (parsed exactly like a top-level function — signature + body
-    // node tables). Slice 1 models PARAMETERLESS, scalar-returning methods whose bodies read fields by bare name.
+    // node tables). Models scalar/struct-returning methods (with or without parameters) reading fields by bare name.
     public IReadOnlyList<ColumnarFunctionInput> Methods { get; }
+    // True for a RECORD (a reference type — class base object, constructed via newobj + a default ctor, fields read
+    // directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
+    public bool IsReference { get; }
 }
 
 /// <summary>
@@ -113,16 +117,21 @@ public sealed class ColumnarStructInput
 /// </summary>
 internal sealed class ColumnarStructDef
 {
-    public ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields)
+    public ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, bool isReference, ConstructorBuilder? defaultCtor)
     {
         Builder = builder;
         FieldOrder = fieldOrder;
         Fields = fields;
+        IsReference = isReference;
+        DefaultCtor = defaultCtor;
     }
 
     public TypeBuilder Builder { get; }
     public string[] FieldOrder { get; }
     public Dictionary<string, FieldBuilder> Fields { get; }
+    // True for a RECORD (reference type). For a record, DefaultCtor is its parameterless ctor (newobj target).
+    public bool IsReference { get; }
+    public ConstructorBuilder? DefaultCtor { get; }
     // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
     // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
     public Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
@@ -219,8 +228,8 @@ public sealed class ColumnarIlEmitter
         || t == typeof(string) || t == typeof(char) || t == typeof(double) || t == typeof(float)
         || t == typeof(System.Text.StringBuilder)
         || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
-        || t is TypeBuilder                       // a user-defined struct value type (only structs reach here as a
-                                                  // resolved param/return/local type; the Program type is never one)
+        || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
+                                                  // only those reach here as a resolved type — the Program type never does
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsSupportedValueTuple(t);
 
@@ -517,7 +526,11 @@ public sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var st = structs[s];
-            var tb = module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
+            // A RECORD is a reference type (class with `object` base + a public default ctor for object-init via
+            // `newobj`); a struct is a `System.ValueType`-based value type. Both carry public instance fields.
+            var tb = st.IsReference
+                ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
+                : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
             {
@@ -527,8 +540,9 @@ public sealed class ColumnarIlEmitter
                 if (!fields.TryAdd(st.FieldNames[fi], fb))
                     return false; // a duplicate field name within one struct is malformed.
             }
+            var defaultCtor = st.IsReference ? tb.DefineDefaultConstructor(MethodAttributes.Public) : null;
             structBuilders[s] = tb;
-            if (!structRegistry.TryAdd(st.Name, new ColumnarStructDef(tb, st.FieldNames, fields)))
+            if (!structRegistry.TryAdd(st.Name, new ColumnarStructDef(tb, st.FieldNames, fields, st.IsReference, defaultCtor)))
                 return false; // a duplicate struct name is an ambiguous type.
         }
 
@@ -540,6 +554,10 @@ public sealed class ColumnarIlEmitter
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
+            // Record (reference-type) instance methods need a different `this`/call shape (ref, not managed pointer);
+            // deferred — a record with methods declines for now. Records support fields + object-init + field read.
+            if (def.IsReference && structs[s].Methods.Count > 0)
+                return false;
             foreach (var m in structs[s].Methods)
             {
                 if (m.ReturnCanonical == "void")
@@ -856,8 +874,8 @@ public sealed class ColumnarIlEmitter
                     {
                         if (d.Builder == recLocal.LocalType) { targetStruct = d; break; }
                     }
-                    if (targetStruct == null || !targetStruct.Fields.TryGetValue(Text(target), out var targetField))
-                        return false;
+                    if (targetStruct == null || targetStruct.IsReference || !targetStruct.Fields.TryGetValue(Text(target), out var targetField))
+                        return false; // a RECORD field may be init-only (immutable) — decline, let C# decide.
                     _il.Emit(OpCodes.Ldloca, recLocal);
                     if (!EmitExpression(Child(expr, 1), out var fieldValueType) || fieldValueType != targetField.FieldType)
                         return false;
@@ -1521,10 +1539,19 @@ public sealed class ColumnarIlEmitter
                     }
                     if (fieldStruct == null || !fieldStruct.Fields.TryGetValue(member, out var structField))
                         return false;
-                    var fieldTemp = _il.DeclareLocal(structReceiverType);
-                    _il.Emit(OpCodes.Stloc, fieldTemp);
-                    _il.Emit(OpCodes.Ldloca, fieldTemp);
-                    _il.Emit(OpCodes.Ldfld, structField);
+                    if (fieldStruct.IsReference)
+                    {
+                        // RECORD (reference type): the receiver is the object ref already on the stack — read directly.
+                        _il.Emit(OpCodes.Ldfld, structField);
+                    }
+                    else
+                    {
+                        // VALUE-TYPE struct: ldfld needs the value's ADDRESS — spill to a temp and ldloca.
+                        var fieldTemp = _il.DeclareLocal(structReceiverType);
+                        _il.Emit(OpCodes.Stloc, fieldTemp);
+                        _il.Emit(OpCodes.Ldloca, fieldTemp);
+                        _il.Emit(OpCodes.Ldfld, structField);
+                    }
                     type = structField.FieldType;
                     return true;
                 }
@@ -1732,10 +1759,35 @@ public sealed class ColumnarIlEmitter
                 if ((initChildCount % 2) != 1) // typeRoot + (name, value) pairs.
                     return false;
                 var pairCount = (initChildCount - 1) / 2;
+                var assigned = new HashSet<string>(StringComparer.Ordinal);
+                if (initStructDef.IsReference)
+                {
+                    // RECORD (reference type): `newobj <ctor>` then per named field `dup; <value>; stfld`. The object
+                    // ref stays on the stack between assignments (and as the result) via dup — mirrors C#'s
+                    // reference-type object initializer.
+                    _il.Emit(OpCodes.Newobj, initStructDef.DefaultCtor!);
+                    for (var p = 0; p < pairCount; p++)
+                    {
+                        var nameNode = Child(idx, 1 + (2 * p));
+                        var valueNode = Child(idx, 2 + (2 * p));
+                        if (_kinds[nameNode] != 6)
+                            return false;
+                        var fieldName = Text(nameNode);
+                        if (!initStructDef.Fields.TryGetValue(fieldName, out var initField) || !assigned.Add(fieldName))
+                            return false;
+                        _il.Emit(OpCodes.Dup);
+                        if (!EmitExpression(valueNode, out var initValueType) || initValueType != initField.FieldType)
+                            return false;
+                        _il.Emit(OpCodes.Stfld, initField);
+                    }
+                    type = initStructDef.Builder;
+                    return true;
+                }
+                // VALUE-TYPE struct: a temp local, ldloca; initobj (zero defaults), then per field ldloca; <value>;
+                // stfld, then ldloc the temp.
                 var structValue = _il.DeclareLocal(initStructDef.Builder);
                 _il.Emit(OpCodes.Ldloca, structValue);
-                _il.Emit(OpCodes.Initobj, initStructDef.Builder); // zero every field (defaults).
-                var assigned = new HashSet<string>(StringComparer.Ordinal);
+                _il.Emit(OpCodes.Initobj, initStructDef.Builder);
                 for (var p = 0; p < pairCount; p++)
                 {
                     var nameNode = Child(idx, 1 + (2 * p));

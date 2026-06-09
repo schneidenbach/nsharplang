@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-9a: RECORD — the THIRD user-defined type (a reference type)
+
+Records reuse the struct infrastructure with an `IsReference` flag — the same decl kernel, object-init parsing, and
+type registry, branching only where value-type vs reference-type IL differs.
+- **Parser kernel**: `ParseStructDeclarationInto` now accepts the `record` keyword (token 13) as well as `struct` (9)
+  — the body syntax is identical.
+- **Adapter**: the gate permits decl kind 13; `TopLevelRecordIndices` + `TryGetColumnarStructInputs` collect records
+  (`IsReference=true`) alongside structs (`IsReference=false`) into one input list.
+- **Emitter** (`ColumnarIlEmitter`): PASS 0 — a record is `DefineType(Public|Class, object)` + a public
+  `DefineDefaultConstructor`; a struct stays `Public|Sealed, ValueType`. `ColumnarStructDef` carries `IsReference` +
+  the record's `DefaultCtor`. Object-init (case 36) branches: a record emits `newobj <ctor>; per field dup; <value>;
+  stfld` (the ref is the result); a struct keeps `ldloca; initobj; stfld; ldloc`. Field read (case 8) branches: a
+  record reads `ldfld` directly on the ref (no address spill); a struct spills + `ldloca; ldfld`. Record field
+  MUTATION and record METHODS DECLINE this slice (records may be init-only; record methods need a ref-`this` shape).
+
+Parity-gated: `ColumnarCodegen_Parity_RecordFieldsAndObjectInit` value-matches the C# ILCompiler over field sum/first,
+reversed-order + arithmetic init, partial init (default 0), and a string-field record (`.Length`); metadata-asserts the
+type is a CLASS with public int fields; decline-pinned for a record method, a record field mutation, and a `class`
+decl. Adversarially reviewed (read-only, 2 lenses + judge) → SHIP, no in-scope defects (all 5 reviewer claims
+empirically refuted: primary-ctor records / char→int / name collisions all decline). A raw-Reflection.Emit spike
+de-risked the reference-type construction. 77 columnar tests green; full non-IDE gate green (fresh isolated). Next:
+record methods + mutation, then UNION (the rich-type-system centerpiece — gates union-case match patterns).
+
+---
+
 ## 2026-06-09 — Phase D-8d: struct instance methods WITH PARAMETERS
 
 Extends D-8c (parameterless methods) to methods that take arguments.

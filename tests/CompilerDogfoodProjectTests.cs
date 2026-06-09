@@ -3547,6 +3547,47 @@ class B
         Assert.False(RouteColumnarProgram("struct A {\n    area: int\n    func area(): int { return area }\n}\n\nfunc f(): int {\n    a := new A { area: 5 }\n    return a.area()\n}\n").Ok);
     }
 
+    // RECORD — the THIRD user-defined type: a REFERENCE type (class) with fields, constructed via an object
+    // initializer (`newobj <default ctor>; dup; <value>; stfld`) and read via `p.X` (ldfld directly on the ref, no
+    // address spill). Reuses the struct decl kernel (token 13) + object-init parsing + type registry, branching on an
+    // IsReference flag. Value-matched (scalar in/out) vs the C# ILCompiler; the columnar/C# Point types never cross
+    // the boundary, so internal field-vs-property differences don't affect the int results.
+    [Fact]
+    public void ColumnarCodegen_Parity_RecordFieldsAndObjectInit()
+    {
+        var prog =
+            "record Point {\n    X: int\n    Y: int\n}\n\n" +
+            "func sumP(a: int, b: int): int {\n    p := new Point { X: a, Y: b }\n    return p.X + p.Y\n}\n\n" +
+            "func firstP(a: int, b: int): int {\n    p := new Point { X: a, Y: b }\n    return p.X\n}\n\n" +
+            // reversed init order + arithmetic value.
+            "func diff(a: int, b: int): int {\n    p := new Point { Y: b, X: a * 2 }\n    return p.X - p.Y\n}\n\n" +
+            // partial init -> the unset field is the default 0 (the parameterless ctor zeroes it).
+            "func onlyX(a: int): int {\n    p := new Point { X: a }\n    return p.X + p.Y\n}\n\n" +
+            // a record with a string field, length read.
+            "record Tagged {\n    Name: string\n    Code: int\n}\n\n" +
+            "func tagLen(c: int): int {\n    t := new Tagged { Name: \"hello\", Code: c }\n    return t.Name.Length + t.Code\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sumP", new object[] { 3, 4 }), ("sumP", new object[] { -5, 5 }), ("sumP", new object[] { 0, 0 }),
+            ("firstP", new object[] { 7, 9 }),
+            ("diff", new object[] { 10, 3 }), ("diff", new object[] { 0, 8 }),
+            ("onlyX", new object[] { 42 }),
+            ("tagLen", new object[] { 100 }), ("tagLen", new object[] { 0 }));
+
+        // Metadata: the emitted Point is a reference type (class) with public int fields X, Y.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the fields-only record program");
+        var pointType = System.Reflection.Assembly.Load(asm!).GetType("Point")!;
+        Assert.True(pointType.IsClass);
+        Assert.False(pointType.IsValueType);
+        var fields = pointType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+        Assert.Equal(new[] { "X", "Y" }, fields.Select(f => f.Name).ToArray());
+
+        // DECLINES (slice scope): a record with a METHOD, a record field MUTATION (records may be init-only), a class.
+        Assert.False(RouteColumnarProgram("record R {\n    X: int\n    func a(): int { return X }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("record R {\n    X: int\n}\n\nfunc f(a: int): int {\n    p := new R { X: a }\n    p.X = 9\n    return p.X\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

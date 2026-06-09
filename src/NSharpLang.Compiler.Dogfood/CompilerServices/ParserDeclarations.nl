@@ -413,9 +413,12 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // method (`func`), a field initializer (`=`), a composed/array/tuple field type (a non-Identifier after `:`), a
 // missing name/colon/brace, or an empty body — so the host declines the whole program to the C# path. Slice-1
 // scope: fields-only structs with single-builtin-token field types.
+// Also used for RECORD declarations (token 13): the `record Name { fields  methods }` body syntax is identical to a
+// struct's, so the same kernel parses both — the host distinguishes a value-type struct from a reference-type record
+// by which keyword index it passed in. Accepts the `struct` (9) or `record` (13) keyword.
 func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outResult: int[]): int {
     pos := structIndex
-    if pos >= count || tokenKinds[pos] != 9 {
+    if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13) {
         return -1
     }
     pos = pos + 1
