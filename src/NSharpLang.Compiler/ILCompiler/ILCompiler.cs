@@ -23513,48 +23513,57 @@ public partial class ILCompiler
                 break;
 
             case AndPattern andPattern:
-                // Both patterns must match
+            {
+                // Both must match. The scrutinee arrives on the stack; `EmitPatternTest` consumes exactly the top
+                // copy and branches (never falls through). Dup so the LEFT test consumes one copy while the RIGHT
+                // test — or the left-fail cleanup — consumes the spare, so EVERY exit (success/fail) leaves the stack
+                // as the caller expects. (The previous code left the spare copy on the stack when the left test
+                // branched straight to failLabel, producing unverifiable IL — InvalidProgramException at JIT.)
                 var andNextLabel = _currentIL.DefineLabel();
-
-                // Test first pattern
-                _currentIL.Emit(OpCodes.Dup); // Duplicate value for second test
-                EmitPatternTest(andPattern.Left, matchValueType, andNextLabel, failLabel);
-
-                // First pattern didn't match, clean up and fail
-                _currentIL.Emit(OpCodes.Pop);
-                _currentIL.Emit(OpCodes.Br, failLabel);
-
-                // First pattern matched, test second
-                _currentIL.MarkLabel(andNextLabel);
+                var andFailLabel = _currentIL.DefineLabel();
+                _currentIL.Emit(OpCodes.Dup);                                              // [v, v]
+                EmitPatternTest(andPattern.Left, matchValueType, andNextLabel, andFailLabel);
+                _currentIL.MarkLabel(andNextLabel);                                        // left matched -> [v]
                 EmitPatternTest(andPattern.Right, matchValueType, successLabel, failLabel);
+                _currentIL.MarkLabel(andFailLabel);                                        // left failed -> [v]
+                _currentIL.Emit(OpCodes.Pop);                                              // discard the spare copy
+                _currentIL.Emit(OpCodes.Br, failLabel);
                 break;
+            }
 
             case OrPattern orPattern:
-                // Either pattern can match
+            {
+                // Either may match. Dup so the LEFT test consumes one copy; on a left MATCH the spare copy is popped
+                // before jumping to success, on a left FAIL the RIGHT test consumes the spare. Every exit nets to the
+                // caller's expected (empty) stack.
                 var orNextLabel = _currentIL.DefineLabel();
-
-                // Test first pattern
-                _currentIL.Emit(OpCodes.Dup); // Duplicate value for second test
-                EmitPatternTest(orPattern.Left, matchValueType, successLabel, orNextLabel);
-
-                // First pattern didn't match, try second
-                _currentIL.MarkLabel(orNextLabel);
+                var orMatchedLabel = _currentIL.DefineLabel();
+                _currentIL.Emit(OpCodes.Dup);                                              // [v, v]
+                EmitPatternTest(orPattern.Left, matchValueType, orMatchedLabel, orNextLabel);
+                _currentIL.MarkLabel(orMatchedLabel);                                      // left matched -> [v]
+                _currentIL.Emit(OpCodes.Pop);                                              // discard the spare copy
+                _currentIL.Emit(OpCodes.Br, successLabel);
+                _currentIL.MarkLabel(orNextLabel);                                         // left failed -> [v]
                 EmitPatternTest(orPattern.Right, matchValueType, successLabel, failLabel);
                 break;
+            }
 
             case NotPattern notPattern:
-                // Pattern must NOT match
+            {
+                // Inner must NOT match. Dup so the inner test consumes one copy; BOTH outcomes still hold the spare
+                // copy, which is popped before branching (inner match -> overall fail, inner fail -> overall success).
                 var notMatchLabel = _currentIL.DefineLabel();
-
-                // Test the inner pattern
-                _currentIL.Emit(OpCodes.Dup);
-                EmitPatternTest(notPattern.Pattern, matchValueType, notMatchLabel, successLabel);
-
-                // Pattern matched, so not pattern fails
-                _currentIL.MarkLabel(notMatchLabel);
+                var notNoMatchLabel = _currentIL.DefineLabel();
+                _currentIL.Emit(OpCodes.Dup);                                              // [v, v]
+                EmitPatternTest(notPattern.Pattern, matchValueType, notMatchLabel, notNoMatchLabel);
+                _currentIL.MarkLabel(notMatchLabel);                                       // inner matched -> [v]
                 _currentIL.Emit(OpCodes.Pop);
                 _currentIL.Emit(OpCodes.Br, failLabel);
+                _currentIL.MarkLabel(notNoMatchLabel);                                     // inner did not match -> [v]
+                _currentIL.Emit(OpCodes.Pop);
+                _currentIL.Emit(OpCodes.Br, successLabel);
                 break;
+            }
 
             case TypePattern typePatternWithName:
                 EmitTypePatternTest(

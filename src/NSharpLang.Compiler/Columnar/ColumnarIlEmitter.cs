@@ -1458,7 +1458,7 @@ public sealed class ColumnarIlEmitter
                         guardNode = -1;
                     }
 
-                    if (_kinds[patternNode] == 6) // identifier pattern: `_` discard or a binding -> always matches.
+                    if (_kinds[patternNode] == 6) // top-level identifier: `_` discard or a binding -> always matches.
                     {
                         var patName = Text(patternNode);
                         if (patName != "_")
@@ -1470,53 +1470,17 @@ public sealed class ColumnarIlEmitter
                             _il.Emit(OpCodes.Stloc, bindLocal);
                             _locals[patName] = bindLocal;
                         }
+                        // Always matches -> fall through to the guard / result.
                     }
-                    else if (_kinds[patternNode] == 32) // relational pattern `<op> <constant>` -> ordered comparison.
+                    else // literal / relational / and-or-not combinator -> recursive pattern test.
                     {
-                        // A relational pattern tests `matchValue <op> constant` with op in {< <= > >=} (the operator
-                        // text is in the node's value span). It is only modelled for ORDERED scalar types (numeric/
-                        // char — bool/string have no ordering), and the operand must be a LITERAL (a `< x` against a
-                        // variable is not a constant pattern; C# rejects it). Otherwise decline to the C# path.
-                        if (_childCount[patternNode] != 1 || !IsOrderedMatchType(matchValueType))
+                        // On MATCH fall through to the guard/result (armBody); on NO-MATCH branch to nextCase. The
+                        // recursive helper models literals, relational patterns, and `and`/`or`/`not` combinators,
+                        // declining (whole match -> C# fallback) anything it cannot emit with exact C# parity.
+                        var armBody = _il.DefineLabel();
+                        if (!EmitPatternMatch(patternNode, matchValueType, matchLocal, armBody, nextCase))
                             return false;
-                        var operandNode = Child(patternNode, 0);
-                        if (!IsLiteralPatternKind(_kinds[operandNode]))
-                            return false;
-                        _il.Emit(OpCodes.Ldloc, matchLocal);
-                        if (!EmitExpression(operandNode, out var relType) || relType != matchValueType)
-                            return false;
-                        // Mirror the C# EmitPatternTest RelationalPattern lowering EXACTLY (plain ordered Clt/Cgt for
-                        // ALL types — no _Un float/unsigned variants — so columnar value-matches C# even on NaN and
-                        // large ulong): `<`/`>` take the arm when Clt/Cgt is TRUE (skip on false); `<=`/`>=` are the
-                        // negations — take the arm when Cgt/Clt is FALSE (skip on true). `Brfalse`/`Brtrue nextCase`
-                        // performs the skip, falling through to the result when the arm is taken.
-                        switch (Text(patternNode))
-                        {
-                            case "<": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Brfalse, nextCase); break;
-                            case ">": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Brfalse, nextCase); break;
-                            case "<=": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Brtrue, nextCase); break;
-                            case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Brtrue, nextCase); break;
-                            default: return false;
-                        }
-                    }
-                    else // literal pattern -> equality test against the matched value.
-                    {
-                        // Only an actual LITERAL (int/float/char/string/bool — node kinds 0-4) is a modelled
-                        // constant pattern. Any other primary the pattern parser can yield (null kind 5,
-                        // parenthesized kind 7, member access kind 8, call kind 9, index kind 10, …) is NOT a
-                        // constant-equality pattern in N#/C# — C# parses `(0)` as a positional pattern (rejects it on
-                        // a scalar) and a call/index is not a pattern at all. Decline so the program falls back to the
-                        // C# pipeline (which emits the proper diagnostic) instead of silently emitting a bogus `ceq`.
-                        if (!IsLiteralPatternKind(_kinds[patternNode]))
-                            return false;
-                        _il.Emit(OpCodes.Ldloc, matchLocal);
-                        if (!EmitExpression(patternNode, out var patType) || patType != matchValueType)
-                            return false;
-                        if (matchValueType == typeof(string))
-                            _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
-                        else
-                            _il.Emit(OpCodes.Ceq);
-                        _il.Emit(OpCodes.Brfalse, nextCase); // not equal -> try the next case.
+                        _il.MarkLabel(armBody);
                     }
 
                     // `when` guard: the pattern matched; now require the guard (a bool) to hold. The pattern's
@@ -1555,6 +1519,84 @@ public sealed class ColumnarIlEmitter
 
             default:
                 return false;
+        }
+    }
+
+    // Recursive match-pattern test mirroring the C# EmitPatternTest structure (success/fail labels), but reading the
+    // matched value from `matchLocal` instead of a stack dup. On MATCH it branches to successLabel; on NO-MATCH to
+    // failLabel. Models literal patterns (kinds 0-4), relational patterns (32), and `and`/`or`/`not` combinators
+    // (33/34/35) over those. It does NOT model bindings: an identifier (kind 6) is only handled at the TOP LEVEL of
+    // an arm, so an identifier inside a combinator declines (returns false) and the whole match falls back to the C#
+    // pipeline. A `false` return discards the entire emitted assembly, so a partially-emitted test is harmless.
+    private bool EmitPatternMatch(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
+    {
+        switch (_kinds[patternNode])
+        {
+            case 34: // OrPattern [left, right]: left matches -> success; else fall through and try right.
+            {
+                if (_childCount[patternNode] != 2)
+                    return false;
+                var orNext = _il.DefineLabel();
+                if (!EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, successLabel, orNext))
+                    return false;
+                _il.MarkLabel(orNext);
+                return EmitPatternMatch(Child(patternNode, 1), matchValueType, matchLocal, successLabel, failLabel);
+            }
+            case 33: // AndPattern [left, right]: left must match (else fail), then right decides.
+            {
+                if (_childCount[patternNode] != 2)
+                    return false;
+                var andNext = _il.DefineLabel();
+                if (!EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, andNext, failLabel))
+                    return false;
+                _il.MarkLabel(andNext);
+                return EmitPatternMatch(Child(patternNode, 1), matchValueType, matchLocal, successLabel, failLabel);
+            }
+            case 35: // NotPattern [inner]: inner matches -> fail, inner fails -> success (just swap the labels).
+            {
+                if (_childCount[patternNode] != 1)
+                    return false;
+                return EmitPatternMatch(Child(patternNode, 0), matchValueType, matchLocal, failLabel, successLabel);
+            }
+            case 32: // RelationalPattern `<op> <constant>` -> ordered comparison (the C# EmitPatternTest mirror).
+            {
+                if (_childCount[patternNode] != 1 || !IsOrderedMatchType(matchValueType))
+                    return false;
+                var operandNode = Child(patternNode, 0);
+                if (!IsLiteralPatternKind(_kinds[operandNode]))
+                    return false;
+                _il.Emit(OpCodes.Ldloc, matchLocal);
+                if (!EmitExpression(operandNode, out var relType) || relType != matchValueType)
+                    return false;
+                // Plain ordered Clt/Cgt for ALL types (matches C# exactly, incl. NaN/large ulong). `<`/`>` take the
+                // arm when the compare is TRUE; `<=`/`>=` are the negations — take when FALSE. Branch to successLabel
+                // when taken, else fall to the `Br failLabel`.
+                switch (Text(patternNode))
+                {
+                    case "<": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Brtrue, successLabel); break;
+                    case ">": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Brtrue, successLabel); break;
+                    case "<=": _il.Emit(OpCodes.Cgt); _il.Emit(OpCodes.Brfalse, successLabel); break;
+                    case ">=": _il.Emit(OpCodes.Clt); _il.Emit(OpCodes.Brfalse, successLabel); break;
+                    default: return false;
+                }
+                _il.Emit(OpCodes.Br, failLabel);
+                return true;
+            }
+            default: // literal pattern (kinds 0-4) -> equality test; any other primary (null/paren/member/call/…) declines.
+            {
+                if (!IsLiteralPatternKind(_kinds[patternNode]))
+                    return false;
+                _il.Emit(OpCodes.Ldloc, matchLocal);
+                if (!EmitExpression(patternNode, out var patType) || patType != matchValueType)
+                    return false;
+                if (matchValueType == typeof(string))
+                    _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
+                else
+                    _il.Emit(OpCodes.Ceq);
+                _il.Emit(OpCodes.Brtrue, successLabel);
+                _il.Emit(OpCodes.Br, failLabel);
+                return true;
+            }
         }
     }
 

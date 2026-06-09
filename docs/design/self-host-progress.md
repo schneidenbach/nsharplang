@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-6e: `match` `and`/`or`/`not` combinator patterns (+ C# ILCompiler stack-discipline FIX)
+
+Completes the scalar pattern ALGEBRA, and fixes a real pre-existing IL bug in the C# reference pipeline.
+- **Parser kernel** (`ParserExpressions.nl`): a pattern is now parsed by a precedence chain mirroring the C#
+  `ParsePattern` — `ParseMatchPatternNode` → or (token 56, `OrPattern` kind 34) → and (55, `AndPattern` kind 33) →
+  not (57, `NotPattern` kind 35) → relational (kind 32) → primary. or/and are left-associative; not recurses
+  (depth-guarded). Combinator children are `[left, right]` / `[inner]`. A `when` guard still attaches to the whole
+  pattern (54 isn't an or/and/not token, so the chain stops before it).
+- **Columnar emitter** (`ColumnarIlEmitter`): a NEW recursive `EmitPatternMatch(node, type, matchLocal,
+  successLabel, failLabel)` — reads the value from the `matchLocal` (no stack dup), branching to success on match /
+  fail on no-match. `and` = left-then-right, `or` = short-circuit on left, `not` = swap the labels. The match arm
+  (case 18) keeps the top-level identifier binding/discard inline and routes every other pattern through the helper.
+  Bindings inside combinators decline (→ C# fallback), matching C#'s restriction.
+- **C# ILCompiler FIX** (`ILCompiler.cs` `EmitPatternTest` And/Or/Not): the reference combinator emit `Dup`'d the
+  scrutinee but left the SPARE copy on the stack on the branch that went straight to the outer success/fail label,
+  producing unverifiable IL → **`InvalidProgramException` at JIT for EVERY and/or/not pattern** (match expressions
+  AND switch statements). Fixed by routing each exit through a cleanup label that `Pop`s the spare copy before
+  branching, so every path nets −1 (consumes exactly the scrutinee), making the leaf contract hold inductively under
+  nesting. This was discovered BY this slice: the columnar emit was correct, but the parity oracle threw — the C#
+  pipeline was the broken one.
+
+Parity-gated: `ColumnarCodegen_Parity_MatchCombinators` value-matches the C# ILCompiler over `and`/`or` of relationals
+and literals, or-chains, `not` over a relational and a literal, a combinator under a `when` guard, and boundary
+values; decline-pinned for a binding (`0 or x`) and a non-literal leaf (`(0) or 1`). Independent C#-pipeline pin:
+`CSharpILCompiler_MatchCombinatorPatterns_EmitValidIL` (incl. nested `not < 0 and not > 10`). Adversarially reviewed
+(read-only, 3 lenses + judge: C# stack discipline, columnar recursive emit, parser precedence) → SHIP, no in-scope
+defects (the stack discipline hand-verified net −1 on all paths). 413 + 2 match/pattern/switch/columnar tests green;
+full non-IDE gate green (fresh isolated, 310s). **Scalar pattern algebra COMPLETE.** Next: type declarations (enum).
+
+---
+
 ## 2026-06-09 — Phase D-6d: `match` relational patterns (`< c`, `<= c`, `> c`, `>= c`)
 
 Extends match patterns with relational comparisons against a constant.

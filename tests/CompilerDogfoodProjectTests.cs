@@ -3208,6 +3208,76 @@ class B
         Assert.False(RouteColumnarProgram("func f(b: bool): int {\n    return match b {\n        < true => 1,\n        _ => 0\n    }\n}\n").Ok);
     }
 
+    // MATCH `and`/`or`/`not` COMBINATOR PATTERNS — the pattern algebra: `<pat> and <pat>` (kind 33), `<pat> or <pat>`
+    // (kind 34), `not <pat>` (kind 35), with C# precedence or > and > not > relational > primary. The emitter routes
+    // every non-binding pattern through the recursive EmitPatternMatch (success/fail labels), mirroring the C#
+    // EmitPatternTest structure: `and` = left-then-right, `or` = short-circuit on left, `not` = swap labels. Covers
+    // and/or over relational and literal leaves, or-chains, `not` over both a relational and a literal, a combinator
+    // UNDER a `when` guard, and boundary values. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_MatchCombinators()
+    {
+        var prog =
+            // `and` of two relationals (a closed range).
+            "func inRange(n: int): string {\n    return match n {\n        >= 0 and <= 100 => \"in\",\n        _ => \"out\"\n    }\n}\n\n" +
+            // `or` of two relationals (the open complement).
+            "func extreme(n: int): string {\n    return match n {\n        < 0 or > 100 => \"extreme\",\n        _ => \"normal\"\n    }\n}\n\n" +
+            // or-chain of literals, plus an and-range arm; first match wins.
+            "func classify(n: int): string {\n    return match n {\n        0 or 1 or 2 => \"small\",\n        >= 90 and <= 100 => \"high\",\n        _ => \"mid\"\n    }\n}\n\n" +
+            // `not` over a relational (precedence: not binds tighter than and/or) -> `not (< 0)` == `>= 0`.
+            "func notNeg(n: int): int {\n    return match n {\n        not < 0 => 1,\n        _ => -1\n    }\n}\n\n" +
+            // `not` over a literal.
+            "func notZero(n: int): string {\n    return match n {\n        not 0 => \"nonzero\",\n        _ => \"zero\"\n    }\n}\n\n" +
+            // or-chain of char literals.
+            "func vowel(c: char): int {\n    return match c {\n        'a' or 'e' or 'i' or 'o' or 'u' => 1,\n        _ => 0\n    }\n}\n\n" +
+            // combinator UNDER a `when` guard (the guard reads the match-value parameter directly).
+            "func guarded(n: int): string {\n    return match n {\n        >= 0 and <= 100 when n != 50 => \"in-not-50\",\n        _ => \"other\"\n    }\n}\n\n" +
+            // nested: `and` whose right is an `or` (precedence groups it as `>=0 and (==50 or >100)` via separate arms).
+            "func mix(n: int): int {\n    return match n {\n        < 0 or > 100 => 2,\n        >= 40 and <= 60 => 1,\n        _ => 0\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("inRange", new object[] { 50 }), ("inRange", new object[] { 0 }), ("inRange", new object[] { 100 }), ("inRange", new object[] { -1 }), ("inRange", new object[] { 101 }),
+            ("extreme", new object[] { -5 }), ("extreme", new object[] { 200 }), ("extreme", new object[] { 50 }), ("extreme", new object[] { 0 }), ("extreme", new object[] { 100 }),
+            ("classify", new object[] { 0 }), ("classify", new object[] { 1 }), ("classify", new object[] { 2 }), ("classify", new object[] { 95 }), ("classify", new object[] { 90 }), ("classify", new object[] { 50 }),
+            ("notNeg", new object[] { 5 }), ("notNeg", new object[] { 0 }), ("notNeg", new object[] { -3 }),
+            ("notZero", new object[] { 0 }), ("notZero", new object[] { 7 }),
+            ("vowel", new object[] { 'a' }), ("vowel", new object[] { 'e' }), ("vowel", new object[] { 'u' }), ("vowel", new object[] { 'z' }),
+            ("guarded", new object[] { 30 }), ("guarded", new object[] { 50 }), ("guarded", new object[] { 200 }),
+            ("mix", new object[] { -1 }), ("mix", new object[] { 150 }), ("mix", new object[] { 50 }), ("mix", new object[] { 70 }), ("mix", new object[] { 20 }));
+
+        // A BINDING inside a combinator is not modelled (C# also restricts or-pattern bindings) -> decline.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    return match n {\n        0 or x => 1,\n        _ => 0\n    }\n}\n").Ok);
+        // A non-literal leaf inside a combinator (parenthesized `(0)`) -> decline.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    return match n {\n        (0) or 1 => 1,\n        _ => 0\n    }\n}\n").Ok);
+    }
+
+    // C# ILCompiler `and`/`or`/`not` pattern emit — REGRESSION PIN for the combinator stack-discipline fix. The
+    // reference EmitPatternTest combinators Dup the scrutinee but previously left the spare copy on the stack on the
+    // direct-to-label branch, producing unverifiable IL (InvalidProgramException at JIT) for EVERY and/or/not pattern.
+    // This drives the C# pipeline (NOT columnar) directly and asserts the patterns both compile AND evaluate
+    // correctly, including a NESTED combinator (`not (a and b)`-shaped) that exercises the spare-copy cleanup under
+    // recursion. Independent of the columnar parity test so the C# fix is pinned even if the columnar model changes.
+    [Fact]
+    public void CSharpILCompiler_MatchCombinatorPatterns_EmitValidIL()
+    {
+        var prog =
+            "func inRange(n: int): string {\n    return match n {\n        >= 0 and <= 100 => \"in\",\n        _ => \"out\"\n    }\n}\n\n" +
+            "func extreme(n: int): string {\n    return match n {\n        < 0 or > 100 => \"extreme\",\n        _ => \"normal\"\n    }\n}\n\n" +
+            "func notZero(n: int): string {\n    return match n {\n        not 0 => \"nonzero\",\n        _ => \"zero\"\n    }\n}\n\n" +
+            // NESTED combinators: `(not < 0) and (not > 10)` == `>= 0 and <= 10` — an AndPattern whose BOTH children
+            // are NotPatterns wrapping relationals, exercising the spare-copy cleanup recursively.
+            "func band(n: int): int {\n    return match n {\n        not < 0 and not > 10 => 1,\n        _ => 0\n    }\n}\n";
+        Assert.Equal("in", InvokeViaCSharpPath(prog, "inRange", new object[] { 50 }));
+        Assert.Equal("out", InvokeViaCSharpPath(prog, "inRange", new object[] { 200 }));
+        Assert.Equal("out", InvokeViaCSharpPath(prog, "inRange", new object[] { -1 }));
+        Assert.Equal("extreme", InvokeViaCSharpPath(prog, "extreme", new object[] { -5 }));
+        Assert.Equal("normal", InvokeViaCSharpPath(prog, "extreme", new object[] { 50 }));
+        Assert.Equal("nonzero", InvokeViaCSharpPath(prog, "notZero", new object[] { 7 }));
+        Assert.Equal("zero", InvokeViaCSharpPath(prog, "notZero", new object[] { 0 }));
+        Assert.Equal(1, InvokeViaCSharpPath(prog, "band", new object[] { 5 }));
+        Assert.Equal(0, InvokeViaCSharpPath(prog, "band", new object[] { -1 }));
+        Assert.Equal(0, InvokeViaCSharpPath(prog, "band", new object[] { 11 }));
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

@@ -38,6 +38,9 @@
 //   RelationalPattern       -> kind 32  ( <op> <constant> at the start of a match pattern, op in {< <= > >=}
 //                                         (tokens 100/101/102/103); operator in the value span, 1 child = the
 //                                         operand. Appears ONLY as a match-case pattern slot (incl. under a guard). )
+//   AndPattern              -> kind 33  ( <pat> and <pat> -- match-case combinator, children [left, right]. )
+//   OrPattern               -> kind 34  ( <pat> or <pat>  -- match-case combinator, children [left, right]. )
+//   NotPattern              -> kind 35  ( not <pat>       -- match-case combinator, 1 child [inner]. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -101,6 +104,101 @@ func IsExpressionStartKind(kind: int): bool {
         return true
     }
     return kind == 20 || kind == 31 || kind == 34 || kind == 37 || kind == 41 || kind == 42 || kind == 43 || kind == 44 || kind == 45 || kind == 46 || kind == 49 || kind == 50 || kind == 51 || kind == 69 || kind == 70 || kind == 83 || kind == 84 || kind == 88 || kind == 89 || kind == 106 || kind == 110 || kind == 113 || kind == 114 || kind == 127 || kind == 131 || kind == 143 || kind == 145
+}
+
+// Parse a match-case PATTERN with C# pattern precedence (Parser.cs ParsePattern): or > and > not > relational >
+// primary. Returns the root node index, or -1 on failure. `and` 55 / `or` 56 / `not` 57 are CONTEXTUAL keywords
+// valid only in pattern position. Combinators: OrPattern kind 34 [left,right], AndPattern kind 33 [left,right],
+// NotPattern kind 35 [inner]; leaves are a RelationalPattern (kind 32) or an ordinary primary (literal/identifier).
+func ParseMatchPatternNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    return ParseOrPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+}
+
+// `<and-pattern> ( or <and-pattern> )*` -> left-associative OrPattern (kind 34). `or` is token 56.
+func ParseOrPatternNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    left := ParseAndPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    if left < 0 {
+        return -1
+    }
+    while st[0] < count && tokenKinds[st[0]] == 56 {
+        st[0] = st[0] + 1
+        right := ParseAndPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+        if right < 0 {
+            return -1
+        }
+        orChildRun := st[2]
+        AppendExpressionChild(st, outChildIndices, left)
+        AppendExpressionChild(st, outChildIndices, right)
+        orSpanStart := outSpanStarts[left]
+        orSpanEnd := outSpanStarts[right] + outSpanLengths[right]
+        left = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 34, -1, 0, orChildRun, 2, orSpanStart, orSpanEnd - orSpanStart)
+    }
+    return left
+}
+
+// `<not-pattern> ( and <not-pattern> )*` -> left-associative AndPattern (kind 33). `and` is token 55.
+func ParseAndPatternNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    left := ParseNotPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    if left < 0 {
+        return -1
+    }
+    while st[0] < count && tokenKinds[st[0]] == 55 {
+        st[0] = st[0] + 1
+        right := ParseNotPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+        if right < 0 {
+            return -1
+        }
+        andChildRun := st[2]
+        AppendExpressionChild(st, outChildIndices, left)
+        AppendExpressionChild(st, outChildIndices, right)
+        andSpanStart := outSpanStarts[left]
+        andSpanEnd := outSpanStarts[right] + outSpanLengths[right]
+        left = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 33, -1, 0, andChildRun, 2, andSpanStart, andSpanEnd - andSpanStart)
+    }
+    return left
+}
+
+// `not <not-pattern>` -> NotPattern (kind 35, 1 child); else a relational-or-primary pattern. `not` is token 57.
+func ParseNotPatternNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+    if st[0] < count && tokenKinds[st[0]] == 57 {
+        notStart := tokenStarts[st[0]]
+        st[0] = st[0] + 1
+        inner := ParseNotPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if inner < 0 {
+            return -1
+        }
+        notChildRun := st[2]
+        AppendExpressionChild(st, outChildIndices, inner)
+        notSpanEnd := outSpanStarts[inner] + outSpanLengths[inner]
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 35, -1, 0, notChildRun, 1, notStart, notSpanEnd - notStart)
+    }
+    return ParseRelationalPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+}
+
+// A relational operator (`<` 100, `<=` 101, `>` 102, `>=` 103) at the start -> RelationalPattern (kind 32: operator
+// token in the value span, 1 child = the operand primary). Otherwise an ordinary primary. (`>=` is one token, so
+// there is no `>`-split here.)
+func ParseRelationalPatternNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    if st[0] < count {
+        relTok := tokenKinds[st[0]]
+        if relTok == 100 || relTok == 101 || relTok == 102 || relTok == 103 {
+            relOpStart := tokenStarts[st[0]]
+            relOpLen := tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            relOperand := ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if relOperand < 0 {
+                return -1
+            }
+            relChildRun := st[2]
+            AppendExpressionChild(st, outChildIndices, relOperand)
+            relSpanEnd := outSpanStarts[relOperand] + outSpanLengths[relOperand]
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 32, relOpStart, relOpLen, relChildRun, 1, relOpStart, relSpanEnd - relOpStart)
+        }
+    }
+    return ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
 }
 
 // ParsePrimaryExpression (Parser.cs:4525) restricted to literals, identifiers, and ( expr ). Returns the
@@ -173,29 +271,10 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 
         matchCaseCount := 0
         while st[0] < count && tokenKinds[st[0]] != 130 {
-            // A relational operator (`<` 100, `<=` 101, `>` 102, `>=` 103) at the START of a pattern is a
-            // RELATIONAL pattern `<op> <constant>` -> RelationalPattern node kind 32: the operator token lives in
-            // the value span, the single child is the operand (a primary expression). The emitter tests
-            // `matchValue <op> constant`. Otherwise the pattern is an ordinary primary (literal / identifier /
-            // refused-richer). (`>=` is a single token, so there is no `>`-split here.)
-            relTok := tokenKinds[st[0]]
-            matchPattern := -1
-            if relTok == 100 || relTok == 101 || relTok == 102 || relTok == 103 {
-                relOpStart := tokenStarts[st[0]]
-                relOpLen := tokenValueLengths[st[0]]
-                st[0] = st[0] + 1
-                relOperand := ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
-                if relOperand < 0 {
-                    st[3] = matchArgBase
-                    return -1
-                }
-                relChildRun := st[2]
-                AppendExpressionChild(st, outChildIndices, relOperand)
-                relSpanEnd := outSpanStarts[relOperand] + outSpanLengths[relOperand]
-                matchPattern = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 32, relOpStart, relOpLen, relChildRun, 1, relOpStart, relSpanEnd - relOpStart)
-            } else {
-                matchPattern = ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
-            }
+            // Parse the case PATTERN via the pattern-precedence chain (or > and > not > relational > primary,
+            // see ParseMatchPatternNode). This yields a literal/identifier primary, a RelationalPattern (kind 32),
+            // or an And/Or/Not combinator (kinds 33/34/35) over those. The `when` guard (below) then wraps it.
+            matchPattern := ParseMatchPatternNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
             if matchPattern < 0 {
                 st[3] = matchArgBase
                 return -1
