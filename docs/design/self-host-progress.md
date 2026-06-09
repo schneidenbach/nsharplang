@@ -11,6 +11,51 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-10: UNION — the FOURTH user-defined type (the rich-type-system centerpiece)
+
+The columnar backend gains DISCRIMINATED UNIONS — declaration, object-initializer construction, and union-case
+match patterns (the feature that motivated rich match support). Emitted exactly like the C# ILCompiler's
+`DeclareUnion`: an ABSTRACT base reference class + one SEALED NESTED case class per case.
+- **Parser kernel** (`ParseUnionDeclarationInto`, ParserDeclarations.nl): parses `union Name { Case { f: T, … } … }`
+  into flat parallel arrays — per-case name + per-case field-count, with fields flattened across cases (the host
+  re-segments via the counts). Declines (→ C#) a bare case with no `{ }` body, a composed/generic field type, a
+  generic union (the `<` after the name), or an empty union.
+- **Parser pattern** (ParserExpressions.nl): a `<Union.Case> { bind0, bind1, … }` suffix on a MemberAccess (kind 8)
+  pattern leaf → UnionCasePattern (kind 37), children `[memberAccess, bind0 (Identifier), …]`. Bare-identifier
+  bindings only; a renamed/positional `{ f: <pat> }` declines (the `:` is neither `,` nor `}`). Composes with the
+  existing `when`-guard wrapper. Sits below the or/and/not chain so a union-case pattern under a combinator declines.
+- **Adapter** (`NSharpCompilerDogfoodAdapter`): the gate permits decl kind 12; `TopLevelUnionIndices` +
+  `TryGetColumnarUnionInputs` collect each union into a `ColumnarUnionInput` (name + per-case names + per-case field
+  names/type-canonicals); `ParseUnionDeclarationInto` delegate wired into `Bindings`.
+- **Emitter** (`ColumnarIlEmitter`): a NEW union PASS 0 builds, per union, an abstract base
+  `DefineType(Public|Class|Abstract, object)` with a protected (`Family`) parameterless ctor, and per case a
+  `DefineNestedType(NestedPublic|Class|Sealed, base)` with a public parameterless ctor chaining to the base + a
+  public field per case field. (Trivial ctor bodies emitted inline, as the spike proved.) `ColumnarUnionDef`/
+  `ColumnarUnionCaseDef` registries: `_unionRegistry` (name→base, for `Union`-type resolution + exhaustiveness),
+  `_unionCaseRegistry` (qualified "Union.Case"→case, for construction + patterns). `TryResolveType` resolves a bare
+  union name to its base. **Construction** (case 36, before the struct/record branch): `newobj <case ctor>; per
+  field dup; <value>; stfld`, reporting the expression's STATIC type as the union BASE (an upcast — the runtime
+  object is the concrete case; a later match recovers it via `isinst`). **Match** (`EmitUnionCasePattern`, dispatched
+  only at an arm's TOP LEVEL from case 18): `ldloc value; isinst Case; dup; brtrue ok; pop; br fail; ok: stloc; per
+  binding ldfld + stloc` into a fresh local; the stack is empty at both labels (matching every other pattern).
+  **Exhaustiveness** (case 18): a union match must cover every case or carry an unguarded catch-all, else decline
+  (C# reports NL501). Nested case types are finalized BEFORE their base (deepest-first, matching the C# ILCompiler's
+  `OrderTypeBuildersByDescendingTypeKeyDepth`).
+
+Parity-gated: `ColumnarCodegen_Parity_UnionConstructAndMatch` value-matches the C# ILCompiler over int cases (the
+canonical `Result`, via make-returns-base helpers), string-field cases with the SAME field name across cases
+(binding collision), a MULTI-FIELD case alongside a single-field one (heterogeneous arity), and a `_` catch-all arm;
+metadata-asserts the base is abstract + the case is a sealed nested class deriving from it with a public int field;
+decline-pinned for a non-exhaustive match without catch-all, a renamed sub-pattern, a non-field binding, and a
+generic union. Adversarially reviewed (read-only, 3 lenses — soundness/IL/parser — + per-finding judges): 4 parser
+candidates ALL refuted with code-grounded mechanism (st[2] not corrupted on decline; field-array writes bounded by
+n/2 < n+1 + `pos>=count` guards; the `{…}` binding loop exits at `}` so a `when` guard parses cleanly; partial field
+binding matches C#'s analyzer). Soundness + IL lenses found nothing. 109 columnar tests green; full non-IDE gate
+green (fresh isolated). Next: union slice 2 — when-guarded union arms over bindings, nested/renamed patterns,
+generic unions; then generics/lambdas/exceptions toward Phase S.
+
+---
+
 ## 2026-06-09 — Phase D-9a: RECORD — the THIRD user-defined type (a reference type)
 
 Records reuse the struct infrastructure with an `IsReference` flag — the same decl kernel, object-init parsing, and

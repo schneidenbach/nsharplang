@@ -669,6 +669,8 @@ internal static class NSharpCompilerDogfoodAdapter
             return false;
         if (!TryGetColumnarStructInputs(source, out var structs))
             return false;
+        if (!TryGetColumnarUnionInputs(source, out var unions))
+            return false;
         // The columnar emit is a best-effort, DECLINE-on-failure optimization: it must never throw a hard error the
         // authoritative C# path would not. Any unexpected emit exception (e.g. a Reflection.Emit limitation on a
         // not-yet-fully-modelled type shape) is caught here and declines → C# fallback, matching the try/catch the
@@ -676,7 +678,7 @@ internal static class NSharpCompilerDogfoodAdapter
         // (which assert Ok == true), so this net cannot silently hide a regression from the gate.
         try
         {
-            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, structs, source, out assembly))
+            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, structs, unions, source, out assembly))
                 return false;
         }
         catch
@@ -750,11 +752,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
             for (var d = 0; d < declCount; d++)
             {
-                // 7 = func, 14 = enum, 9 = struct, 13 = record; any other top-level declaration kind (class/union/…)
-                // is unsupported and declines the whole program. Enum/struct/record decls are collected separately
-                // (TryGetColumnarEnumInputs / TryGetColumnarStructInputs); the func scan below (TopLevelFuncIndices)
-                // only picks `func` tokens, so type decls are skipped here rather than mis-parsed as functions.
-                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13)
+                // 7 = func, 14 = enum, 9 = struct, 13 = record, 12 = union; any other top-level declaration kind
+                // (class/…) is unsupported and declines the whole program. Enum/struct/record/union decls are
+                // collected separately (TryGetColumnarEnumInputs / TryGetColumnarStructInputs /
+                // TryGetColumnarUnionInputs); the func scan below (TopLevelFuncIndices) only picks `func` tokens, so
+                // type decls are skipped here rather than mis-parsed as functions.
+                if (declKinds[d] != 7 && declKinds[d] != 14 && declKinds[d] != 9 && declKinds[d] != 13 && declKinds[d] != 12)
                     return false;
             }
 
@@ -969,6 +972,96 @@ internal static class NSharpCompilerDogfoodAdapter
         catch
         {
             structs = new System.Collections.Generic.List<Columnar.ColumnarStructInput>();
+            return false;
+        }
+    }
+
+    // Collect every top-level `union` declaration into a ColumnarUnionInput (name + per-case name + per-case field
+    // names + per-case field TYPE canonical strings). Tokenizes + compacts exactly like the struct collector, finds
+    // each union keyword (TopLevelUnionIndices), and parses its body via the ParseUnionDeclaration kernel — which
+    // flattens fields across cases, with outCaseFieldCounts re-segmenting them per case. Returns true (possibly an
+    // empty list) for a program with no unions. Returns FALSE — declining the whole program to C# — on any parse
+    // failure (a bare case without a `{ }` body, a composed field type, an empty union). The emitter further gates
+    // each field type to a supported CLR type and models the slice scope (non-generic unions, reference-type cases).
+    private static bool TryGetColumnarUnionInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarUnionInput> unions)
+    {
+        unions = new System.Collections.Generic.List<Columnar.ColumnarUnionInput>();
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+
+        try
+        {
+            var capacity = 3 * (source.Length + 1) + 8;
+            var rawKinds = new int[capacity];
+            var rawStarts = new int[capacity];
+            var rawValueLengths = new int[capacity];
+            var rawLines = new int[capacity];
+            var rawColumns = new int[capacity];
+            var rawCount = bindings.TokenizeMetadataWithIndentation(
+                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+            if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            var ck = new int[rawCount];
+            var cs = new int[rawCount];
+            var cv = new int[rawCount];
+            var n = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                ck[n] = rawKinds[i];
+                cs[n] = rawStarts[i];
+                cv[n] = rawValueLengths[i];
+                n++;
+            }
+
+            foreach (var unionIndex in TopLevelUnionIndices(ck, n))
+            {
+                var cap = n + 1;
+                var outCaseNameStarts = new int[cap];
+                var outCaseNameLengths = new int[cap];
+                var outCaseFieldCounts = new int[cap];
+                var outFieldNameStarts = new int[cap];
+                var outFieldNameLengths = new int[cap];
+                var outFieldTypeStarts = new int[cap];
+                var outFieldTypeLengths = new int[cap];
+                var outResult = new int[2];
+                var caseCount = bindings.ParseUnionDeclaration(
+                    ck, cs, cv, n, unionIndex, outCaseNameStarts, outCaseNameLengths, outCaseFieldCounts,
+                    outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts, outFieldTypeLengths, outResult);
+                if (caseCount <= 0 || outResult[1] <= 0)
+                    return false;
+
+                var unionName = source.Substring(outResult[0], outResult[1]);
+                var caseNames = new string[caseCount];
+                var caseFieldNames = new string[caseCount][];
+                var caseFieldTypes = new string[caseCount][];
+                var fieldCursor = 0;
+                for (var c = 0; c < caseCount; c++)
+                {
+                    caseNames[c] = source.Substring(outCaseNameStarts[c], outCaseNameLengths[c]);
+                    var fc = outCaseFieldCounts[c];
+                    var names = new string[fc];
+                    var types = new string[fc];
+                    for (var f = 0; f < fc; f++)
+                    {
+                        names[f] = source.Substring(outFieldNameStarts[fieldCursor], outFieldNameLengths[fieldCursor]);
+                        types[f] = source.Substring(outFieldTypeStarts[fieldCursor], outFieldTypeLengths[fieldCursor]);
+                        fieldCursor++;
+                    }
+                    caseFieldNames[c] = names;
+                    caseFieldTypes[c] = types;
+                }
+
+                unions.Add(new Columnar.ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes));
+            }
+            return true;
+        }
+        catch
+        {
+            unions = new System.Collections.Generic.List<Columnar.ColumnarUnionInput>();
             return false;
         }
     }
@@ -1194,6 +1287,33 @@ internal static class NSharpCompilerDogfoodAdapter
                 case 127: paren++; break;
                 case 128: if (paren > 0) paren--; break;
                 case 13:
+                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    // The compacted-token indices of each top-level `union` keyword (token 12) — at depth 0. Mirrors
+    // TopLevelStructIndices for the union keyword.
+    private static List<int> TopLevelUnionIndices(int[] kinds, int count)
+    {
+        var result = new List<int>();
+        var brace = 0;
+        var bracket = 0;
+        var paren = 0;
+        for (var i = 0; i < count; i++)
+        {
+            switch (kinds[i])
+            {
+                case 129: brace++; break;
+                case 130: if (brace > 0) brace--; break;
+                case 131: bracket++; break;
+                case 132: if (bracket > 0) bracket--; break;
+                case 127: paren++; break;
+                case 128: if (paren > 0) paren--; break;
+                case 12:
                     if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
                     break;
             }
@@ -2212,7 +2332,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "ParseEnumDeclarationInto"),
                 CreateDelegate<ParseStructDeclarationInto>(
                     programType,
-                    "ParseStructDeclarationInto"));
+                    "ParseStructDeclarationInto"),
+                CreateDelegate<ParseUnionDeclarationInto>(
+                    programType,
+                    "ParseUnionDeclarationInto"));
         }
         catch
         {
@@ -2396,6 +2519,11 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
         int[] outMethodFuncIndices, int[] outResult);
+    private delegate int ParseUnionDeclarationInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
+        int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,
+        int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
+        int[] outResult);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -2423,7 +2551,8 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseFunctionSignatureInto ParseFunctionSignature,
         ParseStatementNodesInto ParseStatementNodes,
         ParseEnumDeclarationInto ParseEnumDeclaration,
-        ParseStructDeclarationInto ParseStructDeclaration);
+        ParseStructDeclarationInto ParseStructDeclaration,
+        ParseUnionDeclarationInto ParseUnionDeclaration);
 
     private sealed class SemanticScopeCache
     {

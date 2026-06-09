@@ -3588,6 +3588,75 @@ class B
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // UNION — the FOURTH user-defined type: a discriminated union, emitted as an ABSTRACT base reference class with a
+    // SEALED nested case class per case (each deriving from the base, with a public parameterless ctor + public
+    // fields), mirroring the C# ILCompiler's DeclareUnion. Construction `new Union.Case { f: v }` reuses the
+    // object-initializer node (kind 36) — `newobj <case ctor>; dup; <value>; stfld` — reporting the expression's
+    // STATIC type as the union BASE (an upcast; the runtime object is the concrete case). A `match` over a union base
+    // tests each `Union.Case { binds }` pattern (kind 37) via `isinst`, binding each named field to a local. Match
+    // exhaustiveness (every case or a catch-all) is required, else the columnar path declines to the C# analyzer
+    // (NL501). Value-matched (scalar in/out, mirroring the proven ILCompiler union oracles) — the columnar/C# union
+    // types never cross the assembly boundary, so only the int/string-derived scalar results are compared.
+    [Fact]
+    public void ColumnarCodegen_Parity_UnionConstructAndMatch()
+    {
+        var prog =
+            // int cases (the canonical Result), constructed via make-returns-base helpers then matched.
+            "union Result {\n    Success { value: int }\n    Failure { code: int }\n}\n\n" +
+            "func makeS(v: int): Result {\n    return new Result.Success { value: v }\n}\n\n" +
+            "func makeF(c: int): Result {\n    return new Result.Failure { code: c }\n}\n\n" +
+            "func unwrap(r: Result): int {\n    return match r {\n        Result.Success { value } => value,\n        Result.Failure { code } => code\n    }\n}\n\n" +
+            "func ok(v: int): int {\n    return unwrap(makeS(v))\n}\n\n" +
+            "func err(c: int): int {\n    return unwrap(makeF(c))\n}\n\n" +
+            // a catch-all `_` arm makes a PARTIAL union match exhaustive.
+            "func successOrZero(r: Result): int {\n    return match r {\n        Result.Success { value } => value,\n        _ => 0\n    }\n}\n\n" +
+            "func okOrZero(v: int): int {\n    return successOrZero(makeS(v))\n}\n\n" +
+            "func failOrZero(c: int): int {\n    return successOrZero(makeF(c))\n}\n\n" +
+            // string-field cases with the SAME field name across cases (binding collision), matched to a scalar (length).
+            "union Cmd {\n    Done { msg: string }\n    Fail { msg: string }\n}\n\n" +
+            "func makeCmd(good: bool): Cmd {\n    if good {\n        return new Cmd.Done { msg: \"done\" }\n    }\n    return new Cmd.Fail { msg: \"failure\" }\n}\n\n" +
+            "func cmdLen(good: bool): int {\n    return match makeCmd(good) {\n        Cmd.Done { msg } => msg.Length,\n        Cmd.Fail { msg } => msg.Length\n    }\n}\n\n" +
+            // a MULTI-FIELD case (Both has two fields) alongside a single-field case (heterogeneous arity).
+            "union Pair {\n    Both { a: int, b: int }\n    Only { a: int }\n}\n\n" +
+            "func makeBoth(x: int, y: int): Pair {\n    return new Pair.Both { a: x, b: y }\n}\n\n" +
+            "func makeOnly(x: int): Pair {\n    return new Pair.Only { a: x }\n}\n\n" +
+            "func combine(p: Pair): int {\n    return match p {\n        Pair.Both { a, b } => a + b,\n        Pair.Only { a } => a\n    }\n}\n\n" +
+            "func sum2(x: int, y: int): int {\n    return combine(makeBoth(x, y))\n}\n\n" +
+            "func sum1(x: int): int {\n    return combine(makeOnly(x))\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("ok", new object[] { 42 }), ("ok", new object[] { 0 }), ("ok", new object[] { -7 }),
+            ("err", new object[] { 7 }), ("err", new object[] { 0 }), ("err", new object[] { -3 }),
+            ("okOrZero", new object[] { 5 }), ("failOrZero", new object[] { 9 }),
+            ("cmdLen", new object[] { true }), ("cmdLen", new object[] { false }),
+            ("sum2", new object[] { 3, 4 }), ("sum2", new object[] { -5, 5 }),
+            ("sum1", new object[] { 11 }), ("sum1", new object[] { 0 }));
+
+        // Metadata: the emitted Result is an ABSTRACT class; Success is a sealed nested class deriving from it with a
+        // public int field `value`.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the union program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        var resultType = loaded.GetType("Result")!;
+        Assert.True(resultType.IsAbstract);
+        Assert.True(resultType.IsClass);
+        var successType = resultType.GetNestedType("Success")!;
+        Assert.NotNull(successType);
+        Assert.True(successType.IsSealed);
+        Assert.Equal(resultType, successType.BaseType);
+        var valueField = successType.GetField("value", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)!;
+        Assert.Equal(typeof(int), valueField.FieldType);
+
+        // DECLINES (slice scope / forms C# rejects):
+        // a NON-EXHAUSTIVE union match with no catch-all (C# reports NL501 — columnar must decline).
+        Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A { x } => x\n    }\n}\n").Ok);
+        // a RENAMED/positional sub-pattern `U.A { x: y }` (only bare field-name bindings are modelled).
+        Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A { x: y } => y,\n        U.B { y } => y\n    }\n}\n").Ok);
+        // a binding naming a NON-field of the case (`U.A { nope }`).
+        Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A { nope } => 1,\n        U.B { y } => y\n    }\n}\n").Ok);
+        // a GENERIC union (the case-decl kernel stops at the union name's `<`).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: int }\n    None { tag: int }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

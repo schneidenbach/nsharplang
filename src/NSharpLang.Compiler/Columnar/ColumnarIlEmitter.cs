@@ -110,6 +110,29 @@ public sealed class ColumnarStructInput
 }
 
 /// <summary>
+/// One top-level <c>union</c> declaration's parsed cases, as consumed by
+/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. Each case has a name and a (possibly empty) list of
+/// fields; <see cref="CaseFieldNames"/>[c] and <see cref="CaseFieldTypeCanonicals"/>[c] are positionally aligned
+/// for case <c>c</c>. The parser kernel <c>ParseUnionDeclarationInto</c> produces the per-case spans; the adapter
+/// materializes the names and type strings.
+/// </summary>
+public sealed class ColumnarUnionInput
+{
+    public ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals)
+    {
+        Name = name;
+        CaseNames = caseNames;
+        CaseFieldNames = caseFieldNames;
+        CaseFieldTypeCanonicals = caseFieldTypeCanonicals;
+    }
+
+    public string Name { get; }
+    public string[] CaseNames { get; }
+    public string[][] CaseFieldNames { get; }
+    public string[][] CaseFieldTypeCanonicals { get; }
+}
+
+/// <summary>
 /// A user-defined struct being emitted: its <see cref="TypeBuilder"/> (a <see cref="System.ValueType"/>-based value
 /// type) plus its field-name → <see cref="FieldBuilder"/> map (so construction and field access emit ldfld/stfld
 /// against the builder handles directly — never <c>GetField</c>, which throws on an un-finalized TypeBuilder). Built
@@ -135,6 +158,49 @@ internal sealed class ColumnarStructDef
     // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
     // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
     public Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
+}
+
+/// <summary>
+/// A user-defined union being emitted. <see cref="Base"/> is an ABSTRACT reference type (class) — the common base
+/// every case derives from, and the type a <c>match</c> scrutinee / a <c>Union</c>-typed param/return is statically
+/// seen as. <see cref="Cases"/> maps each case's QUALIFIED name ("Union.Case") to its
+/// <see cref="ColumnarUnionCaseDef"/>. Built in PASS 0 of <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>,
+/// mirroring the C# ILCompiler's <c>DeclareUnion</c> (abstract base + sealed nested case classes).
+/// </summary>
+internal sealed class ColumnarUnionDef
+{
+    public ColumnarUnionDef(TypeBuilder baseBuilder)
+    {
+        Base = baseBuilder;
+    }
+
+    public TypeBuilder Base { get; }
+    // Qualified "Union.Case" -> case. Enumerated for match exhaustiveness; keyed for construction/pattern lookup.
+    public Dictionary<string, ColumnarUnionCaseDef> Cases { get; } = new(StringComparer.Ordinal);
+}
+
+/// <summary>
+/// One case of a <see cref="ColumnarUnionDef"/>: a SEALED reference type (class) deriving from the union base, with a
+/// public parameterless constructor (the <c>newobj</c> target for object-initializer construction) and a public
+/// field per declared case field. <see cref="UnionBase"/> is the enclosing union's base type — the STATIC type a
+/// constructed case is reported as (an upcast; the runtime object is the concrete case, recovered by a later match).
+/// </summary>
+internal sealed class ColumnarUnionCaseDef
+{
+    public ColumnarUnionCaseDef(TypeBuilder caseType, ConstructorBuilder ctor, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, TypeBuilder unionBase)
+    {
+        CaseType = caseType;
+        Ctor = ctor;
+        FieldOrder = fieldOrder;
+        Fields = fields;
+        UnionBase = unionBase;
+    }
+
+    public TypeBuilder CaseType { get; }
+    public ConstructorBuilder Ctor { get; }
+    public string[] FieldOrder { get; }
+    public Dictionary<string, FieldBuilder> Fields { get; }
+    public TypeBuilder UnionBase { get; }
 }
 
 /// <summary>
@@ -181,6 +247,12 @@ public sealed class ColumnarIlEmitter
     // User-defined structs in this program, by name -> (TypeBuilder, field->FieldBuilder). Lets object-initializer
     // construction and field access resolve their FieldBuilders, and types resolve `Point` to its TypeBuilder.
     private readonly IReadOnlyDictionary<string, ColumnarStructDef> _structRegistry;
+    // User-defined unions in this program, by name -> (abstract base + cases). Lets `Union` resolve to its base type
+    // (the match-scrutinee / param type) and the exhaustiveness check enumerate the cases.
+    private readonly IReadOnlyDictionary<string, ColumnarUnionDef> _unionRegistry;
+    // Union CASES by qualified "Union.Case" name -> case. Lets object-initializer construction (`new Union.Case {…}`)
+    // and union-case patterns (`Union.Case { f }`) resolve a case's ctor/fields/base directly by its dotted name.
+    private readonly IReadOnlyDictionary<string, ColumnarUnionCaseDef> _unionCaseRegistry;
     // When emitting a struct INSTANCE method body, the struct whose fields are accessible by BARE name (resolved to
     // `ldarg.0; ldfld`, since `this` is arg 0). Null for top-level functions (no implicit `this`/fields).
     private readonly ColumnarStructDef? _currentStruct;
@@ -199,6 +271,8 @@ public sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> siblings,
         IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionCaseDef> unionCaseRegistry,
         ColumnarStructDef? currentStruct)
     {
         _kinds = kinds;
@@ -215,6 +289,8 @@ public sealed class ColumnarIlEmitter
         _siblings = siblings;
         _enumRegistry = enumRegistry;
         _structRegistry = structRegistry;
+        _unionRegistry = unionRegistry;
+        _unionCaseRegistry = unionCaseRegistry;
         _currentStruct = currentStruct;
     }
 
@@ -269,7 +345,8 @@ public sealed class ColumnarIlEmitter
     /// trailing "[]" as a single-dimension array of a builtin element; non-builtins/unsupported shapes fail.
     /// </summary>
     private static bool TryResolveType(string canonical, IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
-        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry, out Type type)
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
     {
         if (canonical.EndsWith("[]", StringComparison.Ordinal))
         {
@@ -313,7 +390,7 @@ public sealed class ColumnarIlEmitter
                 var resolved = true;
                 for (var i = 0; i < elements.Count; i++)
                 {
-                    if (!TryResolveType(elements[i], enumRegistry, structRegistry, out elementTypes[i]))
+                    if (!TryResolveType(elements[i], enumRegistry, structRegistry, unionRegistry, out elementTypes[i]))
                     {
                         resolved = false;
                         break;
@@ -342,6 +419,13 @@ public sealed class ColumnarIlEmitter
         if (structRegistry != null && structRegistry.TryGetValue(canonical, out var structDef))
         {
             type = structDef.Builder;
+            return true;
+        }
+        // A bare name matching a user-defined union resolves to its abstract BASE TypeBuilder — the static type a
+        // `Union`-typed param/return/local holds (a concrete case constructed elsewhere is an instance of it).
+        if (unionRegistry != null && unionRegistry.TryGetValue(canonical, out var unionDef))
+        {
+            type = unionDef.Base;
             return true;
         }
         return TryResolveBuiltin(canonical, out type);
@@ -467,7 +551,7 @@ public sealed class ColumnarIlEmitter
         var input = new ColumnarFunctionInput(
             funcName, returnCanonical, paramNames, paramCanonicals,
             kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
-        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), source, out assembly);
+        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), Array.Empty<ColumnarStructInput>(), Array.Empty<ColumnarUnionInput>(), source, out assembly);
     }
 
     /// <summary>
@@ -482,7 +566,8 @@ public sealed class ColumnarIlEmitter
     /// </summary>
     public static bool TryEmitColumnarAssembly(
         string assemblyName, string typeName, IReadOnlyList<ColumnarFunctionInput> funcs,
-        IReadOnlyList<ColumnarEnumInput> enums, IReadOnlyList<ColumnarStructInput> structs, string source, out byte[] assembly)
+        IReadOnlyList<ColumnarEnumInput> enums, IReadOnlyList<ColumnarStructInput> structs,
+        IReadOnlyList<ColumnarUnionInput> unions, string source, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
         if (funcs.Count == 0)
@@ -515,6 +600,13 @@ public sealed class ColumnarIlEmitter
                 return false;
         }
 
+        // Union registries — declared empty here (populated in the union PASS below, after structs) so the struct/
+        // function type-resolution calls can reference them. `unionCaseRegistry` is keyed by qualified "Union.Case".
+        var unionRegistry = new Dictionary<string, ColumnarUnionDef>(StringComparer.Ordinal);
+        var unionCaseRegistry = new Dictionary<string, ColumnarUnionCaseDef>(StringComparer.Ordinal);
+        var unionBaseBuilders = new List<TypeBuilder>();
+        var unionCaseBuilders = new List<TypeBuilder>();
+
         // PASS 0 (structs): define every user struct as a module-level VALUE TYPE — System.ValueType base, attributes
         // `Public | Sealed` with NO explicit layout (default auto), matching the C# ILCompiler's DeclareStruct exactly
         // — plus a public instance field per declared field. The FieldBuilder handles are stored in the registry and
@@ -534,7 +626,7 @@ public sealed class ColumnarIlEmitter
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
             {
-                if (!TryResolveType(st.FieldTypeCanonicals[fi], enumRegistry, structRegistry, out var fieldType) || !IsSupportedType(fieldType))
+                if (!TryResolveType(st.FieldTypeCanonicals[fi], enumRegistry, structRegistry, unionRegistry, out var fieldType) || !IsSupportedType(fieldType))
                     return false;
                 var fb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public);
                 if (!fields.TryAdd(st.FieldNames[fi], fb))
@@ -567,7 +659,7 @@ public sealed class ColumnarIlEmitter
                 // language refuses.
                 if (def.Fields.ContainsKey(m.Name))
                     return false;
-                if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, out var mReturn) || !IsSupportedType(mReturn))
+                if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out var mReturn) || !IsSupportedType(mReturn))
                     return false;
                 // Resolve param types; ordinals shift by +1 because arg 0 is the value-type `this`.
                 var mParamTypes = new Type[m.ParamNames.Length];
@@ -575,7 +667,7 @@ public sealed class ColumnarIlEmitter
                 var mParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < m.ParamNames.Length; i++)
                 {
-                    if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, out var pt) || !IsSupportedType(pt))
+                    if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
                         return false;
                     mParamTypes[i] = pt;
                     mOrdinals[m.ParamNames[i]] = i + 1;
@@ -585,6 +677,57 @@ public sealed class ColumnarIlEmitter
                 if (!def.Methods.TryAdd(m.Name, (mb, mParamTypes, mReturn)))
                     return false; // a duplicate method name on one struct is an overload set the slice does not model.
                 structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap));
+            }
+        }
+
+        // PASS 0 (unions): define every user union — an ABSTRACT base class plus one SEALED nested case class per
+        // case — mirroring the C# ILCompiler's DeclareUnion. The base has a protected (Family) parameterless ctor
+        // chaining to object::.ctor; each case has a public parameterless ctor chaining to the base ctor, plus a
+        // public field per case field. These trivial ctor bodies are emitted INLINE here (no user code), exactly as
+        // the de-risking spike proved. Case fields resolve via TryResolveType (enums/structs/earlier-unions in scope).
+        // Defined after structs so a case field may be an enum or struct; nested case types are finalized BEFORE their
+        // base (deepest-first — see the finalization block below).
+        for (var u = 0; u < unions.Count; u++)
+        {
+            var un = unions[u];
+            var baseTb = module.DefineType(un.Name, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object));
+            var baseCtor = baseTb.DefineConstructor(MethodAttributes.Family, CallingConventions.Standard, Type.EmptyTypes);
+            var bcil = baseCtor.GetILGenerator();
+            bcil.Emit(OpCodes.Ldarg_0);
+            bcil.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
+            bcil.Emit(OpCodes.Ret);
+
+            var unionDef = new ColumnarUnionDef(baseTb);
+            unionBaseBuilders.Add(baseTb);
+            if (!unionRegistry.TryAdd(un.Name, unionDef))
+                return false; // a duplicate union name is an ambiguous type.
+
+            for (var c = 0; c < un.CaseNames.Length; c++)
+            {
+                var caseName = un.CaseNames[c];
+                var caseTb = baseTb.DefineNestedType(caseName, TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed, baseTb);
+                var caseFieldNames = un.CaseFieldNames[c];
+                var caseFieldTypes = un.CaseFieldTypeCanonicals[c];
+                var caseFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
+                for (var fi = 0; fi < caseFieldNames.Length; fi++)
+                {
+                    if (!TryResolveType(caseFieldTypes[fi], enumRegistry, structRegistry, unionRegistry, out var caseFieldType) || !IsSupportedType(caseFieldType))
+                        return false;
+                    var cfb = caseTb.DefineField(caseFieldNames[fi], caseFieldType, FieldAttributes.Public);
+                    if (!caseFields.TryAdd(caseFieldNames[fi], cfb))
+                        return false; // a duplicate field name within one case is malformed.
+                }
+                var caseCtor = caseTb.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
+                var ccil = caseCtor.GetILGenerator();
+                ccil.Emit(OpCodes.Ldarg_0);
+                ccil.Emit(OpCodes.Call, baseCtor); // chain to the abstract base's ctor.
+                ccil.Emit(OpCodes.Ret);
+
+                var caseDef = new ColumnarUnionCaseDef(caseTb, caseCtor, caseFieldNames, caseFields, baseTb);
+                var qualified = un.Name + "." + caseName;
+                if (!unionDef.Cases.TryAdd(qualified, caseDef) || !unionCaseRegistry.TryAdd(qualified, caseDef))
+                    return false; // a duplicate case name within one union is malformed.
+                unionCaseBuilders.Add(caseTb);
             }
         }
 
@@ -607,14 +750,14 @@ public sealed class ColumnarIlEmitter
             Type returnType;
             if (fn.ReturnCanonical == "void")
                 returnType = typeof(void);
-            else if (!TryResolveType(fn.ReturnCanonical, enumRegistry, structRegistry, out returnType) || !IsSupportedType(returnType))
+            else if (!TryResolveType(fn.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out returnType) || !IsSupportedType(returnType))
                 return false;
             var paramTypes = new Type[fn.ParamNames.Length];
             var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
             var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
             for (var i = 0; i < fn.ParamNames.Length; i++)
             {
-                if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, structRegistry, out var pt) || !IsSupportedType(pt))
+                if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
                     return false;
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
@@ -638,7 +781,7 @@ public sealed class ColumnarIlEmitter
             var il = methods[f].GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, currentStruct: null);
+                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
         }
@@ -652,7 +795,7 @@ public sealed class ColumnarIlEmitter
             var mil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
-                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, job.Struct);
+                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
             if (!emitter.EmitBody(job.Method.BodyRoot, false))
                 return false;
         }
@@ -664,6 +807,12 @@ public sealed class ColumnarIlEmitter
             eb.CreateType();
         foreach (var sb in structBuilders)
             sb.CreateType();
+        // Union types: a NESTED case must be finalized BEFORE its enclosing base (deepest-first), matching the C#
+        // ILCompiler's OrderTypeBuildersByDescendingTypeKeyDepth — so create every case, then every base.
+        foreach (var caseTb in unionCaseBuilders)
+            caseTb.CreateType();
+        foreach (var baseTb in unionBaseBuilders)
+            baseTb.CreateType();
 
         type.CreateType();
         using var stream = new MemoryStream();
@@ -1752,14 +1901,43 @@ public sealed class ColumnarIlEmitter
             {        // user-struct value: a temp local, `ldloca; initobj` (zero all fields), then per named field
                      // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the C# struct
                      // object-initializer (default + per-field assignment). Only a registered struct type is modelled.
+                     // A `new Union.Case { f: v }` object-init (a reference type like a record) is handled first.
                 var typeRootNode = Child(idx, 0);
-                if (_kinds[typeRootNode] != 0 || !_structRegistry.TryGetValue(Text(typeRootNode), out var initStructDef))
-                    return false; // not a Simple type-ref naming a registered struct.
+                if (_kinds[typeRootNode] != 0)
+                    return false; // not a Simple type-ref.
                 var initChildCount = _childCount[idx];
                 if ((initChildCount % 2) != 1) // typeRoot + (name, value) pairs.
                     return false;
                 var pairCount = (initChildCount - 1) / 2;
                 var assigned = new HashSet<string>(StringComparer.Ordinal);
+
+                // UNION CASE: `new Union.Case { field: value, ... }` — the dotted type name resolves to a registered
+                // union case (a sealed reference type). `newobj <case ctor>` then per named field `dup; <value>;
+                // stfld`. The expression's STATIC type is the union BASE (an upcast — the runtime object is the
+                // concrete case), so the result flows wherever a `Union` is expected and a later match recovers it.
+                if (_unionCaseRegistry.TryGetValue(Text(typeRootNode), out var initCaseDef))
+                {
+                    _il.Emit(OpCodes.Newobj, initCaseDef.Ctor);
+                    for (var p = 0; p < pairCount; p++)
+                    {
+                        var nameNode = Child(idx, 1 + (2 * p));
+                        var valueNode = Child(idx, 2 + (2 * p));
+                        if (_kinds[nameNode] != 6)
+                            return false;
+                        var fieldName = Text(nameNode);
+                        if (!initCaseDef.Fields.TryGetValue(fieldName, out var caseInitField) || !assigned.Add(fieldName))
+                            return false; // unknown or duplicately-assigned field -> decline.
+                        _il.Emit(OpCodes.Dup);
+                        if (!EmitExpression(valueNode, out var caseInitValueType) || caseInitValueType != caseInitField.FieldType)
+                            return false;
+                        _il.Emit(OpCodes.Stfld, caseInitField);
+                    }
+                    type = initCaseDef.UnionBase; // upcast to the union base.
+                    return true;
+                }
+
+                if (!_structRegistry.TryGetValue(Text(typeRootNode), out var initStructDef))
+                    return false; // not a registered struct/record/union-case type.
                 if (initStructDef.IsReference)
                 {
                     // RECORD (reference type): `newobj <ctor>` then per named field `dup; <value>; stfld`. The object
@@ -1860,6 +2038,46 @@ public sealed class ColumnarIlEmitter
                         return false;
                 }
 
+                // UNION EXHAUSTIVENESS: like enums, C# requires a union match to cover EVERY case or carry a
+                // catch-all (NL501). A partial union match would otherwise emit a runtime throw for the missing
+                // cases — accepting a program C# rejects — so decline it to the analyzer-backed C# path. Coverage
+                // counts only TOP-LEVEL UNGUARDED arms: an unguarded `_`/binding (kind 6) is a catch-all; an
+                // unguarded union-case pattern (kind 37 over `Union.Case`) covers that case.
+                ColumnarUnionDef? matchUnionDef = null;
+                foreach (var def in _unionRegistry.Values)
+                {
+                    if (def.Base == matchValueType) { matchUnionDef = def; break; }
+                }
+                if (matchUnionDef != null)
+                {
+                    var coveredCases = new HashSet<string>(StringComparer.Ordinal);
+                    var hasCatchAll = false;
+                    for (var c = 0; c < caseCount; c++)
+                    {
+                        var rawP = Child(idx, 1 + (2 * c));
+                        if (_kinds[rawP] == 19) // a `when`-guarded arm does not contribute to coverage.
+                            continue;
+                        if (_kinds[rawP] == 6) // `_` discard or an unguarded binding -> a catch-all.
+                            hasCatchAll = true;
+                        else if (_kinds[rawP] == 37) // union-case pattern -> covers that case (if it is THIS union's).
+                        {
+                            var mem = Child(rawP, 0);
+                            if (_kinds[mem] == 8)
+                            {
+                                var memRecv = Child(mem, 0);
+                                if (_kinds[memRecv] == 6)
+                                {
+                                    var qualified = Text(memRecv) + "." + Text(mem);
+                                    if (matchUnionDef.Cases.ContainsKey(qualified))
+                                        coveredCases.Add(qualified);
+                                }
+                            }
+                        }
+                    }
+                    if (!hasCatchAll && !coveredCases.SetEquals(matchUnionDef.Cases.Keys))
+                        return false;
+                }
+
                 var matchEnd = _il.DefineLabel();
                 Type? matchResultType = null;
                 for (var c = 0; c < caseCount; c++)
@@ -1901,6 +2119,17 @@ public sealed class ColumnarIlEmitter
                             _locals[patName] = bindLocal;
                         }
                         // Always matches -> fall through to the guard / result.
+                    }
+                    else if (_kinds[patternNode] == 37) // union-case pattern `Union.Case { f }` (top-level only).
+                    {
+                        // isinst-test the case + bind its named fields; on MATCH fall through to the guard/result
+                        // (armBody), on NO-MATCH branch to nextCase. Handled here (not in EmitPatternMatch) because it
+                        // introduces field BINDINGS, valid only at an arm's top level — a union-case pattern nested in
+                        // a combinator declines via EmitPatternMatch's default.
+                        var armBody = _il.DefineLabel();
+                        if (!EmitUnionCasePattern(patternNode, matchValueType, matchLocal, armBody, nextCase))
+                            return false;
+                        _il.MarkLabel(armBody);
                     }
                     else // literal / relational / and-or-not combinator -> recursive pattern test.
                     {
@@ -2053,6 +2282,63 @@ public sealed class ColumnarIlEmitter
         }
     }
 
+    // A union-case pattern `Union.Case { f0, f1 }` (kind 37, children [memberAccess, bind0, ...]): an `isinst` type
+    // test against the case's concrete type, and on match a field-binding of each named field to a fresh local. This
+    // is handled ONLY at the TOP LEVEL of a match arm (not inside `and`/`or`/`not` — bindings in a negated/disjoined
+    // pattern are restricted in C#, so a union-case pattern under a combinator declines via EmitPatternMatch's
+    // default). On MATCH it branches to successLabel (with the bindings live in `_locals`, cleaned up per-arm by the
+    // caller); on NO-MATCH to failLabel. Returns false (whole match -> C# fallback) on any unsupported shape.
+    private bool EmitUnionCasePattern(int patternNode, Type matchValueType, LocalBuilder matchLocal, Label successLabel, Label failLabel)
+    {
+        var memberNode = Child(patternNode, 0);
+        if (_kinds[memberNode] != 8)
+            return false;
+        var caseRecv = Child(memberNode, 0);
+        if (_kinds[caseRecv] != 6)
+            return false; // the head must be a bare `Union` identifier (a qualified `Union.Case`).
+        var qualifiedCase = Text(caseRecv) + "." + Text(memberNode);
+        if (!_unionCaseRegistry.TryGetValue(qualifiedCase, out var caseDef) || matchValueType != caseDef.UnionBase)
+            return false; // not a registered case of THIS union -> decline.
+
+        // `ldloc value; isinst Case; dup; brtrue ok; pop; br fail; ok: stloc caseLocal`. The dup keeps a copy so the
+        // success path stores the (non-null) case ref; the fail path pops the null before branching — leaving the
+        // stack empty at BOTH labels (matching every other pattern's stack discipline).
+        var caseLocal = _il.DeclareLocal(caseDef.CaseType);
+        var caseOk = _il.DefineLabel();
+        _il.Emit(OpCodes.Ldloc, matchLocal);
+        _il.Emit(OpCodes.Isinst, caseDef.CaseType);
+        _il.Emit(OpCodes.Dup);
+        _il.Emit(OpCodes.Brtrue, caseOk);
+        _il.Emit(OpCodes.Pop);
+        _il.Emit(OpCodes.Br, failLabel);
+        _il.MarkLabel(caseOk);
+        _il.Emit(OpCodes.Stloc, caseLocal);
+
+        // Bind each listed field to a local of the field's type (`ldloc caseLocal; ldfld f; stloc bind`). A `_`
+        // binding is a discard (skip). A binding must name a case field and must not shadow a local/param.
+        var bindCount = _childCount[patternNode] - 1;
+        for (var b = 0; b < bindCount; b++)
+        {
+            var bindNode = Child(patternNode, 1 + b);
+            if (_kinds[bindNode] != 6)
+                return false;
+            var bindName = Text(bindNode);
+            if (bindName == "_")
+                continue;
+            if (!caseDef.Fields.TryGetValue(bindName, out var bindField))
+                return false; // the binding must name a field of the case (slice scope: bare field bindings).
+            if (_locals.ContainsKey(bindName) || _paramOrdinals.ContainsKey(bindName))
+                return false; // a binding that shadows a local/param is not modelled.
+            var bindLocal = _il.DeclareLocal(bindField.FieldType);
+            _il.Emit(OpCodes.Ldloc, caseLocal);
+            _il.Emit(OpCodes.Ldfld, bindField);
+            _il.Emit(OpCodes.Stloc, bindLocal);
+            _locals[bindName] = bindLocal;
+        }
+        _il.Emit(OpCodes.Br, successLabel);
+        return true;
+    }
+
     // Node kinds that are LITERAL match patterns (constant-equality): int(0)/float(1)/char(2)/string(3)/bool(4).
     // A non-literal primary in pattern position (null/parenthesized/member/call/index/…) is not a constant pattern,
     // so the match declines to the C# path rather than emitting a misleading equality test. Identifier patterns
@@ -2066,12 +2352,25 @@ public sealed class ColumnarIlEmitter
         || t == typeof(double) || t == typeof(float);
 
     // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality), string
-    // (op_Equality), and a user-defined enum (its underlying-int Ceq, via the MemberAccess pattern case). Unions/
-    // records/etc. are not modelled, so a match over them declines to the C# path.
-    private static bool IsSupportedMatchValueType(Type t) =>
+    // (op_Equality), a user-defined enum (its underlying-int Ceq, via the MemberAccess pattern case), and a
+    // user-defined UNION base (isinst per union-case pattern). Records/etc. are not modelled, so a match over them
+    // declines to the C# path. (Instance — the union base is identified by the union registry.)
+    private bool IsSupportedMatchValueType(Type t) =>
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
-        || t is EnumBuilder;
+        || t is EnumBuilder
+        || (t is TypeBuilder && IsUnionBase(t));
+
+    // True iff `t` is the abstract base of one of this program's user-defined unions.
+    private bool IsUnionBase(Type t)
+    {
+        foreach (var u in _unionRegistry.Values)
+        {
+            if (u.Base == t)
+                return true;
+        }
+        return false;
+    }
 
     // Scalars that participate in explicit numeric casts (int/long/char on the i4/i8 slots; double on r8, float on r4).
     private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float);

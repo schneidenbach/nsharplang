@@ -205,7 +205,61 @@ func ParseRelationalPatternNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     // ParseRelationalPattern falling back to ParsePrimaryExpression (which in C# includes postfix member access). A
     // literal/identifier still parses as before (no postfix to apply); a call/index parses but the emitter declines
     // it as a non-constant pattern.
-    return ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    leaf := ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    if leaf < 0 {
+        return -1
+    }
+
+    // Union-case PROPERTY pattern: `<Union.Case> { bind0, bind1, ... }` -> UnionCasePattern (kind 37), children
+    // [memberAccessNode, bind0 (Identifier kind 6), bind1, ...]. Fires only when the leaf is a qualified member
+    // access (kind 8, e.g. `Result.Success`) immediately followed by `{` (129). Each binding is a BARE identifier
+    // naming a case field; `,` (134) separates and `}` (130) closes. A renamed/nested/positional sub-pattern
+    // (`{ field: <pat> }`) declines here (the `:` after a binding is neither `,` nor `}` -> -1), so the whole
+    // program falls back to the C# pipeline. The emitter (case 37) resolves the case, `isinst`-tests it, and binds
+    // each named field to a local.
+    if outNodeKinds[leaf] == 8 && st[0] < count && tokenKinds[st[0]] == 129 {
+        st[0] = st[0] + 1
+        caseArgBase := st[3]
+        argStack[st[3]] = leaf
+        st[3] = st[3] + 1
+        while st[0] < count && tokenKinds[st[0]] != 130 {
+            if tokenKinds[st[0]] != 0 {
+                st[3] = caseArgBase
+                return -1
+            }
+            bindStart := tokenStarts[st[0]]
+            bindLen := tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            bindNode := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, bindStart, bindLen, -1, 0, bindStart, bindLen)
+            argStack[st[3]] = bindNode
+            st[3] = st[3] + 1
+            if st[0] < count && tokenKinds[st[0]] != 130 {
+                if tokenKinds[st[0]] != 134 {
+                    st[3] = caseArgBase
+                    return -1
+                }
+                st[0] = st[0] + 1
+            }
+        }
+        if st[0] >= count || tokenKinds[st[0]] != 130 {
+            st[3] = caseArgBase
+            return -1
+        }
+        caseEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+        st[0] = st[0] + 1
+        caseChildCount := st[3] - caseArgBase
+        caseChildRun := st[2]
+        caseArg := caseArgBase
+        while caseArg < st[3] {
+            AppendExpressionChild(st, outChildIndices, argStack[caseArg])
+            caseArg = caseArg + 1
+        }
+        st[3] = caseArgBase
+        caseSpanStart := outSpanStarts[leaf]
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 37, -1, 0, caseChildRun, caseChildCount, caseSpanStart, caseEnd - caseSpanStart)
+    }
+
+    return leaf
 }
 
 // ParsePrimaryExpression (Parser.cs:4525) restricted to literals, identifiers, and ( expr ). Returns the
