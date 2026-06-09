@@ -11,6 +11,48 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — N# ILCompiler fix bundle: STATIC-member resolution (inherited-static chain walks + this-in-static diagnostic)
+
+VERIFY-FIRST probing for the columnar STATIC METHODS slice (a 58-probe acceptance map over 4 read-only probe
+agents, plus a 10-probe residual round, all against the production pipeline) produced the empirical static-member
+map AND surfaced two oracle defect classes — both fixed in the C# ILCompiler (the parity oracle) and pinned by 12
+new `ILCompilerTests` regressions (`7952bc54`):
+
+- **Inherited STATIC resolution never walked the base-class chain** — `Derived.F()` ("Static method F not found on
+  type Derived"), bare `F()` inside derived member bodies ("Function call … not yet fully implemented"),
+  `Derived.count` / `Derived.X` static field/property access ("Static member … not found") all failed, while the
+  e356aa0d/37b70349 fix bundle deliberately made every INSTANCE-member path chain-walk. The same walk now exists at
+  all 9 static sites: the member-access static call and the bare-identifier own-type static call (each at BOTH the
+  emit site and its type-inference twin), `EmitStaticMemberLoadValue`/`StoreValue`, the `EmitMemberAccess` static
+  read path, `GetMemberAccessType` inference, and ref/out static-field addresses (`EmitMemberArgumentAddress`).
+  Static HIDING stays nearest-declaration-wins (the walk starts at the named/enclosing type). One recon claim was
+  REFUTED empirically: the suspected ref/out site at ILCompiler.cs:5594 is attribute-argument constant evaluation,
+  not a resolution path — left unchanged.
+- **`this` in a static context emitted garbage `ldarg.0`** — `this.x` reads compiled then died at RUNTIME with
+  `InvalidProgramException`; `return this` even "ran". Both `EmitLoadImplicitThisReference` and
+  `EmitLoadImplicitThisAddress` (the two chokepoints every this-path funnels through) now throw a compile-time
+  diagnostic ("'this' cannot be used in a static context …") after the captured-this check. `_currentHasThis` is
+  set true in ctors/instance methods/accessors/instance lambdas and false in static methods/top-level
+  functions/static lambdas, so the guard cannot over-fire (pinned by `ILCompiler_ThisRemainsValidInInstanceContexts`).
+
+EMPIRICAL ACCEPTANCE MAP pinned for the columnar slice (bare-call precedence, verified twice): own/chain INSTANCE
+members beat top-level functions (P1: prints own); top-level functions beat own STATIC methods (A14/P2); qualified
+`Type.M()` always binds the static (P10); locals do NOT shadow method names in call position (P8). Oracle REJECTS
+(columnar must decline): static via instance receiver (A3 — C# CS0176 semantics), static→instance bare call (A6),
+instance-field read from a static body (A7), static+instance same name / static method+property same name (NL306,
+A11/D11), bare static-FIELD access even inside static methods (C4 — only `Type.field` resolves), `static x := v`
+fields (C10), method-as-value (NL411, D10). Oracle ACCEPTS (columnar must value-match): statics on
+class/struct/record incl. fieldless structs, arity AND type-distinguished static overloads, void statics, static
+factories, expression-bodied statics, `static func Main()` entry (lowercase top-level `main` wins when both exist),
+static fields with initializers (int/string/double/bool/user-type) + `Type.field` read/write incl. `+=`, and
+expression-bodied/get-block static properties. 509 ILCompilerTests + 125 columnar dogfood tests green; full
+non-IDE product gate green (fresh isolated). Next: columnar STATIC METHODS (kernel `static func` member flags →
+adapter `IsStatic` → emitter `StaticMethods` declaration/resolution + registry-gated `TryEmitStaticCall`, which
+also closes a latent columnar over-acceptance: a user type named `Math`/`Char`/… currently falls through to the
+BCL static whitelist).
+
+---
+
 ## 2026-06-09 — Phase D-11d: columnar CLASS INHERITANCE (`class D: Base`, `: base(args)`, chain-walking resolution)
 
 The columnar pipeline now compiles single-inheritance class hierarchies end-to-end, value-matched against the

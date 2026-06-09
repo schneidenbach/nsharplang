@@ -386,7 +386,16 @@ leads with the authoritative post-vectorization table. **P4** (LLVM/NativeAOT ba
 deferred** — decision doc [`p4-llvm-nativeaot-backend-evaluation.md`](p4-llvm-nativeaot-backend-evaluation.md):
 the structural backend's order-of-magnitude prize was captured by Phase P's `Vector<T>` emission, so it stays
 deferred behind evidence gates G1–G4; NativeAOT image emission is split out as a separate, lower-risk CLI
-startup/size track. **Next: the self-host spine — Stage 3b (columnar diagnostics).**
+startup/size track.
+
+**Status cursor (2026-06-09).** Stages 3b (columnar diagnostics), 4 (columnar codegen spike→backend), and 5
+(production routing behind `NSHARP_COLUMNAR_BACKEND`, off by default) are DONE — the standalone columnar pipeline
+owns parse→emit for the modelled surface (32/32 dogfood corpus via multi-file merge) and is parity-gated per
+slice. The live work is **Phase D rich-language columnar emit** (newest-on-top log:
+[`self-host-progress.md`](self-host-progress.md) is the authoritative cursor): D-11d class inheritance landed;
+the oracle static-member fix bundle landed (`7952bc54`). **Next: columnar STATIC METHODS, then generics, then
+lambdas/closures** (the `project_csharp_retirement_map` slice order), then Stage 6 (route-all → delete
+`ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).
