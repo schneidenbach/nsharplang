@@ -3646,6 +3646,27 @@ class B
         Assert.Equal(55, InvokeFromAssemblyBytes(columnar, "fib", 10));
     }
 
+    // STAGE 5 MULTI-FILE ROUTING: a MULTI-FILE program (a public function in one file called from another) routes
+    // through the columnar backend's multi-file merge in production when the flag is set. Proves: (1) the emitted
+    // IL differs from the C# path (the flag re-routed the backend), and (2) the CROSS-FILE call resolves + runs
+    // identically to the C# multi-file build (so the merge binds declarations across files like the C# binder).
+    [Fact]
+    public void Stage5_ColumnarBackend_RoutesEligibleMultiFileProgramThroughProduction()
+    {
+        var fileA = "func ComputeA(n: int): int {\n    return HelperB(n) + 1\n}\n";
+        var fileB = "func HelperB(n: int): int {\n    return n * 2\n}\n";
+        var files = new[] { ("A.nl", fileA), ("B.nl", fileB) };
+        var csharp = CompileMultiFileViaProduction(files, columnarBackend: false);
+        var columnar = CompileMultiFileViaProduction(files, columnarBackend: true);
+
+        // The flag actually changed the backend: the emitted assemblies differ (columnar merge IL vs C# IL).
+        Assert.NotEqual(Convert.ToBase64String(csharp), Convert.ToBase64String(columnar));
+        // ...and the cross-file call (ComputeA -> HelperB) resolves + runs identically through the columnar merge.
+        Assert.Equal(InvokeFromAssemblyBytes(csharp, "ComputeA", 5), InvokeFromAssemblyBytes(columnar, "ComputeA", 5));
+        Assert.Equal(11, InvokeFromAssemblyBytes(columnar, "ComputeA", 5)); // HelperB(5)=10, +1 = 11
+        Assert.Equal(InvokeFromAssemblyBytes(csharp, "HelperB", 7), InvokeFromAssemblyBytes(columnar, "HelperB", 7));
+    }
+
     [Fact]
     public void Stage5_ColumnarBackend_FallsBackToCSharpForIneligibleProgram()
     {
@@ -3675,6 +3696,41 @@ class B
 
             Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : null);
             var compiler = new MultiFileCompiler(new[] { programPath }, projectRoot, config);
+            var result = compiler.CompileToIlAssembly("Stage5", outputPath);
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
+            return File.ReadAllBytes(result.OutputAssemblyPath!);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", previous);
+            if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
+        }
+    }
+
+    // Compile multiple `files` (name + source) as ONE multi-file library through the production MultiFileCompiler
+    // path, optionally with the columnar backend flag set (tightly scoped + restored), and return the emitted
+    // assembly bytes. Mirrors CompileViaProduction but writes several .nl files into one project.
+    private static byte[] CompileMultiFileViaProduction((string Name, string Source)[] files, bool columnarBackend)
+    {
+        var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-stage5mf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(projectRoot);
+        var outputPath = Path.Combine(projectRoot, "bin", "Stage5.dll");
+        var previous = Environment.GetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND");
+        try
+        {
+            var paths = new List<string>();
+            foreach (var (name, source) in files)
+            {
+                var path = Path.Combine(projectRoot, name);
+                File.WriteAllText(path, source);
+                paths.Add(path);
+            }
+            var config = ProjectFileParser.CreateDefault("Stage5");
+            config.OutputType = "library";
+            config.TargetFramework = "net10.0";
+
+            Environment.SetEnvironmentVariable("NSHARP_COLUMNAR_BACKEND", columnarBackend ? "1" : null);
+            var compiler = new MultiFileCompiler(paths.ToArray(), projectRoot, config);
             var result = compiler.CompileToIlAssembly("Stage5", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
             return File.ReadAllBytes(result.OutputAssemblyPath!);
