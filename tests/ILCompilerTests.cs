@@ -4808,6 +4808,285 @@ func f(): int {
     }
 
     [Fact]
+    public void ILCompiler_CanCallInheritedStaticMethodViaDerivedTypeName()
+    {
+        // Regression: `Derived.F()` where F is a STATIC method declared on Base failed with "Static method F not
+        // found on type Derived" — the static-call resolution looked up only the named type's own methods and never
+        // walked the base-class chain (the same defect class as the inherited INSTANCE-member fixes, which already
+        // walk it). C# semantics: a static member is accessible through any derived type's name. The 3-level chain
+        // exercises a full multi-hop walk (F lives two levels above C).
+        var source = @"
+class A {
+    static func F(): int {
+        return 7
+    }
+}
+
+class B: A {
+}
+
+class C: B {
+}
+
+func f(): int {
+    return C.F() + B.F() + A.F()
+}";
+        Assert.Equal(21, Assert.IsType<int>(CompileAndInvoke(source, "f")));
+    }
+
+    [Fact]
+    public void ILCompiler_CanCallInheritedStaticMethodBareInDerivedBody()
+    {
+        // Regression: a BARE call (`F()`, no type name) inside a derived member body where F is a STATIC method
+        // declared on the base failed with "Function call ... not yet fully implemented" — the bare-call own-type
+        // static lookup never walked the base-class chain (the instance twin did). Covers both a derived STATIC
+        // method body and a derived INSTANCE method body resolving the inherited static bare.
+        var source = @"
+class Base {
+    static func Seven(): int {
+        return 7
+    }
+}
+
+class D: Base {
+    Y: int
+    constructor(y: int) {
+        Y = y
+    }
+    static func FromStatic(): int {
+        return Seven()
+    }
+    func FromInstance(): int {
+        return Seven() + Y
+    }
+}
+
+func f(y: int): int {
+    d := new D(y)
+    return D.FromStatic() + d.FromInstance()
+}";
+        Assert.Equal(17, Assert.IsType<int>(CompileAndInvoke(source, "f", 3)));
+    }
+
+    [Fact]
+    public void ILCompiler_InfersInheritedStaticCallReturnType()
+    {
+        // The TYPE-INFERENCE twin of the inherited-static chain walk: `x := Derived.F()` must infer int from the
+        // base-declared static so downstream arithmetic binds correctly (not object).
+        var source = @"
+class Base {
+    static func F(): int {
+        return 7
+    }
+}
+
+class Derived: Base {
+}
+
+func f(n: int): int {
+    x := Derived.F()
+    return x * n
+}";
+        Assert.Equal(21, Assert.IsType<int>(CompileAndInvoke(source, "f", 3)));
+    }
+
+    [Fact]
+    public void ILCompiler_CanReadAndWriteInheritedStaticFieldViaDerivedTypeName()
+    {
+        // Regression: `Derived.count` where count is a STATIC FIELD declared on Base failed with "Static member
+        // count not found on type Derived" — static field load/store resolution never walked the base-class chain.
+        // Read the initializer value through the derived name, store through the derived name, read it back.
+        var source = @"
+class Base {
+    static count: int = 3
+}
+
+class Derived: Base {
+}
+
+func f(v: int): int {
+    before := Derived.count
+    Derived.count = v
+    return before * 100 + Derived.count
+}";
+        Assert.Equal(309, Assert.IsType<int>(CompileAndInvoke(source, "f", 9)));
+    }
+
+    [Fact]
+    public void ILCompiler_CanReadInheritedStaticPropertyViaDerivedTypeName()
+    {
+        // Regression: `Derived.X` where X is a STATIC PROPERTY declared on Base failed with "Static member X not
+        // found on type Derived" — the static getter lookup (get_X) never walked the base-class chain.
+        var source = @"
+class Base {
+    static X: int {
+        get {
+            return 4
+        }
+    }
+}
+
+class Derived: Base {
+}
+
+func f(): int {
+    return Derived.X
+}";
+        Assert.Equal(4, Assert.IsType<int>(CompileAndInvoke(source, "f")));
+    }
+
+    [Fact]
+    public void ILCompiler_StaticMethodHidingBindsNearestDeclaration()
+    {
+        // Pin: a derived static method HIDING a base static of the same name must keep binding nearest-first after
+        // the chain walk — `Derived.F()` binds Derived's F, `Base.F()` binds Base's, and a bare call inside a
+        // Derived member binds Derived's (the walk starts at the named/enclosing type, so hiding is preserved).
+        var source = @"
+class Base {
+    static func F(): int {
+        return 1
+    }
+}
+
+class Derived: Base {
+    static func Probe(): int {
+        return F()
+    }
+}
+
+class Derived2: Base {
+    static func F(): int {
+        return 2
+    }
+    static func Probe(): int {
+        return F()
+    }
+}
+
+func f(): int {
+    return Base.F() * 1000 + Derived2.F() * 100 + Derived.Probe() * 10 + Derived2.Probe()
+}";
+        Assert.Equal(1212, Assert.IsType<int>(CompileAndInvoke(source, "f")));
+    }
+
+    [Fact]
+    public void ILCompiler_RejectsThisReadInStaticMethod()
+    {
+        // Regression: `this.x` inside a STATIC method compiled and died at RUNTIME with InvalidProgramException —
+        // the emitter blindly emitted ldarg.0 against a static method (arg 0 is the first parameter, or nothing).
+        // It must be a compile-time diagnostic instead.
+        var source = @"
+class C {
+    x: int
+    constructor(v: int) {
+        x = v
+    }
+    static func Bad(): int {
+        return this.x
+    }
+}
+
+func f(): int {
+    return C.Bad()
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f"));
+        Assert.Contains("'this' cannot be used in a static context", ex.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_RejectsThisWriteInStaticMethod()
+    {
+        // The WRITE twin: `this.x = v` inside a static method must fail at compile time (it used to emit invalid IL
+        // through the addressable-receiver path).
+        var source = @"
+class C {
+    x: int
+    constructor(v: int) {
+        x = v
+    }
+    static func Bad() {
+        this.x = 5
+    }
+}
+
+func f(): int {
+    C.Bad()
+    return 1
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f"));
+        Assert.Contains("'this' cannot be used in a static context", ex.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_RejectsReturnThisInStaticMethod()
+    {
+        // `return this` in a static method (this as a bare VALUE, no member access) used to compile and run against
+        // garbage arg0. Compile-time diagnostic now.
+        var source = @"
+class C {
+    static func Get(): C {
+        return this
+    }
+}
+
+func f(): int {
+    c := C.Get()
+    return 1
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f"));
+        Assert.Contains("'this' cannot be used in a static context", ex.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_RejectsThisInTopLevelFunction()
+    {
+        // A top-level function compiles as a static method on the Program type — `this` has no receiver there
+        // either and must produce the same compile-time diagnostic.
+        var source = @"
+class C {
+    x: int
+    constructor(v: int) {
+        x = v
+    }
+}
+
+func f(): int {
+    return this.x
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f"));
+        Assert.Contains("'this' cannot be used in a static context", ex.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_ThisRemainsValidInInstanceContexts()
+    {
+        // Over-firing pin for the static-context `this` guard: constructors, instance methods, and property
+        // accessors all keep their implicit receiver — `this.`-qualified reads/writes must keep working everywhere
+        // an instance receiver exists.
+        var source = @"
+class C {
+    x: int
+    constructor(v: int) {
+        this.x = v
+    }
+    Doubled: int {
+        get {
+            return this.x * 2
+        }
+    }
+    func Sum(n: int): int {
+        return this.x + n
+    }
+}
+
+func f(v: int, n: int): int {
+    c := new C(v)
+    return c.Sum(n) * 100 + c.Doubled
+}";
+        Assert.Equal(810, Assert.IsType<int>(CompileAndInvoke(source, "f", 5, 3)));
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteClassPrimaryConstructor()
     {
         var source = @"

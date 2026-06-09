@@ -5834,6 +5834,15 @@ public partial class ILCompiler
             return;
         }
 
+        // In a static context (a static method or a top-level function) there is no instance
+        // receiver — arg0 is the first parameter (or nothing), so `ldarg.0` would be garbage IL
+        // that fails at RUNTIME with InvalidProgramException. Fail at compile time instead.
+        if (!_currentHasThis)
+        {
+            throw new InvalidOperationException(
+                "'this' cannot be used in a static context — a static method or top-level function has no instance receiver. Access instance members through a parameter, or make the enclosing method an instance method (drop 'static')");
+        }
+
         _currentIL.Emit(OpCodes.Ldarg_0);
     }
 
@@ -5858,6 +5867,14 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Ldarg_0);
             _currentIL.Emit(OpCodes.Ldflda, capturedThisField);
             return;
+        }
+
+        // Same static-context guard as EmitLoadImplicitThisReference: no instance receiver exists,
+        // so taking its address is meaningless — fail at compile time, not with invalid IL.
+        if (!_currentHasThis)
+        {
+            throw new InvalidOperationException(
+                "'this' cannot be used in a static context — a static method or top-level function has no instance receiver. Access instance members through a parameter, or make the enclosing method an instance method (drop 'static')");
         }
 
         _currentIL.Emit(OpCodes.Ldarg_0);
@@ -9988,10 +10005,21 @@ public partial class ILCompiler
         {
             if (staticType is TypeBuilder staticTypeBuilder)
             {
-                if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, memberAccess.MemberName), out var staticFieldBuilder))
+                // INHERITED static members: a ref/out `Derived.field` argument may name a static
+                // field declared on a base class — walk the chain, nearest declaration first.
+                for (var chainBuilder = staticTypeBuilder; ; )
                 {
-                    _currentIL.Emit(OpCodes.Ldsflda, staticFieldBuilder);
-                    return;
+                    if (_fields.TryGetValue(GetFieldKey(chainBuilder, memberAccess.MemberName), out var staticFieldBuilder))
+                    {
+                        _currentIL.Emit(OpCodes.Ldsflda, staticFieldBuilder);
+                        return;
+                    }
+
+                    var chainBase = chainBuilder.BaseType;
+                    if (chainBase == null || chainBase == typeof(object) || !TryGetUserTypeDefinition(chainBase, out chainBuilder))
+                    {
+                        break;
+                    }
                 }
 
                 throw new InvalidOperationException($"ref/out arguments require a field, but {GetTypeKey(staticTypeBuilder)}.{memberAccess.MemberName} is not a field");
@@ -16228,6 +16256,25 @@ public partial class ILCompiler
                         call,
                         targetType: staticType,
                         predicate: overload => overload.Builder.IsStatic);
+                    // INHERITED static methods: when the method is not declared on the named type
+                    // itself, walk the base-class chain (mirroring inherited instance-method
+                    // resolution below) — `Derived.F()` binds a static F declared on a base class,
+                    // exactly like C#. The emitted `call` targets the declaring base's method.
+                    for (var inheritedStaticBase = staticTypeBuilder.BaseType;
+                         boundStaticCall == null && inheritedStaticBase != null && inheritedStaticBase != typeof(object);
+                         inheritedStaticBase = inheritedStaticBase.BaseType)
+                    {
+                        if (!TryGetUserTypeDefinition(inheritedStaticBase, out var inheritedStaticBaseBuilder))
+                        {
+                            break;
+                        }
+
+                        boundStaticCall = BindDeclaredMethodCall(
+                            GetMethodKey(inheritedStaticBaseBuilder, memberAccess.MemberName),
+                            call,
+                            targetType: inheritedStaticBase,
+                            predicate: overload => overload.Builder.IsStatic);
+                    }
                     if (boundStaticCall != null)
                     {
                         EmitBoundCallArguments(boundStaticCall.Arguments);
@@ -16528,6 +16575,24 @@ public partial class ILCompiler
                     GetMethodKey(_currentTypeBuilder, ident.Name),
                     call,
                     predicate: overload => overload.Builder.IsStatic);
+                // INHERITED static methods: a bare call in a member body may target a static method
+                // declared on a base class — walk the base-class chain (mirroring the inherited
+                // instance-method walk just below). Statics need no receiver, so emission is
+                // unchanged; the `call` simply targets the declaring base's method.
+                for (var inheritedStaticBase = _currentTypeBuilder.BaseType;
+                     currentTypeStaticCall == null && inheritedStaticBase != null && inheritedStaticBase != typeof(object);
+                     inheritedStaticBase = inheritedStaticBase.BaseType)
+                {
+                    if (!TryGetUserTypeDefinition(inheritedStaticBase, out var inheritedStaticBaseBuilder))
+                    {
+                        break;
+                    }
+
+                    currentTypeStaticCall = BindDeclaredMethodCall(
+                        GetMethodKey(inheritedStaticBaseBuilder, ident.Name),
+                        call,
+                        predicate: overload => overload.Builder.IsStatic);
+                }
                 if (currentTypeStaticCall != null)
                 {
                     EmitBoundCallArguments(currentTypeStaticCall.Arguments);
@@ -18437,19 +18502,31 @@ public partial class ILCompiler
 
         if (staticType is TypeBuilder staticTypeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, memberName), out var staticField))
+            // INHERITED static members: `Derived.count` may name a static field/property declared
+            // on a base class — walk the base-class chain, nearest declaration first (mirroring
+            // inherited instance-member resolution; matches C# static member lookup).
+            for (var chainBuilder = staticTypeBuilder; ; )
             {
-                if (!TryEmitDeclaredStaticConstant(staticTypeBuilder, memberName))
+                if (_fields.TryGetValue(GetFieldKey(chainBuilder, memberName), out var staticField))
                 {
-                    _currentIL.Emit(OpCodes.Ldsfld, staticField);
+                    if (!TryEmitDeclaredStaticConstant(chainBuilder, memberName))
+                    {
+                        _currentIL.Emit(OpCodes.Ldsfld, staticField);
+                    }
+                    return;
                 }
-                return;
-            }
 
-            if (_methods.TryGetValue(GetMethodKey(staticTypeBuilder, $"get_{memberName}"), out var staticGetter))
-            {
-                _currentIL.Emit(OpCodes.Call, staticGetter);
-                return;
+                if (_methods.TryGetValue(GetMethodKey(chainBuilder, $"get_{memberName}"), out var staticGetter))
+                {
+                    _currentIL.Emit(OpCodes.Call, staticGetter);
+                    return;
+                }
+
+                var chainBase = chainBuilder.BaseType;
+                if (chainBase == null || chainBase == typeof(object) || !TryGetUserTypeDefinition(chainBase, out chainBuilder))
+                {
+                    break;
+                }
             }
 
             throw new InvalidOperationException($"Static member {memberName} not found on type {GetTypeKey(staticTypeBuilder)}");
@@ -18553,16 +18630,28 @@ public partial class ILCompiler
 
         if (staticType is TypeBuilder staticTypeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, memberName), out var staticField))
+            // INHERITED static members: a `Derived.count = v` store may target a static field or
+            // property setter declared on a base class — walk the chain, nearest first (the store
+            // twin of EmitStaticMemberLoadValue's chain walk).
+            for (var chainBuilder = staticTypeBuilder; ; )
             {
-                _currentIL.Emit(OpCodes.Stsfld, staticField);
-                return;
-            }
+                if (_fields.TryGetValue(GetFieldKey(chainBuilder, memberName), out var staticField))
+                {
+                    _currentIL.Emit(OpCodes.Stsfld, staticField);
+                    return;
+                }
 
-            if (_methods.TryGetValue(GetMethodKey(staticTypeBuilder, $"set_{memberName}"), out var staticSetter))
-            {
-                _currentIL.Emit(OpCodes.Call, staticSetter);
-                return;
+                if (_methods.TryGetValue(GetMethodKey(chainBuilder, $"set_{memberName}"), out var staticSetter))
+                {
+                    _currentIL.Emit(OpCodes.Call, staticSetter);
+                    return;
+                }
+
+                var chainBase = chainBuilder.BaseType;
+                if (chainBase == null || chainBase == typeof(object) || !TryGetUserTypeDefinition(chainBase, out chainBuilder))
+                {
+                    break;
+                }
             }
 
             throw new InvalidOperationException($"Static member {memberName} not found on type {GetTypeKey(staticTypeBuilder)}");
@@ -18668,21 +18757,33 @@ public partial class ILCompiler
         {
             if (staticType is TypeBuilder staticTypeBuilder)
             {
-                if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, memberAccess.MemberName), out var staticField))
+                // INHERITED static members: `Derived.count` may read a static field/property
+                // declared on a base class — walk the chain, nearest declaration first (the
+                // member-access twin of EmitStaticMemberLoadValue's chain walk).
+                for (var chainBuilder = staticTypeBuilder; ; )
                 {
-                    if (TryEmitDeclaredStaticConstant(staticTypeBuilder, memberAccess.MemberName))
+                    if (_fields.TryGetValue(GetFieldKey(chainBuilder, memberAccess.MemberName), out var staticField))
                     {
+                        if (TryEmitDeclaredStaticConstant(chainBuilder, memberAccess.MemberName))
+                        {
+                            return;
+                        }
+
+                        _currentIL.Emit(OpCodes.Ldsfld, staticField);
                         return;
                     }
 
-                    _currentIL.Emit(OpCodes.Ldsfld, staticField);
-                    return;
-                }
+                    if (_methods.TryGetValue(GetMethodKey(chainBuilder, $"get_{memberAccess.MemberName}"), out var staticGetter))
+                    {
+                        _currentIL.Emit(OpCodes.Call, staticGetter);
+                        return;
+                    }
 
-                if (_methods.TryGetValue(GetMethodKey(staticTypeBuilder, $"get_{memberAccess.MemberName}"), out var staticGetter))
-                {
-                    _currentIL.Emit(OpCodes.Call, staticGetter);
-                    return;
+                    var chainBase = chainBuilder.BaseType;
+                    if (chainBase == null || chainBase == typeof(object) || !TryGetUserTypeDefinition(chainBase, out chainBuilder))
+                    {
+                        break;
+                    }
                 }
             }
             else
@@ -19725,14 +19826,25 @@ public partial class ILCompiler
         {
             if (staticType is TypeBuilder staticTypeBuilder)
             {
-                if (_fields.TryGetValue(GetFieldKey(staticTypeBuilder, unwrapNullConditional.MemberName), out var staticField))
+                // INHERITED static members: infer `Derived.count` from the base-declared static
+                // field/property — the type-inference twin of the emit-side static chain walks.
+                for (var chainBuilder = staticTypeBuilder; ; )
                 {
-                    return GetDeclaredStaticFieldType(staticTypeBuilder, unwrapNullConditional.MemberName, staticField);
-                }
+                    if (_fields.TryGetValue(GetFieldKey(chainBuilder, unwrapNullConditional.MemberName), out var staticField))
+                    {
+                        return GetDeclaredStaticFieldType(chainBuilder, unwrapNullConditional.MemberName, staticField);
+                    }
 
-                if (_methods.TryGetValue(GetMethodKey(staticTypeBuilder, $"get_{unwrapNullConditional.MemberName}"), out var staticGetter))
-                {
-                    return staticGetter.ReturnType;
+                    if (_methods.TryGetValue(GetMethodKey(chainBuilder, $"get_{unwrapNullConditional.MemberName}"), out var staticGetter))
+                    {
+                        return staticGetter.ReturnType;
+                    }
+
+                    var chainBase = chainBuilder.BaseType;
+                    if (chainBase == null || chainBase == typeof(object) || !TryGetUserTypeDefinition(chainBase, out chainBuilder))
+                    {
+                        break;
+                    }
                 }
             }
             else
@@ -19941,6 +20053,24 @@ public partial class ILCompiler
                         call,
                         targetType: staticType,
                         predicate: overload => overload.Builder.IsStatic);
+                    // INHERITED static methods: walk the base-class chain so the call's RETURN TYPE
+                    // is inferred from the inherited declaration (the type-inference twin of the
+                    // emit-side chain walk in EmitCall's static-container path).
+                    for (var inheritedStaticBase = staticTypeBuilder.BaseType;
+                         boundStaticCall == null && inheritedStaticBase != null && inheritedStaticBase != typeof(object);
+                         inheritedStaticBase = inheritedStaticBase.BaseType)
+                    {
+                        if (!TryGetUserTypeDefinition(inheritedStaticBase, out var inheritedStaticBaseBuilder))
+                        {
+                            break;
+                        }
+
+                        boundStaticCall = BindDeclaredMethodCall(
+                            GetMethodKey(inheritedStaticBaseBuilder, memberAccess.MemberName),
+                            call,
+                            targetType: inheritedStaticBase,
+                            predicate: overload => overload.Builder.IsStatic);
+                    }
                     if (boundStaticCall != null)
                     {
                         return GetBoundDeclaredMethodReturnType(boundStaticCall);
@@ -20163,6 +20293,23 @@ public partial class ILCompiler
                     GetMethodKey(_currentTypeBuilder, ident.Name),
                     call,
                     predicate: overload => overload.Builder.IsStatic);
+                // INHERITED static methods: walk the base-class chain so a bare call to a
+                // base-declared STATIC method infers its RETURN TYPE from the inherited
+                // declaration (the type-inference twin of the emit-side static chain walk).
+                for (var inheritedStaticBase = _currentTypeBuilder.BaseType;
+                     currentTypeStaticCall == null && inheritedStaticBase != null && inheritedStaticBase != typeof(object);
+                     inheritedStaticBase = inheritedStaticBase.BaseType)
+                {
+                    if (!TryGetUserTypeDefinition(inheritedStaticBase, out var inheritedStaticBaseBuilder))
+                    {
+                        break;
+                    }
+
+                    currentTypeStaticCall = BindDeclaredMethodCall(
+                        GetMethodKey(inheritedStaticBaseBuilder, ident.Name),
+                        call,
+                        predicate: overload => overload.Builder.IsStatic);
+                }
                 if (currentTypeStaticCall != null)
                 {
                     return GetBoundDeclaredMethodReturnType(currentTypeStaticCall);
