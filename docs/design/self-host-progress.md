@@ -11,6 +11,44 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11d: columnar CLASS INHERITANCE (`class D: Base`, `: base(args)`, chain-walking resolution)
+
+The columnar pipeline now compiles single-inheritance class hierarchies end-to-end, value-matched against the
+(fix-bundle-corrected) C# ILCompiler oracle:
+
+- **Kernel** (`ParserDeclarations.nl`): `ParseStructDeclarationInto` parses an optional single-identifier base
+  (`class D: Base {`) into `outResult[5]/[6]`; plus the ZERO-FIELD lift — a fieldless type with ≥1
+  method/ctor/property now returns fieldCount 0 instead of -1 (a fully empty body still declines). Pure-behavior
+  base classes (`class HBase { func Tag… }`) were declining the whole program before this.
+- **Adapter**: carries `BaseName` onto `ColumnarStructInput`; admits fieldCount 0 for REFERENCE types only (a
+  zero-size value struct stays declined — CLR layout edge).
+- **Emitter** (`ColumnarIlEmitter`): PASS 0a' resolves the base + `SetParent` and computes chain depths (cycle ⇒
+  decline); PASS 0b'' declines every member SHADOWING shape except method-over-METHOD hiding (oracle-accepted,
+  nearest-declaration-wins); PASS 0c admits `ChainInitKind == 2` when a base is declared; new PASS 0d synthesizes
+  default ctors depth-ascending — a no-base class keeps `DefineDefaultConstructor`, a derived one gets a MANUAL
+  parameterless ctor chaining to the base's parameterless ctor (decline when the base has only parameterized
+  ctors, matching the oracle's "must chain to a base constructor"). `EmitChainedConstructorCall` resolves
+  `: base(args)` among the DIRECT base's ctors by chain-arg count (zero-arg falls back to the synthesized default
+  ctor); a NO-initializer ctor implicitly chains to the base parameterless ctor instead of `object::.ctor`
+  (ECMA-335: a ctor must run the DIRECT base ctor). NL304 own-fields-only validation unchanged; `: base(...)`
+  skips it exactly like `: this(...)` (pinned). Member resolution CHAIN-WALKS nearest-first at six sites: bare
+  field read, bare field write, external field/property read, property-setter write, external instance call, and
+  NEW bare own-method calls (`GetX()` ⇒ `ldarg.0; call/callvirt`, declined if the name also matches a sibling
+  top-level function — unverified resolution order). `CreateType` bakes base-before-derived by chain depth, so
+  FORWARD base references (derived declared first) work.
+
+Parity tests `ColumnarCodegen_Parity_ClassInheritance` + `…ImplicitChainHidingAndBareCalls`: headline
+`f(5,3)=8` surface, 3-level chain, inherited field/property/method via derived receivers, `: base(x)` leaving own
+fields default, int-literal chain args, derived ctor assigning an inherited field, implicit chain to a fields-only
+base, explicit `: base()`, method hiding, bare own-method calls on a class AND a value struct, forward base,
+fieldless class. DECLINES pinned: base-arity mismatches, implicit chain vs arg-only base (ctor and no-ctor),
+class:struct/unknown/self/cycle bases, struct-with-base, object-init of an inherited field, field/property
+shadowing, bare-call sibling ambiguity, empty class body, fieldless value struct. Two stale "inheritance
+declines" assertions from earlier slices updated. 623 ILCompiler+dogfood tests green; full non-IDE gate green.
+Next per the Phase D order: static methods → generics → lambdas/closures.
+
+---
+
 ## 2026-06-09 — N# ILCompiler fix bundle: inheritance member resolution + base-ctor chaining (verify-first findings)
 
 VERIFY-FIRST probing for the columnar inheritance slice (two probe rounds against the production pipeline:

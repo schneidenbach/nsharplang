@@ -404,15 +404,17 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 
 // Parser slice (struct bodies): parse ONE fields-only struct declaration's fields into flat parallel arrays.
 // `structIndex` is the compacted token index of the `struct` keyword (token 9). Reads the struct NAME (the
-// Identifier after `struct`) into outResult[0]=nameStart / outResult[1]=nameLength, then `{` (129), then a sequence
+// Identifier after `struct`) into outResult[0]=nameStart / outResult[1]=nameLength, then an OPTIONAL single-
+// identifier BASE TYPE (`: Base`) into outResult[5]=baseStart / outResult[6]=baseLength (0/0 when absent — the
+// host resolves and validates the base; only classes model one), then `{` (129), then a sequence
 // of FIELDS until `}` (130). Each field is `Identifier : <type-name>` where the type is a SINGLE Identifier token
 // (a builtin like int/double/string, which the lexer tokenizes as an Identifier, kind 0). There is no field
 // separator (newlines are stripped before this runs), so fields are detected by the repeating `name : type`
 // pattern: outFieldNameStarts/Lengths[f] = the field name span, outFieldTypeStarts/Lengths[f] = the field
-// TYPE-name span. Returns the field count, or -1 on any unexpected token — a primary-ctor `(` after the name, a
-// method (`func`), a field initializer (`=`), a composed/array/tuple field type (a non-Identifier after `:`), a
-// missing name/colon/brace, or an empty body — so the host declines the whole program to the C# path. Slice-1
-// scope: fields-only structs with single-builtin-token field types.
+// TYPE-name span. Returns the field count (0 is legal for a FIELDLESS type with at least one method/ctor/property),
+// or -1 on any unexpected token — a primary-ctor `(` after the name, a field initializer (`=`), a composed/array/
+// tuple field type (a non-Identifier after `:`), a missing name/colon/brace, or a fully EMPTY body — so the host
+// declines the whole program to the C# path.
 // Also used for RECORD declarations (token 13) and CLASS declarations (token 8): the `record/class Name { fields
 // methods }` body syntax is identical to a struct's, so the same kernel parses all three — the host distinguishes a
 // value-type struct from a reference-type record/class by which keyword index it passed in. Accepts the `struct` (9),
@@ -432,6 +434,17 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     outResult[0] = tokenStarts[pos]
     outResult[1] = tokenValueLengths[pos]
     pos = pos + 1
+
+    // Optional BASE TYPE: `class D: Base {` — a `:` (122) after the type name followed by a SINGLE Identifier
+    // (the base type name; a composed/generic base is not modelled and falls to the `{` check below, returning
+    // -1). The base-name span goes to outResult[5]/[6]; with no base both are 0 (a name length is never 0).
+    outResult[5] = 0
+    outResult[6] = 0
+    if pos + 1 < count && tokenKinds[pos] == 122 && tokenKinds[pos + 1] == 0 {
+        outResult[5] = tokenStarts[pos + 1]
+        outResult[6] = tokenValueLengths[pos + 1]
+        pos = pos + 2
+    }
 
     if pos >= count || tokenKinds[pos] != 129 {
         return -1
@@ -502,9 +515,9 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     // and scan to the matching `}` (balanced). The host parses the signatures/bodies via the existing function
     // kernels at the recorded indices (a constructor's `(params)` and `{body}` parse via the same signature/statement
     // kernels — it has no name token and no `: ret`, so the signature kernel yields name=-1, returnRoot=-1; a
-    // constructor INITIALIZER `: this(...)`/`base(...)` makes the signature kernel's return-type parse fail, so a
-    // chained ctor declines). A member with no `{` body declines. The host verifies each ctor identifier's text is
-    // literally "constructor".
+    // constructor INITIALIZER `: this(...)`/`base(...)` is skipped by the signature kernel and parsed separately
+    // via ParseConstructorChainInfoInto). A member with no `{` body declines. The host verifies each ctor
+    // identifier's text is literally "constructor".
     methodCount := 0
     ctorCount := 0
     while pos < count && tokenKinds[pos] != 130 {
@@ -548,7 +561,10 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     if pos >= count || tokenKinds[pos] != 130 {
         return -1
     }
-    if fieldCount == 0 {
+    // A FIELDLESS type is legal when it has at least one other member (a pure-behavior class — e.g. an
+    // inheritance base with only methods). A fully EMPTY body (no fields, methods, ctors, or properties)
+    // still returns -1 (unmodelled shape — the host declines to the C# path).
+    if fieldCount == 0 && methodCount == 0 && ctorCount == 0 && propCount == 0 {
         return -1
     }
     outResult[2] = methodCount

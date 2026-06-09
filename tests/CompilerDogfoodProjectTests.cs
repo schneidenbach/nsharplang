@@ -3807,11 +3807,10 @@ class B
         Assert.False(getM.IsStatic);
         Assert.Equal(typeof(int), getM.ReturnType);
 
-        // DECLINES (slice 1a scope): a PRIMARY constructor `class C(x)`, INHERITANCE `class D: Base`. (A user
-        // `constructor` and a field-mutating method are now supported — see ColumnarCodegen_Parity_ClassConstructor /
-        // ColumnarCodegen_Parity_ClassFieldMutationInMethod.)
+        // DECLINE (slice 1a scope): a PRIMARY constructor `class C(x)`. (A user `constructor`, a field-mutating
+        // method, and INHERITANCE `class D: Base` are now supported — see ColumnarCodegen_Parity_ClassConstructor /
+        // ColumnarCodegen_Parity_ClassFieldMutationInMethod / ColumnarCodegen_Parity_ClassInheritance.)
         Assert.False(RouteColumnarProgram("class C(x: int) {\n    func g(): int { return x }\n}\n\nfunc f(): int { return 1 }\n").Ok);
-        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n}\n\nclass D: Base {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // CLASS slice 1b-i — field WRITE in a reference-type instance method body (`X = expr` -> `ldarg.0; <value>;
@@ -3950,10 +3949,9 @@ class B
         var cType = System.Reflection.Assembly.Load(asm!).GetType("C")!;
         Assert.Equal(2, cType.GetConstructors().Length);
 
-        // DECLINES: a chained arg that is a COMPLEX expression (`this(x + y)` — only a param/int-literal arg is
-        // modelled), and INHERITANCE `class D: Base` (which a `: base(...)` chain requires — not modelled).
+        // DECLINE: a chained arg that is a COMPLEX expression (`this(x + y)` — only a param/int-literal arg is
+        // modelled). (INHERITANCE + `: base(...)` chaining is now supported — see ColumnarCodegen_Parity_ClassInheritance.)
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n    constructor(x: int, y: int): this(x + y) {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
-        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(x: int): base(x) {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // CLASS get-only computed PROPERTIES — `Name: Type { get { body } }`. The kernel delimits the property (an
@@ -4022,6 +4020,151 @@ class B
         // DECLINE: assigning a GET-ONLY property (no setter) — the N# pipeline reports NL103 (member not found), so
         // columnar declines (no set_Name).
         Assert.False(RouteColumnarProgram("class C {\n    v: int\n    D: int {\n        get {\n            return v\n        }\n    }\n    constructor(x: int) {\n        v = x\n    }\n}\n\nfunc f(x: int): int {\n    c := new C(x)\n    c.D = 9\n    return c.D\n}\n").Ok);
+    }
+
+    // CLASS INHERITANCE — `class D: Base` with `: base(args)` constructor chaining. The kernel parses the optional
+    // base name after the type name; the emitter re-parents the TypeBuilder (PASS 0a'), admits `: base(...)` chaining
+    // ctors (resolved among the DIRECT base's ctors by chain-arg count), and resolves fields/methods/properties by
+    // WALKING THE BASE CHAIN nearest-first — bare reads/writes/calls inside derived members and external `d.Member`
+    // access both see inherited members. A `: base(...)` ctor skips NL304 (all-fields-assigned) exactly like
+    // `: this(...)` — empirically pinned against the N# pipeline. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassInheritance()
+    {
+        var prog =
+            // the headline surface: inherited field via bare read in the base, inherited METHOD via bare call in a
+            // derived method, external `d.X` / `d.GetX()` through the derived receiver.
+            "class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n    func GetX(): int {\n        return X\n    }\n}\n\n" +
+            "class D: Base {\n    Y: int\n    constructor(x: int, y: int): base(x) {\n        Y = y\n    }\n    func Sum(): int {\n        return GetX() + Y\n    }\n}\n\n" +
+            "func f(x: int, y: int): int {\n    d := new D(x, y)\n    return d.Sum()\n}\n\n" +
+            "func readField(x: int, y: int): int {\n    d := new D(x, y)\n    return d.X + d.Y\n}\n\n" +
+            "func callInherited(x: int, y: int): int {\n    d := new D(x, y)\n    return d.GetX()\n}\n\n" +
+            // a MULTI-LEVEL chain (C: B: A): the grandchild bare-calls a grandparent method and reads members from
+            // every level; each ctor chains one level up.
+            "class A {\n    P: int\n    constructor(p: int) {\n        P = p\n    }\n    func GetP(): int {\n        return P\n    }\n}\n\n" +
+            "class B: A {\n    Q: int\n    constructor(p: int, q: int): base(p) {\n        Q = q\n    }\n}\n\n" +
+            "class C: B {\n    R: int\n    constructor(p: int, q: int, r: int): base(p, q) {\n        R = r\n    }\n    func Total(): int {\n        return GetP() + Q + R\n    }\n}\n\n" +
+            "func total(p: int, q: int, r: int): int {\n    c := new C(p, q, r)\n    return c.Total()\n}\n\n" +
+            // a `: base(x)` ctor whose body does NOT assign its own field — NL304 is skipped for a chaining ctor
+            // (pinned), so Y stays default 0.
+            "class SoloBase {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\n" +
+            "class Solo: SoloBase {\n    Y: int\n    constructor(x: int): base(x) {\n    }\n    func Combo(): int {\n        return X * 1000 + Y\n    }\n}\n\n" +
+            "func defaulted(x: int): int {\n    s := new Solo(x)\n    return s.Combo()\n}\n\n" +
+            // an INT-LITERAL chain arg (`: base(7)`), plus a SECOND class deriving the same base.
+            "class Fixed: SoloBase {\n    Z: int\n    constructor(z: int): base(7) {\n        Z = z\n    }\n    func T(): int {\n        return X + Z\n    }\n}\n\n" +
+            "func fixedT(z: int): int {\n    fx := new Fixed(z)\n    return fx.T()\n}\n\n" +
+            // a derived ctor that ASSIGNS an inherited field (bare write walks the chain to the base's FieldBuilder).
+            "class Counter {\n    N: int\n    constructor(n: int) {\n        N = n\n    }\n}\n\n" +
+            "class Boosted: Counter {\n    M: int\n    constructor(n: int, m: int): base(n) {\n        M = m\n        N = N + M\n    }\n    func Val(): int {\n        return N\n    }\n}\n\n" +
+            "func boosted(n: int, m: int): int {\n    b := new Boosted(n, m)\n    return b.Val()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("f", new object[] { 5, 3 }), ("f", new object[] { 0, 0 }), ("f", new object[] { -4, 9 }),
+            ("readField", new object[] { 5, 3 }), ("readField", new object[] { -2, 2 }),
+            ("callInherited", new object[] { 7, 1 }),
+            ("total", new object[] { 1, 2, 3 }), ("total", new object[] { 0, 0, 0 }), ("total", new object[] { -5, 10, 2 }),
+            ("defaulted", new object[] { 5 }), ("defaulted", new object[] { 0 }),
+            ("fixedT", new object[] { 3 }), ("fixedT", new object[] { -7 }),
+            ("boosted", new object[] { 10, 5 }), ("boosted", new object[] { 0, 0 }));
+
+        // Metadata: D's CLR base type is Base (not object) — the TypeBuilder was re-parented.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the inheritance program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        Assert.Equal("Base", loaded.GetType("D")!.BaseType!.Name);
+        Assert.Equal("B", loaded.GetType("C")!.BaseType!.Name);
+        Assert.Equal("A", loaded.GetType("B")!.BaseType!.Name);
+
+        // DECLINES (each is N#-pipeline-rejected or out of slice scope — declining routes to the C# path):
+        // `: base(x, 99)` when the base has only a 1-param ctor (no candidate by chain-arg count).
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(x: int): base(x, 99) {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // `: base()` when the base has ONLY a parameterized ctor.
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(): base() {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a bare call that matches BOTH an instance method on the chain AND a sibling top-level function — the
+        // resolution order is unverified against the N# pipeline, so columnar declines the ambiguity.
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func Helper(): int {\n        return n\n    }\n    func Use(): int {\n        return Helper()\n    }\n}\n\nfunc Helper(): int {\n    return 99\n}\n\nfunc f(v: int): int {\n    c := new C { n: v }\n    return c.Use()\n}\n").Ok);
+    }
+
+    // CLASS INHERITANCE — implicit base chaining, default-ctor synthesis, method HIDING, inherited properties, and
+    // bare own-method calls. A no-initializer derived ctor (and a synthesized default ctor on a no-ctor derived
+    // class) implicitly chains to the base's PARAMETERLESS ctor — user-declared or PASS-0d-synthesized — and
+    // declines when the base offers only parameterized ctors (the N# pipeline rejects the implicit chain). A derived
+    // method with a base method's NAME is accepted as HIDING (nearest declaration wins — pinned against the N#
+    // pipeline); every other shadowing shape declines. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassInheritanceImplicitChainHidingAndBareCalls()
+    {
+        var prog =
+            // a fields-only base with NO ctor: the derived no-initializer ctor implicitly chains to the base's
+            // synthesized default ctor; the inherited field stays default 0.
+            "class FBase {\n    Tag: int\n}\n\n" +
+            "class FDer: FBase {\n    N: int\n    constructor(n: int) {\n        N = n\n    }\n    func Val(): int {\n        return N + Tag\n    }\n}\n\n" +
+            "func implicitChain(n: int): int {\n    d := new FDer(n)\n    return d.Val()\n}\n\n" +
+            // an EXPLICIT `: base()` to a user 0-param base ctor.
+            "class GBase {\n    B: int\n    constructor() {\n        B = 7\n    }\n    func GetB(): int {\n        return B\n    }\n}\n\n" +
+            "class GDer: GBase {\n    constructor(): base() {\n    }\n}\n\n" +
+            "func explicitZeroBase(): int {\n    g := new GDer()\n    return g.GetB()\n}\n\n" +
+            // method HIDING: the derived Tag() wins over the base's, both externally and via a bare call in a
+            // derived method. HDer has NO ctor — object-init uses the PASS-0d synthesized default ctor (which
+            // chains to the base's synthesized default ctor).
+            "class HBase {\n    func Tag(): int {\n        return 1\n    }\n}\n\n" +
+            "class HDer: HBase {\n    K: int\n    func Tag(): int {\n        return 2\n    }\n    func Use(): int {\n        return Tag() * 10 + K\n    }\n}\n\n" +
+            "func hiding(k: int): int {\n    d := new HDer { K: k }\n    return d.Tag() * 100 + d.Use()\n}\n\n" +
+            // an INHERITED get/set property through a derived receiver (chain-walked set_Value/get_Value).
+            "class PBase {\n    backing: int\n    Value: int {\n        get {\n            return backing\n        }\n        set {\n            backing = value\n        }\n    }\n    constructor() {\n        backing = 0\n    }\n}\n\n" +
+            "class PDer: PBase {\n    constructor(): base() {\n    }\n}\n\n" +
+            "func inhProp(v: int): int {\n    p := new PDer()\n    p.Value = v\n    return p.Value + 1\n}\n\n" +
+            // bare OWN-method calls (implicit `this`) on a CLASS and on a VALUE struct (no inheritance involved —
+            // the same resolution path, `ldarg.0; call/callvirt`).
+            "class CalcC {\n    n: int\n    func Twice(): int {\n        return n * 2\n    }\n    func Quad(): int {\n        return Twice() + Twice()\n    }\n}\n\n" +
+            "func quad(v: int): int {\n    c := new CalcC { n: v }\n    return c.Quad()\n}\n\n" +
+            "struct CalcS {\n    v: int\n    func Twice(): int {\n        return v * 2\n    }\n    func Plus(): int {\n        return Twice() + 1\n    }\n}\n\n" +
+            "func sPlus(x: int): int {\n    s := new CalcS { v: x }\n    return s.Plus()\n}\n\n" +
+            // a FORWARD base reference: the derived class is declared BEFORE its base (legal — finalization orders
+            // CreateType base-before-derived by chain depth).
+            "class Der2: Base3 {\n    constructor(x: int): base(x) {\n    }\n    func GetVal(): int {\n        return V\n    }\n}\n\n" +
+            "class Base3 {\n    V: int\n    constructor(v: int) {\n        V = v\n    }\n}\n\n" +
+            "func forwardBase(x: int): int {\n    d := new Der2(x)\n    return d.GetVal()\n}\n\n" +
+            // a FIELDLESS class with no inheritance at all (the zero-field lift this slice added to the kernel +
+            // adapter — previously any 0-field type declined).
+            "class Z {\n    func One(): int {\n        return 1\n    }\n}\n\n" +
+            "func zeroField(): int {\n    z := new Z {  }\n    return z.One()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("implicitChain", new object[] { 5 }), ("implicitChain", new object[] { 0 }),
+            ("explicitZeroBase", new object[0]),
+            ("hiding", new object[] { 3 }), ("hiding", new object[] { 0 }),
+            ("inhProp", new object[] { 9 }), ("inhProp", new object[] { -2 }),
+            ("quad", new object[] { 4 }), ("quad", new object[] { 0 }),
+            ("sPlus", new object[] { 6 }), ("sPlus", new object[] { -1 }),
+            ("forwardBase", new object[] { 11 }), ("forwardBase", new object[] { 0 }),
+            ("zeroField", new object[0]));
+
+        // DECLINES (all N#-pipeline-rejected or unverified resolution shapes — routing to the C# path is safe):
+        // a class inheriting a VALUE-TYPE struct ("only classes and interfaces can appear in a base list").
+        Assert.False(RouteColumnarProgram("struct V {\n    x: int\n}\n\nclass D: V {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a VALUE-TYPE struct with a base.
+        Assert.False(RouteColumnarProgram("struct A {\n    x: int\n}\n\nstruct B: A {\n    y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // an UNKNOWN base name.
+        Assert.False(RouteColumnarProgram("class D: Nope {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a SELF base.
+        Assert.False(RouteColumnarProgram("class D: D {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // an inheritance CYCLE.
+        Assert.False(RouteColumnarProgram("class A: B {\n    X: int\n}\n\nclass B: A {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // an IMPLICIT chain when the base has ONLY parameterized ctors — both a no-initializer derived ctor and a
+        // no-ctor derived class (the synthesized default ctor has nothing to chain to).
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    Y: int\n    constructor(y: int) {\n        Y = y\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    Y: int\n}\n\nfunc f(y: int): int {\n    d := new D { Y: y }\n    return d.Y\n}\n").Ok);
+        // OBJECT-INIT of an INHERITED field (the init list resolves OWN fields only).
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n}\n\nclass D: Base {\n    Y: int\n}\n\nfunc f(v: int): int {\n    d := new D { X: v }\n    return d.X\n}\n").Ok);
+        // FIELD shadowing an inherited field (unverified resolution — only method-over-METHOD hiding is modelled).
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n}\n\nclass D: Base {\n    X: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a derived FIELD shadowing an inherited METHOD.
+        Assert.False(RouteColumnarProgram("class Base {\n    func K(): int {\n        return 1\n    }\n}\n\nclass D: Base {\n    K: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a derived PROPERTY shadowing an inherited property.
+        Assert.False(RouteColumnarProgram("class Base {\n    v: int\n    P: int {\n        get {\n            return v\n        }\n    }\n}\n\nclass D: Base {\n    w: int\n    P: int {\n        get {\n            return w\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a fully EMPTY class body (no members at all) and a FIELDLESS VALUE struct — the zero-field lift covers
+        // reference types with at least one member only (a zero-size value type is a CLR layout edge case).
+        Assert.False(RouteColumnarProgram("class E {\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("struct S {\n    func One(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either

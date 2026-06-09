@@ -941,14 +941,21 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outMethodFuncIndices = new int[cap];
                 var outCtorIndices = new int[cap];
                 var outPropIndices = new int[cap];
-                var outResult = new int[5];
+                var outResult = new int[7];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
                     outFieldTypeLengths, outMethodFuncIndices, outCtorIndices, outPropIndices, outResult);
-                if (fieldCount <= 0 || outResult[1] <= 0)
+                // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
+                // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
+                // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
+                if (fieldCount < 0 || (fieldCount == 0 && !isReference) || outResult[1] <= 0)
                     return false;
 
                 var structName = source.Substring(outResult[0], outResult[1]);
+                // The optional `: Base` single-identifier base-type name (outResult[5]/[6]; 0-length = no base).
+                // The emitter resolves it against the declared types and validates (only a reference type may
+                // inherit, only from a registered class — anything else declines there).
+                var baseName = outResult[6] > 0 ? source.Substring(outResult[5], outResult[6]) : null;
                 var fieldNames = new string[fieldCount];
                 var fieldTypes = new string[fieldCount];
                 for (var f = 0; f < fieldCount; f++)
@@ -992,7 +999,7 @@ internal static class NSharpCompilerDogfoodAdapter
                     properties.Add(propInput);
                 }
 
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference));
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName));
             }
             return true;
         }

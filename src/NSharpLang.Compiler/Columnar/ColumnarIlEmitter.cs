@@ -137,7 +137,7 @@ public sealed class ColumnarPropertyInput
 
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string? baseName = null)
     {
         Name = name;
         FieldNames = fieldNames;
@@ -146,6 +146,7 @@ public sealed class ColumnarStructInput
         Constructors = constructors;
         Properties = properties;
         IsReference = isReference;
+        BaseName = baseName;
     }
 
     public string Name { get; }
@@ -164,6 +165,10 @@ public sealed class ColumnarStructInput
     // True for a RECORD or CLASS (a reference type — class base object, constructed via newobj + a default ctor or a
     // user ctor, fields read directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
     public bool IsReference { get; }
+    // The optional `: Base` single-identifier base-type name (`class D: Base`), or null. Only a CLASS may inherit,
+    // and only from another declared class — the emitter validates and declines everything else (a struct/record/
+    // enum/union/unknown base, a base on a value type).
+    public string? BaseName { get; }
 }
 
 /// <summary>
@@ -197,13 +202,12 @@ public sealed class ColumnarUnionInput
 /// </summary>
 internal sealed class ColumnarStructDef
 {
-    public ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, bool isReference, ConstructorBuilder? defaultCtor)
+    public ColumnarStructDef(TypeBuilder builder, string[] fieldOrder, Dictionary<string, FieldBuilder> fields, bool isReference)
     {
         Builder = builder;
         FieldOrder = fieldOrder;
         Fields = fields;
         IsReference = isReference;
-        DefaultCtor = defaultCtor;
     }
 
     public TypeBuilder Builder { get; }
@@ -211,7 +215,14 @@ internal sealed class ColumnarStructDef
     public Dictionary<string, FieldBuilder> Fields { get; }
     // True for a RECORD (reference type). For a record, DefaultCtor is its parameterless ctor (newobj target).
     public bool IsReference { get; }
-    public ConstructorBuilder? DefaultCtor { get; }
+    // The synthesized public parameterless constructor (the object-init `newobj` target) for a reference type with
+    // NO user constructors — chains to object (no base) or to the base's parameterless ctor. Set in PASS 0d (after
+    // user ctors are declared, so a derived default ctor can chain to a base USER 0-param ctor); null for a value
+    // type or a type with user ctors.
+    public ConstructorBuilder? DefaultCtor { get; set; }
+    // The declared BASE class's def (`class D: Base`), or null. Reference types only; set in PASS 0a'. Member
+    // resolution (fields/methods/properties) walks this chain, nearest declaration first (modelling method hiding).
+    public ColumnarStructDef? BaseDef { get; set; }
     // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
     // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
     public Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
@@ -395,6 +406,58 @@ public sealed class ColumnarIlEmitter
         }
 
         return true;
+    }
+
+    // The parameterless constructor a derived type may chain to on `def`: the synthesized default ctor (PASS 0d)
+    // when the type has no user ctors, else a USER 0-param ctor if one was declared (PASS 0c). Null when the type
+    // has only parameterized user ctors — an implicit (or explicit `: base()`) chain to it is impossible.
+    private static ConstructorBuilder? ResolveParameterlessCtor(ColumnarStructDef def)
+    {
+        if (def.DefaultCtor != null)
+            return def.DefaultCtor;
+        foreach (var (builder, paramTypes) in def.Constructors)
+        {
+            if (paramTypes.Length == 0)
+                return builder;
+        }
+        return null;
+    }
+
+    // Chain-walking member resolution: find `name` on `def` or any base on its chain, NEAREST declaration first —
+    // exactly the N# pipeline's resolution order (a derived method HIDING a base method resolves to the derived
+    // one; field/property shadowing never reaches here — PASS 0b'' declined it). Null/false when no declaration
+    // on the whole chain carries the name.
+    private static bool TryFindFieldOnChain(ColumnarStructDef def, string name, out FieldBuilder field)
+    {
+        for (var d = def; d != null; d = d.BaseDef)
+        {
+            if (d.Fields.TryGetValue(name, out field!))
+                return true;
+        }
+        field = null!;
+        return false;
+    }
+
+    private static bool TryFindMethodOnChain(ColumnarStructDef def, string name, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    {
+        for (var d = def; d != null; d = d.BaseDef)
+        {
+            if (d.Methods.TryGetValue(name, out method))
+                return true;
+        }
+        method = default;
+        return false;
+    }
+
+    private static bool TryFindPropertyOnChain(ColumnarStructDef def, string name, out (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType) property)
+    {
+        for (var d = def; d != null; d = d.BaseDef)
+        {
+            if (d.Properties.TryGetValue(name, out property))
+                return true;
+        }
+        property = default;
+        return false;
     }
 
     // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long/ulong (i4/i8),
@@ -697,13 +760,43 @@ public sealed class ColumnarIlEmitter
                 if (!fields.TryAdd(st.FieldNames[fi], fb))
                     return false; // a duplicate field name within one struct is malformed.
             }
-            // A reference type with NO user constructor gets a synthesized public parameterless DefaultCtor (the
-            // object-init `newobj` target). A reference type WITH a user constructor has no implicit default ctor —
-            // the user ctors are defined in PASS 0c and drive positional construction; object-init on it declines.
-            var defaultCtor = (st.IsReference && st.Constructors.Count == 0) ? tb.DefineDefaultConstructor(MethodAttributes.Public) : null;
             structBuilders[s] = tb;
-            if (!structRegistry.TryAdd(st.Name, new ColumnarStructDef(tb, st.FieldNames, fields, st.IsReference, defaultCtor)))
+            if (!structRegistry.TryAdd(st.Name, new ColumnarStructDef(tb, st.FieldNames, fields, st.IsReference)))
                 return false; // a duplicate struct name is an ambiguous type.
+        }
+
+        // PASS 0a' (base classes): resolve each `class D: Base` base name and re-parent the TypeBuilder. Only a
+        // CLASS (reference type) may inherit, and only from another declared CLASS — a base on a value type, a
+        // value-type/enum/union/unknown base name, and an inheritance CYCLE all decline (the N# pipeline rejects
+        // each: "only classes and interfaces can appear in a base list" / unknown type). The base may be declared
+        // before OR after the derived class in source (forward base references are legal); finalization below
+        // orders CreateType base-before-derived by chain depth.
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var baseName = structs[s].BaseName;
+            if (baseName == null)
+                continue;
+            var def = structRegistry[structs[s].Name];
+            if (!def.IsReference)
+                return false; // a value-type struct cannot inherit.
+            if (!structRegistry.TryGetValue(baseName, out var baseDef) || !baseDef.IsReference || baseDef == def)
+                return false; // unknown / non-class / self base.
+            def.BaseDef = baseDef;
+            def.Builder.SetParent(baseDef.Builder);
+        }
+        // Chain-depth per type: 0 for no base, base's depth + 1 otherwise. A chain longer than the type count is a
+        // CYCLE (A: B, B: A) — decline before any IL references the malformed hierarchy.
+        var structDepths = new int[structs.Count];
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var depth = 0;
+            for (var d = structRegistry[structs[s].Name].BaseDef; d != null; d = d.BaseDef)
+            {
+                depth++;
+                if (depth > structs.Count)
+                    return false; // inheritance cycle.
+            }
+            structDepths[s] = depth;
         }
 
         // PASS 0b (struct methods): now that all struct TYPES exist, DECLARE each struct's instance methods (a second
@@ -789,13 +882,43 @@ public sealed class ColumnarIlEmitter
             }
         }
 
+        // PASS 0b'' (inherited-member shadowing): with every field/method/property declared, decline any member of
+        // a derived type whose name SHADOWS an inherited member — EXCEPT a method over an inherited METHOD, which
+        // the N# pipeline accepts as hiding (the nearest declaration wins; chain-walking resolution models exactly
+        // that). Field-over-anything, method-over-field/property, and property-over-anything shadowing is NOT
+        // verified against the oracle — decline to the C# path rather than risk a resolution divergence.
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var def = structRegistry[structs[s].Name];
+            if (def.BaseDef == null)
+                continue;
+            for (var chain = def.BaseDef; chain != null; chain = chain.BaseDef)
+            {
+                foreach (var fieldName in def.Fields.Keys)
+                {
+                    if (chain.Fields.ContainsKey(fieldName) || chain.Methods.ContainsKey(fieldName) || chain.Properties.ContainsKey(fieldName))
+                        return false;
+                }
+                foreach (var methodName in def.Methods.Keys)
+                {
+                    if (chain.Fields.ContainsKey(methodName) || chain.Properties.ContainsKey(methodName))
+                        return false;
+                }
+                foreach (var propName in def.Properties.Keys)
+                {
+                    if (chain.Fields.ContainsKey(propName) || chain.Methods.ContainsKey(propName) || chain.Properties.ContainsKey(propName))
+                        return false;
+                }
+            }
+        }
+
         // PASS 0c (constructors): declare each reference-type's user constructor(s). A constructor is a nameless,
         // void-returning member whose body assigns fields; `this` is arg 0 so user param ordinals shift by +1. Slice
         // scope: one or more OVERLOADED constructors on a REFERENCE type (class/record), optionally with a `: this(...)`
-        // chaining initializer. Overload resolution at construction is by PARAM COUNT (see case 15). A value-type
-        // struct constructor and a `: base(...)` initializer (no modelled base class) are deferred — decline. The
-        // ConstructorBuilder + its param types are stored for positional-construction resolution; the body (+ chained
-        // call) is emitted (+ validated) in PASS 2.
+        // (same-type) or `: base(...)` (declared base class) chaining initializer. Overload resolution at construction
+        // is by PARAM COUNT (see case 15). A value-type struct constructor declines. The ConstructorBuilder + its
+        // param types are stored for positional-construction resolution; the body (+ chained call) is emitted
+        // (+ validated) in PASS 2.
         var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         for (var s = 0; s < structs.Count; s++)
         {
@@ -807,8 +930,8 @@ public sealed class ColumnarIlEmitter
                 return false;
             foreach (var ctor in structs[s].Constructors)
             {
-                if (ctor.ChainInitKind == 2)
-                    return false; // a `: base(...)` initializer needs a modelled base class — deferred.
+                if (ctor.ChainInitKind == 2 && def.BaseDef == null)
+                    return false; // a `: base(...)` initializer requires a declared (modelled) base class.
                 var cParamTypes = new Type[ctor.Body.ParamNames.Length];
                 var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
@@ -837,6 +960,41 @@ public sealed class ColumnarIlEmitter
                 var cb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, cParamTypes);
                 def.Constructors.Add((cb, cParamTypes));
                 structCtorJobs.Add((def, ctor, cb, cOrdinals, cParamTypeMap));
+            }
+        }
+
+        // PASS 0d (default constructors): synthesize the public parameterless ctor for each reference type with NO
+        // user constructors (the `newobj` target for object-init `new T { ... }`). Runs AFTER PASS 0c so a base's
+        // USER parameterless ctor is visible, and depth-ASCENDING so a derived default ctor can chain to a base
+        // default ctor that was synthesized one iteration earlier. A no-base class keeps today's
+        // DefineDefaultConstructor (chains to object); a derived class needs a MANUAL ctor (DefineDefaultConstructor
+        // requires a baked base) whose body chains to the base's parameterless ctor — and if the base has ONLY
+        // parameterized ctors, the implicit chain is impossible and the N# pipeline rejects it ("must chain to a
+        // base constructor") — decline.
+        for (var depth = 0; depth < structs.Count; depth++)
+        {
+            for (var s = 0; s < structs.Count; s++)
+            {
+                if (structDepths[s] != depth)
+                    continue;
+                var st = structs[s];
+                if (!st.IsReference || st.Constructors.Count > 0)
+                    continue;
+                var def = structRegistry[st.Name];
+                if (def.BaseDef == null)
+                {
+                    def.DefaultCtor = def.Builder.DefineDefaultConstructor(MethodAttributes.Public);
+                    continue;
+                }
+                var baseCtorTarget = ResolveParameterlessCtor(def.BaseDef);
+                if (baseCtorTarget == null)
+                    return false; // base has only parameterized ctors — an implicit chain is impossible.
+                var dcb = def.Builder.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
+                var dcil = dcb.GetILGenerator();
+                dcil.Emit(OpCodes.Ldarg_0);
+                dcil.Emit(OpCodes.Call, baseCtorTarget);
+                dcil.Emit(OpCodes.Ret);
+                def.DefaultCtor = dcb;
             }
         }
 
@@ -973,11 +1131,13 @@ public sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 job.Ctor.Body.Kinds, job.Ctor.Body.ValueStarts, job.Ctor.Body.ValueLengths, job.Ctor.Body.ChildStart, job.Ctor.Body.ChildCount, job.Ctor.Body.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
-            if (job.Ctor.ChainInitKind == 1)
+            if (job.Ctor.ChainInitKind != 0)
             {
-                // A `: this(...)` CHAINING constructor delegates field assignment to the chained ctor, so the NL304
-                // all-fields-assigned check does NOT apply — but `return` is still forbidden (NL103). Emit the chained
-                // `this(...)` call (resolved by chain-arg count) in place of the base object ctor, then the body.
+                // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
+                // to the chained ctor, so the NL304 all-fields-assigned check does NOT apply (empirically pinned for
+                // BOTH kinds against the N# pipeline) — but `return` is still forbidden (NL103). Emit the chained
+                // call (resolved by chain-arg count among the same type's / the base type's ctors) in place of the
+                // base object ctor, then the body.
                 if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
                     return false;
                 if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder))
@@ -985,13 +1145,27 @@ public sealed class ColumnarIlEmitter
             }
             else
             {
-                // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every field (NL304).
-                // Validate BEFORE emitting — declining here discards the whole assembly (→ C# path). Then chain to the
-                // base `object` ctor.
+                // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every OWN field (NL304 —
+                // inherited fields are the base ctor's responsibility). Validate BEFORE emitting — declining here
+                // discards the whole assembly (→ C# path). Then chain implicitly: to the declared base's
+                // parameterless ctor when the type has one (decline when the base offers only parameterized ctors —
+                // ECMA-335 requires chaining to the DIRECT base, and the N# pipeline rejects the implicit chain),
+                // else to the `object` ctor.
                 if (!emitter.IsValidReferenceCtorBody(job.Ctor.Body.BodyRoot))
                     return false;
-                cil.Emit(OpCodes.Ldarg_0);
-                cil.Emit(OpCodes.Call, objectCtor);
+                if (job.Struct.BaseDef != null)
+                {
+                    var baseParameterless = ResolveParameterlessCtor(job.Struct.BaseDef);
+                    if (baseParameterless == null)
+                        return false; // base has only parameterized ctors — `: base(...)` is required.
+                    cil.Emit(OpCodes.Ldarg_0);
+                    cil.Emit(OpCodes.Call, baseParameterless);
+                }
+                else
+                {
+                    cil.Emit(OpCodes.Ldarg_0);
+                    cil.Emit(OpCodes.Call, objectCtor);
+                }
             }
             if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
                 return false;
@@ -1002,8 +1176,17 @@ public sealed class ColumnarIlEmitter
         // reference the un-finalized builders resolve to the finalized types at Save.
         foreach (var eb in enumBuilders)
             eb.CreateType();
-        foreach (var sb in structBuilders)
-            sb.CreateType();
+        // Struct/class types bake BASE-BEFORE-DERIVED (depth ascending): CreateType on a derived TypeBuilder
+        // requires its parent to be created first. Depth 0 (no base) covers every value-type struct and standalone
+        // class, so the no-inheritance ordering is unchanged.
+        for (var depth = 0; depth < structs.Count; depth++)
+        {
+            for (var s = 0; s < structs.Count; s++)
+            {
+                if (structDepths[s] == depth)
+                    structBuilders[s].CreateType();
+            }
+        }
         // Union types: a NESTED case must be finalized BEFORE its enclosing base (deepest-first), matching the C#
         // ILCompiler's OrderTypeBuildersByDescendingTypeKeyDepth — so create every case, then every base.
         foreach (var caseTb in unionCaseBuilders)
@@ -1227,7 +1410,7 @@ public sealed class ColumnarIlEmitter
                             foreach (var d in _structRegistry.Values)
                             {
                                 if (d.Builder == recvStaticType && d.IsReference
-                                    && d.Properties.TryGetValue(memberName, out var propWrite) && propWrite.Setter != null)
+                                    && TryFindPropertyOnChain(d, memberName, out var propWrite) && propWrite.Setter != null)
                                 {
                                     if (!EmitExpression(fieldReceiver, out _))
                                         return false;
@@ -1288,8 +1471,9 @@ public sealed class ColumnarIlEmitter
                 // (TryEmitInstanceCall), so a struct method's field mutation would write the copy, not the caller's
                 // variable — diverging from C#'s in-place value semantics. Struct field-mutation-in-method therefore
                 // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
-                // ref is shared through the temp, so the mutation persists correctly.
-                if (_currentStruct != null && _currentStruct.IsReference && _currentStruct.Fields.TryGetValue(targetName, out var thisFieldTarget))
+                // ref is shared through the temp, so the mutation persists correctly. Resolution walks the BASE
+                // chain (nearest first) so a derived member may assign an INHERITED field.
+                if (_currentStruct != null && _currentStruct.IsReference && TryFindFieldOnChain(_currentStruct, targetName, out var thisFieldTarget))
                 {
                     _il.Emit(OpCodes.Ldarg_0);
                     if (!EmitExpression(Child(expr, 1), out var thisValueType) || thisValueType != thisFieldTarget.FieldType)
@@ -1586,11 +1770,13 @@ public sealed class ColumnarIlEmitter
         return assigned.Count == _currentStruct.Fields.Count;
     }
 
-    // Emit a constructor's `: this(args)` CHAINING call: `ldarg.0; <args>; call <chained ctor>`. The chained ctor is
-    // resolved among the current type's constructors by chain-arg COUNT (excluding the chaining ctor itself; two
-    // candidates of that arity are ambiguous-by-count -> decline). Each chained arg is a param IDENTIFIER (kind 0,
-    // resolved to the chaining ctor's param ordinal via `ldarg`, type-checked against the chained ctor's param type)
-    // or an INT LITERAL (kind 1, `ldc.i4`). Returns false (whole assembly discarded) on any unresolved/mismatched arg.
+    // Emit a constructor's `: this(args)` / `: base(args)` CHAINING call: `ldarg.0; <args>; call <chained ctor>`.
+    // The chained ctor is resolved by chain-arg COUNT — for `: this` among the current type's constructors
+    // (excluding the chaining ctor itself), for `: base` among the DIRECT base's constructors (no self-exclusion;
+    // a zero-arg `: base()` against a no-user-ctor base resolves to its PASS-0d default ctor). Two candidates of
+    // that arity are ambiguous-by-count -> decline. Each chained arg is a param IDENTIFIER (kind 0, resolved to the
+    // chaining ctor's param ordinal via `ldarg`, type-checked against the chained ctor's param type) or an INT
+    // LITERAL (kind 1, `ldc.i4`). Returns false (whole assembly discarded) on any unresolved/mismatched arg.
     private bool EmitChainedConstructorCall(ColumnarConstructorInput ctor, ConstructorBuilder self)
     {
         if (_currentStruct == null)
@@ -1600,13 +1786,36 @@ public sealed class ColumnarIlEmitter
         ConstructorBuilder? chained = null;
         Type[]? chainedParamTypes = null;
         var ambiguous = false;
-        foreach (var (cb, cpt) in _currentStruct.Constructors)
+        if (ctor.ChainInitKind == 2)
         {
-            if (cb == self || cpt.Length != argKinds.Length)
-                continue;
-            if (chained != null) { ambiguous = true; break; }
-            chained = cb;
-            chainedParamTypes = cpt;
+            var baseDef = _currentStruct.BaseDef;
+            if (baseDef == null)
+                return false; // guarded in PASS 0c — defensive.
+            foreach (var (cb, cpt) in baseDef.Constructors)
+            {
+                if (cpt.Length != argKinds.Length)
+                    continue;
+                if (chained != null) { ambiguous = true; break; }
+                chained = cb;
+                chainedParamTypes = cpt;
+            }
+            if (chained == null && argKinds.Length == 0 && baseDef.DefaultCtor != null)
+            {
+                // `: base()` against a base with NO user ctors chains to the synthesized default ctor.
+                chained = baseDef.DefaultCtor;
+                chainedParamTypes = Type.EmptyTypes;
+            }
+        }
+        else
+        {
+            foreach (var (cb, cpt) in _currentStruct.Constructors)
+            {
+                if (cb == self || cpt.Length != argKinds.Length)
+                    continue;
+                if (chained != null) { ambiguous = true; break; }
+                chained = cb;
+                chainedParamTypes = cpt;
+            }
         }
         if (chained == null || ambiguous)
             return false;
@@ -1677,8 +1886,9 @@ public sealed class ColumnarIlEmitter
 
                 // Inside a struct INSTANCE method, a bare name that is neither a local nor a param falls back to a
                 // FIELD of the current struct (`this.field`): `this` is arg 0, so emit `ldarg.0; ldfld <FieldBuilder>`.
-                // (Checked AFTER locals/params so a local/param correctly shadows a field.)
-                if (_currentStruct != null && _currentStruct.Fields.TryGetValue(name, out var thisField))
+                // (Checked AFTER locals/params so a local/param correctly shadows a field.) Resolution walks the
+                // BASE chain (nearest first) so a derived member may read an INHERITED field.
+                if (_currentStruct != null && TryFindFieldOnChain(_currentStruct, name, out var thisField))
                 {
                     _il.Emit(OpCodes.Ldarg_0);
                     _il.Emit(OpCodes.Ldfld, thisField);
@@ -1939,12 +2149,35 @@ public sealed class ColumnarIlEmitter
             {       // self/recursion), or a BCL method call (instance on a string, or static on a type like Char)
                     // whose callee is a MemberAccess [receiver, method-name].
                 var callee = Child(idx, 0);
-                if (_kinds[callee] == 6) // bare identifier -> sibling function.
+                if (_kinds[callee] == 6) // bare identifier -> own instance method (`this.M(args)`) or sibling function.
                 {
                     var name = Text(callee);
                     // A local/param of the same name is a delegate/closure invocation the spike does not model.
                     if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
                         return false;
+                    // Inside an instance member, a bare call that names an instance METHOD of the current type (or
+                    // an inherited one — chain walk, nearest first) is an implicit-`this` call: `ldarg.0; <args>;
+                    // call/callvirt`. Checked BEFORE siblings; if a sibling top-level function ALSO carries the
+                    // name, the resolution order is unverified against the N# pipeline — decline (safe).
+                    if (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out var ownMethod))
+                    {
+                        if (_siblings.ContainsKey(name))
+                            return false;
+                        var ownArgCount = _childCount[idx] - 1;
+                        if (ownArgCount != ownMethod.ParamTypes.Length)
+                            return false;
+                        _il.Emit(OpCodes.Ldarg_0);
+                        for (var a = 1; a <= ownArgCount; a++)
+                        {
+                            if (!EmitExpression(Child(idx, a), out var ownArgType) || ownArgType != ownMethod.ParamTypes[a - 1])
+                                return false;
+                        }
+                        // A reference `this` calls via callvirt (standard null check — `this` is never null, but it
+                        // matches the external-receiver path); a value-type `this` is a managed pointer -> `call`.
+                        _il.Emit(_currentStruct.IsReference ? OpCodes.Callvirt : OpCodes.Call, ownMethod.Builder);
+                        type = ownMethod.ReturnType;
+                        return true;
+                    }
                     if (!_siblings.TryGetValue(name, out var target))
                         return false;
                     var argCount = _childCount[idx] - 1;
@@ -2021,7 +2254,9 @@ public sealed class ColumnarIlEmitter
                     }
                     if (fieldStruct == null)
                         return false;
-                    if (fieldStruct.Fields.TryGetValue(member, out var structField))
+                    // Resolution walks the BASE chain (nearest first) so a derived receiver exposes INHERITED
+                    // fields/properties (`d.X` where X is declared on Base).
+                    if (TryFindFieldOnChain(fieldStruct, member, out var structField))
                     {
                         if (fieldStruct.IsReference)
                         {
@@ -2039,7 +2274,7 @@ public sealed class ColumnarIlEmitter
                         type = structField.FieldType;
                         return true;
                     }
-                    if (fieldStruct.IsReference && fieldStruct.Properties.TryGetValue(member, out var propAccessor))
+                    if (fieldStruct.IsReference && TryFindPropertyOnChain(fieldStruct, member, out var propAccessor))
                     {
                         // get-only PROPERTY read: the receiver ref is the getter's `this` — `callvirt get_Name`.
                         _il.Emit(OpCodes.Callvirt, propAccessor.Getter);
@@ -2974,11 +3209,13 @@ public sealed class ColumnarIlEmitter
         // - REFERENCE type (record/class): the receiver IS the object ref, so spill and `ldloc temp; <args>; callvirt`
         //   (callvirt gives the standard null check; the method is non-virtual but callvirt calls it directly).
         // Args are emitted AFTER the receiver, in order, each type-checked against the method's declared param type.
+        // Resolution walks the BASE chain (nearest declaration first — modelling method hiding) so a derived
+        // receiver exposes INHERITED methods (`d.GetX()` where GetX is declared on Base).
         if (receiverType is TypeBuilder)
         {
             foreach (var d in _structRegistry.Values)
             {
-                if (d.Builder == receiverType && d.Methods.TryGetValue(member, out var structMethod))
+                if (d.Builder == receiverType && TryFindMethodOnChain(d, member, out var structMethod))
                 {
                     if (argCount != structMethod.ParamTypes.Length)
                         return false;
