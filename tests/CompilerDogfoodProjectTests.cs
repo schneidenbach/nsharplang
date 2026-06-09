@@ -2996,6 +2996,45 @@ class B
             ("ContainsIgnoreCase", new object[] { "Hello", "xyz" }));
     }
 
+    // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
+    // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
+    // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,
+    // break, and foreach CONTAINING a for. Value-matched vs the C# ILCompiler; non-array collections decline.
+    [Fact]
+    public void ColumnarCodegen_Parity_ForeachLoop()
+    {
+        var prog =
+            "func sumF(a: int[]): int {\n    total := 0\n    foreach x in a {\n        total = total + x\n    }\n    return total\n}\n\n" +
+            "func countF(a: int[], target: int): int {\n    c := 0\n    foreach x in a {\n        if x == target {\n            c = c + 1\n        }\n    }\n    return c\n}\n\n" +
+            "func firstEvenF(a: int[]): int {\n    foreach x in a {\n        if x % 2 == 0 {\n            return x\n        }\n    }\n    return -1\n}\n\n" +
+            "func sumPosF(a: int[]): int {\n    total := 0\n    foreach x in a {\n        if x < 0 {\n            continue\n        }\n        total = total + x\n    }\n    return total\n}\n\n" +
+            "func sumUntilF(a: int[], stop: int): int {\n    total := 0\n    foreach x in a {\n        if x == stop {\n            break\n        }\n        total = total + x\n    }\n    return total\n}\n\n" +
+            "func sumLensF(a: string[]): int {\n    total := 0\n    foreach s in a {\n        total = total + s.Length\n    }\n    return total\n}\n\n" +
+            "func sumDF(a: double[]): double {\n    total := 0.0\n    foreach x in a {\n        total = total + x\n    }\n    return total\n}\n\n" +
+            "func mixF(a: int[], n: int): int {\n    total := 0\n    foreach x in a {\n        for i := 0; i < n; i = i + 1 {\n            total = total + x\n        }\n    }\n    return total\n}\n\n" +
+            // long[] and char[] element types (Ldelem_I8 / Ldelem_U2), and foreach-IN-foreach (nested LIFO labels).
+            "func sumLongF(a: long[]): long {\n    total := 0L\n    foreach x in a {\n        total = total + x\n    }\n    return total\n}\n\n" +
+            "func countLettersF(a: char[]): int {\n    c := 0\n    foreach ch in a {\n        if char.IsLetter(ch) {\n            c = c + 1\n        }\n    }\n    return c\n}\n\n" +
+            "func nestedF(a: int[], b: int[]): int {\n    total := 0\n    foreach x in a {\n        foreach y in b {\n            total = total + x * y\n        }\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sumF", new object[] { new[] { 1, 2, 3, 4 } }), ("sumF", new object[] { new int[0] }),
+            ("countF", new object[] { new[] { 1, 2, 1, 3, 1 }, 1 }), ("countF", new object[] { new[] { 1, 2 }, 9 }),
+            ("firstEvenF", new object[] { new[] { 1, 3, 4, 5 } }), ("firstEvenF", new object[] { new[] { 1, 3, 5 } }), ("firstEvenF", new object[] { new int[0] }),
+            ("sumPosF", new object[] { new[] { 1, -2, 3, -4 } }), ("sumPosF", new object[] { new[] { -1, -2 } }),
+            ("sumUntilF", new object[] { new[] { 1, 2, 3, 4 }, 3 }), ("sumUntilF", new object[] { new[] { 1, 2 }, 9 }),
+            ("sumLensF", new object[] { new[] { "a", "bb", "ccc" } }), ("sumLensF", new object[] { new string[0] }),
+            ("sumDF", new object[] { new[] { 1.5, 2.5, 3.0 } }), ("sumDF", new object[] { new double[0] }),
+            ("mixF", new object[] { new[] { 2, 3 }, 4 }), ("mixF", new object[] { new int[0], 4 }),
+            ("sumLongF", new object[] { new[] { 5000000000L, 2L, 3L } }), ("sumLongF", new object[] { new long[0] }),
+            ("countLettersF", new object[] { new[] { 'a', '1', 'B', '-', 'z' } }), ("countLettersF", new object[] { new char[0] }),
+            ("nestedF", new object[] { new[] { 2, 3 }, new[] { 10, 20 } }), ("nestedF", new object[] { new[] { 1 }, new int[0] }));
+
+        // foreach over a NON-array collection (a string, which C# iterates as chars) declines -> C# fallback.
+        Assert.False(RouteColumnarProgram("func f(s: string): int {\n    n := 0\n    foreach c in s {\n        n = n + 1\n    }\n    return n\n}\n").Ok);
+        // A foreach body that ALWAYS returns (never falls through) is degenerate -> declines.
+        Assert.False(RouteColumnarProgram("func g(a: int[]): int {\n    foreach x in a {\n        return x\n    }\n    return -1\n}\n").Ok);
+    }
+
     // FOR loops — the first construct needing BOTH N# parser-kernel work (ParserStatements.nl now parses
     // `for <init>; <cond>; <incr> { body }` -> node kind 28) AND emitter work (init; check: cond; brfalse end;
     // body; cont: incr; br check; end:). `continue` targets the INCREMENT (then re-test); `break` the end. Covers

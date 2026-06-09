@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Phase D-4: `foreach` over arrays (N# parser kernel + emitter index-loop lowering)
+
+The second two-sided slice. `foreach <var> in <array> { body }` (the no-paren, Go-style form).
+- **Parser kernel** (`ParserStatements.nl`): a `foreach` branch (Foreach token = 26) parsing the var name
+  (Identifier) + `In` (28) + collection expression (`ParseAssignmentExpressionNode`, stops at `{`) + body →
+  columnar node kind 29, the loop-variable name in the VALUE SPAN, children `[collection, body]`. A parenthesised
+  `foreach (x in y)`, or a missing var/`in`/body, refuses → declines to the C# parser.
+- **Emitter** (`ColumnarIlEmitter` case 29): lowers to the SAME index loop the C# ILCompiler's `EmitForeachForArray`
+  emits — `arr := collection; i := 0; check: if i >= arr.Length goto end; <var> := arr[i]; body; cont: i = i+1;
+  br check; end:`. `continue` → increment, `break` → end. ARRAY collections only (the element load picks
+  `Ldelem_I4/I8/U2/R8/R4/Ref` by element type; int/long/ulong/char/double/float/string); a non-array collection
+  (e.g. a string iterated as chars) declines → C# fallback. Loop var + body locals are loop-scoped; declines if
+  the var shadows an existing local/param or the body always-returns.
+
+Parity-gated: `ColumnarCodegen_Parity_ForeachLoop` value-matches the C# ILCompiler over int[]/string[]/double[]
+elements, early `return`, `continue`, `break`, foreach CONTAINING a for, and the non-array + always-returns
+declines. Adversarially reviewed (read-only, parser + lowering lenses). All 91 dogfood tests green. Next: tuples
+or match per the retirement map.
+
 ## 2026-06-08 — Phase D-3: C-style `for` loops — the FIRST two-sided slice (N# parser kernel + emitter)
 
 The first rich-language construct needing BOTH the N# parser kernel AND the emitter (the scalar slices were

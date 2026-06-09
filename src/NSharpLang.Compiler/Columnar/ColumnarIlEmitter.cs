@@ -637,6 +637,81 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 29: // Foreach [collection, body] — `foreach <var> in <array> { body }` lowered to an index loop
+            {        // over the array, mirroring the C# ILCompiler's EmitForeachForArray: arr := collection; i := 0;
+                     // check: if i >= arr.Length goto end; <var> := arr[i]; body; cont: i = i+1; br check; end:.
+                     // ARRAY collections only (others decline -> C# fallback). The var name is in the value span.
+                var collectionNode = Child(idx, 0);
+                var body = Child(idx, 1);
+                var varName = Text(idx);
+
+                // A body that always transfers on every path makes the increment unreachable -> decline (as for/while).
+                if (AlwaysReturns(body))
+                    return false;
+                // The loop variable must not shadow an existing local/param (shadowing is not modelled).
+                if (_locals.ContainsKey(varName) || _paramOrdinals.ContainsKey(varName))
+                    return false;
+
+                var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+
+                // Evaluate the collection; require a single-dim array of a supported element type.
+                if (!EmitExpression(collectionNode, out var collectionType) || !collectionType.IsSZArray)
+                    return false;
+                var elementType = collectionType.GetElementType()!;
+                if (!IsSupportedElementType(elementType))
+                    return false;
+                var arrayLocal = _il.DeclareLocal(collectionType);
+                _il.Emit(OpCodes.Stloc, arrayLocal);
+                var indexLocal = _il.DeclareLocal(typeof(int));
+                _il.Emit(OpCodes.Ldc_I4_0);
+                _il.Emit(OpCodes.Stloc, indexLocal);
+
+                var checkLabel = _il.DefineLabel();
+                var contLabel = _il.DefineLabel();
+                var endLabel = _il.DefineLabel();
+                _il.MarkLabel(checkLabel);
+                _il.Emit(OpCodes.Ldloc, indexLocal);
+                _il.Emit(OpCodes.Ldloc, arrayLocal);
+                _il.Emit(OpCodes.Ldlen);
+                _il.Emit(OpCodes.Conv_I4);
+                _il.Emit(OpCodes.Bge, endLabel); // index >= length -> exit
+
+                // <var> := arr[index]  (declare the loop variable of the element type, store the current element).
+                _il.Emit(OpCodes.Ldloc, arrayLocal);
+                _il.Emit(OpCodes.Ldloc, indexLocal);
+                if (elementType == typeof(int)) _il.Emit(OpCodes.Ldelem_I4);
+                else if (elementType == typeof(long) || elementType == typeof(ulong)) _il.Emit(OpCodes.Ldelem_I8);
+                else if (elementType == typeof(char)) _il.Emit(OpCodes.Ldelem_U2);
+                else if (elementType == typeof(double)) _il.Emit(OpCodes.Ldelem_R8);
+                else if (elementType == typeof(float)) _il.Emit(OpCodes.Ldelem_R4);
+                else if (elementType == typeof(string)) _il.Emit(OpCodes.Ldelem_Ref);
+                else return false;
+                var loopVar = _il.DeclareLocal(elementType);
+                _il.Emit(OpCodes.Stloc, loopVar);
+                _locals[varName] = loopVar;
+
+                _loopLabels.Push((endLabel, contLabel));
+                var foreachBodyEmitted = EmitStatement(body);
+                _loopLabels.Pop();
+                if (!foreachBodyEmitted)
+                    return false;
+
+                _il.MarkLabel(contLabel);   // `continue` lands here -> increment the index, then re-test.
+                _il.Emit(OpCodes.Ldloc, indexLocal);
+                _il.Emit(OpCodes.Ldc_I4_1);
+                _il.Emit(OpCodes.Add);
+                _il.Emit(OpCodes.Stloc, indexLocal);
+                _il.Emit(OpCodes.Br, checkLabel);
+                _il.MarkLabel(endLabel);
+
+                foreach (var name in new List<string>(_locals.Keys))
+                {
+                    if (!outerLocals.Contains(name))
+                        _locals.Remove(name);
+                }
+                return true;
+            }
+
             case 21: // Break — branch to the innermost loop's end label.
                 if (_loopLabels.Count == 0)
                     return false;
