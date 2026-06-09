@@ -16,7 +16,7 @@ public sealed class ColumnarFunctionInput
     public ColumnarFunctionInput(
         string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
         int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        int bodyRoot)
+        int bodyRoot, bool isStatic = false)
     {
         Name = name;
         ReturnCanonical = returnCanonical;
@@ -29,6 +29,7 @@ public sealed class ColumnarFunctionInput
         ChildCount = childCount;
         ChildIndices = childIndices;
         BodyRoot = bodyRoot;
+        IsStatic = isStatic;
     }
 
     public string Name { get; }
@@ -42,6 +43,10 @@ public sealed class ColumnarFunctionInput
     public int[] ChildCount { get; }
     public int[] ChildIndices { get; }
     public int BodyRoot { get; }
+    // True for a `static func` member of a struct/record/class body (no implicit `this`; param ordinals are NOT
+    // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-
+    // ness is structural, not a member modifier). Set by the adapter from the kernel's outMethodStaticFlags.
+    public bool IsStatic { get; }
 }
 
 /// <summary>
@@ -226,6 +231,11 @@ internal sealed class ColumnarStructDef
     // Instance methods declared on this struct, by name -> (the declared MethodBuilder, param types, return type).
     // Populated in PASS 0; lets `receiver.Method(args)` resolve the instance call (ldloca receiver; <args>; call).
     public Dictionary<string, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
+    // STATIC methods declared on this type, by name -> the declared overloads (distinct PARAM COUNT only — a
+    // same-arity overload set declines in PASS 0b, mirroring the constructor-overload rule). Resolved by
+    // `TypeName.Method(args)` (chain-walked, nearest declaration first) and by bare calls inside this type's own
+    // member bodies (after locals/params and sibling top-level functions — the empirically pinned N# order).
+    public Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
     // User CONSTRUCTORS (reference types this slice): each declared ConstructorBuilder + its param types. Positional
     // construction `new T(args)` matches a ctor by arg count + arg types. Empty when the type has no user ctor (then
     // DefaultCtor drives object-init). A type with ≥1 user ctor has NO DefaultCtor (object-init on it declines).
@@ -332,6 +342,11 @@ public sealed class ColumnarIlEmitter
     // When emitting a struct INSTANCE method body, the struct whose fields are accessible by BARE name (resolved to
     // `ldarg.0; ldfld`, since `this` is arg 0). Null for top-level functions (no implicit `this`/fields).
     private readonly ColumnarStructDef? _currentStruct;
+    // The struct/record/class whose MEMBER body (instance method, STATIC method, constructor, or accessor) is being
+    // emitted — null for a top-level function body. Unlike `_currentStruct` (the INSTANCE-context marker, null in a
+    // static method so no implicit-`this` path can fire), this is set for static bodies too: it anchors bare
+    // STATIC-method resolution (`Seven()` inside any member of the type resolves on the type's own chain).
+    private readonly ColumnarStructDef? _enclosingType;
     // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
     // initializer), so the type-aware emitter checks assignments and reads against it.
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
@@ -349,7 +364,8 @@ public sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
         IReadOnlyDictionary<string, ColumnarUnionCaseDef> unionCaseRegistry,
-        ColumnarStructDef? currentStruct)
+        ColumnarStructDef? currentStruct,
+        ColumnarStructDef? enclosingType = null)
     {
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -368,6 +384,7 @@ public sealed class ColumnarIlEmitter
         _unionRegistry = unionRegistry;
         _unionCaseRegistry = unionCaseRegistry;
         _currentStruct = currentStruct;
+        _enclosingType = enclosingType ?? currentStruct;
     }
 
     // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
@@ -459,6 +476,52 @@ public sealed class ColumnarIlEmitter
         property = default;
         return false;
     }
+
+    // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
+    // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
+    // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
+    // is a managed pointer -> `call`.
+    private bool EmitImplicitThisCall(int callIdx, (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method, out Type type)
+    {
+        type = null!;
+        var argCount = _childCount[callIdx] - 1;
+        if (argCount != method.ParamTypes.Length)
+            return false;
+        _il.Emit(OpCodes.Ldarg_0);
+        for (var a = 1; a <= argCount; a++)
+        {
+            if (!EmitExpression(Child(callIdx, a), out var argType) || argType != method.ParamTypes[a - 1])
+                return false;
+        }
+        _il.Emit(_currentStruct!.IsReference ? OpCodes.Callvirt : OpCodes.Call, method.Builder);
+        type = method.ReturnType;
+        return true;
+    }
+
+    // Resolve a STATIC method call on `def`'s chain by name + ARG COUNT, nearest declaration first. Mirrors the
+    // oracle's bind-or-walk-on rule (the fixed C# ILCompiler): a type whose overload set carries the name but has
+    // no matching arity does NOT stop the walk — a base overload of the right arity still binds. (Same-arity
+    // overload sets were declined in PASS 0b, so an arity match is unique per type.) The arg TYPES are checked at
+    // the emit site (a mismatch declines — the oracle's implicit conversions are not modelled).
+    private static bool TryFindStaticMethodOnChain(ColumnarStructDef def, string name, int argCount, out (MethodBuilder Builder, Type[] ParamTypes, Type ReturnType) method)
+    {
+        for (var d = def; d != null; d = d.BaseDef)
+        {
+            if (!d.StaticMethods.TryGetValue(name, out var overloads))
+                continue;
+            foreach (var candidate in overloads)
+            {
+                if (candidate.ParamTypes.Length == argCount)
+                {
+                    method = candidate;
+                    return true;
+                }
+            }
+        }
+        method = default;
+        return false;
+    }
+
 
     // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long/ulong (i4/i8),
     // char (u2), double (r8) / float (r4), and string (a reference element). bool is excluded until its element
@@ -799,11 +862,16 @@ public sealed class ColumnarIlEmitter
             structDepths[s] = depth;
         }
 
-        // PASS 0b (struct methods): now that all struct TYPES exist, DECLARE each struct's instance methods (a second
-        // pass so a method's return type may reference any struct). Scalar/struct-returning instance methods, with or
-        // without parameters; `this` is arg 0, so user param ordinals shift by +1. (void / mutating methods decline.)
-        // The MethodBuilder + param types are stored for instance-call resolution; the body is emitted in PASS 2.
-        var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
+        // PASS 0b (struct methods): now that all struct TYPES exist, DECLARE each struct's methods (a second
+        // pass so a method's return type may reference any struct). INSTANCE methods: scalar/struct-returning, with
+        // or without parameters; `this` is arg 0, so user param ordinals shift by +1 (void instance methods decline
+        // — a later slice). STATIC methods (`static func`): declared with MethodAttributes.Static, NO implicit
+        // `this` (ordinals unshifted), void allowed (the body emits exactly like a top-level procedure), and
+        // OVERLOADS by distinct PARAM COUNT (a same-arity static overload set declines — same rule as constructor
+        // overloads; the N# pipeline accepts type-distinguished same-arity sets, so declining is the safe side).
+        // A static and an instance member sharing a name is NL306 in the N# binder — decline. The builders + param
+        // types are stored for call resolution; bodies are emitted in PASS 2.
+        var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes, bool IsStatic)>();
         for (var s = 0; s < structs.Count; s++)
         {
             var def = structRegistry[structs[s].Name];
@@ -813,12 +881,55 @@ public sealed class ColumnarIlEmitter
             // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
             foreach (var m in structs[s].Methods)
             {
-                if (m.ReturnCanonical == "void")
-                    return false; // void methods are a later slice.
                 // A method whose name collides with a FIELD is rejected by the N# binder (NL306 — a name must be
                 // unique within the struct scope), so decline to keep the columnar path from accepting a program the
                 // language refuses.
                 if (def.Fields.ContainsKey(m.Name))
+                    return false;
+                if (m.IsStatic)
+                {
+                    // A static method sharing its name with an INSTANCE method (NL306) declines; vice versa below.
+                    if (def.Methods.ContainsKey(m.Name))
+                        return false;
+                    Type sReturn;
+                    if (m.ReturnCanonical == "void")
+                        sReturn = typeof(void);
+                    else if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out sReturn) || !IsSupportedType(sReturn))
+                        return false;
+                    // No implicit `this`: param ordinals are NOT shifted (arg 0 is the first parameter).
+                    var sParamTypes = new Type[m.ParamNames.Length];
+                    var sOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+                    var sParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+                    for (var i = 0; i < m.ParamNames.Length; i++)
+                    {
+                        if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                            return false;
+                        sParamTypes[i] = pt;
+                        sOrdinals[m.ParamNames[i]] = i;
+                        sParamTypeMap[m.ParamNames[i]] = pt;
+                    }
+                    if (!def.StaticMethods.TryGetValue(m.Name, out var overloads))
+                    {
+                        overloads = new List<(MethodBuilder, Type[], Type)>();
+                        def.StaticMethods[m.Name] = overloads;
+                    }
+                    // Overloads resolve by ARG COUNT (see the call sites), so two same-arity overloads would be
+                    // ambiguous there — decline the set (the C# fallback handles type-distinguished overloads).
+                    foreach (var (_, existingParams, _) in overloads)
+                    {
+                        if (existingParams.Length == sParamTypes.Length)
+                            return false;
+                    }
+                    var smb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, sReturn, sParamTypes);
+                    overloads.Add((smb, sParamTypes, sReturn));
+                    structMethodJobs.Add((def, m, smb, sReturn, sOrdinals, sParamTypeMap, true));
+                    continue;
+                }
+                if (m.ReturnCanonical == "void")
+                    return false; // void instance methods are a later slice.
+                // An instance method sharing its name with a STATIC method is NL306 — decline (the static may have
+                // been declared first when source order is static-then-instance).
+                if (def.StaticMethods.ContainsKey(m.Name))
                     return false;
                 if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out var mReturn) || !IsSupportedType(mReturn))
                     return false;
@@ -837,7 +948,7 @@ public sealed class ColumnarIlEmitter
                 var mb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.HideBySig, mReturn, mParamTypes);
                 if (!def.Methods.TryAdd(m.Name, (mb, mParamTypes, mReturn)))
                     return false; // a duplicate method name on one struct is an overload set the slice does not model.
-                structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap));
+                structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap, false));
             }
         }
 
@@ -857,17 +968,18 @@ public sealed class ColumnarIlEmitter
                 return false; // value-type properties are deferred.
             foreach (var prop in structs[s].Properties)
             {
-                if (def.Fields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name))
+                if (def.Fields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.StaticMethods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name))
                     return false; // a property colliding with a field/method/another property is a duplicate member.
                 // A synthesized accessor name ("get_Name"/"set_Name") must not collide with a user method of the same
                 // name (the N# pipeline accepts them as distinct symbols, but two CLR methods of identical signature
                 // would throw at CreateType) — decline so columnar never emits the duplicate.
-                if (def.Methods.ContainsKey("get_" + prop.Name) || (prop.Setter != null && def.Methods.ContainsKey("set_" + prop.Name)))
+                if (def.Methods.ContainsKey("get_" + prop.Name) || def.StaticMethods.ContainsKey("get_" + prop.Name)
+                    || (prop.Setter != null && (def.Methods.ContainsKey("set_" + prop.Name) || def.StaticMethods.ContainsKey("set_" + prop.Name))))
                     return false;
                 if (!TryResolveType(prop.TypeCanonical, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
                     return false;
                 var getter = def.Builder.DefineMethod("get_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, propType, Type.EmptyTypes);
-                structMethodJobs.Add((def, prop.Getter, getter, propType, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal)));
+                structMethodJobs.Add((def, prop.Getter, getter, propType, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal), false));
                 MethodBuilder? setter = null;
                 if (prop.Setter != null)
                 {
@@ -876,16 +988,18 @@ public sealed class ColumnarIlEmitter
                     // reference-type field-write path. Emitted via structMethodJobs (a void method).
                     var setOrdinals = new Dictionary<string, int>(StringComparer.Ordinal) { ["value"] = 1 };
                     var setParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal) { ["value"] = propType };
-                    structMethodJobs.Add((def, prop.Setter, setter, typeof(void), setOrdinals, setParamTypes));
+                    structMethodJobs.Add((def, prop.Setter, setter, typeof(void), setOrdinals, setParamTypes, false));
                 }
                 def.Properties[prop.Name] = (getter, setter, propType);
             }
         }
 
         // PASS 0b'' (inherited-member shadowing): with every field/method/property declared, decline any member of
-        // a derived type whose name SHADOWS an inherited member — EXCEPT a method over an inherited METHOD, which
-        // the N# pipeline accepts as hiding (the nearest declaration wins; chain-walking resolution models exactly
-        // that). Field-over-anything, method-over-field/property, and property-over-anything shadowing is NOT
+        // a derived type whose name SHADOWS an inherited member — EXCEPT a method over an inherited METHOD of the
+        // SAME kind (instance over instance, static over static), which the N# pipeline accepts as hiding (the
+        // nearest declaration wins; chain-walking resolution models exactly that — static hiding pinned by the
+        // oracle's ILCompiler_StaticMethodHidingBindsNearestDeclaration). Field-over-anything,
+        // method-over-field/property, property-over-anything, and MIXED static/instance method shadowing is NOT
         // verified against the oracle — decline to the C# path rather than risk a resolution divergence.
         for (var s = 0; s < structs.Count; s++)
         {
@@ -896,17 +1010,22 @@ public sealed class ColumnarIlEmitter
             {
                 foreach (var fieldName in def.Fields.Keys)
                 {
-                    if (chain.Fields.ContainsKey(fieldName) || chain.Methods.ContainsKey(fieldName) || chain.Properties.ContainsKey(fieldName))
+                    if (chain.Fields.ContainsKey(fieldName) || chain.Methods.ContainsKey(fieldName) || chain.StaticMethods.ContainsKey(fieldName) || chain.Properties.ContainsKey(fieldName))
                         return false;
                 }
                 foreach (var methodName in def.Methods.Keys)
                 {
-                    if (chain.Fields.ContainsKey(methodName) || chain.Properties.ContainsKey(methodName))
+                    if (chain.Fields.ContainsKey(methodName) || chain.StaticMethods.ContainsKey(methodName) || chain.Properties.ContainsKey(methodName))
+                        return false;
+                }
+                foreach (var staticName in def.StaticMethods.Keys)
+                {
+                    if (chain.Fields.ContainsKey(staticName) || chain.Methods.ContainsKey(staticName) || chain.Properties.ContainsKey(staticName))
                         return false;
                 }
                 foreach (var propName in def.Properties.Keys)
                 {
-                    if (chain.Fields.ContainsKey(propName) || chain.Methods.ContainsKey(propName) || chain.Properties.ContainsKey(propName))
+                    if (chain.Fields.ContainsKey(propName) || chain.Methods.ContainsKey(propName) || chain.StaticMethods.ContainsKey(propName) || chain.Properties.ContainsKey(propName))
                         return false;
                 }
             }
@@ -1104,16 +1223,19 @@ public sealed class ColumnarIlEmitter
                 return false;
         }
 
-        // Emit struct instance-method bodies (before finalizing the struct types). Each runs with `_currentStruct`
-        // set so bare field names resolve to `ldarg.0; ldfld` (`this` is arg 0). Slice 1 methods are PARAMETERLESS
-        // and scalar-returning, so the param ordinal/type maps are empty. Struct methods may `call` top-level funcs
-        // (siblings); a forward `call` to any MethodBuilder resolves at Save.
+        // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with
+        // `_currentStruct` set so bare field names resolve to `ldarg.0; ldfld` (`this` is arg 0). A STATIC body
+        // runs with `_currentStruct` NULL — there is no instance, so every implicit-`this` path (bare fields, bare
+        // instance-method calls) structurally cannot fire and such programs decline (the N# pipeline rejects them)
+        // — while `_enclosingType` still anchors bare STATIC-method resolution on the type's own chain. Methods may
+        // `call` top-level funcs (siblings); a forward `call` to any MethodBuilder resolves at Save.
         foreach (var job in structMethodJobs)
         {
             var mil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
-                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
+                source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
+                currentStruct: job.IsStatic ? null : job.Struct, enclosingType: job.Struct);
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
             if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
@@ -2149,51 +2271,59 @@ public sealed class ColumnarIlEmitter
             {       // self/recursion), or a BCL method call (instance on a string, or static on a type like Char)
                     // whose callee is a MemberAccess [receiver, method-name].
                 var callee = Child(idx, 0);
-                if (_kinds[callee] == 6) // bare identifier -> own instance method (`this.M(args)`) or sibling function.
+                if (_kinds[callee] == 6) // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
                 {
                     var name = Text(callee);
                     // A local/param of the same name is a delegate/closure invocation the spike does not model.
+                    // (The N# pipeline still binds the call to the METHOD — locals do not shadow call targets — so
+                    // declining is the safe under-acceptance.)
                     if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
                         return false;
-                    // Inside an instance member, a bare call that names an instance METHOD of the current type (or
-                    // an inherited one — chain walk, nearest first) is an implicit-`this` call: `ldarg.0; <args>;
-                    // call/callvirt`. Checked BEFORE siblings; if a sibling top-level function ALSO carries the
-                    // name, the resolution order is unverified against the N# pipeline — decline (safe).
-                    if (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out var ownMethod))
+                    // Bare-call resolution order, verified probe-by-probe against the production pipeline (a
+                    // first agent-probe round claimed own-instance-beats-top-level; DIRECT re-probing REFUTED
+                    // that — the pinned truth, parity-tested, is):
+                    //   1. a sibling TOP-LEVEL function — beats every same-named type member (own instance,
+                    //      inherited instance, and statics alike),
+                    //   2. an instance method on the enclosing type's chain (nearest declaration first),
+                    //   3. a STATIC method on the enclosing type's chain (nearest arity match).
+                    // Tier 2 requires an instance context (`_currentStruct` — null inside a static method, so a
+                    // static body calling an instance method bare structurally declines, as the pipeline rejects
+                    // it); tier 3 anchors on `_enclosingType` so it fires in static bodies too. Tiers 2 and 3 can
+                    // never compete: a name carried by both an instance and a static method anywhere on the chain
+                    // was declined in PASS 0b/0b''.
+                    if (_siblings.TryGetValue(name, out var target))
                     {
-                        if (_siblings.ContainsKey(name))
+                        var argCount = _childCount[idx] - 1;
+                        if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
                             return false;
-                        var ownArgCount = _childCount[idx] - 1;
-                        if (ownArgCount != ownMethod.ParamTypes.Length)
-                            return false;
-                        _il.Emit(OpCodes.Ldarg_0);
-                        for (var a = 1; a <= ownArgCount; a++)
+                        // Each argument's type must match the callee's declared parameter type. int and bool are both
+                        // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
+                        // parameter) would emit verifiable-but-semantically-wrong IL instead of declining.
+                        for (var a = 1; a <= argCount; a++)
                         {
-                            if (!EmitExpression(Child(idx, a), out var ownArgType) || ownArgType != ownMethod.ParamTypes[a - 1])
+                            if (!EmitExpression(Child(idx, a), out var argType) || argType != target.ParamTypes[a - 1])
                                 return false;
                         }
-                        // A reference `this` calls via callvirt (standard null check — `this` is never null, but it
-                        // matches the external-receiver path); a value-type `this` is a managed pointer -> `call`.
-                        _il.Emit(_currentStruct.IsReference ? OpCodes.Callvirt : OpCodes.Call, ownMethod.Builder);
-                        type = ownMethod.ReturnType;
+                        _il.Emit(OpCodes.Call, target.Method);
+                        type = target.ReturnType;
                         return true;
                     }
-                    if (!_siblings.TryGetValue(name, out var target))
-                        return false;
-                    var argCount = _childCount[idx] - 1;
-                    if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
-                        return false;
-                    // Each argument's type must match the callee's declared parameter type. int and bool are both
-                    // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
-                    // parameter) would emit verifiable-but-semantically-wrong IL instead of declining.
-                    for (var a = 1; a <= argCount; a++)
+                    if (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out var ownMethod))
+                        return EmitImplicitThisCall(idx, ownMethod, out type);
+                    if (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _childCount[idx] - 1, out var ownStatic))
                     {
-                        if (!EmitExpression(Child(idx, a), out var argType) || argType != target.ParamTypes[a - 1])
-                            return false;
+                        // No receiver: just the args, then a direct `call` to the declaring type's static.
+                        var staticArgCount = _childCount[idx] - 1;
+                        for (var a = 1; a <= staticArgCount; a++)
+                        {
+                            if (!EmitExpression(Child(idx, a), out var sArgType) || sArgType != ownStatic.ParamTypes[a - 1])
+                                return false;
+                        }
+                        _il.Emit(OpCodes.Call, ownStatic.Builder);
+                        type = ownStatic.ReturnType;
+                        return true;
                     }
-                    _il.Emit(OpCodes.Call, target.Method);
-                    type = target.ReturnType;
-                    return true;
+                    return false;
                 }
                 if (_kinds[callee] == 8) // MemberAccess callee -> a BCL instance/static method call.
                     return TryEmitBclMethodCall(idx, callee, out type);
@@ -3079,10 +3209,33 @@ public sealed class ColumnarIlEmitter
         return TryEmitInstanceCall(callIdx, receiverType, memberName, argCount, out type);
     }
 
-    // Static BCL calls (no receiver on the stack): a small whitelist. Char.IsLetterOrDigit/IsWhiteSpace(char) -> bool.
+    // Static calls (no receiver on the stack): a USER type's static methods first, then a small BCL whitelist.
+    // Char.IsLetterOrDigit/IsWhiteSpace(char) -> bool.
     private bool TryEmitStaticCall(int callIdx, string typeName, string member, int argCount, out Type type)
     {
         type = null!;
+        // A USER-DECLARED type name binds its OWN static methods (chain-walked, nearest declaration first — the
+        // oracle resolves `Derived.F()` to a base-declared static). Resolution is by arg count; arg TYPES must
+        // match exactly (the oracle's implicit conversions are not modelled — mismatch declines). CRITICALLY, a
+        // user type name must NEVER fall through to the BCL whitelist below: a user `record Math { … }` SHADOWS
+        // System.Math in the N# pipeline, so emitting the BCL method for `Math.Abs(x)` would be semantically wrong
+        // IL (the over-acceptance failure mode). The same gate covers user enums and unions — no static methods
+        // are modelled on them, so any TypeName.Member(...) call on one declines.
+        if (_structRegistry.TryGetValue(typeName, out var userType))
+        {
+            if (!TryFindStaticMethodOnChain(userType, member, argCount, out var userStatic))
+                return false;
+            for (var a = 1; a <= argCount; a++)
+            {
+                if (!EmitExpression(Child(callIdx, a), out var argType) || argType != userStatic.ParamTypes[a - 1])
+                    return false;
+            }
+            _il.Emit(OpCodes.Call, userStatic.Builder);
+            type = userStatic.ReturnType;
+            return true;
+        }
+        if (_enumRegistry.ContainsKey(typeName) || _unionRegistry.ContainsKey(typeName))
+            return false;
         // The receiver may be the type NAME `Char` (via `using System`) or the builtin alias `char` (the
         // lowercase keyword) — both bind to System.Char in N#/C#, so accept either.
         if ((typeName == "Char" || typeName == "char") && argCount == 1)

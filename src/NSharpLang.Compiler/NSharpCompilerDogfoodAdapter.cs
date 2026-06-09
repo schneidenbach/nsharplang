@@ -939,12 +939,13 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
                 var outMethodFuncIndices = new int[cap];
+                var outMethodStaticFlags = new int[cap];
                 var outCtorIndices = new int[cap];
                 var outPropIndices = new int[cap];
                 var outResult = new int[7];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
-                    outFieldTypeLengths, outMethodFuncIndices, outCtorIndices, outPropIndices, outResult);
+                    outFieldTypeLengths, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
                 // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
@@ -964,14 +965,16 @@ internal static class NSharpCompilerDogfoodAdapter
                     fieldTypes[f] = source.Substring(outFieldTypeStarts[f], outFieldTypeLengths[f]);
                 }
 
-                // Each instance method (its `func` token index recorded by the kernel) is parsed with the SAME
-                // signature + statement-body kernels as a top-level function — so a struct method's body is just a
-                // ColumnarFunctionInput. The emitter declares it as an instance method on the struct TypeBuilder.
+                // Each method (its `func` token index recorded by the kernel) is parsed with the SAME signature +
+                // statement-body kernels as a top-level function — so a struct method's body is just a
+                // ColumnarFunctionInput. The kernel's static flag (a `static` keyword before the `func`) is carried
+                // onto the input; the emitter declares an instance method or a STATIC method on the TypeBuilder
+                // accordingly.
                 var methodCount = outResult[2];
                 var methods = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>(methodCount);
                 for (var m = 0; m < methodCount; m++)
                 {
-                    if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput))
+                    if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput, isStatic: outMethodStaticFlags[m] == 1))
                         return false;
                     methods.Add(methodInput);
                 }
@@ -1104,7 +1107,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // node tables. Returns false on any parse failure or a missing body brace.
     private static bool TryParseColumnarFunctionAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int funcIndex, string source,
-        out Columnar.ColumnarFunctionInput input)
+        out Columnar.ColumnarFunctionInput input, bool isStatic = false)
     {
         input = null!;
         var cap = n + 1;
@@ -1154,7 +1157,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
         input = new Columnar.ColumnarFunctionInput(
             fname, returnCanonical, paramNames, paramCanonicals,
-            bk, bvs, bvl, bcs, bcc, bci, bres[0]);
+            bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic);
         return true;
     }
 
@@ -2742,7 +2745,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseStructDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        int[] outMethodFuncIndices, int[] outCtorIndices, int[] outPropIndices, int[] outResult);
+        int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outResult);
     private delegate int ParseUnionDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,

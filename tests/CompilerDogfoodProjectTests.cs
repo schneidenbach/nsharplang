@@ -4079,9 +4079,12 @@ class B
         Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(x: int): base(x, 99) {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // `: base()` when the base has ONLY a parameterized ctor.
         Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(): base() {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
-        // a bare call that matches BOTH an instance method on the chain AND a sibling top-level function — the
-        // resolution order is unverified against the N# pipeline, so columnar declines the ambiguity.
-        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func Helper(): int {\n        return n\n    }\n    func Use(): int {\n        return Helper()\n    }\n}\n\nfunc Helper(): int {\n    return 99\n}\n\nfunc f(v: int): int {\n    c := new C { n: v }\n    return c.Use()\n}\n").Ok);
+        // a bare call that matches BOTH an instance method on the chain AND a sibling top-level function binds the
+        // TOP-LEVEL function (empirically pinned against the N# pipeline by direct probes — top-level functions
+        // beat every same-named type member in bare-call position; this flips the former decline to a parity case).
+        AssertColumnarProgramMatchesCSharp(
+            "class C {\n    n: int\n    func Helper(): int {\n        return n\n    }\n    func Use(): int {\n        return Helper()\n    }\n}\n\nfunc Helper(): int {\n    return 99\n}\n\nfunc f(v: int): int {\n    c := new C { n: v }\n    return c.Use()\n}\n",
+            ("f", new object[] { 5 }), ("f", new object[] { 0 }));
     }
 
     // CLASS INHERITANCE — implicit base chaining, default-ctor synthesis, method HIDING, inherited properties, and
@@ -4165,6 +4168,171 @@ class B
         // reference types with at least one member only (a zero-size value type is a CLR layout edge case).
         Assert.False(RouteColumnarProgram("class E {\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("struct S {\n    func One(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
+    // STATIC METHODS on classes/records/structs — `static func` members declared with MethodAttributes.Static (no
+    // implicit `this`, unshifted param ordinals), called via `TypeName.Method(args)` (chain-walked against the
+    // static-resolution-fixed oracle) and BARE inside the declaring type's own member bodies. Overloads by distinct
+    // PARAM COUNT (the constructor-overload rule); void statics emit like top-level procedures. Value-matched vs
+    // the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_StaticMethods()
+    {
+        var prog =
+            // the headline surface: a class static called via the type name from a top-level function.
+            "class Counter {\n    static func Add(a: int, b: int): int {\n        return a + b\n    }\n}\n\n" +
+            "func f(a: int, b: int): int {\n    return Counter.Add(a, b)\n}\n\n" +
+            // statics on a value STRUCT (with an instance field alongside) and on a RECORD.
+            "struct SV {\n    x: int\n    static func Triple(n: int): int {\n        return n * 3\n    }\n}\n\n" +
+            "record RV {\n    y: int\n    static func Quad(n: int): int {\n        return n * 4\n    }\n}\n\n" +
+            "func structStatic(n: int): int {\n    return SV.Triple(n)\n}\n\n" +
+            "func recordStatic(n: int): int {\n    return RV.Quad(n)\n}\n\n" +
+            // BARE static calls from an INSTANCE method and from another STATIC method of the same type; a static
+            // calling a static of ANOTHER type via its name; recursion; a static calling a TOP-LEVEL function.
+            "class Calc {\n    n: int\n    static func Twice(v: int): int {\n        return v * 2\n    }\n    static func TwicePlusOne(v: int): int {\n        return Twice(v) + 1\n    }\n    static func Fact(k: int): int {\n        if k <= 1 {\n            return 1\n        }\n        return k * Fact(k - 1)\n    }\n    static func ViaOther(v: int): int {\n        return Counter.Add(v, 10)\n    }\n    static func ViaTopLevel(v: int): int {\n        return helper(v) + 1\n    }\n    func FromInstance(): int {\n        return Twice(n) + n\n    }\n}\n\n" +
+            "func helper(v: int): int {\n    return v * 10\n}\n\n" +
+            "func bareFromStatic(v: int): int {\n    return Calc.TwicePlusOne(v)\n}\n\n" +
+            "func fact(k: int): int {\n    return Calc.Fact(k)\n}\n\n" +
+            "func viaOther(v: int): int {\n    return Calc.ViaOther(v)\n}\n\n" +
+            "func viaTopLevel(v: int): int {\n    return Calc.ViaTopLevel(v)\n}\n\n" +
+            "func bareFromInstance(v: int): int {\n    c := new Calc { n: v }\n    return c.FromInstance()\n}\n\n" +
+            // OVERLOADS by arity (1-arg and 2-arg sets resolve by count).\n
+            "class Over {\n    static func Pick(a: int): int {\n        return a + 1\n    }\n    static func Pick(a: int, b: int): int {\n        return a * b\n    }\n}\n\n" +
+            "func over1(a: int): int {\n    return Over.Pick(a)\n}\n\n" +
+            "func over2(a: int, b: int): int {\n    return Over.Pick(a, b)\n}\n\n" +
+            // a static FACTORY returning a user type, consumed by the caller.
+            "class Box {\n    v: int\n    constructor(v0: int) {\n        v = v0\n    }\n    static func Make(n: int): Box {\n        return new Box(n * 2)\n    }\n}\n\n" +
+            "func factory(n: int): int {\n    b := Box.Make(n)\n    return b.v\n}\n\n" +
+            // a VOID static (statement-position call via the type name) observable through a static of another type.
+            "class Sink {\n    static func Run(n: int): int {\n        Probe.Touch(n)\n        return n + 100\n    }\n}\n\n" +
+            "class Probe {\n    static func Touch(n: int) {\n        k := n + 1\n        if k > 0 {\n            return\n        }\n    }\n}\n\n" +
+            "func voidStatic(n: int): int {\n    return Sink.Run(n)\n}\n\n" +
+            // string/double/bool/array params + returns, and locals/control flow inside a static body.
+            "class Mix {\n    static func Pad(s: string): string {\n        return s + \"!\"\n    }\n    static func Half(d: double): double {\n        return d / 2.0\n    }\n    static func Flip(b: bool): bool {\n        return !b\n    }\n    static func Sum(xs: int[]): int {\n        total := 0\n        i := 0\n        while i < xs.Length {\n            total = total + xs[i]\n            i = i + 1\n        }\n        return total\n    }\n}\n\n" +
+            "func pad(s: string): string {\n    return Mix.Pad(s)\n}\n\n" +
+            "func half(d: double): double {\n    return Mix.Half(d)\n}\n\n" +
+            "func flip(b: bool): bool {\n    return Mix.Flip(b)\n}\n\n" +
+            // (the array reaches the static as a PARAM — array literals are not yet in the columnar surface)
+            "func sumArr(xs: int[]): int {\n    return Mix.Sum(xs)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("f", new object[] { 2, 3 }), ("f", new object[] { -4, 9 }),
+            ("structStatic", new object[] { 5 }), ("recordStatic", new object[] { 5 }),
+            ("bareFromStatic", new object[] { 7 }), ("bareFromStatic", new object[] { 0 }),
+            ("fact", new object[] { 5 }), ("fact", new object[] { 1 }),
+            ("viaOther", new object[] { 32 }),
+            ("viaTopLevel", new object[] { 4 }),
+            ("bareFromInstance", new object[] { 6 }), ("bareFromInstance", new object[] { 0 }),
+            ("over1", new object[] { 9 }), ("over2", new object[] { 6, 7 }),
+            ("factory", new object[] { 5 }), ("factory", new object[] { 0 }),
+            ("voidStatic", new object[] { 3 }),
+            ("pad", new object[] { "hi" }),
+            ("half", new object[] { 7.0 }),
+            ("flip", new object[] { true }), ("flip", new object[] { false }),
+            ("sumArr", new object[] { new int[] { 1, 2, 3 } }));
+
+        // Metadata: the declared statics really are CLR-static on their declaring types.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the static-methods program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        Assert.True(loaded.GetType("Counter")!.GetMethod("Add")!.IsStatic);
+        Assert.True(loaded.GetType("SV")!.GetMethod("Triple")!.IsStatic);
+        Assert.False(loaded.GetType("Calc")!.GetMethod("FromInstance")!.IsStatic);
+
+        // DECLINES (each N#-pipeline-rejected or out of slice scope — declining routes to the C# path):
+        // a static called via an INSTANCE receiver (the pipeline rejects it — C# CS0176 semantics).
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func S(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    c := new C { n: 1 }\n    return c.S()\n}\n").Ok);
+        // a STATIC method calling an INSTANCE method bare (no receiver exists).
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func Inst(): int {\n        return n\n    }\n    static func S(): int {\n        return Inst()\n    }\n}\n\nfunc f(): int {\n    return C.S()\n}\n").Ok);
+        // a STATIC method reading an INSTANCE field bare.
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func S(): int {\n        return n\n    }\n}\n\nfunc f(): int {\n    return C.S()\n}\n").Ok);
+        // `this` inside a static method (now a compile-time error in the N# pipeline too).
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func S(): int {\n        return this.n\n    }\n}\n\nfunc f(): int {\n    return C.S()\n}\n").Ok);
+        // a STATIC and an INSTANCE method sharing a name (NL306), and a static method sharing a PROPERTY's name.
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func V(): int {\n        return n\n    }\n    static func V(x: int): int {\n        return x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    V: int {\n        get {\n            return n\n        }\n    }\n    static func V(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // SAME-ARITY type-distinguished static overloads (resolution is by arg count — the C# path handles these).
+        Assert.False(RouteColumnarProgram("class C {\n    static func T(x: int): int {\n        return x\n    }\n    static func T(s: string): int {\n        return 9\n    }\n}\n\nfunc f(): int {\n    return C.T(1)\n}\n").Ok);
+        // STATIC FIELDS and STATIC PROPERTIES are the next slices — `static x: int` / `static X: int {` decline.
+        Assert.False(RouteColumnarProgram("class C {\n    static count: int\n    func one(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    static X: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // an EXPRESSION-BODIED static method (no `{` body — out of the kernel's modelled shape).
+        Assert.False(RouteColumnarProgram("class C {\n    static func Twice(x: int): int => x * 2\n}\n\nfunc f(): int {\n    return C.Twice(2)\n}\n").Ok);
+        // `static constructor(...)` is not a modelled member.
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static constructor() {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a user type SHADOWING a whitelisted BCL static container: `record Math` WITHOUT an Abs — the call must
+        // NOT fall through to System.Math.Abs (the N# pipeline reports "member not found on type Math"). This pins
+        // the user-registry gate in TryEmitStaticCall (the over-acceptance failure mode).
+        Assert.False(RouteColumnarProgram("record Math {\n    x: int\n}\n\nfunc f(): int {\n    return Math.Abs(0 - 3)\n}\n").Ok);
+        // a LOCAL shadowing a static method's name, then calling it (the pipeline still binds the method; columnar
+        // declines the shadowed-call shape).
+        Assert.False(RouteColumnarProgram("class C {\n    static func V(): int {\n        return 1\n    }\n    static func P(): int {\n        V := 9\n        return V()\n    }\n}\n\nfunc f(): int {\n    return C.P()\n}\n").Ok);
+        // a FIELDLESS value struct whose only member is a static method (zero-size value-type layout edge).
+        Assert.False(RouteColumnarProgram("struct S {\n    static func One(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return S.One()\n}\n").Ok);
+    }
+
+    // STATIC METHODS × INHERITANCE and bare-call PRECEDENCE — inherited statics via the derived type name and bare
+    // in derived bodies (the oracle's static chain walks, fixed alongside this slice), static HIDING
+    // (nearest-declaration-wins), and the empirically pinned bare-call resolution order: a sibling TOP-LEVEL
+    // function beats EVERY same-named type member (instance and static alike); chain members resolve only when no
+    // top-level function carries the name. A user type SHADOWS a same-named BCL static container (user `Math.Abs`
+    // binds the user method). Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_StaticMethodsInheritanceAndPrecedence()
+    {
+        var prog =
+            // inherited statics: a 3-level chain — F declared on A only, called via every level's name; bare calls
+            // from a derived STATIC and a derived INSTANCE method. (B carries a member of its own because a fully
+            // EMPTY type body is a pre-existing kernel decline, pinned in the inheritance parity test.)
+            "class A {\n    static func F(): int {\n        return 7\n    }\n}\n\n" +
+            "class B: A {\n    static func Mid(): int {\n        return 5\n    }\n}\n\n" +
+            "class C: B {\n    k: int\n    static func FromStatic(): int {\n        return F() + Mid() + 1\n    }\n    func FromInstance(): int {\n        return F() + k\n    }\n}\n\n" +
+            "func viaNames(): int {\n    return A.F() * 100 + B.F() * 10 + C.F()\n}\n\n" +
+            "func bareStatic(): int {\n    return C.FromStatic()\n}\n\n" +
+            "func bareInstance(k: int): int {\n    c := new C { k: k }\n    return c.FromInstance()\n}\n\n" +
+            // static HIDING: the derived declaration wins via its own name; the base keeps its own; bare calls in
+            // each type's members bind nearest-first.
+            "class HB {\n    static func G(): int {\n        return 1\n    }\n}\n\n" +
+            "class HD: HB {\n    static func G(): int {\n        return 2\n    }\n    static func Probe(): int {\n        return G()\n    }\n}\n\n" +
+            "func hiding(): int {\n    return HB.G() * 100 + HD.G() * 10 + HD.Probe()\n}\n\n" +
+            // PRECEDENCE: a top-level function vs an own STATIC of the same name — the TOP-LEVEL function wins for
+            // a bare call (from both a static and an instance member); the QUALIFIED call binds the static.
+            "func T(): int {\n    return 1\n}\n\n" +
+            "class P {\n    m: int\n    static func T(): int {\n        return 2\n    }\n    static func BareFromStatic(): int {\n        return T()\n    }\n    func BareFromInstance(): int {\n        return T() + m\n    }\n}\n\n" +
+            "func precStatic(): int {\n    return P.BareFromStatic() * 10 + P.T()\n}\n\n" +
+            "func precInstance(): int {\n    p := new P { m: 0 }\n    return p.BareFromInstance()\n}\n\n" +
+            // PRECEDENCE: a top-level function vs an INHERITED instance method — the top-level function wins
+            // (exactly as it does against an OWN-declared instance method; see the flipped pin in
+            // ColumnarCodegen_Parity_ClassInheritance).
+            "func M(): int {\n    return 1\n}\n\n" +
+            "class IB {\n    func M(): int {\n        return 2\n    }\n}\n\n" +
+            "class ID: IB {\n    w: int\n    func Probe(): int {\n        return M() * 10 + w\n    }\n}\n\n" +
+            "func precInherited(w: int): int {\n    d := new ID { w: w }\n    return d.Probe()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("viaNames", new object[0]),
+            ("bareStatic", new object[0]),
+            ("bareInstance", new object[] { 3 }), ("bareInstance", new object[] { 0 }),
+            ("hiding", new object[0]),
+            ("precStatic", new object[0]),
+            ("precInstance", new object[0]),
+            ("precInherited", new object[] { 4 }));
+
+        // A user class named like a whitelisted BCL static container (`class Math` with its own Abs) SHADOWS the
+        // BCL type — columnar binds the USER static (TryEmitStaticCall checks the user registry BEFORE the BCL
+        // whitelist). ROUTE-ONLY pin: executing a global type named `Math` in this process would poison the C#
+        // oracle's AppDomain-wide external-type scan for every LATER in-process compile that uses Math.Abs (the
+        // emitted user Math would shadow System.Math there too — a real FileNotFoundException failure mode this
+        // suite hit), so the assembly is never loaded here. The end-to-end VALUE (user 99, not BCL 3) was verified
+        // out-of-process via the CLI against the production pipeline; the decline pin below fails if the registry
+        // gate ever stops firing (a gateless emitter would accept the Abs-less program via the whitelist).
+        Assert.True(RouteColumnarProgram("class Math {\n    static func Abs(x: int): int {\n        return 99\n    }\n}\n\nfunc userMath(): int {\n    return Math.Abs(0 - 3)\n}\n").Ok,
+            "a user type carrying the called static must emit (registry path), not decline");
+
+        // DECLINES: MIXED static/instance shadowing across the chain is unverified — both directions decline.
+        Assert.False(RouteColumnarProgram("class Base {\n    func F(): int {\n        return 1\n    }\n}\n\nclass D: Base {\n    static func F(): int {\n        return 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class Base {\n    static func F(): int {\n        return 1\n    }\n}\n\nclass D: Base {\n    n: int\n    func F(): int {\n        return n\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a derived FIELD or PROPERTY shadowing an inherited STATIC method.
+        Assert.False(RouteColumnarProgram("class Base {\n    static func K(): int {\n        return 1\n    }\n}\n\nclass D: Base {\n    K: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class Base {\n    static func K(): int {\n        return 1\n    }\n}\n\nclass D: Base {\n    n: int\n    K: int {\n        get {\n            return n\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either

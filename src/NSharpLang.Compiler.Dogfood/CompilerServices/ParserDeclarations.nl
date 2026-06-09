@@ -421,7 +421,12 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // `record` (13), or `class` (8) keyword. A class with a user `constructor` (slice 1b) is NOT yet parsed here: the
 // `constructor` keyword is neither a field-name identifier nor `func`/`}`, so the field loop returns -1 and the host
 // declines that class to the C# path until constructors are modelled.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outCtorIndices: int[], outPropIndices: int[], outResult: int[]): int {
+// STATIC members: a `static func` method (token 63 `static` immediately before token 7 `func`) is recorded with
+// outMethodStaticFlags[m] = 1 (the func index points at the `func` keyword, exactly like an instance method, so the
+// host parses its signature/body with the same kernels); an instance method gets flag 0. `static` before anything
+// OTHER than `func` (a static field `static x: int`, a static property `static X: T {`, `static constructor`) is
+// not yet modelled and returns -1 — the host declines the whole program to the C# path.
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outResult: int[]): int {
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -462,7 +467,9 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     propCount := 0
     fieldsDone := 0
     while fieldsDone == 0 && pos < count && tokenKinds[pos] != 130 && tokenKinds[pos] != 7 {
-        if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
+        if tokenKinds[pos] == 63 && pos + 1 < count && tokenKinds[pos + 1] == 7 {
+            fieldsDone = 1
+        } else if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
             fieldsDone = 1
         } else if tokenKinds[pos] == 0 && pos + 3 < count && tokenKinds[pos + 1] == 122 && tokenKinds[pos + 2] == 0 && tokenKinds[pos + 3] == 129 {
             outPropIndices[propCount] = pos
@@ -523,8 +530,14 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     while pos < count && tokenKinds[pos] != 130 {
         if tokenKinds[pos] == 7 {
             outMethodFuncIndices[methodCount] = pos
+            outMethodStaticFlags[methodCount] = 0
             methodCount = methodCount + 1
             pos = pos + 1
+        } else if tokenKinds[pos] == 63 && pos + 1 < count && tokenKinds[pos + 1] == 7 {
+            outMethodFuncIndices[methodCount] = pos + 1
+            outMethodStaticFlags[methodCount] = 1
+            methodCount = methodCount + 1
+            pos = pos + 2
         } else if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
             outCtorIndices[ctorCount] = pos
             ctorCount = ctorCount + 1
