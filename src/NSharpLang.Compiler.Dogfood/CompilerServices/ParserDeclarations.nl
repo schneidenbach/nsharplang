@@ -413,7 +413,7 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // method (`func`), a field initializer (`=`), a composed/array/tuple field type (a non-Identifier after `:`), a
 // missing name/colon/brace, or an empty body — so the host declines the whole program to the C# path. Slice-1
 // scope: fields-only structs with single-builtin-token field types.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outResult: int[]): int {
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outResult: int[]): int {
     pos := structIndex
     if pos >= count || tokenKinds[pos] != 9 {
         return -1
@@ -432,8 +432,9 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     }
     pos = pos + 1
 
+    // Fields first (`Name : Type`), stopping at the struct close `}` (130) or the first method `func` (7).
     fieldCount := 0
-    while pos < count && tokenKinds[pos] != 130 {
+    while pos < count && tokenKinds[pos] != 130 && tokenKinds[pos] != 7 {
         if tokenKinds[pos] != 0 {
             return -1
         }
@@ -456,11 +457,47 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         fieldCount = fieldCount + 1
     }
 
+    // Methods next (`func name(...): ret { body }`): DELIMIT each — record its `func` token index, then skip its
+    // signature to the body `{` and scan to the matching `}` (balanced). The signatures/bodies are parsed by the
+    // host via the existing function kernels at the recorded indices. A method with no `{` body (expression-bodied
+    // `=>` / abstract), or a field appearing AFTER a method (the struct `}` check below fails), declines the program.
+    methodCount := 0
+    while pos < count && tokenKinds[pos] == 7 {
+        outMethodFuncIndices[methodCount] = pos
+        methodCount = methodCount + 1
+        pos = pos + 1
+
+        while pos < count && tokenKinds[pos] != 129 && tokenKinds[pos] != 130 {
+            pos = pos + 1
+        }
+        if pos >= count || tokenKinds[pos] != 129 {
+            return -1
+        }
+
+        depth := 0
+        bodyDone := 0
+        while pos < count && bodyDone == 0 {
+            if tokenKinds[pos] == 129 {
+                depth = depth + 1
+            } else if tokenKinds[pos] == 130 {
+                depth = depth - 1
+                if depth == 0 {
+                    bodyDone = 1
+                }
+            }
+            pos = pos + 1
+        }
+        if bodyDone == 0 {
+            return -1
+        }
+    }
+
     if pos >= count || tokenKinds[pos] != 130 {
         return -1
     }
     if fieldCount == 0 {
         return -1
     }
+    outResult[2] = methodCount
     return fieldCount
 }

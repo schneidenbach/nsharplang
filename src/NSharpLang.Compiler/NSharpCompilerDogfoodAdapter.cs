@@ -930,10 +930,11 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldNameLengths = new int[cap];
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
-                var outResult = new int[2];
+                var outMethodFuncIndices = new int[cap];
+                var outResult = new int[3];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
-                    outFieldTypeLengths, outResult);
+                    outFieldTypeLengths, outMethodFuncIndices, outResult);
                 if (fieldCount <= 0 || outResult[1] <= 0)
                     return false;
 
@@ -945,7 +946,19 @@ internal static class NSharpCompilerDogfoodAdapter
                     fieldNames[f] = source.Substring(outFieldNameStarts[f], outFieldNameLengths[f]);
                     fieldTypes[f] = source.Substring(outFieldTypeStarts[f], outFieldTypeLengths[f]);
                 }
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes));
+
+                // Each instance method (its `func` token index recorded by the kernel) is parsed with the SAME
+                // signature + statement-body kernels as a top-level function — so a struct method's body is just a
+                // ColumnarFunctionInput. The emitter declares it as an instance method on the struct TypeBuilder.
+                var methodCount = outResult[2];
+                var methods = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>(methodCount);
+                for (var m = 0; m < methodCount; m++)
+                {
+                    if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, outMethodFuncIndices[m], source, out var methodInput))
+                        return false;
+                    methods.Add(methodInput);
+                }
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods));
             }
             return true;
         }
@@ -2351,7 +2364,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseStructDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        int[] outResult);
+        int[] outMethodFuncIndices, int[] outResult);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,

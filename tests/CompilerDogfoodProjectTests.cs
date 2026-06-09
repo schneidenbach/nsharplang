@@ -3459,7 +3459,9 @@ class B
         // DECLINES (sub-slice scope): positional ctor on a fields-only struct (C# rejects it too), a struct with a
         // method, a field initializer, a primary-ctor struct, struct-in-tuple.
         Assert.False(RouteColumnarProgram("struct P {\n    X: int\n}\n\nfunc f(a: int): int {\n    p := new P(a)\n    return p.X\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n    func g(): int { return X }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // (A struct with a parameterless bare-field method is now supported — see
+        // ColumnarCodegen_Parity_StructInstanceMethod. A method with a PARAMETER still declines.)
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n    func g(k: int): int { return X + k }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("struct P {\n    X: int = 5\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("struct P(x: int) {\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
@@ -3496,6 +3498,51 @@ class B
 
         // A PARAM-receiver field mutation declines this slice (only `:=` local receivers are modelled) -> C# fallback.
         Assert.False(RouteColumnarProgram("struct P {\n    X: int\n}\n\nfunc f(p: P): int {\n    p.X = 9\n    return p.X\n}\n").Ok);
+    }
+
+    // STRUCT slice 3 — INSTANCE METHODS. A struct method (parameterless, scalar-returning) reads its own fields by
+    // BARE name (resolved to `ldarg.0; ldfld` since `this` is arg 0) and is called as `r.area()` (ldloca receiver;
+    // call). The struct kernel delimits method spans; the adapter parses each with the SAME func kernels as a
+    // top-level function; the emitter declares them as instance methods on the struct TypeBuilder and emits their
+    // bodies before finalizing the type. NOTE: C# only compiles BARE-field + object-init correctly — `this.X` field
+    // access returns garbage and ctor construction is wrong in the C# ILCompiler (separate bug, task_468eee1d), so
+    // those forms DECLINE. Value-matched (scalar in/out) vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_StructInstanceMethod()
+    {
+        var prog =
+            "struct Rect {\n    W: int\n    H: int\n\n    func area(): int {\n        return W * H\n    }\n\n    func perimeter(): int {\n        return (W + H) * 2\n    }\n}\n\n" +
+            "struct Sq {\n    S: int\n\n    func area(): int {\n        return S * S\n    }\n\n    func four(): int {\n        return 4\n    }\n}\n\n" +
+            "func rectArea(a: int, b: int): int {\n    r := new Rect { W: a, H: b }\n    return r.area()\n}\n\n" +
+            "func rectPerim(a: int, b: int): int {\n    r := new Rect { W: a, H: b }\n    return r.perimeter()\n}\n\n" +
+            "func sqArea(s: int): int {\n    q := new Sq { S: s }\n    return q.area()\n}\n\n" +
+            "func sqFour(s: int): int {\n    q := new Sq { S: s }\n    return q.four()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("rectArea", new object[] { 6, 7 }), ("rectArea", new object[] { 0, 5 }), ("rectArea", new object[] { -3, 4 }),
+            ("rectPerim", new object[] { 6, 7 }), ("rectPerim", new object[] { 2, 3 }),
+            ("sqArea", new object[] { 5 }), ("sqArea", new object[] { -4 }),
+            ("sqFour", new object[] { 99 }));
+
+        // Metadata: Rect.area is a public INSTANCE method returning int.
+        var (ok, asm, typeName, _) = RouteColumnarProgram(prog);
+        Assert.True(ok);
+        var rectType = System.Reflection.Assembly.Load(asm!).GetType("Rect")!;
+        var areaMethod = rectType.GetMethod("area")!;
+        Assert.False(areaMethod.IsStatic);
+        Assert.Equal(typeof(int), areaMethod.ReturnType);
+        Assert.Empty(areaMethod.GetParameters());
+
+        // DECLINES (slice scope / C# oracle-broken forms):
+        // `this.X` field access (C# returns garbage — decline).
+        Assert.False(RouteColumnarProgram("struct R {\n    W: int\n    func a(): int { return this.W }\n}\n\nfunc f(x: int): int {\n    r := new R { W: x }\n    return r.a()\n}\n").Ok);
+        // a method WITH a parameter.
+        Assert.False(RouteColumnarProgram("struct R {\n    W: int\n    func scaled(k: int): int { return W * k }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a `void` method.
+        Assert.False(RouteColumnarProgram("struct R {\n    W: int\n    func noop() { return }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a FIELD declared AFTER a method (fields-then-methods only).
+        Assert.False(RouteColumnarProgram("struct R {\n    func a(): int { return 1 }\n    W: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a METHOD whose name COLLIDES with a field — the N# binder rejects it (NL306), so columnar must decline.
+        Assert.False(RouteColumnarProgram("struct A {\n    area: int\n    func area(): int { return area }\n}\n\nfunc f(): int {\n    a := new A { area: 5 }\n    return a.area()\n}\n").Ok);
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

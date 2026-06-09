@@ -89,16 +89,20 @@ internal sealed class ColumnarEnumDef
 /// </summary>
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods)
     {
         Name = name;
         FieldNames = fieldNames;
         FieldTypeCanonicals = fieldTypeCanonicals;
+        Methods = methods;
     }
 
     public string Name { get; }
     public string[] FieldNames { get; }
     public string[] FieldTypeCanonicals { get; }
+    // Instance methods declared in the struct body (parsed exactly like a top-level function — signature + body
+    // node tables). Slice 1 models PARAMETERLESS, scalar-returning methods whose bodies read fields by bare name.
+    public IReadOnlyList<ColumnarFunctionInput> Methods { get; }
 }
 
 /// <summary>
@@ -119,6 +123,10 @@ internal sealed class ColumnarStructDef
     public TypeBuilder Builder { get; }
     public string[] FieldOrder { get; }
     public Dictionary<string, FieldBuilder> Fields { get; }
+    // Instance methods declared on this struct, by name -> (the declared MethodBuilder, return type). Populated in
+    // PASS 0; lets `receiver.Method()` resolve the instance call (ldloca receiver; call). Param types are empty in
+    // slice 1 (parameterless methods).
+    public Dictionary<string, (MethodBuilder Builder, Type ReturnType)> Methods { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -165,6 +173,9 @@ public sealed class ColumnarIlEmitter
     // User-defined structs in this program, by name -> (TypeBuilder, field->FieldBuilder). Lets object-initializer
     // construction and field access resolve their FieldBuilders, and types resolve `Point` to its TypeBuilder.
     private readonly IReadOnlyDictionary<string, ColumnarStructDef> _structRegistry;
+    // When emitting a struct INSTANCE method body, the struct whose fields are accessible by BARE name (resolved to
+    // `ldarg.0; ldfld`, since `this` is arg 0). Null for top-level functions (no implicit `this`/fields).
+    private readonly ColumnarStructDef? _currentStruct;
     // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
     // initializer), so the type-aware emitter checks assignments and reads against it.
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
@@ -179,7 +190,8 @@ public sealed class ColumnarIlEmitter
         ILGenerator il,
         IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> siblings,
         IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
-        IReadOnlyDictionary<string, ColumnarStructDef> structRegistry)
+        IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
+        ColumnarStructDef? currentStruct)
     {
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -195,6 +207,7 @@ public sealed class ColumnarIlEmitter
         _siblings = siblings;
         _enumRegistry = enumRegistry;
         _structRegistry = structRegistry;
+        _currentStruct = currentStruct;
     }
 
     // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
@@ -520,6 +533,32 @@ public sealed class ColumnarIlEmitter
                 return false; // a duplicate struct name is an ambiguous type.
         }
 
+        // PASS 0b (struct methods): now that all struct TYPES exist, DECLARE each struct's instance methods (a second
+        // pass so a method's return type may reference any struct). Slice 1: PARAMETERLESS, scalar-returning methods
+        // (params / void / mutating methods decline). The MethodBuilder is stored for instance-call resolution; the
+        // body is emitted in PASS 2 (before the struct is finalized).
+        var structMethodJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Method, MethodBuilder Builder, Type ReturnType)>();
+        for (var s = 0; s < structs.Count; s++)
+        {
+            var def = structRegistry[structs[s].Name];
+            foreach (var m in structs[s].Methods)
+            {
+                if (m.ParamNames.Length != 0 || m.ReturnCanonical == "void")
+                    return false; // params / void methods are a later slice.
+                // A method whose name collides with a FIELD is rejected by the N# binder (NL306 — a name must be
+                // unique within the struct scope), so decline to keep the columnar path from accepting a program the
+                // language refuses.
+                if (def.Fields.ContainsKey(m.Name))
+                    return false;
+                if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, out var mReturn) || !IsSupportedType(mReturn))
+                    return false;
+                var mb = def.Builder.DefineMethod(m.Name, MethodAttributes.Public | MethodAttributes.HideBySig, mReturn, Type.EmptyTypes);
+                if (!def.Methods.TryAdd(m.Name, (mb, mReturn)))
+                    return false; // a duplicate method name on one struct is an overload set the slice does not model.
+                structMethodJobs.Add((def, m, mb, mReturn));
+            }
+        }
+
         var type = module.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class);
 
         // Pass 1: resolve every signature (int-only) and declare all methods up front. Build the sibling map
@@ -570,8 +609,23 @@ public sealed class ColumnarIlEmitter
             var il = methods[f].GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry);
+                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, currentStruct: null);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
+                return false;
+        }
+
+        // Emit struct instance-method bodies (before finalizing the struct types). Each runs with `_currentStruct`
+        // set so bare field names resolve to `ldarg.0; ldfld` (`this` is arg 0). Slice 1 methods are PARAMETERLESS
+        // and scalar-returning, so the param ordinal/type maps are empty. Struct methods may `call` top-level funcs
+        // (siblings); a forward `call` to any MethodBuilder resolves at Save.
+        foreach (var job in structMethodJobs)
+        {
+            var mil = job.Builder.GetILGenerator();
+            var emitter = new ColumnarIlEmitter(
+                job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
+                source, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal),
+                job.ReturnType, mil, siblings, enumRegistry, structRegistry, job.Struct);
+            if (!emitter.EmitBody(job.Method.BodyRoot, false))
                 return false;
         }
 
@@ -1109,6 +1163,17 @@ public sealed class ColumnarIlEmitter
                 {
                     EmitLoadArgument(ordinal);
                     type = _paramTypes[name];
+                    return true;
+                }
+
+                // Inside a struct INSTANCE method, a bare name that is neither a local nor a param falls back to a
+                // FIELD of the current struct (`this.field`): `this` is arg 0, so emit `ldarg.0; ldfld <FieldBuilder>`.
+                // (Checked AFTER locals/params so a local/param correctly shadows a field.)
+                if (_currentStruct != null && _currentStruct.Fields.TryGetValue(name, out var thisField))
+                {
+                    _il.Emit(OpCodes.Ldarg_0);
+                    _il.Emit(OpCodes.Ldfld, thisField);
+                    type = thisField.FieldType;
                     return true;
                 }
 
@@ -2133,6 +2198,29 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
     {
         type = null!;
+
+        // A USER-STRUCT INSTANCE method (`receiver.Method()`): the receiver VALUE is already on the stack. A
+        // value-type instance call needs the receiver's ADDRESS, so spill to a temp and `ldloca; call <MethodBuilder>`
+        // (a non-virtual `call`, since value-type instance methods are sealed). Slice 1: parameterless methods only.
+        if (receiverType is TypeBuilder)
+        {
+            foreach (var d in _structRegistry.Values)
+            {
+                if (d.Builder == receiverType && d.Methods.TryGetValue(member, out var structMethod))
+                {
+                    if (argCount != 0)
+                        return false;
+                    var receiverTemp = _il.DeclareLocal(receiverType);
+                    _il.Emit(OpCodes.Stloc, receiverTemp);
+                    _il.Emit(OpCodes.Ldloca, receiverTemp);
+                    _il.Emit(OpCodes.Call, structMethod.Builder);
+                    type = structMethod.ReturnType;
+                    return true;
+                }
+            }
+            return false; // a TypeBuilder receiver with no matching instance method -> decline.
+        }
+
         if (receiverType == typeof(string) && member == "IndexOf")
         {
             // string.IndexOf overloads -> int. 1-arg: IndexOf(char). 2-arg: distinguished by the FIRST arg's

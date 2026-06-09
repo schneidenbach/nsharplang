@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-8c: struct INSTANCE METHODS (parameterless, bare-field, value-returning)
+
+The columnar backend gains BEHAVIOR on user types — the emit model now supports instance methods on a user struct.
+- **Parser kernel** (`ParseStructDeclarationInto`): after the fields, a method-delimit loop records each method's
+  `func` token index (`outMethodFuncIndices`) and balanced-brace-scans its body — it does NOT parse the sig/body
+  itself. Method count in `outResult[2]`. Fields-then-methods; declines a body-less / expression-bodied method, a
+  field after a method, a `static func` (keyword token, not a field).
+- **Adapter** (`TryGetColumnarStructInputs`): parses each method via `TryParseColumnarFunctionAt` — the SAME
+  signature + statement-body kernels as a top-level func — so a struct method body is a `ColumnarFunctionInput`.
+- **Emitter** (`ColumnarIlEmitter`): PASS 0b declares each method as an INSTANCE method (`DefineMethod`,
+  Public|HideBySig, no Static) on the struct TypeBuilder (after all struct types exist; param/void methods decline; a
+  method NAME colliding with a field declines — NL306). PASS 2 emits method bodies (before the struct CreateType) with
+  a new `_currentStruct` context: a bare name that is neither a local nor a param resolves to a FIELD via
+  `ldarg.0; ldfld` (`this` = arg 0; locals/params still shadow). An instance call `r.area()` spills the receiver,
+  `ldloca; call <MethodBuilder>` (non-virtual, parameterless).
+- **C# oracle caveat** (verified before building, flagged as task_468eee1d): C# only compiles BARE-field + object-init
+  correctly — `this.X` field access returns garbage and ctor construction is wrong in the C# ILCompiler — so those
+  forms DECLINE (the slice builds on bare-field access, which the oracle gets right).
+
+Parity-gated: `ColumnarCodegen_Parity_StructInstanceMethod` value-matches the C# ILCompiler over multiple methods on
+one struct, multiple structs, and constant/field-derived returns; metadata-asserts the instance method; decline-pinned
+for `this.X`, a param method, a void method, a field-after-method, and a field/method name collision. Adversarially
+reviewed (read-only, 3 lenses + judge) → the judge caught the field/method name-collision over-acceptance (now fixed;
+other claims empirically refuted, incl. that a struct method's bare call matches the N# binder's top-level resolution).
+A raw-Reflection.Emit spike de-risked the structural unknown (instance MethodBuilder body survives CreateType+Save).
+76 columnar tests green; full non-IDE gate green (fresh isolated). Next: methods with params, mutating methods, then
+record/union toward the rich type system.
+
+---
+
 ## 2026-06-09 — Phase D-8b: struct field MUTATION + (locking in) struct passing & nested fields
 
 - **Emitter** (`ColumnarIlEmitter` case 23, assignment): a struct field write `local.Field = value` on a `:=` LOCAL
