@@ -930,6 +930,10 @@ func main() {
     [Fact]
     public void ILCompiler_CanCompileStruct()
     {
+        // A struct constructed with a user constructor whose body writes `this.`-qualified fields,
+        // then read back through a `this.`-qualified instance method. This must produce the real
+        // sum (7), not garbage: arg0 of a value-type method/ctor is the receiver's managed pointer,
+        // so the receiver address must come straight from arg0, never a spilled copy.
         var source = @"
 struct Point {
     X: int
@@ -949,11 +953,61 @@ func main(): int {
     p := new Point(3, 4)
     return p.Sum()
 }";
-        var compilationUnit = Parse(source);
-        var compiler = new Compiler.ILCompiler.ILCompiler(compilationUnit, "TestAssembly", "/tmp/test.dll");
+        Assert.Equal(7, CompileAndInvoke(source, "main"));
+    }
 
-        // Should not throw
-        compiler.Compile();
+    // Regression coverage for a value-type `this.`-qualified field read/write emitting against a
+    // throwaway copy instead of the receiver's real storage. Cross every combination of how the
+    // struct local is constructed (user constructor vs object initializer) with how its fields are
+    // accessed (`this.`-qualified vs bare). All must agree on the same arithmetic result; before the
+    // fix the `this.`-qualified READS returned pointer-derived garbage and the `this.`-qualified
+    // constructor WRITES were silently dropped (leaving the fields at their zero default).
+    [Theory]
+    // user constructor (this-qualified writes) + this-qualified read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    constructor(w: int, h: int) {\n        this.W = w\n        this.H = h\n    }\n    func area(): int {\n        return this.W * this.H\n    }\n}\n\nfunc main(): int {\n    r := new Rect(3, 4)\n    return r.area()\n}\n")]
+    // user constructor (this-qualified writes) + bare read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    constructor(w: int, h: int) {\n        this.W = w\n        this.H = h\n    }\n    func area(): int {\n        return W * H\n    }\n}\n\nfunc main(): int {\n    r := new Rect(3, 4)\n    return r.area()\n}\n")]
+    // user constructor (bare writes) + bare read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    constructor(w: int, h: int) {\n        W = w\n        H = h\n    }\n    func area(): int {\n        return W * H\n    }\n}\n\nfunc main(): int {\n    r := new Rect(3, 4)\n    return r.area()\n}\n")]
+    // object-initializer local + this-qualified read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    func area(): int {\n        return this.W * this.H\n    }\n}\n\nfunc main(): int {\n    r := new Rect { W: 3, H: 4 }\n    return r.area()\n}\n")]
+    // object-initializer local + bare read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    func area(): int {\n        return W * H\n    }\n}\n\nfunc main(): int {\n    r := new Rect { W: 3, H: 4 }\n    return r.area()\n}\n")]
+    public void ILCompiler_StructInstanceMethodReceiver_ReadsRealStorage(string source)
+    {
+        Assert.Equal(12, CompileAndInvoke(source, "main"));
+    }
+
+    [Fact]
+    public void ILCompiler_StructMethodMutatesReceiverInPlace()
+    {
+        // A struct instance method that WRITES `this.`-qualified fields must mutate the caller's
+        // local in place (the receiver address is the local's slot), so a follow-up read observes
+        // the new values. Confirms the write lands in real storage rather than a discarded copy.
+        var source = @"
+struct Counter {
+    N: int
+
+    constructor(start: int) {
+        this.N = start
+    }
+
+    func bump(): void {
+        this.N = this.N + 1
+    }
+
+    func get(): int {
+        return this.N
+    }
+}
+
+func main(): int {
+    c := new Counter(10)
+    c.bump()
+    c.bump()
+    return c.get()
+}";
+        Assert.Equal(12, CompileAndInvoke(source, "main"));
     }
 
     [Fact]

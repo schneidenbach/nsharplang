@@ -5837,6 +5837,32 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldarg_0);
     }
 
+    /// <summary>
+    /// Loads the ADDRESS of the implicit <c>this</c> receiver — the managed pointer a value-type
+    /// member read/write (<c>Ldfld</c>/<c>Stfld</c>) needs so it operates on the receiver's real
+    /// storage rather than a throwaway copy. In a value-type instance method or constructor arg0
+    /// is already the managed pointer (<c>T&amp;</c>), so it IS the address; emitting it directly
+    /// (rather than caching through a local) also keeps initonly-field writes in a constructor
+    /// verifiable. When <c>this</c> is captured by a closure, the receiver lives in a field on the
+    /// display class, so address that field instead.
+    /// </summary>
+    private void EmitLoadImplicitThisAddress()
+    {
+        if (_currentIL == null)
+        {
+            throw new InvalidOperationException("No IL generator context");
+        }
+
+        if (GetCapturedThisField() is { } capturedThisField)
+        {
+            _currentIL.Emit(OpCodes.Ldarg_0);
+            _currentIL.Emit(OpCodes.Ldflda, capturedThisField);
+            return;
+        }
+
+        _currentIL.Emit(OpCodes.Ldarg_0);
+    }
+
     private void RegisterDeclaredMethodOverload(string key, FunctionDeclaration declaration, MethodBuilder builder)
     {
         _methodBuildersByDeclaration[declaration] = builder;
@@ -9830,6 +9856,15 @@ public partial class ILCompiler
 
         switch (expression)
         {
+            // A value-type `this`/`base` receiver is reached here only for a struct member read or
+            // write (the guards at the call sites use IsValueTypeLike). arg0 already holds the
+            // managed pointer to the receiver, so load it as the address directly — spilling it into
+            // a temp (the default branch below) would copy the POINTER's bits into a fresh struct
+            // slot, reading field offsets off the pointer value (garbage) and dropping every write.
+            case ThisExpression:
+            case BaseExpression:
+                EmitLoadImplicitThisAddress();
+                return;
             case IdentifierExpression ident when _locals.TryGetValue(ident.Name, out var local):
                 if (IsLiftedIdentifier(ident.Name))
                 {

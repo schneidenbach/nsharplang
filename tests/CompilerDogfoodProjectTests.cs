@@ -3991,6 +3991,29 @@ class B
         Assert.False(RouteColumnarProgram("class C {\n    v: int\n    D: int {\n        get {\n            return v\n        }\n    }\n    constructor(x: int) {\n        v = x\n    }\n}\n\nfunc f(x: int): int {\n    c := new C(x)\n    c.D = 9\n    return c.D\n}\n").Ok);
     }
 
+    // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
+    // an object initializer or a user constructor) must read/write the receiver's real storage. The
+    // ILCompiler used to spill a `this.`-qualified value-type receiver into a throwaway temp — for a
+    // value-type method arg0 is a managed pointer (`T&`), so the spill copied the POINTER bits into a
+    // fresh struct slot, then read field offsets off the pointer value (garbage) and dropped writes.
+    // `this.W` reads returned garbage and `this.W = w` writes in a constructor were lost; bare-field
+    // access happened to work because it takes arg0's address directly. All forms must now agree on 12.
+    [Theory]
+    // object-init local + `this.`-qualified read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    func area(): int {\n        return this.W * this.H\n    }\n}\n\nfunc test(a: int, b: int): int {\n    r := new Rect { W: a, H: b }\n    return r.area()\n}\n")]
+    // object-init local + bare read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    func area(): int {\n        return W * H\n    }\n}\n\nfunc test(a: int, b: int): int {\n    r := new Rect { W: a, H: b }\n    return r.area()\n}\n")]
+    // constructor (this-qualified writes) + `this.`-qualified read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    constructor(w: int, h: int) {\n        this.W = w\n        this.H = h\n    }\n    func area(): int {\n        return this.W * this.H\n    }\n}\n\nfunc test(a: int, b: int): int {\n    r := new Rect(a, b)\n    return r.area()\n}\n")]
+    // constructor (this-qualified writes) + bare read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    constructor(w: int, h: int) {\n        this.W = w\n        this.H = h\n    }\n    func area(): int {\n        return W * H\n    }\n}\n\nfunc test(a: int, b: int): int {\n    r := new Rect(a, b)\n    return r.area()\n}\n")]
+    // constructor (bare writes) + bare read.
+    [InlineData("struct Rect {\n    W: int\n    H: int\n    constructor(w: int, h: int) {\n        W = w\n        H = h\n    }\n    func area(): int {\n        return W * H\n    }\n}\n\nfunc test(a: int, b: int): int {\n    r := new Rect(a, b)\n    return r.area()\n}\n")]
+    public void CSharpPath_StructInstanceMethodReceiver_ReadsRealStorage(string source)
+    {
+        Assert.Equal(12, InvokeViaCSharpPath(source, "test", new object[] { 3, 4 }));
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,
