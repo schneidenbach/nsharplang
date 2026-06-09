@@ -963,11 +963,18 @@ internal static class NSharpCompilerDogfoodAdapter
         var paramCount = bindings.ParseFunctionSignature(
             ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
             pNameStart, pNameLen, pTypeRoot, sres);
-        if (paramCount < 0 || sres[3] < 0 || sres[1] < 0)
+        if (paramCount < 0 || sres[3] < 0)
             return false;
 
         var fname = source.Substring(sres[3], sres[4]);
-        var returnCanonical = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1]);
+        // sres[1] is the return-type tree root, or -1 when the function OMITS its return type (`func f(...) {`,
+        // implicit void — the kernel sets returnRoot = -1, a valid signature, not a parse error). Canonicalize to
+        // "void" in that case (the emitter's pass 1 maps "void" -> typeof(void)), matching the symbol/type
+        // services' handling (TryInferTopLevelFunctionTypes uses `sres[1] >= 0 ? canon : "void"`). Without this,
+        // SemanticScopes' implicit-void procedures (SortIdsByStart, ClearTouched) declined the whole file at parse.
+        var returnCanonical = sres[1] >= 0
+            ? ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, sres[1])
+            : "void";
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
         for (var p = 0; p < paramCount; p++)

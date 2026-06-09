@@ -3252,6 +3252,64 @@ class B
             ("ContainsIgnoreCase", new object[] { "Hello", "xyz" }));
     }
 
+    // IMPLICIT-VOID functions: a `func f(...) {` with NO `: ReturnType` (omitted return) is an implicit-void
+    // procedure. The N# parser kernel sets returnRoot = -1 (a valid signature), but the columnar emit adapter
+    // wrongly treated `sres[1] < 0` as a parse error and declined; it now canonicalizes a -1 return to "void".
+    // `fillWith` (falls through) and `clearIf` (value-less early `return`) are implicit-void, invoked as
+    // statements by the non-void drivers. Each driver ALLOCATES its own array from an int arg (no shared mutable
+    // state across the columnar/oracle invocations), then OBSERVES the procedures' in-place writes via the sum.
+    [Fact]
+    public void ColumnarCodegen_Parity_ImplicitVoidFunctions()
+    {
+        var prog =
+            "func fillWith(a: int[], v: int) {\n    i := 0\n    while i < a.Length {\n        a[i] = v\n        i = i + 1\n    }\n}\n\n" +
+            "func clearIf(a: int[], flag: int) {\n    if flag == 0 {\n        return\n    }\n    i := 0\n    while i < a.Length {\n        a[i] = 0\n        i = i + 1\n    }\n}\n\n" +
+            "func sumFilled(n: int, v: int): int {\n    a := new int[](n)\n    fillWith(a, v)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            "func sumCleared(n: int, v: int, flag: int): int {\n    a := new int[](n)\n    fillWith(a, v)\n    clearIf(a, flag)\n    total := 0\n    i := 0\n    while i < a.Length {\n        total = total + a[i]\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sumFilled", new object[] { 4, 7 }),   // 4*7 = 28
+            ("sumFilled", new object[] { 0, 9 }),   // empty -> 0
+            ("sumCleared", new object[] { 5, 3, 1 }),  // flag!=0 -> cleared -> 0
+            ("sumCleared", new object[] { 5, 3, 0 }),  // flag==0 -> value-less early return -> 5*3 = 15
+            ("sumCleared", new object[] { 0, 3, 0 })); // empty -> 0
+        // A value-bearing `return` in an implicit-void function still declines (arity mismatch), exactly as the
+        // explicit `: void` case — the implicit-void parse fix does not weaken the void return contract.
+        Assert.False(RouteColumnarProgram("func f(a: int) {\n    return a\n}\n").Ok);
+    }
+
+    // MILESTONE: SemanticScopes.nl compiles end-to-end with no C# AST — the LAST parse-blocked systems-dogfood
+    // file, completing 32/32 corpus coverage via the merge cluster. Its blocker was two IMPLICIT-VOID procedures
+    // (SemanticScopeSortIdsByStart — an iterative quicksort — and SemanticScopeClearTouched) whose omitted return
+    // type the emit adapter mis-treated as a parse error. BuildSortedIndexChecksumInto exercises the implicit-void
+    // quicksort transitively (value-matched vs the C# pipeline); the pure helpers anchor scalar parity.
+    [Fact]
+    public void ColumnarCodegen_CompilesRealDogfoodFile_SemanticScopes()
+    {
+        var path = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices", "SemanticScopes.nl");
+        var source = File.ReadAllText(path);
+        var (ok, _, _, methodNames) = RouteColumnarProgram(source);
+        Assert.True(ok, "Columnar backend declined the real SemanticScopes.nl (expected full support).");
+        Assert.Contains("SemanticScopeSortIdsByStart", methodNames!);  // implicit-void quicksort
+        Assert.Contains("SemanticScopeClearTouched", methodNames!);    // implicit-void array-clear
+
+        // 4 scopes in UNSORTED (line, column) order so the implicit-void quicksort actually permutes; the checksum
+        // observes the sorted output (scratch + output arrays are deterministically rebuilt from the read-only
+        // position inputs each call, so the shared-array reuse across columnar/oracle is harmless).
+        int[] startLines = { 5, 1, 3, 1 }, startCols = { 0, 2, 0, 0 }, endLines = { 9, 9, 4, 2 };
+        AssertColumnarProgramMatchesCSharp(source,
+            ("SemanticScopeBuildSortedIndexChecksumInto", new object[]
+            {
+                startLines, startCols, endLines,
+                new int[4], new int[4], new int[4],
+                new int[4], new int[4], new int[4], new int[4],
+            }),
+            ("SemanticScopeBuildDepthChecksumInto", new object[] { new[] { -1, 0, 0, 1 }, new int[4] }),
+            ("SemanticScopeIdStartsBefore", new object[] { 0, 1, new[] { 3, 5 }, new[] { 0, 0 } }),
+            ("SemanticScopeIdStartsBefore", new object[] { 1, 0, new[] { 3, 5 }, new[] { 0, 0 } }),
+            ("SemanticScopePositiveModulo", new object[] { 17, 5 }), ("SemanticScopePositiveModulo", new object[] { -17, 5 }),
+            ("SemanticScopeMinInt", new object[] { 4, 9 }), ("SemanticScopeMinInt", new object[] { 9, 4 }));
+    }
+
     // MILESTONE: LexerTokenKindScanner.nl compiles end-to-end with no C# AST. Enabling feature: lowercase
     // `char.IsLetter`/`IsDigit`/`IsWhiteSpace`/`IsLetterOrDigit` static predicates (the file's char classifiers
     // mirror the C# lexer's BCL predicates). Reads the actual file.
@@ -3517,7 +3575,7 @@ class B
             "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
             "ParserExpressions.nl", "ParserFunctionSignatures.nl", "ParserStatements.nl", "ParserTypeReferences.nl",
-            "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
+            "PathMatching.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl", "StructCopyAnalysis.nl",
             "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
@@ -3548,7 +3606,7 @@ class B
             "CompletionGrouping.nl", "CompletionReceivers.nl", "DiagnosticClusters.nl", "DiagnosticDeduplication.nl", "DocQuery.nl",
             "ErrorSuggestions.nl", "FormatterImportOrdering.nl", "FormatterSafetyScan.nl", "IdentifierSpans.nl",
             "LexerTokenKindScanner.nl", "LinterImports.nl", "OverloadCandidates.nl", "ParserDeclarations.nl",
-            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SourceTextLines.nl",
+            "ParserTypeReferences.nl", "PathMatching.nl", "ProjectSourceFilter.nl", "SemanticScopes.nl", "SourceTextLines.nl",
             "StructCopyAnalysis.nl", "TextEditOrdering.nl", "TypeLookup.nl",
         };
         var dir = Path.Combine(FindRepoRoot(), "src", "NSharpLang.Compiler.Dogfood", "CompilerServices");

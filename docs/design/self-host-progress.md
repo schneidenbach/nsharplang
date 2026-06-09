@@ -11,6 +11,35 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — implicit-void return type (`func f(...) {`) → SemanticScopes.nl: **the systems-dogfood corpus is now 32/32 via merge** (single-file 28→29, cluster 31→32)
+
+The LAST parse-blocked file falls — Phase A self-host coverage COMPLETE. SemanticScopes.nl declined at PARSE
+(`TryGetColumnarFunctionInputs` returned false). A per-function parse probe (reflect the private parse entry, route
+each of the 20 funcs solo, tag parse-fail vs emit-fail) pinned two procedures — `SemanticScopeSortIdsByStart`
+(an iterative quicksort) and `SemanticScopeClearTouched` — that OMIT the return type: `func name(params) {` with
+no `: ReturnType` (implicit void). A synthetic `func f(a: int[]) {` reproduced it; `func g(a: int[]): void {`
+parsed fine — isolating the construct to the omitted return type.
+
+ROOT CAUSE was the C# adapter, NOT the N# kernel: `ParseFunctionSignatureInto` (ParserFunctionSignatures.nl)
+correctly sets `returnRoot = -1` for an omitted return type (it starts -1 and is only assigned when a `:`
+colon token is present; a FAILED type-parse returns -1 for the WHOLE function, so paramCount goes negative).
+But `TryParseColumnarFunctionAt` (NSharpCompilerDogfoodAdapter.cs) treated `sres[1] < 0` (the returnRoot) as a
+parse failure and called `ColumnarTypeCanon(..., sres[1])` unconditionally. FIX: drop `sres[1] < 0` from the
+failure guard and canonicalize `sres[1] >= 0 ? ColumnarTypeCanon(...) : "void"` — mirroring the symbol/type
+services (`TryInferTopLevelFunctionTypes` already did `sres[1] >= 0 ? canon : "void"`). The emitter already
+maps a "void" ReturnCanonical → typeof(void) (the void-functions slice), so no emitter change was needed: with
+the parse fixed, SemanticScopes compiled end-to-end with NO additional emit gap.
+
+Parity-gated: `ColumnarCodegen_Parity_ImplicitVoidFunctions` (implicit-void `fillWith` fall-through + `clearIf`
+value-less early `return`, each driven by a non-void caller that allocates its OWN array from an int arg so
+there's no shared-mutable-state across the columnar/oracle runs; plus the value-bearing-return-in-void decline)
+and the milestone `ColumnarCodegen_CompilesRealDogfoodFile_SemanticScopes` (`BuildSortedIndexChecksumInto`
+exercises the implicit-void quicksort transitively, value-matched vs the C# pipeline). Adversarially reviewed
+(read-only workflow, 2 lenses + judge). Ratchets: single-file floor 28→29, multi-file cluster 31→32. **Corpus
+coverage now 29/32 single-file, 32/32 (100%) via multi-file merge** — the 3 still-not-single-file files
+(ParserExpressions/ParserFunctionSignatures/ParserStatements) are legitimately CROSS-FILE (they call public
+functions in sibling files) and compile when merged; nothing in the corpus is unmodeled. **Phase A DONE.**
+
 ## 2026-06-08 — Math.Abs + int.ToString(fmt) + string concat + String.Compare(3/6-arg) + Trim + StringBuilder params → DiagnosticClusters.nl (single-file 27→28, cluster 30→31)
 
 The LAST emit-blocked systems-dogfood file falls. The roadmap predicted DiagnosticClusters.nl needed "exactly"
