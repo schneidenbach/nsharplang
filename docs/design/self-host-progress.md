@@ -11,6 +11,42 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — N# ILCompiler fix bundle: inheritance member resolution + base-ctor chaining (verify-first findings)
+
+VERIFY-FIRST probing for the columnar inheritance slice (two probe rounds against the production pipeline:
+acceptance map + Reflection facts on the emitted types) surfaced FIVE oracle defects beyond the already-fixed
+e356aa0d receiver-qualified case. All fixed in the C# ILCompiler (the parity oracle), each pinned by a regression
+test in `ILCompilerTests`:
+
+- **A — bare inherited method call**: `GetX()` (no receiver) inside a derived method body failed
+  ("Function call … not yet fully implemented") — implicit-instance call resolution bound only the enclosing
+  type's own methods. Both the emit site and its type-inference twin now walk `BaseType` up the chain.
+- **B — inherited member access on a derived receiver**: `d.X` / `d.X = v` / `d.Doubled` failed
+  ("Member X not found on type D") — ~10 sites did own-type-only `_fields`/`_methods` lookups and `FindField`
+  walked exactly ONE level. New `FindInstanceFieldOnBaseChain`/`FindInstanceAccessorOnBaseChain` helpers walk the
+  full N# chain (then external bases via reflection) and are applied across the member read/write/inference/
+  pattern sites.
+- **C — `: base()` zero-arg against an arg-only base** resolved an ARBITRARY declared ctor with no args pushed →
+  `InvalidProgramException` at runtime. The zero-arg fallback now applies only when the target declares NO
+  constructors (the synthesized parameterless case); otherwise it must bind a declared overload or fail.
+- **D — silent `object::.ctor()` substitution**: a derived ctor with NO `: base(...)` whose base has only
+  parameterized ctors silently chained to `object` — unverifiable IL per ECMA-335 (a ctor must run the DIRECT
+  base ctor) with every base field left zero. Now a compile-time diagnostic ("must chain to a base constructor …
+  add ': base(...)'"); the implicit-chain path (`EmitConstructorInitializerCall` with no initializer,
+  `EmitDefaultConstructorBody`, `EmitPrimaryConstructorBody`) all route through the same resolution.
+- **E — `class D: S` (struct base) silently DROPPED the base** (D extended Object, S's members vanished):
+  `DeclareClass` now rejects a non-class/non-interface base with a diagnostic.
+
+Also EMPIRICALLY pinned (briefing assumption overturned): NL304 definite-assignment fires ONLY for ctors with NO
+initializer — BOTH `: this(...)` AND `: base(...)` skip it entirely (a `: base(x)` ctor assigning nothing of its
+own is accepted; Y stays default). The columnar slice's decline rules are derived from this map, not from
+C#-the-language reasoning. 9 new regression tests (headline bare-call surface, 3-level chain, inherited field
+read+write, inherited property, implicit chain to a fields-only base, NL304-skip pin, and the three rejection
+diagnostics); 621 ILCompiler+dogfood tests green; full non-IDE gate green (fresh isolated). This completes the
+oracle prerequisites for the columnar INHERITANCE slice (next).
+
+---
+
 ## 2026-06-09 — N# ILCompiler fix: INHERITED instance-method resolution (unblocks columnar inheritance)
 
 Surfaced while scoping the columnar inheritance slice: the N# pipeline ITSELF rejected a call to an inherited

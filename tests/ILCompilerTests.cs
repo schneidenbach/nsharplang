@@ -4540,6 +4540,274 @@ func sum(a: int, b: int): int {
     }
 
     [Fact]
+    public void ILCompiler_CanCallInheritedMethodBareInDerivedMethodBody()
+    {
+        // Regression: a BARE call to an inherited method (`GetX()`, no receiver) inside a derived method body was
+        // rejected — implicit-instance call resolution bound only against the enclosing type's own methods and never
+        // walked the base-class chain. It now walks BaseType at both the emit and type-inference sites.
+        var source = @"
+class Base {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+    func GetX(): int {
+        return X
+    }
+}
+
+class D: Base {
+    Y: int
+    constructor(x: int, y: int): base(x) {
+        Y = y
+    }
+    func Sum(): int {
+        return GetX() + Y
+    }
+}
+
+func f(x: int, y: int): int {
+    d := new D(x, y)
+    return d.Sum()
+}";
+        Assert.Equal(8, Assert.IsType<int>(CompileAndInvoke(source, "f", 5, 3)));
+        Assert.Equal(-4, Assert.IsType<int>(CompileAndInvoke(source, "f", 3, -7)));
+    }
+
+    [Fact]
+    public void ILCompiler_CanExecuteMultiLevelInheritanceChain()
+    {
+        // Three-level chain A -> B -> C: every inherited-member lookup must walk the FULL base chain (F1 lives two
+        // levels above C), and each constructor chains `: base(...)` upward. The single-level fix alone would miss F1.
+        var source = @"
+class A {
+    F1: int
+    constructor(a: int) {
+        F1 = a
+    }
+}
+
+class B: A {
+    F2: int
+    constructor(a: int, b: int): base(a) {
+        F2 = b
+    }
+}
+
+class C: B {
+    F3: int
+    constructor(a: int, b: int, c: int): base(a, b) {
+        F3 = c
+    }
+    func Total(): int {
+        return F1 + F2 + F3
+    }
+}
+
+func total(a: int, b: int, c: int): int {
+    x := new C(a, b, c)
+    return x.Total()
+}";
+        Assert.Equal(6, Assert.IsType<int>(CompileAndInvoke(source, "total", 1, 2, 3)));
+        Assert.Equal(0, Assert.IsType<int>(CompileAndInvoke(source, "total", 5, -2, -3)));
+    }
+
+    [Fact]
+    public void ILCompiler_CanReadAndWriteInheritedFieldOnDerivedReceiver()
+    {
+        // Regression: `d.X` where X is declared on the BASE class failed with "Member X not found on type D" — the
+        // member-access read/write/inference sites looked up fields only on the receiver's own type. They now walk
+        // the base chain, so external reads AND stores of inherited fields work.
+        var source = @"
+class Base {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+}
+
+class D: Base {
+    constructor(x: int): base(x) {
+    }
+}
+
+func readWrite(x: int, v: int): int {
+    d := new D(x)
+    before := d.X
+    d.X = v
+    return before + d.X
+}";
+        Assert.Equal(15, Assert.IsType<int>(CompileAndInvoke(source, "readWrite", 5, 10)));
+        Assert.Equal(-3, Assert.IsType<int>(CompileAndInvoke(source, "readWrite", 0, -3)));
+    }
+
+    [Fact]
+    public void ILCompiler_CanReadInheritedPropertyOnDerivedReceiver()
+    {
+        // Inherited computed PROPERTY access on a derived receiver: the get_-accessor lookup walks the base chain
+        // (same regression class as inherited fields — accessor resolution was own-type-only).
+        var source = @"
+class Base {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+    Doubled: int {
+        get {
+            return X * 2
+        }
+    }
+}
+
+class D: Base {
+    constructor(x: int): base(x) {
+    }
+}
+
+func f(x: int): int {
+    d := new D(x)
+    return d.Doubled
+}";
+        Assert.Equal(10, Assert.IsType<int>(CompileAndInvoke(source, "f", 5)));
+        Assert.Equal(-6, Assert.IsType<int>(CompileAndInvoke(source, "f", -3)));
+    }
+
+    [Fact]
+    public void ILCompiler_EmitsImplicitBaseChainToFieldsOnlyBase()
+    {
+        // A derived constructor with NO `: base(...)` initializer must chain to the base's synthesized parameterless
+        // constructor (NOT object::.ctor) when the base declares no constructors of its own.
+        var source = @"
+class Base {
+    X: int
+}
+
+class D: Base {
+    constructor(x: int) {
+        X = x
+    }
+}
+
+func f(x: int): int {
+    d := new D(x)
+    return d.X
+}";
+        Assert.Equal(3, Assert.IsType<int>(CompileAndInvoke(source, "f", 3)));
+    }
+
+    [Fact]
+    public void ILCompiler_BaseInitializerConstructorMayLeaveOwnFieldsDefault()
+    {
+        // Pins the emitted IL shape for a `: base(x)` constructor that assigns NOTHING of its own: the base chain
+        // must still run (X = x) and the derived field stays default-initialized (Y == 0).
+        var source = @"
+class Base {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+}
+
+class D: Base {
+    Y: int
+    constructor(x: int): base(x) {
+    }
+    func Pair(): int {
+        return X * 100 + Y
+    }
+}
+
+func f(x: int): int {
+    d := new D(x)
+    return d.Pair()
+}";
+        Assert.Equal(500, Assert.IsType<int>(CompileAndInvoke(source, "f", 5)));
+    }
+
+    [Fact]
+    public void ILCompiler_RejectsImplicitBaseChainWhenBaseHasNoParameterlessConstructor()
+    {
+        // Regression: a derived constructor WITHOUT `: base(...)` whose base has only parameterized constructors
+        // used to silently emit a call to object::.ctor() — unverifiable IL with every base field left zero. The
+        // compiler must reject it with an actionable diagnostic instead.
+        var source = @"
+class Base {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+}
+
+class D: Base {
+    Y: int
+    constructor(y: int) {
+        Y = y
+    }
+}
+
+func f(y: int): int {
+    d := new D(y)
+    return d.Y
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f", 3));
+        Assert.Contains("must chain to a base constructor", ex.Message);
+        Assert.Contains(": base(...)", ex.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_RejectsZeroArgBaseInitializerWhenBaseHasOnlyParameterizedConstructors()
+    {
+        // Regression: `: base()` against a base that declares only parameterized constructors used to fall back to
+        // an ARBITRARY declared constructor with no arguments pushed — InvalidProgramException at runtime. The
+        // zero-argument fallback now applies only when the base declares no constructors (synthesized parameterless),
+        // so this must fail at compile time.
+        var source = @"
+class Base {
+    X: int
+    constructor(x: int) {
+        X = x
+    }
+}
+
+class D: Base {
+    Y: int
+    constructor(y: int): base() {
+        Y = y
+    }
+}
+
+func f(y: int): int {
+    d := new D(y)
+    return d.Y
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f", 3));
+        Assert.Contains("No matching constructor", ex.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_RejectsClassInheritingFromStruct()
+    {
+        // Regression: `class D: S` where S is a struct silently DROPPED the base (D extended Object and lost S's
+        // members). Only classes and interfaces are valid in a class's base list; anything else is a compile error.
+        var source = @"
+struct S {
+    v: int
+}
+
+class D: S {
+    constructor() {
+    }
+}
+
+func f(): int {
+    d := new D()
+    return 1
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f"));
+        Assert.Contains("only classes and interfaces can appear in a base list", ex.Message);
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteClassPrimaryConstructor()
     {
         var source = @"

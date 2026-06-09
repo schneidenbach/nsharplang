@@ -14994,35 +14994,74 @@ public partial class ILCompiler
     /// </summary>
     private FieldInfo? FindField(TypeBuilder typeBuilder, string fieldName)
     {
-        // Check in declared fields of current type
-        var fieldBuilder = FindDeclaredField(typeBuilder, fieldName);
-        if (fieldBuilder != null)
+        // Declared fields of this type or an N#-declared base (full base-chain walk).
+        var declaredField = FindInstanceFieldOnBaseChain(typeBuilder, fieldName);
+        if (declaredField != null)
         {
-            return fieldBuilder;
+            return declaredField;
         }
 
-        // Check in base type
-        var baseType = typeBuilder.BaseType;
-        if (baseType != null && baseType != typeof(object))
+        // The N#-declared chain may end at an external (non-N#) base type — resolve via reflection.
+        var externalBase = (Type?)typeBuilder.BaseType;
+        while (externalBase != null && externalBase != typeof(object) && TryGetUserTypeDefinition(externalBase, out var externalBaseBuilder))
         {
-            // If base type is also a TypeBuilder in our compilation unit, check our fields dictionary
-            if (baseType is TypeBuilder baseTypeBuilder)
+            externalBase = externalBaseBuilder.BaseType;
+        }
+
+        if (externalBase != null && externalBase != typeof(object) && externalBase is not TypeBuilder)
+        {
+            return externalBase.GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves an N#-declared instance FIELD by walking the receiver's base-class chain — the
+    /// field may be declared on an inherited base type (e.g. <c>d.X</c> where <c>X</c> lives on
+    /// <c>Base</c> and <c>d</c> is a derived receiver). The own type is checked first so a
+    /// derived declaration shadows a base one.
+    /// </summary>
+    private FieldBuilder? FindInstanceFieldOnBaseChain(TypeBuilder typeBuilder, string memberName)
+    {
+        for (var current = (Type?)typeBuilder; current != null && current != typeof(object);)
+        {
+            if (!TryGetUserTypeDefinition(current, out var currentBuilder))
             {
-                var baseFieldKey = GetFieldKey(baseTypeBuilder, fieldName);
-                if (_fields.TryGetValue(baseFieldKey, out var baseFieldBuilder))
-                {
-                    return baseFieldBuilder;
-                }
+                break;
             }
-            else
+
+            if (_fields.TryGetValue(GetFieldKey(currentBuilder, memberName), out var fieldBuilder))
             {
-                // External type - use reflection
-                var field = baseType.GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
-                if (field != null)
-                {
-                    return field;
-                }
+                return fieldBuilder;
             }
+
+            current = currentBuilder.BaseType;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves an N#-declared instance ACCESSOR (<c>get_X</c>/<c>set_X</c>) by walking the
+    /// receiver's base-class chain — the property may be declared on an inherited base type.
+    /// The own type is checked first so a derived declaration shadows a base one.
+    /// </summary>
+    private MethodBuilder? FindInstanceAccessorOnBaseChain(TypeBuilder typeBuilder, string accessorName)
+    {
+        for (var current = (Type?)typeBuilder; current != null && current != typeof(object);)
+        {
+            if (!TryGetUserTypeDefinition(current, out var currentBuilder))
+            {
+                break;
+            }
+
+            if (_methods.TryGetValue(GetMethodKey(currentBuilder, accessorName), out var accessor))
+            {
+                return accessor;
+            }
+
+            current = currentBuilder.BaseType;
         }
 
         return null;
@@ -16502,6 +16541,25 @@ public partial class ILCompiler
                         GetMethodKey(implicitInstanceTypeBuilder, ident.Name),
                         call,
                         predicate: overload => !overload.Builder.IsStatic);
+                    // INHERITED instance methods: a bare call in a method body may target a method
+                    // declared on a base class — walk the base-class chain (mirroring the receiver-
+                    // qualified resolution in EmitMemberAccessCall). The implicit `this` receiver is
+                    // upcast to the declaring base type by the call, so the emission is unchanged.
+                    for (var inheritedBaseType = implicitInstanceTypeBuilder.BaseType;
+                         currentTypeInstanceCall == null && inheritedBaseType != null && inheritedBaseType != typeof(object);
+                         inheritedBaseType = inheritedBaseType.BaseType)
+                    {
+                        if (!TryGetUserTypeDefinition(inheritedBaseType, out var inheritedBaseBuilder))
+                        {
+                            break;
+                        }
+
+                        currentTypeInstanceCall = BindDeclaredMethodCall(
+                            GetMethodKey(inheritedBaseBuilder, ident.Name),
+                            call,
+                            targetType: inheritedBaseType,
+                            predicate: overload => !overload.Builder.IsStatic);
+                    }
                     if (currentTypeInstanceCall != null)
                     {
                         EmitLoadImplicitThisReference();
@@ -16796,7 +16854,7 @@ public partial class ILCompiler
                 assignment.Operator == AssignmentOperator.Assign
                 && !IsValueTypeLike(objectType)
                 && objectType is TypeBuilder fieldOwnerCandidate
-                && _fields.ContainsKey(GetFieldKey(fieldOwnerCandidate, memberAccess.MemberName));
+                && FindInstanceFieldOnBaseChain(fieldOwnerCandidate, memberAccess.MemberName) != null;
 
             // Emit the object. For a value-type receiver we need its ADDRESS on the stack so the
             // trailing Stfld writes back into the original storage (a struct local, a lifted box's
@@ -16829,14 +16887,18 @@ public partial class ILCompiler
                 // For compound assignments, we need to load the current value first
                 _currentIL.Emit(OpCodes.Dup); // Duplicate object reference
 
-                // Load current field/property value
+                // Load current field/property value (the member may be declared on an inherited base type)
                 if (memberOwnerType is TypeBuilder typeBuilder)
                 {
-                    if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberAccess.MemberName), out var fieldBuilder))
+                    var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, memberAccess.MemberName);
+                    var getterMethod = fieldBuilder == null
+                        ? FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberAccess.MemberName}")
+                        : null;
+                    if (fieldBuilder != null)
                     {
                         _currentIL.Emit(OpCodes.Ldfld, fieldBuilder);
                     }
-                    else if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{memberAccess.MemberName}"), out var getterMethod))
+                    else if (getterMethod != null)
                     {
                         _currentIL.Emit(OpCodes.Callvirt, getterMethod);
                     }
@@ -16883,7 +16945,7 @@ public partial class ILCompiler
             // cached), and reusing the assigned value matches assignment-expression semantics.
             if (storesToReferenceTypeField)
             {
-                var fb = _fields[GetFieldKey((TypeBuilder)objectType, memberAccess.MemberName)];
+                var fb = FindInstanceFieldOnBaseChain((TypeBuilder)objectType, memberAccess.MemberName)!;
                 LocalBuilder? resultLocal = null;
                 if (leaveValueOnStack)
                 {
@@ -16899,14 +16961,18 @@ public partial class ILCompiler
                 return;
             }
 
-            // Store to field/property
+            // Store to field/property (the member may be declared on an inherited base type)
             if (memberOwnerType is TypeBuilder tb)
             {
-                if (_fields.TryGetValue(GetFieldKey(tb, memberAccess.MemberName), out var fb))
+                var fb = FindInstanceFieldOnBaseChain(tb, memberAccess.MemberName);
+                var setterMethod = fb == null
+                    ? FindInstanceAccessorOnBaseChain(tb, $"set_{memberAccess.MemberName}")
+                    : null;
+                if (fb != null)
                 {
                     _currentIL.Emit(OpCodes.Stfld, fb);
                 }
-                else if (_methods.TryGetValue(GetMethodKey(tb, $"set_{memberAccess.MemberName}"), out var setterMethod))
+                else if (setterMethod != null)
                 {
                     _currentIL.Emit(OpCodes.Callvirt, setterMethod);
                 }
@@ -18325,13 +18391,15 @@ public partial class ILCompiler
 
         if (objectType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberName), out var fieldBuilder))
+            var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, memberName);
+            if (fieldBuilder != null)
             {
                 _currentIL.Emit(OpCodes.Ldfld, fieldBuilder);
                 return;
             }
 
-            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{memberName}"), out var getterMethod))
+            var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberName}");
+            if (getterMethod != null)
             {
                 _currentIL.Emit(OpCodes.Callvirt, getterMethod);
                 return;
@@ -18439,13 +18507,15 @@ public partial class ILCompiler
 
         if (objectType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberName), out var fieldBuilder))
+            var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, memberName);
+            if (fieldBuilder != null)
             {
                 _currentIL.Emit(OpCodes.Stfld, fieldBuilder);
                 return;
             }
 
-            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"set_{memberName}"), out var setterMethod))
+            var setterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"set_{memberName}");
+            if (setterMethod != null)
             {
                 _currentIL.Emit(OpCodes.Callvirt, setterMethod);
                 return;
@@ -18694,17 +18764,19 @@ public partial class ILCompiler
             return;
         }
 
-        // Check if it's a user-defined type
+        // Check if it's a user-defined type (the member may be declared on an inherited base type)
         if (memberOwnerType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberAccess.MemberName), out var fieldBuilder))
+            var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, memberAccess.MemberName);
+            if (fieldBuilder != null)
             {
                 _currentIL.Emit(OpCodes.Ldfld, fieldBuilder);
                 return;
             }
 
             // Check for property getter
-            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{memberAccess.MemberName}"), out var getterMethod))
+            var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberAccess.MemberName}");
+            if (getterMethod != null)
             {
                 _currentIL.Emit(useAddressReceiver ? OpCodes.Call : OpCodes.Callvirt, getterMethod);
                 return;
@@ -19411,13 +19483,15 @@ public partial class ILCompiler
     {
         if (targetType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberName), out var fieldBuilder))
+            var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, memberName);
+            if (fieldBuilder != null)
             {
                 memberType = fieldBuilder.FieldType;
                 return true;
             }
 
-            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{memberName}"), out var getterMethod))
+            var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberName}");
+            if (getterMethod != null)
             {
                 memberType = getterMethod.ReturnType;
                 return true;
@@ -19713,16 +19787,18 @@ public partial class ILCompiler
             }
         }
 
-        // Check user-defined types first
+        // Check user-defined types first (the member may be declared on an inherited base type)
         if (memberOwnerType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, unwrapNullConditional.MemberName), out var fieldBuilder))
+            var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, unwrapNullConditional.MemberName);
+            if (fieldBuilder != null)
             {
                 return fieldBuilder.FieldType;
             }
 
             // Check for property via getter
-            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{unwrapNullConditional.MemberName}"), out var getterMethod))
+            var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{unwrapNullConditional.MemberName}");
+            if (getterMethod != null)
             {
                 return getterMethod.ReturnType;
             }
@@ -20098,6 +20174,24 @@ public partial class ILCompiler
                         GetMethodKey(implicitInstanceTypeBuilder, ident.Name),
                         call,
                         predicate: overload => !overload.Builder.IsStatic);
+                    // INHERITED instance methods: walk the base-class chain so a bare call to a
+                    // base-declared method infers its RETURN TYPE from the inherited declaration
+                    // (matching the emit-side base-chain resolution).
+                    for (var inheritedBaseType = implicitInstanceTypeBuilder.BaseType;
+                         currentTypeInstanceCall == null && inheritedBaseType != null && inheritedBaseType != typeof(object);
+                         inheritedBaseType = inheritedBaseType.BaseType)
+                    {
+                        if (!TryGetUserTypeDefinition(inheritedBaseType, out var inheritedBaseBuilder))
+                        {
+                            break;
+                        }
+
+                        currentTypeInstanceCall = BindDeclaredMethodCall(
+                            GetMethodKey(inheritedBaseBuilder, ident.Name),
+                            call,
+                            targetType: inheritedBaseType,
+                            predicate: overload => !overload.Builder.IsStatic);
+                    }
                     if (currentTypeInstanceCall != null)
                     {
                         return GetBoundDeclaredMethodReturnType(currentTypeInstanceCall);
@@ -21113,6 +21207,13 @@ public partial class ILCompiler
                 }
 
                 baseType = candidateType;
+            }
+            else
+            {
+                // A struct/enum/other non-class, non-interface base — silently dropping it would
+                // compile `class D: S` as if it extended object, a silent miscompile.
+                throw new InvalidOperationException(
+                    $"Class {classDecl.Name} cannot inherit from {candidateType.Name}: only classes and interfaces can appear in a base list");
             }
         }
 
@@ -22542,13 +22643,9 @@ public partial class ILCompiler
         _currentHasThis = true;
         _currentGenericParameters = GetTypeGenericParameters(typeBuilder);
 
-        // Call base constructor (object..ctor)
-        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
-        var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
-        if (objectCtor != null)
-        {
-            _currentIL.Emit(OpCodes.Call, objectCtor);
-        }
+        // Run the DIRECT base type's parameterless constructor (not a hardcoded object..ctor —
+        // a derived class must chain to its base for verifiable IL and initialized base fields).
+        EmitConstructorInitializerCall(typeBuilder, initializer: null);
 
         if (members != null)
         {
@@ -22576,12 +22673,9 @@ public partial class ILCompiler
 
         if (!isValueType)
         {
-            _currentIL.Emit(OpCodes.Ldarg_0);
-            var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes);
-            if (objectCtor != null)
-            {
-                _currentIL.Emit(OpCodes.Call, objectCtor);
-            }
+            // Run the DIRECT base type's parameterless constructor (not a hardcoded object..ctor —
+            // a derived class must chain to its base for verifiable IL and initialized base fields).
+            EmitConstructorInitializerCall(typeBuilder, initializer: null);
         }
 
         for (int i = 0; i < parameters.Count; i++)
@@ -22705,10 +22799,21 @@ public partial class ILCompiler
         }
 
         // No explicit initializer: invoke the direct base type's parameterless constructor.
-        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+        // ECMA-335 requires a constructor to run the DIRECT base constructor (or a sibling
+        // `this` constructor) before `this` is observable — silently substituting
+        // `object::.ctor()` when the base has no parameterless constructor would emit
+        // unverifiable IL and leave every base field zero-initialized.
         var baseType = typeBuilder.BaseType ?? typeof(object);
-        var baseCtor = ResolveParameterlessConstructor(baseType)
-            ?? typeof(object).GetConstructor(Type.EmptyTypes);
+        var baseCtor = ResolveParameterlessConstructor(baseType);
+        if (baseCtor == null && baseType != typeof(object))
+        {
+            throw new InvalidOperationException(
+                $"Type {GetTypeKey(typeBuilder)} must chain to a base constructor: base type {baseType.Name} " +
+                "has no parameterless constructor — add ': base(...)' to the constructor");
+        }
+
+        _currentIL.Emit(OpCodes.Ldarg_0); // Load 'this'
+        baseCtor ??= typeof(object).GetConstructor(Type.EmptyTypes);
         if (baseCtor != null)
         {
             _currentIL.Emit(OpCodes.Call, baseCtor);
@@ -22726,7 +22831,7 @@ public partial class ILCompiler
     {
         boundArguments = null;
 
-        if (TryGetUserTypeDefinition(targetType, out _))
+        if (TryGetUserTypeDefinition(targetType, out var targetTypeBuilder))
         {
             var boundDeclaredCall = BindDeclaredConstructorCall(targetType, arguments);
             if (boundDeclaredCall != null)
@@ -22736,8 +22841,11 @@ public partial class ILCompiler
             }
 
             // A user type with no explicit constructors exposes only the synthesized
-            // parameterless constructor.
-            if (arguments.Count == 0)
+            // parameterless constructor. When the type DOES declare constructors, a zero-arg
+            // initializer must bind one of them (handled above) — falling back here would bind
+            // an arbitrary declared constructor without its arguments and emit invalid IL.
+            if (arguments.Count == 0
+                && !_declaredConstructorOverloads.ContainsKey(GetConstructorKey(targetTypeBuilder)))
             {
                 return ResolveUserDefinedConstructor(targetType);
             }
@@ -24405,13 +24513,15 @@ public partial class ILCompiler
 
         if (targetType is TypeBuilder typeBuilder)
         {
-            if (_fields.TryGetValue(GetFieldKey(typeBuilder, memberName), out var fieldBuilder))
+            var fieldBuilder = FindInstanceFieldOnBaseChain(typeBuilder, memberName);
+            if (fieldBuilder != null)
             {
                 _currentIL.Emit(OpCodes.Ldfld, fieldBuilder);
                 return fieldBuilder.FieldType;
             }
 
-            if (_methods.TryGetValue(GetMethodKey(typeBuilder, $"get_{memberName}"), out var getterMethod))
+            var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberName}");
+            if (getterMethod != null)
             {
                 _currentIL.Emit(loadByAddress ? OpCodes.Call : OpCodes.Callvirt, getterMethod);
                 return getterMethod.ReturnType;
