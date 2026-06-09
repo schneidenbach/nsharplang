@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-6b: `match` `when` guards (`<pattern> when <bool>`)
+
+Extends the match-expression slice with guard clauses without touching the match node's `[value, pat, res, …]`
+encoding.
+- **Parser kernel** (`ParserExpressions.nl`): in the match-case loop, after parsing a pattern (primary expr), a
+  `when` (token 54) introduces a guard — parsed via `ParseAssignmentExpression` — and the pattern is wrapped in a new
+  `GuardedPattern` node kind 19, children `[pattern, guard]`, which occupies the pattern slot. A bare pattern (no
+  `when`) is unchanged (no wrapper), so existing cases keep their exact shape.
+- **Emitter** (`ColumnarIlEmitter` case 18): each case's pattern slot is unwrapped — a kind-19 node yields the inner
+  pattern + a guard node, else the guard is absent. The inner pattern is tested exactly as before (identifier
+  discard/binding always-matches; literal `ldloc; <lit>; ceq/op_Equality; brfalse nextCase`). THEN, if guarded, the
+  guard (a `bool`, with the pattern's binding already in `_locals` so it may reference it) is emitted and
+  `brfalse nextCase`. A guarded catch-all is NOT exhaustive, so the trailing no-match throw stays reachable. Mirrors
+  the C# `EmitMatchExpression` (store-binding-then-guard) path; non-`bool` guards and unsupported guard exprs decline.
+
+Parity-gated: `ColumnarCodegen_Parity_MatchGuard` value-matches the C# ILCompiler over guards on binding patterns
+(`x when x > 0`), a literal pattern with a guard falling through to the bare-literal case, a guard reading an outer
+parameter, a guard calling `char.IsDigit`/`IsLetter` on the bound char, and an all-guarded match. (The C# reference
+parser parses `when <ident> =>` as a lambda, so the test writes `flag == true` not bare `flag`; the columnar kernel
+handles either — out-of-scope reference-parser quirk.) Adversarially reviewed (read-only, 3 lenses + judge:
+binding-scope, IL stack/control-flow, C#-parity) → SHIP, no in-scope defects. The review also surfaced a
+PRE-EXISTING over-acceptance (the literal-pattern branch emits a `ceq` for ANY non-identifier primary — `(0)`, calls,
+member access — which C# rejects); hardened next. Full non-IDE gate green (fresh isolated, 310s). Next: harden the
+pattern branch to decline non-literal patterns, then relational/range patterns.
+
+---
+
 ## 2026-06-09 — Phase D-6: `match` expressions (first pattern class — literal/discard/binding over scalars)
 
 The first slice of pattern matching: `match value { pattern => result, … }` as an EXPRESSION over scalars/strings.

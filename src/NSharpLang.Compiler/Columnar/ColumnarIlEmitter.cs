@@ -1418,7 +1418,8 @@ public sealed class ColumnarIlEmitter
             {        // linear chain mirroring the C# EmitMatchExpression: eval value -> temp; per case test the
                      // pattern, on match eval the result + br end; no match -> throw. An EXPRESSION: leaves one
                      // result on the stack. Patterns: a LITERAL (equality test) or an identifier (`_` discard or a
-                     // binding that always matches and binds the matched value); richer patterns decline.
+                     // binding that always matches and binds the matched value); a pattern may carry a `when` guard
+                     // (kind 19 [pattern, guard]) tested after the pattern; richer patterns decline.
                 var childCount = _childCount[idx];
                 if (childCount < 3 || (childCount % 2) == 0) // value + >=1 (pattern, result) pair.
                     return false;
@@ -1433,10 +1434,29 @@ public sealed class ColumnarIlEmitter
                 Type? matchResultType = null;
                 for (var c = 0; c < caseCount; c++)
                 {
-                    var patternNode = Child(idx, 1 + (2 * c));
+                    var rawPattern = Child(idx, 1 + (2 * c));
                     var resultNode = Child(idx, 2 + (2 * c));
                     var nextCase = _il.DefineLabel();
                     var armLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+
+                    // A `when` guard wraps the pattern in a GuardedPattern (kind 19 [pattern, guard]). Unwrap it:
+                    // the inner pattern is tested exactly as a bare pattern, then the guard (a bool expression with
+                    // the pattern's binding in scope) gates the arm. A guarded catch-all is NOT exhaustive, so the
+                    // trailing no-match throw remains correct.
+                    int patternNode;
+                    int guardNode;
+                    if (_kinds[rawPattern] == 19)
+                    {
+                        if (_childCount[rawPattern] != 2)
+                            return false;
+                        patternNode = Child(rawPattern, 0);
+                        guardNode = Child(rawPattern, 1);
+                    }
+                    else
+                    {
+                        patternNode = rawPattern;
+                        guardNode = -1;
+                    }
 
                     if (_kinds[patternNode] == 6) // identifier pattern: `_` discard or a binding -> always matches.
                     {
@@ -1461,6 +1481,15 @@ public sealed class ColumnarIlEmitter
                         else
                             _il.Emit(OpCodes.Ceq);
                         _il.Emit(OpCodes.Brfalse, nextCase); // not equal -> try the next case.
+                    }
+
+                    // `when` guard: the pattern matched; now require the guard (a bool) to hold. The pattern's
+                    // binding (if any) is already in _locals, so the guard may reference it. False -> next case.
+                    if (guardNode >= 0)
+                    {
+                        if (!EmitExpression(guardNode, out var guardType) || guardType != typeof(bool))
+                            return false;
+                        _il.Emit(OpCodes.Brfalse, nextCase);
                     }
 
                     if (!EmitExpression(resultNode, out var armResultType))

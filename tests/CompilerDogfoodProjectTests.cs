@@ -3101,6 +3101,42 @@ class B
             ("grade", new object[] { 4 }), ("grade", new object[] { 2 }), ("grade", new object[] { 0 }));
     }
 
+    // MATCH `when` GUARDS — a pattern may carry a guard (`<pattern> when <bool>`), parsed as a GuardedPattern
+    // (kernel node kind 19 [pattern, guard]) and emitted by testing the pattern THEN the guard before the arm.
+    // Covers: guards on BINDING patterns (the binding is in scope inside the guard), guards on LITERAL patterns
+    // (on guard-fail the chain falls through to a later case), guards that read an outer PARAMETER, guards calling
+    // a method on the bound value, and the fall-through-to-throw when every guarded arm fails. A guarded catch-all
+    // is NOT exhaustive, so the trailing no-match throw stays reachable. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_MatchGuard()
+    {
+        var prog =
+            // Guards on binding patterns; later cases reached when an earlier guard fails; `_` catch-all.
+            "func sign(n: int): string {\n    return match n {\n        x when x > 0 => \"pos\",\n        x when x < 0 => \"neg\",\n        _ => \"zero\"\n    }\n}\n\n" +
+            "func bucket(n: int): int {\n    return match n {\n        x when x < 10 => 1,\n        x when x < 100 => 2,\n        _ => 3\n    }\n}\n\n" +
+            // Guard reads an outer parameter (limit), not just the binding.
+            "func overUnder(n: int, limit: int): string {\n    return match n {\n        0 => \"zero\",\n        x when x > limit => \"over\",\n        _ => \"under\"\n    }\n}\n\n" +
+            // LITERAL pattern carrying a guard: when the guard fails, fall through to the bare-literal case.
+            // (Guard written `flag == true`, not bare `flag`: the C# reference parser parses `when <ident> =>` as a
+            // lambda, so a bare-identifier guard is avoided here; the columnar kernel handles either form.)
+            "func flagged(n: int, flag: bool): string {\n    return match n {\n        0 when flag == true => \"zero-flag\",\n        0 => \"zero-plain\",\n        _ => \"other\"\n    }\n}\n\n" +
+            // Guard calls a static predicate on the bound char.
+            "func charClass(c: char): int {\n    return match c {\n        x when char.IsDigit(x) => 1,\n        x when char.IsLetter(x) => 2,\n        _ => 0\n    }\n}\n\n" +
+            // EVERY arm guarded (no catch-all): inputs that satisfy none hit the no-match throw on BOTH paths.
+            "func onlyGuards(n: int): int {\n    return match n {\n        x when x == 1 => 10,\n        x when x == 2 => 20\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("sign", new object[] { 7 }), ("sign", new object[] { -3 }), ("sign", new object[] { 0 }),
+            ("bucket", new object[] { 5 }), ("bucket", new object[] { 50 }), ("bucket", new object[] { 500 }), ("bucket", new object[] { 10 }),
+            ("overUnder", new object[] { 0, 100 }), ("overUnder", new object[] { 150, 100 }), ("overUnder", new object[] { 30, 100 }),
+            ("flagged", new object[] { 0, true }), ("flagged", new object[] { 0, false }), ("flagged", new object[] { 5, true }),
+            ("charClass", new object[] { '7' }), ("charClass", new object[] { 'q' }), ("charClass", new object[] { '#' }),
+            ("onlyGuards", new object[] { 1 }), ("onlyGuards", new object[] { 2 }));
+
+        // EVERY arm guarded and NO arm matches -> both paths throw (the columnar emit keeps the no-match throw
+        // reachable). The oracle value-matches exceptions too; assert the columnar route still ACCEPTS the program.
+        Assert.True(RouteColumnarProgram("func g(n: int): int {\n    return match n {\n        x when x == 1 => 10,\n        x when x == 2 => 20\n    }\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

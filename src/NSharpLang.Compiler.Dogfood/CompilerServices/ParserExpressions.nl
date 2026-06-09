@@ -32,6 +32,9 @@
 //                                         children = the element expressions (variable arity). Positional only. )
 //   MatchExpression         -> kind 18  ( match <value> { <pat> => <res>, ... }; children [value, pat0, res0, ...].
 //                                         Each pattern is a PRIMARY expr (literal or bare identifier). `=>` = 120. )
+//   GuardedPattern          -> kind 19  ( <pattern> when <guard> -- a `when` (token 54) after a match pattern;
+//                                         children [pattern, guard]. Appears ONLY as a match-case pattern slot.
+//                                         The emitter tests the inner pattern, then the guard, before the result. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -172,6 +175,26 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                 st[3] = matchArgBase
                 return -1
             }
+
+            // `<pattern> when <guard>` -> GuardedPattern (kind 19): wrap the parsed pattern with its guard
+            // condition so the emitter can test the pattern THEN the guard before taking the arm. The guard is a
+            // full expression (it may reference a binding the pattern introduced). When absent, the bare pattern
+            // node is used directly (no kind-19 wrapper), so existing match cases are unchanged.
+            if st[0] < count && tokenKinds[st[0]] == 54 {
+                st[0] = st[0] + 1
+                matchGuard := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if matchGuard < 0 {
+                    st[3] = matchArgBase
+                    return -1
+                }
+                guardChildRun := st[2]
+                AppendExpressionChild(st, outChildIndices, matchPattern)
+                AppendExpressionChild(st, outChildIndices, matchGuard)
+                guardSpanStart := outSpanStarts[matchPattern]
+                guardSpanEnd := outSpanStarts[matchGuard] + outSpanLengths[matchGuard]
+                matchPattern = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 19, -1, 0, guardChildRun, 2, guardSpanStart, guardSpanEnd - guardSpanStart)
+            }
+
             argStack[st[3]] = matchPattern
             st[3] = st[3] + 1
 
