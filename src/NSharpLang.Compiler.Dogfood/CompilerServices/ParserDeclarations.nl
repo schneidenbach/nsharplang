@@ -557,6 +557,85 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     return fieldCount
 }
 
+// Parse a CONSTRUCTOR's chaining initializer `: this(args)` / `: base(args)`, given the constructor's identifier
+// token index (`ctorIndex`, the "constructor" identifier). Scans past the param list `(...)` (balanced) to the
+// optional `:`; with no `:` (or no `(` params) returns 0 with outResult[0] = 0 (no initializer). For `: this(`
+// (this = 42) / `: base(` (base = 43), records each chained ARG — restricted to a SINGLE token, either a param
+// IDENTIFIER (kind 0) or an INT LITERAL (kind 1) — into outArgKinds/outArgStarts/outArgLengths, separated by `,`
+// (134), closed by `)` (128). outResult[0] = the initializer kind (0 = none, 1 = this, 2 = base). Returns the
+// chained-arg count, or -1 on a malformed initializer or a non-{identifier,int-literal} arg (a complex expression /
+// string / other literal — the host declines such a chaining ctor to the C# path).
+func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, ctorIndex: int, outArgKinds: int[], outArgStarts: int[], outArgLengths: int[], outResult: int[]): int {
+    outResult[0] = 0
+    pos := ctorIndex + 1
+    if pos >= count || tokenKinds[pos] != 127 {
+        return 0
+    }
+
+    pdepth := 0
+    pdone := 0
+    while pos < count && pdone == 0 {
+        if tokenKinds[pos] == 127 {
+            pdepth = pdepth + 1
+        } else if tokenKinds[pos] == 128 {
+            pdepth = pdepth - 1
+            if pdepth == 0 {
+                pdone = 1
+            }
+        }
+        pos = pos + 1
+    }
+    if pdone == 0 {
+        return 0
+    }
+
+    if pos >= count || tokenKinds[pos] != 122 {
+        return 0
+    }
+    pos = pos + 1
+
+    if pos >= count {
+        return -1
+    }
+    if tokenKinds[pos] == 42 {
+        outResult[0] = 1
+    } else if tokenKinds[pos] == 43 {
+        outResult[0] = 2
+    } else {
+        return -1
+    }
+    pos = pos + 1
+
+    if pos >= count || tokenKinds[pos] != 127 {
+        return -1
+    }
+    pos = pos + 1
+
+    argCount := 0
+    while pos < count && tokenKinds[pos] != 128 {
+        if tokenKinds[pos] != 0 && tokenKinds[pos] != 1 {
+            return -1
+        }
+        outArgKinds[argCount] = tokenKinds[pos]
+        outArgStarts[argCount] = tokenStarts[pos]
+        outArgLengths[argCount] = tokenValueLengths[pos]
+        argCount = argCount + 1
+        pos = pos + 1
+
+        if pos < count && tokenKinds[pos] != 128 {
+            if tokenKinds[pos] != 134 {
+                return -1
+            }
+            pos = pos + 1
+        }
+    }
+
+    if pos >= count || tokenKinds[pos] != 128 {
+        return -1
+    }
+    return argCount
+}
+
 // Parser slice (union bodies): parse ONE `union Name { Case { f: T, ... }  Case { ... } }` declaration into flat
 // parallel arrays. `unionIndex` is the compacted token index of the `union` keyword (token 12). Reads the union NAME
 // (the Identifier after `union`) into outResult[0]=nameStart / outResult[1]=nameLength, then `{` (129), then a

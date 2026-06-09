@@ -973,7 +973,7 @@ internal static class NSharpCompilerDogfoodAdapter
                 // like a nameless, void-returning function — the adapter verifies the identifier text is literally
                 // "constructor" and that there is no return type / chaining initializer (decline otherwise).
                 var ctorCount = outResult[3];
-                var constructors = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>(ctorCount);
+                var constructors = new System.Collections.Generic.List<Columnar.ColumnarConstructorInput>(ctorCount);
                 for (var c = 0; c < ctorCount; c++)
                 {
                     if (!TryParseColumnarConstructorAt(bindings, ck, cs, cv, n, outCtorIndices[c], source, out var ctorInput))
@@ -1159,7 +1159,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // parse fail → paramCount < 0), or the body is missing.
     private static bool TryParseColumnarConstructorAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int ctorIndex, string source,
-        out Columnar.ColumnarFunctionInput input)
+        out Columnar.ColumnarConstructorInput input)
     {
         input = null!;
         if (string.CompareOrdinal(source, cs[ctorIndex], "constructor", 0, "constructor".Length) != 0
@@ -1203,9 +1203,27 @@ internal static class NSharpCompilerDogfoodAdapter
         if (bodyNodeCount <= 0)
             return false;
 
-        input = new Columnar.ColumnarFunctionInput(
+        // Parse the optional `: this(args)` / `: base(args)` chaining initializer (chained args restricted to a param
+        // identifier or an int literal; a complex/other-literal arg returns -1 -> decline the whole ctor).
+        var caKinds = new int[cap];
+        var caStarts = new int[cap];
+        var caLengths = new int[cap];
+        var caRes = new int[1];
+        var chainArgCount = bindings.ParseConstructorChainInfo(ck, cs, cv, n, ctorIndex, caKinds, caStarts, caLengths, caRes);
+        if (chainArgCount < 0)
+            return false;
+        var chainArgKinds = new int[chainArgCount];
+        var chainArgTexts = new string[chainArgCount];
+        for (var a = 0; a < chainArgCount; a++)
+        {
+            chainArgKinds[a] = caKinds[a];
+            chainArgTexts[a] = source.Substring(caStarts[a], caLengths[a]);
+        }
+
+        var body = new Columnar.ColumnarFunctionInput(
             "constructor", "void", paramNames, paramCanonicals,
             bk, bvs, bvl, bcs, bcc, bci, bres[0]);
+        input = new Columnar.ColumnarConstructorInput(body, caRes[0], chainArgKinds, chainArgTexts);
         return true;
     }
 
@@ -2531,7 +2549,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "ParseStructDeclarationInto"),
                 CreateDelegate<ParseUnionDeclarationInto>(
                     programType,
-                    "ParseUnionDeclarationInto"));
+                    "ParseUnionDeclarationInto"),
+                CreateDelegate<ParseConstructorChainInfoInto>(
+                    programType,
+                    "ParseConstructorChainInfoInto"));
         }
         catch
         {
@@ -2720,6 +2741,9 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
         int[] outResult);
+    private delegate int ParseConstructorChainInfoInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int ctorIndex,
+        int[] outArgKinds, int[] outArgStarts, int[] outArgLengths, int[] outResult);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -2748,7 +2772,8 @@ internal static class NSharpCompilerDogfoodAdapter
         ParseStatementNodesInto ParseStatementNodes,
         ParseEnumDeclarationInto ParseEnumDeclaration,
         ParseStructDeclarationInto ParseStructDeclaration,
-        ParseUnionDeclarationInto ParseUnionDeclaration);
+        ParseUnionDeclarationInto ParseUnionDeclaration,
+        ParseConstructorChainInfoInto ParseConstructorChainInfo);
 
     private sealed class SemanticScopeCache
     {

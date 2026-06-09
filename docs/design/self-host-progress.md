@@ -11,6 +11,34 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11b-iv: constructor CHAINING (`: this(args)`)
+
+A constructor can delegate to another constructor of the same class: `constructor(x): this(x, 0) { … }`.
+- **Kernel**: `ParseFunctionSignatureInto` no longer treats a `: this`/`: base` after the param `)` as a return type
+  (a ctor-only change — a regular function's `: ReturnType` always has a TYPE token after `:`, never `this`(42)/
+  `base`(43) — so function-signature parsing is unchanged, and a chaining ctor now parses with returnRoot = -1). A new
+  `ParseConstructorChainInfoInto` kernel parses the `: this(args)`/`: base(args)` initializer, recording each chained
+  ARG (restricted to a param IDENTIFIER or an INT LITERAL — a complex/other-literal arg returns -1 → decline) +
+  outResult[0] = initKind (0 none / 1 this / 2 base).
+- **Adapter**: `TryParseColumnarConstructorAt` returns a new `ColumnarConstructorInput` wrapping the ctor body
+  (ColumnarFunctionInput) + the chain init-kind + chain-arg kinds/texts; `ColumnarStructInput.Constructors` is now a
+  list of those.
+- **Emitter**: PASS 0c declines a `: base(...)` ctor (no modelled base class). PASS 2 — for a `: this(...)` ctor,
+  `EmitChainedConstructorCall` resolves the chained ctor by chain-arg COUNT (excluding self; ambiguous-by-count
+  declines), emits `ldarg.0; <args (ldarg for a param, ldc.i4 for an int literal, type-checked against the chained
+  ctor's params)>; call <chained ctor>` IN PLACE of the base `object` ctor, then the body. A chaining ctor SKIPS the
+  NL304 all-fields-assigned check (the chained ctor assigns them) but still forbids `return` (NL103).
+
+Parity-gated: `ColumnarCodegen_Parity_ClassConstructorChaining` value-matches the C# ILCompiler over `new C(v)`
+(1-arg → chains to the 2-arg ctor) vs `new C(a, b)` (the 2-arg ctor directly), and a 3-field class whose 2-arg ctor
+chains to the 3-arg ctor passing a literal; metadata-asserts two constructors; decline-pinned for a complex chained
+arg (`this(x + y)`) and inheritance (`class D: Base`, which a `: base(...)` chain requires). 123 columnar tests green
+(the shared signature-kernel change broke nothing); full non-IDE gate green (fresh isolated). **Class CONSTRUCTORS
+complete** (single + overloaded + chaining) for the modelled surface. Next: INHERITANCE (blocked on an N# pipeline
+bug — inherited instance-method calls report NL103; flagged as a separate fix).
+
+---
+
 ## 2026-06-09 — Phase D-11c2: class get/SET computed PROPERTIES
 
 Extends get-only properties (D-11c) with a setter + property assignment.

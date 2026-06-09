@@ -45,6 +45,30 @@ public sealed class ColumnarFunctionInput
 }
 
 /// <summary>
+/// One user CONSTRUCTOR: its signature + body (<see cref="Body"/>, a nameless void function) plus its optional
+/// chaining initializer. <see cref="ChainInitKind"/> is 0 (none), 1 (<c>: this(args)</c>), or 2 (<c>: base(args)</c>).
+/// The chained args are restricted to a param IDENTIFIER (kind 0) or an INT LITERAL (kind 1); <see cref="ChainArgKinds"/>
+/// and <see cref="ChainArgTexts"/> are positionally aligned (the identifier name or the int-literal text). A
+/// <c>: this(...)</c> ctor delegates field assignment to the chained ctor; a <c>: base(...)</c> ctor declines at emit
+/// (no modelled base class).
+/// </summary>
+public sealed class ColumnarConstructorInput
+{
+    public ColumnarConstructorInput(ColumnarFunctionInput body, int chainInitKind, int[] chainArgKinds, string[] chainArgTexts)
+    {
+        Body = body;
+        ChainInitKind = chainInitKind;
+        ChainArgKinds = chainArgKinds;
+        ChainArgTexts = chainArgTexts;
+    }
+
+    public ColumnarFunctionInput Body { get; }
+    public int ChainInitKind { get; }
+    public int[] ChainArgKinds { get; }
+    public string[] ChainArgTexts { get; }
+}
+
+/// <summary>
 /// One top-level <c>enum</c> declaration's parsed members, as consumed by
 /// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. <see cref="MemberValues"/> are the resolved underlying
 /// ints (auto-incremented and/or explicit), positionally aligned with <see cref="MemberNames"/>. The parser kernel
@@ -113,7 +137,7 @@ public sealed class ColumnarPropertyInput
 
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarFunctionInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference)
     {
         Name = name;
         FieldNames = fieldNames;
@@ -133,7 +157,7 @@ public sealed class ColumnarStructInput
     // User CONSTRUCTORS declared in the body (reference types only this slice). Each is parsed like a function whose
     // name is "constructor" and whose return is void — its params + body node tables drive a DefineConstructor + a
     // ctor body (base call + field assignments). Empty when the type has no user constructor (object-init only).
-    public IReadOnlyList<ColumnarFunctionInput> Constructors { get; }
+    public IReadOnlyList<ColumnarConstructorInput> Constructors { get; }
     // Get-only computed PROPERTIES declared in the body (reference types this slice). Each drives a get_Name instance
     // method; a `receiver.Name` read resolves to a call of it.
     public IReadOnlyList<ColumnarPropertyInput> Properties { get; }
@@ -767,12 +791,12 @@ public sealed class ColumnarIlEmitter
 
         // PASS 0c (constructors): declare each reference-type's user constructor(s). A constructor is a nameless,
         // void-returning member whose body assigns fields; `this` is arg 0 so user param ordinals shift by +1. Slice
-        // scope: one or more OVERLOADED constructors on a REFERENCE type (class/record), no chaining (declined at
-        // parse). Overload resolution at construction is by PARAM COUNT (see case 15): two ctors with the same arg
-        // count are ambiguous-by-count and any `new T(...)` with that count declines — so type-distinguished
-        // same-count overloads route to C#. A value-type struct constructor is deferred. The ConstructorBuilder + its
-        // param types are stored for positional-construction resolution; the body is emitted (+ validated) in PASS 2.
-        var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarFunctionInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
+        // scope: one or more OVERLOADED constructors on a REFERENCE type (class/record), optionally with a `: this(...)`
+        // chaining initializer. Overload resolution at construction is by PARAM COUNT (see case 15). A value-type
+        // struct constructor and a `: base(...)` initializer (no modelled base class) are deferred — decline. The
+        // ConstructorBuilder + its param types are stored for positional-construction resolution; the body (+ chained
+        // call) is emitted (+ validated) in PASS 2.
+        var structCtorJobs = new List<(ColumnarStructDef Struct, ColumnarConstructorInput Ctor, ConstructorBuilder Builder, Dictionary<string, int> Ordinals, Dictionary<string, Type> ParamTypes)>();
         for (var s = 0; s < structs.Count; s++)
         {
             if (structs[s].Constructors.Count == 0)
@@ -783,16 +807,18 @@ public sealed class ColumnarIlEmitter
                 return false;
             foreach (var ctor in structs[s].Constructors)
             {
-                var cParamTypes = new Type[ctor.ParamNames.Length];
+                if (ctor.ChainInitKind == 2)
+                    return false; // a `: base(...)` initializer needs a modelled base class — deferred.
+                var cParamTypes = new Type[ctor.Body.ParamNames.Length];
                 var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
-                for (var i = 0; i < ctor.ParamNames.Length; i++)
+                for (var i = 0; i < ctor.Body.ParamNames.Length; i++)
                 {
-                    if (!TryResolveType(ctor.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                    if (!TryResolveType(ctor.Body.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
                         return false;
                     cParamTypes[i] = pt;
-                    cOrdinals[ctor.ParamNames[i]] = i + 1;
-                    cParamTypeMap[ctor.ParamNames[i]] = pt;
+                    cOrdinals[ctor.Body.ParamNames[i]] = i + 1;
+                    cParamTypeMap[ctor.Body.ParamNames[i]] = pt;
                 }
                 // A constructor whose param-type signature DUPLICATES an already-declared one is a duplicate member
                 // the N# binder rejects — decline rather than emit two ctors with the same signature.
@@ -945,15 +971,29 @@ public sealed class ColumnarIlEmitter
         {
             var cil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
-                job.Ctor.Kinds, job.Ctor.ValueStarts, job.Ctor.ValueLengths, job.Ctor.ChildStart, job.Ctor.ChildCount, job.Ctor.ChildIndices,
+                job.Ctor.Body.Kinds, job.Ctor.Body.ValueStarts, job.Ctor.Body.ValueLengths, job.Ctor.Body.ChildStart, job.Ctor.Body.ChildCount, job.Ctor.Body.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
-            // The N# pipeline requires a constructor to (1) contain no `return` (NL103) and (2) assign every field
-            // (NL304). Validate BEFORE emitting anything — declining here discards the whole assembly (→ C# path).
-            if (!emitter.IsValidReferenceCtorBody(job.Ctor.BodyRoot))
-                return false;
-            cil.Emit(OpCodes.Ldarg_0);
-            cil.Emit(OpCodes.Call, objectCtor);
-            if (!emitter.EmitBody(job.Ctor.BodyRoot, isVoid: true))
+            if (job.Ctor.ChainInitKind == 1)
+            {
+                // A `: this(...)` CHAINING constructor delegates field assignment to the chained ctor, so the NL304
+                // all-fields-assigned check does NOT apply — but `return` is still forbidden (NL103). Emit the chained
+                // `this(...)` call (resolved by chain-arg count) in place of the base object ctor, then the body.
+                if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
+                    return false;
+                if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder))
+                    return false;
+            }
+            else
+            {
+                // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every field (NL304).
+                // Validate BEFORE emitting — declining here discards the whole assembly (→ C# path). Then chain to the
+                // base `object` ctor.
+                if (!emitter.IsValidReferenceCtorBody(job.Ctor.Body.BodyRoot))
+                    return false;
+                cil.Emit(OpCodes.Ldarg_0);
+                cil.Emit(OpCodes.Call, objectCtor);
+            }
+            if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
                 return false;
         }
 
@@ -1544,6 +1584,54 @@ public sealed class ColumnarIlEmitter
                 assigned.Add(Text(target));
         }
         return assigned.Count == _currentStruct.Fields.Count;
+    }
+
+    // Emit a constructor's `: this(args)` CHAINING call: `ldarg.0; <args>; call <chained ctor>`. The chained ctor is
+    // resolved among the current type's constructors by chain-arg COUNT (excluding the chaining ctor itself; two
+    // candidates of that arity are ambiguous-by-count -> decline). Each chained arg is a param IDENTIFIER (kind 0,
+    // resolved to the chaining ctor's param ordinal via `ldarg`, type-checked against the chained ctor's param type)
+    // or an INT LITERAL (kind 1, `ldc.i4`). Returns false (whole assembly discarded) on any unresolved/mismatched arg.
+    private bool EmitChainedConstructorCall(ColumnarConstructorInput ctor, ConstructorBuilder self)
+    {
+        if (_currentStruct == null)
+            return false;
+        var argKinds = ctor.ChainArgKinds;
+        var argTexts = ctor.ChainArgTexts;
+        ConstructorBuilder? chained = null;
+        Type[]? chainedParamTypes = null;
+        var ambiguous = false;
+        foreach (var (cb, cpt) in _currentStruct.Constructors)
+        {
+            if (cb == self || cpt.Length != argKinds.Length)
+                continue;
+            if (chained != null) { ambiguous = true; break; }
+            chained = cb;
+            chainedParamTypes = cpt;
+        }
+        if (chained == null || ambiguous)
+            return false;
+
+        _il.Emit(OpCodes.Ldarg_0);
+        for (var a = 0; a < argKinds.Length; a++)
+        {
+            if (argKinds[a] == 0) // a param identifier of the chaining ctor.
+            {
+                if (!_paramOrdinals.TryGetValue(argTexts[a], out var ordinal) || !_paramTypes.TryGetValue(argTexts[a], out var paramType))
+                    return false;
+                if (paramType != chainedParamTypes![a])
+                    return false;
+                EmitLoadArgument(ordinal);
+            }
+            else // an int literal.
+            {
+                if (chainedParamTypes![a] != typeof(int)
+                    || !int.TryParse(argTexts[a], System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var literal))
+                    return false;
+                _il.Emit(OpCodes.Ldc_I4, literal);
+            }
+        }
+        _il.Emit(OpCodes.Call, chained);
+        return true;
     }
 
     // Whether the subtree rooted at `idx` contains a Return statement (kind 20) anywhere. Expression kinds are 0-19,

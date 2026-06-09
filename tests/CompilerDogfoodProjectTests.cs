@@ -3923,6 +3923,39 @@ class B
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    Y: int\n    constructor(a: int) {\n        X = a\n        Y = 0\n    }\n    constructor(s: string) {\n        X = s.Length\n        Y = 1\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X\n}\n").Ok);
     }
 
+    // CLASS constructor CHAINING — `constructor(x): this(x, 0) { … }` delegates to another constructor of the same
+    // class. The chained `this(...)` call (resolved by chain-arg count) replaces the base `object` ctor; the chaining
+    // ctor's body runs after and is NOT subject to the NL304 all-fields-assigned rule (the chained ctor assigns them).
+    // Chained args are restricted to a param identifier or an int literal. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassConstructorChaining()
+    {
+        var prog =
+            "class C {\n    X: int\n    Y: int\n    constructor(x: int, y: int) {\n        X = x\n        Y = y\n    }\n    constructor(x: int): this(x, 0) {\n    }\n    func Sum(): int {\n        return X + Y\n    }\n}\n\n" +
+            "func chained(v: int): int {\n    c := new C(v)\n    return c.Sum()\n}\n\n" +
+            "func full(a: int, b: int): int {\n    c := new C(a, b)\n    return c.Sum()\n}\n\n" +
+            // a 3-field class: the 2-arg ctor chains to the 3-arg ctor passing a literal for the third.
+            "class P {\n    A: int\n    B: int\n    Tag: int\n    constructor(a: int, b: int, tag: int) {\n        A = a\n        B = b\n        Tag = tag\n    }\n    constructor(a: int, b: int): this(a, b, 99) {\n    }\n    func Total(): int {\n        return A + B + Tag\n    }\n}\n\n" +
+            "func p2(a: int, b: int): int {\n    p := new P(a, b)\n    return p.Total()\n}\n\n" +
+            "func p3(a: int, b: int, t: int): int {\n    p := new P(a, b, t)\n    return p.Total()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("chained", new object[] { 5 }), ("chained", new object[] { 0 }), ("chained", new object[] { -3 }),
+            ("full", new object[] { 3, 4 }), ("full", new object[] { 10, -2 }),
+            ("p2", new object[] { 1, 2 }), ("p2", new object[] { 0, 0 }),
+            ("p3", new object[] { 1, 2, 3 }));
+
+        // Metadata: C has two constructors.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the chaining-constructor program");
+        var cType = System.Reflection.Assembly.Load(asm!).GetType("C")!;
+        Assert.Equal(2, cType.GetConstructors().Length);
+
+        // DECLINES: a chained arg that is a COMPLEX expression (`this(x + y)` — only a param/int-literal arg is
+        // modelled), and INHERITANCE `class D: Base` (which a `: base(...)` chain requires — not modelled).
+        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n    constructor(x: int, y: int): this(x + y) {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class Base {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nclass D: Base {\n    constructor(x: int): base(x) {\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
     // CLASS get-only computed PROPERTIES — `Name: Type { get { body } }`. The kernel delimits the property (an
     // `id : type { … }` member), the adapter parses the get body as a get_Name accessor function, and the emitter
     // declares a `get_Name` instance method (body reads fields like a method) + resolves `receiver.Name` to a

@@ -149,15 +149,21 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
 
     returnRoot := -1
     if i < count && tokenKinds[i] == 122 {
-        i = i + 1
-        st[0] = i
-        st[4] = 0
-        st[3] = 0
-        returnRoot = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
-        if returnRoot < 0 {
-            return -1
+        // A `: this(...)` / `: base(...)` CONSTRUCTOR chaining initializer is NOT a return type — leave returnRoot at
+        // -1 and stop; the host parses the initializer separately (ParseConstructorChainInfoInto). A regular
+        // function's `: ReturnType` always has a TYPE token after `:`, never `this` (42) / `base` (43), so this
+        // branch is constructor-only and leaves function-signature parsing unchanged.
+        if !(i + 1 < count && (tokenKinds[i + 1] == 42 || tokenKinds[i + 1] == 43)) {
+            i = i + 1
+            st[0] = i
+            st[4] = 0
+            st[3] = 0
+            returnRoot = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+            if returnRoot < 0 {
+                return -1
+            }
+            i = st[0]
         }
-        i = st[0]
     }
 
     outResult[0] = paramCount
