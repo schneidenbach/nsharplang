@@ -334,3 +334,70 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 
     return outCount
 }
+
+// Parser slice (enum bodies): parse ONE enum declaration's members into flat parallel arrays. `enumIndex` is the
+// compacted token index of the `enum` keyword (token 14). Reads the enum NAME (the Identifier immediately after
+// `enum`) into outResult[0]=nameStart / outResult[1]=nameLength, then `{` (129), then comma-separated members until
+// `}` (130). Each member is an Identifier (token 0) optionally followed by `= <int-literal>` (Assign 93 then a
+// number literal, token 1): outNameStarts[m]/outNameLengths[m] = the member name span; outHasValue[m] = 1 with
+// outValueStarts[m]/outValueLengths[m] = the literal span when explicit, else outHasValue[m] = 0. A comma is
+// required between members (a trailing comma before `}` is allowed). Returns the member count, or -1 on any
+// unexpected token (a non-int member value, a `:` underlying-type annotation, attributes, a missing name/brace) so
+// the host declines the whole program to the C# path. Mirrors Parser.cs ParseEnumDeclaration for the int-enum subset.
+func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, enumIndex: int, outNameStarts: int[], outNameLengths: int[], outValueStarts: int[], outValueLengths: int[], outHasValue: int[], outResult: int[]): int {
+    pos := enumIndex
+    if pos >= count || tokenKinds[pos] != 14 {
+        return -1
+    }
+    pos = pos + 1
+
+    if pos >= count || tokenKinds[pos] != 0 {
+        return -1
+    }
+    outResult[0] = tokenStarts[pos]
+    outResult[1] = tokenValueLengths[pos]
+    pos = pos + 1
+
+    if pos >= count || tokenKinds[pos] != 129 {
+        return -1
+    }
+    pos = pos + 1
+
+    memberCount := 0
+    while pos < count && tokenKinds[pos] != 130 {
+        if tokenKinds[pos] != 0 {
+            return -1
+        }
+        outNameStarts[memberCount] = tokenStarts[pos]
+        outNameLengths[memberCount] = tokenValueLengths[pos]
+        outHasValue[memberCount] = 0
+        outValueStarts[memberCount] = -1
+        outValueLengths[memberCount] = 0
+        pos = pos + 1
+
+        if pos < count && tokenKinds[pos] == 93 {
+            pos = pos + 1
+            if pos >= count || tokenKinds[pos] != 1 {
+                return -1
+            }
+            outHasValue[memberCount] = 1
+            outValueStarts[memberCount] = tokenStarts[pos]
+            outValueLengths[memberCount] = tokenValueLengths[pos]
+            pos = pos + 1
+        }
+
+        memberCount = memberCount + 1
+
+        if pos < count && tokenKinds[pos] != 130 {
+            if tokenKinds[pos] != 134 {
+                return -1
+            }
+            pos = pos + 1
+        }
+    }
+
+    if pos >= count || tokenKinds[pos] != 130 {
+        return -1
+    }
+    return memberCount
+}

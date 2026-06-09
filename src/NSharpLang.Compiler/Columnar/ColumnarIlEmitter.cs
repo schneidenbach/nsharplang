@@ -45,6 +45,43 @@ public sealed class ColumnarFunctionInput
 }
 
 /// <summary>
+/// One top-level <c>enum</c> declaration's parsed members, as consumed by
+/// <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/>. <see cref="MemberValues"/> are the resolved underlying
+/// ints (auto-incremented and/or explicit), positionally aligned with <see cref="MemberNames"/>. The parser kernel
+/// <c>ParseEnumDeclarationInto</c> produces the member spans; the adapter materializes the names and values.
+/// </summary>
+public sealed class ColumnarEnumInput
+{
+    public ColumnarEnumInput(string name, string[] memberNames, int[] memberValues)
+    {
+        Name = name;
+        MemberNames = memberNames;
+        MemberValues = memberValues;
+    }
+
+    public string Name { get; }
+    public string[] MemberNames { get; }
+    public int[] MemberValues { get; }
+}
+
+/// <summary>
+/// A user-defined enum being emitted: its <see cref="EnumBuilder"/> (its CLR <see cref="Type"/> — an i4-underlying
+/// value type) plus its member-name → constant-int map (for <c>Enum.Member</c> value and pattern resolution). Built
+/// in PASS 0 of <see cref="ColumnarIlEmitter.TryEmitColumnarAssembly"/> and threaded into type resolution + emit.
+/// </summary>
+internal sealed class ColumnarEnumDef
+{
+    public ColumnarEnumDef(EnumBuilder builder, Dictionary<string, int> constants)
+    {
+        Builder = builder;
+        Constants = constants;
+    }
+
+    public EnumBuilder Builder { get; }
+    public Dictionary<string, int> Constants { get; }
+}
+
+/// <summary>
 /// COLUMNAR PIPELINE — stage 4 SPIKE (docs/design/roadmap-to-done.md). Proof that the columnar node tables can
 /// drive IL emission END-TO-END with no C# AST: for a single trivial function it emits a real .NET assembly
 /// (one static method) whose body IL is generated DIRECTLY from the columnar statement/expression tables, then
@@ -82,6 +119,9 @@ public sealed class ColumnarIlEmitter
     // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
     // produce verifiable-but-wrong IL rather than declining).
     private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> _siblings;
+    // User-defined enums in this program, by name -> (EnumBuilder, member->value). Lets member access `Enum.Member`
+    // and enum match patterns resolve their underlying-int constant, and types resolve `Color` to its EnumBuilder.
+    private readonly IReadOnlyDictionary<string, ColumnarEnumDef> _enumRegistry;
     // `:=` locals declared so far, by name. Each local's type is its LocalBuilder.LocalType (inferred from the
     // initializer), so the type-aware emitter checks assignments and reads against it.
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
@@ -94,7 +134,8 @@ public sealed class ColumnarIlEmitter
         int[] childStart, int[] childCount, int[] childIndices, string source,
         Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
         ILGenerator il,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> siblings)
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> siblings,
+        IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry)
     {
         _kinds = kinds;
         _valueStarts = valueStarts;
@@ -108,6 +149,7 @@ public sealed class ColumnarIlEmitter
         _returnType = returnType;
         _il = il;
         _siblings = siblings;
+        _enumRegistry = enumRegistry;
     }
 
     // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
@@ -119,6 +161,7 @@ public sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(ulong)
         || t == typeof(string) || t == typeof(char) || t == typeof(double) || t == typeof(float)
         || t == typeof(System.Text.StringBuilder)
+        || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsSupportedValueTuple(t);
 
@@ -134,7 +177,11 @@ public sealed class ColumnarIlEmitter
             return false;
         foreach (var arg in t.GetGenericArguments())
         {
-            if (!IsSupportedType(arg))
+            // Exclude an EnumBuilder element: a ValueTuple<…> instantiated over a TypeBuilder cannot resolve its
+            // ctor/ItemN fields via plain reflection (GetConstructor/GetField throw NotSupportedException at emit),
+            // so enum-in-tuple must DECLINE here (→ C# fallback) — consistent with the enum-array decline
+            // (IsSupportedElementType excludes EnumBuilder). Enums are modelled as scalars only in this slice.
+            if (arg is EnumBuilder || !IsSupportedType(arg))
                 return false;
         }
 
@@ -153,7 +200,7 @@ public sealed class ColumnarIlEmitter
     /// Resolve a canonical N# type string (e.g. "int", "int[]") to its CLR <see cref="Type"/>. Handles a single
     /// trailing "[]" as a single-dimension array of a builtin element; non-builtins/unsupported shapes fail.
     /// </summary>
-    private static bool TryResolveType(string canonical, out Type type)
+    private static bool TryResolveType(string canonical, IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry, out Type type)
     {
         if (canonical.EndsWith("[]", StringComparison.Ordinal))
         {
@@ -197,7 +244,7 @@ public sealed class ColumnarIlEmitter
                 var resolved = true;
                 for (var i = 0; i < elements.Count; i++)
                 {
-                    if (!TryResolveType(elements[i], out elementTypes[i]))
+                    if (!TryResolveType(elements[i], enumRegistry, out elementTypes[i]))
                     {
                         resolved = false;
                         break;
@@ -213,6 +260,14 @@ public sealed class ColumnarIlEmitter
 
             type = null!;
             return false;
+        }
+        // A bare name matching a user-defined enum resolves to its EnumBuilder (so `Color` is a valid param/return/
+        // local type). Checked before the builtins so a user enum never collides with a builtin name (it cannot —
+        // builtin names are reserved keywords the parser would not accept as an enum name).
+        if (enumRegistry != null && enumRegistry.TryGetValue(canonical, out var enumDef))
+        {
+            type = enumDef.Builder;
+            return true;
         }
         return TryResolveBuiltin(canonical, out type);
     }
@@ -337,7 +392,7 @@ public sealed class ColumnarIlEmitter
         var input = new ColumnarFunctionInput(
             funcName, returnCanonical, paramNames, paramCanonicals,
             kinds, valueStarts, valueLengths, childStart, childCount, childIndices, bodyRoot);
-        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, source, out assembly);
+        return TryEmitColumnarAssembly("ColumnarSpike", "ColumnarSpike", new[] { input }, Array.Empty<ColumnarEnumInput>(), source, out assembly);
     }
 
     /// <summary>
@@ -351,7 +406,8 @@ public sealed class ColumnarIlEmitter
     /// authoritative. INT-ONLY for now (untyped <c>add</c>/<c>ldc.i4</c>); later slices add type-aware emission.
     /// </summary>
     public static bool TryEmitColumnarAssembly(
-        string assemblyName, string typeName, IReadOnlyList<ColumnarFunctionInput> funcs, string source, out byte[] assembly)
+        string assemblyName, string typeName, IReadOnlyList<ColumnarFunctionInput> funcs,
+        IReadOnlyList<ColumnarEnumInput> enums, string source, out byte[] assembly)
     {
         assembly = Array.Empty<byte>();
         if (funcs.Count == 0)
@@ -359,6 +415,31 @@ public sealed class ColumnarIlEmitter
 
         var builder = new PersistedAssemblyBuilder(new AssemblyName(assemblyName), typeof(object).Assembly);
         var module = builder.DefineDynamicModule(assemblyName);
+
+        // PASS 0: define every user enum as a module-level i4-underlying enum type, BEFORE the Program type and the
+        // function signatures (pass 1) so a function can use an enum as a param/return/local type and resolve its
+        // members. The EnumBuilder is its own CLR Type; it is referenced (un-finalized) throughout passes 1-2 and
+        // finalized (CreateType) just before the Program type — the same ordering proven by the de-risking spike.
+        var enumRegistry = new Dictionary<string, ColumnarEnumDef>(StringComparer.Ordinal);
+        var enumBuilders = new EnumBuilder[enums.Count];
+        for (var e = 0; e < enums.Count; e++)
+        {
+            var en = enums[e];
+            var eb = module.DefineEnum(en.Name, TypeAttributes.Public, typeof(int));
+            var constants = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (var m = 0; m < en.MemberNames.Length; m++)
+            {
+                eb.DefineLiteral(en.MemberNames[m], en.MemberValues[m]);
+                // A duplicate member name within one enum is malformed — decline the whole program.
+                if (!constants.TryAdd(en.MemberNames[m], en.MemberValues[m]))
+                    return false;
+            }
+            enumBuilders[e] = eb;
+            // A duplicate enum name is an ambiguous type — decline rather than silently pick one.
+            if (!enumRegistry.TryAdd(en.Name, new ColumnarEnumDef(eb, constants)))
+                return false;
+        }
+
         var type = module.DefineType(typeName, TypeAttributes.Public | TypeAttributes.Class);
 
         // Pass 1: resolve every signature (int-only) and declare all methods up front. Build the sibling map
@@ -378,14 +459,14 @@ public sealed class ColumnarIlEmitter
             Type returnType;
             if (fn.ReturnCanonical == "void")
                 returnType = typeof(void);
-            else if (!TryResolveType(fn.ReturnCanonical, out returnType) || !IsSupportedType(returnType))
+            else if (!TryResolveType(fn.ReturnCanonical, enumRegistry, out returnType) || !IsSupportedType(returnType))
                 return false;
             var paramTypes = new Type[fn.ParamNames.Length];
             var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
             var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
             for (var i = 0; i < fn.ParamNames.Length; i++)
             {
-                if (!TryResolveType(fn.ParamCanonicals[i], out var pt) || !IsSupportedType(pt))
+                if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, out var pt) || !IsSupportedType(pt))
                     return false;
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
@@ -409,10 +490,16 @@ public sealed class ColumnarIlEmitter
             var il = methods[f].GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings);
+                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
         }
+
+        // Finalize the enum types before the Program type (the spike's ordering). Each member literal is already
+        // defined, so CreateType bakes the enum's fields/metadata; the methods that reference the EnumBuilder
+        // resolve to the finalized type at Save.
+        foreach (var eb in enumBuilders)
+            eb.CreateType();
 
         type.CreateType();
         using var stream = new MemoryStream();
@@ -1217,6 +1304,19 @@ public sealed class ColumnarIlEmitter
                             return false;
                         _il.Emit(OpCodes.Ldc_I4, enumValue);
                         type = typeof(StringComparison);
+                        return true;
+                    }
+                    // A USER-DEFINED enum constant: the receiver names a registered enum TYPE (not shadowed by a
+                    // local/param/sibling) and the member is one of its constants -> load the underlying int. The
+                    // reported type is the enum's EnumBuilder (the same instance used for its param/return types, so
+                    // `return Color.Green` reference-matches the declared `Color` return).
+                    if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
+                        && !_locals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
+                    {
+                        if (!userEnum.Constants.TryGetValue(Text(idx), out var memberValue))
+                            return false;
+                        _il.Emit(OpCodes.Ldc_I4, memberValue);
+                        type = userEnum.Builder;
                         return true;
                     }
                 }

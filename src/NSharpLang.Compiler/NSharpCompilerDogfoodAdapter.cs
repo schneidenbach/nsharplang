@@ -665,8 +665,23 @@ internal static class NSharpCompilerDogfoodAdapter
 
         if (!TryGetColumnarFunctionInputs(source, out var inputs) || inputs.Count == 0)
             return false;
-        if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, source, out assembly))
+        if (!TryGetColumnarEnumInputs(source, out var enums))
             return false;
+        // The columnar emit is a best-effort, DECLINE-on-failure optimization: it must never throw a hard error the
+        // authoritative C# path would not. Any unexpected emit exception (e.g. a Reflection.Emit limitation on a
+        // not-yet-fully-modelled type shape) is caught here and declines → C# fallback, matching the try/catch the
+        // collection helpers already use. A supported program that wrongly declines is caught by the parity tests
+        // (which assert Ok == true), so this net cannot silently hide a regression from the gate.
+        try
+        {
+            if (!Columnar.ColumnarIlEmitter.TryEmitColumnarAssembly(assemblyName, typeName, inputs, enums, source, out assembly))
+                return false;
+        }
+        catch
+        {
+            assembly = System.Array.Empty<byte>();
+            return false;
+        }
 
         emittedTypeName = typeName;
         methodNames = new string[inputs.Count];
@@ -733,7 +748,11 @@ internal static class NSharpCompilerDogfoodAdapter
                 return false;
             for (var d = 0; d < declCount; d++)
             {
-                if (declKinds[d] != 7)   // 7 = func; any other top-level declaration kind is unsupported.
+                // 7 = func, 14 = enum; any other top-level declaration kind (class/struct/union/record/…) is
+                // unsupported and declines the whole program. Enum decls are collected separately
+                // (TryGetColumnarEnumInputs); the func scan below (TopLevelFuncIndices) only picks `func` tokens, so
+                // enum decls are skipped here rather than mis-parsed as functions.
+                if (declKinds[d] != 7 && declKinds[d] != 14)
                     return false;
             }
 
@@ -765,6 +784,83 @@ internal static class NSharpCompilerDogfoodAdapter
         catch
         {
             inputs = new System.Collections.Generic.List<Columnar.ColumnarFunctionInput>();
+            return false;
+        }
+    }
+
+    // Collect every top-level `enum` declaration into a ColumnarEnumInput (name + member names + auto-incremented
+    // underlying int values). Tokenizes + compacts exactly like TryGetColumnarFunctionInputs, finds each enum
+    // keyword (TopLevelEnumIndices), and parses its body via the ParseEnumDeclaration kernel. Returns true (possibly
+    // an empty list) for a program with no enums. Returns FALSE — declining the whole program to C# — on any parse
+    // failure OR an enum with an EXPLICIT member value (`= N`): slice A models only auto-incremented `0,1,2,...`
+    // enums (explicit values are a later slice). The caller pairs the result with the function inputs for emit.
+    private static bool TryGetColumnarEnumInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarEnumInput> enums)
+    {
+        enums = new System.Collections.Generic.List<Columnar.ColumnarEnumInput>();
+        var bindings = s_bindings.Value;
+        if (bindings == null || string.IsNullOrEmpty(source))
+            return false;
+
+        try
+        {
+            var capacity = 3 * (source.Length + 1) + 8;
+            var rawKinds = new int[capacity];
+            var rawStarts = new int[capacity];
+            var rawValueLengths = new int[capacity];
+            var rawLines = new int[capacity];
+            var rawColumns = new int[capacity];
+            var rawCount = bindings.TokenizeMetadataWithIndentation(
+                source, rawKinds, rawStarts, rawValueLengths, rawLines, rawColumns);
+            if (rawCount < 0 || rawCount > capacity)
+                return false;
+
+            var ck = new int[rawCount];
+            var cs = new int[rawCount];
+            var cv = new int[rawCount];
+            var n = 0;
+            for (var i = 0; i < rawCount; i++)
+            {
+                if (rawKinds[i] == 136)
+                    continue;
+                ck[n] = rawKinds[i];
+                cs[n] = rawStarts[i];
+                cv[n] = rawValueLengths[i];
+                n++;
+            }
+
+            var enumIndices = TopLevelEnumIndices(ck, n);
+            foreach (var enumIndex in enumIndices)
+            {
+                var cap = n + 1;
+                var outNameStarts = new int[cap];
+                var outNameLengths = new int[cap];
+                var outValueStarts = new int[cap];
+                var outValueLengths = new int[cap];
+                var outHasValue = new int[cap];
+                var outResult = new int[2];
+                var memberCount = bindings.ParseEnumDeclaration(
+                    ck, cs, cv, n, enumIndex, outNameStarts, outNameLengths, outValueStarts, outValueLengths,
+                    outHasValue, outResult);
+                if (memberCount < 0 || outResult[1] <= 0)
+                    return false;
+
+                var enumName = source.Substring(outResult[0], outResult[1]);
+                var memberNames = new string[memberCount];
+                var memberValues = new int[memberCount];
+                for (var m = 0; m < memberCount; m++)
+                {
+                    if (outHasValue[m] != 0)
+                        return false; // explicit `= N` is sub-slice C; decline the whole program for now.
+                    memberNames[m] = source.Substring(outNameStarts[m], outNameLengths[m]);
+                    memberValues[m] = m; // auto-increment 0,1,2,... (the C# default with no explicit values).
+                }
+                enums.Add(new Columnar.ColumnarEnumInput(enumName, memberNames, memberValues));
+            }
+            return true;
+        }
+        catch
+        {
+            enums = new System.Collections.Generic.List<Columnar.ColumnarEnumInput>();
             return false;
         }
     }
@@ -909,6 +1005,33 @@ internal static class NSharpCompilerDogfoodAdapter
                 case 127: paren++; break;
                 case 128: if (paren > 0) paren--; break;
                 case 7:
+                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    break;
+            }
+        }
+
+        return result;
+    }
+
+    // The compacted-token indices of each top-level `enum` keyword (token 14) — at brace/bracket/paren depth 0, so
+    // an enum nested in a (hypothetical) type body is not picked. Mirrors TopLevelFuncIndices for the enum keyword.
+    private static List<int> TopLevelEnumIndices(int[] kinds, int count)
+    {
+        var result = new List<int>();
+        var brace = 0;
+        var bracket = 0;
+        var paren = 0;
+        for (var i = 0; i < count; i++)
+        {
+            switch (kinds[i])
+            {
+                case 129: brace++; break;
+                case 130: if (brace > 0) brace--; break;
+                case 131: bracket++; break;
+                case 132: if (bracket > 0) bracket--; break;
+                case 127: paren++; break;
+                case 128: if (paren > 0) paren--; break;
+                case 14:
                     if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
                     break;
             }
@@ -1921,7 +2044,10 @@ internal static class NSharpCompilerDogfoodAdapter
                     "ParseFunctionSignatureInto"),
                 CreateDelegate<ParseStatementNodesInto>(
                     programType,
-                    "ParseStatementNodesInto"));
+                    "ParseStatementNodesInto"),
+                CreateDelegate<ParseEnumDeclarationInto>(
+                    programType,
+                    "ParseEnumDeclarationInto"));
         }
         catch
         {
@@ -2097,6 +2223,10 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths, int[] outResult);
+    private delegate int ParseEnumDeclarationInto(
+        int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int enumIndex,
+        int[] outNameStarts, int[] outNameLengths, int[] outValueStarts, int[] outValueLengths,
+        int[] outHasValue, int[] outResult);
 
     private sealed record Bindings(
         ParserTokenCompactionIndicesInto ParserTokenCompaction,
@@ -2122,7 +2252,8 @@ internal static class NSharpCompilerDogfoodAdapter
         NamespaceImportSpansInto NamespaceImportSpans,
         PackageNameSpanInto PackageNameSpan,
         ParseFunctionSignatureInto ParseFunctionSignature,
-        ParseStatementNodesInto ParseStatementNodes);
+        ParseStatementNodesInto ParseStatementNodes,
+        ParseEnumDeclarationInto ParseEnumDeclaration);
 
     private sealed class SemanticScopeCache
     {

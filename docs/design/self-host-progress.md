@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-7a: ENUM declarations — the FIRST user-defined TYPE (declaration + member access + typing)
+
+The columnar backend was FUNCTIONS-ONLY (the adapter rejected any top-level declaration kind ≠ 7=func). This slice
+adds the first user-defined TYPE, establishing the type-emission architecture (define types in a new pass-0, resolve
+them for functions) that struct/record/union will reuse.
+- **Parser kernel** (`ParserDeclarations.nl`): new `ParseEnumDeclarationInto` parses `enum Name { A, B, C }` (and the
+  explicit-value form `A = N`) into flat member arrays — enum name span, member name spans, optional value spans +
+  hasValue flags — mirroring `Parser.cs ParseEnumDeclaration` for the int-enum subset. (`enum`→14 was already
+  classified by `TopLevelDeclarationKindsInto`.)
+- **Adapter** (`NSharpCompilerDogfoodAdapter.cs`): the func-only gate now also permits `enum` (decl kind 14);
+  `TopLevelEnumIndices` + `TryGetColumnarEnumInputs` collect each enum into a `ColumnarEnumInput` (name + member
+  names + auto-incremented `0,1,2,…` values), declining the whole program on any explicit `= N` value (sub-slice C).
+  The emit call is now wrapped in a try/catch so a columnar emit failure always DECLINES → C# fallback, never a hard
+  error.
+- **Emitter** (`ColumnarIlEmitter.cs`): a new PASS 0 calls `module.DefineEnum(name, Public, int)` + `DefineLiteral`
+  per member, building an `enumRegistry` (name → `EnumBuilder` + constants); enum builders are `CreateType()`'d just
+  before the Program type. `TryResolveType` resolves a bare enum name to its `EnumBuilder` (the SAME instance used for
+  member access, so reference-equality return/assign checks hold); `IsSupportedType` admits `EnumBuilder`; case 8
+  member access emits `ldc.i4 <value>` for `Enum.Member`. Enum-as-array-element and enum-in-tuple DECLINE (their
+  Reflection.Emit member resolution is unsupported on a TypeBuilder), keeping enums scalar-only this slice.
+
+Pinned: `ColumnarCodegen_Enum_DeclarationAndMemberAccess` — member access as a value, enum-typed param + `:=` local
+round-trips, the `0,1,2` underlying ints (compared to the C# pipeline via `Convert.ToInt32`, since the two `Color`
+types are distinct CLR types), `Enum.GetNames`/underlying-type assertions; decline-pinned for explicit values, a
+`struct` decl, and enum-in-tuple (value + deconstruct). Adversarially reviewed (read-only, 3 lenses + judge: emitter
+type lifecycle, adapter collection/gate, parser + parity) → found + FIXED the enum-in-tuple hard-error (now a clean
+decline). 100 columnar/tuple tests green; full non-IDE gate green (fresh isolated, 308s). Next: enum in match
+patterns (sub-slice B), then `as int` / explicit values (sub-slice C); then struct/record/union.
+
+---
+
 ## 2026-06-09 — Phase D-6e: `match` `and`/`or`/`not` combinator patterns (+ C# ILCompiler stack-discipline FIX)
 
 Completes the scalar pattern ALGEBRA, and fixes a real pre-existing IL bug in the C# reference pipeline.

@@ -3278,6 +3278,63 @@ class B
         Assert.Equal(0, InvokeViaCSharpPath(prog, "band", new object[] { 11 }));
     }
 
+    // ENUM declarations (sub-slice A) — the FIRST user-defined TYPE the columnar backend emits. `enum Color { Red,
+    // Green, Blue }` defines a module-level i4-underlying enum (PASS 0 DefineEnum); functions may use it as a
+    // param/return/local type and access its members (`Color.Green` -> the underlying int). The columnar `Color` and
+    // the C# pipeline's `Color` are distinct CLR types (different assemblies), so parity is checked on the UNDERLYING
+    // INT (Convert.ToInt32). Covers member access as a value, enum-typed param round-trip, and the auto-incremented
+    // 0,1,2 values; explicit `= N` values DECLINE in slice A (sub-slice C). `as int` / match patterns are later slices.
+    [Fact]
+    public void ColumnarCodegen_Enum_DeclarationAndMemberAccess()
+    {
+        var prog =
+            "enum Color { Red, Green, Blue }\n\n" +
+            "func pickRed(): Color { return Color.Red }\n\n" +
+            "func pickGreen(): Color { return Color.Green }\n\n" +
+            "func pickBlue(): Color { return Color.Blue }\n\n" +
+            "func echo(c: Color): Color { return c }\n\n" +
+            // an enum-typed `:=` local, returned (exercises DeclareLocal on the EnumBuilder).
+            "func viaLocal(): Color {\n    c := Color.Blue\n    return c\n}\n";
+
+        var (ok, asm, typeName, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the int-enum program");
+        var type = System.Reflection.Assembly.Load(asm!).GetType(typeName!)!;
+
+        // Each member-access return yields an enum value whose underlying int matches the C# pipeline AND the
+        // auto-incremented ordinal.
+        foreach (var (fn, expected) in new[] { ("pickRed", 0), ("pickGreen", 1), ("pickBlue", 2) })
+        {
+            var columnar = type.GetMethod(fn)!.Invoke(null, null);
+            Assert.True(columnar!.GetType().IsEnum, $"{fn} should return an enum value");
+            Assert.Equal(expected, Convert.ToInt32(columnar));
+            var oracle = InvokeViaCSharpPath(prog, fn, Array.Empty<object>());
+            Assert.Equal(Convert.ToInt32(oracle), Convert.ToInt32(columnar));
+        }
+
+        // The emitted Color type is a real enum with Int32 underlying type and the three named members.
+        var greenValue = type.GetMethod("pickGreen")!.Invoke(null, null)!;
+        var colorType = greenValue.GetType();
+        Assert.True(colorType.IsEnum);
+        Assert.Equal(typeof(int), Enum.GetUnderlyingType(colorType));
+        Assert.Equal(new[] { "Red", "Green", "Blue" }, Enum.GetNames(colorType));
+
+        // Enum-typed PARAM round-trip: echo(c) returns its argument unchanged (underlying int preserved).
+        var echoed = type.GetMethod("echo")!.Invoke(null, new[] { greenValue });
+        Assert.Equal(1, Convert.ToInt32(echoed));
+
+        // Enum-typed `:=` LOCAL round-trip.
+        Assert.Equal(2, Convert.ToInt32(type.GetMethod("viaLocal")!.Invoke(null, null)));
+
+        // Explicit member values are sub-slice C — decline the whole program to the C# pipeline for now.
+        Assert.False(RouteColumnarProgram("enum E { A = 5, B }\n\nfunc f(): E { return E.A }\n").Ok);
+        // A class/struct/etc. declaration is still unsupported -> decline.
+        Assert.False(RouteColumnarProgram("struct P { x: int }\n\nfunc f(): int { return 1 }\n").Ok);
+        // An enum element inside a TUPLE is not modelled (ValueTuple over a TypeBuilder cannot reflect its members)
+        // -> the whole program declines to C# rather than throwing a hard emit error.
+        Assert.False(RouteColumnarProgram("enum Color { Red, Green }\n\nfunc f(): (Color, int) { return (Color.Red, 5) }\n").Ok);
+        Assert.False(RouteColumnarProgram("enum Color { Red, Green }\n\nfunc f(): int {\n    a, b := (Color.Red, 5)\n    return b\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,
