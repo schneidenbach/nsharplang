@@ -3807,13 +3807,45 @@ class B
         Assert.False(getM.IsStatic);
         Assert.Equal(typeof(int), getM.ReturnType);
 
-        // DECLINES (slice 1a scope): a class with a user CONSTRUCTOR (slice 1b), a PRIMARY constructor, INHERITANCE,
-        // and a method that MUTATES a field (bare-field WRITE in a body — the assignment path has no this-field
-        // fallback yet; slice 1b). All decline to the C# path; slice 1a is object-init + field-READING methods only.
+        // DECLINES (slice 1a scope): a class with a user CONSTRUCTOR (slice 1b), a PRIMARY constructor, INHERITANCE.
+        // (A class method that MUTATES a field is now supported — see ColumnarCodegen_Parity_ClassFieldMutationInMethod.)
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C(x: int) {\n    func g(): int { return x }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class Base {\n    X: int\n}\n\nclass D: Base {\n    Y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
-        Assert.False(RouteColumnarProgram("class C {\n    X: int\n    func Bump(): int {\n        X = X + 1\n        return X\n    }\n}\n\nfunc f(v: int): int {\n    c := new C { X: v }\n    return c.Bump()\n}\n").Ok);
+    }
+
+    // CLASS slice 1b-i — field WRITE in a reference-type instance method body (`X = expr` -> `ldarg.0; <value>;
+    // stfld`). A mutating method's effect PERSISTS across calls on the same ref (a class is shared through the
+    // instance-call's receiver temp). GATED to reference types: a struct's instance call spills the receiver to a
+    // temp COPY, so struct field-mutation-in-method would not persist to the caller's variable (diverging from C#'s
+    // value semantics) -> declines. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassFieldMutationInMethod()
+    {
+        var prog =
+            "class Acc {\n    Total: int\n    func Add(n: int): int {\n        Total = Total + n\n        return Total\n    }\n    func SetTo(n: int): int {\n        Total = n\n        return Total\n    }\n    func Double(): int {\n        Total = Total * 2\n        return Total\n    }\n}\n\n" +
+            "func accAdd(v: int, n: int): int {\n    c := new Acc { Total: v }\n    return c.Add(n)\n}\n\n" +
+            // mutation PERSISTS across calls on the same ref (the two Adds accumulate).
+            "func accTwice(v: int, n: int): int {\n    c := new Acc { Total: v }\n    c.Add(n)\n    return c.Add(n)\n}\n\n" +
+            "func accSet(v: int, n: int): int {\n    c := new Acc { Total: v }\n    return c.SetTo(n)\n}\n\n" +
+            "func accDouble(v: int): int {\n    c := new Acc { Total: v }\n    return c.Double()\n}\n\n" +
+            // mutate then READ the field directly (persistence visible via field read, not just the return value).
+            "func accReadBack(v: int, n: int): int {\n    c := new Acc { Total: v }\n    c.Add(n)\n    return c.Total\n}\n\n" +
+            // a RECORD method that mutates a field — verified-first the N# pipeline accepts it (records are NOT
+            // init-only for in-method writes); a record is a reference type so it uses the same field-write path.
+            "record RAcc {\n    Total: int\n    func Bump(): int {\n        Total = Total + 1\n        return Total\n    }\n}\n\n" +
+            "func rAccBump(v: int): int {\n    r := new RAcc { Total: v }\n    r.Bump()\n    return r.Bump()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("accAdd", new object[] { 5, 3 }), ("accAdd", new object[] { 0, 0 }),
+            ("accTwice", new object[] { 5, 3 }), ("accTwice", new object[] { 10, -2 }),
+            ("accSet", new object[] { 99, 7 }),
+            ("accDouble", new object[] { 6 }), ("accDouble", new object[] { -3 }),
+            ("accReadBack", new object[] { 5, 3 }), ("accReadBack", new object[] { 0, 10 }),
+            ("rAccBump", new object[] { 5 }), ("rAccBump", new object[] { 0 }));
+
+        // DECLINE: a STRUCT (value type) field mutation in a method — the receiver is spilled to a temp copy, so the
+        // mutation would not persist to the caller's variable (diverging from C#'s in-place value semantics).
+        Assert.False(RouteColumnarProgram("struct S {\n    X: int\n    func Inc(): int {\n        X = X + 1\n        return X\n    }\n}\n\nfunc f(v: int): int {\n    s := new S { X: v }\n    return s.Inc()\n}\n").Ok);
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

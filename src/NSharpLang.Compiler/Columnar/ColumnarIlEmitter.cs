@@ -1053,6 +1053,23 @@ public sealed class ColumnarIlEmitter
                     EmitStoreArgument(paramOrdinal);
                     return true;
                 }
+                // `field = expr` inside a REFERENCE-type instance method/constructor body: a bare name that is neither
+                // a local nor a param falls back to a FIELD of the current type (`this.field = expr`). `this` is arg 0
+                // (the object ref), so emit `ldarg.0; <value>; stfld <FieldBuilder>`. (Checked AFTER locals/params so a
+                // local/param shadows a field — matching the bare-field READ in EmitExpression's identifier case.)
+                // GATED to reference types: a VALUE-type (struct) instance call spills the receiver to a TEMP COPY
+                // (TryEmitInstanceCall), so a struct method's field mutation would write the copy, not the caller's
+                // variable — diverging from C#'s in-place value semantics. Struct field-mutation-in-method therefore
+                // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
+                // ref is shared through the temp, so the mutation persists correctly.
+                if (_currentStruct != null && _currentStruct.IsReference && _currentStruct.Fields.TryGetValue(targetName, out var thisFieldTarget))
+                {
+                    _il.Emit(OpCodes.Ldarg_0);
+                    if (!EmitExpression(Child(expr, 1), out var thisValueType) || thisValueType != thisFieldTarget.FieldType)
+                        return false;
+                    _il.Emit(OpCodes.Stfld, thisFieldTarget);
+                    return true;
+                }
                 return false;
             }
 

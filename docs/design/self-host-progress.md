@@ -11,6 +11,29 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11b-i: field WRITE in a reference-type method body
+
+The foundation for constructor bodies (which assign fields): an assignment to a bare field name inside an instance
+method/ctor body. The assignment emit (case 23) gains a `_currentStruct.Fields` fallback — `field = expr` →
+`ldarg.0; <value>; stfld <FieldBuilder>` (after locals/params, so they shadow; mirrors the bare-field READ).
+GATED to REFERENCE types: a value-type (struct) instance call spills the receiver to a TEMP COPY
+(TryEmitInstanceCall), so a struct method's field mutation would write the copy, not the caller's variable —
+diverging from C#'s in-place value semantics — so struct field-mutation-in-method DECLINES (the receiver-own-address
+fix is a later slice). A class/record ref is shared through the temp, so the mutation persists correctly.
+
+Parity-gated: `ColumnarCodegen_Parity_ClassFieldMutationInMethod` value-matches the C# ILCompiler over a class
+accumulator (Add/SetTo/Double), mutation PERSISTING across calls on the same ref (two Adds accumulate; mutate-then-
+read-field), and a RECORD method that mutates a field (verify-first confirmed the N# pipeline accepts record in-method
+field writes — records are NOT init-only for these); decline-pinned for a struct field mutation in a method. The
+slice-1a "class field-mutating method declines" assertion is flipped (now supported). VERIFY-FIRST confirmed: a class
+`Bump()` and a struct `Bump()` BOTH return 6 in the N# pipeline (the `this.X`-garbage note task_468eee1d was about
+EXPLICIT `this.X`, not bare-field `X`), and record in-method mutation returns 6 — so the gate is about value-semantics
+PERSISTENCE, not the write itself. 113 columnar tests green; full non-IDE gate green (fresh isolated). Next:
+class slice 1b-ii — user CONSTRUCTORS (parse + DefineConstructor + body field-writes via this slice's fallback) +
+positional construction `new C(args)`.
+
+---
+
 ## 2026-06-09 — Phase D-11a: CLASS slice 1a — the FIFTH user-defined type + reference-type METHODS
 
 Data-driven priority: `class` is the most common construct in the example corpus (41 of 113 N# files, vs record
