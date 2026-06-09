@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-11c: class get-only computed PROPERTIES
+
+A class/record can expose a computed read-only property: `Doubled: int { get { return val * 2 } }`, read via
+`c.Doubled`. Spans all three layers.
+- **Kernel** (`ParseStructDeclarationInto` field loop): a PROPERTY is an `Identifier : Type {` member — disambiguated
+  from a field `id : type` by the trailing `{` (129). Records the property NAME token index in a new `outPropIndices`
+  and skips the balanced `{ … }` block; outResult[4]=propCount. (Single-token property types only — a composed type
+  presents no `{` at +3 and falls to the field path → declines.)
+- **Adapter** (`TryParseColumnarPropertyAt`): from the name index, expects `name : Type { get { body } }` and parses
+  the get body via `ParseStatementNodes` into a "get_Name" function (no params, returning the property type). Declines
+  a `set` accessor (the get body's `}` is not immediately followed by the property `}`) or an expression-bodied
+  `get => …`. `ColumnarStructInput` gains a `Properties` list.
+- **Emitter**: PASS 0b' declares each property as a `get_Name` SpecialName instance method (body emitted like a
+  method, reading fields via `_currentStruct`), registered in `def.Properties`. case 8 (member read) resolves
+  `receiver.Name` to `callvirt get_Name` (vs a field's ldfld). Declines a VALUE-type property and a property name
+  colliding with a field/method.
+
+Parity-gated: `ColumnarCodegen_Parity_ClassGetOnlyProperty` value-matches the C# ILCompiler over a computed property
+(Doubled), a property over multiple fields (Sum), a property with control flow (Bigger, an if), and property reads
+inside expressions (`p.Sum + 1`); metadata-asserts the `get_Doubled` accessor; decline-pinned for a `set` accessor
+and a value-type struct property. VERIFY-FIRST confirmed CONSISTENT (both N# and columnar reject): a getter that
+doesn't always-return, a property/field NAME COLLISION (NL306), and ASSIGNING a get-only property (NL103). 116
+columnar tests green; full non-IDE gate green (fresh isolated). A 2-lens read-only review (parser + soundness)
+surfaced one real edge — a property `Double` whose synthesized getter `get_Double` collides with a user method
+`get_Double` (the N# pipeline accepts the two as distinct symbols, but two identical-signature CLR methods clash at
+CreateType). It was already SAFE (the adapter's try/catch declines on the CreateType throw), but hardened to a
+PROACTIVE decline (`def.Methods.ContainsKey("get_" + name)`) + a pinned test. Next: get/SET properties (the setter +
+property assignment `p.X = v` → callvirt set_X), then ctor chaining + inheritance.
+
+---
+
 ## 2026-06-09 — Phase D-11b-iii: constructor OVERLOADS
 
 Extends the single-constructor slice (D-11b-ii) to multiple overloaded constructors distinguished by PARAM COUNT.

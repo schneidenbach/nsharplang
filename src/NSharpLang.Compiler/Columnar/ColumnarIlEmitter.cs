@@ -87,15 +87,35 @@ internal sealed class ColumnarEnumDef
 /// strings (e.g. "int") positionally aligned with <see cref="FieldNames"/>. The parser kernel
 /// <c>ParseStructDeclarationInto</c> produces the field spans; the adapter materializes the names and type strings.
 /// </summary>
+/// <summary>
+/// One get-only computed PROPERTY on a class/record: its name, its type canonical, and its getter BODY (a function
+/// whose name is the IL accessor "get_Name", no params, returning the property type). The emitter declares a
+/// get_Name instance method and resolves a `receiver.Name` read to a call of it.
+/// </summary>
+public sealed class ColumnarPropertyInput
+{
+    public ColumnarPropertyInput(string name, string typeCanonical, ColumnarFunctionInput getter)
+    {
+        Name = name;
+        TypeCanonical = typeCanonical;
+        Getter = getter;
+    }
+
+    public string Name { get; }
+    public string TypeCanonical { get; }
+    public ColumnarFunctionInput Getter { get; }
+}
+
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarFunctionInput> constructors, bool isReference)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarFunctionInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference)
     {
         Name = name;
         FieldNames = fieldNames;
         FieldTypeCanonicals = fieldTypeCanonicals;
         Methods = methods;
         Constructors = constructors;
+        Properties = properties;
         IsReference = isReference;
     }
 
@@ -109,6 +129,9 @@ public sealed class ColumnarStructInput
     // name is "constructor" and whose return is void — its params + body node tables drive a DefineConstructor + a
     // ctor body (base call + field assignments). Empty when the type has no user constructor (object-init only).
     public IReadOnlyList<ColumnarFunctionInput> Constructors { get; }
+    // Get-only computed PROPERTIES declared in the body (reference types this slice). Each drives a get_Name instance
+    // method; a `receiver.Name` read resolves to a call of it.
+    public IReadOnlyList<ColumnarPropertyInput> Properties { get; }
     // True for a RECORD or CLASS (a reference type — class base object, constructed via newobj + a default ctor or a
     // user ctor, fields read directly via ldfld on the ref). False for a value-type struct (initobj + ldloca + ldfld).
     public bool IsReference { get; }
@@ -167,6 +190,9 @@ internal sealed class ColumnarStructDef
     // construction `new T(args)` matches a ctor by arg count + arg types. Empty when the type has no user ctor (then
     // DefaultCtor drives object-init). A type with ≥1 user ctor has NO DefaultCtor (object-init on it declines).
     public List<(ConstructorBuilder Builder, Type[] ParamTypes)> Constructors { get; } = new();
+    // Get-only computed PROPERTIES, by name -> (the get_Name getter MethodBuilder, the property type). A
+    // `receiver.Name` read resolves to a `callvirt get_Name` (vs a field's ldfld).
+    public Dictionary<string, (MethodBuilder Getter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -689,6 +715,35 @@ public sealed class ColumnarIlEmitter
                 if (!def.Methods.TryAdd(m.Name, (mb, mParamTypes, mReturn)))
                     return false; // a duplicate method name on one struct is an overload set the slice does not model.
                 structMethodJobs.Add((def, m, mb, mReturn, mOrdinals, mParamTypeMap));
+            }
+        }
+
+        // PASS 0b' (property getters): declare each reference-type's get-only computed property as a `get_Name`
+        // instance method (no params, returning the property type) — its body reads fields exactly like a method, so
+        // it is emitted via the same structMethodJobs path in PASS 2. The property is registered for `receiver.Name`
+        // read resolution (case 8 -> callvirt get_Name). Declines: a value-type property (deferred), a property name
+        // colliding with a field or method (a duplicate member the N# binder rejects).
+        for (var s = 0; s < structs.Count; s++)
+        {
+            if (structs[s].Properties.Count == 0)
+                continue;
+            var def = structRegistry[structs[s].Name];
+            if (!def.IsReference)
+                return false; // value-type properties are deferred.
+            foreach (var prop in structs[s].Properties)
+            {
+                if (def.Fields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name))
+                    return false; // a property colliding with a field/method/another property is a duplicate member.
+                // The synthesized getter name "get_Name" must not collide with a user method of the same name (the N#
+                // pipeline accepts a `Name` property + a `get_Name` method as distinct symbols, but two CLR methods of
+                // identical signature would throw at CreateType) — decline so columnar never emits the duplicate.
+                if (def.Methods.ContainsKey("get_" + prop.Name))
+                    return false;
+                if (!TryResolveType(prop.TypeCanonical, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
+                    return false;
+                var getter = def.Builder.DefineMethod("get_" + prop.Name, MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName, propType, Type.EmptyTypes);
+                def.Properties[prop.Name] = (getter, propType);
+                structMethodJobs.Add((def, prop.Getter, getter, propType, new Dictionary<string, int>(StringComparer.Ordinal), new Dictionary<string, Type>(StringComparer.Ordinal)));
             }
         }
 
@@ -1814,10 +1869,11 @@ public sealed class ColumnarIlEmitter
                 var isTupleItem = member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4]);
                 if (member != "Length" && !isTupleItem)
                 {
-                    // A USER-STRUCT FIELD read `p.Field`: emit the receiver, and if it is a registered struct value
-                    // with a field named `member`, read it. A value-type field read needs the value's ADDRESS, so
-                    // spill the receiver to a temp and `ldloca; ldfld <FieldBuilder>` (mirrors the tuple `.ItemN`
-                    // path). Otherwise decline (the emitted receiver is discarded with the whole assembly on false).
+                    // A USER-TYPE FIELD read `p.Field` or get-only PROPERTY read `p.Prop`: emit the receiver, and if it
+                    // is a registered struct/class with a field/property named `member`, read it. A value-type field
+                    // read needs the value's ADDRESS (spill to a temp + ldloca); a reference field reads directly; a
+                    // PROPERTY reads via `callvirt get_Name` on the receiver ref. Otherwise decline (the emitted
+                    // receiver is discarded with the whole assembly on false).
                     if (!EmitExpression(Child(idx, 0), out var structReceiverType))
                         return false;
                     ColumnarStructDef? fieldStruct = null;
@@ -1825,23 +1881,34 @@ public sealed class ColumnarIlEmitter
                     {
                         if (d.Builder == structReceiverType) { fieldStruct = d; break; }
                     }
-                    if (fieldStruct == null || !fieldStruct.Fields.TryGetValue(member, out var structField))
+                    if (fieldStruct == null)
                         return false;
-                    if (fieldStruct.IsReference)
+                    if (fieldStruct.Fields.TryGetValue(member, out var structField))
                     {
-                        // RECORD (reference type): the receiver is the object ref already on the stack — read directly.
-                        _il.Emit(OpCodes.Ldfld, structField);
+                        if (fieldStruct.IsReference)
+                        {
+                            // RECORD/CLASS (reference type): the receiver is the object ref already on the stack.
+                            _il.Emit(OpCodes.Ldfld, structField);
+                        }
+                        else
+                        {
+                            // VALUE-TYPE struct: ldfld needs the value's ADDRESS — spill to a temp and ldloca.
+                            var fieldTemp = _il.DeclareLocal(structReceiverType);
+                            _il.Emit(OpCodes.Stloc, fieldTemp);
+                            _il.Emit(OpCodes.Ldloca, fieldTemp);
+                            _il.Emit(OpCodes.Ldfld, structField);
+                        }
+                        type = structField.FieldType;
+                        return true;
                     }
-                    else
+                    if (fieldStruct.IsReference && fieldStruct.Properties.TryGetValue(member, out var propAccessor))
                     {
-                        // VALUE-TYPE struct: ldfld needs the value's ADDRESS — spill to a temp and ldloca.
-                        var fieldTemp = _il.DeclareLocal(structReceiverType);
-                        _il.Emit(OpCodes.Stloc, fieldTemp);
-                        _il.Emit(OpCodes.Ldloca, fieldTemp);
-                        _il.Emit(OpCodes.Ldfld, structField);
+                        // get-only PROPERTY read: the receiver ref is the getter's `this` — `callvirt get_Name`.
+                        _il.Emit(OpCodes.Callvirt, propAccessor.Getter);
+                        type = propAccessor.PropertyType;
+                        return true;
                     }
-                    type = structField.FieldType;
-                    return true;
+                    return false;
                 }
                 if (!EmitExpression(Child(idx, 0), out var receiverType))
                     return false;

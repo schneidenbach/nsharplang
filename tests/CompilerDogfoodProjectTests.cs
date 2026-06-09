@@ -3923,6 +3923,43 @@ class B
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    Y: int\n    constructor(a: int) {\n        X = a\n        Y = 0\n    }\n    constructor(s: string) {\n        X = s.Length\n        Y = 1\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X\n}\n").Ok);
     }
 
+    // CLASS get-only computed PROPERTIES — `Name: Type { get { body } }`. The kernel delimits the property (an
+    // `id : type { … }` member), the adapter parses the get body as a get_Name accessor function, and the emitter
+    // declares a `get_Name` instance method (body reads fields like a method) + resolves `receiver.Name` to a
+    // `callvirt get_Name`. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_ClassGetOnlyProperty()
+    {
+        var prog =
+            "class C {\n    val: int\n    Doubled: int {\n        get {\n            return val * 2\n        }\n    }\n    constructor(v: int) {\n        val = v\n    }\n}\n\n" +
+            "func dbl(v: int): int {\n    c := new C(v)\n    return c.Doubled\n}\n\n" +
+            // a property over MULTIPLE fields, a property with control flow, and a property read inside an expression.
+            "class P {\n    a: int\n    b: int\n    Sum: int {\n        get {\n            return a + b\n        }\n    }\n    Bigger: int {\n        get {\n            if a > b {\n                return a\n            }\n            return b\n        }\n    }\n    constructor(x: int, y: int) {\n        a = x\n        b = y\n    }\n}\n\n" +
+            "func sum(x: int, y: int): int {\n    p := new P(x, y)\n    return p.Sum\n}\n\n" +
+            "func sumPlus(x: int, y: int): int {\n    p := new P(x, y)\n    return p.Sum + 1\n}\n\n" +
+            "func bigger(x: int, y: int): int {\n    p := new P(x, y)\n    return p.Bigger\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("dbl", new object[] { 5 }), ("dbl", new object[] { 0 }), ("dbl", new object[] { -3 }),
+            ("sum", new object[] { 3, 4 }), ("sum", new object[] { -5, 5 }),
+            ("sumPlus", new object[] { 5, 3 }),
+            ("bigger", new object[] { 7, 2 }), ("bigger", new object[] { 1, 9 }), ("bigger", new object[] { 4, 4 }));
+
+        // Metadata: C has a get_Doubled accessor method returning int.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the get-only-property program");
+        var cType = System.Reflection.Assembly.Load(asm!).GetType("C")!;
+        var getDoubled = cType.GetMethod("get_Doubled")!;
+        Assert.NotNull(getDoubled);
+        Assert.Equal(typeof(int), getDoubled.ReturnType);
+
+        // DECLINES (slice scope): a property with a SET accessor (get-only this slice), a VALUE-type struct property.
+        Assert.False(RouteColumnarProgram("class C {\n    backing: int\n    Value: int {\n        get {\n            return backing\n        }\n        set {\n            backing = value\n        }\n    }\n    constructor() {\n        backing = 0\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("struct S {\n    v: int\n    Doubled: int {\n        get {\n            return v * 2\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a property `Double` whose synthesized getter `get_Double` collides with a user method `get_Double` — the N#
+        // pipeline accepts the two as distinct symbols, but two identical-signature CLR methods would clash, so decline.
+        Assert.False(RouteColumnarProgram("class C {\n    val: int\n    func get_Double(): int {\n        return val + val\n    }\n    Double: int {\n        get {\n            return val * 2\n        }\n    }\n    constructor(v: int) {\n        val = v\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.Double\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

@@ -419,7 +419,7 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // `record` (13), or `class` (8) keyword. A class with a user `constructor` (slice 1b) is NOT yet parsed here: the
 // `constructor` keyword is neither a field-name identifier nor `func`/`}`, so the field loop returns -1 and the host
 // declines that class to the C# path until constructors are modelled.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outCtorIndices: int[], outResult: int[]): int {
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outMethodFuncIndices: int[], outCtorIndices: int[], outPropIndices: int[], outResult: int[]): int {
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -440,12 +440,38 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
 
     // Fields first (`Name : Type`), stopping at the type close `}` (130), the first method `func` (7), or a
     // CONSTRUCTOR member — an Identifier (0) immediately followed by `(` (127). A field is `id : type` (a `:` after
-    // the name), so an `id (` is unambiguously a constructor, not a field, and ends the field section.
+    // the name), so an `id (` is unambiguously a constructor, not a field, and ends the field section. A PROPERTY
+    // `id : type { get {…} [set {…}] }` — an `id : type` followed by `{` (129) — is recorded (its name token index in
+    // outPropIndices) and its `{ … }` block skipped; the host parses the accessor bodies. (A field is just `id :
+    // type`; the trailing `{` disambiguates a property from a field.) Single-token property types only (a composed
+    // type would not present `{` at pos+3, so it falls to the field path and declines).
     fieldCount := 0
+    propCount := 0
     fieldsDone := 0
     while fieldsDone == 0 && pos < count && tokenKinds[pos] != 130 && tokenKinds[pos] != 7 {
         if tokenKinds[pos] == 0 && pos + 1 < count && tokenKinds[pos + 1] == 127 {
             fieldsDone = 1
+        } else if tokenKinds[pos] == 0 && pos + 3 < count && tokenKinds[pos + 1] == 122 && tokenKinds[pos + 2] == 0 && tokenKinds[pos + 3] == 129 {
+            outPropIndices[propCount] = pos
+            propCount = propCount + 1
+            pos = pos + 3
+
+            pdepth := 0
+            pdone := 0
+            while pos < count && pdone == 0 {
+                if tokenKinds[pos] == 129 {
+                    pdepth = pdepth + 1
+                } else if tokenKinds[pos] == 130 {
+                    pdepth = pdepth - 1
+                    if pdepth == 0 {
+                        pdone = 1
+                    }
+                }
+                pos = pos + 1
+            }
+            if pdone == 0 {
+                return -1
+            }
         } else {
             if tokenKinds[pos] != 0 {
                 return -1
@@ -527,6 +553,7 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     }
     outResult[2] = methodCount
     outResult[3] = ctorCount
+    outResult[4] = propCount
     return fieldCount
 }
 

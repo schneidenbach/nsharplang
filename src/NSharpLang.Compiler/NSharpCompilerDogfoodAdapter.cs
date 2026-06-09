@@ -940,10 +940,11 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldTypeLengths = new int[cap];
                 var outMethodFuncIndices = new int[cap];
                 var outCtorIndices = new int[cap];
-                var outResult = new int[4];
+                var outPropIndices = new int[cap];
+                var outResult = new int[5];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
-                    outFieldTypeLengths, outMethodFuncIndices, outCtorIndices, outResult);
+                    outFieldTypeLengths, outMethodFuncIndices, outCtorIndices, outPropIndices, outResult);
                 if (fieldCount <= 0 || outResult[1] <= 0)
                     return false;
 
@@ -980,7 +981,18 @@ internal static class NSharpCompilerDogfoodAdapter
                     constructors.Add(ctorInput);
                 }
 
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, isReference));
+                // Each get-only PROPERTY (its name token index recorded by the kernel) parses to a get_Name accessor
+                // function. A property with a `set` (or any non-`get` accessor) declines (get-only this slice).
+                var propCount = outResult[4];
+                var properties = new System.Collections.Generic.List<Columnar.ColumnarPropertyInput>(propCount);
+                for (var pr = 0; pr < propCount; pr++)
+                {
+                    if (!TryParseColumnarPropertyAt(bindings, ck, cs, cv, n, outPropIndices[pr], source, out var propInput))
+                        return false;
+                    properties.Add(propInput);
+                }
+
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference));
             }
             return true;
         }
@@ -1194,6 +1206,58 @@ internal static class NSharpCompilerDogfoodAdapter
         input = new Columnar.ColumnarFunctionInput(
             "constructor", "void", paramNames, paramCanonicals,
             bk, bvs, bvl, bcs, bcc, bci, bres[0]);
+        return true;
+    }
+
+    // Parse ONE get-only computed PROPERTY (at compacted token index `propIndex`, the property NAME). The kernel
+    // recorded it as `Name : Type { … }`; the layout is name(propIndex) `:`(+1) Type(+2) `{`(+3, property block)
+    // `get`(+4, identifier "get") `{`(+5, get body). The getter body parses as a statement block (like a method body)
+    // into a ColumnarFunctionInput named "get_Name" returning the property type, with no params. A property with a
+    // `set` accessor (the get body's matching `}` is NOT immediately followed by the property block `}`) or an
+    // expression-bodied `get => …` (no `{` at +5) declines — get-only this slice.
+    private static bool TryParseColumnarPropertyAt(
+        Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int propIndex, string source,
+        out Columnar.ColumnarPropertyInput input)
+    {
+        input = null!;
+        if (propIndex + 5 >= n)
+            return false;
+        if (ck[propIndex] != 0 || ck[propIndex + 1] != 122 || ck[propIndex + 2] != 0 || ck[propIndex + 3] != 129)
+            return false;
+        if (ck[propIndex + 4] != 0 || cv[propIndex + 4] != 3 || string.CompareOrdinal(source, cs[propIndex + 4], "get", 0, 3) != 0)
+            return false;
+        if (ck[propIndex + 5] != 129)
+            return false;
+
+        var propName = source.Substring(cs[propIndex], cv[propIndex]);
+        var propType = source.Substring(cs[propIndex + 2], cv[propIndex + 2]);
+
+        // The get body's matching `}` must be immediately followed by the property block's `}` — else there is a
+        // `set` (or another accessor) and the get-only slice declines.
+        var getBodyBrace = propIndex + 5;
+        var depth = 0;
+        var getBodyEnd = -1;
+        for (var t = getBodyBrace; t < n; t++)
+        {
+            if (ck[t] == 129) depth++;
+            else if (ck[t] == 130) { depth--; if (depth == 0) { getBodyEnd = t; break; } }
+        }
+        if (getBodyEnd < 0 || getBodyEnd + 1 >= n || ck[getBodyEnd + 1] != 130)
+            return false;
+
+        var cap = n + 1;
+        var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
+        var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
+        var bres = new int[2];
+        var bodyNodeCount = bindings.ParseStatementNodes(
+            ck, cs, cv, n, getBodyBrace, bk, bvs, bvl, bcs, bcc, bci, bss, bsl, bres);
+        if (bodyNodeCount <= 0)
+            return false;
+
+        var getter = new Columnar.ColumnarFunctionInput(
+            "get_" + propName, propType, System.Array.Empty<string>(), System.Array.Empty<string>(),
+            bk, bvs, bvl, bcs, bcc, bci, bres[0]);
+        input = new Columnar.ColumnarPropertyInput(propName, propType, getter);
         return true;
     }
 
@@ -2620,7 +2684,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseStructDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        int[] outMethodFuncIndices, int[] outCtorIndices, int[] outResult);
+        int[] outMethodFuncIndices, int[] outCtorIndices, int[] outPropIndices, int[] outResult);
     private delegate int ParseUnionDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,
