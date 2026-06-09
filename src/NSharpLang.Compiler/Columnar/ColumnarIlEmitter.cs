@@ -796,6 +796,49 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 30: // TupleDeconstruction [name0, ..., nameN-1, value] — `n0, n1, ... := <tuple>`. Emit the value
+            {        // (a ValueTuple), store to a temp, then for each non-`_` name declare a local of the element
+                     // type and store the matching ItemN. Mirrors the C# EmitTupleDeconstruction (plain path).
+                var childCount = _childCount[idx];
+                if (childCount < 3) // at least 2 names + the value.
+                    return false;
+                var nameCount = childCount - 1;
+                var valueNode = Child(idx, nameCount);
+
+                // The Go-style `name, err := ...` error path is handled specially by the C# ILCompiler
+                // (EmitErrorTupleDeconstruction); decline it so the columnar backend never diverges from that path.
+                if (nameCount == 2 && Text(Child(idx, 1)) == "err")
+                    return false;
+
+                if (!EmitExpression(valueNode, out var tupleType) || !IsSupportedValueTuple(tupleType))
+                    return false;
+                var tupleArgs = tupleType.GetGenericArguments();
+                if (tupleArgs.Length != nameCount) // the tuple arity must match the number of targets.
+                    return false;
+
+                var tupleLocal = _il.DeclareLocal(tupleType);
+                _il.Emit(OpCodes.Stloc, tupleLocal);
+
+                for (var i = 0; i < nameCount; i++)
+                {
+                    var name = Text(Child(idx, i));
+                    if (name == "_") // discard — the element is not bound.
+                        continue;
+                    if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
+                        return false; // redeclaration / shadow is not modelled (keep the C# analyzer authoritative).
+                    var field = tupleType.GetField("Item" + (i + 1), BindingFlags.Public | BindingFlags.Instance);
+                    if (field == null)
+                        return false;
+                    var nameLocal = _il.DeclareLocal(field.FieldType);
+                    _il.Emit(OpCodes.Ldloca, tupleLocal); // value-type field load: address of the tuple, then ldfld.
+                    _il.Emit(OpCodes.Ldfld, field);
+                    _il.Emit(OpCodes.Stloc, nameLocal);
+                    _locals[name] = nameLocal;
+                }
+
+                return true;
+            }
+
             case 21: // Break — branch to the innermost loop's end label.
                 if (_loopLabels.Count == 0)
                     return false;

@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-5b: tuple DECONSTRUCTION `a, b := f()` — tuples are now COMPLETE
+
+The idiomatic completion of tuple multi-return.
+- **Parser kernel** (`ParserStatements.nl`): `ParseSimpleStatementNode` gained a branch — an Identifier followed by
+  a Comma begins a deconstruction. It collects each bare-identifier target (emitted as an Identifier node kind 6 so
+  the name lives in the value span), requires `:=`, parses the value expression, and emits a
+  `TupleDeconstructionStatement` node kind 30 with children `[name0, …, nameN-1, value]`. A non-identifier target /
+  missing `:=` / missing value refuses (state restored) → declines to the C# parser.
+- **Emitter** (`ColumnarIlEmitter` case 30): emits the value (a `ValueTuple`), stores it to a temp, requires the
+  tuple arity to equal the target count, then for each non-`_` target declares a local of the `ItemN` field type
+  and `ldloca temp; ldfld ItemN; stloc` — mirroring the C# `EmitTupleDeconstruction` plain path. `_` targets are
+  discards (skipped, but still advance the `ItemN` index). The Go-style `name, err := …` 2-target form declines
+  (the C# ILCompiler emits that error path specially — never diverge from it).
+
+Parity-gated: `ColumnarCodegen_Parity_TupleDeconstruction` value-matches the C# ILCompiler over deconstructing a
+tuple LITERAL and a CALL result (`lo, hi := minMax(a)`), `_` discards, mixed int+string, chained use, and the
+`, err` decline. Adversarially reviewed (read-only, parser + emit lenses). All 94 dogfood tests green. **Tuples
+are now COMPLETE** (expressions + `.ItemN` + types + multi-return + deconstruction). Next: match.
+
 ## 2026-06-09 — Phase D-5: tuples — expressions + `.ItemN` + tuple TYPES + MULTI-RETURN (the complete core)
 
 The complete core tuple feature (two sub-slices landed together), so tuples cross function boundaries — not a

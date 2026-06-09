@@ -3051,6 +3051,31 @@ class B
             ("useMixed", new object[] { 4, "hello" }), ("useMixed", new object[] { 0, "" }));
     }
 
+    // TUPLE DECONSTRUCTION `n0, n1, ... := <tuple>` (parser kernel statement kind 30) — the idiomatic way to
+    // consume a multi-return. Each non-`_` target gets a local of the matching element type (ldfld ItemN). Covers
+    // deconstructing a tuple LITERAL and a CALL result, `_` discards, mixed element types, and the `, err` decline.
+    [Fact]
+    public void ColumnarCodegen_Parity_TupleDeconstruction()
+    {
+        var prog =
+            "func minMax(a: int[]): (int, int) {\n    lo := a[0]\n    hi := a[0]\n    i := 1\n    while i < a.Length {\n        if a[i] < lo {\n            lo = a[i]\n        }\n        if a[i] > hi {\n            hi = a[i]\n        }\n        i = i + 1\n    }\n    return (lo, hi)\n}\n\n" +
+            "func useMinMax(a: int[]): int {\n    lo, hi := minMax(a)\n    return hi - lo\n}\n\n" +
+            "func swap(a: int, b: int): int {\n    x, y := (b, a)\n    return x * 10 + y\n}\n\n" +
+            "func discardMid(a: int, b: int, c: int): int {\n    x, _, z := (a, b, c)\n    return x + z\n}\n\n" +
+            "func mixedDecon(n: int, s: string): int {\n    num, str := (n, s)\n    return num + str.Length\n}\n\n" +
+            "func deconThenUse(a: int, b: int): int {\n    lo, hi := (a, b)\n    return lo + hi + lo * hi\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useMinMax", new object[] { new[] { 3, 1, 4, 1, 5, 9, 2 } }), ("useMinMax", new object[] { new[] { 7 } }),
+            ("swap", new object[] { 3, 8 }), ("swap", new object[] { -2, 5 }),
+            ("discardMid", new object[] { 10, 99, 4 }), ("discardMid", new object[] { 1, 2, 3 }),
+            ("mixedDecon", new object[] { 4, "hello" }), ("mixedDecon", new object[] { 0, "" }),
+            ("deconThenUse", new object[] { 3, 4 }), ("deconThenUse", new object[] { 2, 5 }));
+
+        // `name, err := ...` is the Go-style error path the C# ILCompiler emits specially -> the columnar backend
+        // declines it (to never diverge from that path).
+        Assert.False(RouteColumnarProgram("func f(): (int, int) {\n    return (1, 2)\n}\n\nfunc g(): int {\n    v, err := f()\n    return v\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

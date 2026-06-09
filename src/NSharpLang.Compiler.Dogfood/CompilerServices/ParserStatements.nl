@@ -16,12 +16,13 @@
 //   IfStatement                  -> kind 27  ( if cond <then> [else <else>]; children [cond, then, else?] )
 //   ForStatement                 -> kind 28  ( for <init>; <cond>; <incr> <body>; children [init, cond, incr, body] )
 //   ForeachStatement             -> kind 29  ( foreach <var> in <coll> <body>; var in the value span, children [coll, body] )
+//   TupleDeconstructionStatement -> kind 30  ( n0, n1, ... := <tuple>; children [name0..nameN-1 (Identifier kind 6), value] )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)`, let/const/readonly + typed `name: Type = init` declarations, tuple deconstruction,
+// Deferred: parenthesised `foreach (x in y)`, let/const/readonly + typed `name: Type = init` declarations,
 // throw/try/using/lock/switch/yield/print/assert/local-functions, and statements whose expression parts use
 // a not-yet-supported form (e.g. `new`/`alloc`). Block statement-list gathers child node ids on the LIFO
 // `argStack` (recursion is LIFO) and appends the contiguous child run after `}`, exactly as calls/generics do.
@@ -263,6 +264,59 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
     if kind == 36 {
         st[0] = start + 1
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 22, -1, 0, -1, 0, tokenStarts[start], tokenValueLengths[start])
+    }
+
+    // Tuple DECONSTRUCTION `n0, n1, ... := <tuple>` (>= 2 names): an identifier FOLLOWED BY a comma. Each target
+    // is a bare identifier (or `_` discard) emitted as an Identifier node (kind 6); the value follows `:=`. The
+    // node is TupleDeconstructionStatement kind 30, children = [name0, ..., nameN-1, value]. A malformed list
+    // (a non-identifier target, a missing `:=` or value) refuses with -1 -> declines to the C# parser.
+    if kind == 0 && start + 1 < count && tokenKinds[start + 1] == 134 {
+        deconStart := tokenStarts[start]
+        deconArgBase := st[3]
+
+        firstName := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, tokenStarts[start], tokenValueLengths[start], -1, 0, tokenStarts[start], tokenValueLengths[start])
+        argStack[st[3]] = firstName
+        st[3] = st[3] + 1
+        st[0] = start + 1
+
+        while st[0] < count && tokenKinds[st[0]] == 134 {
+            st[0] = st[0] + 1
+            if st[0] >= count || tokenKinds[st[0]] != 0 {
+                st[3] = deconArgBase
+                return -1
+            }
+
+            nextName := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, tokenStarts[st[0]], tokenValueLengths[st[0]], -1, 0, tokenStarts[st[0]], tokenValueLengths[st[0]])
+            argStack[st[3]] = nextName
+            st[3] = st[3] + 1
+            st[0] = st[0] + 1
+        }
+
+        if st[0] >= count || tokenKinds[st[0]] != 121 {
+            st[3] = deconArgBase
+            return -1
+        }
+        st[0] = st[0] + 1
+
+        deconValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        if deconValue < 0 {
+            st[3] = deconArgBase
+            return -1
+        }
+
+        argStack[st[3]] = deconValue
+        st[3] = st[3] + 1
+        deconValueEnd := outSpanStarts[deconValue] + outSpanLengths[deconValue]
+        deconChildCount := st[3] - deconArgBase
+        deconChildRunStart := st[2]
+        deconIdx := deconArgBase
+        while deconIdx < st[3] {
+            AppendExpressionChild(st, outChildIndices, argStack[deconIdx])
+            deconIdx = deconIdx + 1
+        }
+        st[3] = deconArgBase
+
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 30, -1, 0, deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
     }
 
     if kind == 0 && start + 1 < count && tokenKinds[start + 1] == 121 {
