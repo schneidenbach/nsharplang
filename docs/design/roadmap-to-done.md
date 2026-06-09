@@ -393,9 +393,10 @@ startup/size track.
 owns parse→emit for the modelled surface (32/32 dogfood corpus via multi-file merge) and is parity-gated per
 slice. The live work is **Phase D rich-language columnar emit** (newest-on-top log:
 [`self-host-progress.md`](self-host-progress.md) is the authoritative cursor): D-11d class inheritance landed;
-the oracle static-member fix bundle landed (`7952bc54`). **Next: columnar STATIC METHODS, then generics, then
-lambdas/closures** (the `project_csharp_retirement_map` slice order), then Stage 6 (route-all → delete
-`ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
+the oracle static-member fix bundle landed (`7952bc54`); D-12 columnar STATIC METHODS landed (`80204c27`).
+**Next: columnar STATIC FIELDS (+ initializers) → static properties → generics → lambdas/closures** (the
+`project_csharp_retirement_map` slice order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`)
+and Phase T (CLI/LSP on columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).

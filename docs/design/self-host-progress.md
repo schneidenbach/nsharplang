@@ -11,6 +11,47 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-12: columnar STATIC METHODS (`static func` members, chain-walked `TypeName.M()`, pinned bare-call precedence)
+
+The columnar pipeline now compiles `static func` members on classes/records/structs end-to-end, value-matched
+against the static-resolution-fixed oracle (`80204c27`):
+
+- **Kernel** (`ParserDeclarations.nl`): `ParseStructDeclarationInto` records `static func` members (token 63
+  immediately before 7) into a NEW `outMethodStaticFlags` array (the func index still points at `func`, so the
+  same signature/body kernels parse it); the fields loop hands off at `static func`. `static` before a field/
+  property/`constructor` still returns -1 (those are the next slices).
+- **Adapter**: marshals the flag onto `ColumnarFunctionInput.IsStatic`.
+- **Emitter**: PASS 0b declares statics with `MethodAttributes.Static` — no implicit `this`, UNSHIFTED param
+  ordinals, `void` allowed (a static body emits exactly like a top-level procedure), overloads by distinct PARAM
+  COUNT (the ctor-overload rule; same-arity type-distinguished sets decline), NL306 name collisions decline in
+  both declaration orders. PASS 0b'': static-over-STATIC hiding is accepted (nearest declaration wins, pinned
+  against the oracle); every MIXED static/instance shadowing shape declines. STATIC bodies emit with
+  `_currentStruct = null` — no implicit-`this` path can structurally fire (a static body's bare instance-field/
+  method access declines precisely where the N# pipeline errors) — while a new `_enclosingType` anchors bare
+  static resolution on the type's own chain. Qualified `TypeName.M(args)` resolves USER types FIRST via a
+  chain-walked arity match mirroring the oracle's bind-or-walk-on rule, and a user type name never falls through
+  to the BCL whitelist — closing a LATENT OVER-ACCEPTANCE (a user `record Math` + `Math.Abs(x)` emitted
+  System.Math IL while the pipeline errors; now pinned both directions).
+- **Bare-call precedence, re-verified DIRECTLY**: sibling top-level function > instance method on the chain >
+  static method on the chain. A probe-AGENT claim that own-instance beats top-level was REFUTED by hand-run
+  probes (top-level wins in all three shapes) — and the parity harness caught the wrongly-flipped dispatch within
+  one run. The D-11d "bare-call sibling ambiguity" decline pin is now a parity case (top-level binds). Lesson
+  reinforced: agent probe RESULTS get re-verified before acting, same as review verdicts.
+- **Test-harness pollution found+fixed**: loading an emitted assembly containing a GLOBAL public type named
+  `Math` poisons the C# oracle's AppDomain-wide external-type scan (`TryResolveLoadedExternalType`) for every
+  later in-process compile using `Math.Abs` — manifesting as `FileNotFoundException: ColumnarProgram` inside
+  unrelated dogfood tests. The Math-shadowing positive pin is ROUTE-ONLY (never loaded); the decline pin carries
+  the gate-regression coverage; the value case was verified out-of-process via the CLI.
+
+Parity tests `ColumnarCodegen_Parity_StaticMethods` + `…InheritanceAndPrecedence`: 30+ value-matched invocations
++ CLR `IsStatic` metadata asserts + 17 decline pins. 636 ILCompiler+dogfood tests green; full non-IDE gate green
+(fresh isolated; one flake re-run on an identical tree). Residual declines for later slices: static fields,
+static properties, expression-bodied members, same-arity static overloads, array literals (blocked one parity
+shape — `[a, b, c]` is checklist item 11). Next per the retirement-map order: columnar STATIC FIELDS
+(+ initializers) → static properties → generics.
+
+---
+
 ## 2026-06-09 — N# ILCompiler fix bundle: STATIC-member resolution (inherited-static chain walks + this-in-static diagnostic)
 
 VERIFY-FIRST probing for the columnar STATIC METHODS slice (a 58-probe acceptance map over 4 read-only probe
