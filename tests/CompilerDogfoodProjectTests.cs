@@ -3137,6 +3137,32 @@ class B
         Assert.True(RouteColumnarProgram("func g(n: int): int {\n    return match n {\n        x when x == 1 => 10,\n        x when x == 2 => 20\n    }\n}\n").Ok);
     }
 
+    // MATCH PATTERN HARDENING — the columnar match-arm emitter only models LITERAL patterns (int/float/char/string/
+    // bool) and IDENTIFIER patterns (`_` discard / binding). Any OTHER primary the pattern parser can yield — a
+    // parenthesized `(0)` (which C# parses as a positional pattern and rejects on a scalar), a member access, a call,
+    // an index — is NOT a constant-equality pattern. Before this guard the emitter blindly emitted a `ceq` against
+    // such an expression, silently compiling programs the C# pipeline REJECTS (a parity hole found in adversarial
+    // review of the `when`-guard slice). Now those decline to the C# path. This test pins the decline AND confirms
+    // literal/identifier patterns (and a literal inside a `when` guard) still ACCEPT.
+    [Fact]
+    public void ColumnarCodegen_MatchPattern_NonLiteralDeclines()
+    {
+        // Parenthesized pattern `(0)` PARSES in the columnar kernel (node kind 7) and used to emit a bogus equality
+        // test; it must now decline. (C# rejects `(0)` on an int with NL103 — a positional pattern on a scalar.)
+        Assert.False(RouteColumnarProgram("func f(n: int): string {\n    return match n {\n        (0) => \"zero\",\n        _ => \"other\"\n    }\n}\n").Ok);
+        // Member-access pattern (node kind 8) — not a modelled constant pattern -> decline.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    return match n {\n        a.B => 1,\n        _ => 0\n    }\n}\n").Ok);
+        // Call pattern (node kind 9) — not a pattern at all -> decline.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    return match n {\n        g() => 1,\n        _ => 0\n    }\n}\n").Ok);
+        // The same non-literal hole reached through a `when`-guarded pattern slot -> decline.
+        Assert.False(RouteColumnarProgram("func f(n: int): string {\n    return match n {\n        (0) when n == 0 => \"zero\",\n        _ => \"other\"\n    }\n}\n").Ok);
+
+        // Sanity: genuine literal and identifier patterns (and a literal under a guard) STILL accept — the gate did
+        // not over-restrict the modelled set.
+        Assert.True(RouteColumnarProgram("func ok1(n: int): string {\n    return match n {\n        0 => \"zero\",\n        _ => \"other\"\n    }\n}\n").Ok);
+        Assert.True(RouteColumnarProgram("func ok2(n: int): int {\n    return match n {\n        x when x > 0 => 1,\n        _ => 0\n    }\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

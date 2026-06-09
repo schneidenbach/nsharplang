@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-6c: harden match patterns (decline non-literal patterns)
+
+A correctness fix closing the over-acceptance hole surfaced by the `when`-guard adversarial review. The match-arm
+emitter modelled exactly two pattern shapes — LITERAL (int/float/char/string/bool, node kinds 0-4) and IDENTIFIER
+(`_` discard / binding, kind 6) — but the literal branch ran for ANY non-identifier pattern node, blindly emitting
+`ldloc; <expr>; ceq`. The pattern parser (`ParsePrimaryExpressionNode`) can yield other primaries — parenthesized
+`(0)` (kind 7), member access (8), call (9), index (10), null (5) — so e.g. `match n { (0) => … }` compiled a bogus
+equality test even though the C# pipeline REJECTS it (C# parses `(0)` as a positional pattern → `NL103` on a scalar).
+- **Emitter** (`ColumnarIlEmitter` case 18): the literal branch now first checks `IsLiteralPatternKind` (kinds 0-4);
+  a non-literal, non-identifier pattern node declines (`return false`) so the whole match falls back to the C#
+  pipeline, which emits the proper diagnostic — never a silently-wrong program. This also covers the same hole
+  reached through a `when`-guarded slot (kind 19 wrapping a non-literal inner pattern).
+
+Pinned: `ColumnarCodegen_MatchPattern_NonLiteralDeclines` asserts `(0)` / member / call / guarded-`(0)` patterns
+decline while literal + identifier + literal-under-guard patterns still accept; the existing `Parity_MatchExpression`
+and `Parity_MatchGuard` value-matching is unchanged (no modelled pattern lost). Full non-IDE gate green (fresh
+isolated, 309s). Next: relational patterns (`< 0`, `>= 100`), then range patterns, then type declarations.
+
+---
+
 ## 2026-06-09 — Phase D-6b: `match` `when` guards (`<pattern> when <bool>`)
 
 Extends the match-expression slice with guard clauses without touching the match node's `[value, pat, res, …]`

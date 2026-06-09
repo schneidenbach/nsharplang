@@ -1473,6 +1473,14 @@ public sealed class ColumnarIlEmitter
                     }
                     else // literal pattern -> equality test against the matched value.
                     {
+                        // Only an actual LITERAL (int/float/char/string/bool — node kinds 0-4) is a modelled
+                        // constant pattern. Any other primary the pattern parser can yield (null kind 5,
+                        // parenthesized kind 7, member access kind 8, call kind 9, index kind 10, …) is NOT a
+                        // constant-equality pattern in N#/C# — C# parses `(0)` as a positional pattern (rejects it on
+                        // a scalar) and a call/index is not a pattern at all. Decline so the program falls back to the
+                        // C# pipeline (which emits the proper diagnostic) instead of silently emitting a bogus `ceq`.
+                        if (!IsLiteralPatternKind(_kinds[patternNode]))
+                            return false;
                         _il.Emit(OpCodes.Ldloc, matchLocal);
                         if (!EmitExpression(patternNode, out var patType) || patType != matchValueType)
                             return false;
@@ -1521,6 +1529,12 @@ public sealed class ColumnarIlEmitter
                 return false;
         }
     }
+
+    // Node kinds that are LITERAL match patterns (constant-equality): int(0)/float(1)/char(2)/string(3)/bool(4).
+    // A non-literal primary in pattern position (null/parenthesized/member/call/index/…) is not a constant pattern,
+    // so the match declines to the C# path rather than emitting a misleading equality test. Identifier patterns
+    // (kind 6 — `_` discard / binding) are handled separately, before this is consulted.
+    private static bool IsLiteralPatternKind(int kind) => kind >= 0 && kind <= 4;
 
     // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality) and
     // string (op_Equality). Unions/records/etc. are not modelled, so a match over them declines to the C# path.
