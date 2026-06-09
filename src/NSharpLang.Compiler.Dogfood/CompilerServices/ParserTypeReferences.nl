@@ -14,9 +14,10 @@
 //   UnionTypeReference    -> kind 4   e.g. int | string, List<int> | string (slice 7; arms are postfix
 //                                     types, and a union may itself be a generic argument: List<int | T>)
 //   ByRefTypeReference    -> kind 5   e.g. &int, &List<int>, &int[] (slice 8; `&` prefixing a postfix type)
+//   TupleTypeReference    -> kind 6   e.g. (int, int), (int, string)[] -- a `(` + >=2 comma-separated element
+//                                     types + `)`. POSITIONAL only (named elements `(x: int, ...)` refuse).
 // Deferred to later rungs:
-//   - TupleTypeReference `(...)` -- REFUSED with -1 (first token `(` is not a base-type start the kernel
-//     handles); also needs per-element name edge-metadata the columnar table does not yet carry.
+//   - NAMED tuple elements `(x: int, ...)` -- the columnar table does not yet carry per-element name metadata.
 //   - FunctionTypeReference `Func<...>` -- the C# parser special-cases the *identifier text* "Func", but
 //     this kernel has no source string (only token offsets), so it cannot distinguish Func from any other
 //     generic name; Func is therefore excluded from the corpus and will parse as a Generic node. Resolving
@@ -24,7 +25,7 @@
 //     contextual keywords).
 //
 // Node-table columns (all caller-allocated to capacity >= count+1; outChildIndices likewise):
-//   outNodeKinds[i]   : 0 Simple | 1 Generic | 2 Array | 3 Nullable | 4 Union | 5 ByRef
+//   outNodeKinds[i]   : 0 Simple | 1 Generic | 2 Array | 3 Nullable | 4 Union | 5 ByRef | 6 Tuple
 //   outNameStarts[i]  : source byte offset of the (dotted) name for Simple/Generic; -1 otherwise
 //   outNameLengths[i] : name byte length; 0 when no name
 //   outChildStart[i]  : index into outChildIndices where this node's child ids begin; -1 when no children
@@ -134,6 +135,60 @@ func ParseBaseTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         childRunStart := st[2]
         AppendTypeReferenceChild(st, outChildIndices, inner)
         return EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 5, -1, 0, childRunStart, 1, ampStart, spanEnd - ampStart)
+    }
+
+    // Tuple type `(T0, T1, ...)` (TupleTypeReference -> kind 6): a `(` introducing a comma-separated list of at
+    // least TWO postfix/union element types, closed by `)`. Positional only (named elements `(x: int, ...)` are
+    // not modelled -- the `:` after the first element makes the comma form refuse). A single `(T)` is not a tuple
+    // (no comma) -> refuse. Variable arity via the LIFO arg-stack, exactly like the generic argument list.
+    if tokenKinds[pos] == 127 {
+        tupleTypeStart := tokenStarts[pos]
+        st[0] = pos + 1
+        tupleArgBase := st[3]
+
+        firstElem := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if firstElem < 0 {
+            st[3] = tupleArgBase
+            return -1
+        }
+
+        argStack[st[3]] = firstElem
+        st[3] = st[3] + 1
+
+        if st[0] >= count || tokenKinds[st[0]] != 134 {
+            st[3] = tupleArgBase
+            return -1
+        }
+
+        while st[0] < count && tokenKinds[st[0]] == 134 {
+            st[0] = st[0] + 1
+            nextElem := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if nextElem < 0 {
+                st[3] = tupleArgBase
+                return -1
+            }
+
+            argStack[st[3]] = nextElem
+            st[3] = st[3] + 1
+        }
+
+        if st[0] >= count || tokenKinds[st[0]] != 128 {
+            st[3] = tupleArgBase
+            return -1
+        }
+
+        tupleRightParenEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+        st[0] = st[0] + 1
+        tupleChildCount := st[3] - tupleArgBase
+        tupleChildRunStart := st[2]
+        tupleElemIdx := tupleArgBase
+        while tupleElemIdx < st[3] {
+            AppendTypeReferenceChild(st, outChildIndices, argStack[tupleElemIdx])
+            tupleElemIdx = tupleElemIdx + 1
+        }
+        st[3] = tupleArgBase
+
+        return EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, -1, 0, tupleChildRunStart, tupleChildCount, tupleTypeStart, tupleRightParenEnd - tupleTypeStart)
     }
 
     if tokenKinds[pos] != 0 {

@@ -28,6 +28,8 @@
 //                                         operand is a unary expression. Detected by speculatively parsing a
 //                                         type after `(` and requiring `) <expr-start>` (Parser.cs
 //                                         IsCastExpression); otherwise the `(` is a parenthesized expression. )
+//   TupleExpression         -> kind 17  ( ( e0, e1, ... ) -- a `,` after the first parenthesised expression;
+//                                         children = the element expressions (variable arity). Positional only. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -262,6 +264,43 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         inner := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if inner < 0 {
             return -1
+        }
+
+        // A `,` after the first parenthesised expression makes this a TUPLE `( e0, e1, ... )` (TupleExpression
+        // kind 17), not a parenthesised expression. Collect the comma-separated elements on the LIFO arg-stack
+        // (variable arity, exactly like a block/call), then append the contiguous child run after `)`.
+        if st[0] < count && tokenKinds[st[0]] == 134 {
+            tupleArgBase := st[3]
+            argStack[st[3]] = inner
+            st[3] = st[3] + 1
+            while st[0] < count && tokenKinds[st[0]] == 134 {
+                st[0] = st[0] + 1
+                tupleElem := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if tupleElem < 0 {
+                    st[3] = tupleArgBase
+                    return -1
+                }
+
+                argStack[st[3]] = tupleElem
+                st[3] = st[3] + 1
+            }
+
+            if st[0] >= count || tokenKinds[st[0]] != 128 {
+                st[3] = tupleArgBase
+                return -1
+            }
+
+            tupleRightParenEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            tupleChildCount := st[3] - tupleArgBase
+            tupleChildRunStart := st[2]
+            tupleArg := tupleArgBase
+            while tupleArg < st[3] {
+                AppendExpressionChild(st, outChildIndices, argStack[tupleArg])
+                tupleArg = tupleArg + 1
+            }
+            st[3] = tupleArgBase
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 17, -1, 0, tupleChildRunStart, tupleChildCount, parenStart, tupleRightParenEnd - parenStart)
         }
 
         if st[0] >= count || tokenKinds[st[0]] != 128 {

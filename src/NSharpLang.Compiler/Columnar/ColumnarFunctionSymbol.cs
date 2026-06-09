@@ -77,6 +77,21 @@ public readonly record struct ColumnarFunctionSymbol(
             }
             case ByRefTypeReference b:
                 return "&" + CanonicalType(b.InnerType);
+            case TupleTypeReference t:
+            {
+                // `(e0,e1,...)` — parens + comma-joined element canons (no spaces), matching the columnar kernel's
+                // TupleTypeReference (kind 6) canonicalization in NSharpCompilerDogfoodAdapter.ColumnarTypeCanon.
+                var sb = new StringBuilder();
+                sb.Append('(');
+                for (var i = 0; i < t.Elements.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append(CanonicalType(t.Elements[i].Type));
+                }
+
+                sb.Append(')');
+                return sb.ToString();
+            }
             default:
                 return "?";
         }

@@ -445,12 +445,12 @@ class B
             foreach (var t in new[] { "int", "int[]", "string", "bool", "string[]" })
                 AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
 
-            // Deferred-form seam (REFUSED with -1): tuple/parenthesized types start with `(`, which the
-            // kernel does not yet handle (Tuple needs per-element name metadata). `Func<...>` is NOT in the
-            // refused set: without source access the kernel cannot detect the "Func" identifier text, so it
-            // parses as a Generic node -- it is simply excluded from the corpus until the parser gains
-            // source access.
-            foreach (var t in new[] { "(int, string)", "(int)" })
+            // Refused (-1) seam: a single parenthesised type `(int)` is not a tuple (no comma), and a NAMED tuple
+            // element `(x: int, ...)` is not modelled (the columnar table carries no per-element name metadata) --
+            // the `:` after the first element breaks the comma form. (Positional tuples like `(int, string)` now
+            // PARSE -- see ColumnarCodegen_Parity_TupleMultiReturn.) `Func<...>` is NOT refused: without source
+            // access the kernel cannot detect the "Func" identifier text, so it parses as a Generic node.
+            foreach (var t in new[] { "(int)", "(x: int, y: int)" })
                 AssertTypeReferenceRefused(t, tokenize, parseTypeRefs);
 
             // Depth cap: generic nesting beyond 64 returns the -1 overflow sentinel (a tested, documented
@@ -983,8 +983,9 @@ class B
             foreach (var e in expressions)
                 AssertPrimaryExpressionLikeProduction(e, tokenize, parseExpr);
 
-            // Refused (-1): deferred primaries / non-primary leads / tuples / named & ref-out call args.
-            foreach (var bad in new[] { "(1, 2)", "(x: 1)", "+5", ".x", ")", "f(x: 1)", "g(ref y)" })
+            // Refused (-1): deferred primaries / non-primary leads / NAMED tuple elements / ref-out call args.
+            // (Positional tuples like `(1, 2)` now parse -- see ColumnarCodegen_Parity_TupleExpression.)
+            foreach (var bad in new[] { "(x: 1)", "+5", ".x", ")", "f(x: 1)", "g(ref y)" })
                 AssertExpressionRefused(bad, tokenize, parseExpr);
         }
         finally
@@ -2994,6 +2995,60 @@ class B
             ("NormalizeDiagnosticMessagePattern", new object[] { "   " }),
             ("ContainsIgnoreCase", new object[] { "HelloWorld", "WORLD" }),
             ("ContainsIgnoreCase", new object[] { "Hello", "xyz" }));
+    }
+
+    // TUPLE expressions + `.ItemN` access (sub-slice 1: tuples as inferred LOCALS/values; tuple TYPE annotations
+    // on params/returns are a later sub-slice and still decline at parse). `(e0, e1, ...)` (parser node kind 17)
+    // constructs a System.ValueTuple<...> (newobj); `t.ItemN` is a field load. Covers 2/3-tuples, mixed element
+    // types (int+string+double), and tuple-of-computed-values. Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_TupleExpression()
+    {
+        var prog =
+            "func pack(a: int, b: int): int {\n    t := (a + b, a - b)\n    return t.Item1 * t.Item2\n}\n\n" +
+            "func three(a: int, b: int, c: int): int {\n    t := (a, b, c)\n    return t.Item1 + t.Item2 + t.Item3\n}\n\n" +
+            "func mixed(n: int, s: string): int {\n    t := (n, s)\n    return t.Item1 + t.Item2.Length\n}\n\n" +
+            "func tupD(x: double, y: double): double {\n    t := (x, y)\n    return t.Item1 - t.Item2\n}\n\n" +
+            "func minMaxSum(a: int[]): int {\n    lo := a[0]\n    hi := a[0]\n    i := 1\n    while i < a.Length {\n        if a[i] < lo {\n            lo = a[i]\n        }\n        if a[i] > hi {\n            hi = a[i]\n        }\n        i = i + 1\n    }\n    t := (lo, hi)\n    return t.Item1 + t.Item2\n}\n\n" +
+            // NESTED tuple: ((a, b), c) -> ValueTuple<ValueTuple<int,int>, int>; t.Item1 yields the inner tuple.
+            "func nested(a: int, b: int, c: int): int {\n    t := ((a, b), c)\n    inner := t.Item1\n    return inner.Item1 + inner.Item2 + t.Item2\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("pack", new object[] { 5, 3 }), ("pack", new object[] { 2, 7 }),
+            ("three", new object[] { 1, 2, 3 }), ("three", new object[] { 10, -5, 0 }),
+            ("mixed", new object[] { 4, "hello" }), ("mixed", new object[] { 0, "" }),
+            ("tupD", new object[] { 5.5, 2.0 }), ("tupD", new object[] { 1.0, 1.0 }),
+            ("minMaxSum", new object[] { new[] { 3, 1, 4, 1, 5, 9, 2 } }), ("minMaxSum", new object[] { new[] { 7 } }),
+            ("nested", new object[] { 2, 3, 4 }), ("nested", new object[] { 10, -5, 1 }));
+
+        // A NAMED tuple element `(x: int, ...)` is not modelled (the columnar table carries no per-element name
+        // metadata) -> the tuple type refuses at parse, so the whole function declines to the C# parser.
+        Assert.False(RouteColumnarProgram("func f(t: (x: int, y: int)): int {\n    return t.Item1\n}\n").Ok);
+    }
+
+    // TUPLE multi-return (sub-slice 2): tuple TYPE references `(int, int)` on params + returns (parser kernel type
+    // kind 6), with the `(int,int)` canonical agreed across the kernel's ColumnarTypeCanon, the C#
+    // ColumnarFunctionSymbol.CanonicalType, and the emitter's TryResolveType (-> System.ValueTuple). Tuples now
+    // CROSS function boundaries: returned from one function and consumed by another, passed as a sibling-call arg.
+    [Fact]
+    public void ColumnarCodegen_Parity_TupleMultiReturn()
+    {
+        var prog =
+            "func makePair(a: int, b: int): (int, int) {\n    return (a, b)\n}\n\n" +
+            "func usePair(a: int, b: int): int {\n    t := makePair(a, b)\n    return t.Item1 - t.Item2\n}\n\n" +
+            "func sumPair(t: (int, int)): int {\n    return t.Item1 + t.Item2\n}\n\n" +
+            "func callSumPair(a: int, b: int): int {\n    return sumPair((a, b))\n}\n\n" +
+            "func minMax(a: int[]): (int, int) {\n    lo := a[0]\n    hi := a[0]\n    i := 1\n    while i < a.Length {\n        if a[i] < lo {\n            lo = a[i]\n        }\n        if a[i] > hi {\n            hi = a[i]\n        }\n        i = i + 1\n    }\n    return (lo, hi)\n}\n\n" +
+            "func minMaxRange(a: int[]): int {\n    mm := minMax(a)\n    return mm.Item2 - mm.Item1\n}\n\n" +
+            "func mixedRet(n: int, s: string): (int, string) {\n    return (n + 1, s)\n}\n\n" +
+            "func useMixed(n: int, s: string): int {\n    t := mixedRet(n, s)\n    return t.Item1 + t.Item2.Length\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("makePair", new object[] { 5, 3 }),
+            ("usePair", new object[] { 9, 4 }), ("usePair", new object[] { 2, 7 }),
+            ("sumPair", new object[] { (1, 2) }), ("sumPair", new object[] { (100, -50) }),
+            ("callSumPair", new object[] { 6, 8 }), ("callSumPair", new object[] { -3, 3 }),
+            ("minMax", new object[] { new[] { 3, 1, 4, 1, 5, 9, 2 } }),
+            ("minMaxRange", new object[] { new[] { 3, 1, 4, 1, 5, 9, 2 } }), ("minMaxRange", new object[] { new[] { 7 } }),
+            ("useMixed", new object[] { 4, "hello" }), ("useMixed", new object[] { 0, "" }));
     }
 
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#

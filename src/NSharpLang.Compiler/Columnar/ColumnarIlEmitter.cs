@@ -119,7 +119,27 @@ public sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(ulong)
         || t == typeof(string) || t == typeof(char) || t == typeof(double) || t == typeof(float)
         || t == typeof(System.Text.StringBuilder)
-        || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!));
+        || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
+        || IsSupportedValueTuple(t);
+
+    // A positional System.ValueTuple of arity 2-7 whose every element is itself a supported type. (1-tuples and
+    // the >7 nested-TRest form are not modelled.) Admits a tuple as a `:=` local / value, NOT as an array element.
+    private static bool IsSupportedValueTuple(Type t)
+    {
+        if (!t.IsGenericType)
+            return false;
+        var def = t.GetGenericTypeDefinition();
+        if (def != typeof(ValueTuple<,>) && def != typeof(ValueTuple<,,>) && def != typeof(ValueTuple<,,,>)
+            && def != typeof(ValueTuple<,,,,>) && def != typeof(ValueTuple<,,,,,>) && def != typeof(ValueTuple<,,,,,,>))
+            return false;
+        foreach (var arg in t.GetGenericArguments())
+        {
+            if (!IsSupportedType(arg))
+                return false;
+        }
+
+        return true;
+    }
 
     // Element types the array read/write/alloc paths can emit ldelem/stelem/newarr for: int/long/ulong (i4/i8),
     // char (u2), double (r8) / float (r4), and string (a reference element). bool is excluded until its element
@@ -154,7 +174,71 @@ public sealed class ColumnarIlEmitter
             type = typeof(System.Text.StringBuilder);
             return true;
         }
+        // Tuple `(e0,e1,...)` -> System.ValueTuple<...> (positional, arity 2-7). The canonical (from the kernel's
+        // ColumnarTypeCanon / the C# ColumnarFunctionSymbol.CanonicalType) is parens + comma-joined element canons;
+        // split at the TOP level (respecting nested ()/<>/[]), resolve each element recursively, then
+        // MakeGenericType the matching open ValueTuple. (Only Tuple type nodes produce a `(...)` canonical.)
+        if (canonical.Length >= 2 && canonical[0] == '(' && canonical[^1] == ')')
+        {
+            var elements = SplitTopLevelCommas(canonical.Substring(1, canonical.Length - 2));
+            Type? openTuple = elements.Count switch
+            {
+                2 => typeof(ValueTuple<,>),
+                3 => typeof(ValueTuple<,,>),
+                4 => typeof(ValueTuple<,,,>),
+                5 => typeof(ValueTuple<,,,,>),
+                6 => typeof(ValueTuple<,,,,,>),
+                7 => typeof(ValueTuple<,,,,,,>),
+                _ => null,
+            };
+            if (openTuple != null)
+            {
+                var elementTypes = new Type[elements.Count];
+                var resolved = true;
+                for (var i = 0; i < elements.Count; i++)
+                {
+                    if (!TryResolveType(elements[i], out elementTypes[i]))
+                    {
+                        resolved = false;
+                        break;
+                    }
+                }
+
+                if (resolved)
+                {
+                    type = openTuple.MakeGenericType(elementTypes);
+                    return true;
+                }
+            }
+
+            type = null!;
+            return false;
+        }
         return TryResolveBuiltin(canonical, out type);
+    }
+
+    // Split `s` on commas at bracket depth 0 (parens, angle brackets, and square brackets all nest), so a tuple
+    // canonical `(int,int),string` splits into its top-level element canons without breaking nested tuples/generics.
+    private static List<string> SplitTopLevelCommas(string s)
+    {
+        var parts = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < s.Length; i++)
+        {
+            switch (s[i])
+            {
+                case '(': case '<': case '[': depth++; break;
+                case ')': case '>': case ']': depth--; break;
+                case ',' when depth == 0:
+                    parts.Add(s.Substring(start, i - start));
+                    start = i + 1;
+                    break;
+            }
+        }
+
+        parts.Add(s.Substring(start));
+        return parts;
     }
 
     /// <summary>
@@ -1093,27 +1177,48 @@ public sealed class ColumnarIlEmitter
                         return true;
                     }
                 }
-                if (Text(idx) != "Length")
+                // Instance member access: `.Length` (array/string/StringBuilder -> int) or `.ItemN` (a tuple
+                // element). Anything else declines BEFORE the receiver is emitted (no wasted side effects).
+                var member = Text(idx);
+                // `.ItemN` is a tuple element accessor only if a DIGIT follows "Item" (so `.Items`/`.ItemFoo`
+                // decline early without emitting the receiver); the actual element is still gated by GetField below.
+                var isTupleItem = member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4]);
+                if (member != "Length" && !isTupleItem)
                     return false;
                 if (!EmitExpression(Child(idx, 0), out var receiverType))
                     return false;
-                if (receiverType.IsSZArray)
+                if (member == "Length")
                 {
-                    _il.Emit(OpCodes.Ldlen);     // pushes the array length as a native int...
-                    _il.Emit(OpCodes.Conv_I4);   // ...narrowed to int (N# array length is int).
-                    type = typeof(int);
-                    return true;
+                    if (receiverType.IsSZArray)
+                    {
+                        _il.Emit(OpCodes.Ldlen);     // pushes the array length as a native int...
+                        _il.Emit(OpCodes.Conv_I4);   // ...narrowed to int (N# array length is int).
+                        type = typeof(int);
+                        return true;
+                    }
+                    if (receiverType == typeof(string))
+                    {
+                        _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod()!);
+                        type = typeof(int);
+                        return true;
+                    }
+                    if (receiverType == typeof(System.Text.StringBuilder))
+                    {
+                        _il.Emit(OpCodes.Callvirt, typeof(System.Text.StringBuilder).GetProperty(nameof(System.Text.StringBuilder.Length))!.GetGetMethod()!);
+                        type = typeof(int);
+                        return true;
+                    }
+                    return false;
                 }
-                if (receiverType == typeof(string))
+                // `t.ItemN` on a ValueTuple -> ldfld the element (ItemN is a public instance FIELD of ValueTuple).
+                // The receiver value (a value type) is already on the stack; ldfld reads the field from it.
+                if (IsSupportedValueTuple(receiverType))
                 {
-                    _il.Emit(OpCodes.Callvirt, typeof(string).GetProperty(nameof(string.Length))!.GetGetMethod()!);
-                    type = typeof(int);
-                    return true;
-                }
-                if (receiverType == typeof(System.Text.StringBuilder))
-                {
-                    _il.Emit(OpCodes.Callvirt, typeof(System.Text.StringBuilder).GetProperty(nameof(System.Text.StringBuilder.Length))!.GetGetMethod()!);
-                    type = typeof(int);
+                    var itemField = receiverType.GetField(member, BindingFlags.Public | BindingFlags.Instance);
+                    if (itemField == null)
+                        return false;
+                    _il.Emit(OpCodes.Ldfld, itemField);
+                    type = itemField.FieldType;
                     return true;
                 }
                 return false;
@@ -1231,6 +1336,38 @@ public sealed class ColumnarIlEmitter
                     // char -> int is identity (the char is already an i4 code point): no opcode.
                 }
                 type = targetType;
+                return true;
+            }
+
+            case 17: // Tuple [e0, e1, ...] — construct a positional System.ValueTuple<...>: emit each element value
+            {        // (left-to-right, the ctor's argument order), then `newobj` the matching ValueTuple ctor.
+                     // Arity 2-7 (a 1-tuple is not a tuple; >7 needs the nested TRest form — both decline).
+                var arity = _childCount[idx];
+                Type? openTuple = arity switch
+                {
+                    2 => typeof(ValueTuple<,>),
+                    3 => typeof(ValueTuple<,,>),
+                    4 => typeof(ValueTuple<,,,>),
+                    5 => typeof(ValueTuple<,,,,>),
+                    6 => typeof(ValueTuple<,,,,,>),
+                    7 => typeof(ValueTuple<,,,,,,>),
+                    _ => null,
+                };
+                if (openTuple == null)
+                    return false;
+                var elementTypes = new Type[arity];
+                for (var i = 0; i < arity; i++)
+                {
+                    if (!EmitExpression(Child(idx, i), out var elemType) || !IsSupportedType(elemType))
+                        return false;
+                    elementTypes[i] = elemType;
+                }
+                var tupleType = openTuple.MakeGenericType(elementTypes);
+                var tupleCtor = tupleType.GetConstructor(elementTypes);
+                if (tupleCtor == null)
+                    return false;
+                _il.Emit(OpCodes.Newobj, tupleCtor);
+                type = tupleType;
                 return true;
             }
 

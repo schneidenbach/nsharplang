@@ -869,6 +869,23 @@ internal static class NSharpCompilerDogfoodAdapter
             }
             case 5:
                 return "&" + ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[idx]]);
+            case 6:
+            {
+                // Tuple `(e0, e1, ...)` -> the canonical `(e0,e1,...)` (parens + comma-joined element canons, no
+                // spaces) — the SAME format ColumnarFunctionSymbol.CanonicalType produces and the emitter's
+                // TryResolveType parses back into a System.ValueTuple.
+                var sb = new System.Text.StringBuilder();
+                sb.Append('(');
+                var run = childStart[idx];
+                for (var k = 0; k < childCount[idx]; k++)
+                {
+                    if (k > 0) sb.Append(',');
+                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[run + k]));
+                }
+
+                sb.Append(')');
+                return sb.ToString();
+            }
             default:
                 return "?";
         }

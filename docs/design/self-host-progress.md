@@ -11,6 +11,34 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-5: tuples — expressions + `.ItemN` + tuple TYPES + MULTI-RETURN (the complete core)
+
+The complete core tuple feature (two sub-slices landed together), so tuples cross function boundaries — not a
+crippled locals-only half-version. Deconstruction (`a, b := f()`) is the remaining ergonomic follow-on.
+
+- **Tuple expressions** (`ParserExpressions.nl`): inside the `(` handling, after the cast-speculation rollback and
+  the first inner expr, a `,` makes it a tuple — elements collected on the LIFO arg-stack → `TupleExpression`
+  kind 17. Emitter case 17 emits each element then `newobj` the `ValueTuple<...>` ctor; MemberAccess case 8 now
+  handles `.ItemN` (`Ldfld` on the value-type receiver) alongside `.Length`. Positional only.
+- **Tuple TYPES** (`ParserTypeReferences.nl`): `ParseBaseTypeReferenceNode` gained a `(` branch → `(T0, T1, …)`
+  (≥2 elements, `)`-terminated) → `TupleTypeReference` node kind 6. A single `(T)` or a NAMED `(x: int, …)`
+  refuses. The `(int,int)` canonical is produced IDENTICALLY by the kernel's `ColumnarTypeCanon` (case 6) and the
+  C# parity oracle `ColumnarFunctionSymbol.CanonicalType` (so the symbol-parity model agrees), and the emitter's
+  `TryResolveType` parses it back into a `System.ValueTuple<…>` (arity 2–7) by splitting top-level commas
+  (`SplitTopLevelCommas`, depth over `()`/`<>`/`[]`) and `MakeGenericType`. `IsSupportedType` admits supported
+  ValueTuples.
+- **Multi-return**: `func f(): (int, int) { return (a, b) }`, tuple PARAMS, a tuple as a sibling-call argument,
+  and a returned tuple consumed by another function all work — the `ValueTuple` from `MakeGenericType` (param/
+  return) is Type-identical to the one the tuple-expression emit produces, so the return-type and call-arg checks
+  match.
+
+Parity-gated: `ColumnarCodegen_Parity_TupleExpression` (2/3-tuples, nested, mixed elements, `.Item2.Length`) +
+`ColumnarCodegen_Parity_TupleMultiReturn` (return/param/sibling-arg/consumed-tuple/mixed) value-match the C#
+ILCompiler. Adversarially reviewed (read-only — sub-slice 1: parser+emit → SHIP; sub-slice 2: tuple-type parser +
+the 3-site canonical agreement + `TryResolveType`). All 93 dogfood tests green (two stale parser-pin assertions
+updated — `(1, 2)` and `(int, string)` now parse instead of being refused). Next: tuple deconstruction
+`a, b := f()`, then match.
+
 ## 2026-06-08 — Phase D-4: `foreach` over arrays (N# parser kernel + emitter index-loop lowering)
 
 The second two-sided slice. `foreach <var> in <array> { body }` (the no-paren, Go-style form).
