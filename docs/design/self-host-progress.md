@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-6: `match` expressions (first pattern class — literal/discard/binding over scalars)
+
+The first slice of pattern matching: `match value { pattern => result, … }` as an EXPRESSION over scalars/strings.
+- **Parser kernel** (`ParserExpressions.nl`): `ParsePrimaryExpressionNode` gained a `match` branch (Match token 31)
+  parsing the value (`ParseAssignmentExpression`, stops at `{`), then cases — each a PRIMARY-expression pattern,
+  `=>` (Arrow 120), and a result — comma-separated, `}`-closed → `MatchExpression` node kind 18, children
+  `[value, pat0, res0, pat1, res1, …]`. ≥1 case required; state restored on every failure.
+- **Emitter** (`ColumnarIlEmitter` case 18): mirrors the C# `EmitMatchExpression` linear chain — eval value (a
+  supported scalar/string) → temp; per case: an identifier pattern is a catch-all (`_` discard, or any other name
+  BINDS a local = the matched value, scoped to that arm), a literal pattern emits `ldloc temp; <literal>; ceq` (or
+  `string.op_Equality`) `; brfalse nextCase`; then the result (all arms share one result type) + `br end`. After
+  all cases: `throw new InvalidOperationException(...)` (the C# no-match path). Leaves one result on the stack.
+  Richer patterns (union-case/property/relational/`when` guards) decline → C# fallback.
+
+Parity-gated: `ColumnarCodegen_Parity_MatchExpression` value-matches the C# ILCompiler over int/bool/char/string
+literal patterns, the `_` discard, and an identifier binding (`x => x*2`), incl. catch-all and grade-table forms.
+Adversarially reviewed (read-only, parser + emit lenses). All 95 dogfood tests green. Next match slices: `when`
+guards, relational/range patterns, then union-case patterns (gated on union types). Then properties/exceptions.
+
+---
+
 ## 2026-06-09 — Phase D-5b: tuple DECONSTRUCTION `a, b := f()` — tuples are now COMPLETE
 
 The idiomatic completion of tuple multi-return.

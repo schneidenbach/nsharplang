@@ -30,6 +30,8 @@
 //                                         IsCastExpression); otherwise the `(` is a parenthesized expression. )
 //   TupleExpression         -> kind 17  ( ( e0, e1, ... ) -- a `,` after the first parenthesised expression;
 //                                         children = the element expressions (variable arity). Positional only. )
+//   MatchExpression         -> kind 18  ( match <value> { <pat> => <res>, ... }; children [value, pat0, res0, ...].
+//                                         Each pattern is a PRIMARY expr (literal or bare identifier). `=>` = 120. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -138,6 +140,78 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     if kind == 0 {
         st[0] = pos + 1
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, tokenStart, tokenLength, -1, 0, tokenStart, tokenLength)
+    }
+    if kind == 31 {
+        // `match <value> { <pattern> => <result>, ... }` (Match token 31, Arrow `=>` token 120). MatchExpression
+        // kind 18: children = [value, pat0, res0, pat1, res1, ...] (one value, then each case as a pattern/result
+        // pair). The pattern is a PRIMARY expression (a literal or a bare identifier `_`/binding); the emitter
+        // gates which pattern kinds it supports (richer patterns -- union-case/property/relational/`when` guards --
+        // are parsed-or-refused here and decline at emit). A comma between cases is consumed when present.
+        matchStart := tokenStart
+        st[0] = pos + 1
+        matchArgBase := st[3]
+
+        matchValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if matchValue < 0 {
+            st[3] = matchArgBase
+            return -1
+        }
+        argStack[st[3]] = matchValue
+        st[3] = st[3] + 1
+
+        if st[0] >= count || tokenKinds[st[0]] != 129 {
+            st[3] = matchArgBase
+            return -1
+        }
+        st[0] = st[0] + 1
+
+        matchCaseCount := 0
+        while st[0] < count && tokenKinds[st[0]] != 130 {
+            matchPattern := ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if matchPattern < 0 {
+                st[3] = matchArgBase
+                return -1
+            }
+            argStack[st[3]] = matchPattern
+            st[3] = st[3] + 1
+
+            if st[0] >= count || tokenKinds[st[0]] != 120 {
+                st[3] = matchArgBase
+                return -1
+            }
+            st[0] = st[0] + 1
+
+            matchResult := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if matchResult < 0 {
+                st[3] = matchArgBase
+                return -1
+            }
+            argStack[st[3]] = matchResult
+            st[3] = st[3] + 1
+            matchCaseCount = matchCaseCount + 1
+
+            if st[0] < count && tokenKinds[st[0]] == 134 {
+                st[0] = st[0] + 1
+            }
+        }
+
+        if matchCaseCount == 0 || st[0] >= count || tokenKinds[st[0]] != 130 {
+            st[3] = matchArgBase
+            return -1
+        }
+        matchEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+        st[0] = st[0] + 1
+
+        matchChildCount := st[3] - matchArgBase
+        matchChildRunStart := st[2]
+        matchArg := matchArgBase
+        while matchArg < st[3] {
+            AppendExpressionChild(st, outChildIndices, argStack[matchArg])
+            matchArg = matchArg + 1
+        }
+        st[3] = matchArgBase
+
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 18, -1, 0, matchChildRunStart, matchChildCount, matchStart, matchEnd - matchStart)
     }
     if kind == 41 {
         // `new <type> ( args )` -- the array/object construction form the dogfood kernels use

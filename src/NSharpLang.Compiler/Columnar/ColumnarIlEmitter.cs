@@ -1414,10 +1414,90 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 18: // Match [value, pat0, res0, pat1, res1, ...] — `match value { p => r, ... }`, lowered to a
+            {        // linear chain mirroring the C# EmitMatchExpression: eval value -> temp; per case test the
+                     // pattern, on match eval the result + br end; no match -> throw. An EXPRESSION: leaves one
+                     // result on the stack. Patterns: a LITERAL (equality test) or an identifier (`_` discard or a
+                     // binding that always matches and binds the matched value); richer patterns decline.
+                var childCount = _childCount[idx];
+                if (childCount < 3 || (childCount % 2) == 0) // value + >=1 (pattern, result) pair.
+                    return false;
+                var caseCount = (childCount - 1) / 2;
+
+                if (!EmitExpression(Child(idx, 0), out var matchValueType) || !IsSupportedMatchValueType(matchValueType))
+                    return false;
+                var matchLocal = _il.DeclareLocal(matchValueType);
+                _il.Emit(OpCodes.Stloc, matchLocal);
+
+                var matchEnd = _il.DefineLabel();
+                Type? matchResultType = null;
+                for (var c = 0; c < caseCount; c++)
+                {
+                    var patternNode = Child(idx, 1 + (2 * c));
+                    var resultNode = Child(idx, 2 + (2 * c));
+                    var nextCase = _il.DefineLabel();
+                    var armLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+
+                    if (_kinds[patternNode] == 6) // identifier pattern: `_` discard or a binding -> always matches.
+                    {
+                        var patName = Text(patternNode);
+                        if (patName != "_")
+                        {
+                            if (_locals.ContainsKey(patName) || _paramOrdinals.ContainsKey(patName))
+                                return false; // a binding that shadows is not modelled.
+                            var bindLocal = _il.DeclareLocal(matchValueType);
+                            _il.Emit(OpCodes.Ldloc, matchLocal);
+                            _il.Emit(OpCodes.Stloc, bindLocal);
+                            _locals[patName] = bindLocal;
+                        }
+                    }
+                    else // literal pattern -> equality test against the matched value.
+                    {
+                        _il.Emit(OpCodes.Ldloc, matchLocal);
+                        if (!EmitExpression(patternNode, out var patType) || patType != matchValueType)
+                            return false;
+                        if (matchValueType == typeof(string))
+                            _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
+                        else
+                            _il.Emit(OpCodes.Ceq);
+                        _il.Emit(OpCodes.Brfalse, nextCase); // not equal -> try the next case.
+                    }
+
+                    if (!EmitExpression(resultNode, out var armResultType))
+                        return false;
+                    if (matchResultType == null)
+                        matchResultType = armResultType;
+                    else if (armResultType != matchResultType) // every arm's result must share the match's type.
+                        return false;
+                    _il.Emit(OpCodes.Br, matchEnd);
+
+                    _il.MarkLabel(nextCase);
+                    foreach (var name in new List<string>(_locals.Keys)) // drop this arm's binding (if any).
+                    {
+                        if (!armLocals.Contains(name))
+                            _locals.Remove(name);
+                    }
+                }
+
+                // No case matched -> throw (mirrors the C# path). Unreachable if a catch-all arm is present.
+                _il.Emit(OpCodes.Ldstr, "No matching case in match expression");
+                _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!);
+                _il.Emit(OpCodes.Throw);
+                _il.MarkLabel(matchEnd);
+                type = matchResultType!;
+                return true;
+            }
+
             default:
                 return false;
         }
     }
+
+    // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality) and
+    // string (op_Equality). Unions/records/etc. are not modelled, so a match over them declines to the C# path.
+    private static bool IsSupportedMatchValueType(Type t) =>
+        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
+        || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string);
 
     // Scalars that participate in explicit numeric casts (int/long/char on the i4/i8 slots; double on r8, float on r4).
     private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float);

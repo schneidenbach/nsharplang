@@ -3076,6 +3076,31 @@ class B
         Assert.False(RouteColumnarProgram("func f(): (int, int) {\n    return (1, 2)\n}\n\nfunc g(): int {\n    v, err := f()\n    return v\n}\n").Ok);
     }
 
+    // MATCH expression (parser kernel node kind 18) — `match value { pattern => result, ... }` over scalars/strings,
+    // lowered to a linear equality chain mirroring the C# EmitMatchExpression. Patterns: LITERAL (int/char/string/
+    // bool, an equality test), `_` discard (catch-all), and an identifier BINDING (`x => x*2`, binds the matched
+    // value). Value-matched vs the C# ILCompiler over matching + catch-all + binding cases.
+    [Fact]
+    public void ColumnarCodegen_Parity_MatchExpression()
+    {
+        var prog =
+            "func classify(n: int): string {\n    return match n {\n        0 => \"zero\",\n        1 => \"one\",\n        2 => \"two\",\n        _ => \"many\"\n    }\n}\n\n" +
+            "func dayName(d: int): string {\n    return match d {\n        1 => \"Mon\",\n        2 => \"Tue\",\n        3 => \"Wed\",\n        _ => \"?\"\n    }\n}\n\n" +
+            "func boolToInt(b: bool): int {\n    return match b {\n        true => 1,\n        false => 0\n    }\n}\n\n" +
+            "func charKind(c: char): int {\n    return match c {\n        'a' => 1,\n        'b' => 2,\n        _ => 0\n    }\n}\n\n" +
+            "func bindIt(n: int): int {\n    return match n {\n        0 => 100,\n        x => x * 2\n    }\n}\n\n" +
+            "func matchStr(s: string): int {\n    return match s {\n        \"yes\" => 1,\n        \"no\" => 0,\n        _ => -1\n    }\n}\n\n" +
+            "func grade(score: int): string {\n    letter := match score {\n        4 => \"A\",\n        3 => \"B\",\n        2 => \"C\",\n        _ => \"F\"\n    }\n    return letter\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("classify", new object[] { 0 }), ("classify", new object[] { 1 }), ("classify", new object[] { 2 }), ("classify", new object[] { 5 }), ("classify", new object[] { -3 }),
+            ("dayName", new object[] { 2 }), ("dayName", new object[] { 9 }),
+            ("boolToInt", new object[] { true }), ("boolToInt", new object[] { false }),
+            ("charKind", new object[] { 'a' }), ("charKind", new object[] { 'b' }), ("charKind", new object[] { 'z' }),
+            ("bindIt", new object[] { 0 }), ("bindIt", new object[] { 5 }), ("bindIt", new object[] { -4 }),
+            ("matchStr", new object[] { "yes" }), ("matchStr", new object[] { "no" }), ("matchStr", new object[] { "maybe" }),
+            ("grade", new object[] { 4 }), ("grade", new object[] { 2 }), ("grade", new object[] { 0 }));
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,
