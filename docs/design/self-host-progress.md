@@ -11,6 +11,34 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-7b: ENUM in match patterns (`match c { Color.Red => … }`) + exhaustiveness decline
+
+Enums become first-class match scrutinees.
+- **Parser kernel** (`ParserExpressions.nl`): the match-pattern precedence chain's leaf now bottoms out at
+  `ParsePostfixExpressionNode` (was `ParsePrimaryExpressionNode`) — the columnar analogue of C#'s
+  `ParseRelationalPattern` falling back to `ParsePrimaryExpression` (which includes postfix member access). This lets
+  `Enum.Member` parse as a MemberAccess (kind 8) in pattern position; literals/identifiers/discards parse identically
+  (no postfix to apply); calls/indices parse but the emitter declines them.
+- **Emitter** (`ColumnarIlEmitter`): `IsSupportedMatchValueType` admits `EnumBuilder`; `EmitPatternMatch` gained a
+  kind-8 case — a registered-enum `Enum.Member` (matching the scrutinee's enum, not shadowed) emits
+  `ldloc; ldc.i4 <value>; ceq; brtrue/br` (underlying-int equality, mirroring C#'s Beq-on-underlying-int). Enum
+  constants compose with `or`/`and`/`not` for free (the recursive helper recurses into kind 8).
+- **Exhaustiveness DECLINE gate** (found by the adversarial review): C# rejects a non-exhaustive enum match (NL501).
+  The columnar match emit now DECLINES an enum match that lacks a catch-all AND does not cover every member via
+  top-level unguarded `Enum.Member` arms — so columnar never accepts a program C# refuses (→ C# fallback reports
+  NL501). This is a DECLINE (route to the analyzer-backed C# path), not a duplicated diagnostic; production already
+  analyzes before columnar (so this is defense-in-depth + harness consistency). Guarded/combinator arms conservatively
+  don't count toward coverage (a richer-but-exhaustive form simply declines, still correct).
+
+Parity-gated: `ColumnarCodegen_Parity_EnumMatch` builds AND consumes the enum inside one pipeline (int-in/string-out,
+since the two `Color` types are distinct), value-matching C# over enum-constant arms, `or`/`not` over enum constants,
+and a full-coverage no-catch-all match. Decline-pinned: a non-enum member access, a PARTIAL enum match (NL501);
+accept-pinned: full coverage and catch-all. Adversarially reviewed (read-only, 2 lenses + judge: parser-leaf
+divergence, enum-pattern emit) → the judge caught the exhaustiveness over-acceptance (now fixed). 72 columnar tests
+green; full non-IDE gate green (fresh isolated). Next: `as int` / explicit values (sub-slice C), then struct.
+
+---
+
 ## 2026-06-09 — Phase D-7a: ENUM declarations — the FIRST user-defined TYPE (declaration + member access + typing)
 
 The columnar backend was FUNCTIONS-ONLY (the adapter rejected any top-level declaration kind ≠ 7=func). This slice

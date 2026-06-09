@@ -198,7 +198,12 @@ func ParseRelationalPatternNode(tokenKinds: int[], tokenStarts: int[], tokenValu
             return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 32, relOpStart, relOpLen, relChildRun, 1, relOpStart, relSpanEnd - relOpStart)
         }
     }
-    return ParsePrimaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    // The non-relational pattern leaf is a POSTFIX expression (not just a primary): this is what lets an enum
+    // constant `Enum.Member` parse as a MemberAccess (kind 8) in pattern position — the columnar analogue of C#'s
+    // ParseRelationalPattern falling back to ParsePrimaryExpression (which in C# includes postfix member access). A
+    // literal/identifier still parses as before (no postfix to apply); a call/index parses but the emitter declines
+    // it as a non-constant pattern.
+    return ParsePostfixExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
 }
 
 // ParsePrimaryExpression (Parser.cs:4525) restricted to literals, identifiers, and ( expr ). Returns the

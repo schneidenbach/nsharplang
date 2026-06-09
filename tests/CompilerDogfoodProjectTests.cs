@@ -3335,6 +3335,49 @@ class B
         Assert.False(RouteColumnarProgram("enum Color { Red, Green }\n\nfunc f(): int {\n    a, b := (Color.Red, 5)\n    return b\n}\n").Ok);
     }
 
+    // ENUM in MATCH patterns (sub-slice B) — `match c { Color.Red => …, … }` where the pattern is an enum constant
+    // (a MemberAccess node, kind 8). The match value type is the enum's EnumBuilder; each arm tests the underlying
+    // int via Ceq (mirroring C#'s Beq-on-underlying-int). Enum constants compose with `or`/`and`/`not` combinators
+    // for free (the recursive EmitPatternMatch recurses into the kind-8 case). To keep the enum VALUE inside one
+    // pipeline (the columnar `Color` and the C# `Color` are distinct CLR types), the program both BUILDS the enum
+    // (via a `match int -> Color` returning member-access results) and CONSUMES it (matching enum patterns),
+    // exposing only an int-in / string-out surface that the parity oracle can value-match across both pipelines.
+    [Fact]
+    public void ColumnarCodegen_Parity_EnumMatch()
+    {
+        var prog =
+            "enum Color { Red, Green, Blue }\n\n" +
+            // build a Color from an int (enum member-access RESULTS in match arms).
+            "func pick(which: int): Color {\n    return match which {\n        0 => Color.Red,\n        1 => Color.Green,\n        _ => Color.Blue\n    }\n}\n\n" +
+            // consume a Color via enum-constant PATTERNS + a catch-all.
+            "func name(c: Color): string {\n    return match c {\n        Color.Red => \"r\",\n        Color.Green => \"g\",\n        _ => \"b\"\n    }\n}\n\n" +
+            // enum constants under an `or` combinator.
+            "func warmth(c: Color): string {\n    return match c {\n        Color.Red or Color.Blue => \"warm\",\n        _ => \"cool\"\n    }\n}\n\n" +
+            // enum constant under `not`.
+            "func notRed(c: Color): int {\n    return match c {\n        not Color.Red => 1,\n        _ => 0\n    }\n}\n\n" +
+            // every arm an enum constant (no catch-all) — an unmatched value hits the no-match throw on BOTH paths.
+            "func exhaustive(c: Color): int {\n    return match c {\n        Color.Red => 10,\n        Color.Green => 20,\n        Color.Blue => 30\n    }\n}\n\n" +
+            "func nameVia(which: int): string { return name(pick(which)) }\n\n" +
+            "func warmthVia(which: int): string { return warmth(pick(which)) }\n\n" +
+            "func notRedVia(which: int): int { return notRed(pick(which)) }\n\n" +
+            "func exhaustiveVia(which: int): int { return exhaustive(pick(which)) }\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("nameVia", new object[] { 0 }), ("nameVia", new object[] { 1 }), ("nameVia", new object[] { 2 }),
+            ("warmthVia", new object[] { 0 }), ("warmthVia", new object[] { 1 }), ("warmthVia", new object[] { 2 }),
+            ("notRedVia", new object[] { 0 }), ("notRedVia", new object[] { 1 }), ("notRedVia", new object[] { 2 }),
+            ("exhaustiveVia", new object[] { 0 }), ("exhaustiveVia", new object[] { 1 }), ("exhaustiveVia", new object[] { 2 }));
+
+        // A non-enum member-access pattern still declines (not a constant pattern).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    return match n {\n        a.b => 1,\n        _ => 0\n    }\n}\n").Ok);
+        // EXHAUSTIVENESS: a PARTIAL enum match (missing Blue, no catch-all) is NL501-rejected by C#; the columnar
+        // path must DECLINE it (→ C# fallback) rather than compile a runnable assembly C# refuses.
+        Assert.False(RouteColumnarProgram("enum Color { Red, Green, Blue }\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red => 1,\n        Color.Green => 2\n    }\n}\n").Ok);
+        // Full member coverage WITHOUT a catch-all is exhaustive -> ACCEPTS (the `exhaustive` form above).
+        Assert.True(RouteColumnarProgram("enum Color { Red, Green, Blue }\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red => 1,\n        Color.Green => 2,\n        Color.Blue => 3\n    }\n}\n").Ok);
+        // A catch-all makes a partial enum match exhaustive -> ACCEPTS.
+        Assert.True(RouteColumnarProgram("enum Color { Red, Green, Blue }\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red => 1,\n        _ => 0\n    }\n}\n").Ok);
+    }
+
     // FOREACH over arrays — `foreach <var> in <array> { body }` (parser kernel node kind 29) lowered to the C#
     // ILCompiler's index-loop form (arr := coll; i := 0; while i < arr.Length { x := arr[i]; body; i = i + 1 }).
     // `continue` -> increment, `break` -> end. Covers int[]/string[]/double[] elements, early return, continue,

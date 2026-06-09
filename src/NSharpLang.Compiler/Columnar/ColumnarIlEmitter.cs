@@ -1530,6 +1530,43 @@ public sealed class ColumnarIlEmitter
                 var matchLocal = _il.DeclareLocal(matchValueType);
                 _il.Emit(OpCodes.Stloc, matchLocal);
 
+                // ENUM EXHAUSTIVENESS: C# requires an enum match to cover EVERY member or carry a catch-all (the
+                // analyzer's NL501 NonExhaustiveMatch). The columnar emit would otherwise compile a PARTIAL enum
+                // match (with a runtime throw for the missing members), ACCEPTING a program C# REJECTS. Decline such
+                // a match so the columnar path never accepts what C# refuses (→ C# fallback, which reports NL501).
+                // This is a DECLINE (route to the analyzer-backed C# path), not a diagnostic — consistent with how
+                // the emitter declines everything outside its faithfully-modelled subset. Coverage counts only
+                // TOP-LEVEL UNGUARDED arms: an unguarded `_`/binding is a catch-all; an unguarded `Enum.Member`
+                // (kind 8) covers that member. Guarded and combinator/relational arms do not count (conservative — a
+                // richer-but-exhaustive form simply declines to C#, still correct).
+                ColumnarEnumDef? matchEnumDef = null;
+                foreach (var def in _enumRegistry.Values)
+                {
+                    if (def.Builder == matchValueType) { matchEnumDef = def; break; }
+                }
+                if (matchEnumDef != null)
+                {
+                    var covered = new HashSet<string>(StringComparer.Ordinal);
+                    var hasCatchAll = false;
+                    for (var c = 0; c < caseCount; c++)
+                    {
+                        var rawP = Child(idx, 1 + (2 * c));
+                        if (_kinds[rawP] == 19) // a `when`-guarded arm does not contribute to coverage.
+                            continue;
+                        if (_kinds[rawP] == 6) // `_` discard or an unguarded binding -> a catch-all.
+                            hasCatchAll = true;
+                        else if (_kinds[rawP] == 8) // `Enum.Member` -> covers that member (if it is THIS enum's).
+                        {
+                            var recv = Child(rawP, 0);
+                            if (_kinds[recv] == 6 && _enumRegistry.TryGetValue(Text(recv), out var rd)
+                                && rd.Builder == matchValueType && matchEnumDef.Constants.ContainsKey(Text(rawP)))
+                                covered.Add(Text(rawP));
+                        }
+                    }
+                    if (!hasCatchAll && !covered.SetEquals(matchEnumDef.Constants.Keys))
+                        return false;
+                }
+
                 var matchEnd = _il.DefineLabel();
                 Type? matchResultType = null;
                 for (var c = 0; c < caseCount; c++)
@@ -1682,7 +1719,30 @@ public sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Br, failLabel);
                 return true;
             }
-            default: // literal pattern (kinds 0-4) -> equality test; any other primary (null/paren/member/call/…) declines.
+            case 8: // MemberAccess pattern `Enum.Member` -> an enum-constant equality test on the underlying int.
+            {
+                // The receiver must be a bare identifier naming a REGISTERED enum (not shadowed by a local/param/
+                // sibling), the member one of its constants, and the match value must be THAT enum's type (the same
+                // EnumBuilder instance). Otherwise decline (a non-enum member access is not a constant pattern).
+                var recv = Child(patternNode, 0);
+                if (_kinds[recv] != 6)
+                    return false;
+                var recvName = Text(recv);
+                if (!_enumRegistry.TryGetValue(recvName, out var enumDef)
+                    || _locals.ContainsKey(recvName) || _paramOrdinals.ContainsKey(recvName) || _siblings.ContainsKey(recvName))
+                    return false;
+                if (matchValueType != enumDef.Builder)
+                    return false;
+                if (!enumDef.Constants.TryGetValue(Text(patternNode), out var memberValue))
+                    return false;
+                _il.Emit(OpCodes.Ldloc, matchLocal);
+                _il.Emit(OpCodes.Ldc_I4, memberValue);
+                _il.Emit(OpCodes.Ceq);                 // underlying-int equality (matches C#'s Beq-on-underlying-int).
+                _il.Emit(OpCodes.Brtrue, successLabel);
+                _il.Emit(OpCodes.Br, failLabel);
+                return true;
+            }
+            default: // literal pattern (kinds 0-4) -> equality test; any other primary (null/paren/call/index/…) declines.
             {
                 if (!IsLiteralPatternKind(_kinds[patternNode]))
                     return false;
@@ -1712,11 +1772,13 @@ public sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(double) || t == typeof(float);
 
-    // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality) and
-    // string (op_Equality). Unions/records/etc. are not modelled, so a match over them declines to the C# path.
+    // Types a `match` value may be tested against in the modelled pattern set: the scalars (Ceq equality), string
+    // (op_Equality), and a user-defined enum (its underlying-int Ceq, via the MemberAccess pattern case). Unions/
+    // records/etc. are not modelled, so a match over them declines to the C# path.
     private static bool IsSupportedMatchValueType(Type t) =>
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
-        || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string);
+        || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
+        || t is EnumBuilder;
 
     // Scalars that participate in explicit numeric casts (int/long/char on the i4/i8 slots; double on r8, float on r4).
     private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float);
