@@ -215,8 +215,14 @@ The fast self-hosted compiler (Phase S) + AOT packaging is what makes N# genuine
       production path (currently single-file) — the FULL corpus now compiles (DiagnosticClusters DONE 2026-06-08 via
       Math.Abs + int.ToString(fmt) value-type instance call + string concat + String.Compare 3/6-arg + Trim +
       StringBuilder-as-param; SemanticScopes DONE 2026-06-08 via the implicit-void return type — the adapter
-      canonicalizes returnRoot=-1 → "void"). PHASE A self-host coverage COMPLETE (32/32 via merge). Remaining for
-      default-on: never-slower benchmarks + columnar-owned analysis (stages 1–3b replacing the C# analyze step).
+      canonicalizes returnRoot=-1 → "void"). PHASE A self-host coverage COMPLETE (32/32 via merge). Multi-file
+      production routing LANDED 2026-06-08 (`TryEmitWithColumnarBackend` routes >1 source through the merge).
+      **NEVER-SLOWER MEASURED 2026-06-08** (`ColumnarBackendEmitBenchmarks`, same production entry, flag toggled):
+      columnar emit is end-to-end TIED-to-marginally-faster vs C# `ILCompiler` (Representative 3.947 vs 3.963 ms;
+      LargeGenerated 21.193 vs 21.520 ms; identical alloc) — never slower, but only ~0.4–1.5% because the SHARED
+      parse+analyze dominate the total. So the flip is unblocked on perf, but its end-to-end benefit is marginal
+      until the columnar pipeline OWNS parse+analyze (Stage 6). Remaining for default-on: the flip decision
+      (marginal benefit vs decline-safety risk surface — surfaced to the user) + columnar-owned analysis.
 - [ ] **Stage 6 — delete C#.** Remove the C# binder/analyzer/codegen paths the columnar pipeline replaces;
       shrink/remove the `*DogfoodAdapter` bridges. Track C# LOC deleted. **BLOCKED on coverage:** the columnar
       backend models ~41% of the systems dogfood subset and ~0% of the rich language (classes/generics/match/

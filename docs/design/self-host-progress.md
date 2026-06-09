@@ -11,6 +11,34 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-08 — Phase C: never-slower benchmark — columnar emit backend is end-to-end TIED-to-marginally-faster vs C# (REAL numbers)
+
+Added `ColumnarBackendEmitBenchmarks` — the Phase-C never-slower gate. It compiles a systems-subset program
+end-to-end (parse → analyze → emit → save) BOTH ways through the SAME production entry
+(`MultiFileCompiler.CompileToIlAssembly`), toggling only `NSHARP_COLUMNAR_BACKEND`. Because parse + analyze are
+byte-identical between the two runs, the measured end-to-end delta IS the backend difference. Setup asserts the
+flag genuinely re-routes (the two backends emit DIFFERENT IL, both succeed), so `Columnar=true` truly measures
+the columnar path, not a silent C# fallback.
+
+**MEASURED (BenchmarkDotNet default job, Apple M4, .NET 10):**
+| Corpus | C# `ILCompiler` | columnar backend | result |
+|---|---|---|---|
+| Representative (2 funcs) | 3.963 ms | 3.947 ms | columnar 0.4% faster (CIs overlap → tied) |
+| LargeGenerated (40 funcs) | 21.520 ms | 21.193 ms | columnar 1.5% faster |
+
+Allocations identical (~1.54 MB / ~22.5 MB). **NEVER-SLOWER holds: columnar ≤ C# on both corpora.** The columnar
+path RE-PARSES via the kernels (on top of the C# parse+analyze the production pipeline already ran) AND emits,
+yet still costs LESS than the C# `ILCompiler` emit alone — i.e. (columnar kernel-parse + table-driven emit) <
+(C# AST-walking emit). The margin is small because the SHARED parse+analyze dominate the end-to-end total; the
+emit swap is the only delta. The large end-to-end win is deferred to Stage 6, when the columnar pipeline OWNS
+parse+analyze and the C# front-end is eliminated entirely (gated on Phase D rich-language coverage).
+
+STRATEGIC READ: the never-slower gate PASSES, so the roadmap's flip-`NSHARP_COLUMNAR_BACKEND`-default-on is
+unblocked on perf grounds. But the end-to-end benefit of flipping is only ~0.4–1.5% (the emit is a small slice of
+the total), so the flip trades a marginal speedup for a production-wide decline-safety risk surface + a change to
+the flag's default semantics. Whether to flip now vs. keep it opt-in until the columnar front-end ownership lands
+is a judgment call surfaced to the user (the roadmap pre-decided "flip" assuming a larger emit win than measured).
+
 ## 2026-06-08 — Phase B: route multi-file through columnar in production + DELETE the parser-front-end dead-end route (~1205 net LOC removed)
 
 Two Phase-B slices. (1) **Multi-file production routing:** `MultiFileCompiler.TryEmitWithColumnarBackend` was
