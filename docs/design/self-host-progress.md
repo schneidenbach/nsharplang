@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-15a: columnar GENERIC FUNCTIONS (real CLR generic methods + call-site inference)
+
+The generics arc opens on its oracle-solid surface (`ca0b64da`). A 49-probe fan-out mapped the acceptance
+surface first: generic FUNCTIONS are fully sound in the pipeline (inference, explicit args, multi-params, T
+locals/arrays, `new T[n]`, `= default`, `==` on T, `where T: Base` constraints/NL208, recursion); **generic
+USER TYPES are an 8-defect oracle minefield** (field access on closed types, generic records/structs,
+generic-typed ctor params, generic methods on generic types all fail; inferred construction and wrong arity
+CRASH at runtime; unknown type args undiagnosed) — deferred to a fix-oracle-first bundle; BCL generics
+(List/Dictionary) all 10 probes accepted. An emission-strategy recon + a /tmp Reflection.Emit spike (deleted
+after) de-risked the design: mirror the oracle's PRIMARY path — one real CLR generic method
+(`DefineGenericParameters`) instantiated per call site via `MakeGenericMethod` (the oracle's selective
+value-type monomorphization is an optimization parity does not need).
+
+- **Kernel**: `ParseFunctionSignatureInto` now PARSES `<T, U>` lists (previously blind-skipped — safely, since
+  T was unresolvable at emit) into new out-arrays, and reports the signature-end token (`outResult[6]`) so the
+  adapter declines anything but a direct body `{` — catching `where` clauses (which CANNOT be dropped: NL208
+  is call-site enforced), inline constraints, and `=>` bodies.
+- **Emitter**: generic functions declare open CLR generic methods; `T`/`T[]` resolve through a type-param map
+  checked first (the oracle's ResolveType order); T-typed locals and `ldelem !!T` admitted; the sibling-call
+  tier unifies declared parameter shapes against emitted argument types (conflict/uninferrable/composed-shape/
+  TypeBuilder-binding declines), binds via `MakeGenericMethod` — including over the CALLER's own open T
+  (generic-calls-generic, recursion) — and substitutes the binding into the return shape. Generic METHODS on
+  user types decline (oracle-broken, B12).
+
+`ColumnarCodegen_Parity_GenericFunctions`: 14 value-matched invocations + `IsGenericMethodDefinition`
+metadata + 10 decline pins; passed FIRST TRY (the spike's patterns transferred exactly). The corpus' own
+`ParserFunctionSignatures.nl` — now containing the generic-parsing kernel code — still compiles through the
+columnar pipeline and value-matches (the self-host loop verifying its own new code). 1236 tests green; full
+non-IDE gate green (first try). Next: explicit type arguments (the `IsGenericMethodCall` lookahead mirror in
+the expression kernel), then the generic-user-types oracle fix bundle, then lambdas/closures.
+
+---
+
 ## 2026-06-09 — Phase D-14: columnar STATIC PROPERTIES (the static-member arc is COMPLETE) + 3-defect oracle fix bundle
 
 `static Name: Type { get {...} [set {...}] }` now compiles through the columnar pipeline (`c3da5311`),
