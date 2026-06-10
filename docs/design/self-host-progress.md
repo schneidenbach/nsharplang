@@ -11,6 +11,34 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Generic-user-types ORACLE arc COMPLETE: bundles 2/3 (`c4b42395`) + 3/3 (`ee5a60ba`)
+
+All 8 probed defects from the 49-probe acceptance map are resolved. Final disposition:
+**B1/B10/B12 fixed** (bundle 1); **B2/B13 diagnosed at compile time** (bundle 2: NL207 InvalidTypeArgument —
+missing type args on generic `new`, arity validation in ResolveGenericType covering `new` AND annotations,
+with the NL201 dedupe guard since the resolver runs in both passes); **B14 fixed by the NL201 slice**
+(pinned); **B5 generic structs fixed transitively** by bundle 1's closed-generic member resolution (pinned);
+**B4 generic records refuse cleanly** — blocked upstream.
+
+**Upstream .NET 10 runtime bug discovered (B4 root cause):** `PersistedAssemblyBuilder` drops required
+custom modifiers (`modreq IsExternalInit`) from member references rebound via `TypeBuilder.GetMethod` over a
+closed generic instantiation — the init-setter call fails at RUNTIME with
+`MissingMethodException: Void Pair.set_First(!0)`. Proven by a minimal pure-Reflection.Emit spike (no N#
+code; identical program without the modreq returns correctly — causality pinned by control run). Per the
+cardinal rule the oracle now REFUSES init-only setter assignment on closed generics with a clear compile
+error (init setters tracked in `_initOnlySetters` at definition); plain auto-property setters and fields on
+closed generics work and are pinned. Chip `task_f580ea0c` tracks filing the dotnet/runtime issue with the
+inline repro. **Consequence for columnar generic types (next slice): generic CLASSES and STRUCTS are in
+scope; generic RECORDS decline, matching the oracle's deliberate refusal.**
+
+Process notes: one Systems benchmark gate failure (HotResultCombinations 1.13 vs 1.05 limit) re-ran green
+after a 300s cool per the thermal protocol — and exposed a verification gap now fixed: gate verdicts are
+read from the LOG's own `GATE EXIT:` line (the wrapper echo had masked an exit-1 once; bundle 2's commit was
+retro-validated by the clean re-run on its exact pushed tree, B4 WIP stashed). One full-suite host OOM abort
+under machine pressure was not reproducible.
+
+---
+
 ## 2026-06-09 — Generic-user-types ORACLE fix bundle 1/3: resolution defects B1 + B10 + B12 (`47bd7d2e`)
 
 First sub-bundle of the fix-oracle-first arc. All three resolution defects fixed with verify-first probes

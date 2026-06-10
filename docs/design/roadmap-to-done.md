@@ -399,10 +399,12 @@ methods + call-site inference). D-15b explicit type args landed (`d0c079ba` — 
 audit-driven oracle hygiene bundle landed (NL201 unresolved types `109efcd2`, NL923 reference-load pairing
 `e9273453` — Arc-3 analysis ports must mirror both). Generic-user-types oracle fix bundle 1/3 landed
 (`47bd7d2e` — B1 closed-generic member access, B10 generic-typed ctor params, B12 generic instance methods;
-B14 fixed by NL201). **Next: oracle bundle 2/3 (B2/B13 construction-arity diagnostics) → 3/3 (B4/B5 generic
-records/structs emit) → columnar generic types → lambdas/closures** (the `project_csharp_retirement_map`
-slice order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`)
-and Phase T (CLI/LSP on columnar).
+B14 fixed by NL201). The oracle arc COMPLETED with bundles 2/3 (`c4b42395` — B2/B13 arity diagnostics NL207)
+and 3/3 (`ee5a60ba` — B4 generic-record object-init refuses cleanly on an upstream .NET 10
+PersistedAssemblyBuilder modreq bug; B5 generic structs fixed transitively + pinned). **Next: columnar
+GENERIC TYPES (classes/structs; records decline matching the oracle) → constraints → lambdas/closures**
+(the `project_csharp_retirement_map` slice order), then Stage 6 (route-all → delete `ILCompiler/` +
+`Analyzer.cs`) and Phase T (CLI/LSP on columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).
