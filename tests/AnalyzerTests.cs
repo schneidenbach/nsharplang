@@ -7438,6 +7438,53 @@ func Main() {
         ", "does not implement");
     }
 
+    // --- Circular constraint dependencies (mirrors C#'s CS0454): the CLR refuses the metadata at load
+    // and the emitter's base-chain walks would spin forever, so the analyzer must reject them. ---
+
+    [Fact]
+    public void GenericConstraint_CircularSelf_Errors()
+    {
+        AssertHasError(@"
+            func Identity<T>(value: T): T where T : T {
+                return value
+            }
+        ", "circular constraint dependency");
+    }
+
+    [Fact]
+    public void GenericConstraint_CircularMutual_Errors()
+    {
+        AssertHasError(@"
+            func Pick<T, U>(a: T, b: U): T where T : U where U : T {
+                return a
+            }
+        ", "circular constraint dependency");
+    }
+
+    [Fact]
+    public void GenericConstraint_FBounded_NoError()
+    {
+        // F-bounded (`where T: IComparable<T>`) is NOT circular — only bare type-parameter cycles are.
+        AssertNoErrors(@"
+            interface IComparable<T> {
+                func CompareTo(other: T): int
+            }
+            func Max<T>(a: T, b: T): T where T : IComparable<T> {
+                return a
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericConstraint_TypeParamChain_NoError()
+    {
+        AssertNoErrors(@"
+            func Pick<T, U>(a: T, b: U): T where T : U where U : class {
+                return a
+            }
+        ");
+    }
+
     // --- Special constraint tests ---
 
     [Fact]

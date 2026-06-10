@@ -661,6 +661,7 @@ public class Analyzer : IDisposable
         }
 
         ResolveGenericConstraintTypes(func.Constraints);
+        CheckCircularGenericConstraints(func.TypeParameters, func.Constraints, func.Name, func.Line, func.Column);
 
         // Validate params parameters
         ValidateParamsParameters(func.Parameters, func.Line, func.Column);
@@ -7986,6 +7987,74 @@ public class Analyzer : IDisposable
     /// Validates that inferred or explicit generic bindings satisfy declared constraints.
     /// Call this from argument validation sites only (not from overload scoring or return-type resolution).
     /// </summary>
+    /// <summary>
+    /// Rejects DIRECT circular constraint dependencies between type parameters (`where T: T`,
+    /// `where T: U where U: T`) — the CLR refuses such metadata at load, and the emitter's base-chain
+    /// walks (a constrained parameter's BaseType is its constraint) would otherwise spin forever.
+    /// Only BARE type-parameter constraints form edges: F-bounded shapes (`where T: IComparable&lt;T&gt;`)
+    /// are legal and untouched. Mirrors C#'s CS0454.
+    /// </summary>
+    private void CheckCircularGenericConstraints(
+        List<TypeParameter>? typeParameters, List<GenericConstraint>? constraints, string declName, int line, int column)
+    {
+        if (typeParameters == null || typeParameters.Count == 0 || constraints == null || constraints.Count == 0)
+            return;
+
+        // successor[i] = the type parameters parameter i is DIRECTLY constrained to (bare names only).
+        var names = new List<string>(typeParameters.Count);
+        foreach (var tp in typeParameters)
+            names.Add(tp.Name);
+        var successors = new List<int>[names.Count];
+        foreach (var constraint in constraints)
+        {
+            var from = names.IndexOf(constraint.TypeParameter);
+            if (from < 0)
+                continue;
+            foreach (var constraintTypeRef in constraint.Constraints)
+            {
+                if (constraintTypeRef is SimpleTypeReference simple)
+                {
+                    var to = names.IndexOf(simple.Name);
+                    if (to >= 0)
+                        (successors[from] ??= new List<int>()).Add(to);
+                }
+            }
+        }
+
+        // A successor chain longer than the parameter count must revisit a node — a cycle. Walking
+        // every simple path is exponential in pathological cases, so mark each parameter that can
+        // reach itself via a bounded depth-first walk over at most N distinct steps per path.
+        var reported = false;
+        for (var start = 0; start < names.Count && !reported; start++)
+        {
+            var stack = new Stack<(int Node, int Depth)>();
+            stack.Push((start, 0));
+            while (stack.Count > 0)
+            {
+                var (node, depth) = stack.Pop();
+                if (depth >= names.Count)
+                    continue;
+                var next = successors[node];
+                if (next == null)
+                    continue;
+                foreach (var to in next)
+                {
+                    if (to == start)
+                    {
+                        Error(ErrorCode.GenericConstraintViolation,
+                            $"Type parameter `{names[start]}` of `{declName}` has a circular constraint dependency",
+                            line, column,
+                            $"Remove the cycle in the `where` clauses of `{declName}` — a type parameter cannot be constrained to itself, directly or through other type parameters.");
+                        reported = true;
+                        stack.Clear();
+                        break;
+                    }
+                    stack.Push((to, depth + 1));
+                }
+            }
+        }
+    }
+
     private void ValidateGenericConstraints(FunctionDeclaration decl, CallExpression call, Dictionary<string, TypeInfo>? bindings)
     {
         if (decl.Constraints == null || bindings == null || bindings.Count == 0)
