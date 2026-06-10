@@ -43,6 +43,11 @@
 //   NotPattern              -> kind 35  ( not <pat>       -- match-case combinator, 1 child [inner]. )
 //   ObjectInitializer       -> kind 36  ( new <type> { Field: value, ... } -- children [typeRoot, name0 (Identifier
 //                                         kind 6), value0, name1, value1, ...]. Constructs a fields-only struct. )
+//   GenericCallee           -> kind 38  ( callee<T1, T2> before a `(` -- the callee identifier's name in the value
+//                                         span, children = the TYPE-kernel type-argument roots. Only ever appears
+//                                         as child[0] of a CallExpression; committed via the IsGenericCallTypeArgs
+//                                         lookahead, the Parser.cs IsGenericMethodCall mirror. Kind 37 is
+//                                         UnionCasePattern in ParserStatements -- 38 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
@@ -106,6 +111,44 @@ func IsExpressionStartKind(kind: int): bool {
         return true
     }
     return kind == 20 || kind == 31 || kind == 34 || kind == 37 || kind == 41 || kind == 42 || kind == 43 || kind == 44 || kind == 45 || kind == 46 || kind == 49 || kind == 50 || kind == 51 || kind == 69 || kind == 70 || kind == 83 || kind == 84 || kind == 88 || kind == 89 || kind == 106 || kind == 110 || kind == 113 || kind == 114 || kind == 127 || kind == 131 || kind == 143 || kind == 145
+}
+
+// Mirrors Parser.cs IsGenericMethodCall (the `<`-after-callee disambiguation, Parser.cs:1993): from the `<` at
+// `lessPos`, scan a candidate TYPE-ARGUMENT list — identifiers, dots (124), array brackets (131/132), commas
+// (134), and nested `<`(100)/`>`(102)/`>>`(112) — and answer true ONLY when the matching close is followed
+// DIRECTLY by `(` (127). Anything else (an operator, a literal, a `)` …) means the `<` is a comparison, not a
+// type-argument list — exactly the C# parser's rule, so the kernel commits to a generic call precisely where
+// the production parser does.
+func IsGenericCallTypeArgs(tokenKinds: int[], count: int, lessPos: int): bool {
+    i := lessPos + 1
+    depth := 1
+    while i < count {
+        k := tokenKinds[i]
+        if k == 0 || k == 124 || k == 134 || k == 131 || k == 132 {
+            i = i + 1
+        } else if k == 100 {
+            depth = depth + 1
+            i = i + 1
+        } else if k == 102 {
+            depth = depth - 1
+            i = i + 1
+            if depth == 0 {
+                return i < count && tokenKinds[i] == 127
+            }
+        } else if k == 112 {
+            depth = depth - 2
+            i = i + 1
+            if depth == 0 {
+                return i < count && tokenKinds[i] == 127
+            }
+            if depth < 0 {
+                return false
+            }
+        } else {
+            return false
+        }
+    }
+    return false
 }
 
 // Parse a match-case PATTERN with C# pattern precedence (Parser.cs ParsePattern): or > and > not > relational >
@@ -674,6 +717,55 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
             AppendExpressionChild(st, outChildIndices, expr)
             AppendExpressionChild(st, outChildIndices, index)
             expr = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 10, -1, 0, childRunStart, 2, objSpanStart, rightBracketEnd - objSpanStart)
+        } else if pos < count && tokenKinds[pos] == 100 && outNodeKinds[expr] == 6 && IsGenericCallTypeArgs(tokenKinds, count, pos) {
+            // Explicit generic-call TYPE ARGUMENTS `callee<T1, T2>(args)` — committed only when the callee is
+            // a BARE identifier and the lookahead (the Parser.cs IsGenericMethodCall mirror above) sees a
+            // well-formed type-argument list whose close is followed DIRECTLY by `(`. Each argument parses as
+            // a TYPE-kernel subtree on the shared table; the result is a GenericCalleeExpression (kind 38:
+            // value span = the callee identifier's name, children = the type-arg roots). The `(` branch of
+            // this loop then parses the CALL with the kind-38 node as its callee, so a generic call is
+            // [genericCallee, arg0, ...] exactly like a plain call. The `>>` split for a nested generic close
+            // is honored via the shared st[4] owed-greater state (ConsumeGreaterForTypeNode).
+            calleeNameStart := outValueStarts[expr]
+            calleeNameLength := outValueLengths[expr]
+            objSpanStart := outSpanStarts[expr]
+            st[0] = pos + 1
+            gArgBase := st[3]
+            st[4] = 0
+            firstTypeArg := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+            if firstTypeArg < 0 {
+                st[3] = gArgBase
+                return -1
+            }
+            argStack[st[3]] = firstTypeArg
+            st[3] = st[3] + 1
+
+            while st[0] < count && tokenKinds[st[0]] == 134 {
+                st[0] = st[0] + 1
+                nextTypeArg := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+                if nextTypeArg < 0 {
+                    st[3] = gArgBase
+                    return -1
+                }
+                argStack[st[3]] = nextTypeArg
+                st[3] = st[3] + 1
+            }
+
+            closeEnd := ConsumeGreaterForTypeNode(tokenKinds, tokenStarts, tokenValueLengths, count, st)
+            if closeEnd < 0 {
+                st[3] = gArgBase
+                return -1
+            }
+
+            gChildCount := st[3] - gArgBase
+            gChildRunStart := st[2]
+            g := gArgBase
+            while g < st[3] {
+                AppendExpressionChild(st, outChildIndices, argStack[g])
+                g = g + 1
+            }
+            st[3] = gArgBase
+            expr = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 38, calleeNameStart, calleeNameLength, gChildRunStart, gChildCount, objSpanStart, closeEnd - objSpanStart)
         } else if pos < count && tokenKinds[pos] == 127 {
             // Call `callee(args)`: children = [callee, arg0, arg1, ...]. Like generic type arguments, the
             // callee + arg node ids are gathered on the LIFO arg-stack (each arg is a full expression that

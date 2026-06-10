@@ -4560,7 +4560,13 @@ class B
             "func plusOne(v: int): int {\n    return Identity(v) + 1\n}\n\n" +
             // a VOID generic procedure called in statement position.
             "func Consume<T>(x: T) {\n    k := 1\n    if k < 0 {\n        return\n    }\n}\n\n" +
-            "func consume(v: double): int {\n    Consume(v)\n    return 3\n}\n";
+            "func consume(v: double): int {\n    Consume(v)\n    return 3\n}\n\n" +
+            // EXPLICIT type arguments (the kind-38 GenericCallee path — the kernel's IsGenericMethodCall
+            // lookahead mirror): single, multi, and array-param instantiations.
+            "func useExplicit(): int {\n    return Identity<int>(42)\n}\n\n" +
+            "func useExplicitStr(): string {\n    return Identity<string>(\"ex\")\n}\n\n" +
+            "func pickExplicit(): int {\n    return Pick<int, string>(7, \"x\")\n}\n\n" +
+            "func firstExplicit(xs: int[]): int {\n    return FirstOf<int>(xs)\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("useInt", new object[] { 42 }), ("useInt", new object[] { -7 }),
             ("useStr", new object[] { "hi" }),
@@ -4573,7 +4579,11 @@ class B
             ("wrapInt", new object[] { 6 }),
             ("countDown", new object[] { "s", 5 }), ("countDown", new object[] { "s", 0 }),
             ("plusOne", new object[] { 41 }),
-            ("consume", new object[] { 2.5 }));
+            ("consume", new object[] { 2.5 }),
+            ("useExplicit", new object[0]),
+            ("useExplicitStr", new object[0]),
+            ("pickExplicit", new object[0]),
+            ("firstExplicit", new object[] { new int[] { 9, 8 } }));
 
         // Metadata: the generic functions really are open CLR generic method definitions.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
@@ -4584,9 +4594,16 @@ class B
         Assert.Equal(2, loaded.GetType("ColumnarProgram")!.GetMethod("Pick")!.GetGenericArguments().Length);
 
         // DECLINES (each N#-pipeline-rejected or out of slice scope — declining routes to the C# path):
-        // EXPLICIT type arguments at a call site (Identity<int>(42)) — the expression kernel has no
-        // generic-call lookahead; the C# path handles them.
-        Assert.False(RouteColumnarProgram("func Identity<T>(x: T): T {\n    return x\n}\n\nfunc f(): int {\n    return Identity<int>(42)\n}\n").Ok);
+        // explicit-argument ARITY mismatch (A13) and an explicit arg the VALUE contradicts (A14) — both
+        // pipeline-rejected; the pre-seeded binding declines them.
+        Assert.False(RouteColumnarProgram("func Identity<T>(x: T): T {\n    return x\n}\n\nfunc f(): int {\n    return Identity<int, string>(5)\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func Identity<T>(x: T): T {\n    return x\n}\n\nfunc f(): string {\n    return Identity<string>(5)\n}\n").Ok);
+        // a `<` chain over VALUES that the IsGenericMethodCall lookahead commits to (a < b > (c) — the same
+        // grammar rule the production parser applies): the callee is a LOCAL, so the kind-38 emit declines and
+        // the C# path owns whatever diagnostic the shape deserves.
+        Assert.False(RouteColumnarProgram("func f(a: int, b: int, c: int): int {\n    r := a < b > (c)\n    return 1\n}\n").Ok);
+        // a COMPOSED explicit type argument (the kernel parses it; the emitter models SIMPLE type args only).
+        Assert.False(RouteColumnarProgram("func Identity<T>(x: T): T {\n    return x\n}\n\nfunc f(xs: int[]): int[] {\n    return Identity<int[]>(xs)\n}\n").Ok);
         // an INFERENCE CONFLICT (the pipeline rejects it: \"No matching overload\").
         Assert.False(RouteColumnarProgram("func Same<T>(a: T, b: T): string {\n    return \"x\"\n}\n\nfunc f(): string {\n    return Same(1, \"x\")\n}\n").Ok);
         // a WHERE constraint clause (cannot be silently dropped — NL208 is call-site enforced by the pipeline).

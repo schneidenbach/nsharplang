@@ -624,6 +624,51 @@ public sealed class ColumnarIlEmitter
         }
     }
 
+    // Emit a call to a GENERIC top-level sibling: emit the args while unifying the declared parameter shapes
+    // (T / T[] / concrete) against the emitted argument types — `binding` starts EMPTY for an inferred call
+    // (Identity(42)) or PRE-SEEDED for explicit type arguments (Identity<int>(42); the unify loop then verifies
+    // each argument against the seeded binding instead of binding it). Conflicting bindings (Same(1, "x")),
+    // unbound parameters, composed shapes over T, and user TypeBuilder/EnumBuilder bindings decline. The call
+    // binds via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern); the result type
+    // substitutes the binding into the declared return shape.
+    private bool TryEmitGenericSiblingCall(int callIdx, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams) target, Type?[] binding, out Type type)
+    {
+        type = null!;
+        var argCount = _childCount[callIdx] - 1;
+        if (argCount != target.ParamTypes.Length)
+            return false;
+        for (var a = 1; a <= argCount; a++)
+        {
+            if (!EmitExpression(Child(callIdx, a), out var gArgType))
+                return false;
+            var declared = target.ParamTypes[a - 1];
+            if (declared.IsGenericParameter)
+            {
+                if (!TryUnifyTypeParam(target.TypeParams, binding, declared, gArgType))
+                    return false;
+            }
+            else if (declared.IsSZArray && declared.GetElementType()!.IsGenericParameter)
+            {
+                if (!gArgType.IsSZArray || !TryUnifyTypeParam(target.TypeParams, binding, declared.GetElementType()!, gArgType.GetElementType()!))
+                    return false;
+            }
+            else if (declared != gArgType)
+            {
+                return false;
+            }
+        }
+        var boundArgs = new Type[binding.Length];
+        for (var b = 0; b < binding.Length; b++)
+        {
+            if (binding[b] == null)
+                return false; // an unbound type parameter (no argument mentions it, no explicit arg) declines.
+            boundArgs[b] = binding[b]!;
+        }
+        var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
+        _il.Emit(OpCodes.Call, instantiated);
+        return TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type);
+    }
+
     // Unify one declared TYPE PARAMETER against an argument's actual type for a generic sibling call. `declared`
     // is one of `typeParams` (the callee's GenericTypeParameterBuilders, in declaration order); `binding` is the
     // positional inference state. A FIRST encounter binds; a repeat must reference-equal the prior binding
@@ -2740,46 +2785,10 @@ public sealed class ColumnarIlEmitter
                             return false;
                         if (target.TypeParams.Length > 0)
                         {
-                            // A GENERIC sibling: emit the args, INFERRING each type parameter by unifying the
-                            // declared parameter types (T / T[] / concrete) against the emitted argument types —
-                            // mirroring the oracle's TryInferDeclaredMethodTypeArguments. Conflicting bindings
-                            // (Same(1, "x")), unbound parameters, and composed shapes over T decline. The bound
-                            // types may be CONCRETE supported scalars/strings/arrays or the CALLER's own open
-                            // type parameters (a generic calling a generic) — user TypeBuilder/EnumBuilder
-                            // bindings decline this slice (Reflection.Emit instantiation hazards). The call binds
-                            // via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern).
-                            var binding = new Type[target.TypeParams.Length];
-                            for (var a = 1; a <= argCount; a++)
-                            {
-                                if (!EmitExpression(Child(idx, a), out var gArgType))
-                                    return false;
-                                var declared = target.ParamTypes[a - 1];
-                                if (declared.IsGenericParameter)
-                                {
-                                    if (!TryUnifyTypeParam(target.TypeParams, binding, declared, gArgType))
-                                        return false;
-                                }
-                                else if (declared.IsSZArray && declared.GetElementType()!.IsGenericParameter)
-                                {
-                                    if (!gArgType.IsSZArray || !TryUnifyTypeParam(target.TypeParams, binding, declared.GetElementType()!, gArgType.GetElementType()!))
-                                        return false;
-                                }
-                                else if (declared != gArgType)
-                                {
-                                    return false;
-                                }
-                            }
-                            foreach (var bound in binding)
-                            {
-                                if (bound == null)
-                                    return false; // an uninferrable type parameter (no arg mentions it) declines.
-                            }
-                            var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(binding);
-                            _il.Emit(OpCodes.Call, instantiated);
-                            // The call's RESULT type substitutes the binding into the declared return shape.
-                            if (!TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type))
-                                return false;
-                            return true;
+                            // A GENERIC sibling with INFERRED type arguments: start from an empty binding —
+                            // the shared emission helper unifies each declared parameter shape against the
+                            // emitted argument types (the oracle's TryInferDeclaredMethodTypeArguments).
+                            return TryEmitGenericSiblingCall(idx, target, new Type?[target.TypeParams.Length], out type);
                         }
                         // Each argument's type must match the callee's declared parameter type. int and bool are both
                         // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
@@ -2809,6 +2818,36 @@ public sealed class ColumnarIlEmitter
                         return true;
                     }
                     return false;
+                }
+                if (_kinds[callee] == 38) // GenericCallee — an EXPLICIT generic call `F<T1, T2>(args)`.
+                {
+                    var gName = Text(callee);
+                    // The callee resolves exactly like a bare identifier: locals/params shadow-decline; only a
+                    // GENERIC top-level sibling binds (explicit type args on a non-generic are pipeline-rejected).
+                    if (_locals.ContainsKey(gName) || _paramOrdinals.ContainsKey(gName))
+                        return false;
+                    if (!_siblings.TryGetValue(gName, out var gTarget) || gTarget.TypeParams.Length == 0)
+                        return false;
+                    if (_childCount[callee] != gTarget.TypeParams.Length)
+                        return false; // an explicit-argument ARITY mismatch is pipeline-rejected — decline.
+                    // Resolve each explicit type argument: SIMPLE (kind 0) type nodes only this slice (the
+                    // children of a kind-38 node are TYPE-kernel subtrees by construction). The resolved type
+                    // must be a bindable concrete type — TypeBuilder/EnumBuilder instantiations decline, exactly
+                    // like inferred bindings. The PRE-SEEDED binding then flows through the shared emission
+                    // helper, whose unify loop VERIFIES each argument against it (Identity<string>(5) declines).
+                    var explicitBinding = new Type?[gTarget.TypeParams.Length];
+                    for (var ta = 0; ta < gTarget.TypeParams.Length; ta++)
+                    {
+                        var typeArgNode = Child(callee, ta);
+                        if (_kinds[typeArgNode] != 0)
+                            return false; // composed explicit type args (List<int>, T[]) decline this slice.
+                        if (!TryResolveType(Text(typeArgNode), _enumRegistry, _structRegistry, _unionRegistry, out var taType))
+                            return false;
+                        if (taType is TypeBuilder || taType is EnumBuilder || !IsSupportedType(taType))
+                            return false;
+                        explicitBinding[ta] = taType;
+                    }
+                    return TryEmitGenericSiblingCall(idx, gTarget, explicitBinding, out type);
                 }
                 if (_kinds[callee] == 8) // MemberAccess callee -> a BCL instance/static method call.
                     return TryEmitBclMethodCall(idx, callee, out type);
