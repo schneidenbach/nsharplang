@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc L1b: columnar NON-CAPTURING lambda ARGUMENTS (`0b22ac3b`)
+
+The columnar pipeline now emits its first lambda expressions. Kernel: Lambda node kind 39 at a NEW precedence
+level above assignment (`ParseLambdaOrAssignmentExpressionNode`, mirroring Parser.cs:3660) — `x => e`,
+`() => e`, `(x, y) => e` via the production's exact lookaheads (ident+Arrow; speculative paren-list scan);
+children = [param idents..., body root]; the body parses at the lambda level (lambda-returning-lambda);
+BLOCK bodies refuse. Wired into the expression entry + call ARGUMENTS only (match guards keep their path —
+the `when <ident> =>` hazard stays avoided). Emitter: contextual typing from the declared delegate parameter
+(TryEmitLambdaLiteral in the sibling-call arg loop): synthesize Private|Static `<Lambda>_{n}` on the Program
+type (TypeBuilder + shared counter threaded through all 3 emitter construction sites), body emitted via a
+SUB-emitter whose scope holds ONLY the lambda params — enclosing-local references fail to resolve, which IS
+the no-captures rule (sibling calls in bodies work); use site emits `ldnull; ldftn; newobj` (the oracle's
+EmitStaticDelegate minus its unobservable cache). Void delegates require void bodies. Parity: 7 shapes + 7
+decline pins + synthesized-method metadata. 3971/3971; probe map perfect first-try.
+
+**GATE INFRA FINDING (two flakes today explained):** the test host intermittently crashes "Out of memory" in
+the gate's isolated run — the parity suite Assembly.Loads every emitted assembly into the default ALC
+(pinned forever, grows every slice) on top of the MSBuild fleet + desktop apps. Mitigation: shut down build
+servers before gates; the gate script also CONTINUES past a failed unit-test step into ~50 min of benchmarks
+(monitor now fires early on unit-test failure). Structural fix queued as its own task: collectible
+AssemblyLoadContexts for emitted test assemblies. Next: L1c zero-param `:=` lambdas (define-then-
+SetReturnType ordering spike), then L2 typed locals → L3 captures → L4 local functions.
+
+---
+
 ## 2026-06-10 — Lambdas arc L1a: columnar DELEGATE-TYPE plumbing (`bac8966e`)
 
 `Func<p,...,ret>` resolves in the columnar emitter as the production parser's function-type sugar — checked
