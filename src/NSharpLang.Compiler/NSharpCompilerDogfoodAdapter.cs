@@ -112,12 +112,16 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[7];
-        var sTypeParamStarts = new int[cap];
-        var sTypeParamLengths = new int[cap];
+                var sres = new int[8];
+                var sTypeParamStarts = new int[cap];
+                var sTypeParamLengths = new int[cap];
+                var sWhereNameStarts = new int[cap];
+                var sWhereNameLengths = new int[cap];
+                var sWhereItemCodes = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+                    sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -218,12 +222,16 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[7];
-        var sTypeParamStarts = new int[cap];
-        var sTypeParamLengths = new int[cap];
+                var sres = new int[8];
+                var sTypeParamStarts = new int[cap];
+                var sTypeParamLengths = new int[cap];
+                var sWhereNameStarts = new int[cap];
+                var sWhereNameLengths = new int[cap];
+                var sWhereItemCodes = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+                    sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -329,12 +337,16 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[7];
-        var sTypeParamStarts = new int[cap];
-        var sTypeParamLengths = new int[cap];
+                var sres = new int[8];
+                var sTypeParamStarts = new int[cap];
+                var sTypeParamLengths = new int[cap];
+                var sWhereNameStarts = new int[cap];
+                var sWhereNameLengths = new int[cap];
+                var sWhereItemCodes = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+                    sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -460,12 +472,16 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[7];
-        var sTypeParamStarts = new int[cap];
-        var sTypeParamLengths = new int[cap];
+                var sres = new int[8];
+                var sTypeParamStarts = new int[cap];
+                var sTypeParamLengths = new int[cap];
+                var sWhereNameStarts = new int[cap];
+                var sWhereNameLengths = new int[cap];
+                var sWhereItemCodes = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+                    sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -589,12 +605,16 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[7];
-        var sTypeParamStarts = new int[cap];
-        var sTypeParamLengths = new int[cap];
+                var sres = new int[8];
+                var sTypeParamStarts = new int[cap];
+                var sTypeParamLengths = new int[cap];
+                var sWhereNameStarts = new int[cap];
+                var sWhereNameLengths = new int[cap];
+                var sWhereItemCodes = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+                    sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
                 for (var p = 0; p < paramCount; p++)
@@ -1161,12 +1181,16 @@ internal static class NSharpCompilerDogfoodAdapter
         var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
         var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
         var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-        var sres = new int[7];
+        var sres = new int[8];
         var sTypeParamStarts = new int[cap];
         var sTypeParamLengths = new int[cap];
+        var sWhereNameStarts = new int[cap];
+        var sWhereNameLengths = new int[cap];
+        var sWhereItemCodes = new int[cap];
         var paramCount = bindings.ParseFunctionSignature(
             ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
+            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+            sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
         if (paramCount < 0 || sres[3] < 0)
             return false;
 
@@ -1188,10 +1212,8 @@ internal static class NSharpCompilerDogfoodAdapter
         }
 
         // Generic TYPE PARAMETERS (`func Identity<T>(...)`): sres[5] names parsed by the kernel. The token at
-        // sres[6] (immediately after the signature) must be the body `{` — anything else is an unmodelled
-        // trailer (a `where T: Base` constraint clause, an `=>` expression body) and declines to the C# path.
-        // (Constraints CANNOT be silently dropped: the pipeline enforces NL208 at call sites, so ignoring them
-        // would over-accept constraint-violating programs.)
+        // sres[6] (immediately after the signature, PAST any `where` clauses) must be the body `{` — anything
+        // else is an unmodelled trailer (an `=>` expression body) and declines to the C# path.
         var bodyBrace = sres[6];
         if (bodyBrace >= n || ck[bodyBrace] != 129)
             return false;
@@ -1201,6 +1223,50 @@ internal static class NSharpCompilerDogfoodAdapter
             typeParamNames = new string[sres[5]];
             for (var t = 0; t < sres[5]; t++)
                 typeParamNames[t] = source.Substring(sTypeParamStarts[t], sTypeParamLengths[t]);
+        }
+
+        // Generic CONSTRAINTS (`where T: Base, new()` — D-17b): the kernel reports flat rows (owner-name span +
+        // code); group them by declared type-parameter position. Constraints CANNOT be silently dropped (the
+        // pipeline enforces NL208 at call sites, so ignoring them would over-accept constraint-violating
+        // programs) — every row either lands on its parameter or the whole function declines: an owner naming
+        // no declared type parameter declines, and the combos the production parser ERRORS on (`class` with
+        // `struct`, `struct` with `new()`) decline so the C# path surfaces its diagnostics. Special flags
+        // mirror SpecialConstraintKind (Class=1, Struct=2, New=4).
+        var whereItemCount = sres[7];
+        int[]? typeParamSpecials = null;
+        string[][]? typeParamTypeConstraints = null;
+        if (whereItemCount > 0)
+        {
+            if (typeParamNames.Length == 0)
+                return false;
+            typeParamSpecials = new int[typeParamNames.Length];
+            var constraintLists = new List<string>[typeParamNames.Length];
+            for (var w = 0; w < whereItemCount; w++)
+            {
+                var owner = source.Substring(sWhereNameStarts[w], sWhereNameLengths[w]);
+                var ownerIndex = System.Array.IndexOf(typeParamNames, owner);
+                if (ownerIndex < 0)
+                    return false;
+                var code = sWhereItemCodes[w];
+                if (code >= 0)
+                    (constraintLists[ownerIndex] ??= new List<string>()).Add(
+                        ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, code));
+                else if (code == -2)
+                    typeParamSpecials[ownerIndex] |= 1;
+                else if (code == -3)
+                    typeParamSpecials[ownerIndex] |= 2;
+                else if (code == -4)
+                    typeParamSpecials[ownerIndex] |= 4;
+                else
+                    return false;
+            }
+            typeParamTypeConstraints = new string[typeParamNames.Length][];
+            for (var t = 0; t < typeParamNames.Length; t++)
+            {
+                if ((typeParamSpecials[t] & 3) == 3 || (typeParamSpecials[t] & 6) == 6)
+                    return false;
+                typeParamTypeConstraints[t] = constraintLists[t]?.ToArray() ?? System.Array.Empty<string>();
+            }
         }
 
         var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
@@ -1213,7 +1279,8 @@ internal static class NSharpCompilerDogfoodAdapter
 
         input = new Columnar.ColumnarFunctionInput(
             fname, returnCanonical, paramNames, paramCanonicals,
-            bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic, typeParamNames);
+            bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic, typeParamNames,
+            typeParamSpecials, typeParamTypeConstraints);
         return true;
     }
 
@@ -1236,16 +1303,20 @@ internal static class NSharpCompilerDogfoodAdapter
         var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
         var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
         var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-        var sres = new int[7];
+        var sres = new int[8];
         var sTypeParamStarts = new int[cap];
         var sTypeParamLengths = new int[cap];
+        var sWhereNameStarts = new int[cap];
+        var sWhereNameLengths = new int[cap];
+        var sWhereItemCodes = new int[cap];
         var paramCount = bindings.ParseFunctionSignature(
             ck, cs, cv, n, ctorIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
-        // A constructor must have NO return type (sres[1] = -1) and NO generic type parameters (sres[5] = 0). A
-        // non-negative return root means a `: <type>` was parsed — for a constructor that is malformed (or a
-        // chaining initializer the kernel rejected differently).
-        if (paramCount < 0 || sres[1] >= 0 || sres[5] != 0)
+            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths,
+            sWhereNameStarts, sWhereNameLengths, sWhereItemCodes, sres);
+        // A constructor must have NO return type (sres[1] = -1), NO generic type parameters (sres[5] = 0), and
+        // NO `where` constraint rows (sres[7] = 0). A non-negative return root means a `: <type>` was parsed —
+        // for a constructor that is malformed (or a chaining initializer the kernel rejected differently).
+        if (paramCount < 0 || sres[1] >= 0 || sres[5] != 0 || sres[7] != 0)
             return false;
 
         var paramNames = new string[paramCount];
@@ -1499,22 +1570,29 @@ internal static class NSharpCompilerDogfoodAdapter
     // TopLevelEnumIndices for the struct keyword.
     private static List<int> TopLevelStructIndices(int[] kinds, int count)
     {
+        // A depth-0 `where` (53) opens a generic CONSTRAINT clause whose items may include the `struct`
+        // KEYWORD — a constraint, not a declaration; suppress until the body `{` (mirrors the kernel
+        // scanners' rule).
         var result = new List<int>();
         var brace = 0;
         var bracket = 0;
         var paren = 0;
+        var inWhereClause = false;
         for (var i = 0; i < count; i++)
         {
             switch (kinds[i])
             {
-                case 129: brace++; break;
+                case 129: brace++; inWhereClause = false; break;
                 case 130: if (brace > 0) brace--; break;
                 case 131: bracket++; break;
                 case 132: if (bracket > 0) bracket--; break;
                 case 127: paren++; break;
                 case 128: if (paren > 0) paren--; break;
+                case 53:
+                    if (brace == 0 && bracket == 0 && paren == 0) inWhereClause = true;
+                    break;
                 case 9:
-                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    if (brace == 0 && bracket == 0 && paren == 0 && !inWhereClause) result.Add(i);
                     break;
             }
         }
@@ -1555,22 +1633,29 @@ internal static class NSharpCompilerDogfoodAdapter
     // decl kernel (slice 1a: fields + methods + object-init only).
     private static List<int> TopLevelClassIndices(int[] kinds, int count)
     {
+        // A depth-0 `where` (53) opens a generic CONSTRAINT clause whose items may include the `class`
+        // KEYWORD — a constraint, not a declaration; suppress until the body `{` (mirrors the kernel
+        // scanners' rule).
         var result = new List<int>();
         var brace = 0;
         var bracket = 0;
         var paren = 0;
+        var inWhereClause = false;
         for (var i = 0; i < count; i++)
         {
             switch (kinds[i])
             {
-                case 129: brace++; break;
+                case 129: brace++; inWhereClause = false; break;
                 case 130: if (brace > 0) brace--; break;
                 case 131: bracket++; break;
                 case 132: if (bracket > 0) bracket--; break;
                 case 127: paren++; break;
                 case 128: if (paren > 0) paren--; break;
+                case 53:
+                    if (brace == 0 && bracket == 0 && paren == 0) inWhereClause = true;
+                    break;
                 case 8:
-                    if (brace == 0 && bracket == 0 && paren == 0) result.Add(i);
+                    if (brace == 0 && bracket == 0 && paren == 0 && !inWhereClause) result.Add(i);
                     break;
             }
         }
@@ -2793,7 +2878,8 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] outNodeKinds, int[] outNameStarts, int[] outNameLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
         int[] outParamNameStarts, int[] outParamNameLengths, int[] outParamTypeRoots,
-        int[] outTypeParamStarts, int[] outTypeParamLengths, int[] outResult);
+        int[] outTypeParamStarts, int[] outTypeParamLengths,
+        int[] outWhereNameStarts, int[] outWhereNameLengths, int[] outWhereItemCodes, int[] outResult);
     private delegate int ParseStatementNodesInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,

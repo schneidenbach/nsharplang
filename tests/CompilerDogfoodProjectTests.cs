@@ -672,6 +672,13 @@ class B
                 "func ext(this self: int): int { }",
                 "func deflt(x: int = 5, y: string): int { }",
                 "func gfn(x: List<int | string>, y: A.B.C): Dictionary<string, List<int>> { }",
+                // `where` constraint clauses (D-17b): special keywords, type references, multiple clauses,
+                // comma lists, and a constraint naming another type parameter all parse; the signature data
+                // (name/params/return) must still match the production parser exactly.
+                "func cw<T>(x: T): T where T: IComparable { }",
+                "func cw2<T, U>(a: T, b: U): T where T: class, new() where U: T { }",
+                "func cw3<T>(x: T): T where T: struct { }",
+                "func cw4<T>(x: T): T where T: List<T> { }",
             };
             foreach (var fn in functions)
                 AssertFunctionSignatureLikeProduction(fn, tokenize, parseSig);
@@ -768,7 +775,8 @@ class B
             {
                 kinds, starts, valueLengths, count, funcIndex,
                 new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
-                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[7],
+                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
+                new int[cap], new int[cap], new int[cap], new int[8],
             }) ?? -2);
 
         Assert.True(paramCount == -1, $"Kernel should refuse malformed signature '{funcSource}' with -1, got {paramCount}.");
@@ -824,7 +832,10 @@ class B
         var paramTypeRoots = new int[cap];
         var typeParamStarts = new int[cap];
         var typeParamLengths = new int[cap];
-        var res = new int[7];
+        var whereNameStarts = new int[cap];
+        var whereNameLengths = new int[cap];
+        var whereItemCodes = new int[cap];
+        var res = new int[8];
 
         var paramCount = (int)(parseSig.Invoke(
             null,
@@ -832,7 +843,8 @@ class B
             {
                 kinds, starts, valueLengths, count, funcIndex,
                 k, ns, nl, cs, cc, ci, ss, sl,
-                paramNameStarts, paramNameLengths, paramTypeRoots, typeParamStarts, typeParamLengths, res,
+                paramNameStarts, paramNameLengths, paramTypeRoots, typeParamStarts, typeParamLengths,
+                whereNameStarts, whereNameLengths, whereItemCodes, res,
             }) ?? -2);
 
         Assert.True(paramCount >= 0, $"Kernel refused function signature for '{label}'.");
@@ -4606,8 +4618,11 @@ class B
         Assert.False(RouteColumnarProgram("func Identity<T>(x: T): T {\n    return x\n}\n\nfunc f(xs: int[]): int[] {\n    return Identity<int[]>(xs)\n}\n").Ok);
         // an INFERENCE CONFLICT (the pipeline rejects it: \"No matching overload\").
         Assert.False(RouteColumnarProgram("func Same<T>(a: T, b: T): string {\n    return \"x\"\n}\n\nfunc f(): string {\n    return Same(1, \"x\")\n}\n").Ok);
-        // a WHERE constraint clause (cannot be silently dropped — NL208 is call-site enforced by the pipeline).
-        Assert.False(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc F<T>(x: T): int where T: Animal {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // a WHERE constraint clause with a USER-CLASS base now EMITS (D-17b): the constraint is applied at
+        // definition (SetBaseTypeConstraint over the un-baked TypeBuilder — spike-proven to persist); the
+        // function is uncalled, so no call-site enforcement fires. Coverage for enforcement lives in
+        // ColumnarCodegen_Parity_GenericConstraints.
+        Assert.True(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc F<T>(x: T): int where T: Animal {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
         // an INLINE constraint in the type-parameter list.
         Assert.False(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc F<T: Animal>(x: T): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
         // DUPLICATE type-parameter names.
@@ -4621,6 +4636,82 @@ class B
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func Make<U>(u: U): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 2 }\n").Ok);
         // an EXPRESSION-BODIED generic function.
         Assert.False(RouteColumnarProgram("func Id2<T>(x: T): T => x\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+    }
+
+    // Phase D-17b: generic-function `where` CONSTRAINTS. The kernel parses clauses into flat owner+code rows
+    // (type roots in the shared node table; -2 class / -3 struct / -4 new()); the emitter applies them at
+    // definition (GenericParameterAttributes + SetBaseTypeConstraint, mirroring the oracle's
+    // ApplyGenericConstraints — the `struct` flag implies the default-ctor flag) and ENFORCES them per bound
+    // type argument at every call site: MakeGenericMethod on a Reflection.Emit builder validates NOTHING
+    // (spike-proven), so a violating or unverifiable binding must decline rather than persist a broken
+    // assembly. Satisfiable accepts are BCL-bound (user-type bindings already decline at unification).
+    [Fact]
+    public void ColumnarCodegen_Parity_GenericConstraints()
+    {
+        var prog =
+            "class Animal {\n    n: int\n}\n\n" +
+            "func boxVal<T>(v: T): T where T: struct {\n    return v\n}\n\n" +
+            "func refOnly<T>(v: T): T where T: class {\n    return v\n}\n\n" +
+            "func withNew<T>(seed: T): T where T: new() {\n    return seed\n}\n\n" +
+            "func chain<T, U>(a: T, b: U): T where T: U where U: class {\n    return a\n}\n\n" +
+            "func describe<T>(x: T): int where T: Animal {\n    return 1\n}\n\n" +
+            "func useBox(): int {\n    return boxVal(41)\n}\n\n" +
+            "func useBoxExplicit(): double {\n    return boxVal<double>(2.5)\n}\n\n" +
+            "func useRef(s: string): string {\n    return refOnly(s)\n}\n\n" +
+            "func useNew(): int {\n    return withNew(7)\n}\n\n" +
+            "func useChain(a: string, b: string): string {\n    return chain(a, b)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useBox", new object[0]),
+            ("useBoxExplicit", new object[0]),
+            ("useRef", new object[] { "abc" }),
+            ("useNew", new object[0]),
+            ("useChain", new object[] { "x", "y" }));
+
+        // Metadata: the constraints really are emitted onto the open generic definitions.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the constrained-generics program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        var programType = loaded.GetType("ColumnarProgram")!;
+        var boxT = programType.GetMethod("boxVal")!.GetGenericArguments()[0];
+        Assert.True(boxT.GenericParameterAttributes.HasFlag(System.Reflection.GenericParameterAttributes.NotNullableValueTypeConstraint));
+        Assert.True(boxT.GenericParameterAttributes.HasFlag(System.Reflection.GenericParameterAttributes.DefaultConstructorConstraint));
+        var refT = programType.GetMethod("refOnly")!.GetGenericArguments()[0];
+        Assert.True(refT.GenericParameterAttributes.HasFlag(System.Reflection.GenericParameterAttributes.ReferenceTypeConstraint));
+        var newT = programType.GetMethod("withNew")!.GetGenericArguments()[0];
+        Assert.True(newT.GenericParameterAttributes.HasFlag(System.Reflection.GenericParameterAttributes.DefaultConstructorConstraint));
+        var chainArgs = programType.GetMethod("chain")!.GetGenericArguments();
+        Assert.Contains(chainArgs[1], chainArgs[0].GetGenericParameterConstraints());
+        var describeT = programType.GetMethod("describe")!.GetGenericArguments()[0];
+        Assert.Contains(loaded.GetType("Animal")!, describeT.GetGenericParameterConstraints());
+
+        // DECLINES (each routes to the C# path, which surfaces NL208/parser diagnostics or — for `new T()` —
+        // owns the emission columnar does not model):
+        // a VIOLATING explicit type argument (`struct` vs string).
+        Assert.False(RouteColumnarProgram("func boxVal<T>(v: T): T where T: struct {\n    return v\n}\n\nfunc f(): string {\n    return boxVal<string>(\"x\")\n}\n").Ok);
+        // a VIOLATING inferred `where T: U` binding (string is not assignable from int).
+        Assert.False(RouteColumnarProgram("func chain<T, U>(a: T, b: U): T where T: U {\n    return a\n}\n\nfunc f(): int {\n    return chain(5, \"y\")\n}\n").Ok);
+        // a VIOLATING inferred special constraint (`class` vs int).
+        Assert.False(RouteColumnarProgram("func refOnly<T>(v: T): T where T: class {\n    return v\n}\n\nfunc f(): int {\n    return refOnly(5)\n}\n").Ok);
+        // an INTERFACE constraint (columnar has no interface surface — the name never resolves).
+        Assert.False(RouteColumnarProgram("func cmp<T>(a: T): T where T: IComparable {\n    return a\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // a VALUE-STRUCT base constraint (only reference layouts are admissible base targets).
+        Assert.False(RouteColumnarProgram("struct P {\n    X: int\n}\n\nfunc g<T>(v: T): T where T: P {\n    return v\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // a constraint owner that names NO declared type parameter.
+        Assert.False(RouteColumnarProgram("func g<T>(v: T): T where X: class {\n    return v\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // `class` + `struct` on one parameter via TWO clauses (the production parser errors on the one-clause
+        // form; the two-clause form must not slip through as emittable).
+        Assert.False(RouteColumnarProgram("func g<T>(v: T): T where T: class where T: struct {\n    return v\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // MULTIPLE type constraints on one parameter (an interface list — unmodelled).
+        Assert.False(RouteColumnarProgram("class A1 {\n    n: int\n}\n\nclass A2 {\n    n: int\n}\n\nfunc g<T>(v: T): T where T: A1, A2 {\n    return v\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // a CALLER's open type parameter bound into a CONSTRAINED position (implication is unverifiable).
+        Assert.False(RouteColumnarProgram("func boxVal<T>(v: T): T where T: struct {\n    return v\n}\n\nfunc outer<T>(v: T): T {\n    return boxVal(v)\n}\n\nfunc f(): int {\n    return outer(3)\n}\n").Ok);
+        // `new T()` in the body (generic construction is not modelled; the oracle owns it).
+        Assert.False(RouteColumnarProgram("func mk<T>(seed: T): T where T: new() {\n    x := new T()\n    return x\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // CIRCULAR type-parameter constraints — the CLR rejects the metadata at LOAD (probe-proven
+        // TypeLoadException), so emitting them is an over-accept; the pipeline rejects them with NL208
+        // (circular constraint dependency) and the columnar emitter's chain-walk declines.
+        Assert.False(RouteColumnarProgram("func g<T>(v: T): T where T: T {\n    return v\n}\n\nfunc f(): int {\n    return g(5)\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func h<T, U>(a: T, b: U): T where T: U where U: T {\n    return a\n}\n\nfunc f(): int {\n    return h(5, 6)\n}\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
@@ -5117,14 +5208,16 @@ class B
         {
             new[] { 7, 0, 127, 0, 122, 0, 128 }, new[] { 0, 5, 6, 7, 8, 9, 12 }, new[] { 4, 1, 1, 1, 1, 3, 1 }, 7, 0,
             new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15],
-            new int[15], new int[15], new int[15], new int[15], new int[15], new int[7],
+            new int[15], new int[15], new int[15], new int[15], new int[15],
+            new int[15], new int[15], new int[15], new int[8],
         };
         // `func g(): int`: Func Id ( ) : Id -> exercises ParseUnionTypeReferenceNode on the RETURN type "int".
         object[] FuncG() => new object[]
         {
             new[] { 7, 0, 127, 128, 122, 0 }, new[] { 0, 5, 6, 7, 8, 9 }, new[] { 4, 1, 1, 1, 1, 3 }, 6, 0,
             new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15],
-            new int[15], new int[15], new int[15], new int[15], new int[15], new int[7],
+            new int[15], new int[15], new int[15], new int[15], new int[15],
+            new int[15], new int[15], new int[15], new int[8],
         };
         AssertColumnarMultiFileMatchesCSharp(new[] { types, sigs },
             ("ParseFunctionSignatureInto", FuncF()),

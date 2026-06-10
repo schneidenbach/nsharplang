@@ -16,7 +16,8 @@ public sealed class ColumnarFunctionInput
     public ColumnarFunctionInput(
         string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
         int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        int bodyRoot, bool isStatic = false, string[]? typeParamNames = null)
+        int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
+        int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null)
     {
         Name = name;
         ReturnCanonical = returnCanonical;
@@ -31,6 +32,14 @@ public sealed class ColumnarFunctionInput
         BodyRoot = bodyRoot;
         IsStatic = isStatic;
         TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
+        TypeParamSpecialConstraints = typeParamSpecialConstraints ?? new int[TypeParamNames.Length];
+        if (typeParamTypeConstraints == null)
+        {
+            typeParamTypeConstraints = new string[TypeParamNames.Length][];
+            for (var t = 0; t < typeParamTypeConstraints.Length; t++)
+                typeParamTypeConstraints[t] = System.Array.Empty<string>();
+        }
+        TypeParamTypeConstraints = typeParamTypeConstraints;
     }
 
     public string Name { get; }
@@ -53,6 +62,11 @@ public sealed class ColumnarFunctionInput
     // oracle's primary strategy); call sites infer the type arguments from the emitted argument types and bind
     // via MakeGenericMethod. Generic METHODS on user types decline (the oracle itself fails on them — B12).
     public string[] TypeParamNames { get; }
+    // Generic CONSTRAINTS (`where T: Base, new()` — D-17b), positionally aligned with TypeParamNames. Special
+    // flags mirror SpecialConstraintKind (Class=1, Struct=2, New=4); type constraints are canonical type names
+    // (a base class, `string`, or another of the function's own type parameters). Both default to "none".
+    public int[] TypeParamSpecialConstraints { get; }
+    public string[][] TypeParamTypeConstraints { get; }
 }
 
 /// <summary>
@@ -383,7 +397,7 @@ public sealed class ColumnarIlEmitter
     // MethodBuilder.GetParameters()/ReturnType is unsupported before the type is created — and a Call checks each
     // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
     // produce verifiable-but-wrong IL rather than declining).
-    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams)> _siblings;
+    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)> _siblings;
     // User-defined enums in this program, by name -> (EnumBuilder, member->value). Lets member access `Enum.Member`
     // and enum match patterns resolve their underlying-int constant, and types resolve `Color` to its EnumBuilder.
     private readonly IReadOnlyDictionary<string, ColumnarEnumDef> _enumRegistry;
@@ -422,7 +436,7 @@ public sealed class ColumnarIlEmitter
         int[] childStart, int[] childCount, int[] childIndices, string source,
         Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
         ILGenerator il,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams)> siblings,
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)> siblings,
         IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
@@ -671,7 +685,7 @@ public sealed class ColumnarIlEmitter
     // unbound parameters, composed shapes over T, and user TypeBuilder/EnumBuilder bindings decline. The call
     // binds via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern); the result type
     // substitutes the binding into the declared return shape.
-    private bool TryEmitGenericSiblingCall(int callIdx, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams) target, Type?[] binding, out Type type)
+    private bool TryEmitGenericSiblingCall(int callIdx, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints) target, Type?[] binding, out Type type)
     {
         type = null!;
         var argCount = _childCount[callIdx] - 1;
@@ -703,6 +717,56 @@ public sealed class ColumnarIlEmitter
             if (binding[b] == null)
                 return false; // an unbound type parameter (no argument mentions it, no explicit arg) declines.
             boundArgs[b] = binding[b]!;
+        }
+        // Enforce the callee's declared constraints (`where T: ...`) against the bound type arguments,
+        // mirroring the analyzer's NL208 checks: MakeGenericMethod on a Reflection.Emit MethodBuilder performs
+        // NO constraint validation (spike-proven — a violating instantiation silently persists an assembly
+        // that fails at load), so a violating OR unverifiable binding must decline here. Bindings that are the
+        // CALLER's own open type parameter, or any emitted shape (constraint implication and assignability are
+        // unanswerable before bake), decline; everything else is a baked runtime type reflection can answer.
+        for (var p = 0; p < boundArgs.Length; p++)
+        {
+            var special = target.SpecialConstraints.Length > p ? target.SpecialConstraints[p] : 0;
+            var baseConstraint = target.BaseConstraints.Length > p ? target.BaseConstraints[p] : null;
+            if (special == 0 && baseConstraint == null)
+                continue;
+            var bound = boundArgs[p];
+            if (bound.IsGenericParameter || bound.Assembly is AssemblyBuilder)
+                return false;
+            if ((special & 1) != 0 && bound.IsValueType)
+                return false; // `class`: requires a reference type.
+            if ((special & 2) != 0 && (!bound.IsValueType || Nullable.GetUnderlyingType(bound) != null))
+                return false; // `struct`: requires a non-nullable value type.
+            if ((special & 4) != 0 && !bound.IsValueType && bound.GetConstructor(Type.EmptyTypes) == null)
+                return false; // `new()`: requires a public parameterless constructor (value types qualify).
+            if (baseConstraint == null)
+                continue;
+            if (baseConstraint.IsGenericParameter)
+            {
+                // `where T: U` — the constraint is another of the CALLEE's parameters: check the two bound
+                // runtime types' assignability.
+                var otherPos = -1;
+                for (var q = 0; q < target.TypeParams.Length; q++)
+                {
+                    if (ReferenceEquals(target.TypeParams[q], baseConstraint)) { otherPos = q; break; }
+                }
+                if (otherPos < 0)
+                    return false;
+                var otherBound = boundArgs[otherPos];
+                if (otherBound.IsGenericParameter || otherBound.Assembly is AssemblyBuilder
+                    || !otherBound.IsAssignableFrom(bound))
+                    return false;
+            }
+            else if (baseConstraint.Assembly is AssemblyBuilder)
+            {
+                // A user-class base constraint: a baked runtime binding can never derive from an un-baked
+                // emitted type — unsatisfiable at this call site.
+                return false;
+            }
+            else if (!baseConstraint.IsAssignableFrom(bound))
+            {
+                return false;
+            }
         }
         var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(boundArgs);
         _il.Emit(OpCodes.Call, instantiated);
@@ -1758,7 +1822,7 @@ public sealed class ColumnarIlEmitter
         var ordinalsByFunc = new Dictionary<string, int>[funcs.Count];
         var paramTypesByFunc = new Dictionary<string, Type>[funcs.Count];
         var returnTypeByFunc = new Type[funcs.Count];
-        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams)>(StringComparer.Ordinal);
+        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)>(StringComparer.Ordinal);
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
@@ -1768,6 +1832,8 @@ public sealed class ColumnarIlEmitter
             // param/return types can reference the GenericTypeParameterBuilders (the de-risking spike's order).
             var emptyTypeParams = System.Array.Empty<Type>();
             Type[] fnTypeParams = emptyTypeParams;
+            var fnSpecialConstraints = System.Array.Empty<int>();
+            var fnBaseConstraints = System.Array.Empty<Type?>();
             var typeParamMap = (Dictionary<string, Type>?)null;
             if (fn.TypeParamNames.Length > 0)
             {
@@ -1782,6 +1848,91 @@ public sealed class ColumnarIlEmitter
                         return false;
                     fnTypeParams[g] = gpBuilders[g];
                 }
+                // Generic CONSTRAINTS (`where T: Base, new()` — D-17b): special flags map onto
+                // GenericParameterAttributes and the single type constraint onto SetBaseTypeConstraint,
+                // mirroring the oracle's ApplyGenericConstraints (the `struct` flag implies the default-ctor
+                // flag, exactly as the oracle sets them; constraints persist and load — spike-proven). Applied
+                // AFTER the full typeParamMap exists so a constraint can name another of the function's own
+                // parameters (`where T: U`). Modeled base targets: another type parameter, a user REFERENCE
+                // class/record TypeBuilder, or a baked BCL class. An INTERFACE constraint never resolves here
+                // (columnar has no interface surface yet) and value types / arrays / enums / closed generics
+                // as targets decline — under-accept is safe; silently dropping a constraint never is (NL208 is
+                // call-site enforced by the pipeline).
+                fnSpecialConstraints = new int[gpBuilders.Length];
+                fnBaseConstraints = new Type?[gpBuilders.Length];
+                for (var g = 0; g < gpBuilders.Length; g++)
+                {
+                    var special = fn.TypeParamSpecialConstraints.Length > g ? fn.TypeParamSpecialConstraints[g] : 0;
+                    fnSpecialConstraints[g] = special;
+                    if (special != 0)
+                    {
+                        var gpAttrs = GenericParameterAttributes.None;
+                        if ((special & 1) != 0)
+                            gpAttrs |= GenericParameterAttributes.ReferenceTypeConstraint;
+                        if ((special & 2) != 0)
+                            gpAttrs |= GenericParameterAttributes.NotNullableValueTypeConstraint
+                                | GenericParameterAttributes.DefaultConstructorConstraint;
+                        else if ((special & 4) != 0)
+                            gpAttrs |= GenericParameterAttributes.DefaultConstructorConstraint;
+                        gpBuilders[g].SetGenericParameterAttributes(gpAttrs);
+                    }
+                    var typeConstraints = fn.TypeParamTypeConstraints.Length > g
+                        ? fn.TypeParamTypeConstraints[g]
+                        : System.Array.Empty<string>();
+                    if (typeConstraints.Length == 0)
+                        continue;
+                    // More than one type constraint is an interface list — unmodelled.
+                    if (typeConstraints.Length > 1)
+                        return false;
+                    if (!TryResolveTypeWithTypeParams(typeConstraints[0], typeParamMap, enumRegistry, structRegistry, unionRegistry, out var constraintType))
+                        return false;
+                    if (!constraintType.IsGenericParameter)
+                    {
+                        if (constraintType is TypeBuilder)
+                        {
+                            // A user type is admissible only with REFERENCE layout (a value struct cannot be a
+                            // base constraint); TypeBuilder.IsValueType answers structurally (base == ValueType).
+                            if (constraintType.IsValueType)
+                                return false;
+                        }
+                        else if (constraintType.Assembly is AssemblyBuilder
+                            || constraintType.IsValueType || constraintType.IsSZArray || !constraintType.IsClass)
+                        {
+                            // Non-TypeBuilder emitted shapes (EnumBuilder, TypeBuilderInstantiation) and
+                            // non-class runtime types are not modeled constraint targets.
+                            return false;
+                        }
+                    }
+                    gpBuilders[g].SetBaseTypeConstraint(constraintType);
+                    fnBaseConstraints[g] = constraintType;
+                }
+                // CIRCULAR type-parameter constraints (`where T: T`, `where T: U where U: T`) emit metadata
+                // the CLR REJECTS at load (TypeLoadException — probe-proven over-accept). Walk each param's
+                // constraint chain; more steps than parameters means a cycle — decline.
+                for (var g = 0; g < gpBuilders.Length; g++)
+                {
+                    var steps = 0;
+                    var cursor = g;
+                    while (fnBaseConstraints[cursor] is { IsGenericParameter: true } next)
+                    {
+                        if (++steps > gpBuilders.Length)
+                            return false;
+                        var nextPos = -1;
+                        for (var q = 0; q < fnTypeParams.Length; q++)
+                        {
+                            if (ReferenceEquals(fnTypeParams[q], next)) { nextPos = q; break; }
+                        }
+                        if (nextPos < 0)
+                            return false; // a parameter from some other scope — not resolvable here.
+                        cursor = nextPos;
+                    }
+                }
+            }
+            else if (fn.TypeParamSpecialConstraints.Length > 0 || fn.TypeParamTypeConstraints.Length > 0)
+            {
+                // Constraint rows on a non-generic function are malformed — decline (defensive; the adapter
+                // already refuses them).
+                return false;
             }
             // The return type may be `void` (a procedure — its body need not always-return and `return` takes
             // no value); otherwise it must be a supported VALUE type. `void` is valid ONLY as a return type, so
@@ -1830,7 +1981,7 @@ public sealed class ColumnarIlEmitter
             returnTypeByFunc[f] = returnType;
             // A duplicate top-level function name is an overload set the spike does not model — decline the
             // whole program rather than silently pick one (a real call would be ambiguous).
-            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, returnType, fnTypeParams)))
+            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints)))
                 return false;
         }
 

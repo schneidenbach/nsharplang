@@ -179,12 +179,17 @@ func ModifierFlag(kind: int): int {
 // For each top-level declaration, record its keyword kind and its accumulated modifier flags (the
 // modifier keywords appearing at depth 0 between the previous declaration and this one's keyword;
 // attributes are inside brackets so they do not interfere). Matches (int)Declaration.Modifiers.
+// A depth-0 `where` (53) opens a generic CONSTRAINT clause whose items may include the `class` (8) /
+// `struct` (9) KEYWORDS — those are constraints, not declarations, so keyword recognition is suppressed
+// from `where` until the body `{` (which also ends the signature). All three top-level scanners share
+// this rule.
 func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: int[], outModifiers: int[]): int {
     braceDepth := 0
     bracketDepth := 0
     parenDepth := 0
     pending := 0
     outCount := 0
+    inWhereClause := false
 
     i := 0
     while i < count {
@@ -192,6 +197,7 @@ func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: i
 
         if kind == 129 {
             braceDepth = braceDepth + 1
+            inWhereClause = false
         } else if kind == 130 {
             braceDepth = braceDepth - 1
             if braceDepth < 0 {
@@ -212,14 +218,18 @@ func TopLevelDeclarationModifiersInto(tokenKinds: int[], count: int, outKinds: i
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
-            flag := ModifierFlag(kind)
-            if flag != 0 {
-                pending = pending | flag
-            } else if IsTopLevelDeclarationKeyword(kind) {
-                outKinds[outCount] = kind
-                outModifiers[outCount] = pending
-                outCount = outCount + 1
-                pending = 0
+            if kind == 53 {
+                inWhereClause = true
+            } else if !inWhereClause {
+                flag := ModifierFlag(kind)
+                if flag != 0 {
+                    pending = pending | flag
+                } else if IsTopLevelDeclarationKeyword(kind) {
+                    outKinds[outCount] = kind
+                    outModifiers[outCount] = pending
+                    outCount = outCount + 1
+                    pending = 0
+                }
             }
         }
 
@@ -244,6 +254,7 @@ func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tok
     bracketDepth := 0
     parenDepth := 0
     outCount := 0
+    inWhereClause := false
 
     i := 0
     while i < count {
@@ -251,6 +262,7 @@ func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tok
 
         if kind == 129 {
             braceDepth = braceDepth + 1
+            inWhereClause = false
         } else if kind == 130 {
             braceDepth = braceDepth - 1
             if braceDepth < 0 {
@@ -271,7 +283,9 @@ func TopLevelDeclarationNameSpansInto(tokenKinds: int[], tokenStarts: int[], tok
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
-            if IsTopLevelDeclarationKeyword(kind) {
+            if kind == 53 {
+                inWhereClause = true
+            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
                 outKinds[outCount] = kind
                 if i + 1 < count && tokenKinds[i + 1] == 0 {
                     outNameStarts[outCount] = tokenStarts[i + 1]
@@ -296,6 +310,7 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
     bracketDepth := 0
     parenDepth := 0
     outCount := 0
+    inWhereClause := false
 
     i := 0
     while i < count {
@@ -303,6 +318,7 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
 
         if kind == 129 {
             braceDepth = braceDepth + 1
+            inWhereClause = false
         } else if kind == 130 {
             braceDepth = braceDepth - 1
             if braceDepth < 0 {
@@ -323,7 +339,9 @@ func TopLevelDeclarationKindsInto(tokenKinds: int[], count: int, outKinds: int[]
                 parenDepth = 0
             }
         } else if braceDepth == 0 && bracketDepth == 0 && parenDepth == 0 {
-            if IsTopLevelDeclarationKeyword(kind) {
+            if kind == 53 {
+                inWhereClause = true
+            } else if !inWhereClause && IsTopLevelDeclarationKeyword(kind) {
                 outKinds[outCount] = kind
                 outCount = outCount + 1
             }

@@ -7,35 +7,44 @@
 // the node/child cursors across the per-type parses while st[0] (pos) is repositioned to each type's start.
 //
 // Scope this slice: parameter NAME + parameter TYPE (any form the type kernel supports: Simple / Generic /
-// Array / Nullable / Union / ByRef), the `: ReturnType` return type (or none), and an optional generic
+// Array / Nullable / Union / ByRef), the `: ReturnType` return type (or none), an optional generic
 // TYPE-PARAMETER list `<T, U>` between the name and `(` — each type parameter is a bare Identifier (an
-// inline constraint `<T: Base>` or any non-identifier form returns -1; `where` clauses live AFTER the
-// signature and are the host's concern via outResult[6]). Parameter modifiers (`ref` 78, `out` 79,
-// `params` 82, `this` 42) and attribute lists `[...]` are skipped; a `= default` value is skipped
-// (balanced) without being parsed (expression parsing is a later rung).
+// inline constraint `<T: Base>` or any non-identifier form returns -1) — and zero or more generic
+// CONSTRAINT clauses `where T: Item, Item ...` after the return type (D-17b). Each constraint ITEM is
+// recorded as a flat row: the owning type parameter's name span plus a code — a type-tree ROOT (>= 0)
+// parsed into the shared node table, or a special-constraint sentinel (-2 `class`, -3 `struct`,
+// -4 `new()`). Clause grouping is NOT preserved (the host groups rows by owner name, mirroring the C#
+// parser's per-clause GenericConstraint records which the analyzer also flattens per parameter).
+// Parameter modifiers (`ref` 78, `out` 79, `params` 82, `this` 42) and attribute lists `[...]` are
+// skipped; a `= default` value is skipped (balanced) without being parsed (expression parsing is a later
+// rung).
 // Deferred (the corpus avoids them): `->` return-type syntax, scoped/lifetime parameter annotations,
-// generic constraints, expression-bodied functions, and materializing default values.
+// expression-bodied functions, and materializing default values.
 //
 // Output:
 //   outNodeKinds/... (8 columns) + outChildIndices : the shared type node table (see ParserTypeReferences.nl)
 //   outParamNameStarts[p], outParamNameLengths[p]  : byte span of parameter p's name
 //   outParamTypeRoots[p]                            : node id of parameter p's type tree root
 //   outTypeParamStarts[t], outTypeParamLengths[t]   : byte span of generic type parameter t's name
+//   outWhereNameStarts[w], outWhereNameLengths[w]   : byte span of constraint row w's OWNER type-param name
+//   outWhereItemCodes[w]                            : row w's constraint — a type root (>= 0) or a special
+//                                                     sentinel (-2 class, -3 struct, -4 new())
 //   outResult[0] = parameter count
 //   outResult[1] = return type tree root node id, or -1 when the function has no return type
 //   outResult[2] = total node count written to the shared table
 //   outResult[3], outResult[4] = byte span (start, length) of the function name (start -1 if anonymous)
 //   outResult[5] = generic type-parameter count (0 for a non-generic function)
-//   outResult[6] = the token index immediately AFTER the parsed signature (after the return type when one
-//                  exists, else after the `)`), so the host can verify what follows (the body `{`, a ctor
-//                  `: this/base` initializer, or an unmodelled `where` clause / `=>` body to decline)
+//   outResult[6] = the token index immediately AFTER the parsed signature (after the `where` clauses when
+//                  any exist, else after the return type / the `)`), so the host can verify what follows
+//                  (the body `{`, a ctor `: this/base` initializer, or an unmodelled `=>` body to decline)
+//   outResult[7] = constraint row count (0 for a function with no `where` clauses)
 // Returns the parameter count, or -1 on a malformed signature / a parameter type the type kernel refuses.
 //
 // TokenType ordinals (Token.cs): Identifier 0, This 42, Ref 78, Out 79, Params 82, Assign 93, Func 7,
-// Less 100, Greater 102, Colon 122, Comma 134, LeftParen 127, RightParen 128, LeftBrace 129,
-// RightBrace 130, LeftBracket 131, RightBracket 132.
+// New 41, Where 53, Class 8, Struct 9, Less 100, Greater 102, Colon 122, Comma 134, LeftParen 127,
+// RightParen 128, LeftBrace 129, RightBrace 130, LeftBracket 131, RightBracket 132.
 
-func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outParamNameStarts: int[], outParamNameLengths: int[], outParamTypeRoots: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
+func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outParamNameStarts: int[], outParamNameLengths: int[], outParamTypeRoots: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outWhereNameStarts: int[], outWhereNameLengths: int[], outWhereItemCodes: int[], outResult: int[]): int {
     funcNameStart := -1
     funcNameLength := 0
     i := funcIndex + 1
@@ -201,6 +210,65 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         }
     }
 
+    // Generic CONSTRAINT clauses `where T: Item, Item ... where U: Item ...` (D-17b, mirroring the C#
+    // parser's ParseGenericConstraints). Each item appends one flat row (owner name span + code); the
+    // owner identifier is NOT validated against the declared type parameters here — the host resolves the
+    // span against outTypeParamStarts/Lengths (the kernel cannot compare source text). A constraint TYPE
+    // parses as another root in the shared node table, exactly like a parameter type; `new` must be
+    // followed directly by `(` `)` or the signature is malformed.
+    whereItemCount := 0
+    while i < count && tokenKinds[i] == 53 {
+        i = i + 1
+        if i >= count || tokenKinds[i] != 0 {
+            return -1
+        }
+        whereNameStart := tokenStarts[i]
+        whereNameLength := tokenValueLengths[i]
+        i = i + 1
+        if i >= count || tokenKinds[i] != 122 {
+            return -1
+        }
+        i = i + 1
+
+        moreItems := true
+        while moreItems {
+            itemCode := -1
+            if i < count && tokenKinds[i] == 8 {
+                itemCode = -2
+                i = i + 1
+            } else if i < count && tokenKinds[i] == 9 {
+                itemCode = -3
+                i = i + 1
+            } else if i < count && tokenKinds[i] == 41 {
+                if i + 2 >= count || tokenKinds[i + 1] != 127 || tokenKinds[i + 2] != 128 {
+                    return -1
+                }
+                itemCode = -4
+                i = i + 3
+            } else {
+                st[0] = i
+                st[4] = 0
+                st[3] = 0
+                itemCode = ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+                if itemCode < 0 {
+                    return -1
+                }
+                i = st[0]
+            }
+
+            outWhereNameStarts[whereItemCount] = whereNameStart
+            outWhereNameLengths[whereItemCount] = whereNameLength
+            outWhereItemCodes[whereItemCount] = itemCode
+            whereItemCount = whereItemCount + 1
+
+            if i < count && tokenKinds[i] == 134 {
+                i = i + 1
+            } else {
+                moreItems = false
+            }
+        }
+    }
+
     outResult[0] = paramCount
     outResult[1] = returnRoot
     outResult[2] = st[1]
@@ -208,5 +276,6 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     outResult[4] = funcNameLength
     outResult[5] = typeParamCount
     outResult[6] = i
+    outResult[7] = whereItemCount
     return paramCount
 }
