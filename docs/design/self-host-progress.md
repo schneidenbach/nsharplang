@@ -11,6 +11,38 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-13: columnar STATIC FIELDS (literal initializers, `.cctor`, chain-walked `Type.field`, bare-access asymmetry)
+
+The columnar pipeline now compiles `static name: Type [= <literal>]` fields on classes/records/structs
+(`2982ef50`), value-matched against the oracle — which needed ANOTHER verify-first fix first: **a RECORD's
+static-field initializers were silently DROPPED** (`EmitRecordBodies` never called
+`EmitDeclaredStaticFieldInitializers`, so `static label: string = "rc"` read back null at runtime; classes and
+structs were fine). Fixed + pinned (`ILCompiler_RunsRecordStaticFieldInitializers`).
+
+- **Kernel**: the fields loop parses static fields with SINGLE-TOKEN literal initializers (Int/Float/Char/
+  String/true/false; optional leading `-` on numerics) into four new out-arrays; a `{` after the type (static
+  property), a general initializer expression, instance-field initializers, and `static constructor` keep
+  returning -1. General-expression initializers are a documented residual (same shape as the chain-arg
+  restriction, checklist #14).
+- **Emitter**: statics are CLR-static, EXCLUDED from FieldOrder/Fields (object-init/positional-ctor/NL304 never
+  see them), initialized in the type's `.cctor` in declaration order with EXACT literal/field-type agreement
+  (suffix-classified ints incl. L/UL, f/d floats, RAW strings — `Trim('"')`, no escape decode, matching the C#
+  path — escape-decoded chars, bools). `TypeName.field` read/write chain-walks (the fixed oracle's semantics).
+  **Bare access models the pipeline's pinned ASYMMETRY** (probed directly, c4/c6): resolves inside INSTANCE
+  member bodies only; a STATIC body's bare access declines structurally (`_currentStruct` is null there) exactly
+  where the pipeline reports NL103. A value struct with zero INSTANCE fields declines even when statics exist.
+- **Parity-harness state lesson** (baked into the test as a comment): the columnar side invokes ONE loaded
+  assembly across the whole call list while the oracle compiles FRESH per invocation — stateful parity functions
+  must self-reset their statics or the two sides diverge legitimately.
+
+`ColumnarCodegen_Parity_StaticFields`: 24 value-matched invocations + CLR `IsStatic` metadata asserts + 14
+decline pins. One stale D-12 pin flipped (static-field declaration now accepted). 638 ILCompiler+dogfood tests
+green; full non-IDE gate green (first try). Next: static PROPERTIES — NOTE the D3 probe showed the oracle FAILS
+on a static get/set property with a static backing field ("Undefined variable: s_value"); probe + likely
+fix-oracle-first before the columnar slice. Then generics → lambdas/closures.
+
+---
+
 ## 2026-06-09 — Phase D-12: columnar STATIC METHODS (`static func` members, chain-walked `TypeName.M()`, pinned bare-call precedence)
 
 The columnar pipeline now compiles `static func` members on classes/records/structs end-to-end, value-matched
