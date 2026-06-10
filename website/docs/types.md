@@ -378,12 +378,14 @@ func findUser(id: int): Option<User> {
 
 ### CLR Shape of Unions
 
-N# unions emit CLR class hierarchies:
+N# unions emit CLR class hierarchies. Case payload members follow N#'s naming
+conventions — PascalCase exports a public CLR field, camelCase stays
+assembly-internal — so name payloads PascalCase when C# needs to read them:
 
 ```n#
 union Result<T> {
-    Success { value: T }
-    Failure { error: string }
+    Success { Value: T }
+    Failure { Error: string }
 }
 ```
 
@@ -392,16 +394,16 @@ Compiles to:
 ```csharp
 public abstract class Result<T>
 {
-    private Result() { }
+    protected Result() { }
 
     public sealed class Success : Result<T>
     {
-        public T Value { get; init; }
+        public T Value;
     }
 
     public sealed class Failure : Result<T>
     {
-        public string Error { get; init; }
+        public string Error;
     }
 }
 ```

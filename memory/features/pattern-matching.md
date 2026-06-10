@@ -8,7 +8,7 @@ Match expressions provide exhaustive pattern matching (similar to Rust/F#).
 
 ### Basic Syntax
 ```
-result := value match {
+result := match value {
     pattern1 => expression1,
     pattern2 => expression2,
     _ => defaultExpression
@@ -20,7 +20,7 @@ result := value match {
 ### 1. Identifier Pattern
 Binds value to variable:
 ```
-result := x match {
+result := match x {
     y => y * 2,           // Binds x to y
     _ => 0
 }
@@ -28,7 +28,7 @@ result := x match {
 
 Qualified names (union cases):
 ```
-result := response match {
+result := match response {
     Result.Success => "ok",
     Result.Failure => "error"
 }
@@ -37,7 +37,7 @@ result := response match {
 ### 2. Literal Pattern
 Matches exact values:
 ```
-result := status match {
+result := match status {
     0 => "zero",
     1 => "one",
     2 => "two",
@@ -47,7 +47,7 @@ result := status match {
 
 String literals:
 ```
-result := input match {
+result := match input {
     "yes" => true,
     "no" => false,
     _ => null
@@ -62,7 +62,7 @@ union Result<T> {
     Failure { error: string }
 }
 
-message := result match {
+message := match result {
     Result.Success { value: x } => $"Got {x}",
     Result.Failure { error: e } => $"Error: {e}"
 }
@@ -72,7 +72,7 @@ message := result match {
 Deconstructs tuples:
 ```
 point := (10, 20)
-result := point match {
+result := match point {
     (0, 0) => "origin",
     (x, 0) => $"on x-axis at {x}",
     (0, y) => $"on y-axis at {y}",
@@ -83,7 +83,7 @@ result := point match {
 ### 5. List Pattern
 Matches list/array structure:
 ```
-result := list match {
+result := match list {
     [] => "empty",
     [x] => $"single: {x}",
     [first, ..] => $"starts with {first}",
@@ -95,7 +95,7 @@ result := list match {
 ### 6. Type Pattern
 Matches by type:
 ```
-result := obj match {
+result := match obj {
     int n => $"integer: {n}",
     string s => $"string: {s}",
     _ => "other"
@@ -107,7 +107,7 @@ result := obj match {
 Add boolean conditions with `when`:
 
 ```
-result := value match {
+result := match value {
     x when x > 0 => "positive",
     x when x < 0 => "negative",
     _ => "zero"
@@ -116,7 +116,7 @@ result := value match {
 
 Guards can reference pattern variables:
 ```
-result := result match {
+result := match result {
     Result.Success { value: x } when x > 100 => "large",
     Result.Success { value: x } => "small",
     Result.Failure { error: e } => $"error: {e}"
@@ -136,20 +136,20 @@ union Status {
 }
 
 // ERROR: Non-exhaustive (missing Pending)
-result := status match {
+result := match status {
     Status.Active => "active",
     Status.Inactive => "inactive"
 }
 
 // OK: All cases covered
-result := status match {
+result := match status {
     Status.Active => "active",
     Status.Inactive => "inactive",
     Status.Pending => "pending"
 }
 
 // OK: Wildcard covers remaining
-result := status match {
+result := match status {
     Status.Active => "active",
     _ => "other"
 }
@@ -218,7 +218,7 @@ union Result<T> {
     Failure { error: string, code: int }
 }
 
-message := result match {
+message := match result {
     Result.Success { value: x, timestamp: t } => $"Got {x} at {t}",
     Result.Failure { error: e, code: c } => $"Error {c}: {e}"
 }
@@ -230,7 +230,7 @@ Match expressions transpile to C# switch expressions:
 
 **N# code:**
 ```
-result := value match {
+result := match value {
     0 => "zero",
     x when x > 0 => "positive",
     _ => "negative"
@@ -252,7 +252,7 @@ var result = value switch
 Variables bound in patterns are scoped to the case expression:
 
 ```
-result := value match {
+result := match value {
     Result.Success { value: x } => {
         // x is in scope here
         ProcessValue(x)
@@ -277,7 +277,7 @@ See `memory/components/analyzer.md` for implementation details.
 
 ### Simple Classification
 ```
-grade := score match {
+grade := match score {
     x when x >= 90 => "A",
     x when x >= 80 => "B",
     x when x >= 70 => "C",
@@ -293,7 +293,7 @@ union Option<T> {
     None
 }
 
-result := option match {
+result := match option {
     Option.Some { value: x } => x,
     Option.None => defaultValue
 }
@@ -301,7 +301,7 @@ result := option match {
 
 ### List Processing
 ```
-message := numbers match {
+message := match numbers {
     [] => "empty list",
     [x] => $"singleton: {x}",
     [x, y] => $"pair: {x}, {y}",

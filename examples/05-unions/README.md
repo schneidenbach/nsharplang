@@ -5,6 +5,7 @@ Discriminated unions are N#'s killer feature - they let you model data that can 
 ## What You'll Learn
 
 - Defining discriminated unions
+- Generic unions (`Result<T>`, `Option<T>`)
 - Pattern matching on unions
 - Using unions for error handling
 - Result types and Option types
@@ -12,6 +13,7 @@ Discriminated unions are N#'s killer feature - they let you model data that can 
 ## Files
 
 - **UnionsAndMatch.nl** - Basic union definition and matching
+- **GenericUnions.nl** - Generic unions: construction, type-argument inference, and matching
 - **ErrorHandling.nl** - Using unions for robust error handling
 
 ## Why Unions?

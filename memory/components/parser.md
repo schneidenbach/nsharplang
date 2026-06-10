@@ -118,7 +118,7 @@ Patterns in match expressions support:
 ### Guard Clauses
 Match patterns can have guards:
 ```
-value match {
+match value {
     x when x > 0 => "positive",
     _ => "other"
 }

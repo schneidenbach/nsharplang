@@ -5933,6 +5933,97 @@ func main(): string {
     }
 
     [Fact]
+    public void ILCompiler_GenericUnion_NestedUnionCasePatternsAndExhaustiveness()
+    {
+        // The documented nested-union shape: a generic union whose payload is another
+        // generic union, matched with nested case patterns. Splitting Outcome.Ok across
+        // arms by the nested Option case must still count as exhaustive coverage.
+        var source = @"
+union Option<T> {
+    Some { value: T }
+    None { }
+}
+
+union Outcome<T> {
+    Ok { value: T }
+    Error { message: string }
+}
+
+func describe(r: Outcome<Option<int>>): string {
+    return match r {
+        Outcome.Ok { value: Option.Some { value: x } } => $""Got value: {x}"",
+        Outcome.Ok { value: Option.None } => ""Got none"",
+        Outcome.Error { message: m } => $""Error: {m}""
+    }
+}
+
+func main(): string {
+    a := describe(new Outcome.Ok<Option<int>> { value: new Option.Some<int> { value: 7 } })
+    b := describe(new Outcome.Ok<Option<int>> { value: new Option.None<int> })
+    c := describe(new Outcome.Error<Option<int>> { message: ""bad"" })
+    return $""{a}|{b}|{c}""
+}";
+
+        Assert.Equal("Got value: 7|Got none|Error: bad", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericUnion_NamespacedPayloadFreePattern()
+    {
+        // Regression: inside a namespace the dotted pattern name misses the exact
+        // type-registry key and flows through the bare type-pattern path, which
+        // emitted isinst against the OPEN nested case definition — the assembly
+        // failed to load (TypeLoadException: could not load type 'None').
+        var source = @"
+namespace Demo
+
+union Option<T> {
+    Some { value: T }
+    None { }
+}
+
+func first(values: int[]): Option<int> {
+    for v in values {
+        if v > 0 {
+            return new Option.Some<int> { value: v }
+        }
+    }
+    return new Option.None
+}
+
+func main(): string {
+    items := [-1, 7]
+    return match first(items) {
+        Option.Some { value } => $""got {value}"",
+        Option.None => ""none""
+    }
+}";
+
+        Assert.Equal("got 7", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericUnion_PascalCasePayloadEmitsPublicField()
+    {
+        // The interop docs promise PascalCase payloads surface as public CLR fields
+        // on the nested case (C# reads hit.Value directly).
+        var source = @"
+union Fetched<T> {
+    Hit { Value: T }
+    Miss { Reason: string }
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var hitCase = assembly.GetType("Fetched")!.GetNestedType("Hit")!;
+            var valueField = hitCase.GetField("Value")!;
+            Assert.True(valueField.IsPublic);
+            Assert.True(valueField.FieldType.IsGenericParameter);
+            return true;
+        });
+    }
+
+    [Fact]
     public void ILCompiler_GenericUnion_EmitsGenericBaseAndCaseMetadata()
     {
         // CLR shape: an abstract generic base, with each case a sealed nested class

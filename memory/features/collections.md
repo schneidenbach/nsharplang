@@ -123,7 +123,7 @@ Supported types:
 Match on list/array structure:
 
 ```
-result := list match {
+result := match list {
     [] => "empty",
     [x] => $"single: {x}",
     [first, ..] => $"starts with {first}",

@@ -36,10 +36,19 @@ union Result<T> {
 ```csharp
 public abstract record Result<T>
 {
-    public sealed record Success(T Value) : Result<T>;
-    public sealed record Failure(string Error) : Result<T>;
+    public record Success(T value) : Result<T>;
+    public record Failure(string error) : Result<T>;
 }
 ```
+
+Non-generic unions also get `[JsonPolymorphic]`/`[JsonDerivedType]` attributes for
+discriminated serialization; generic unions skip them (the attributes cannot
+describe an open generic hierarchy). Case constructions written
+`new Result.Success<int> { ... }` in N# export with the arguments reordered onto
+the union: `new Result<int>.Success { ... }`. Known inspection-only edges:
+target-typed case construction (`new Option.None`) and union-case patterns on
+generic unions export without the C#-required type arguments (the exporter has
+no type information).
 
 ### Duck Interfaces
 N# duck interface → C# internal interface

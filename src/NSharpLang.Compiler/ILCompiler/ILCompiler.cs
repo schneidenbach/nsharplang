@@ -24589,6 +24589,17 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Box, matchValueType);
         }
 
+        // A generic union case named as a bare type pattern (Option.None on an
+        // Option<int> scrutinee) resolves to the open nested definition; close it
+        // over the scrutinee's type arguments so the isinst token is loadable.
+        if (patternType.IsGenericTypeDefinition
+            && matchValueType.IsGenericType
+            && !matchValueType.IsGenericTypeDefinition
+            && patternType.GetGenericArguments().Length == matchValueType.GetGenericArguments().Length)
+        {
+            patternType = patternType.MakeGenericType(matchValueType.GetGenericArguments());
+        }
+
         _currentIL.Emit(OpCodes.Isinst, patternType);
         _currentIL.Emit(OpCodes.Dup);
         var matchedLabel = _currentIL.DefineLabel();

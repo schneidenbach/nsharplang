@@ -76,19 +76,10 @@ workflows while giving N# source a smaller, more direct shape.
 ## Quick Example
 
 ```nsharp
-// Variables with type inference
-name := "Alice"
-items := [1, 2, 3, 4, 5]
-
 // Discriminated unions with pattern matching
 union Result<T> {
     Success { value: T }
     Failure { error: string }
-}
-
-message := result match {
-    Result.Success { value: x } => $"Got {x}",
-    Result.Failure { error: e } => $"Error: {e}"
 }
 
 // Duck interfaces (structural typing)
@@ -104,7 +95,21 @@ func Process(r: IReader) {
     print r.Read()
 }
 
-Process(new FileReader())
+func main() {
+    // Variables with type inference
+    name := "Alice"
+    items := [1, 2, 3, 4, 5]
+    print $"{name} has {items.Length} items"
+
+    result := new Result.Success<int> { value: 42 }
+    message := match result {
+        Result.Success { value: x } => $"Got {x}",
+        Result.Failure { error: e } => $"Error: {e}"
+    }
+    print message
+
+    Process(new FileReader())
+}
 ```
 
 ## Installation

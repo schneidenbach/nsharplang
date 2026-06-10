@@ -408,7 +408,10 @@ value-struct-construction decline, pinned). B4 then CLOSED for the oracle: the u
 and generic-record init members now emit via backing-field lowering (rebound FieldRefs carry no modreq to
 lose; setters keep their modreq for C# `init` interop), with `with`/Equals/Clone on generic records fixed
 and block-form record value semantics made real (see the self-host progress log); columnar still declines
-generic records pending that lowering. **Next: generic value-struct construction + `where T: Base`
+generic records pending that lowering. The ORACLE also gained GENERIC UNIONS (`d1c41b6e` — `union Result<T>`
+parse→analyze→emit→export, the README flagship; columnar still declines generic unions to the C# path per
+the D-10 pin, so columnar generic-union emit is a future Phase D coverage slice alongside the other union
+follow-ups). **Next: generic value-struct construction + `where T: Base`
 constraints → lambdas/closures** (the `project_csharp_retirement_map` slice order), then Stage 6 (route-all
 → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
 

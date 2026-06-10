@@ -182,7 +182,7 @@ public void TestStringInterpolation()
 [Fact]
 public void TestMatchExpression()
 {
-    var source = "result := value match { 0 => \"zero\", _ => \"other\" }";
+    var source = "result := match value { 0 => \"zero\", _ => \"other\" }";
     var tokens = new Lexer(source, "test").Tokenize();
     var parser = new Parser(tokens, "test");
     var ast = parser.ParseCompilationUnit();
@@ -214,7 +214,7 @@ public void TestTypeMismatchError()
 [Fact]
 public void TestMatchExpressionExport()
 {
-    var source = "result := value match { 0 => \"zero\", _ => \"other\" }";
+    var source = "result := match value { 0 => \"zero\", _ => \"other\" }";
     var tokens = new Lexer(source, "test").Tokenize();
     var ast = new Parser(tokens, "test").ParseCompilationUnit();
     var exporter = new Transpiler();

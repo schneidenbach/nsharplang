@@ -165,17 +165,23 @@ var result = calc.Add(5, 10);  // Ordinary C# call shape
 ### Example 2: Discriminated Union
 
 **N# Code:**
+
+Payload members are PascalCase so they export as public CLR fields (camelCase
+members stay assembly-internal, like every other N# member):
+
 ```n#
 union Result<T> {
-    Success { value: T }
-    Failure { error: string }
+    Success { Value: T }
+    Failure { Error: string }
 }
 
-func divide(a: int, b: int): Result<int> {
-    if b == 0 {
-        return new Result.Failure<int> { error: "Division by zero" }
+class MathApi {
+    static func Divide(a: int, b: int): Result<int> {
+        if b == 0 {
+            return new Result.Failure<int> { Error: "Division by zero" }
+        }
+        return new Result.Success<int> { Value: a / b }
     }
-    return new Result.Success<int> { value: a / b }
 }
 ```
 
@@ -183,20 +189,20 @@ func divide(a: int, b: int): Result<int> {
 ```csharp
 public abstract class Result<T>
 {
-    private Result() { }
+    protected Result() { }
 
     public sealed class Success : Result<T>
     {
-        public required T Value { get; init; }
+        public T Value;
     }
 
     public sealed class Failure : Result<T>
     {
-        public required string Error { get; init; }
+        public string Error;
     }
 }
 
-public static class Math
+public class MathApi
 {
     public static Result<int> Divide(int a, int b)
     {
@@ -211,7 +217,7 @@ public static class Math
 ```csharp
 using MyLibrary;
 
-var result = Math.Divide(10, 2);
+var result = MathApi.Divide(10, 2);
 
 // C# pattern matching works!
 var message = result switch

@@ -10482,9 +10482,9 @@ public class Analyzer : IDisposable
             CheckMatchExhaustiveness(match, unionType);
         }
         else if (valueType is GenericTypeInfo
-            && TryResolveDeclaredUnionType(valueType, out var genericUnionType, out _))
+            && TryResolveDeclaredUnionType(valueType, out var genericUnionType, out var genericUnionSubstitution))
         {
-            CheckMatchExhaustiveness(match, genericUnionType);
+            CheckMatchExhaustiveness(match, genericUnionType, genericUnionSubstitution);
         }
         else if (valueType is EnumTypeInfo enumType)
         {
@@ -10619,7 +10619,10 @@ public class Analyzer : IDisposable
             length: MatchKeywordLength);
     }
 
-    private void CheckMatchExhaustiveness(MatchExpression match, UnionTypeInfo unionType)
+    private void CheckMatchExhaustiveness(
+        MatchExpression match,
+        UnionTypeInfo unionType,
+        Dictionary<string, TypeInfo>? substitution = null)
     {
         if (unionType.IsAnonymous)
         {
@@ -10703,7 +10706,7 @@ public class Analyzer : IDisposable
                 if (!unionCasePatterns.TryGetValue(unionCase.Name, out var patterns))
                     continue;
 
-                if (IsUnionCaseCoveredByPatterns(unionDeclaration.Name, unionCase, patterns, out var hints))
+                if (IsUnionCaseCoveredByPatterns(unionDeclaration.Name, unionCase, patterns, substitution, out var hints))
                 {
                     coveredFlags[caseIndex] = 1;
                 }
@@ -10858,6 +10861,7 @@ public class Analyzer : IDisposable
         string unionName,
         UnionCase unionCase,
         List<UnionCasePattern> patterns,
+        Dictionary<string, TypeInfo>? substitution,
         out List<string> partialCoverageHints)
     {
         partialCoverageHints = new List<string>();
@@ -10887,8 +10891,10 @@ public class Analyzer : IDisposable
             if (caseProperty == null)
                 continue;
 
-            var propertyType = ResolveType(caseProperty.Type);
-            if (propertyType is not UnionTypeInfo { IsAnonymous: false } nestedUnionType)
+            // Apply the scrutinee's generic substitution so a `value: T` property on a
+            // Result<Option<int>> scrutinee resolves to the nested union for coverage.
+            var propertyType = ResolveUnionCasePropertyType(caseProperty.Type, substitution);
+            if (!TryResolveDeclaredUnionType(propertyType, out var nestedUnionType, out _))
                 continue;
 
             var nestedCaseName = GetMatchedUnionCaseName(nestedUnionType, constrainedProperty.Pattern!);

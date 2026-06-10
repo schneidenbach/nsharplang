@@ -11,6 +11,69 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — ORACLE GENERIC UNIONS: `union Result<T>` end-to-end (`d1c41b6e`) + docs/examples sweep
+
+Closes chip `task_7bd7b47c` (implement-vs-fix-docs): the README's flagship `union Result<T>` did not parse
+(NL102 at the `<`). Decision: IMPLEMENT (option a) — generic union syntax pervades README/website/editor
+docs as the language design, and the generic-user-types oracle arc had just landed the machinery to build
+on. The columnar pipeline still declines generic unions to this path (D-10 pin unchanged), so columnar
+parity is preserved; columnar generic unions remain future Phase D coverage.
+
+**Surface** (matches the docs, normalized where they disagreed): declaration `union Result<T,...>`;
+annotations `Result<int>`; construction takes type arguments AFTER the case name
+(`new Result.Success<int> { value: 42 }` — cases never declare their own params, so the args bind
+unambiguously to the union, consistent with `Identity<int>(42)`/`new Box<int>(...)` name-then-args) or
+adopts the expected type for payload-free cases (`return new Option.None` on `Option<User>`); patterns
+never repeat the args (`Result.Success { value }` — inferred from the scrutinee).
+
+- **Parser/AST**: `TypeParameters` on `UnionDeclaration`; `ParseTypeParameters()` after the union name.
+- **Analyzer**: type params scoped over case property types; arity diagnostics for annotations AND
+  construction (NL207 InvalidTypeArgument, mirroring the B2/B13 bundle); scrutinee normalization
+  (`TryResolveDeclaredUnionType`: `GenericTypeInfo` naming a declared union → union + substitution map)
+  drives case validation, binding substitution (`value: T` binds int on `Result<int>`), and exhaustiveness —
+  including NESTED-union coverage (splitting `Outcome.Ok` arms by the nested `Option` case still counts,
+  via substitution threaded into `IsUnionCaseCoveredByPatterns`).
+- **ILCompiler**: the abstract base gets `DefineGenericParameters`; each sealed nested case REDECLARES the
+  union's params (CLR metadata does not inherit them) and derives from the base closed over its own params
+  (`Success<T> : Result<T>`); case ctor bodies rebind the base-ctor call to that instantiation; patterns,
+  bare type-patterns, and `is`-tests close the open case definition over the scrutinee's args (the isinst
+  token must be loadable); pattern member loads rebind fields on `TypeBuilderInstantiation` with positional
+  substitution; overload binding accepts a closed case where the closed base is expected by walking the
+  definition's substituted base chain (`IsClosedGeneratedTypeAssignableToBase` — reflection's
+  IsAssignableFrom cannot answer this); `IsEnumSafe` guards `Type.IsEnum`'s IsSubclassOf on
+  TypeBuilderInstantiation. Generic unions never take the value-struct layout (explicit `Classify` guard).
+- **Transpiler** (`nlc export csharp`): `abstract record Result<T>` with cases deriving from `Result<T>`;
+  JSON polymorphic attributes skipped for generic unions (cannot describe an open generic hierarchy);
+  construction reorders args onto the union (`new Result<int>.Success`). Known inspection-only edges:
+  target-typed case construction and generic-union case patterns export without C#'s required args.
+- **Interop**: PascalCase payloads surface as public CLR fields on the nested case;
+  `CSharpInteropTests` gained a hand-mirrored `Fetched<T>` + consumer test (C# switch over
+  `Fetched<int>.Hit/.Miss` works naturally). camelCase payloads stay assembly-internal — the interop docs
+  now say so explicitly.
+
+**Regression caught by the example, not the unit suite:** inside a `namespace`, a dotted payload-free
+pattern (`Option.None =>`) misses the exact type-registry key and flows through the bare type-pattern path,
+which emitted `isinst` against the OPEN nested definition — TypeLoadException at assembly load. Fixed in
+`EmitTypePatternTest` (close over the scrutinee's args) and pinned with a namespaced unit test. Lesson:
+unit-test programs skip `namespace`; single-file examples are real product surface that exercises it.
+
+**Docs/examples sweep** (evidence over hype): README Quick Example is now a real program that compiles and
+runs (verified via `nlc run`; it previously used top-level statements N# doesn't have, and the POSTFIX
+match form `result match {` that never parsed — only prefix `match result {` exists; normalized the
+postfix form across README + memory/features/pattern-matching.md + collections.md + testing.md +
+components/parser.md). types.md/interop.md CLR-shape snippets now match the real emission (protected base
+ctor, public FIELDS for PascalCase payloads — not `private` ctor + `required ... { get; init; }`);
+rider-plugin SETUP.md had F#-style `| Case(T)` union syntax. New `examples/05-unions/GenericUnions.nl`
+(gate-built). Known pre-existing edge, not new: a user generic type named `Result` with arity 2 is shadowed
+by compiler-known `NSharpLang.Runtime.Result` in ILCompiler's `ResolveGenericTypeDefinition` order (affects
+all user types, not unions specifically).
+
+Implementation gated+committed `d1c41b6e` (fresh isolated /tmp-worktree run — a CONCURRENT session was
+mid-slice on columnar value-struct ctors in this checkout; zero file overlap, gates sequenced). Docs sweep
+gated separately.
+
+---
+
 ## 2026-06-10 — B4 CLOSED: generic-record init members WORK via backing-field lowering (modreq workaround)
 
 The upstream report for the PersistedAssemblyBuilder modreq drop was withdrawn (user decision: no upstream

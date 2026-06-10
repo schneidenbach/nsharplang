@@ -27,6 +27,25 @@ public class UnionInteropTests
     }
 
     [Fact]
+    public void CSharpCanConsumeDeclaredGenericUnions()
+    {
+        var hit = FetchApi.FetchNumber(hit: true);
+        var miss = FetchApi.FetchNumber(hit: false);
+
+        var hitCase = Assert.IsType<Fetched<int>.Hit>(hit);
+        Assert.Equal(42, hitCase.Value);
+
+        // C# pattern matching over the emitted hierarchy works naturally.
+        var described = miss switch
+        {
+            Fetched<int>.Hit h => $"hit {h.Value}",
+            Fetched<int>.Miss m => m.Reason,
+            _ => "unknown"
+        };
+        Assert.Equal("no luck", described);
+    }
+
+    [Fact]
     public void RuntimeUnionSupportsCoreCallerApi()
     {
         Union<int, string> number = 42;
