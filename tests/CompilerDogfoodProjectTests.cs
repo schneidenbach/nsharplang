@@ -5375,6 +5375,68 @@ class B
             ("safeDiv", new object[] { 6, 2 }), ("safeDiv", new object[] { 6, 0 }), ("safeDiv", new object[] { -6, 3 }));
     }
 
+    [Fact]
+    public void ColumnarCodegen_Parity_GenericClass_CtorFieldMethodProperty()
+    {
+        // GENERIC user classes: `class Box<T>` declares a real CLR generic TypeBuilder
+        // (DefineGenericParameters); `new Box<int>(v)` closes it (MakeGenericType +
+        // TypeBuilder.GetConstructor rebinding); member reads/calls on the closed receiver rebind
+        // tokens through the OPEN definition and substitute the closed type arguments — the same
+        // machinery the C# oracle gained in the generic-user-types fix bundles.
+        var prog =
+            "class Box<T> {\n" +
+            "    item: T\n" +
+            "    Same: T {\n        get {\n            return item\n        }\n    }\n" +
+            "    constructor(v: T) {\n        item = v\n    }\n\n" +
+            "    func Get(): T {\n        return item\n    }\n" +
+            "}\n\n" +
+            "func useInt(v: int): int {\n    b := new Box<int>(v)\n    return b.item + b.Get() + b.Same\n}\n\n" +
+            "func useString(s: string): string {\n    b := new Box<string>(s)\n    return b.Get()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useInt", new object[] { 5 }), ("useInt", new object[] { -3 }), ("useInt", new object[] { 0 }),
+            ("useString", new object[] { "hi" }), ("useString", new object[] { "" }));
+    }
+
+    [Fact]
+    public void ColumnarCodegen_Parity_GenericClass_TwoParamsAndNested()
+    {
+        var prog =
+            "class Pair2<A, B> {\n" +
+            "    first: A\n" +
+            "    second: B\n\n" +
+            "    constructor(a: A, b: B) {\n        first = a\n        second = b\n    }\n" +
+            "}\n\n" +
+            "class Box<T> {\n" +
+            "    item: T\n\n" +
+            "    constructor(v: T) {\n        item = v\n    }\n" +
+            "}\n\n" +
+            "func firstOf(a: int, s: string): int {\n    p := new Pair2<int, string>(a, s)\n    return p.first\n}\n\n" +
+            "func secondOf(a: int, s: string): string {\n    p := new Pair2<int, string>(a, s)\n    return p.second\n}\n\n" +
+            "func nested(v: int): int {\n    bb := new Box<Box<int>>(new Box<int>(v))\n    return bb.item.item\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("firstOf", new object[] { 7, "x" }), ("secondOf", new object[] { 7, "x" }),
+            ("nested", new object[] { 41 }), ("nested", new object[] { 0 }));
+    }
+
+    [Fact]
+    public void ColumnarCodegen_GenericTypeDeclines()
+    {
+        // Generic RECORD: the oracle deliberately refuses init-only setter assignment on closed
+        // generics (upstream .NET 10 PersistedAssemblyBuilder modreq bug) — the adapter declines.
+        Assert.False(RouteColumnarProgram("record Pair<T> {\n    First: T\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // A generic type WITH a base: generic base chains are unsupported (oracle and columnar).
+        Assert.False(RouteColumnarProgram("class B0 {\n    x: int\n}\n\nclass D<T>: B0 {\n    item: T\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // An inline constraint on the declaration list is unmodelled (kernel parse declines).
+        Assert.False(RouteColumnarProgram("class Box<T: B0> {\n    item: T\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Wrong type-argument arity at a construction site (resolver arity check).
+        Assert.False(RouteColumnarProgram("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc f(): int {\n    b := new Box<int, string>(1)\n    return b.item\n}\n").Ok);
+        // STATIC members on a generic type: per-instantiation static semantics are unprobed — decline.
+        Assert.False(RouteColumnarProgram("class Box<T> {\n    item: T\n    static func Mk(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Generic VALUE-STRUCT construction is a later sub-slice (case-15 closed construction is
+        // reference-types-only today).
+        Assert.False(RouteColumnarProgram("struct Cell<T> {\n    value: T\n\n    constructor(v: T) {\n        value = v\n    }\n}\n\nfunc f(): int {\n    c := new Cell<int>(1)\n    return c.value\n}\n").Ok);
+    }
+
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar
     // codegen result equals the authoritative C# ILCompiler result. Fails loudly if the columnar
     // path declined a function this gate expects it to emit -- a silent decline would make the parity

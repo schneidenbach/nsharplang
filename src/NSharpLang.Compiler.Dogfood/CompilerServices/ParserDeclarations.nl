@@ -433,7 +433,7 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // instance property gets flag 0. A GENERAL initializer expression (`= new T(...)`, `= a + b`), an initializer on
 // an INSTANCE field, and `static constructor` are not yet modelled and return -1 — the host declines the whole
 // program to the C# path.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outResult: int[]): int {
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -446,6 +446,38 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     outResult[0] = tokenStarts[pos]
     outResult[1] = tokenValueLengths[pos]
     pos = pos + 1
+
+    // Optional generic TYPE-PARAMETER list `<T, U>` after the type name (Less 100, Identifier 0,
+    // Comma 134, Greater 102): bare comma-separated Identifiers only, the same shape as a generic
+    // FUNCTION signature's list. A declaration's list cannot nest, so no `>>` splitting is needed.
+    // An inline constraint (`<T: Base>`), an empty list, or any other form returns -1 (the host
+    // declines to the C# path). Name spans go to outTypeParamStarts/Lengths; the count to
+    // outResult[7] (0 with no `<`).
+    typeParamCount := 0
+    if pos < count && tokenKinds[pos] == 100 {
+        pos = pos + 1
+        while pos < count && tokenKinds[pos] != 102 {
+            if tokenKinds[pos] != 0 {
+                return -1
+            }
+            outTypeParamStarts[typeParamCount] = tokenStarts[pos]
+            outTypeParamLengths[typeParamCount] = tokenValueLengths[pos]
+            typeParamCount = typeParamCount + 1
+            pos = pos + 1
+
+            if pos < count && tokenKinds[pos] != 102 {
+                if tokenKinds[pos] != 134 {
+                    return -1
+                }
+                pos = pos + 1
+            }
+        }
+        if pos >= count || tokenKinds[pos] != 102 || typeParamCount == 0 {
+            return -1
+        }
+        pos = pos + 1
+    }
+    outResult[7] = typeParamCount
 
     // Optional BASE TYPE: `class D: Base {` — a `:` (122) after the type name followed by a SINGLE Identifier
     // (the base type name; a composed/generic base is not modelled and falls to the `{` check below, returning

@@ -959,11 +959,14 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outCtorIndices = new int[cap];
                 var outPropIndices = new int[cap];
                 var outPropStaticFlags = new int[cap];
-                var outResult = new int[7];
+                var outTypeParamStarts = new int[cap];
+                var outTypeParamLengths = new int[cap];
+                var outResult = new int[8];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
                     outFieldTypeLengths, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
-                    outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outResult);
+                    outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags,
+                    outTypeParamStarts, outTypeParamLengths, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
                 // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
@@ -975,6 +978,23 @@ internal static class NSharpCompilerDogfoodAdapter
                 // The emitter resolves it against the declared types and validates (only a reference type may
                 // inherit, only from a registered class — anything else declines there).
                 var baseName = outResult[6] > 0 ? source.Substring(outResult[5], outResult[6]) : null;
+
+                // Optional generic type parameters `<T, U>` (outResult[7] = count). v1 scope: generic CLASSES
+                // and value STRUCTS only — a generic RECORD declines (the oracle deliberately refuses init-only
+                // setter assignment on closed generics: .NET 10 PersistedAssemblyBuilder drops the
+                // modreq(IsExternalInit) from rebound member references), and a generic type with a BASE
+                // declines (generic base chains are unsupported in the oracle's closed-member machinery too).
+                var typeParamCount = outResult[7];
+                string[]? typeParamNames = null;
+                if (typeParamCount > 0)
+                {
+                    if (isRecord || baseName != null)
+                        return false;
+
+                    typeParamNames = new string[typeParamCount];
+                    for (var tp = 0; tp < typeParamCount; tp++)
+                        typeParamNames[tp] = source.Substring(outTypeParamStarts[tp], outTypeParamLengths[tp]);
+                }
                 var fieldNames = new string[fieldCount];
                 var fieldTypes = new string[fieldCount];
                 var fieldStatics = new bool[fieldCount];
@@ -1028,7 +1048,7 @@ internal static class NSharpCompilerDogfoodAdapter
                     properties.Add(propInput);
                 }
 
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord));
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames));
             }
             return true;
         }
@@ -2786,7 +2806,8 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
         int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths,
-        int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags, int[] outResult);
+        int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags,
+        int[] outTypeParamStarts, int[] outTypeParamLengths, int[] outResult);
     private delegate int ParseUnionDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,

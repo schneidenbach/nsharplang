@@ -154,7 +154,7 @@ public sealed class ColumnarPropertyInput
 
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string? baseName = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string? baseName = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null, bool isRecord = false, string[]? typeParamNames = null)
     {
         Name = name;
         FieldNames = fieldNames;
@@ -168,6 +168,7 @@ public sealed class ColumnarStructInput
         FieldInitKinds = fieldInitKinds;
         FieldInitTexts = fieldInitTexts;
         IsRecord = isRecord;
+        TypeParamNames = typeParamNames;
     }
 
     public string Name { get; }
@@ -206,6 +207,11 @@ public sealed class ColumnarStructInput
     // emits them SEALED — a record can never appear as a BASE type, and record inheritance itself is unmodelled;
     // PASS 0a' declines both shapes by this flag.
     public bool IsRecord { get; }
+    // Generic type parameters declared on the type (`class Box<T>` → ["T"]), or null for a non-generic type.
+    // The adapter already declines generic RECORDS (the oracle refuses init-only setters on closed generics —
+    // upstream .NET 10 PersistedAssemblyBuilder modreq bug) and generic types WITH a base. PASS 0 declares them
+    // via DefineGenericParameters; member signatures resolve these names before any other type lookup.
+    public string[]? TypeParamNames { get; }
 }
 
 /// <summary>
@@ -251,6 +257,12 @@ internal sealed class ColumnarStructDef
     public TypeBuilder Builder { get; }
     public string[] FieldOrder { get; }
     public Dictionary<string, FieldBuilder> Fields { get; }
+    // Generic type parameters declared on this type (`class Box<T>` → "T" → its builder), or null for a
+    // non-generic type. Member signatures and bodies resolve these names FIRST (before registries/builtins);
+    // closed instantiations (`Box<int>`) MakeGenericType the Builder and rebind member tokens via
+    // TypeBuilder.GetField/GetConstructor/GetMethod (reflection member queries throw on
+    // TypeBuilderInstantiation — the same machinery the C# oracle uses).
+    public Dictionary<string, Type>? GenericParameters { get; set; }
     // True for a RECORD or CLASS (a reference type). For a record, DefaultCtor is its parameterless ctor (newobj target).
     public bool IsReference { get; }
     // True for a RECORD specifically — records can never be BASE types (the oracle emits them sealed) and record
@@ -443,8 +455,27 @@ public sealed class ColumnarIlEmitter
         || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
         || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
                                                   // only those reach here as a resolved type — the Program type never does
+        || t is GenericTypeParameterBuilder       // a generic type/method parameter (T) — valid member/param/local type
+        || IsClosedUserGenericInstantiation(t)    // Box<int> over a user generic definition (TypeBuilderInstantiation)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsSupportedValueTuple(t);
+
+    // A closed instantiation of a USER generic type (Box<int> where Box is an uncreated TypeBuilder).
+    // Reflection member queries throw on these — member access goes through the open definition's
+    // bookkeeping with rebound tokens, mirroring the C# oracle's closed-generic machinery.
+    private static bool IsClosedUserGenericInstantiation(Type t)
+    {
+        if (t is TypeBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        try
+        {
+            return t.GetGenericTypeDefinition() is TypeBuilder;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
 
     // A positional System.ValueTuple of arity 2-7 whose every element is itself a supported type. (1-tuples and
     // the >7 nested-TRest form are not modelled.) Admits a tuple as a `:=` local / value, NOT as an array element.
@@ -831,7 +862,112 @@ public sealed class ColumnarIlEmitter
             type = elementParam.MakeArrayType();
             return true;
         }
+        // A generic shape whose ARGUMENTS may reference the in-scope type parameters (`Box<T>` as a
+        // member/param type inside another generic): resolve through the closed-user-generic path with
+        // the parameter map threaded into the argument resolution.
+        var genericOpen = canonical.IndexOf('<');
+        if (genericOpen > 0 && canonical[^1] == '>' && canonical[0] != '(')
+        {
+            return TryResolveClosedUserGeneric(canonical, genericOpen, typeParams, enumRegistry, structRegistry, unionRegistry, out type);
+        }
         return TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out type);
+    }
+
+    /// <summary>
+    /// Member-signature type resolution for a type's own members: the declaring type's generic
+    /// parameters (item: T) resolve FIRST, then the registries/builtins.
+    /// </summary>
+    private static bool TryResolveMemberType(string canonical, ColumnarStructDef def,
+        IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
+        => def.GenericParameters != null
+            ? TryResolveTypeWithTypeParams(canonical, def.GenericParameters, enumRegistry, structRegistry, unionRegistry, out type)
+            : TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out type);
+
+    /// <summary>
+    /// Substitutes a CLOSED instantiation's type arguments into an open member signature type by
+    /// generic-parameter position (item: T on Box&lt;int&gt; → int; T[] and nested generics recurse).
+    /// Method-level generic parameters are left untouched.
+    /// </summary>
+    private static Type SubstituteClosedTypeArguments(Type signatureType, Type[] closedArguments)
+    {
+        if (signatureType.IsGenericParameter)
+        {
+            bool isMethodParameter;
+            try
+            {
+                isMethodParameter = signatureType.DeclaringMethod != null;
+            }
+            catch (NotSupportedException)
+            {
+                isMethodParameter = false;
+            }
+            if (!isMethodParameter && signatureType.GenericParameterPosition < closedArguments.Length)
+                return closedArguments[signatureType.GenericParameterPosition];
+            return signatureType;
+        }
+        if (signatureType.IsSZArray)
+            return SubstituteClosedTypeArguments(signatureType.GetElementType()!, closedArguments).MakeArrayType();
+        if (signatureType.IsGenericType && !signatureType.IsGenericTypeDefinition)
+        {
+            try
+            {
+                var definition = signatureType.GetGenericTypeDefinition();
+                var arguments = signatureType.GetGenericArguments();
+                var substituted = new Type[arguments.Length];
+                for (var i = 0; i < arguments.Length; i++)
+                    substituted[i] = SubstituteClosedTypeArguments(arguments[i], closedArguments);
+                return definition.MakeGenericType(substituted);
+            }
+            catch (NotSupportedException)
+            {
+                return signatureType;
+            }
+        }
+        return signatureType;
+    }
+
+    /// <summary>
+    /// Resolves a CLOSED generic over a user-declared generic type (`Box&lt;int&gt;`, or `Box&lt;T&gt;` with
+    /// <paramref name="typeParams"/> in scope): the open definition's TypeBuilder (PASS 0 declared its
+    /// parameters) is MakeGenericType'd with the recursively resolved argument canonicals. Unknown generic
+    /// heads (BCL generics, non-generic user types) and arity mismatches decline.
+    /// </summary>
+    private static bool TryResolveClosedUserGeneric(string canonical, int genericOpen,
+        IReadOnlyDictionary<string, Type>? typeParams,
+        IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
+    {
+        type = null!;
+        var headName = canonical.Substring(0, genericOpen);
+        if (structRegistry == null || !structRegistry.TryGetValue(headName, out var openDef)
+            || !openDef.Builder.IsGenericTypeDefinition)
+        {
+            return false;
+        }
+
+        var argCanons = SplitTopLevelCommas(canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2));
+        if (argCanons.Count != openDef.Builder.GetGenericArguments().Length)
+        {
+            return false;
+        }
+
+        var argTypes = new Type[argCanons.Count];
+        for (var i = 0; i < argCanons.Count; i++)
+        {
+            var resolvedArg = typeParams != null
+                ? TryResolveTypeWithTypeParams(argCanons[i], typeParams, enumRegistry, structRegistry, unionRegistry, out argTypes[i])
+                : TryResolveType(argCanons[i], enumRegistry, structRegistry, unionRegistry, out argTypes[i]);
+            if (!resolvedArg)
+            {
+                return false;
+            }
+        }
+
+        type = openDef.Builder.MakeGenericType(argTypes);
+        return true;
     }
 
     /// <summary>
@@ -900,6 +1036,14 @@ public sealed class ColumnarIlEmitter
 
             type = null!;
             return false;
+        }
+        // A CLOSED generic over a user-declared generic type (`Box<int>`): head + args split at the
+        // top-level `<`; the open TypeBuilder (PASS 0 declared its parameters) is MakeGenericType'd.
+        // Unknown generic heads (BCL generics) decline. (Tuple canonicals start with `(` — handled above.)
+        var closedGenericOpen = canonical.IndexOf('<');
+        if (closedGenericOpen > 0 && canonical[^1] == '>')
+        {
+            return TryResolveClosedUserGeneric(canonical, closedGenericOpen, null, enumRegistry, structRegistry, unionRegistry, out type);
         }
         // A bare name matching a user-defined enum resolves to its EnumBuilder (so `Color` is a valid param/return/
         // local type). Checked before the builtins so a user enum never collides with a builtin name (it cannot —
@@ -1117,13 +1261,37 @@ public sealed class ColumnarIlEmitter
             var tb = st.IsReference
                 ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
                 : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
+
+            // Generic type parameters (`class Box<T>`): declared on the builder before any member signature
+            // resolves (a member type naming T needs the GenericTypeParameterBuilder). Duplicate names decline.
+            Dictionary<string, Type>? typeGenericParams = null;
+            if (st.TypeParamNames is { Length: > 0 })
+            {
+                typeGenericParams = new Dictionary<string, Type>(StringComparer.Ordinal);
+                var declaredParams = tb.DefineGenericParameters(st.TypeParamNames);
+                for (var tp = 0; tp < declaredParams.Length; tp++)
+                {
+                    if (!typeGenericParams.TryAdd(st.TypeParamNames[tp], declaredParams[tp]))
+                        return false;
+                }
+            }
+
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
             var instanceFieldNames = new List<string>(st.FieldNames.Length);
             var staticFieldDefs = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
             var staticFieldInits = new List<(FieldBuilder Field, Type Type, int InitKind, string InitText)>();
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
             {
-                if (!TryResolveType(st.FieldTypeCanonicals[fi], enumRegistry, structRegistry, unionRegistry, out var fieldType) || !IsSupportedType(fieldType))
+                // Field types resolve the type's own generic parameters FIRST (item: T), then the registries.
+                var fieldTypeResolved = typeGenericParams != null
+                    ? TryResolveTypeWithTypeParams(st.FieldTypeCanonicals[fi], typeGenericParams, enumRegistry, structRegistry, unionRegistry, out var fieldType)
+                    : TryResolveType(st.FieldTypeCanonicals[fi], enumRegistry, structRegistry, unionRegistry, out fieldType);
+                if (!fieldTypeResolved || !IsSupportedType(fieldType))
+                    return false;
+                // STATIC fields typed by a generic parameter decline: `static count: T` has no single CLR
+                // storage across instantiations the modelled surface can express (the oracle's behavior for
+                // these shapes is unprobed — decline-safe).
+                if (st.FieldStaticFlags != null && st.FieldStaticFlags[fi] && fieldType is GenericTypeParameterBuilder)
                     return false;
                 var isStaticField = st.FieldStaticFlags != null && st.FieldStaticFlags[fi];
                 // A static and an instance field (or two fields of either kind) sharing a name is NL306 — decline.
@@ -1165,7 +1333,10 @@ public sealed class ColumnarIlEmitter
                 cctorIl.Emit(OpCodes.Ret);
             }
             structBuilders[s] = tb;
-            var newDef = new ColumnarStructDef(tb, instanceFieldNames.ToArray(), fields, st.IsReference, st.IsRecord);
+            var newDef = new ColumnarStructDef(tb, instanceFieldNames.ToArray(), fields, st.IsReference, st.IsRecord)
+            {
+                GenericParameters = typeGenericParams,
+            };
             foreach (var (sfName, sfBuilder) in staticFieldDefs)
                 newDef.StaticFields[sfName] = sfBuilder;
             if (!structRegistry.TryAdd(st.Name, newDef))
@@ -1244,6 +1415,11 @@ public sealed class ColumnarIlEmitter
                     // A static method sharing its name with an INSTANCE method (NL306) declines; vice versa below.
                     if (def.Methods.ContainsKey(m.Name))
                         return false;
+                    // STATIC methods on a GENERIC type decline this slice: a static member's CLR identity is
+                    // per-INSTANTIATION (Box<int>.M vs Box<string>.M), and the columnar static chain-walk
+                    // machinery is keyed by open builders — closed-static semantics are unprobed.
+                    if (def.GenericParameters != null)
+                        return false;
                     Type sReturn;
                     if (m.ReturnCanonical == "void")
                         sReturn = typeof(void);
@@ -1284,7 +1460,7 @@ public sealed class ColumnarIlEmitter
                 // been declared first when source order is static-then-instance).
                 if (def.StaticMethods.ContainsKey(m.Name))
                     return false;
-                if (!TryResolveType(m.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out var mReturn) || !IsSupportedType(mReturn))
+                if (!TryResolveMemberType(m.ReturnCanonical, def, enumRegistry, structRegistry, unionRegistry, out var mReturn) || !IsSupportedType(mReturn))
                     return false;
                 // Resolve param types; ordinals shift by +1 because arg 0 is the value-type `this`.
                 var mParamTypes = new Type[m.ParamNames.Length];
@@ -1292,7 +1468,7 @@ public sealed class ColumnarIlEmitter
                 var mParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < m.ParamNames.Length; i++)
                 {
-                    if (!TryResolveType(m.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                    if (!TryResolveMemberType(m.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
                         return false;
                     mParamTypes[i] = pt;
                     mOrdinals[m.ParamNames[i]] = i + 1;
@@ -1329,7 +1505,11 @@ public sealed class ColumnarIlEmitter
                 if (def.Methods.ContainsKey("get_" + prop.Name) || def.StaticMethods.ContainsKey("get_" + prop.Name)
                     || (prop.Setter != null && (def.Methods.ContainsKey("set_" + prop.Name) || def.StaticMethods.ContainsKey("set_" + prop.Name))))
                     return false;
-                if (!TryResolveType(prop.TypeCanonical, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
+                if (!TryResolveMemberType(prop.TypeCanonical, def, enumRegistry, structRegistry, unionRegistry, out var propType) || !IsSupportedType(propType))
+                    return false;
+                // STATIC properties on a GENERIC type decline (per-instantiation static semantics, unprobed —
+                // same rule as static methods/fields above).
+                if (prop.IsStatic && def.GenericParameters != null)
                     return false;
                 if (prop.IsStatic)
                 {
@@ -1441,7 +1621,7 @@ public sealed class ColumnarIlEmitter
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
                 for (var i = 0; i < ctor.Body.ParamNames.Length; i++)
                 {
-                    if (!TryResolveType(ctor.Body.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                    if (!TryResolveMemberType(ctor.Body.ParamCanonicals[i], def, enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
                         return false;
                     cParamTypes[i] = pt;
                     cOrdinals[ctor.Body.ParamNames[i]] = i + 1;
@@ -2929,7 +3109,39 @@ public sealed class ColumnarIlEmitter
                         if (d.Builder == structReceiverType) { fieldStruct = d; break; }
                     }
                     if (fieldStruct == null)
+                    {
+                        // A CLOSED user-generic receiver (`Box<int>`): resolve on the OPEN definition (own
+                        // type only — generic bases decline at declaration), rebind the token via
+                        // TypeBuilder.GetField/GetMethod (reflection member queries throw on
+                        // TypeBuilderInstantiation), and substitute the closed type arguments into the
+                        // member type (b.item on Box<int> is int).
+                        if (TryGetClosedReceiverDef(structReceiverType, out var closedFieldDef, out var closedFieldArgs))
+                        {
+                            if (closedFieldDef.Fields.TryGetValue(member, out var openField))
+                            {
+                                if (closedFieldDef.IsReference)
+                                {
+                                    _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField));
+                                }
+                                else
+                                {
+                                    var closedFieldTemp = _il.DeclareLocal(structReceiverType);
+                                    _il.Emit(OpCodes.Stloc, closedFieldTemp);
+                                    _il.Emit(OpCodes.Ldloca, closedFieldTemp);
+                                    _il.Emit(OpCodes.Ldfld, TypeBuilder.GetField(structReceiverType, openField));
+                                }
+                                type = SubstituteClosedTypeArguments(openField.FieldType, closedFieldArgs);
+                                return true;
+                            }
+                            if (closedFieldDef.IsReference && closedFieldDef.Properties.TryGetValue(member, out var openProp))
+                            {
+                                _il.Emit(OpCodes.Callvirt, TypeBuilder.GetMethod(structReceiverType, openProp.Getter));
+                                type = SubstituteClosedTypeArguments(openProp.PropertyType, closedFieldArgs);
+                                return true;
+                            }
+                        }
                         return false;
+                    }
                     // Resolution walks the BASE chain (nearest first) so a derived receiver exposes INHERITED
                     // fields/properties (`d.X` where X is declared on Base).
                     if (TryFindFieldOnChain(fieldStruct, member, out var structField))
@@ -3104,6 +3316,49 @@ public sealed class ColumnarIlEmitter
                         return true;
                     }
                     return false; // other Simple-type constructors are a host boundary; decline.
+                }
+                // `new Box<int>(args)` — CLOSED construction of a user generic type (type node kind 1).
+                // Canonicalize the generic subtree, resolve it (MakeGenericType over the open TypeBuilder),
+                // bind the user ctor by ARG COUNT on the OPEN definition, check each arg against the
+                // POSITIONALLY SUBSTITUTED param type (v: T on Box<int> expects int), then `newobj` the
+                // ctor REBOUND onto the closed type (TypeBuilder.GetConstructor — the same machinery the
+                // C# oracle uses; reflection member queries throw on TypeBuilderInstantiation).
+                if (_kinds[typeNode] == 1)
+                {
+                    if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical)
+                        || !TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType)
+                        || !IsClosedUserGenericInstantiation(closedType))
+                        return false;
+                    if (!_structRegistry.TryGetValue(Text(typeNode), out var openGenericDef)
+                        || !openGenericDef.IsReference
+                        || openGenericDef.Constructors.Count == 0)
+                        return false; // value-type generic construction + 0-ctor generic classes: later sub-slice.
+
+                    var closedCtorArgCount = _childCount[idx] - 1;
+                    ConstructorBuilder? chosenOpenCtor = null;
+                    Type[]? chosenOpenParamTypes = null;
+                    var closedAmbiguous = false;
+                    foreach (var (cb, cpt) in openGenericDef.Constructors)
+                    {
+                        if (cpt.Length != closedCtorArgCount)
+                            continue;
+                        if (chosenOpenCtor != null) { closedAmbiguous = true; break; }
+                        chosenOpenCtor = cb;
+                        chosenOpenParamTypes = cpt;
+                    }
+                    if (chosenOpenCtor == null || closedAmbiguous)
+                        return false;
+
+                    var closedTypeArguments = closedType.GetGenericArguments();
+                    for (var a = 0; a < closedCtorArgCount; a++)
+                    {
+                        var expectedArgType = SubstituteClosedTypeArguments(chosenOpenParamTypes![a], closedTypeArguments);
+                        if (!EmitExpression(Child(idx, 1 + a), out var closedArgType) || !TypesEquivalent(closedArgType, expectedArgType))
+                            return false;
+                    }
+                    _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedType, chosenOpenCtor));
+                    type = closedType;
+                    return true;
                 }
                 if (_childCount[idx] != 2 || _kinds[typeNode] != 2) // array alloc: exactly one ctor arg; type must be Array.
                     return false;
@@ -3899,6 +4154,98 @@ public sealed class ColumnarIlEmitter
         return null;
     }
 
+    // Rebuilds the canonical type string from an embedded TYPE subtree in the expression node table
+    // (kind 0 Simple = the name text; kind 1 Generic = name<argCanons>; kind 2 Array = element[]).
+    // Other type-node kinds (nullable/union/byref/tuple) decline — the construction and closed-generic
+    // paths that consume this only model these three shapes.
+    private bool TryBuildTypeNodeCanonical(int typeNode, out string canonical)
+    {
+        switch (_kinds[typeNode])
+        {
+            case 0:
+                canonical = Text(typeNode);
+                return true;
+            case 1:
+            {
+                var builder = new System.Text.StringBuilder(Text(typeNode));
+                builder.Append('<');
+                for (var c = 0; c < _childCount[typeNode]; c++)
+                {
+                    if (c > 0)
+                        builder.Append(',');
+                    if (!TryBuildTypeNodeCanonical(Child(typeNode, c), out var argCanonical))
+                    {
+                        canonical = string.Empty;
+                        return false;
+                    }
+                    builder.Append(argCanonical);
+                }
+                builder.Append('>');
+                canonical = builder.ToString();
+                return true;
+            }
+            case 2:
+            {
+                if (!TryBuildTypeNodeCanonical(Child(typeNode, 0), out var elementCanonical))
+                {
+                    canonical = string.Empty;
+                    return false;
+                }
+                canonical = elementCanonical + "[]";
+                return true;
+            }
+            default:
+                canonical = string.Empty;
+                return false;
+        }
+    }
+
+    // Type equality that treats two CLOSED instantiations of the same user generic as EQUAL even when
+    // they are distinct TypeBuilderInstantiation instances: MakeGenericType over a TypeBuilder does not
+    // cache, and TypeBuilderInstantiation equality is referential — so `new Box<Box<int>>(new Box<int>(v))`
+    // produces one Box<int> from the inner construction and ANOTHER from the ctor-parameter substitution.
+    private static bool TypesEquivalent(Type a, Type b)
+    {
+        if (a == b)
+            return true;
+        if (!IsClosedUserGenericInstantiation(a) || !IsClosedUserGenericInstantiation(b))
+            return false;
+        if (!ReferenceEquals(a.GetGenericTypeDefinition(), b.GetGenericTypeDefinition()))
+            return false;
+        var aArgs = a.GetGenericArguments();
+        var bArgs = b.GetGenericArguments();
+        if (aArgs.Length != bArgs.Length)
+            return false;
+        for (var i = 0; i < aArgs.Length; i++)
+        {
+            if (!TypesEquivalent(aArgs[i], bArgs[i]))
+                return false;
+        }
+        return true;
+    }
+
+    // Maps a CLOSED user-generic receiver (Box<int>) back to its OPEN definition's registry entry.
+    // Member tokens on the closed type are rebound via TypeBuilder.GetField/GetMethod; member TYPES
+    // substitute the closed arguments positionally.
+    private bool TryGetClosedReceiverDef(Type receiverType, out ColumnarStructDef def, out Type[] closedArguments)
+    {
+        def = null!;
+        closedArguments = System.Array.Empty<Type>();
+        if (!IsClosedUserGenericInstantiation(receiverType))
+            return false;
+        var definition = receiverType.GetGenericTypeDefinition();
+        foreach (var d in _structRegistry.Values)
+        {
+            if (d.Builder == definition)
+            {
+                def = d;
+                closedArguments = receiverType.GetGenericArguments();
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Instance BCL calls (the receiver value is already on the stack): a small whitelist of string methods.
     // string.IndexOf(char, int) -> int ; string.Substring(int, int) -> string.
     private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
@@ -3935,6 +4282,29 @@ public sealed class ColumnarIlEmitter
                 }
             }
             return false; // a TypeBuilder receiver with no matching instance method -> decline.
+        }
+
+        // A CLOSED user-generic receiver (`Box<int>`): resolve the method on the OPEN definition (own
+        // type only — generic base chains are declined at declaration), rebind via TypeBuilder.GetMethod,
+        // and substitute the closed type arguments into the param checks and the result type.
+        if (TryGetClosedReceiverDef(receiverType, out var closedDef, out var closedArgs))
+        {
+            if (!closedDef.Methods.TryGetValue(member, out var closedMethod))
+                return false;
+            if (argCount != closedMethod.ParamTypes.Length)
+                return false;
+            var closedReceiverTemp = _il.DeclareLocal(receiverType);
+            _il.Emit(OpCodes.Stloc, closedReceiverTemp);
+            _il.Emit(closedDef.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, closedReceiverTemp);
+            for (var a = 0; a < argCount; a++)
+            {
+                var expectedParam = SubstituteClosedTypeArguments(closedMethod.ParamTypes[a], closedArgs);
+                if (!EmitExpression(Child(callIdx, 1 + a), out var argType) || !TypesEquivalent(argType, expectedParam))
+                    return false;
+            }
+            _il.Emit(closedDef.IsReference ? OpCodes.Callvirt : OpCodes.Call, TypeBuilder.GetMethod(receiverType, closedMethod.Builder));
+            type = SubstituteClosedTypeArguments(closedMethod.ReturnType, closedArgs);
+            return true;
         }
 
         if (receiverType == typeof(string) && member == "IndexOf")
