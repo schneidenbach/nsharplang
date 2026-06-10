@@ -446,7 +446,8 @@ public sealed class ColumnarIlEmitter
         bool isConstructorBody = false,
         TypeBuilder? programType = null,
         int[]? lambdaCounter = null,
-        List<TypeBuilder>? displayClasses = null)
+        List<TypeBuilder>? displayClasses = null,
+        Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? boxedCaptures = null)
     {
         _isConstructorBody = isConstructorBody;
         _kinds = kinds;
@@ -470,6 +471,7 @@ public sealed class ColumnarIlEmitter
         _programType = programType;
         _lambdaCounter = lambdaCounter;
         _displayClasses = displayClasses;
+        _boxedCaptures = boxedCaptures;
     }
 
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
@@ -484,6 +486,19 @@ public sealed class ColumnarIlEmitter
     private readonly List<TypeBuilder>? _displayClasses;
     // The current body's root statement (set by EmitBody) — anchors the L3a never-mutated capture scan.
     private int _bodyRoot = -1;
+    // MUTATED captures (L3b): names that are captured by some lambda in this body AND mutated via
+    // bare-identifier assignment get LIFTED into a shared StrongBox<T> (the oracle's box-lift model) —
+    // the box reference is what closures snapshot, so mutation is shared in both directions.
+    // _liftedCandidates is the EmitBody pre-scan verdict (drives DECLARATION shape); _liftedLocals holds
+    // the live boxes (drives every read/write — checked BEFORE locals/params). Structural writes
+    // (foreach vars, deconstructions) and member/index-receiver uses are NOT lifted: those names simply
+    // never enter _liftedLocals, and their capture or usage declines exactly as in L3a.
+    private HashSet<string>? _liftedCandidates;
+    private readonly Dictionary<string, (LocalBuilder Box, Type ValueType)> _liftedLocals = new(StringComparer.Ordinal);
+    // In a CLOSURE emitter: captured-and-lifted names -> the display field holding the shared box. Reads
+    // emit `ldarg.0; ldfld boxField; ldfld Value`, writes `ldarg.0; ldfld boxField; <v>; stfld Value` —
+    // checked before every other resolution tier (a boxed name is never also a lambda param or local).
+    private readonly Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? _boxedCaptures;
 
     // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
     // slice), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[], ulong[]). (Mixed
@@ -794,23 +809,32 @@ public sealed class ColumnarIlEmitter
             return true;
         }
 
-        // CAPTURING lambda (L3a — NEVER-MUTATED captures only): a by-value snapshot into a display class is
-        // semantics-identical to the oracle's shared-cell lowering exactly when NOTHING in the enclosing body
-        // writes the captured name (the oracle only box-lifts MUTATED captures; un-mutated ones are snapshot
-        // fields there too). The whole-body write scan needs the body root — null inside a lambda's own
-        // sub-emitter, so nested capture CHAINS decline. The capture scan reads kind-6 nodes positionally,
-        // so node kinds whose children are NOT ordinary expressions (casts and explicit-generic callees carry
-        // TYPE-kernel nodes with a colliding kind space; match arms and object initializers carry binding/
-        // field-name identifiers that are not value reads) decline the capturing branch outright.
-        if (_bodyRoot < 0 || _displayClasses == null
-            || ContainsCaptureOpaqueKind(bodyNode)
-            || IsAnyNameWritten(_bodyRoot, captures))
+        // CAPTURING lambda (L3a snapshot + L3b boxed): each capture is either LIFTED (its name lives in a
+        // shared StrongBox — the display class snapshots the BOX reference, so mutation is shared in both
+        // directions, the oracle's box-lift model) or NEVER-WRITTEN (a by-value snapshot is then
+        // semantics-identical to the oracle, which only box-lifts mutated captures). A written-but-unlifted
+        // capture declines (structural writes, unliftable types, use-before-declaration). The whole-body
+        // write scan needs the body root — null inside an EXPRESSION-bodied lambda's sub-emitter, so those
+        // nested chains decline (block-bodied sub-emitters set it via EmitBody). The capture scan reads
+        // kind-6 nodes positionally, so kinds whose children are NOT ordinary expressions (match arms,
+        // object initializers) decline the capturing branch outright.
+        if (_displayClasses == null || ContainsCaptureOpaqueKind(bodyNode))
             return false;
-        var captureTypes = new Type[captures.Count];
-        var captureNames = new string[captures.Count];
-        var ci = 0;
+        var snapshotNames = new List<string>();
+        var snapshotTypes = new List<Type>();
+        var boxedNames = new List<string>();
+        var boxedSources = new List<(LocalBuilder Box, Type ValueType)>();
         foreach (var captureName in captures)
         {
+            if (_liftedLocals.TryGetValue(captureName, out var liftedSource))
+            {
+                boxedNames.Add(captureName);
+                boxedSources.Add(liftedSource);
+                continue;
+            }
+            if (_bodyRoot < 0
+                || IsAnyNameWritten(_bodyRoot, new SortedSet<string>(StringComparer.Ordinal) { captureName }))
+                return false; // written but unlifted (structural write / unliftable / pre-declaration use).
             var captureType = _locals.TryGetValue(captureName, out var capturedLocal)
                 ? capturedLocal.LocalType
                 : _paramTypes[captureName];
@@ -820,22 +844,33 @@ public sealed class ColumnarIlEmitter
             if (!IsSupportedType(captureType)
                 || captureType.IsGenericParameter || captureType.ContainsGenericParameters)
                 return false;
-            captureNames[ci] = captureName;
-            captureTypes[ci] = captureType;
-            ci++;
+            snapshotNames.Add(captureName);
+            snapshotTypes.Add(captureType);
         }
         var moduleBuilder = (ModuleBuilder)_programType.Module;
         var display = moduleBuilder.DefineType(
             "<>c__DisplayClass" + _lambdaCounter[0]++,
             TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
         var displayCtor = display.DefineDefaultConstructor(MethodAttributes.Public);
+        // SNAPSHOT fields go into the synthetic def (the closure's `_currentStruct` field-chain fallback IS
+        // the snapshot-read emission); BOX fields are deliberately kept OUT of it — boxed names route
+        // through the closure's _boxedCaptures map, which dereferences `.Value` (a plain field read of the
+        // box object would be type-wrong).
         var displayFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
-        for (var f = 0; f < captureNames.Length; f++)
-            displayFields[captureNames[f]] = display.DefineField(captureNames[f], captureTypes[f], FieldAttributes.Public);
-        var displayDef = new ColumnarStructDef(display, captureNames, displayFields, isReference: true);
+        for (var f = 0; f < snapshotNames.Count; f++)
+            displayFields[snapshotNames[f]] = display.DefineField(snapshotNames[f], snapshotTypes[f], FieldAttributes.Public);
+        var boxedCaptureMap = new Dictionary<string, (FieldBuilder BoxField, Type ValueType)>(StringComparer.Ordinal);
+        var boxedFields = new FieldBuilder[boxedNames.Count];
+        for (var b = 0; b < boxedNames.Count; b++)
+        {
+            var boxFieldType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(boxedSources[b].ValueType);
+            boxedFields[b] = display.DefineField(boxedNames[b], boxFieldType, FieldAttributes.Public);
+            boxedCaptureMap[boxedNames[b]] = (boxedFields[b], boxedSources[b].ValueType);
+        }
+        var displayDef = new ColumnarStructDef(display, snapshotNames.ToArray(), displayFields, isReference: true);
         // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
-        // ordinals shift +1; captured names fall through the sub-emitter's locals/params to the
-        // `_currentStruct` field chain — `ldarg.0; ldfld` — which is exactly the snapshot-read emission.
+        // ordinals shift +1; snapshot names fall through the sub-emitter's locals/params to the
+        // `_currentStruct` field chain, boxed names resolve through _boxedCaptures.
         var shiftedOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var pair in ordinals)
             shiftedOrdinals[pair.Key] = pair.Value + 1;
@@ -846,20 +881,28 @@ public sealed class ColumnarIlEmitter
             _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
             _source, shiftedOrdinals, paramTypeMap, invoke.ReturnType, closureIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
-            programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
+            programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
+            boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null);
         if (!EmitLambdaBody(closureEmitter, closureIl, bodyNode, invoke.ReturnType))
             return false;
         _displayClasses.Add(display);
-        // Use site: construct the closure, snapshot every capture, bind the delegate to it.
+        // Use site: construct the closure; snapshot captures copy the VALUE, boxed captures copy the BOX
+        // reference; bind the delegate to the closure.
         _il.Emit(OpCodes.Newobj, displayCtor);
-        for (var f = 0; f < captureNames.Length; f++)
+        for (var f = 0; f < snapshotNames.Count; f++)
         {
             _il.Emit(OpCodes.Dup);
-            if (_locals.TryGetValue(captureNames[f], out var sourceLocal))
+            if (_locals.TryGetValue(snapshotNames[f], out var sourceLocal))
                 _il.Emit(OpCodes.Ldloc, sourceLocal);
             else
-                EmitLoadArgument(_paramOrdinals[captureNames[f]]);
-            _il.Emit(OpCodes.Stfld, displayFields[captureNames[f]]);
+                EmitLoadArgument(_paramOrdinals[snapshotNames[f]]);
+            _il.Emit(OpCodes.Stfld, displayFields[snapshotNames[f]]);
+        }
+        for (var b = 0; b < boxedNames.Count; b++)
+        {
+            _il.Emit(OpCodes.Dup);
+            _il.Emit(OpCodes.Ldloc, boxedSources[b].Box);
+            _il.Emit(OpCodes.Stfld, boxedFields[b]);
         }
         _il.Emit(OpCodes.Ldftn, closureMethod);
         _il.Emit(OpCodes.Newobj, delegateCtor);
@@ -909,12 +952,155 @@ public sealed class ColumnarIlEmitter
             if (_valueStarts[node] < 0)
                 return; // a value-less masquerading TYPE node — never a name read.
             var name = Text(node);
-            if (!bound.Contains(name) && (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name)))
+            if (!bound.Contains(name)
+                && (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name) || _liftedLocals.ContainsKey(name)))
                 captures.Add(name);
         }
         var first = (kind == 15 || kind == 16) ? 1 : 0; // child[0] of new/cast is the TYPE subtree.
         for (var c = first; c < _childCount[node]; c++)
             CollectLambdaCaptures(Child(node, c), bound, captures);
+    }
+
+    // L3b pre-scan: the LIFTED candidate set = names referenced inside any lambda subtree (unbound by its
+    // params) that are ALSO bare-assigned (kind-14, kind-6 target) somewhere in the body, minus names
+    // structurally written (foreach vars, deconstruction targets, member/index-rooted assignments) — those
+    // stay unlifted and any capture of them declines as in L3a. The candidate set only drives DECLARATION
+    // shape; _liftedLocals (actual live boxes) drives reads/writes/captures.
+    private void ComputeLiftedCandidates(int bodyRoot)
+    {
+        var inLambdas = new SortedSet<string>(StringComparer.Ordinal);
+        CollectNamesInsideLambdas(bodyRoot, inLambdas);
+        if (inLambdas.Count == 0)
+            return;
+        foreach (var name in inLambdas)
+        {
+            var single = new SortedSet<string>(StringComparer.Ordinal) { name };
+            if (IsNameBareAssigned(bodyRoot, single) && !IsNameStructurallyWritten(bodyRoot, single))
+                (_liftedCandidates ??= new HashSet<string>(StringComparer.Ordinal)).Add(name);
+        }
+    }
+
+    // A type a StrongBox<T> can be closed over and resolved by plain reflection: BAKED runtime, no
+    // builders, no generic parameters (mirrors the delegate/tuple builder-arg exclusions).
+    private static bool IsLiftableValueType(Type t) =>
+        IsSupportedType(t) && !(t.Assembly is AssemblyBuilder) && !t.IsGenericParameter && !t.ContainsGenericParameters;
+
+    private static FieldInfo StrongBoxValueField(Type valueType) =>
+        typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(valueType).GetField("Value")!;
+
+    // Collect every kind-6 name inside any LAMBDA subtree of `node`, excluding names bound by the lambda's
+    // (or a nested lambda's) own parameters — the same walk discipline as CollectLambdaCaptures, but with
+    // NO in-scope check (this runs at EmitBody entry, before any local exists).
+    private void CollectNamesInsideLambdas(int node, SortedSet<string> names)
+    {
+        var kind = _kinds[node];
+        if (kind == 38)
+            return;
+        if (kind == 39)
+        {
+            CollectUnboundNames(Child(node, _childCount[node] - 1), BoundParamsOf(node), names);
+            return;
+        }
+        var first = (kind == 15 || kind == 16) ? 1 : 0;
+        for (var c = first; c < _childCount[node]; c++)
+            CollectNamesInsideLambdas(Child(node, c), names);
+    }
+
+    private HashSet<string> BoundParamsOf(int lambdaNode)
+    {
+        var bound = new HashSet<string>(StringComparer.Ordinal);
+        for (var p = 0; p < _childCount[lambdaNode] - 1; p++)
+        {
+            if (_kinds[Child(lambdaNode, p)] == 6)
+                bound.Add(Text(Child(lambdaNode, p)));
+        }
+        return bound;
+    }
+
+    private void CollectUnboundNames(int node, HashSet<string> bound, SortedSet<string> names)
+    {
+        var kind = _kinds[node];
+        if (kind == 38)
+            return;
+        if (kind == 39)
+        {
+            var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
+            nestedBound.UnionWith(BoundParamsOf(node));
+            CollectUnboundNames(Child(node, _childCount[node] - 1), nestedBound, names);
+            return;
+        }
+        if (kind == 6 && _valueStarts[node] >= 0)
+        {
+            var name = Text(node);
+            if (!bound.Contains(name))
+                names.Add(name);
+        }
+        var first = (kind == 15 || kind == 16) ? 1 : 0;
+        for (var c = first; c < _childCount[node]; c++)
+            CollectUnboundNames(Child(node, c), bound, names);
+    }
+
+    // A kind-14 assignment whose target is the BARE identifier — the liftable write form. A LAMBDA's own
+    // parameters shadow: writes to them inside its body are not writes to the outer name (over-lifting is
+    // semantically benign — an unwritten box equals a snapshot — but shifts names out of the other gates).
+    private bool IsNameBareAssigned(int node, SortedSet<string> names)
+    {
+        if (_kinds[node] == 39)
+        {
+            var bound = BoundParamsOf(node);
+            var remaining = new SortedSet<string>(names, StringComparer.Ordinal);
+            remaining.ExceptWith(bound);
+            return remaining.Count > 0 && IsNameBareAssigned(Child(node, _childCount[node] - 1), remaining);
+        }
+        if (_kinds[node] == 14)
+        {
+            var target = Child(node, 0);
+            if (_kinds[target] == 6 && _valueStarts[target] >= 0 && names.Contains(Text(target)))
+                return true;
+        }
+        for (var c = 0; c < _childCount[node]; c++)
+        {
+            if (IsNameBareAssigned(Child(node, c), names))
+                return true;
+        }
+        return false;
+    }
+
+    // Writes the box-lift model does NOT cover: foreach loop variables (per-iteration store semantics are
+    // their own slice), deconstruction targets, and member/index-rooted assignments (`b.V = 99` needs the
+    // box's Value ADDRESS — a later rung).
+    private bool IsNameStructurallyWritten(int node, SortedSet<string> names)
+    {
+        switch (_kinds[node])
+        {
+            case 14:
+                var structuralTarget = Child(node, 0);
+                if (_kinds[structuralTarget] == 8 || _kinds[structuralTarget] == 10)
+                {
+                    while ((_kinds[structuralTarget] == 8 || _kinds[structuralTarget] == 10) && _childCount[structuralTarget] > 0)
+                        structuralTarget = Child(structuralTarget, 0);
+                    if (_kinds[structuralTarget] == 6 && _valueStarts[structuralTarget] >= 0 && names.Contains(Text(structuralTarget)))
+                        return true;
+                }
+                break;
+            case 29:
+                if (names.Contains(Text(node)))
+                    return true;
+                break;
+            case 30:
+                for (var n = 0; n < _childCount[node] - 1; n++)
+                {
+                    if (_kinds[Child(node, n)] == 6 && names.Contains(Text(Child(node, n))))
+                        return true;
+                }
+                break;
+        }
+        for (var c = 0; c < _childCount[node]; c++)
+        {
+            if (IsNameStructurallyWritten(Child(node, c), names))
+                return true;
+        }
+        return false;
     }
 
     // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37) carry
@@ -1020,7 +1206,27 @@ public sealed class ColumnarIlEmitter
     {
         type = null!;
         Type delegateType;
-        if (_locals.TryGetValue(name, out var local))
+        // L3b: a lifted (or boxed-captured) delegate's CURRENT value lives in the StrongBox — loading the
+        // plain slot would invoke a STALE delegate (adversarial-review finding, both pipelines accept but
+        // values diverge). Checked before every other tier.
+        if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out var boxedDelegate))
+        {
+            if (!IsSupportedDelegateType(boxedDelegate.ValueType))
+                return false;
+            delegateType = boxedDelegate.ValueType;
+            _il.Emit(OpCodes.Ldarg_0);
+            _il.Emit(OpCodes.Ldfld, boxedDelegate.BoxField);
+            _il.Emit(OpCodes.Ldfld, StrongBoxValueField(boxedDelegate.ValueType));
+        }
+        else if (_liftedLocals.TryGetValue(name, out var liftedDelegate))
+        {
+            if (!IsSupportedDelegateType(liftedDelegate.ValueType))
+                return false;
+            delegateType = liftedDelegate.ValueType;
+            _il.Emit(OpCodes.Ldloc, liftedDelegate.Box);
+            _il.Emit(OpCodes.Ldfld, StrongBoxValueField(liftedDelegate.ValueType));
+        }
+        else if (_locals.TryGetValue(name, out var local))
         {
             if (!IsSupportedDelegateType(local.LocalType))
                 return false;
@@ -2608,6 +2814,27 @@ public sealed class ColumnarIlEmitter
         // local/param only when NOTHING in this whole body writes it. Null inside a lambda's own
         // sub-emitter (EmitExpression is entered directly), so nested capture chains decline.
         _bodyRoot = bodyRoot;
+        // L3b pre-scan: names captured by some lambda AND bare-assigned somewhere become LIFTED candidates
+        // (declared as shared StrongBox<T>); lifted PARAMS box-init here so every later read/write — in
+        // the body or any closure — goes through the one box.
+        ComputeLiftedCandidates(bodyRoot);
+        if (_liftedCandidates != null)
+        {
+            foreach (var liftedParam in _liftedCandidates)
+            {
+                if (!_paramOrdinals.TryGetValue(liftedParam, out var liftedOrdinal))
+                    continue;
+                var liftedParamType = _paramTypes[liftedParam];
+                if (!IsLiftableValueType(liftedParamType))
+                    continue; // stays a plain param; a later capture of it declines (written, unlifted).
+                var boxType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(liftedParamType);
+                var boxLocal = _il.DeclareLocal(boxType);
+                EmitLoadArgument(liftedOrdinal);
+                _il.Emit(OpCodes.Newobj, boxType.GetConstructor(new[] { liftedParamType })!);
+                _il.Emit(OpCodes.Stloc, boxLocal);
+                _liftedLocals[liftedParam] = (boxLocal, liftedParamType);
+            }
+        }
         if (!isVoid)
             return AlwaysReturns(bodyRoot) && EmitStatement(bodyRoot);
         var fallsThrough = !AlwaysReturns(bodyRoot);
@@ -2628,6 +2855,7 @@ public sealed class ColumnarIlEmitter
                 // later reference (e.g. a loop-body local read after the loop) correctly resolves to nothing
                 // and declines, rather than reading a method-level slot that may be unassigned (invalid IL).
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
                 for (var n = 0; n < _childCount[idx]; n++)
                 {
                     var child = Child(idx, n);
@@ -2652,6 +2880,14 @@ public sealed class ColumnarIlEmitter
 
                 foreach (var name in blockLocals)
                     _locals.Remove(name);
+                var blockLifted = new List<string>();
+                foreach (var name in _liftedLocals.Keys)
+                {
+                    if (!outerLifted.Contains(name))
+                        blockLifted.Add(name);
+                }
+                foreach (var name in blockLifted)
+                    _liftedLocals.Remove(name);
                 return true;
             }
 
@@ -2677,7 +2913,8 @@ public sealed class ColumnarIlEmitter
                 // Decline a local that shadows a parameter or redeclares a local: N# treats shadowing as a
                 // diagnostic (and a same-`:=` redeclaration as an error), which the spike does not model —
                 // declining keeps the C# analyzer authoritative rather than silently compiling it.
-                if (_paramOrdinals.ContainsKey(name) || _locals.ContainsKey(name))
+                if (_paramOrdinals.ContainsKey(name) || _locals.ContainsKey(name) || _liftedLocals.ContainsKey(name)
+                    || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
                     return false;
                 if (_childCount[idx] == 0)
                     return false;
@@ -2700,6 +2937,18 @@ public sealed class ColumnarIlEmitter
                 if (!EmitExpression(Child(idx, 0), out var initType)
                     || !(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || IsSupportedType(initType)))
                     return false;
+                // L3b: a lifted candidate (captured by some lambda AND bare-assigned) declares as a shared
+                // StrongBox<T> — the init value is on the stack; wrap it. A non-liftable type stays plain
+                // (a later capture of it declines — written, unlifted).
+                if (_liftedCandidates != null && _liftedCandidates.Contains(name) && IsLiftableValueType(initType))
+                {
+                    var liftBoxType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(initType);
+                    var liftBox = _il.DeclareLocal(liftBoxType);
+                    _il.Emit(OpCodes.Newobj, liftBoxType.GetConstructor(new[] { initType })!);
+                    _il.Emit(OpCodes.Stloc, liftBox);
+                    _liftedLocals[name] = (liftBox, initType);
+                    return true;
+                }
                 var local = _il.DeclareLocal(initType);
                 _il.Emit(OpCodes.Stloc, local);
                 _locals[name] = local;
@@ -2716,7 +2965,8 @@ public sealed class ColumnarIlEmitter
                 if (_childCount[idx] != 2 || _kinds[Child(idx, 0)] != 6)
                     return false;
                 var declaredName = Text(Child(idx, 0));
-                if (_paramOrdinals.ContainsKey(declaredName) || _locals.ContainsKey(declaredName))
+                if (_paramOrdinals.ContainsKey(declaredName) || _locals.ContainsKey(declaredName) || _liftedLocals.ContainsKey(declaredName)
+                    || (_boxedCaptures != null && _boxedCaptures.ContainsKey(declaredName)))
                     return false; // shadowing/redeclaration — the pipeline diagnoses these; decline.
                 var typeCanonical = RemoveWhitespace(Text(idx));
                 if (!TryResolveType(typeCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var declaredType)
@@ -2731,6 +2981,18 @@ public sealed class ColumnarIlEmitter
                 else if (!EmitExpression(declaredInit, out var declaredInitType) || declaredInitType != declaredType)
                 {
                     return false;
+                }
+                // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
+                // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
+                if (_kinds[declaredInit] != 39 && _liftedCandidates != null && _liftedCandidates.Contains(declaredName)
+                    && IsLiftableValueType(declaredType))
+                {
+                    var typedBoxType = typeof(System.Runtime.CompilerServices.StrongBox<>).MakeGenericType(declaredType);
+                    var typedBox = _il.DeclareLocal(typedBoxType);
+                    _il.Emit(OpCodes.Newobj, typedBoxType.GetConstructor(new[] { declaredType })!);
+                    _il.Emit(OpCodes.Stloc, typedBox);
+                    _liftedLocals[declaredName] = (typedBox, declaredType);
+                    return true;
                 }
                 var declaredLocal = _il.DeclareLocal(declaredType);
                 _il.Emit(OpCodes.Stloc, declaredLocal);
@@ -2851,7 +3113,7 @@ public sealed class ColumnarIlEmitter
                     if (_kinds[fieldReceiver] == 6)
                     {
                         var staticRecvName = Text(fieldReceiver);
-                        if (!_locals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName)
+                        if (!_locals.ContainsKey(staticRecvName) && !_liftedLocals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName)
                             && _structRegistry.TryGetValue(staticRecvName, out var staticWriteOwner))
                         {
                             if (TryFindStaticFieldOnChain(staticWriteOwner, memberName, out var staticFieldWrite))
@@ -2923,6 +3185,25 @@ public sealed class ColumnarIlEmitter
                 if (_kinds[target] != 6)
                     return false;
                 var targetName = Text(target);
+                // L3b: writes to a BOXED capture (closure body) or a LIFTED local/param store through the
+                // shared StrongBox's Value — checked before every other tier.
+                if (_boxedCaptures != null && _boxedCaptures.TryGetValue(targetName, out var boxedWrite))
+                {
+                    _il.Emit(OpCodes.Ldarg_0);
+                    _il.Emit(OpCodes.Ldfld, boxedWrite.BoxField);
+                    if (!EmitExpression(Child(expr, 1), out var boxedValueType) || boxedValueType != boxedWrite.ValueType)
+                        return false;
+                    _il.Emit(OpCodes.Stfld, StrongBoxValueField(boxedWrite.ValueType));
+                    return true;
+                }
+                if (_liftedLocals.TryGetValue(targetName, out var liftedWrite))
+                {
+                    _il.Emit(OpCodes.Ldloc, liftedWrite.Box);
+                    if (!EmitExpression(Child(expr, 1), out var liftedValueType) || liftedValueType != liftedWrite.ValueType)
+                        return false;
+                    _il.Emit(OpCodes.Stfld, StrongBoxValueField(liftedWrite.ValueType));
+                    return true;
+                }
                 if (_locals.TryGetValue(targetName, out var assignTarget))
                 {
                     // `local = expr` — store into the `:=` local (value type must match the local's type).
@@ -2987,6 +3268,7 @@ public sealed class ColumnarIlEmitter
                 // Scope the body's `:=` locals so they leave scope at the loop end. A Block body self-scopes;
                 // this also covers a BRACELESS single-statement body (e.g. a bare `:=`), which is not a Block.
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
                 // `break` exits to endLabel, `continue` re-tests at checkLabel; both reach their target with an
                 // empty stack (the body up to the transfer is net-zero), so they are stack-consistent.
                 _loopLabels.Push((endLabel, checkLabel));
@@ -3003,6 +3285,11 @@ public sealed class ColumnarIlEmitter
 
                 foreach (var name in bodyLocals)
                     _locals.Remove(name);
+                foreach (var name in new List<string>(_liftedLocals.Keys))
+                {
+                    if (!outerLifted.Contains(name))
+                        _liftedLocals.Remove(name);
+                }
                 // The bottom back-edge is reachable ONLY if the body can FALL THROUGH to it. If the body always
                 // transfers on every path (a scan loop that `continue`s otherwise + `return`s, or a degenerate
                 // run-once `{ return X }` body), it never falls through, so the bottom `br check` would be dead
@@ -3031,6 +3318,7 @@ public sealed class ColumnarIlEmitter
                     return false;
 
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
                 if (!EmitStatement(init)) // runs once before the loop; declares the loop variable.
                     return false;
 
@@ -3059,6 +3347,11 @@ public sealed class ColumnarIlEmitter
                     if (!outerLocals.Contains(name))
                         _locals.Remove(name);
                 }
+                foreach (var name in new List<string>(_liftedLocals.Keys))
+                {
+                    if (!outerLifted.Contains(name))
+                        _liftedLocals.Remove(name);
+                }
                 return true;
             }
 
@@ -3078,6 +3371,7 @@ public sealed class ColumnarIlEmitter
                     return false;
 
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
+                var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
 
                 // Evaluate the collection; require a single-dim array of a supported element type.
                 if (!EmitExpression(collectionNode, out var collectionType) || !collectionType.IsSZArray)
@@ -3133,6 +3427,11 @@ public sealed class ColumnarIlEmitter
                 {
                     if (!outerLocals.Contains(name))
                         _locals.Remove(name);
+                }
+                foreach (var name in new List<string>(_liftedLocals.Keys))
+                {
+                    if (!outerLifted.Contains(name))
+                        _liftedLocals.Remove(name);
                 }
                 return true;
             }
@@ -3360,6 +3659,23 @@ public sealed class ColumnarIlEmitter
                     // signature); the two name sets are disjoint (a local shadowing a param is declined at decl).
             {
                 var name = Text(idx);
+                // L3b: a BOXED capture (in a closure body) or a LIFTED local/param reads through the shared
+                // StrongBox's Value — checked before every other tier (a lifted name's plain slot is dead).
+                if (_boxedCaptures != null && _boxedCaptures.TryGetValue(name, out var boxedRead))
+                {
+                    _il.Emit(OpCodes.Ldarg_0);
+                    _il.Emit(OpCodes.Ldfld, boxedRead.BoxField);
+                    _il.Emit(OpCodes.Ldfld, StrongBoxValueField(boxedRead.ValueType));
+                    type = boxedRead.ValueType;
+                    return true;
+                }
+                if (_liftedLocals.TryGetValue(name, out var liftedRead))
+                {
+                    _il.Emit(OpCodes.Ldloc, liftedRead.Box);
+                    _il.Emit(OpCodes.Ldfld, StrongBoxValueField(liftedRead.ValueType));
+                    type = liftedRead.ValueType;
+                    return true;
+                }
                 if (_locals.TryGetValue(name, out var local))
                 {
                     _il.Emit(OpCodes.Ldloc, local);
@@ -3663,7 +3979,8 @@ public sealed class ColumnarIlEmitter
                     // not shadow call targets — pinned), so a name carried by BOTH a value and ANY method tier
                     // declines (under-accept). When NO method tier carries the name, a DELEGATE-typed local/param
                     // invokes via callvirt Invoke (L1a); a non-delegate value still declines.
-                    if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
+                    if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name)
+                        || _liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
                     {
                         if (_siblings.ContainsKey(name)
                             || (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out _))
@@ -3779,7 +4096,7 @@ public sealed class ColumnarIlEmitter
                 {
                     var receiverIdent = Text(memberAccessReceiver);
                     if (receiverIdent == "StringComparison"
-                        && !_locals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
                         if (!TryGetStringComparisonValue(Text(idx), out var enumValue))
                             return false;
@@ -3792,7 +4109,7 @@ public sealed class ColumnarIlEmitter
                     // reported type is the enum's EnumBuilder (the same instance used for its param/return types, so
                     // `return Color.Green` reference-matches the declared `Color` return).
                     if (_enumRegistry.TryGetValue(receiverIdent, out var userEnum)
-                        && !_locals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
                         if (!userEnum.Constants.TryGetValue(Text(idx), out var memberValue))
                             return false;
@@ -3806,7 +4123,7 @@ public sealed class ColumnarIlEmitter
                     // static, matching the fixed oracle): `ldsfld` for a field, `call get_Name` for a property.
                     // A member that is NEITHER declines (a type name is not a value — nothing to fall through to).
                     if (_structRegistry.TryGetValue(receiverIdent, out var staticOwner)
-                        && !_locals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
+                        && !_locals.ContainsKey(receiverIdent) && !_liftedLocals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
                     {
                         if (TryFindStaticFieldOnChain(staticOwner, Text(idx), out var staticFieldRead))
                         {
@@ -4403,7 +4720,9 @@ public sealed class ColumnarIlEmitter
                         var patName = Text(patternNode);
                         if (patName != "_")
                         {
-                            if (_locals.ContainsKey(patName) || _paramOrdinals.ContainsKey(patName))
+                            if (_locals.ContainsKey(patName) || _paramOrdinals.ContainsKey(patName)
+                                || _liftedLocals.ContainsKey(patName)
+                                || (_boxedCaptures != null && _boxedCaptures.ContainsKey(patName)))
                                 return false; // a binding that shadows is not modelled.
                             var bindLocal = _il.DeclareLocal(matchValueType);
                             _il.Emit(OpCodes.Ldloc, matchLocal);
@@ -4542,7 +4861,7 @@ public sealed class ColumnarIlEmitter
                 // ENUM constant: the receiver names a REGISTERED enum (not shadowed by a local/param/sibling), the
                 // member is one of its constants, and the match value is THAT enum's type. Underlying-int Ceq.
                 if (_enumRegistry.TryGetValue(recvName, out var enumDef)
-                    && !_locals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                    && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
                 {
                     if (matchValueType != enumDef.Builder)
                         return false;
@@ -4562,7 +4881,7 @@ public sealed class ColumnarIlEmitter
                 // must be THIS union's base. No `dup`/`pop` needed: the isinst result is consumed by the branch.
                 var qualifiedCase = recvName + "." + Text(patternNode);
                 if (_unionCaseRegistry.TryGetValue(qualifiedCase, out var bareCaseDef) && matchValueType == bareCaseDef.UnionBase
-                    && !_locals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
+                    && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
                 {
                     _il.Emit(OpCodes.Ldloc, matchLocal);
                     _il.Emit(OpCodes.Isinst, bareCaseDef.CaseType);
@@ -4640,7 +4959,9 @@ public sealed class ColumnarIlEmitter
                 continue;
             if (!caseDef.Fields.TryGetValue(bindName, out var bindField))
                 return false; // the binding must name a field of the case (slice scope: bare field bindings).
-            if (_locals.ContainsKey(bindName) || _paramOrdinals.ContainsKey(bindName))
+            if (_locals.ContainsKey(bindName) || _paramOrdinals.ContainsKey(bindName)
+                || _liftedLocals.ContainsKey(bindName)
+                || (_boxedCaptures != null && _boxedCaptures.ContainsKey(bindName)))
                 return false; // a binding that shadows a local/param is not modelled.
             var bindLocal = _il.DeclareLocal(bindField.FieldType);
             _il.Emit(OpCodes.Ldloc, caseLocal);
@@ -4740,7 +5061,7 @@ public sealed class ColumnarIlEmitter
         if (_kinds[receiver] == 6) // a bare identifier receiver that is NOT a value (local/param/sibling) is a type name.
         {
             var receiverName = Text(receiver);
-            if (!_locals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName))
+            if (!_locals.ContainsKey(receiverName) && !_liftedLocals.ContainsKey(receiverName) && !_paramOrdinals.ContainsKey(receiverName) && !_siblings.ContainsKey(receiverName))
                 return TryEmitStaticCall(callIdx, receiverName, memberName, argCount, out type);
         }
 

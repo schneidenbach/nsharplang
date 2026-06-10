@@ -4960,9 +4960,8 @@ class B
         Assert.True(loaded.GetTypes().Count(t => t.Name.StartsWith("<>c__DisplayClass", StringComparison.Ordinal)) >= 5,
             "expected >=5 display classes");
 
-        // DECLINES (mutation in EITHER direction breaks snapshot equivalence — the oracle box-lifts there):
-        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 10\n    n = 11\n    return apply(x => x + n, v)\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 10\n    r := apply(x => x + n, v)\n    n = 12\n    return r + n\n}\n").Ok);
+        // (Bare-assigned mutated captures now LIFT into shared StrongBoxes and EMIT — coverage in
+        // ColumnarCodegen_Parity_MutatedCaptures.)
         // a FOREACH loop variable (re-stored every iteration — a write the kind-14 scan alone would miss).
         Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(a: int[]): int {\n    total := 0\n    foreach e in a {\n        total = total + apply(x => x + e, 1)\n    }\n    return total\n}\n").Ok);
         // a NESTED capture chain (the inner lambda's sub-emitter has no body root to scan).
@@ -5015,10 +5014,51 @@ class B
         // DECLINES:
         // a VALUE block body that does not always-return (the pipeline rejects it — NL305 family).
         Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    return apply(x => {\n        y := x * 2\n    }, v)\n}\n").Ok);
-        // a capture MUTATED inside the block body.
-        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 7\n    return apply(x => {\n        n = x\n        return n\n    }, v)\n}\n").Ok);
+        // (a capture MUTATED inside the block body now LIFTS and EMITS — coverage in
+        // ColumnarCodegen_Parity_MutatedCaptures.)
         // a `:=` inferred lambda with a BLOCK body (no up-front return type to emit returns against).
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    g := () => {\n        return 5\n    }\n    return g() + v\n}\n").Ok);
+    }
+
+    // Lambdas arc L3b: MUTATED captures via box-lifting (the oracle's StrongBox model). A name captured by
+    // some lambda AND bare-assigned anywhere in the body LIFTS into a shared StrongBox<T>: the declaration
+    // allocates the box, every read/write (body or closure) goes through `.Value`, the display class
+    // snapshots the BOX REFERENCE, and lifted params box-init at body start — so mutation is shared in
+    // BOTH directions and across multiple closures, exactly the oracle's semantics. Structural writes
+    // (foreach vars, deconstructions, member/index-rooted assignments) stay unlifted and their captures
+    // decline as before.
+    [Fact]
+    public void ColumnarCodegen_Parity_MutatedCaptures()
+    {
+        var prog =
+            "func run(a: Action, x: int): int {\n    a()\n    return x\n}\n\n" +
+            "func runTwice(a: Action, x: int): int {\n    a()\n    a()\n    return x\n}\n\n" +
+            "func pull(p: Func<int>): int {\n    return p()\n}\n\n" +
+            "func closureMutates(v: int): int {\n    counter := 0\n    r := runTwice(() => {\n        counter = counter + 1\n    }, v)\n    return counter * 100 + r\n}\n\n" +
+            "func bodyMutatesAfter(v: int): int {\n    n := 10\n    let g: Func<int> = () => n + 1\n    n = v\n    return pull(g)\n}\n\n" +
+            "func bidirectional(v: int): int {\n    n := 1\n    r := run(() => {\n        n = n + 10\n    }, v)\n    n = n + 100\n    return n + r\n}\n\n" +
+            "func liftedParam(v: int): int {\n    r := run(() => {\n        v = v + 5\n    }, 0)\n    return v + r\n}\n\n" +
+            "func twoClosuresShare(v: int): int {\n    n := 0\n    run(() => {\n        n = n + v\n    }, 0)\n    return pull(() => n * 2)\n}\n\n" +
+            "func mixedLiftSnapshot(v: int): int {\n    a := 5\n    b := 100\n    let g: Func<int> = () => a + b\n    a = v\n    return pull(g)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("closureMutates", new object[] { 7 }),
+            ("bodyMutatesAfter", new object[] { 50 }),
+            ("bidirectional", new object[] { 3 }),
+            ("liftedParam", new object[] { 10 }),
+            ("twoClosuresShare", new object[] { 21 }),
+            ("mixedLiftSnapshot", new object[] { 9 }));
+
+        // ADVERSARIAL-REVIEW REGRESSION (probe-confirmed 8-vs-700 before the fix): a lifted DELEGATE-typed
+        // param reassigned by a closure must INVOKE the box's CURRENT value, not the dead argument slot.
+        AssertColumnarProgramMatchesCSharp(
+            "func demo(f: Func<int, int>, g: Func<int, int>): int {\n    let swap: Action = () => {\n        f = g\n    }\n    swap()\n    return f(7)\n}\n",
+            ("demo", new object[] { (Func<int, int>)(x => x + 1), (Func<int, int>)(x => x * 100) }));
+
+        // DECLINES that must SURVIVE the lift (the box model does not cover them):
+        // a FOREACH loop variable (per-iteration store semantics are their own slice).
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(a: int[]): int {\n    total := 0\n    foreach e in a {\n        total = total + apply(x => x + e, 1)\n    }\n    return total\n}\n").Ok);
+        // a MEMBER-rooted write through a captured value struct (the L3a review regression).
+        Assert.False(RouteColumnarProgram("struct Box {\n    V: int\n}\n\nfunc test(a: int): int {\n    b := new Box { V: a }\n    let f: Func<int, int> = x => x + b.V\n    b.V = 99\n    return f(1) + b.V\n}\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
