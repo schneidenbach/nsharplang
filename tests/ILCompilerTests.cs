@@ -8212,6 +8212,70 @@ func main(): int {
     }
 
     [Fact]
+    public void ILCompiler_GenericRecordObjectInit_RefusesWithClearDiagnostic()
+    {
+        // B4: generic record object-init previously crashed emit with NotSupportedException.
+        // A correct emit is BLOCKED upstream: .NET 10 PersistedAssemblyBuilder drops the
+        // modreq(IsExternalInit) from member references rebound via TypeBuilder.GetMethod, so
+        // the init-setter call fails at RUNTIME with MissingMethodException (reproduced in a
+        // minimal Reflection.Emit spike with no N# code involved). Until the runtime issue is
+        // resolved, the oracle must refuse with a clear compile error instead of emitting
+        // garbage.
+        var source = @"
+record Pair<T> {
+    First: T
+    Second: T
+}
+
+func main(): int {
+    p := new Pair<int> { First: 1, Second: 2 }
+    return p.First + p.Second
+}";
+        var exception = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
+        Assert.Contains("init-only member 'First'", exception.Message);
+        Assert.Contains("generic type 'Pair'", exception.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_ClosedGenericObjectInit_AutoPropertySetter()
+    {
+        // The closed-generic object-initializer path resolves members through the open
+        // definition's bookkeeping with rebound tokens (plain setters carry no modreq and
+        // are unaffected by the PersistedAssemblyBuilder issue pinned above).
+        var source = @"
+class Box<T> {
+    Value: T
+}
+
+func main(): int {
+    b := new Box<int> { Value: 5 }
+    return b.Value
+}";
+        Assert.Equal(5, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericStruct_CtorAndFieldAccess()
+    {
+        // B5 pin: generic structs failed emit before the closed-generic member-resolution
+        // fixes; covered by the same rebinding machinery as classes.
+        var source = @"
+struct Cell<T> {
+    value: T
+
+    constructor(v: T) {
+        value = v
+    }
+}
+
+func main(): int {
+    c := new Cell<int>(3)
+    return c.value
+}";
+        Assert.Equal(3, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
     public void ILCompiler_GenericInstanceMethod_OnGenericType_ValueAndReferenceTypeArgs()
     {
         // B12b: `Box<int>.Pair<U>` must rebind onto the closed type BEFORE MakeGenericMethod,

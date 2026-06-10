@@ -95,6 +95,11 @@ public partial class ILCompiler
     private ModuleBuilder? _moduleBuilder;
     private MethodBuilder? _entryPointWrapper;
     private Dictionary<string, MethodBuilder> _methods = new();
+
+    // Init-only setters (modreq IsExternalInit). Closed-generic call sites must refuse these
+    // with a compile error: .NET 10 PersistedAssemblyBuilder drops required custom modifiers
+    // from member references rebound via TypeBuilder.GetMethod (runtime MissingMethodException).
+    private readonly HashSet<MethodBuilder> _initOnlySetters = new();
     private Dictionary<string, ConstructorBuilder> _constructors = new();
     private Dictionary<string, TypeBuilder> _types = new();
     // Unqualified names of every top-level newtype declared in this compilation unit.
@@ -17846,6 +17851,48 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Property or field {initializer.Name} not found on type {GetTypeKey(objectTypeBuilder)}");
         }
 
+        // Closed generic instantiation of an uncreated user type (Pair<int>): reflection
+        // member queries throw on TypeBuilderInstantiation, so resolve through the open
+        // definition's bookkeeping with rebound tokens, and type the value expression by
+        // positional substitution (First: T on Pair<int> expects int).
+        var closedGeneratedSetter = FindInstanceAccessorOnClosedGeneratedType(targetType, $"set_{initializer.Name}");
+        if (closedGeneratedSetter != null && TryGetUserTypeDefinition(targetType, out var initializerSetterDefinition))
+        {
+            var openSetter = FindInstanceAccessorOnBaseChain(initializerSetterDefinition, $"set_{initializer.Name}")!;
+
+            // Init-only setters (records, `init`/`readonly` properties) cannot be called on a
+            // closed generic instantiation: .NET 10 PersistedAssemblyBuilder drops the
+            // modreq(IsExternalInit) from the rebound member reference and the call fails at
+            // RUNTIME with MissingMethodException (reproduced in a minimal Reflection.Emit
+            // spike with no N# code). Refuse with a compile error instead of emitting garbage.
+            if (_initOnlySetters.Contains(openSetter))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot assign init-only member '{initializer.Name}' on generic type '{GetTypeKey(initializerSetterDefinition)}' through an object initializer yet — " +
+                    ".NET's persisted Reflection.Emit drops the init-only marker from generic member references. " +
+                    "Use a non-generic record, or a class with settable members, until the runtime issue is resolved.");
+            }
+
+            var valueType = SubstituteGenericSignatureTypeByPosition(
+                openSetter.GetParameters()[0].ParameterType,
+                targetType.GetGenericArguments());
+            EmitExpressionWithExpectedType(initializer.Value, valueType);
+            _currentIL.Emit(OpCodes.Callvirt, closedGeneratedSetter);
+            return;
+        }
+
+        var closedGeneratedInitializerField = FindInstanceFieldOnClosedGeneratedType(targetType, initializer.Name);
+        if (closedGeneratedInitializerField != null && TryGetUserTypeDefinition(targetType, out var initializerFieldDefinition))
+        {
+            var openField = FindInstanceFieldOnBaseChain(initializerFieldDefinition, initializer.Name)!;
+            var fieldType = SubstituteGenericSignatureTypeByPosition(
+                openField.FieldType,
+                targetType.GetGenericArguments());
+            EmitExpressionWithExpectedType(initializer.Value, fieldType);
+            _currentIL.Emit(OpCodes.Stfld, closedGeneratedInitializerField);
+            return;
+        }
+
         var property = targetType.GetProperty(initializer.Name);
         if (property?.SetMethod != null)
         {
@@ -22430,6 +22477,13 @@ public partial class ILCompiler
                 new[] { fieldType },
                 null,
                 null);
+            // Tracked so closed-generic call sites can refuse cleanly: .NET 10
+            // PersistedAssemblyBuilder drops required custom modifiers (modreq
+            // IsExternalInit) from member references rebound via TypeBuilder.GetMethod,
+            // so calling this setter on a closed instantiation fails at RUNTIME with
+            // MissingMethodException (proven by a minimal Reflection.Emit spike with no
+            // N# code involved).
+            _initOnlySetters.Add(setMethod);
         }
         else
         {
