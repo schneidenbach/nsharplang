@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc L2: TYPED LOCALS — param-ful lambda locals unlocked (`abadc3aa`)
+
+`let name: Type = init` + the bare form emit columnar (statement kind 40). Type trees can't share the
+statement table's kind space, so the declared TYPE rides as a SOURCE SPAN in the value slot (structurally
+delimited — balanced angles incl. `>>`-closes-two, ()/[] groups, to the depth-0 `=`); the emitter
+whitespace-strips the span onto the canonical grammar and resolves it. A kind-39 lambda initializer types
+contextually from the DECLARED delegate via the L1b machinery — **`let g: Func<int, int> = x => x + 3` is
+the headline: param-ful lambda locals work end-to-end** (L1a Invoke path). `let` locals are MUTABLE
+(probe-pinned), so plain locals; mismatches (NL202), no-initializer, lambda-arity, captures, shadowing all
+decline. Parity: 7 shapes + 5 pins. 3973/3973; gate green (595s). Next: **L3 captures/display classes** —
+the arc's hardest rung (adversarial review required): /tmp display-class spike, then L3a scoped to
+NEVER-MUTATED captures (pure by-value snapshot — semantics-identical to the oracle without box-lifting),
+then the mutation-sharing model.
+
+---
+
 ## 2026-06-10 — Lambdas arc L1c: zero-param `:=` lambdas, body-inferred returns (`36f47ac3`)
 
 `zero := () => 99` emits columnar: the `:=` initializer now parses at the lambda level, and a zero-param
