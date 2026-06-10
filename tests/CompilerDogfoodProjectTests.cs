@@ -4714,6 +4714,56 @@ class B
         Assert.False(RouteColumnarProgram("func h<T, U>(a: T, b: U): T where T: U where U: T {\n    return a\n}\n\nfunc f(): int {\n    return h(5, 6)\n}\n").Ok);
     }
 
+    // Lambdas arc L1a: DELEGATE-TYPE plumbing. `Func<p,...,ret>` is the production parser's function-type
+    // sugar (the LAST type argument is the return; `void` there lowers to the matching System.Action —
+    // `Func<int, void>` IS Action<int>); `Action`/`Action<...>` resolve when no user type claims the name.
+    // Delegate-typed PARAMETERS are received and INVOKED (`t(v)` -> callvirt Invoke) when no method tier
+    // carries the name (the pinned method-beats-local order). Parity passes REAL delegate instances as
+    // invocation arguments — both pipelines resolve the same closed BCL delegate types, so one instance
+    // binds against both emitted assemblies. Lambda EXPRESSIONS are still kernel-declined (L1b).
+    [Fact]
+    public void ColumnarCodegen_Parity_DelegateParamsAndInvoke()
+    {
+        var prog =
+            "func applyTwice(t: Func<int, int>, v: int): int {\n    return t(t(v))\n}\n\n" +
+            "func tap(a: Action<int>, after: int): int {\n    a(after)\n    return after + 1\n}\n\n" +
+            "func voidSugar(t: Func<int, void>, v: int): int {\n    t(v)\n    return v * 2\n}\n\n" +
+            "func runIt(a: Action, x: int): int {\n    a()\n    return x\n}\n\n" +
+            "func combine(f: Func<int, int, int>): int {\n    return f(3, 4)\n}\n\n" +
+            "func chooseWord(pick: Func<string, string, string>): string {\n    return pick(\"left\", \"right\")\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("applyTwice", new object[] { (Func<int, int>)(x => x + 3), 5 }),
+            ("tap", new object[] { (Action<int>)(_ => { }), 7 }),
+            ("voidSugar", new object[] { (Action<int>)(_ => { }), 4 }),
+            ("runIt", new object[] { (Action)(() => { }), 9 }),
+            ("combine", new object[] { (Func<int, int, int>)((a, b) => a * b) }),
+            ("chooseWord", new object[] { (Func<string, string, string>)((a, b) => a + "|" + b) }));
+
+        // The DELEGATE INVOCATION must actually reach the passed instance (not just type-check): a stateful
+        // delegate observes one hit per pipeline invocation.
+        var hits = new List<int>();
+        AssertColumnarProgramMatchesCSharp(
+            "func tap2(a: Action<int>, after: int): int {\n    a(after)\n    return after\n}\n",
+            ("tap2", new object[] { (Action<int>)(hits.Add), 42 }));
+        Assert.Equal(2, hits.Count); // once via the columnar assembly, once via the C# oracle path.
+        Assert.All(hits, h => Assert.Equal(42, h));
+
+        // DECLINES (each routes to the C# path):
+        // a delegate over a USER type (an un-baked builder arg — ctor/Invoke resolution would throw).
+        Assert.False(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc g(t: Func<Animal, int>): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // more than 4 parameters (out of the modeled Func/Action family).
+        Assert.False(RouteColumnarProgram("func g(t: Func<int, int, int, int, int, int>): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // method-beats-local (pinned): a delegate PARAM named like a sibling func — the pipeline binds the
+        // METHOD, so the name carrying both declines.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    return 1\n}\n\nfunc g(f: Func<int, int>): int {\n    return f(5)\n}\n").Ok);
+        // a delegate inside a TUPLE element (the L1a surface is params/locals only).
+        Assert.False(RouteColumnarProgram("func g(p: (Func<int, int>, int)): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // a LAMBDA expression (kernel-declined until L1b) — pins the arc's current front-end boundary.
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(): int {\n    return apply(x => x * 2, 5)\n}\n").Ok);
+        // invoking a NON-delegate param as a callee still declines.
+        Assert.False(RouteColumnarProgram("func g(n: int): int {\n    return n(5)\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+    }
+
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
     // an object initializer or a user constructor) must read/write the receiver's real storage. The
     // ILCompiler used to spill a `this.`-qualified value-type receiver into a throwaway temp — for a

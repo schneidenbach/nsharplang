@@ -481,7 +481,39 @@ public sealed class ColumnarIlEmitter
         || t is GenericTypeParameterBuilder       // a generic type/method parameter (T) — valid member/param/local type
         || IsClosedUserGenericInstantiation(t)    // Box<int> over a user generic definition (TypeBuilderInstantiation)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
-        || IsSupportedValueTuple(t);
+        || IsSupportedValueTuple(t)
+        || IsSupportedDelegateType(t);            // a closed System.Func/Action over baked runtime types (L1a)
+
+    // A closed System.Func/Action delegate over BAKED runtime types (the L1a delegate surface), or the bare
+    // System.Action — valid as a param/return/local so delegate-typed parameters can be received and invoked
+    // (`t(v)` -> callvirt Invoke). Builder-arg instantiations are excluded: ctor/Invoke resolution throws on
+    // a runtime generic closed over an un-baked builder type (the same rule the tuple elements apply).
+    private static bool IsSupportedDelegateType(Type t)
+    {
+        if (t == typeof(Action))
+            return true;
+        if (t is TypeBuilder || t is EnumBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        Type def;
+        try
+        {
+            def = t.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        if (def != typeof(Action<>) && def != typeof(Action<,>) && def != typeof(Action<,,>) && def != typeof(Action<,,,>)
+            && def != typeof(Func<>) && def != typeof(Func<,>) && def != typeof(Func<,,>) && def != typeof(Func<,,,>)
+            && def != typeof(Func<,,,,>))
+            return false;
+        foreach (var arg in t.GetGenericArguments())
+        {
+            if (arg.Assembly is AssemblyBuilder || !IsSupportedType(arg))
+                return false;
+        }
+        return true;
+    }
 
     // A closed instantiation of a USER generic type (Box<int> where Box is an uncreated TypeBuilder).
     // Reflection member queries throw on these — member access goes through the open definition's
@@ -516,7 +548,8 @@ public sealed class ColumnarIlEmitter
             // builder type cannot resolve its ctor/ItemN fields via plain reflection (GetConstructor/GetField throw
             // NotSupportedException at emit), so enum-in-tuple / struct-in-tuple must DECLINE here (→ C# fallback) —
             // consistent with the array-element decline. Enums and structs are modelled as scalars/locals only.
-            if (arg is EnumBuilder || arg is TypeBuilder || !IsSupportedType(arg))
+            // Delegates are likewise excluded from tuple elements (the L1a delegate surface is params/locals only).
+            if (arg is EnumBuilder || arg is TypeBuilder || IsSupportedDelegateType(arg) || !IsSupportedType(arg))
                 return false;
         }
 
@@ -676,6 +709,52 @@ public sealed class ColumnarIlEmitter
             default:
                 return false;
         }
+    }
+
+    // Invoke a DELEGATE-typed local or parameter (`t(v)` where `t: Func<int,int>` — L1a): load the delegate
+    // value, emit each argument exactly typed against Invoke's parameters, `callvirt Invoke`. Fires ONLY when
+    // no method tier carries the name (the pipeline's pinned method-beats-local order — the caller checks);
+    // a non-delegate-typed value declines. Invoke resolves by plain GetMethod — sound because
+    // IsSupportedDelegateType admits closed Func/Action over BAKED runtime types only (the oracle's
+    // TryGetDelegateInvokeMethod does the same for runtime delegate types).
+    private bool TryEmitDelegateInvoke(int callIdx, string name, out Type type)
+    {
+        type = null!;
+        Type delegateType;
+        if (_locals.TryGetValue(name, out var local))
+        {
+            if (!IsSupportedDelegateType(local.LocalType))
+                return false;
+            delegateType = local.LocalType;
+            _il.Emit(OpCodes.Ldloc, local);
+        }
+        else if (_paramOrdinals.TryGetValue(name, out var ordinal))
+        {
+            var paramType = _paramTypes[name];
+            if (!IsSupportedDelegateType(paramType))
+                return false;
+            delegateType = paramType;
+            EmitLoadArgument(ordinal);
+        }
+        else
+        {
+            return false;
+        }
+        var invoke = delegateType.GetMethod("Invoke");
+        if (invoke == null)
+            return false;
+        var invokeParams = invoke.GetParameters();
+        var argCount = _childCount[callIdx] - 1;
+        if (argCount != invokeParams.Length)
+            return false;
+        for (var a = 1; a <= argCount; a++)
+        {
+            if (!EmitExpression(Child(callIdx, a), out var argType) || argType != invokeParams[a - 1].ParameterType)
+                return false;
+        }
+        _il.Emit(OpCodes.Callvirt, invoke);
+        type = invoke.ReturnType;
+        return true;
     }
 
     // Emit a call to a GENERIC top-level sibling: emit the args while unifying the declared parameter shapes
@@ -1110,13 +1189,35 @@ public sealed class ColumnarIlEmitter
             type = null!;
             return false;
         }
+        // `Func<p1,...,ret>` — the production parser's FUNCTION-TYPE sugar (Parser.cs special-cases the
+        // NAME `Func` at parse, so this spelling is ALWAYS a function type even if a user declares a type
+        // named Func — the sugar wins; mirror it by checking before the user-generic path). The LAST type
+        // argument is the RETURN type; `void` is legal there and lowers to the matching System.Action —
+        // `Func<int, void>` IS Action<int>, exactly as the oracle's CreateDelegateType maps it.
+        if (canonical.StartsWith("Func<", StringComparison.Ordinal) && canonical[^1] == '>')
+        {
+            return TryResolveDelegateCanonical(
+                canonical.Substring(5, canonical.Length - 6), hasReturnSlot: true,
+                enumRegistry, structRegistry, unionRegistry, out type);
+        }
         // A CLOSED generic over a user-declared generic type (`Box<int>`): head + args split at the
         // top-level `<`; the open TypeBuilder (PASS 0 declared its parameters) is MakeGenericType'd.
-        // Unknown generic heads (BCL generics) decline. (Tuple canonicals start with `(` — handled above.)
+        // Unknown generic heads (BCL generics) decline — EXCEPT `Action<...>`, which falls back to the
+        // System.Action family when no user generic claims the name (the parser does NOT sugar Action,
+        // so a user-declared Action<T> wins, matching the production resolution order).
         var closedGenericOpen = canonical.IndexOf('<');
         if (closedGenericOpen > 0 && canonical[^1] == '>')
         {
-            return TryResolveClosedUserGeneric(canonical, closedGenericOpen, null, enumRegistry, structRegistry, unionRegistry, out type);
+            if (TryResolveClosedUserGeneric(canonical, closedGenericOpen, null, enumRegistry, structRegistry, unionRegistry, out type))
+                return true;
+            if (closedGenericOpen == 6 && canonical.StartsWith("Action<", StringComparison.Ordinal))
+            {
+                return TryResolveDelegateCanonical(
+                    canonical.Substring(7, canonical.Length - 8), hasReturnSlot: false,
+                    enumRegistry, structRegistry, unionRegistry, out type);
+            }
+            type = null!;
+            return false;
         }
         // A bare name matching a user-defined enum resolves to its EnumBuilder (so `Color` is a valid param/return/
         // local type). Checked before the builtins so a user enum never collides with a builtin name (it cannot —
@@ -1139,7 +1240,74 @@ public sealed class ColumnarIlEmitter
             type = unionDef.Base;
             return true;
         }
+        // Bare `Action` (the zero-parameter void delegate). Checked AFTER the user registries — the parser
+        // does not sugar the Action name, so a user type named Action wins, matching production resolution.
+        if (canonical == "Action")
+        {
+            type = typeof(Action);
+            return true;
+        }
         return TryResolveBuiltin(canonical, out type);
+    }
+
+    // Resolve a delegate canonical's comma-joined type-argument list to a closed System.Func/Action.
+    // `hasReturnSlot` distinguishes Func sugar (LAST argument is the return type, `void` allowed there)
+    // from Action<...> (parameters only). Parameters cap at 4 (the modeled surface); every resolved part
+    // must be a BAKED runtime type — a delegate closed over an un-baked builder type cannot resolve its
+    // ctor/Invoke via plain reflection (the same rule the tuple path applies to its elements).
+    private static bool TryResolveDelegateCanonical(string argList, bool hasReturnSlot,
+        IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
+    {
+        type = null!;
+        var parts = SplitTopLevelCommas(argList);
+        if (parts.Count == 0)
+            return false;
+        var paramCount = parts.Count;
+        var returnType = typeof(void);
+        if (hasReturnSlot)
+        {
+            paramCount -= 1;
+            var returnCanonical = parts[paramCount];
+            if (returnCanonical != "void"
+                && (!TryResolveType(returnCanonical, enumRegistry, structRegistry, unionRegistry, out returnType)
+                    || returnType.Assembly is AssemblyBuilder))
+                return false;
+        }
+        if (paramCount > 4)
+            return false;
+        var paramTypes = new Type[paramCount];
+        for (var i = 0; i < paramCount; i++)
+        {
+            if (parts[i] == "void"
+                || !TryResolveType(parts[i], enumRegistry, structRegistry, unionRegistry, out paramTypes[i])
+                || paramTypes[i].Assembly is AssemblyBuilder)
+                return false;
+        }
+        if (returnType == typeof(void))
+        {
+            if (paramCount == 0)
+            {
+                type = typeof(Action);
+                return true;
+            }
+            var openAction = paramCount switch
+            {
+                1 => typeof(Action<>), 2 => typeof(Action<,>), 3 => typeof(Action<,,>), _ => typeof(Action<,,,>),
+            };
+            type = openAction.MakeGenericType(paramTypes);
+            return true;
+        }
+        var openFunc = paramCount switch
+        {
+            0 => typeof(Func<>), 1 => typeof(Func<,>), 2 => typeof(Func<,,>), 3 => typeof(Func<,,,>), _ => typeof(Func<,,,,>),
+        };
+        var closedArgs = new Type[paramCount + 1];
+        System.Array.Copy(paramTypes, closedArgs, paramCount);
+        closedArgs[paramCount] = returnType;
+        type = openFunc.MakeGenericType(closedArgs);
+        return true;
     }
 
     // Split `s` on commas at bracket depth 0 (parens, angle brackets, and square brackets all nest), so a tuple
@@ -3117,11 +3285,18 @@ public sealed class ColumnarIlEmitter
                 if (_kinds[callee] == 6) // bare identifier -> resolved in the N# pipeline's EMPIRICALLY PINNED order.
                 {
                     var name = Text(callee);
-                    // A local/param of the same name is a delegate/closure invocation the spike does not model.
-                    // (The N# pipeline still binds the call to the METHOD — locals do not shadow call targets — so
-                    // declining is the safe under-acceptance.)
+                    // A local/param of the same name: the N# pipeline binds bare calls to the METHOD (locals do
+                    // not shadow call targets — pinned), so a name carried by BOTH a value and ANY method tier
+                    // declines (under-accept). When NO method tier carries the name, a DELEGATE-typed local/param
+                    // invokes via callvirt Invoke (L1a); a non-delegate value still declines.
                     if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
-                        return false;
+                    {
+                        if (_siblings.ContainsKey(name)
+                            || (_currentStruct != null && TryFindMethodOnChain(_currentStruct, name, out _))
+                            || (_enclosingType != null && TryFindStaticMethodOnChain(_enclosingType, name, _childCount[idx] - 1, out _)))
+                            return false;
+                        return TryEmitDelegateInvoke(idx, name, out type);
+                    }
                     // Bare-call resolution order, verified probe-by-probe against the production pipeline (a
                     // first agent-probe round claimed own-instance-beats-top-level; DIRECT re-probing REFUTED
                     // that — the pinned truth, parity-tested, is):

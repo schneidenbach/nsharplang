@@ -92,6 +92,24 @@ public readonly record struct ColumnarFunctionSymbol(
                 sb.Append(')');
                 return sb.ToString();
             }
+            case FunctionTypeReference f:
+            {
+                // The production parser sugars the NAME `Func` into a FunctionTypeReference (params + return);
+                // render it back as the SOURCE spelling `Func<p0,...,ret>` so it matches the columnar kernel's
+                // canon exactly (the kernel sees `Func<int,int>` as an ordinary Generic node and renders it
+                // verbatim — it has no source text to special-case the name).
+                var sb = new StringBuilder();
+                sb.Append("Func<");
+                for (var i = 0; i < f.ParameterTypes.Count; i++)
+                {
+                    if (i > 0) sb.Append(',');
+                    sb.Append(CanonicalType(f.ParameterTypes[i]));
+                }
+
+                if (f.ParameterTypes.Count > 0) sb.Append(',');
+                sb.Append(CanonicalType(f.ReturnType)).Append('>');
+                return sb.ToString();
+            }
             default:
                 return "?";
         }
