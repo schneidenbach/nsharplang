@@ -1265,19 +1265,6 @@ func Main() {
             dir = parent.FullName;
         }
 
-        // Fallback: check well-known paths
-        var paths = new[]
-        {
-            "/Users/spencer/repos/nsharplang/.claude/worktrees/hungry-blackburn/examples",
-            "/Users/spencer/repos/nsharplang/examples",
-        };
-
-        foreach (var p in paths)
-        {
-            if (Directory.Exists(p))
-                return p;
-        }
-
         throw new Exception("Could not find examples directory");
     }
 
@@ -1294,10 +1281,6 @@ func Main() {
             if (parent == null) break;
             dir = parent.FullName;
         }
-
-        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures";
-        if (Directory.Exists(fallback))
-            return fallback;
 
         throw new Exception("Could not find tests/fixtures directory");
     }

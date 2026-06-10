@@ -516,9 +516,6 @@ func main() {
             dir = parent.FullName;
         }
 
-        var fallback = "/Users/spencer/repos/nsharplang/examples";
-        if (Directory.Exists(fallback)) return fallback;
-
         throw new DirectoryNotFoundException("Could not find examples directory.");
     }
 

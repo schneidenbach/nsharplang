@@ -2669,10 +2669,6 @@ func Main() {
             dir = parent.FullName;
         }
 
-        var fallback = "/Users/spencer/repos/nsharplang/examples";
-        if (Directory.Exists(fallback))
-            return fallback;
-
         throw new DirectoryNotFoundException("Could not find examples directory.");
     }
 
@@ -2699,10 +2695,6 @@ func Main() {
                 break;
             dir = parent.FullName;
         }
-
-        var fallback = "/Users/spencer/code/nsharplang";
-        if (File.Exists(Path.Combine(fallback, "NSharpLang.sln")))
-            return fallback;
 
         throw new DirectoryNotFoundException("Could not find repository root.");
     }
@@ -2747,12 +2739,6 @@ func Main() {
             {
                 return candidate;
             }
-        }
-
-        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures/json-contract-root-keys.golden.json";
-        if (File.Exists(fallback))
-        {
-            return fallback;
         }
 
         throw new DirectoryNotFoundException("Could not find json-contract-root-keys.golden.json.");

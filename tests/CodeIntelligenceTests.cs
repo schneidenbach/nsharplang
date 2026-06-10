@@ -950,12 +950,6 @@ public class CodeIntelligenceOutputTests
             dir = parent.FullName;
         }
 
-        var fallback = "/Users/spencer/repos/nsharplang/tests/fixtures/json-contract-root-keys.golden.json";
-        if (File.Exists(fallback))
-        {
-            return fallback;
-        }
-
         throw new DirectoryNotFoundException("Could not find json-contract-root-keys.golden.json.");
     }
 }

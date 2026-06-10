@@ -697,18 +697,6 @@ public class LanguageServerTests
             dir = parent.FullName;
         }
 
-        var paths = new[]
-        {
-            "/Users/spencer/repos/nsharplang/.claude/worktrees/hungry-blackburn/examples",
-            "/Users/spencer/repos/nsharplang/examples",
-        };
-
-        foreach (var p in paths)
-        {
-            if (Directory.Exists(p))
-                return p;
-        }
-
         throw new Exception("Could not find examples directory");
     }
 
