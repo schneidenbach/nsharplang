@@ -11,6 +11,27 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Phase D-17a: columnar VALUE-STRUCT user constructors (`e2f4a553`)
+
+PASS 0c's wholesale value-type ctor decline lifted; generic structs (`GCell<int>`) flow through the D-16
+closed machinery. Value-type ctor bodies: NO base chain, NO all-fields validation (the oracle ACCEPTS
+partial assignment in struct ctors — probed; unassigned fields keep the newobj-zeroed value; classes keep
+NL304), bare field WRITES enabled via a new `isConstructorBody` emitter flag (a ctor's arg 0 IS the caller's
+storage pointer — struct METHODS still decline field mutation, spilled-copy semantics). Construction sites'
+IsReference gates lifted (`newobj` on a value type zero-inits → ctor → pushes the value).
+
+**ORACLE DEFECT found by probing (recorded for a future fix bundle):** `new S()` with a declared
+parameterless `: this(9)` struct ctor ZERO-INITS instead of running the user ctor. Columnar declines
+value-type ctor chains AND parameterless value-type user ctors (pinned).
+
+**Test-authoring landmine:** `partial` is a LEXER KEYWORD — `func partial(...)` in a parity source declines
+at PARSE (bisection burned an hour on it); same family as the member-order and multi-line-get rules.
+Parity: ColumnarCodegen_Parity_ValueStructConstructors; two D-16 decline pins flipped. 3961/3961; gate
+559aa0c5b3e0456e (one gate validated the merged union+B4+follow-on+D-17a tree; commits split by author).
+Next: D-17b `where T: Base` constraints for columnar generic funcs, then the lambdas/closures arc.
+
+---
+
 ## 2026-06-10 — ORACLE GENERIC UNIONS: `union Result<T>` end-to-end (`d1c41b6e`) + docs/examples sweep
 
 Closes chip `task_7bd7b47c` (implement-vs-fix-docs): the README's flagship `union Result<T>` did not parse
