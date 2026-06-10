@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Phase D-16: columnar GENERIC TYPES (`a10d33f9`)
+
+Generic user CLASSES compile through the columnar pipeline end-to-end, built directly on the corrected
+oracle. Kernel: `ParseStructDeclarationInto` parses `<T, U>` after the type name (D-15a's loop; constraints/
+empty lists → -1; spans in new outTypeParamStarts/Lengths, count in outResult[7], outResult now size 8 —
+ONE adapter call site, no test-harness scratch to bump for this kernel). Adapter declines generic RECORDS
+(oracle's deliberate init-modreq refusal) + generic-with-base. Emitter: PASS 0 `DefineGenericParameters` +
+`ColumnarStructDef.GenericParameters`; member signatures resolve the type's own params first
+(`TryResolveMemberType`); static members on generics decline (per-instantiation semantics unprobed);
+`TryResolveClosedUserGeneric` resolves `Box<int>` canonicals (typeParams threaded for `Box<T>` shapes inside
+another generic); case-15 closed construction via `TypeBuilder.GetConstructor` + positional substitution;
+closed-receiver field/property/method access via `TypeBuilder.GetField/GetMethod` rebinding — mirroring the
+oracle's fix-bundle machinery.
+
+**Two harness lessons re-confirmed by bisection** (probes deleted): test programs must respect the kernel
+member-order rule (fields+properties BEFORE ctors/methods) and the multi-line `get` block shape. **One real
+emitter hazard found:** `TypeBuilderInstantiation` equality is REFERENTIAL and `MakeGenericType` does not
+cache — nested `new Box<Box<int>>(new Box<int>(v))` produced two unequal instances of the same closed type;
+new structural `TypesEquivalent` (definition reference + recursive args) guards the construction/call checks.
+
+Parity: int/string instantiations × ctor+field+method+property, `Pair2<A,B>`, nested `Box<Box<int>>`.
+Declines pinned: generic record, generic-with-base, inline constraint, wrong arity, static-on-generic,
+generic value-struct construction (the last is the natural next sub-slice alongside `where T: Base`
+constraints for funcs). 3932/3932; gate green first try.
+
+---
+
 ## 2026-06-10 — Generic-user-types ORACLE arc COMPLETE: bundles 2/3 (`c4b42395`) + 3/3 (`ee5a60ba`)
 
 All 8 probed defects from the 49-probe acceptance map are resolved. Final disposition:
