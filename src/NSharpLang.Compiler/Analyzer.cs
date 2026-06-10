@@ -150,6 +150,12 @@ public class Analyzer : IDisposable
     // also produced unresolved-type errors, so a broken reference can't silently masquerade
     // as a plain "type not found".
     private readonly Dictionary<string, string> _referenceLoadFailures = new(StringComparer.Ordinal);
+
+    // Opt-in flag: report unresolved simple type names (NL201) at declared-type positions.
+    // Set only by ResolveDeclaredType — pass-1 signature collection and lazy cross-file
+    // member resolution run without generic type parameters in scope and must stay lenient.
+    private bool _reportUnresolvedTypes;
+    private readonly HashSet<(string Name, int Line, int Column)> _reportedUnresolvedTypeRefs = new();
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
@@ -268,6 +274,8 @@ public class Analyzer : IDisposable
         _suppressErrorTupleResultUse = false;
         _reportedNullabilityDiagnostics.Clear();
         _reportedUnverifiedErrorResultDiagnostics.Clear();
+        _reportedUnresolvedTypeRefs.Clear();
+        _reportUnresolvedTypes = false;
         _currentReturnType = null;
         _currentFunction = null;
         _currentFunctionReturnTypeWasOmitted = false;
@@ -475,10 +483,10 @@ public class Analyzer : IDisposable
                 AnalyzeEnumDeclaration(enumDecl);
                 break;
             case TypeAliasDeclaration aliasDecl:
-                ResolveType(aliasDecl.Type);
+                ResolveDeclaredType(aliasDecl.Type);
                 break;
             case NewtypeDeclaration newtypeDecl:
-                ResolveType(newtypeDecl.UnderlyingType);
+                ResolveDeclaredType(newtypeDecl.UnderlyingType);
                 break;
             case FieldDeclaration field:
                 AnalyzeFieldDeclaration(field);
@@ -512,7 +520,7 @@ public class Analyzer : IDisposable
         {
             foreach (var param in test.TableParameters)
             {
-                var paramType = ResolveType(param.Type);
+                var paramType = ResolveDeclaredType(param.Type);
                 var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, test.Line, test.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
@@ -662,7 +670,7 @@ public class Analyzer : IDisposable
         // Add parameters to scope
         foreach (var param in func.Parameters)
         {
-            var paramType = ResolveType(param.Type);
+            var paramType = ResolveDeclaredType(param.Type);
             var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, func.Line, func.Column);
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
 
@@ -674,7 +682,7 @@ public class Analyzer : IDisposable
         var previousFunction = _currentFunction;
         var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
         var previousFunctionIsAsync = _currentFunctionIsAsync;
-        var functionReturnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
+        var functionReturnType = func.ReturnType != null ? ResolveDeclaredType(func.ReturnType) : BuiltInTypes.Void;
         _currentReturnType = functionReturnType;
         _currentFunction = func;
         _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
@@ -1050,7 +1058,7 @@ public class Analyzer : IDisposable
         {
             foreach (var param in classDecl.PrimaryConstructorParameters)
             {
-                var paramType = ResolveType(param.Type);
+                var paramType = ResolveDeclaredType(param.Type);
                 var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, classDecl.Line, classDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
@@ -1111,7 +1119,7 @@ public class Analyzer : IDisposable
         {
             foreach (var param in structDecl.PrimaryConstructorParameters)
             {
-                var paramType = ResolveType(param.Type);
+                var paramType = ResolveDeclaredType(param.Type);
                 var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, structDecl.Line, structDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
@@ -1157,7 +1165,7 @@ public class Analyzer : IDisposable
         {
             foreach (var param in recordDecl.PrimaryConstructorParameters)
             {
-                var paramType = ResolveType(param.Type);
+                var paramType = ResolveDeclaredType(param.Type);
                 var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, recordDecl.Line, recordDecl.Column);
                 DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
                 RecordVariableInCurrentScope(param.Name, paramType);
@@ -1239,7 +1247,7 @@ public class Analyzer : IDisposable
             {
                 foreach (var property in unionCase.Properties)
                 {
-                    ResolveType(property.Type);
+                    ResolveDeclaredType(property.Type);
                 }
             }
         }
@@ -1337,7 +1345,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            fieldType = ResolveType(field.Type);
+            fieldType = ResolveDeclaredType(field.Type);
 
             if (field.Initializer != null)
             {
@@ -1390,7 +1398,7 @@ public class Analyzer : IDisposable
     {
         CheckVisibilityConvention(prop.Name, prop.Modifiers, prop.Line, prop.Column);
 
-        var propType = ResolveType(prop.Type!);
+        var propType = ResolveDeclaredType(prop.Type!);
         DeclareSymbol(prop.Name, propType, prop.Line, prop.Column);
 
         // Record property type into SemanticModel for completion support
@@ -1468,7 +1476,7 @@ public class Analyzer : IDisposable
         // Add parameters to scope
         foreach (var param in ctor.Parameters)
         {
-            var paramType = ResolveType(param.Type);
+            var paramType = ResolveDeclaredType(param.Type);
             var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, ctor.Line, ctor.Column);
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
@@ -2884,10 +2892,22 @@ public class Analyzer : IDisposable
         // Analyze the local function body in a new scope
         PushScope(new Scope(ScopeKind.Function), localFunc.Line, localFunc.Column);
 
+        // Add generic type parameters to both type and symbol namespaces (mirrors
+        // AnalyzeFunctionDeclaration) so they resolve as types inside the local function.
+        if (func.TypeParameters != null)
+        {
+            foreach (var tp in func.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         // Add parameters to scope
         foreach (var param in func.Parameters)
         {
-            var paramType = ResolveType(param.Type);
+            var paramType = ResolveDeclaredType(param.Type);
             var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, localFunc.Line, localFunc.Column);
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
@@ -2933,7 +2953,7 @@ public class Analyzer : IDisposable
 
     private void AnalyzeVariableDeclaration(VariableDeclarationStatement varDecl)
     {
-        TypeInfo? declaredType = varDecl.Type != null ? ResolveType(varDecl.Type) : null;
+        TypeInfo? declaredType = varDecl.Type != null ? ResolveDeclaredType(varDecl.Type) : null;
         TypeInfo? inferredType = null;
 
         if (varDecl.Initializer != null)
@@ -6917,35 +6937,7 @@ public class Analyzer : IDisposable
 
     private Type? TryConstructKnownGenericType(GenericTypeInfo genericType)
     {
-        if (_wellKnownTypes == null) return null;
-        var wkt = _wellKnownTypes;
-
-        var typeDefinition = genericType.Name switch
-        {
-            "List" when genericType.TypeArguments.Count == 1 => wkt.ListOpen,
-            "IEnumerable" when genericType.TypeArguments.Count == 1 => wkt.IEnumerableOpen,
-            "IQueryable" when genericType.TypeArguments.Count == 1 => wkt.IQueryableOpen,
-            "ICollection" when genericType.TypeArguments.Count == 1 => wkt.ICollectionOpen,
-            "IList" when genericType.TypeArguments.Count == 1 => wkt.IListOpen,
-            "Dictionary" when genericType.TypeArguments.Count == 2 => wkt.DictionaryOpen,
-            "IDictionary" when genericType.TypeArguments.Count == 2 => wkt.IDictionaryOpen,
-            "Task" when genericType.TypeArguments.Count == 1 => wkt.TaskOpen,
-            "ValueTask" when genericType.TypeArguments.Count == 1 => wkt.ValueTaskOpen,
-            "Result" when genericType.TypeArguments.Count == 2 => wkt.RuntimeResultOpen,
-            "NSharpLang.Runtime.Result" when genericType.TypeArguments.Count == 2 => wkt.RuntimeResultOpen,
-            "JsonTypeInfo" when genericType.TypeArguments.Count == 1 => wkt.JsonTypeInfoOpen,
-            "System.Text.Json.Serialization.Metadata.JsonTypeInfo" when genericType.TypeArguments.Count == 1 => wkt.JsonTypeInfoOpen,
-            "Func" when genericType.TypeArguments.Count == 1 => wkt.Func1,
-            "Func" when genericType.TypeArguments.Count == 2 => wkt.Func2,
-            "Func" when genericType.TypeArguments.Count == 3 => wkt.Func3,
-            "Func" when genericType.TypeArguments.Count == 4 => wkt.Func4,
-            "Func" when genericType.TypeArguments.Count == 5 => wkt.Func5,
-            "Action" when genericType.TypeArguments.Count == 1 => wkt.Action1,
-            "Action" when genericType.TypeArguments.Count == 2 => wkt.Action2,
-            "Action" when genericType.TypeArguments.Count == 3 => wkt.Action3,
-            "Action" when genericType.TypeArguments.Count == 4 => wkt.Action4,
-            _ => null
-        };
+        var typeDefinition = TryGetKnownOpenGenericType(genericType.Name, genericType.TypeArguments.Count);
 
         if (typeDefinition == null)
             return null;
@@ -6964,6 +6956,44 @@ public class Analyzer : IDisposable
         }
 
         return typeDefinition.MakeGenericType(typeArguments.ToArray());
+    }
+
+    /// <summary>
+    /// Maps compiler-known generic type names (resolvable without imports) to their open
+    /// CLR type definitions for the given arity. Shared by generic construction and by
+    /// unresolved-type reporting, which must never flag these names.
+    /// </summary>
+    private Type? TryGetKnownOpenGenericType(string name, int arity)
+    {
+        if (_wellKnownTypes == null) return null;
+        var wkt = _wellKnownTypes;
+
+        return name switch
+        {
+            "List" when arity == 1 => wkt.ListOpen,
+            "IEnumerable" when arity == 1 => wkt.IEnumerableOpen,
+            "IQueryable" when arity == 1 => wkt.IQueryableOpen,
+            "ICollection" when arity == 1 => wkt.ICollectionOpen,
+            "IList" when arity == 1 => wkt.IListOpen,
+            "Dictionary" when arity == 2 => wkt.DictionaryOpen,
+            "IDictionary" when arity == 2 => wkt.IDictionaryOpen,
+            "Task" when arity == 1 => wkt.TaskOpen,
+            "ValueTask" when arity == 1 => wkt.ValueTaskOpen,
+            "Result" when arity == 2 => wkt.RuntimeResultOpen,
+            "NSharpLang.Runtime.Result" when arity == 2 => wkt.RuntimeResultOpen,
+            "JsonTypeInfo" when arity == 1 => wkt.JsonTypeInfoOpen,
+            "System.Text.Json.Serialization.Metadata.JsonTypeInfo" when arity == 1 => wkt.JsonTypeInfoOpen,
+            "Func" when arity == 1 => wkt.Func1,
+            "Func" when arity == 2 => wkt.Func2,
+            "Func" when arity == 3 => wkt.Func3,
+            "Func" when arity == 4 => wkt.Func4,
+            "Func" when arity == 5 => wkt.Func5,
+            "Action" when arity == 1 => wkt.Action1,
+            "Action" when arity == 2 => wkt.Action2,
+            "Action" when arity == 3 => wkt.Action3,
+            "Action" when arity == 4 => wkt.Action4,
+            _ => null
+        };
     }
 
     private Type? TryConstructDelegateType(FunctionTypeInfo functionType)
@@ -10104,7 +10134,7 @@ public class Analyzer : IDisposable
         }
         else
         {
-            type = ResolveType(newExpr.Type);
+            type = ResolveDeclaredType(newExpr.Type);
 
             // Special case: if the type is a qualified name like "Result.Success",
             // it might be a union case. Check if the base type is a union.
@@ -10922,6 +10952,27 @@ public class Analyzer : IDisposable
     }
 
     // Type resolution
+    /// <summary>
+    /// Resolves a type reference at a declared-type position (parameter, return, field,
+    /// property, variable annotation, type alias, or `new` expression) and reports NL201
+    /// when a simple name resolves through no channel. Only these positions opt in:
+    /// pass-1 signature collection and lazy cross-file member resolution run without
+    /// generic type parameters in scope and must stay lenient to avoid false positives.
+    /// </summary>
+    private TypeInfo ResolveDeclaredType(TypeReference typeRef)
+    {
+        var previous = _reportUnresolvedTypes;
+        _reportUnresolvedTypes = true;
+        try
+        {
+            return ResolveType(typeRef);
+        }
+        finally
+        {
+            _reportUnresolvedTypes = previous;
+        }
+    }
+
     private TypeInfo ResolveType(TypeReference typeRef)
     {
         var resolved = typeRef switch
@@ -10952,7 +11003,40 @@ public class Analyzer : IDisposable
 
         if (generic.Line > 0)
         {
-            _ = ResolveSimpleType(generic.Name, generic.Line, generic.Column);
+            // Resolve the open-generic name for binding/semantic-model side effects, but
+            // suppress unresolved reporting here: CLR open generics carry an arity suffix
+            // (List resolves as List`1), so the plain simple-name probe legitimately misses
+            // external generic types.
+            var previousReport = _reportUnresolvedTypes;
+            _reportUnresolvedTypes = false;
+            TypeInfo resolvedName;
+            try
+            {
+                resolvedName = ResolveSimpleType(generic.Name, generic.Line, generic.Column);
+            }
+            finally
+            {
+                _reportUnresolvedTypes = previousReport;
+            }
+
+            // Report the generic name as unresolved only when it is not compiler-known
+            // (Result, Task, Func, ...) and the arity-qualified external probe also misses
+            // (e.g. `Lst<int>` instead of `List<int>`).
+            if (previousReport &&
+                resolvedName is ExternalTypeInfo &&
+                !generic.Name.Contains('.') &&
+                TryGetKnownOpenGenericType(generic.Name, generic.TypeArguments.Count) == null &&
+                TryResolveExternalType($"{generic.Name}`{generic.TypeArguments.Count}") == null &&
+                _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
+            {
+                Error(
+                    ErrorCode.TypeNotFound,
+                    $"Type '{generic.Name}' not found",
+                    generic.Line,
+                    generic.Column,
+                    BuildUnresolvedTypeSuggestion(generic.Name),
+                    generic.Name.Length);
+            }
         }
 
         return new GenericTypeInfo(generic.Name, typeArguments);
@@ -11128,8 +11212,47 @@ public class Analyzer : IDisposable
             return projectType;
         }
 
-        // Return unknown type (not an error - might be from C# library)
+        // No resolution channel recognized this name. Historically this always fell through
+        // silently ("might be from a C# library"), letting typos and missing references reach
+        // IL emission. At declared-type positions (ResolveDeclaredType) report undotted names
+        // as NL201; dotted names stay lenient for now because namespace-qualified externals
+        // and `new Union.Case` references legitimately resolve through other channels.
+        if (_reportUnresolvedTypes && line > 0 && !name.Contains('.') &&
+            _reportedUnresolvedTypeRefs.Add((name, line, column)))
+        {
+            Error(
+                ErrorCode.TypeNotFound,
+                $"Type '{name}' not found",
+                line,
+                column,
+                BuildUnresolvedTypeSuggestion(name),
+                name.Length);
+        }
+
         return new ExternalTypeInfo(name);
+    }
+
+    private string BuildUnresolvedTypeSuggestion(string name)
+    {
+        string? bestCandidate = null;
+        var bestDistance = int.MaxValue;
+        foreach (var candidate in GetAllTypesInScope())
+        {
+            if (candidate.Length < 3 || candidate == name)
+                continue;
+
+            var distance = ErrorSuggestions.LevenshteinDistance(
+                name.ToLowerInvariant(), candidate.ToLowerInvariant());
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestCandidate = candidate;
+            }
+        }
+
+        return bestCandidate != null && bestDistance <= 2
+            ? $"Did you mean '{bestCandidate}'? Otherwise add the 'import' or package reference that provides '{name}'."
+            : $"Check the spelling, add the missing 'import', or add the package/project reference that provides '{name}'.";
     }
 
     /// <summary>

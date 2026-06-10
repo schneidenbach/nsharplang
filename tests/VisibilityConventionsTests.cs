@@ -226,7 +226,16 @@ func UseHidden(hiddenValue: hiddenCamel): int {
             File.WriteAllText(blockedPath, blockedSource);
 
             var blockedResult = AnalyzeFile(blockedPath, tempDir, blockedSource);
-            Assert.Empty(blockedResult.Errors);
+
+            // Visibility-blocked types are not resolvable from this file, and since the
+            // unresolved-type check (NL201) that is now a hard error instead of silent
+            // acceptance: each blocked annotation reports TypeNotFound. The semantic model
+            // still records the lenient ExternalTypeInfo placeholder for IDE features.
+            Assert.Equal(4, blockedResult.Errors.Count(e => e.Code == ErrorCode.TypeNotFound));
+            Assert.All(
+                new[] { "InternalPascal", "CopiedPrivatePascal", "SecretPascal", "hiddenCamel" },
+                name => Assert.Contains(blockedResult.Errors,
+                    e => e.Code == ErrorCode.TypeNotFound && e.Message.Contains($"'{name}'")));
             Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["internalValue"]);
             Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["copiedValue"]);
             Assert.IsType<ExternalTypeInfo>(blockedResult.SemanticModel.Variables["secretValue"]);

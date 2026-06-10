@@ -108,7 +108,7 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 - Return-value diagnostics for functions with omitted return types underline the function name, because the missing annotation is fixed at the signature rather than at a one-character returned literal.
 
 ### Type Errors (200-299)
-- `NL201`: TypeNotFound
+- `NL201`: TypeNotFound — emitted at declared-type positions (parameter/return/field/property/variable annotations, type aliases, `new` expressions, generic type arguments) when a simple type name resolves through no channel (built-ins, declarations/scopes incl. generic type parameters, using aliases, MLC external types, project symbols, compiler-known generics like `Result`/`Task`/`Func` with the CLR arity-suffix probe). Includes a nearest-in-scope "Did you mean 'X'?" suggestion (Levenshtein ≤ 2). Deliberately lenient cases that do NOT report: dotted/qualified names (namespace-qualified externals, `new Union.Case`), pass-1 signature collection, and lazy cross-file member resolution (no generic type parameters in scope there). Visibility-blocked cross-file types report NL201 (they are not findable from that file); enriching that to an "exists but file-private" message is a known follow-up. Before this check, typos and missing references silently reached IL emission and crashed with a raw `InvalidOperationException`.
 - `NL202`: TypeMismatch (assignment, return, argument; return diagnostics distinguish omitted return type, explicit void, and wrong non-void return type)
 - `NL203`: CannotInferType
 - `NL204-208`: InvalidCast, AmbiguousType, CannotResolveType, InvalidTypeArgument, GenericConstraintViolation

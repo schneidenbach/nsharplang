@@ -9063,6 +9063,75 @@ func bad(a: Vec2, b: Vec2): Vec2 {
     }
 
     [Fact]
+    public void UnresolvedType_InParameterAnnotation_ReportsTypeNotFound()
+    {
+        AssertHasErrorCode("func Handle(input: MissingExternalType) {\n}\n", ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void UnresolvedType_InReturnType_ReportsTypeNotFound()
+    {
+        AssertHasErrorCode("func Make(): MissingExternalType {\n    return null\n}\n", ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void UnresolvedType_InNewExpression_ReportsTypeNotFound()
+    {
+        AssertHasErrorCode("func Main() {\n    x := new MissingExternalType()\n}\n", ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void UnresolvedType_InFieldType_ReportsTypeNotFound()
+    {
+        AssertHasErrorCode("class Box {\n    Value: MissingExternalType\n}\n", ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
+    public void UnresolvedType_InGenericTypeArgument_ReportsArgNotTheKnownGeneric()
+    {
+        // The bogus argument must be reported, but `List` itself is compiler-known/external
+        // (CLR open generics carry an arity suffix) and must NOT be flagged.
+        var result = Analyze("import System.Collections.Generic\nfunc Handle(items: List<MissingExternalType>) {\n}\n");
+        var notFound = result.Errors.Where(e => e.Code == ErrorCode.TypeNotFound).ToList();
+        Assert.Single(notFound);
+        Assert.Contains("MissingExternalType", notFound[0].Message);
+    }
+
+    [Fact]
+    public void GenericTypeParameters_AreNotReportedAsUnresolved()
+    {
+        AssertNoErrors("func Map<T>(x: T): T {\n    return x\n}\n");
+        AssertNoErrors("class Box<T> {\n    Value: T\n}\n");
+        // Local functions register their type parameters too (fixed alongside this check).
+        AssertNoErrors("func Main() {\n    func inner<T>(x: T): T {\n        return x\n    }\n    y := inner(1)\n}\n");
+    }
+
+    [Fact]
+    public void CompilerKnownAndImportedTypes_AreNotReportedAsUnresolved()
+    {
+        // Result<T,E> is compiler-known without imports; StringBuilder resolves via import;
+        // duck interfaces and same-file forward references resolve through declarations.
+        AssertNoErrors("func make(ok: bool): Result<int, string> {\n    if ok {\n        return Ok(42)\n    }\n    return Err(\"nope\")\n}\n");
+        AssertNoErrors("import System.Text\nfunc Main() {\n    sb := new StringBuilder()\n}\n");
+        AssertNoErrors("func Use(r: IReader): string {\n    return r.Read()\n}\nduck interface IReader {\n    func Read(): string\n}\n");
+    }
+
+    [Fact]
+    public void UnionCaseInstantiation_IsNotReportedAsUnresolved()
+    {
+        AssertNoErrors("union Shape {\n    Circle { radius: double }\n}\nfunc MakeCircle(): Shape {\n    return new Shape.Circle { radius: 1.0 }\n}\n");
+    }
+
+    [Fact]
+    public void UnresolvedType_SuggestsNearestInScopeType()
+    {
+        var result = Analyze("class Person {\n    Name: string\n}\nfunc Greet(p: Persn) {\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+        Assert.Contains("Persn", error.Message);
+        Assert.Contains("Did you mean 'Person'?", error.Suggestion ?? string.Empty);
+    }
+
+    [Fact]
     public void ReferenceLoadFailure_SurfacedAsWarning_WhenTypeResolutionFails()
     {
         // A reference assembly that failed to load is the classic root cause behind a
