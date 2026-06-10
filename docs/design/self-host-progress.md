@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-15b: columnar EXPLICIT generic type arguments (kind-38 GenericCallee)
+
+`Identity<int>(42)` now compiles through the columnar pipeline (`d0c079ba`), completing the generic-FUNCTION
+story. The expression kernel gained an `IsGenericCallTypeArgs` lookahead mirroring `Parser.cs
+IsGenericMethodCall` (:1993) EXACTLY — committing to a type-argument list only when a bare-identifier callee's
+`<` scan reaches a close followed DIRECTLY by `(` — and a new **GenericCallee node (kind 38**, value span =
+callee name, children = TYPE-kernel subtrees; 38 is the next free kind after UnionCasePattern 37). The postfix
+loop's `(` branch then wraps it like any callee. On the emit side the inference block refactored into a shared
+`TryEmitGenericSiblingCall` taking the binding array — empty for inference, PRE-SEEDED from resolved explicit
+type args (simple type nodes only; TypeBuilder/EnumBuilder bindings decline) — with the unify loop VERIFYING
+seeded bindings (`Identity<string>(5)` declines). A committed-but-non-generic shape (`a < b > (c)` over locals)
+yields a kind-38 node the emitter declines — decline-safe whichever way the oracle's grammar rules it. 4 new
+parity invocations + 4 new decline pins; the D-15a explicit-args pin flipped. 1236 tests green; gate green
+(first try). Next: the generic-user-types ORACLE fix bundle (8 probed defects: closed-type field lookup,
+inferred-construction BadImageFormat, generic records/structs, generic-typed ctor params, generic methods on
+generic types, runtime arity TypeLoadException, undiagnosed type args), then columnar generic types.
+
+---
+
 ## 2026-06-09 — Phase D-15a: columnar GENERIC FUNCTIONS (real CLR generic methods + call-site inference)
 
 The generics arc opens on its oracle-solid surface (`ca0b64da`). A 49-probe fan-out mapped the acceptance
