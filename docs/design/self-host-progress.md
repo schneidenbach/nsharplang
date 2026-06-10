@@ -11,6 +11,22 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc L3b: MUTATED captures via StrongBox lifting (`5aa789e5`)
+
+Shared closure mutation lands — the oracle's box-lift model: captured + bare-assigned names lift into a
+shared StrongBox<T> (declaration allocates; lifted params box-init at body start; every read/write routes
+through `.Value`; display classes snapshot the BOX reference). Six shared-mutation directions probe-exact
+(closure-writes 207, body-writes-after 51, bidirectional 114, lifted params 15, two-closures-one-box 42,
+mixed lift+snapshot 109, lifted strings); structural writes (foreach/decon/member-rooted) stay declined.
+One probe-bisected mid-slice bug (capture scan missed lifted LOCALS). **Adversarial review (2 lenses): one
+HIGH break confirmed-then-fixed** — a lifted DELEGATE param invoked the dead arg slot (columnar 8 vs oracle
+700); now box-routed Invoke and a positive parity case — plus the scope-discipline cluster (lifted maps
+block-scoped; binding/redeclaration/type-vs-value gates lifted-aware; bare-assign scan respects lambda-param
+shadowing). 3979/3979; gate 289s clean. REMAINING lambda surface: capture-opaque body widening (match/
+object-init in capturing lambdas), `this` captures, L4 local functions.
+
+---
+
 ## 2026-06-10 — Lambdas arc: BLOCK-BODIED lambdas (`2d0199e6`)
 
 `x => { ... }` emits columnar — the slice that makes lambdas practically useful. Kernel: the lambda's `{`
