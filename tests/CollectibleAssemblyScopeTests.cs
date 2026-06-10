@@ -30,10 +30,13 @@ public class CollectibleAssemblyScopeTests
     public void Dispose_LetsTheContextUnload()
     {
         var weakContext = LoadAndDispose(SelfAssemblyBytes());
-        for (var i = 0; weakContext.IsAlive && i < 10; i++)
+        // Unload completion is cooperative and lags under parallel-suite load (the EE's unload
+        // worker races other threads' allocation/JIT churn), so be patient: ~3s bound, early exit.
+        for (var i = 0; weakContext.IsAlive && i < 30; i++)
         {
             GC.Collect();
             GC.WaitForPendingFinalizers();
+            System.Threading.Thread.Sleep(100);
         }
         Assert.False(weakContext.IsAlive, "the collectible load context must be reclaimable after Dispose");
     }

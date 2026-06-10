@@ -15,7 +15,47 @@ internal static class TestSdkFeed
     public static string Version => PackedSdk.Value.Version;
     public static string FeedPath => PackedSdk.Value.FeedPath;
 
+    // Serializes the COLD-START package extraction. The toolchain test classes run concurrently, and
+    // their first dotnet restores would otherwise race to extract the same NSharpLang.Sdk/Runtime
+    // nupkgs into a cold NUGET_PACKAGES (the gate's isolated run starts empty) — MSBuild's SDK
+    // resolver intermittently fails on that race. One warm-up restore runs before any concurrent
+    // spawn; every later restore hits the extracted cache.
+    private static readonly Lazy<bool> ColdStartWarmup = new(() =>
+    {
+        var warmupDir = Path.Combine(Path.GetTempPath(), $"nsharp-sdk-feed-warmup-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(warmupDir);
+        try
+        {
+            File.WriteAllText(Path.Combine(warmupDir, "Warmup.csproj"), "<Project Sdk=\"NSharpLang.Sdk\" />\n");
+            File.WriteAllText(Path.Combine(warmupDir, "project.yml"), """
+name: Warmup
+outputType: library
+targetFramework: net10.0
+""");
+            WriteResolutionFilesCore(warmupDir);
+            var exitCode = RunDotnetNoCapture(
+                warmupDir,
+                $"restore \"{Path.Combine(warmupDir, "Warmup.csproj")}\" -v q --disable-build-servers",
+                timeout: TimeSpan.FromMinutes(5));
+            if (exitCode != 0)
+            {
+                throw new InvalidOperationException("SDK feed warm-up restore failed.");
+            }
+            return true;
+        }
+        finally
+        {
+            Directory.Delete(warmupDir, recursive: true);
+        }
+    });
+
     public static void WriteSdkResolutionFiles(string projectDir)
+    {
+        _ = ColdStartWarmup.Value;
+        WriteResolutionFilesCore(projectDir);
+    }
+
+    private static void WriteResolutionFilesCore(string projectDir)
     {
         File.WriteAllText(Path.Combine(projectDir, "global.json"), $$"""
 {

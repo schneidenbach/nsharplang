@@ -107,6 +107,13 @@ Rules of the scope:
   scans tests/ sources and fails on any direct `Assembly.Load`/`Assembly.LoadFile`/`Assembly.LoadFrom` call
   site (comment mentions are fine; constructing `AssemblyLoadContext`s directly, as oracle helpers do, is fine).
 
+### 5. The C# Oracle Memoizes Compiles
+`InvokeViaCSharpPath`/`InvokeViaCSharpPathMultiFile` cache emitted oracle BYTES per source text
+(`CSharpOracleCache`) — the parity suite makes ~1000 oracle calls over far fewer unique programs.
+Implications: oracle compiles must stay deterministic and stateless (same source → same assembly),
+and per-call work belongs in the invoke path, not the compile path. Only bytes are cached; every
+invoke still loads through a fresh `CollectibleAssemblyScope`, so nothing stays pinned.
+
 ## Test Categories
 
 ### Lexer Tests

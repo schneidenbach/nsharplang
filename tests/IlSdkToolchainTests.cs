@@ -9,7 +9,29 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
-public class IlSdkToolchainTests
+// Shared scaffolding for the IL-SDK toolchain test classes below. The class is split into three
+// xUnit collections so the dotnet restore/build/run subprocess chains overlap instead of running
+// as one ~45s serial tail (the suite's critical path). Each test uses its own temp project dir,
+// and the packed SDK feed (TestSdkFeed) is content-hash cached and read-only after creation, so
+// concurrent restores against it are safe.
+public abstract class IlSdkToolchainTestBase
+{
+    protected static void CreateSdkProject(string projectDir, string projectName, string projectYaml)
+    {
+        TestSdkFeed.WriteVersionedSdkProject(projectDir, projectName);
+        File.WriteAllText(Path.Combine(projectDir, "project.yml"), projectYaml);
+        RestoreCommand.Restore(projectDir, quiet: true);
+    }
+
+    protected static string CreateTempDir()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-sdk-il-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        return tempDir;
+    }
+}
+
+public class IlSdkToolchainTests : IlSdkToolchainTestBase
 {
     [Fact]
     public void ProjectReferenceResolver_ResolvesProjectYmlToNamedCsproj()
@@ -79,11 +101,6 @@ func main() {
     print "sdk il build"
 }
 """);
-
-            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
-                tempDir,
-                $"restore \"{Path.Combine(tempDir, "SdkIlBuild.csproj")}\" -v q --disable-build-servers",
-                timeout: TimeSpan.FromMinutes(3)));
 
             Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
                 tempDir,
@@ -262,6 +279,10 @@ func main() {
         }
     }
 
+}
+
+public class IlSdkToolchainStubTests : IlSdkToolchainTestBase
+{
     [Fact]
     public void DotnetBuild_CompilationStubResolvesCrossNamespaceImportsAndTopLevelFunctions()
     {
@@ -613,6 +634,10 @@ Console.WriteLine(string.Join(",", values));
         }
     }
 
+}
+
+public class IlSdkToolchainConsumerTests : IlSdkToolchainTestBase
+{
     [Fact]
     public void DotnetTest_UsesIlBackendThroughSdk()
     {
@@ -635,11 +660,6 @@ test "addition works" {
     assert Add(2, 3) == 5
 }
 """);
-
-            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
-                tempDir,
-                $"restore \"{Path.Combine(tempDir, "SdkIlTests.csproj")}\" -v q --disable-build-servers",
-                timeout: TimeSpan.FromMinutes(5)));
 
             var trxPath = Path.Combine(tempDir, "results.trx");
             Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
@@ -946,17 +966,4 @@ Console.WriteLine($"{address.FullAddress}|{service.Count}|{Priority.High}|{Statu
         }
     }
 
-    private static void CreateSdkProject(string projectDir, string projectName, string projectYaml)
-    {
-        TestSdkFeed.WriteVersionedSdkProject(projectDir, projectName);
-        File.WriteAllText(Path.Combine(projectDir, "project.yml"), projectYaml);
-        RestoreCommand.Restore(projectDir, quiet: true);
-    }
-
-    private static string CreateTempDir()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"nsharp-sdk-il-{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-        return tempDir;
-    }
 }

@@ -5893,15 +5893,33 @@ class B
     // The authoritative oracle: compile `source` through the FULL production pipeline (MultiFileCompiler
     // -> ILCompiler, the path the columnar codegen will eventually replace -- not the raw ILCompiler,
     // which skips the binding/analysis passes that production runs) and invoke `funcName`.
+    // Compiles are memoized per source text: the parity suite makes ~1000 oracle calls over far fewer
+    // unique programs (every (func, args) tuple used to recompile its program from scratch), and the
+    // full-pipeline compile dwarfs the invoke. Only the emitted BYTES are cached — each invoke loads
+    // them into a fresh CollectibleAssemblyScope, so no assembly stays pinned (see that type's docs).
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> CSharpOracleCache =
+        new(StringComparer.Ordinal);
+
     private static object? InvokeViaCSharpPath(string source, string funcName, object[] args)
+    {
+        var assemblyBytes = CSharpOracleCache.GetOrAdd("1f\0" + source, _ => CompileViaCSharpPath(source));
+        using var loadScope = CollectibleAssemblyScope.Load(assemblyBytes);
+        // Lowercase N# function names are file-private, so the C# path emits them non-public.
+        var method = loadScope.Assembly.GetTypes()
+            .Select(t => t.GetMethod(funcName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+            .FirstOrDefault(m => m != null)
+            ?? throw new InvalidOperationException($"C# path did not emit a static method '{funcName}'.");
+        return method.Invoke(null, args);
+    }
+
+    private static byte[] CompileViaCSharpPath(string source)
     {
         var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-columnar-parity-{Guid.NewGuid():N}");
         Directory.CreateDirectory(projectRoot);
-        var programPath = Path.Combine(projectRoot, "Program.nl");
-        var outputPath = Path.Combine(projectRoot, "bin", "ColumnarParity.dll");
-        System.Runtime.Loader.AssemblyLoadContext? loadContext = null;
         try
         {
+            var programPath = Path.Combine(projectRoot, "Program.nl");
+            var outputPath = Path.Combine(projectRoot, "bin", "ColumnarParity.dll");
             File.WriteAllText(programPath, source);
             var config = ProjectFileParser.CreateDefault("ColumnarParity");
             config.OutputType = "library";
@@ -5911,19 +5929,10 @@ class B
             var result = compiler.CompileToIlAssembly("ColumnarParity", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
             Assert.NotNull(result.OutputAssemblyPath);
-
-            loadContext = new System.Runtime.Loader.AssemblyLoadContext($"ColumnarParity_{Guid.NewGuid():N}", isCollectible: true);
-            var assembly = loadContext.LoadFromAssemblyPath(result.OutputAssemblyPath!);
-            // Lowercase N# function names are file-private, so the C# path emits them non-public.
-            var method = assembly.GetTypes()
-                .Select(t => t.GetMethod(funcName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                .FirstOrDefault(m => m != null)
-                ?? throw new InvalidOperationException($"C# path did not emit a static method '{funcName}'.");
-            return method.Invoke(null, args);
+            return File.ReadAllBytes(result.OutputAssemblyPath!);
         }
         finally
         {
-            loadContext?.Unload();
             if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
         }
     }
@@ -5993,20 +6002,33 @@ class B
     // MultiFileCompiler (the path the columnar backend will replace), then invoke `funcName`. This is how the
     // real dogfood project builds (separate files, cross-file resolution), so it validates that the columnar
     // merge is behaviorally identical to a genuine multi-file C# build (not a concatenation on both sides).
+    // Memoized like InvokeViaCSharpPath — keyed on the joined sources ('\0' never appears in test
+    // programs, so the join is collision-free; the "mf"/"1f" prefixes keep the two oracle paths'
+    // entries distinct, since they compile under different assembly and file names).
     private static object? InvokeViaCSharpPathMultiFile(string[] sources, string funcName, object[] args)
+    {
+        var assemblyBytes = CSharpOracleCache.GetOrAdd("mf\0" + string.Join('\0', sources), _ => CompileViaCSharpPathMultiFile(sources));
+        using var loadScope = CollectibleAssemblyScope.Load(assemblyBytes);
+        var method = loadScope.Assembly.GetTypes()
+            .Select(t => t.GetMethod(funcName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
+            .FirstOrDefault(m => m != null)
+            ?? throw new InvalidOperationException($"C# multi-file path did not emit a static method '{funcName}'.");
+        return method.Invoke(null, args);
+    }
+
+    private static byte[] CompileViaCSharpPathMultiFile(string[] sources)
     {
         var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-columnar-mf-{Guid.NewGuid():N}");
         Directory.CreateDirectory(projectRoot);
-        var paths = new string[sources.Length];
-        for (var i = 0; i < sources.Length; i++)
-        {
-            paths[i] = Path.Combine(projectRoot, $"File{i}.nl");
-            File.WriteAllText(paths[i], sources[i]);
-        }
-        var outputPath = Path.Combine(projectRoot, "bin", "ColumnarMfParity.dll");
-        System.Runtime.Loader.AssemblyLoadContext? loadContext = null;
         try
         {
+            var paths = new string[sources.Length];
+            for (var i = 0; i < sources.Length; i++)
+            {
+                paths[i] = Path.Combine(projectRoot, $"File{i}.nl");
+                File.WriteAllText(paths[i], sources[i]);
+            }
+            var outputPath = Path.Combine(projectRoot, "bin", "ColumnarMfParity.dll");
             var config = ProjectFileParser.CreateDefault("ColumnarMfParity");
             config.OutputType = "library";
             config.TargetFramework = "net10.0";
@@ -6015,18 +6037,10 @@ class B
             var result = compiler.CompileToIlAssembly("ColumnarMfParity", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => $"{e.DiagnosticId}: {e.Message}")));
             Assert.NotNull(result.OutputAssemblyPath);
-
-            loadContext = new System.Runtime.Loader.AssemblyLoadContext($"ColumnarMfParity_{Guid.NewGuid():N}", isCollectible: true);
-            var assembly = loadContext.LoadFromAssemblyPath(result.OutputAssemblyPath!);
-            var method = assembly.GetTypes()
-                .Select(t => t.GetMethod(funcName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-                .FirstOrDefault(m => m != null)
-                ?? throw new InvalidOperationException($"C# multi-file path did not emit a static method '{funcName}'.");
-            return method.Invoke(null, args);
+            return File.ReadAllBytes(result.OutputAssemblyPath!);
         }
         finally
         {
-            loadContext?.Unload();
             if (Directory.Exists(projectRoot)) Directory.Delete(projectRoot, recursive: true);
         }
     }
