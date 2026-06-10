@@ -447,6 +447,7 @@ public partial class ILCompiler
         ApplyCustomAttributes(unionType.SetCustomAttribute, unionDeclaration.Attributes);
         ApplyNullableContextAttribute(unionType.SetCustomAttribute);
         RegisterType(typeName, unionType);
+        var unionGenericParameters = DeclareTypeGenericParameters(unionType, unionDeclaration.TypeParameters);
 
         var unionCtor = unionType.DefineConstructor(
             MethodAttributes.Family,
@@ -456,11 +457,20 @@ public partial class ILCompiler
 
         foreach (var unionCase in unionDeclaration.Cases)
         {
+            // A generic union's nested case redeclares the union's type parameters
+            // (CLR metadata does not inherit them) and derives from the union base
+            // closed over its own parameters: Result`1+Success<T> : Result<T>.
             var caseType = unionType.DefineNestedType(
                 unionCase.Name,
                 TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed,
-                unionType);
+                unionGenericParameters == null ? unionType : null);
             ApplyNullableContextAttribute(caseType.SetCustomAttribute);
+            GenericTypeParameterBuilder[]? caseGenericParameters = null;
+            if (unionGenericParameters != null)
+            {
+                caseGenericParameters = DeclareTypeGenericParameters(caseType, unionDeclaration.TypeParameters);
+                caseType.SetParent(unionType.MakeGenericType(caseGenericParameters!.ToArray<Type>()));
+            }
 
             var caseKey = $"{typeName}.{unionCase.Name}";
             RegisterType(caseKey, caseType);
@@ -488,7 +498,9 @@ public partial class ILCompiler
                     IsThis: false))
                 .ToList();
             var caseParameterTypes = caseParameters?
-                .Select(parameter => ResolveType(parameter.Type))
+                .Select(parameter => caseGenericParameters != null
+                    ? ResolveType(parameter.Type, caseGenericParameters)
+                    : ResolveType(parameter.Type))
                 .ToArray()
                 ?? Type.EmptyTypes;
             if (caseParameters != null)
@@ -521,7 +533,9 @@ public partial class ILCompiler
 
             foreach (var property in unionCase.Properties)
             {
-                var fieldType = ResolveType(property.Type);
+                var fieldType = caseGenericParameters != null
+                    ? ResolveType(property.Type, caseGenericParameters)
+                    : ResolveType(property.Type);
                 var fieldBuilder = caseType.DefineField(
                     property.Name,
                     fieldType,

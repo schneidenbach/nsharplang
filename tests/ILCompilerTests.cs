@@ -5823,6 +5823,152 @@ union Result {
     }
 
     [Fact]
+    public void ILCompiler_GenericUnion_ConstructAndMatch()
+    {
+        // The README flagship: a generic union with a type-parameter payload,
+        // constructed with explicit type arguments after the case name and matched
+        // with the type arguments inferred from the scrutinee.
+        var source = @"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func classify(r: Result<int>): string {
+    return match r {
+        Result.Success { value: x } => $""Got {x}"",
+        Result.Failure { error: e } => $""Error: {e}""
+    }
+}
+
+func main(): string {
+    ok := classify(new Result.Success<int> { value: 42 })
+    bad := classify(new Result.Failure<int> { error: ""boom"" })
+    return $""{ok}|{bad}""
+}";
+
+        Assert.Equal("Got 42|Error: boom", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericUnion_MultipleInstantiationsCoexist()
+    {
+        // Result<int> and Result<string> are distinct closed types over the same
+        // definition; bindings must substitute each instantiation's argument.
+        var source = @"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func main(): string {
+    numeric := new Result.Success<int> { value: 41 }
+    text := new Result.Success<string> { value: ""hi"" }
+
+    sum := match numeric {
+        Result.Success { value } => value + 1,
+        Result.Failure { error } => 0
+    }
+    greeting := match text {
+        Result.Success { value } => value + ""!"",
+        Result.Failure { error } => error
+    }
+    return $""{sum} {greeting}""
+}";
+
+        Assert.Equal("42 hi!", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericUnion_TargetTypedCaseConstruction()
+    {
+        // A payload-free case has no argument to infer from; the documented form
+        // adopts the expected type's arguments (return new Option.None on Option<T>).
+        var source = @"
+union Option<T> {
+    Some { value: T }
+    None { }
+}
+
+func find(flag: bool): Option<string> {
+    if flag {
+        return new Option.Some<string> { value: ""found"" }
+    }
+    return new Option.None
+}
+
+func describe(o: Option<string>): string {
+    return match o {
+        Option.Some { value } => value,
+        Option.None => ""missing""
+    }
+}
+
+func main(): string {
+    return $""{describe(find(true))}|{describe(find(false))}""
+}";
+
+        Assert.Equal("found|missing", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericUnion_GuardedMatchAndCatchAll()
+    {
+        var source = @"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func main(): string {
+    r := new Result.Success<int> { value: 7 }
+    return match r {
+        Result.Success { value } when value > 10 => ""big"",
+        Result.Success { value } => $""small {value}"",
+        _ => ""failure""
+    }
+}";
+
+        Assert.Equal("small 7", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericUnion_EmitsGenericBaseAndCaseMetadata()
+    {
+        // CLR shape: an abstract generic base, with each case a sealed nested class
+        // that redeclares the type parameters and derives from the closed base
+        // (Result`1+Success<T> : Result<T>), its payload field typed by the parameter.
+        var source = @"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            // N# emits generic definitions under their bare declared name (no CLR
+            // arity suffix), matching generic classes.
+            var baseType = assembly.GetType("Result")!;
+            Assert.True(baseType.IsAbstract);
+            Assert.True(baseType.IsGenericTypeDefinition);
+            Assert.Single(baseType.GetGenericArguments());
+
+            var successCase = baseType.GetNestedType("Success")!;
+            Assert.True(successCase.IsSealed);
+            Assert.True(successCase.IsGenericTypeDefinition);
+            Assert.Equal(baseType, successCase.BaseType!.GetGenericTypeDefinition());
+
+            // camelCase member names emit non-public per N# visibility conventions.
+            var valueField = successCase.GetField("value", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
+            Assert.True(valueField.FieldType.IsGenericParameter);
+
+            var closedSuccess = successCase.MakeGenericType(typeof(int));
+            Assert.True(baseType.MakeGenericType(typeof(int)).IsAssignableFrom(closedSuccess));
+            return true;
+        });
+    }
+
+    [Fact]
     public void ILCompiler_CanExecuteDefaultExpressionInTypedContexts()
     {
         var source = @"

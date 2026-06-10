@@ -153,6 +153,7 @@ public record InterfaceDeclaration(
 // Union declaration
 public record UnionDeclaration(
     string Name,
+    List<TypeParameter>? TypeParameters,
     List<UnionCase> Cases,
     Modifiers Modifiers,
     List<AttributeNode> Attributes,

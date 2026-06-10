@@ -13,7 +13,10 @@ namespace NSharpLang.Tests;
 public class UnionValueLayoutTests
 {
     private static UnionDeclaration Union(string name, params UnionCase[] cases)
-        => new(name, cases.ToList(), Modifiers.None, new List<AttributeNode>(), 1, 1);
+        => new(name, TypeParameters: null, cases.ToList(), Modifiers.None, new List<AttributeNode>(), 1, 1);
+
+    private static UnionDeclaration GenericUnion(string name, params UnionCase[] cases)
+        => new(name, new List<TypeParameter> { new("T") }, cases.ToList(), Modifiers.None, new List<AttributeNode>(), 1, 1);
 
     private static UnionCase Case(string name)
         => new(name, Properties: null);
@@ -30,6 +33,19 @@ public class UnionValueLayoutTests
 
         Assert.True(decision.IsValueStruct);
         Assert.True(UnionValueLayout.IsValueStructEmittable(union));
+    }
+
+    [Fact]
+    public void GenericUnion_StaysOnClassHierarchyLayout()
+    {
+        // A generic union never takes the value-struct layout, even when payload-free:
+        // the tag plumbing is not modeled per instantiation.
+        var union = GenericUnion("Marker", Case("A"), Case("B"));
+
+        var decision = UnionValueLayout.Classify(union);
+
+        Assert.False(decision.IsValueStruct);
+        Assert.False(UnionValueLayout.IsValueStructEmittable(union));
     }
 
     [Fact]

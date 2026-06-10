@@ -1155,6 +1155,149 @@ func Main() {
     }
 
     [Fact]
+    public void GenericUnionDeclaration_TypeParameterResolvesInCaseProperties()
+    {
+        AssertNoErrors(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericUnionConstruction_WithExplicitTypeArguments_Valid()
+    {
+        AssertNoErrors(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+
+            func main(): int {
+                r := new Result.Success<int> { value: 42 }
+                return 0
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericUnionConstruction_MissingTypeArguments_Error()
+    {
+        AssertHasError(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+
+            func main(): int {
+                r := new Result.Success { value: 42 }
+                return 0
+            }
+        ", "requires 1 type argument");
+    }
+
+    [Fact]
+    public void GenericUnionConstruction_WrongArity_Error()
+    {
+        AssertHasError(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+
+            func main(): int {
+                r := new Result.Success<int, string> { value: 42 }
+                return 0
+            }
+        ", "takes 1 type argument(s), but 2 were provided");
+    }
+
+    [Fact]
+    public void GenericUnionConstruction_TargetTyped_InfersFromReturnType()
+    {
+        AssertNoErrors(@"
+            union Option<T> {
+                Some { value: T }
+                None { }
+            }
+
+            func find(): Option<string> {
+                return new Option.None
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericUnionAnnotation_WrongArity_Error()
+    {
+        AssertHasError(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+
+            func handle(r: Result<int, string>): int {
+                return 0
+            }
+        ", "takes 1 type argument(s), but 2 were provided");
+    }
+
+    [Fact]
+    public void GenericUnionMatch_NonExhaustive_Error()
+    {
+        AssertHasError(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+
+            func handle(r: Result<int>): int {
+                return match r {
+                    Result.Success { value } => value
+                }
+            }
+        ", "doesn't cover");
+    }
+
+    [Fact]
+    public void GenericUnionMatch_BindingSubstitutesTypeArgument()
+    {
+        // value: T binds as int on a Result<int> scrutinee, so it flows into int math.
+        AssertNoErrors(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+
+            func handle(r: Result<int>): int {
+                return match r {
+                    Result.Success { value } => value + 1,
+                    Result.Failure { error } => 0
+                }
+            }
+        ");
+    }
+
+    [Fact]
+    public void GenericUnionMatch_UnknownCase_Error()
+    {
+        AssertHasError(@"
+            union Result<T> {
+                Success { value: T }
+                Failure { error: string }
+            }
+
+            func handle(r: Result<int>): int {
+                return match r {
+                    Result.Bogus { value } => value,
+                    _ => 0
+                }
+            }
+        ", "is not a case of union");
+    }
+
+    [Fact]
     public void ConstructorWithFieldAssignment_Valid()
     {
         AssertNoErrors(@"

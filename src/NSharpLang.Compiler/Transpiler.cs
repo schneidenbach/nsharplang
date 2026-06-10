@@ -24,6 +24,7 @@ public class Transpiler
     private bool _suppressLineDirectives; // Suppress #line directives inside lambda block bodies (they'd be syntax errors in expression context)
     private readonly HashSet<string>? _autoResolvedNamespaces; // Namespaces auto-resolved from project symbols
     private readonly HashSet<string> _newtypeNames = new(); // Track newtype names for constructor call transpilation
+    private readonly HashSet<string> _genericUnionNames = new(); // Generic unions: case construction reorders type args onto the union (new Result<int>.Success)
     private readonly HashSet<string> _stringEnumNames = new(); // Track string enum names for pattern matching transpilation
     private readonly Stack<Dictionary<string, string>> _patternBindingAliases = new();
     private Dictionary<string, string>? _activePatternBindingAliases;
@@ -133,6 +134,11 @@ public class Transpiler
         // Collect newtype names for constructor call transpilation
         foreach (var nt in _compilationUnit.Declarations.OfType<NewtypeDeclaration>())
             _newtypeNames.Add(nt.Name);
+        // Collect generic union names: case constructions written `new Result.Success<int>`
+        // in N# must transpile with the arguments on the union (`new Result<int>.Success`).
+        foreach (var genericUnion in _compilationUnit.Declarations.OfType<UnionDeclaration>()
+            .Where(u => u.TypeParameters is { Count: > 0 }))
+            _genericUnionNames.Add(genericUnion.Name);
         // Collect string enum names for pattern matching transpilation
         foreach (var enm in _compilationUnit.Declarations.OfType<EnumDeclaration>()
             .Where(e => e.Type == EnumType.String))
@@ -1473,13 +1479,22 @@ public class Transpiler
             }
         }
 
-        // Emit polymorphic JSON serialization attributes for discriminated union shape
-        WriteLine($"[JsonPolymorphic(TypeDiscriminatorPropertyName = \"$type\")]");
-        foreach (var unionCase in union.Cases)
+        var typeParameterSuffix = union.TypeParameters is { Count: > 0 }
+            ? $"<{string.Join(", ", union.TypeParameters.Select(tp => tp.Name))}>"
+            : string.Empty;
+
+        // Emit polymorphic JSON serialization attributes for discriminated union shape.
+        // Generic unions skip them: JsonDerivedType cannot describe an open generic
+        // hierarchy (each closed instantiation would need its own derived-type set).
+        if (typeParameterSuffix.Length == 0)
         {
-            WriteLine($"[JsonDerivedType(typeof({union.Name}.{unionCase.Name}), \"{unionCase.Name}\")]");
+            WriteLine($"[JsonPolymorphic(TypeDiscriminatorPropertyName = \"$type\")]");
+            foreach (var unionCase in union.Cases)
+            {
+                WriteLine($"[JsonDerivedType(typeof({union.Name}.{unionCase.Name}), \"{unionCase.Name}\")]");
+            }
         }
-        WriteLine($"{modifiers}abstract record {union.Name}");
+        WriteLine($"{modifiers}abstract record {union.Name}{typeParameterSuffix}");
         WriteLine("{");
         _indentLevel++;
 
@@ -1490,11 +1505,11 @@ public class Transpiler
             if (unionCase.Properties != null && unionCase.Properties.Count > 0)
             {
                 var props = string.Join(", ", unionCase.Properties.Select(p => $"{TranspileTypeReference(p.Type)} {p.Name}"));
-                WriteLine($"{VisibilityConventions.GetNestedTypeVisibilityKeyword(unionCase.Name, Modifiers.None)} record {unionCase.Name}({props}) : {union.Name};");
+                WriteLine($"{VisibilityConventions.GetNestedTypeVisibilityKeyword(unionCase.Name, Modifiers.None)} record {unionCase.Name}({props}) : {union.Name}{typeParameterSuffix};");
             }
             else
             {
-                WriteLine($"{VisibilityConventions.GetNestedTypeVisibilityKeyword(unionCase.Name, Modifiers.None)} record {unionCase.Name} : {union.Name};");
+                WriteLine($"{VisibilityConventions.GetNestedTypeVisibilityKeyword(unionCase.Name, Modifiers.None)} record {unionCase.Name} : {union.Name}{typeParameterSuffix};");
             }
         }
 
@@ -3131,6 +3146,20 @@ public class Transpiler
             var type = newExpr.ArrayLengthExpression != null && newExpr.Type is ArrayTypeReference arrayType
                 ? TranspileTypeReference(arrayType.ElementType)
                 : TranspileTypeReference(newExpr.Type);
+
+            // Generic union case construction: N# writes the type arguments after the
+            // case name (new Result.Success<int>), C# wants them on the union
+            // (new Result<int>.Success).
+            if (newExpr.Type is GenericTypeReference genericCaseRef
+                && genericCaseRef.Name.Contains('.'))
+            {
+                var segments = genericCaseRef.Name.Split('.');
+                if (segments.Length == 2 && _genericUnionNames.Contains(segments[0]))
+                {
+                    var caseTypeArguments = string.Join(", ", genericCaseRef.TypeArguments.Select(TranspileTypeReference));
+                    type = $"{segments[0]}<{caseTypeArguments}>.{segments[1]}";
+                }
+            }
             var args = string.Join(", ", newExpr.ConstructorArguments.Select(arg =>
             {
                 var prefix = "";

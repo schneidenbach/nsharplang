@@ -1772,6 +1772,22 @@ public partial class ILCompiler
         }
     }
 
+    /// <summary>
+    /// Type.IsEnum routes through IsSubclassOf, which TypeBuilderInstantiation (a closed
+    /// generic over an uncreated TypeBuilder) does not support; such a type is never an enum.
+    /// </summary>
+    private static bool IsEnumSafe(Type type)
+    {
+        try
+        {
+            return type.IsEnum;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+    }
+
     private sealed record ResolvedRuntimeProperty(Type PropertyType, MethodInfo? Getter, MethodInfo? Setter);
 
     private static bool TryGetDeclaredRuntimeProperty(Type type, string memberName, BindingFlags bindingFlags, out PropertyInfo? property)
@@ -6264,12 +6280,67 @@ public partial class ILCompiler
             }
         }
 
+        // A closed generic instantiation of an uncreated user type does not support
+        // IsAssignableFrom either; walk its definition's base chain with positional
+        // substitution (Result<int>'s Success case → base Result<int>) and compare
+        // identities so a derived instantiation binds to its closed base.
+        if (IsClosedGeneratedTypeAssignableToBase(parameterType, argumentType))
+        {
+            return true;
+        }
+
         var parameterEnumUnderlyingType = TryGetEnumUnderlyingType(parameterType);
         var argumentEnumUnderlyingType = TryGetEnumUnderlyingType(argumentType);
         return IsImplicitNumericConversion(argumentType, parameterType)
             || parameterEnumUnderlyingType == argumentType
             || argumentEnumUnderlyingType == parameterType
             || ResolveConversionOperator(argumentType, parameterType, allowExplicit: false) != null;
+    }
+
+    /// <summary>
+    /// True when <paramref name="argumentType"/> is a CLOSED generic instantiation of an
+    /// uncreated user TypeBuilder whose (substituted) base chain reaches
+    /// <paramref name="targetType"/> — e.g. Result&lt;int&gt;'s Success derives from
+    /// Result&lt;int&gt;. Reflection's IsAssignableFrom cannot answer this for
+    /// TypeBuilderInstantiation, so the walk substitutes the closed arguments into each
+    /// definition's declared base and compares identities.
+    /// </summary>
+    private bool IsClosedGeneratedTypeAssignableToBase(Type targetType, Type argumentType)
+    {
+        if (argumentType is TypeBuilder || !argumentType.IsGenericType || argumentType.IsGenericTypeDefinition)
+        {
+            return false;
+        }
+
+        if (!TryGetUserTypeDefinition(argumentType, out var definition))
+        {
+            return false;
+        }
+
+        var closedArguments = (IReadOnlyList<Type>)argumentType.GetGenericArguments();
+        for (var declaredBase = definition.BaseType;
+             declaredBase != null && declaredBase != typeof(object);)
+        {
+            var substitutedBase = SubstituteGenericSignatureTypeByPosition(declaredBase, closedArguments);
+            if (AreTypeIdentitiesEquivalent(substitutedBase, targetType))
+            {
+                return true;
+            }
+
+            if (!TryGetUserTypeDefinition(substitutedBase, out var baseDefinition)
+                || ReferenceEquals(baseDefinition, definition))
+            {
+                break;
+            }
+
+            definition = baseDefinition;
+            closedArguments = substitutedBase.IsGenericType
+                ? substitutedBase.GetGenericArguments()
+                : Type.EmptyTypes;
+            declaredBase = baseDefinition.BaseType;
+        }
+
+        return false;
     }
 
     private static bool CanAssignNullToType(Type targetType)
@@ -19365,6 +19436,19 @@ public partial class ILCompiler
             return;
         }
 
+        // `value is Result.Success` on a generic union names the open case definition;
+        // close it over the source's type arguments so the isinst token is loadable.
+        if (targetType.IsGenericTypeDefinition && sourceType.IsGenericType && !sourceType.IsGenericTypeDefinition)
+        {
+            var sourceDefinition = sourceType.GetGenericTypeDefinition();
+            var sourceArguments = sourceType.GetGenericArguments();
+            if ((targetType.DeclaringType == sourceDefinition || targetType == sourceDefinition)
+                && targetType.GetGenericArguments().Length == sourceArguments.Length)
+            {
+                targetType = targetType.MakeGenericType(sourceArguments);
+            }
+        }
+
         EmitExpression(isExpr.Expression);
         _currentIL.Emit(OpCodes.Isinst, targetType);
 
@@ -21833,6 +21917,7 @@ public partial class ILCompiler
         ApplyCustomAttributes(unionType.SetCustomAttribute, unionDecl.Attributes);
         ApplyNullableContextAttribute(unionType.SetCustomAttribute);
         RegisterType(unionDecl.Name, unionType);
+        var unionGenericParameters = DeclareTypeGenericParameters(unionType, unionDecl.TypeParameters);
         var unionCtor = unionType.DefineConstructor(
             MethodAttributes.Family,
             CallingConventions.Standard,
@@ -21841,11 +21926,20 @@ public partial class ILCompiler
 
         foreach (var unionCase in unionDecl.Cases)
         {
+            // A generic union's nested case redeclares the union's type parameters
+            // (CLR metadata does not inherit them) and derives from the union base
+            // closed over its own parameters: Result`1+Success<T> : Result<T>.
             var caseType = unionType.DefineNestedType(
                 unionCase.Name,
                 VisibilityConventions.GetNestedTypeAttributes(unionCase.Name, Modifiers.None) | TypeAttributes.Class | TypeAttributes.Sealed,
-                unionType);
+                unionGenericParameters == null ? unionType : null);
             ApplyNullableContextAttribute(caseType.SetCustomAttribute);
+            GenericTypeParameterBuilder[]? caseGenericParameters = null;
+            if (unionGenericParameters != null)
+            {
+                caseGenericParameters = DeclareTypeGenericParameters(caseType, unionDecl.TypeParameters);
+                caseType.SetParent(unionType.MakeGenericType(caseGenericParameters!.ToArray<Type>()));
+            }
 
             var caseKey = $"{unionDecl.Name}.{unionCase.Name}";
             RegisterType(caseKey, caseType);
@@ -21872,7 +21966,9 @@ public partial class ILCompiler
                     IsThis: false))
                 .ToList();
             var caseParameterTypes = caseParameters?
-                .Select(parameter => ResolveType(parameter.Type))
+                .Select(parameter => caseGenericParameters != null
+                    ? ResolveType(parameter.Type, caseGenericParameters)
+                    : ResolveType(parameter.Type))
                 .ToArray()
                 ?? Type.EmptyTypes;
             if (caseParameters != null)
@@ -21905,7 +22001,9 @@ public partial class ILCompiler
 
             foreach (var property in unionCase.Properties)
             {
-                var fieldType = ResolveType(property.Type);
+                var fieldType = caseGenericParameters != null
+                    ? ResolveType(property.Type, caseGenericParameters)
+                    : ResolveType(property.Type);
                 var fieldBuilder = caseType.DefineField(
                     property.Name,
                     fieldType,
@@ -22096,11 +22194,22 @@ public partial class ILCompiler
                 throw new InvalidOperationException($"Union case {caseKey} not declared");
             }
 
+            // A generic union's case derives from the base CLOSED over the case's own
+            // type parameters (Success<T> : Result<T>), so the base-ctor call must be
+            // rebound to that instantiation rather than the open definition.
+            var caseBaseCtor = (ConstructorInfo)unionCtor;
+            if (unionDecl.TypeParameters is { Count: > 0 })
+            {
+                caseBaseCtor = TypeBuilder.GetConstructor(
+                    unionType.MakeGenericType(caseType.GetGenericArguments()),
+                    unionCtor);
+            }
+
             if (_constructors.TryGetValue(GetConstructorKey(caseType), out var defaultCaseCtor))
             {
                 var il = defaultCaseCtor.GetILGenerator();
                 il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Call, unionCtor);
+                il.Emit(OpCodes.Call, caseBaseCtor);
                 il.Emit(OpCodes.Ret);
             }
 
@@ -22110,7 +22219,7 @@ public partial class ILCompiler
                 {
                     var il = overload.Builder.GetILGenerator();
                     il.Emit(OpCodes.Ldarg_0);
-                    il.Emit(OpCodes.Call, unionCtor);
+                    il.Emit(OpCodes.Call, caseBaseCtor);
 
                     if (unionCase.Properties != null)
                     {
@@ -24085,7 +24194,7 @@ public partial class ILCompiler
                     _currentIL.Emit(OpCodes.Br, successLabel);
                 }
                 else if (identPattern.Name.Contains('.')
-                         && (Nullable.GetUnderlyingType(matchValueType) ?? matchValueType).IsEnum
+                         && IsEnumSafe(Nullable.GetUnderlyingType(matchValueType) ?? matchValueType)
                          && TryResolveConstantIntKey(identPattern, matchValueType, out var enumMemberKey))
                 {
                     // Enum-member pattern (e.g. `Color.Red`): compare the (int-backed) enum
@@ -24113,7 +24222,17 @@ public partial class ILCompiler
                     }
                     else
                     {
-                        _currentIL.Emit(OpCodes.Isinst, qualifiedCaseType);
+                        // Generic union: close the open case definition over the
+                        // scrutinee's type arguments so the isinst token is loadable.
+                        Type qualifiedTestType = qualifiedCaseType;
+                        if (qualifiedTestType.IsGenericTypeDefinition
+                            && matchValueType.IsGenericType
+                            && !matchValueType.IsGenericTypeDefinition)
+                        {
+                            qualifiedTestType = qualifiedTestType.MakeGenericType(matchValueType.GetGenericArguments());
+                        }
+
+                        _currentIL.Emit(OpCodes.Isinst, qualifiedTestType);
                         _currentIL.Emit(OpCodes.Brtrue, successLabel);
                         _currentIL.Emit(OpCodes.Br, failLabel);
                     }
@@ -24131,7 +24250,7 @@ public partial class ILCompiler
                 break;
 
             case UnionCasePattern unionPattern:
-                EmitUnionCasePatternTest(unionPattern, successLabel, failLabel);
+                EmitUnionCasePatternTest(unionPattern, matchValueType, successLabel, failLabel);
                 break;
 
             case ObjectPattern objectPattern:
@@ -24405,7 +24524,7 @@ public partial class ILCompiler
             || string.Equals(name, "object", StringComparison.Ordinal);
     }
 
-    private void EmitUnionCasePatternTest(UnionCasePattern unionPattern, Label successLabel, Label failLabel)
+    private void EmitUnionCasePatternTest(UnionCasePattern unionPattern, Type matchValueType, Label successLabel, Label failLabel)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
 
@@ -24420,6 +24539,20 @@ public partial class ILCompiler
         {
             EmitValueStructUnionTagTest(vsLayout, vsTag, successLabel, failLabel);
             return;
+        }
+
+        // Generic union: the pattern names the open case definition; close it over the
+        // scrutinee's type arguments (Result.Success on a Result<int> scrutinee tests
+        // against Result<int>'s Success) so the isinst token is loadable.
+        if (caseType.IsGenericTypeDefinition)
+        {
+            if (!matchValueType.IsGenericType || matchValueType.IsGenericTypeDefinition)
+            {
+                throw new InvalidOperationException(
+                    $"Cannot determine type arguments for generic union case {unionPattern.CaseName} from scrutinee type {matchValueType}");
+            }
+
+            caseType = caseType.MakeGenericType(matchValueType.GetGenericArguments());
         }
 
         _currentIL.Emit(OpCodes.Isinst, caseType);
@@ -25054,6 +25187,26 @@ public partial class ILCompiler
             }
 
             throw new InvalidOperationException($"Pattern member {memberName} not found on type {GetTypeKey(typeBuilder)}");
+        }
+
+        // Closed generic instantiation of an uncreated user type (Result<int>'s Success):
+        // reflection member queries throw on TypeBuilderInstantiation, so resolve through
+        // the open definition's bookkeeping with rebound tokens and positionally
+        // substituted member types (value: T on Result<int> loads as int).
+        var closedGeneratedPatternField = FindInstanceFieldOnClosedGeneratedType(targetType, memberName);
+        if (closedGeneratedPatternField != null && TryGetUserTypeDefinition(targetType, out var patternFieldDefinition))
+        {
+            var openPatternField = FindInstanceFieldOnBaseChain(patternFieldDefinition, memberName)!;
+            _currentIL.Emit(OpCodes.Ldfld, closedGeneratedPatternField);
+            return SubstituteGenericSignatureTypeByPosition(openPatternField.FieldType, targetType.GetGenericArguments());
+        }
+
+        var closedGeneratedPatternGetter = FindInstanceAccessorOnClosedGeneratedType(targetType, $"get_{memberName}");
+        if (closedGeneratedPatternGetter != null && TryGetUserTypeDefinition(targetType, out var patternGetterDefinition))
+        {
+            var openPatternGetter = FindInstanceAccessorOnBaseChain(patternGetterDefinition, $"get_{memberName}")!;
+            _currentIL.Emit(loadByAddress ? OpCodes.Call : OpCodes.Callvirt, closedGeneratedPatternGetter);
+            return SubstituteGenericSignatureTypeByPosition(openPatternGetter.ReturnType, targetType.GetGenericArguments());
         }
 
         var property = targetType.GetProperty(memberName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);

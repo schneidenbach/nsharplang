@@ -561,6 +561,27 @@ public class ParserTests
     }
 
     [Fact]
+    public void TestGenericUnionDeclaration()
+    {
+        var source = @"
+            union Either<L, R> {
+                Left { value: L }
+                Right { value: R }
+            }
+        ";
+
+        var cu = Parse(source);
+        var unionDecl = cu.Declarations[0] as UnionDeclaration;
+
+        Assert.NotNull(unionDecl);
+        Assert.Equal("Either", unionDecl!.Name);
+        Assert.Equal(2, unionDecl!.TypeParameters!.Count);
+        Assert.Equal("L", unionDecl!.TypeParameters![0].Name);
+        Assert.Equal("R", unionDecl!.TypeParameters![1].Name);
+        Assert.Equal(2, unionDecl!.Cases.Count);
+    }
+
+    [Fact]
     public void TestInterfaceDeclaration()
     {
         var source = @"

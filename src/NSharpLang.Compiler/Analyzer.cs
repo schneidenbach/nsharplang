@@ -1,6 +1,7 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -1212,6 +1213,19 @@ public class Analyzer : IDisposable
     {
         CheckVisibilityConvention(unionDecl.Name, unionDecl.Modifiers, unionDecl.Line, unionDecl.Column);
 
+        PushScope(new Scope(ScopeKind.Block), unionDecl.Line, unionDecl.Column);
+
+        // Add generic type parameters to both type and symbol namespaces
+        if (unionDecl.TypeParameters != null)
+        {
+            foreach (var tp in unionDecl.TypeParameters)
+            {
+                var typeParamInfo = new SimpleTypeInfo(tp.Name);
+                _scopes.Peek().Types[tp.Name] = typeParamInfo;
+                _scopes.Peek().Symbols[tp.Name] = typeParamInfo;
+            }
+        }
+
         // Validate union cases
         var caseNames = new HashSet<string>();
         foreach (var unionCase in unionDecl.Cases)
@@ -1251,6 +1265,8 @@ public class Analyzer : IDisposable
                 }
             }
         }
+
+        PopScope();
     }
 
     private void AnalyzeEnumDeclaration(EnumDeclaration enumDecl)
@@ -3792,7 +3808,8 @@ public class Analyzer : IDisposable
                         DeclareSymbol(identPattern.Name, nullableValueType.InnerType, identPattern.Line, identPattern.Column);
                     }
                 }
-                else if (valueType is UnionTypeInfo { IsAnonymous: false } ut && identPattern.Name.Contains('.'))
+                else if (identPattern.Name.Contains('.')
+                    && TryResolveDeclaredUnionType(valueType, out var ut, out _))
                 {
                     if (!TryGetUnionCaseForPattern(ut, identPattern.Name, out _))
                     {
@@ -3818,7 +3835,8 @@ public class Analyzer : IDisposable
 
             case UnionCasePattern unionPattern:
                 // Verify the union case exists if matching against a union type
-                if (valueType is UnionTypeInfo { IsAnonymous: false } unionType)
+                // (including a closed generic instantiation like Result<int>).
+                if (TryResolveDeclaredUnionType(valueType, out var unionType, out var unionSubstitution))
                 {
                     var caseName = GetUnionCaseName(unionPattern.CaseName);
 
@@ -3859,7 +3877,7 @@ public class Analyzer : IDisposable
 
                                 if (caseProperty != null)
                                 {
-                                    var propType = ResolveType(caseProperty.Type);
+                                    var propType = ResolveUnionCasePropertyType(caseProperty.Type, unionSubstitution);
 
                                     // If there's a nested pattern, analyze it recursively
                                     if (propPattern.Pattern != null)
@@ -10155,19 +10173,26 @@ public class Analyzer : IDisposable
             }
 
             // Special case: if the type is a qualified name like "Result.Success",
-            // it might be a union case. Check if the base type is a union.
-            if (newExpr.Type is SimpleTypeReference simpleRef && simpleRef.Name.Contains('.'))
+            // it might be a union case. Check if the base type is a union. A generic
+            // union takes its type arguments after the case name
+            // (new Result.Success<int> { ... }) or infers them from the expected type
+            // (return new Option.None on a function returning Option<User>).
+            var (qualifiedCaseName, unionCaseTypeArguments) = newExpr.Type switch
             {
-                var parts = simpleRef.Name.Split('.');
-                if (parts.Length == 2)
+                SimpleTypeReference simpleCaseRef when simpleCaseRef.Name.Contains('.')
+                    => (simpleCaseRef.Name, (List<TypeReference>?)null),
+                GenericTypeReference genericCaseRef when genericCaseRef.Name.Contains('.')
+                    => (genericCaseRef.Name, genericCaseRef.TypeArguments),
+                _ => (null, null)
+            };
+            if (qualifiedCaseName != null)
+            {
+                var parts = qualifiedCaseName.Split('.');
+                if (parts.Length == 2
+                    && LookupType(parts[0]) is UnionTypeInfo { IsAnonymous: false } unionBaseType)
                 {
-                    var baseTypeName = parts[0];
-                    var baseType = LookupType(baseTypeName);
-                    if (baseType is UnionTypeInfo { IsAnonymous: false })
-                    {
-                        // This is a union case instantiation - the variable should have the union type
-                        type = baseType;
-                    }
+                    // This is a union case instantiation - the variable should have the union type
+                    type = ResolveUnionCaseConstructionType(newExpr, unionBaseType, parts[0], qualifiedCaseName, unionCaseTypeArguments);
                 }
             }
         }
@@ -10207,6 +10232,133 @@ public class Analyzer : IDisposable
         }
 
         return type;
+    }
+
+    /// <summary>
+    /// The static type of a union case construction (new Union.Case { ... }). For a
+    /// non-generic union that is the union itself; for a generic union the type
+    /// arguments come after the case name (new Result.Success&lt;int&gt; { ... }) or are
+    /// inferred from the expected type, and the result is the closed instantiation
+    /// (GenericTypeInfo) so it lines up with Result&lt;int&gt; annotations.
+    /// </summary>
+    private TypeInfo ResolveUnionCaseConstructionType(
+        NewExpression newExpr,
+        UnionTypeInfo unionType,
+        string unionName,
+        string qualifiedCaseName,
+        List<TypeReference>? typeArguments)
+    {
+        var typeParameters = unionType.Declaration!.TypeParameters;
+        var arity = typeParameters?.Count ?? 0;
+        var typeRefSpan = GetTypeReferenceStartSpan(newExpr.Type!);
+
+        if (typeArguments is { Count: > 0 })
+        {
+            var resolvedArguments = typeArguments.Select(ResolveType).ToList();
+            if (resolvedArguments.Count != arity)
+            {
+                var message = arity == 0
+                    ? $"Union '{unionName}' is not generic, but {resolvedArguments.Count} type argument(s) were provided"
+                    : $"Generic union '{unionName}' takes {arity} type argument(s), but {resolvedArguments.Count} were provided";
+                Error(
+                    ErrorCode.InvalidTypeArgument,
+                    message,
+                    typeRefSpan.StartLine,
+                    typeRefSpan.StartColumn,
+                    arity == 0
+                        ? $"Remove the type arguments: 'new {qualifiedCaseName} {{ ... }}'"
+                        : $"Match the declaration's type parameter count for '{unionName}'",
+                    qualifiedCaseName.Length);
+                return unionType;
+            }
+
+            return new GenericTypeInfo(unionName, resolvedArguments);
+        }
+
+        if (arity == 0)
+        {
+            return unionType;
+        }
+
+        // No explicit type arguments on a generic union case: adopt the expected
+        // type's arguments when the context provides a closed instantiation.
+        if (_currentExpectedType is GenericTypeInfo expected
+            && expected.Name == unionName
+            && expected.TypeArguments.Count == arity)
+        {
+            return expected;
+        }
+
+        Error(
+            ErrorCode.InvalidTypeArgument,
+            $"Generic union '{unionName}' requires {arity} type argument(s)",
+            typeRefSpan.StartLine,
+            typeRefSpan.StartColumn,
+            $"Specify them after the case name: 'new {qualifiedCaseName}<...> {{ ... }}'",
+            qualifiedCaseName.Length);
+        return unionType;
+    }
+
+    /// <summary>
+    /// Resolves the declared union behind a scrutinee or constructed value. Handles
+    /// both the bare union type (UnionTypeInfo) and a closed generic instantiation
+    /// (GenericTypeInfo whose name is a declared generic union, e.g. Result&lt;int&gt;),
+    /// producing the type-parameter substitution map for case property types in the
+    /// latter case.
+    /// </summary>
+    private bool TryResolveDeclaredUnionType(
+        TypeInfo valueType,
+        [NotNullWhen(true)] out UnionTypeInfo? unionType,
+        out Dictionary<string, TypeInfo>? substitution)
+    {
+        substitution = null;
+
+        if (valueType is UnionTypeInfo { IsAnonymous: false } direct)
+        {
+            unionType = direct;
+            return true;
+        }
+
+        if (valueType is GenericTypeInfo generic
+            && LookupType(generic.Name) is UnionTypeInfo { IsAnonymous: false } declared
+            && declared.Declaration!.TypeParameters is { Count: > 0 } typeParameters
+            && typeParameters.Count == generic.TypeArguments.Count)
+        {
+            substitution = new Dictionary<string, TypeInfo>(StringComparer.Ordinal);
+            for (var i = 0; i < typeParameters.Count; i++)
+            {
+                substitution[typeParameters[i].Name] = generic.TypeArguments[i];
+            }
+
+            unionType = declared;
+            return true;
+        }
+
+        unionType = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Resolves a union case property type at a use site (pattern binding), applying
+    /// the scrutinee's generic substitution (value: T on Result&lt;int&gt; binds as int).
+    /// </summary>
+    private TypeInfo ResolveUnionCasePropertyType(TypeReference type, Dictionary<string, TypeInfo>? substitution)
+    {
+        if (substitution == null)
+        {
+            return ResolveType(type);
+        }
+
+        return type switch
+        {
+            SimpleTypeReference simple when substitution.TryGetValue(simple.Name, out var bound) => bound,
+            GenericTypeReference generic => new GenericTypeInfo(
+                generic.Name,
+                generic.TypeArguments.Select(argument => ResolveUnionCasePropertyType(argument, substitution)).ToList()),
+            ArrayTypeReference array => new ArrayTypeInfo(ResolveUnionCasePropertyType(array.ElementType, substitution)),
+            NullableTypeReference nullable => new NullableTypeInfo(ResolveUnionCasePropertyType(nullable.InnerType, substitution)),
+            _ => ResolveType(type)
+        };
     }
 
     private TypeInfo AnalyzeIsExpression(IsExpression isExpr)
@@ -10328,6 +10480,11 @@ public class Analyzer : IDisposable
         else if (valueType is UnionTypeInfo { IsAnonymous: false } unionType)
         {
             CheckMatchExhaustiveness(match, unionType);
+        }
+        else if (valueType is GenericTypeInfo
+            && TryResolveDeclaredUnionType(valueType, out var genericUnionType, out _))
+        {
+            CheckMatchExhaustiveness(match, genericUnionType);
         }
         else if (valueType is EnumTypeInfo enumType)
         {
@@ -11096,6 +11253,7 @@ public class Analyzer : IDisposable
             StructTypeInfo structInfo => structInfo.Declaration.TypeParameters?.Count ?? 0,
             RecordTypeInfo recordInfo => recordInfo.Declaration.TypeParameters?.Count ?? 0,
             InterfaceTypeInfo interfaceInfo => interfaceInfo.Declaration.TypeParameters?.Count ?? 0,
+            UnionTypeInfo { IsAnonymous: false } unionInfo => unionInfo.Declaration!.TypeParameters?.Count ?? 0,
             _ => -1
         };
 

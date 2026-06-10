@@ -67,9 +67,8 @@ public static class UnionValueLayout
     /// <item>Every case is value-type-friendly (see <see cref="IsValueFriendlyCase"/>).</item>
     /// </list>
     ///
-    /// Named union declarations carry no type parameters today, so the non-generic
-    /// requirement is satisfied structurally; should generic unions ever be added,
-    /// they will need an explicit guard before reaching the value-struct emitter.
+    /// Generic unions stay on the class-hierarchy path: a value-struct layout would
+    /// need per-instantiation tag plumbing that the emitter does not model.
     ///
     /// SCOPE (Unit 15): the initial value-struct emitter only fully lowers
     /// <em>payload-free</em> unions (every case is a bare tag). Cases that carry
@@ -90,6 +89,11 @@ public static class UnionValueLayout
         if (union.Cases is null || union.Cases.Count == 0)
         {
             return new Decision(UnionLayoutKind.ClassHierarchy, "union has no cases");
+        }
+
+        if (union.TypeParameters is { Count: > 0 })
+        {
+            return new Decision(UnionLayoutKind.ClassHierarchy, "generic unions use the class-hierarchy layout");
         }
 
         if (union.Cases.Count > MaxValueStructCases)

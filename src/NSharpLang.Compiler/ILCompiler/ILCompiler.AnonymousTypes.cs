@@ -16,7 +16,22 @@ public partial class ILCompiler
     {
         if (newExpr.Type != null)
         {
-            return ResolveType(newExpr.Type, _currentGenericParameters);
+            var resolved = ResolveType(newExpr.Type, _currentGenericParameters);
+
+            // Target-typed generic union case construction (new Option.None on an
+            // Option<User> target): the bare case name resolves to the open nested
+            // definition; adopt the expected instantiation's type arguments.
+            if (resolved is TypeBuilder { IsGenericTypeDefinition: true, DeclaringType: not null } openNestedDefinition
+                && newExpr.Type is SimpleTypeReference
+                && _expectedExpressionType is { IsGenericType: true, IsGenericTypeDefinition: false } expectedClosed
+                && TryGetUserTypeDefinition(expectedClosed, out var expectedDefinition)
+                && ReferenceEquals(expectedDefinition, openNestedDefinition.DeclaringType)
+                && openNestedDefinition.GetGenericArguments().Length == expectedClosed.GetGenericArguments().Length)
+            {
+                return openNestedDefinition.MakeGenericType(expectedClosed.GetGenericArguments());
+            }
+
+            return resolved;
         }
 
         if (_expectedExpressionType != null && _expectedExpressionType != typeof(object))

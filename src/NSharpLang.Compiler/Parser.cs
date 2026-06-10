@@ -1145,6 +1145,7 @@ public class Parser
         var unionDiagnosticSpan = name == "<error>"
             ? new DiagnosticSpan(line, column, Math.Max(1, "union".Length))
             : new DiagnosticSpan(nameLine, nameColumn, Math.Max(1, name.Length));
+        var typeParams = ParseTypeParameters();
 
         Consume(TokenType.LeftBrace, "Expected '{'");
         var cases = new List<UnionCase>();
@@ -1203,7 +1204,7 @@ public class Parser
             );
         }
 
-        return new UnionDeclaration(name, cases, modifiers, attributes, line, column);
+        return new UnionDeclaration(name, typeParams, cases, modifiers, attributes, line, column);
     }
 
     private EnumDeclaration ParseEnumDeclaration(List<AttributeNode> attributes, Modifiers modifiers)

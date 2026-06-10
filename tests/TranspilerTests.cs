@@ -316,6 +316,47 @@ func ProcessResult(r: Result): string {
     }
 
     [Fact]
+    public void TestGenericUnionDeclarationTranspilation()
+    {
+        var source = @"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+        ";
+
+        var result = Transpile(source);
+
+        Assert.Contains("abstract record Result<T>", result);
+        Assert.Contains("record Success(T value) : Result<T>;", result);
+        Assert.Contains("record Failure(string error) : Result<T>;", result);
+        // JsonDerivedType cannot describe an open generic hierarchy.
+        Assert.DoesNotContain("JsonPolymorphic", result);
+        Assert.DoesNotContain("JsonDerivedType", result);
+    }
+
+    [Fact]
+    public void TestGenericUnionCaseConstructionReordersTypeArguments()
+    {
+        var source = @"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func Make(): Result<int> {
+    return new Result.Success<int> { value: 42 }
+}
+        ";
+
+        var result = Transpile(source);
+
+        // N# writes args after the case name; C# wants them on the union.
+        Assert.Contains("Result<int>.Success", result);
+        Assert.DoesNotContain("Result.Success<int>", result);
+    }
+
+    [Fact]
     public void TestWithExpressionTranspilation()
     {
         var source = @"
