@@ -103,6 +103,11 @@ Rules of the scope:
   a whitelisted BCL container, e.g. `Math`, poisons the in-process oracle even while briefly loaded) —
   see the StaticMethods region comments in CompilerDogfoodProjectTests.
 - `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
+- The compiler side holds the matching guarantee: external-type/doc resolution enumerates loaded
+  assemblies through `ExternalAssemblyScan.Loaded()` (src/NSharpLang.Compiler/ExternalAssemblyScan.cs),
+  which skips dynamic and collectible assemblies — so a briefly-loaded emitted assembly can no longer
+  hijack a concurrent in-process compile's bare-name lookup (the "MemoryCopy not found on type Buffer"
+  flake). Never resolve external types via a raw `AppDomain.CurrentDomain.GetAssemblies()` scan.
 - Enforced, not just convention: `CollectibleAssemblyScopeTests.TestSources_HaveNoDirectAssemblyLoadCallSites`
   scans tests/ sources and fails on any direct `Assembly.Load`/`Assembly.LoadFile`/`Assembly.LoadFrom` call
   site (comment mentions are fine; constructing `AssemblyLoadContext`s directly, as oracle helpers do, is fine).
@@ -113,6 +118,16 @@ Rules of the scope:
 Implications: oracle compiles must stay deterministic and stateless (same source → same assembly),
 and per-call work belongs in the invoke path, not the compile path. Only bytes are cached; every
 invoke still loads through a fresh `CollectibleAssemblyScope`, so nothing stays pinned.
+
+### 6. The Product Gate Skips Steps With Unchanged Inputs
+Within a fresh isolated `./scripts/test-all.sh` run (including `--commit`), a gate step is skipped
+when its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same
+toolchain (validated per-step cache in `tests/scripts/test-all-core.sh`; markers written only on
+success). Input sets are over-inclusive — `src/**` and the gate scripts invalidate everything.
+Practical effect: docs-only commits skip unit tests, benchmarks, interop, and the example chain;
+tests-only commits skip benchmarks and the example chain. `--release`, `--fresh`, `--no-cache`, and
+`--clean` disable skipping and run every step. When adding a gate step or pointing one at new input
+paths, update the input-set prefixes next to the step wrappers in test-all-core.sh.
 
 ## Test Categories
 

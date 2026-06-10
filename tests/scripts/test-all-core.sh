@@ -149,6 +149,110 @@ CLI_DLL="$REPO_ROOT/src/NSharpLang.Cli/bin/Debug/net10.0/Cli.dll"
 LOCAL_FEED="$HOME/.nsharp/packages"
 NUGET_PACKAGE_CACHE="${NUGET_PACKAGES:-$HOME/.nuget/packages}"
 
+# ---- Validated per-step input caching --------------------------------------
+# A step may be skipped only when its ENTIRE input set is byte-identical to a
+# set that previously PASSED that step on this toolchain/platform (markers are
+# written only on success, keyed by content hash). This is what lets docs- or
+# tests-only commits stop paying for identical-input benchmark/example steps.
+# Wiring comes from tests/scripts/test-all.sh; --release/--fresh/--no-cache/
+# --clean turn skipping off. Direct core invocations (no cache root) never skip.
+STEP_CACHE_ROOT="${NSHARP_TEST_STEP_CACHE_ROOT:-}"
+
+step_cache_enabled() {
+    [ -n "$STEP_CACHE_ROOT" ] && ! is_enabled "${NSHARP_TEST_STEP_CACHE_OFF:-0}"
+}
+
+step_cache_hit() {
+    step_cache_enabled || return 1
+    [ -n "$2" ] && [ -f "$STEP_CACHE_ROOT/$1/$2.json" ]
+}
+
+step_cache_store() {
+    step_cache_enabled || return 0
+    [ -n "$2" ] || return 0
+    mkdir -p "$STEP_CACHE_ROOT/$1"
+    printf '{"schemaVersion":1,"step":"%s","inputsHash":"%s","completedAtUtc":"%s"}\n' \
+        "$1" "$2" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$STEP_CACHE_ROOT/$1/$2.json"
+}
+
+step_skip_banner() {
+    echo "SKIPPED: validated step cache hit (key ${2:0:16})."
+    echo "This exact input set previously passed this step on this toolchain."
+    echo "Force every step with ./scripts/test-all.sh --fresh (or --release)."
+}
+
+UNIT_INPUTS_HASH=""
+BENCH_INPUTS_HASH=""
+INTEROP_INPUTS_HASH=""
+EXAMPLES_INPUTS_HASH=""
+if step_cache_enabled; then
+    STEP_HASH_OUTPUT="$(python3 - "$REPO_ROOT" <<'PY'
+import hashlib, json, os, platform, subprocess, sys
+
+root = os.path.realpath(sys.argv[1])
+SKIP_DIRS = {".git", "bin", "obj", "node_modules", ".vscode-test", ".context",
+             "artifacts", "server", "out", "nsharp", "TestResults"}
+
+# Path prefixes per input set ('/'-normalized, relative to repo root). Sets are
+# deliberately over-inclusive: the gate scripts and shared build files are in
+# every set, and src/ (the compiler itself) invalidates everything.
+COMMON = ("scripts/", "tests/scripts/", "global.json", "Directory.Build.props",
+          "Directory.Build.targets", "NuGet.config", "NSharpLang.sln")
+SETS = {
+    "UNIT": COMMON + ("src/", "tests/", "examples/", "templates/",
+                       "benchmarks/", "docs/design/systems-samples/"),
+    "BENCH": COMMON + ("src/", "benchmarks/"),
+    "INTEROP": COMMON + ("src/", "tests/NSharpLang.CSharpInteropTests/"),
+    "EXAMPLES": COMMON + ("src/", "examples/", "templates/", "tests/fixtures/",
+                           "tests/scripts/"),
+}
+
+def run_text(command):
+    try:
+        completed = subprocess.run(command, stdout=subprocess.PIPE,
+                                   stderr=subprocess.DEVNULL, text=True, check=False)
+    except FileNotFoundError:
+        return None
+    return completed.stdout.strip() if completed.returncode == 0 else None
+
+hashes = {name: hashlib.sha256() for name in SETS}
+for current, dirs, files in os.walk(root):
+    dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+    for name in sorted(files):
+        path = os.path.join(current, name)
+        rel = os.path.relpath(path, root).replace(os.sep, "/")
+        matched = [s for s, prefixes in SETS.items()
+                   if any(rel == p or rel.startswith(p) for p in prefixes)]
+        if not matched:
+            continue
+        try:
+            with open(path, "rb") as handle:
+                content = handle.read()
+        except OSError:
+            continue
+        for s in matched:
+            hashes[s].update(rel.encode("utf-8", "surrogateescape"))
+            hashes[s].update(b"\0")
+            hashes[s].update(content)
+            hashes[s].update(b"\0")
+
+salt = json.dumps({
+    "schemaVersion": 1,
+    "dotnet": run_text(["dotnet", "--version"]),
+    "platform": [platform.system(), platform.machine()],
+}, sort_keys=True)
+for name, digest in hashes.items():
+    digest.update(salt.encode("utf-8"))
+    print(f"{name}={digest.hexdigest()}")
+PY
+)" || STEP_HASH_OUTPUT=""
+    UNIT_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^UNIT=//p')"
+    BENCH_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^BENCH=//p')"
+    INTEROP_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^INTEROP=//p')"
+    EXAMPLES_INPUTS_HASH="$(printf '%s\n' "$STEP_HASH_OUTPUT" | sed -n 's/^EXAMPLES=//p')"
+fi
+# -----------------------------------------------------------------------------
+
 remove_nuget_package_cache() {
     local package_id="$1"
     local normalized_id
@@ -196,24 +300,34 @@ fi
 rm -f "$FORMAT_OUTPUT"
 
 section "Step 3: Run Unit Tests"
-echo "Running all unit tests..."
-dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate -v q
-TEST_OUTPUT=$(mktemp)
-if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
-    TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
-    if [ -n "$TEST_RESULT" ]; then
-        echo "$TEST_RESULT"
-    fi
-    handle_success "Unit tests passed"
+if step_cache_hit "unit-tests" "$UNIT_INPUTS_HASH"; then
+    step_skip_banner "unit-tests" "$UNIT_INPUTS_HASH"
+    handle_success "Unit tests (validated step cache)"
 else
-    cat "$TEST_OUTPUT"
-    handle_error "Unit tests"
+    echo "Running all unit tests..."
+    dotnet restore $DOTNET_STABLE_FLAGS tests/Tests.csproj --force-evaluate -v q
+    TEST_OUTPUT=$(mktemp)
+    if dotnet test $DOTNET_STABLE_FLAGS tests/Tests.csproj -v q --nologo --no-restore > "$TEST_OUTPUT" 2>&1; then
+        TEST_RESULT=$(grep -E "Passed!|Failed!" "$TEST_OUTPUT" || echo "")
+        if [ -n "$TEST_RESULT" ]; then
+            echo "$TEST_RESULT"
+        fi
+        handle_success "Unit tests passed"
+        step_cache_store "unit-tests" "$UNIT_INPUTS_HASH"
+    else
+        cat "$TEST_OUTPUT"
+        handle_error "Unit tests"
+    fi
+    rm -f "$TEST_OUTPUT"
 fi
-rm -f "$TEST_OUTPUT"
 
 section "Step 3a: Systems BenchmarkDotNet Gate"
-if "$REPO_ROOT/scripts/benchmark-systems.sh"; then
+if step_cache_hit "systems-benchmarks" "$BENCH_INPUTS_HASH"; then
+    step_skip_banner "systems-benchmarks" "$BENCH_INPUTS_HASH"
+    handle_success "Systems BenchmarkDotNet gate (validated step cache)"
+elif "$REPO_ROOT/scripts/benchmark-systems.sh"; then
     handle_success "Systems BenchmarkDotNet gate"
+    step_cache_store "systems-benchmarks" "$BENCH_INPUTS_HASH"
 else
     handle_error "Systems BenchmarkDotNet gate"
 fi
@@ -322,6 +436,11 @@ remove_nuget_package_cache NSharpLang.Templates
 handle_success "N# NuGet package cache entries cleared"
 
 section "Step 4c: C# Interop Tests"
+INTEROP_FAILURES_BEFORE=$FAILURES
+if step_cache_hit "csharp-interop" "$INTEROP_INPUTS_HASH"; then
+    step_skip_banner "csharp-interop" "$INTEROP_INPUTS_HASH"
+    handle_success "C# interop tests (validated step cache)"
+else
 echo "Running C# interop tests..."
 INTEROP_DIR="$REPO_ROOT/tests/NSharpLang.CSharpInteropTests"
 
@@ -348,7 +467,12 @@ else
     handle_error "C# interop tests"
 fi
 rm -f "$INTEROP_OUTPUT"
+if [ "$FAILURES" -eq "$INTEROP_FAILURES_BEFORE" ]; then
+    step_cache_store "csharp-interop" "$INTEROP_INPUTS_HASH"
+fi
+fi
 
+run_template_and_examples_steps() {
 section "Step 5: Install dotnet new Template"
 echo "Installing NSharpLang.Templates from local N# package cache..."
 if dotnet new install NSharpLang.Templates --add-source "$LOCAL_FEED" --force > /dev/null 2>&1; then
@@ -664,6 +788,20 @@ else
     echo -e "${RED}ERROR: dotnet-ilverify is not installed.${NC}"
     echo "Install it with: dotnet tool install --global dotnet-ilverify"
     handle_error "IL verification gate (dotnet-ilverify not installed)"
+fi
+
+}
+
+EXAMPLES_FAILURES_BEFORE=$FAILURES
+if step_cache_hit "templates-examples-ilverify" "$EXAMPLES_INPUTS_HASH"; then
+    section "Steps 5-10b: Templates, Examples, IL Verification"
+    step_skip_banner "templates-examples-ilverify" "$EXAMPLES_INPUTS_HASH"
+    handle_success "Templates + examples + IL verification (validated step cache)"
+else
+    run_template_and_examples_steps
+    if [ "$FAILURES" -eq "$EXAMPLES_FAILURES_BEFORE" ]; then
+        step_cache_store "templates-examples-ilverify" "$EXAMPLES_INPUTS_HASH"
+    fi
 fi
 
 section "Step 11: Summary"

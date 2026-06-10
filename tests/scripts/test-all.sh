@@ -12,6 +12,7 @@ fi
 
 FORCE_RUN="${NSHARP_TEST_ALL_FORCE:-0}"
 KEEP_RUN="${NSHARP_TEST_KEEP_RUN:-0}"
+STEP_CACHE_OFF="${NSHARP_TEST_STEP_CACHE_OFF:-0}"
 FRESH_REASON=""
 CORE_ARGS=()
 
@@ -37,6 +38,11 @@ Options:
 
 Plain ./scripts/test-all.sh may return a validated cache hit for fast local
 development. Do not use a cached hit as a pre-commit or release verification.
+
+Within a fresh isolated run (including --commit), individual gate steps may be
+skipped when their ENTIRE input set is byte-identical to inputs that previously
+passed that step on the same toolchain (validated per-step cache). --release,
+--fresh, --no-cache, and --clean disable per-step skipping and run everything.
 EOF
             exit 0
             ;;
@@ -47,18 +53,22 @@ EOF
         --release)
             FORCE_RUN=1
             FRESH_REASON="release verification"
+            STEP_CACHE_OFF=1
             ;;
         --fresh)
             FORCE_RUN=1
             FRESH_REASON="explicit fresh verification"
+            STEP_CACHE_OFF=1
             ;;
         --no-cache|--rebuild-cache)
             FORCE_RUN=1
             FRESH_REASON="cache bypass requested"
+            STEP_CACHE_OFF=1
             ;;
         --clean)
             FORCE_RUN=1
             FRESH_REASON="clean verification"
+            STEP_CACHE_OFF=1
             CORE_ARGS+=("$arg")
             ;;
         *)
@@ -488,6 +498,8 @@ set +e
     export TMP="$RUN_TMP"
     export TEMP="$RUN_TMP"
     export NSHARP_TEST_ALL_ISOLATED=1
+    export NSHARP_TEST_STEP_CACHE_ROOT="$CACHE_ROOT/steps"
+    export NSHARP_TEST_STEP_CACHE_OFF="$STEP_CACHE_OFF"
     "$RUN_REPO/tests/scripts/test-all-core.sh" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"}
 )
 CORE_EXIT=$?
