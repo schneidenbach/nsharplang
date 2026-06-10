@@ -11,6 +11,30 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc L3a: CAPTURING lambdas, never-mutated captures (`4aefe87c`)
+
+The columnar pipeline emits its first CLOSURES. Scope contract: a by-value snapshot into a display class
+equals the oracle's lowering exactly when nothing in the enclosing body WRITES the captured name (the
+oracle only box-lifts mutated captures) — so the never-written surface accepts and everything else
+declines. Machinery: capture collection with nested-lambda shadowing + precise type-subtree skipping;
+whole-body write scan (assignments incl. compound, foreach vars, deconstructions); module-level
+`<>c__DisplayClass{n}` with snapshot fields, the lambda as an instance method whose captured names resolve
+through a synthetic ColumnarStructDef via the existing `_currentStruct` field chain; `newobj; dup; stfld`*
++ `ldftn; newobj (object, IntPtr)` at the use site; display classes bake before Program (threaded list).
+
+**ADVERSARIAL REVIEW (the §1.6 mandatory slice) — both soundness findings CONFIRMED by probe, then fixed:**
+(1) member writes through a captured VALUE-STRUCT local (`b.V = 99`) escaped the bare-ident write scan —
+columnar 101 vs oracle 199 on an accepted program (the oracle box-lifts member-mutated value-type
+captures); the scan now walks member/index targets to the root receiver. (2) generic-T captures embedded an
+out-of-context MVAR in the display field signature (TypeLoadException at load); ContainsGenericParameters
+declines. After four review arcs refuted by verify-first, this is the first review with confirmed real
+findings — on exactly the slice family (closures) the doctrine flags for review. Parity: 6 shapes + 8
+decline pins. 3976/3976; gate green — first gate on the concurrent collectible-ALC test infra (`2587fc2a`,
+the OOM fix). REMAINING lambda surface: L3b mutated captures (box-lifting), block bodies, nested capture
+chains, capture-opaque bodies (match), `this` captures, L4 local functions.
+
+---
+
 ## 2026-06-10 — Lambdas arc L2: TYPED LOCALS — param-ful lambda locals unlocked (`abadc3aa`)
 
 `let name: Type = init` + the bare form emit columnar (statement kind 40). Type trees can't share the
