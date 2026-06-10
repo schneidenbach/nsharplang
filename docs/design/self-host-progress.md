@@ -54,8 +54,12 @@ closed generic instantiation — the init-setter call fails at RUNTIME with
 code; identical program without the modreq returns correctly — causality pinned by control run). Per the
 cardinal rule the oracle now REFUSES init-only setter assignment on closed generics with a clear compile
 error (init setters tracked in `_initOnlySetters` at definition); plain auto-property setters and fields on
-closed generics work and are pinned. Chip `task_f580ea0c` tracks filing the dotnet/runtime issue with the
-inline repro. **Consequence for columnar generic types (next slice): generic CLASSES and STRUCTS are in
+closed generics work and are pinned. Filed upstream as
+[dotnet/runtime#129234](https://github.com/dotnet/runtime/issues/129234) (2026-06-10) with the inline repro,
+metadata-blob evidence (modreq present on the MethodDef signature, absent from the MemberRef signature, so
+ECMA-335 binding cannot match), and root cause: `ModuleBuilderImpl.GetMethodSignature` rebuilds MemberRef
+signatures from `ParameterInfoWrapper`s that never consult the modifier arrays stored at `DefineMethod`
+time. Parameter-level modreqs are dropped too (verified); present since .NET 9 and still on `main`. **Consequence for columnar generic types (next slice): generic CLASSES and STRUCTS are in
 scope; generic RECORDS decline, matching the oracle's deliberate refusal.**
 
 Process notes: one Systems benchmark gate failure (HotResultCombinations 1.13 vs 1.05 limit) re-ran green

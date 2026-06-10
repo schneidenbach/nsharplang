@@ -8218,9 +8218,9 @@ func main(): int {
         // A correct emit is BLOCKED upstream: .NET 10 PersistedAssemblyBuilder drops the
         // modreq(IsExternalInit) from member references rebound via TypeBuilder.GetMethod, so
         // the init-setter call fails at RUNTIME with MissingMethodException (reproduced in a
-        // minimal Reflection.Emit spike with no N# code involved). Until the runtime issue is
-        // resolved, the oracle must refuse with a clear compile error instead of emitting
-        // garbage.
+        // minimal Reflection.Emit spike with no N# code involved). Filed upstream as
+        // https://github.com/dotnet/runtime/issues/129234 — until it is resolved, the oracle
+        // must refuse with a clear compile error instead of emitting garbage.
         var source = @"
 record Pair<T> {
     First: T
