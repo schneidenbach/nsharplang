@@ -786,9 +786,8 @@ public sealed class ColumnarIlEmitter
                 _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
                 _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
                 programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
-            if (!subEmitter.EmitExpression(bodyNode, out var bodyType) || bodyType != invoke.ReturnType)
+            if (!EmitLambdaBody(subEmitter, lambdaIl, bodyNode, invoke.ReturnType))
                 return false;
-            lambdaIl.Emit(OpCodes.Ret);
             _il.Emit(OpCodes.Ldnull);
             _il.Emit(OpCodes.Ldftn, lambdaMethod);
             _il.Emit(OpCodes.Newobj, delegateCtor);
@@ -848,9 +847,8 @@ public sealed class ColumnarIlEmitter
             _source, shiftedOrdinals, paramTypeMap, invoke.ReturnType, closureIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
-        if (!closureEmitter.EmitExpression(bodyNode, out var closureBodyType) || closureBodyType != invoke.ReturnType)
+        if (!EmitLambdaBody(closureEmitter, closureIl, bodyNode, invoke.ReturnType))
             return false;
-        closureIl.Emit(OpCodes.Ret);
         _displayClasses.Add(display);
         // Use site: construct the closure, snapshot every capture, bind the delegate to it.
         _il.Emit(OpCodes.Newobj, displayCtor);
@@ -865,6 +863,20 @@ public sealed class ColumnarIlEmitter
         }
         _il.Emit(OpCodes.Ldftn, closureMethod);
         _il.Emit(OpCodes.Newobj, delegateCtor);
+        return true;
+    }
+
+    // Emit a lambda's BODY into its synthesized method: a statement BLOCK (kind 25 — `x => { ... }`)
+    // flows through EmitBody, which owns always-returns checking for value lambdas and the trailing `ret`
+    // for void ones (exactly a function body); an EXPRESSION body emits, type-checks against Invoke's
+    // return, and appends the `ret`.
+    private static bool EmitLambdaBody(ColumnarIlEmitter subEmitter, ILGenerator lambdaIl, int bodyNode, Type returnType)
+    {
+        if (subEmitter._kinds[bodyNode] == 25)
+            return subEmitter.EmitBody(bodyNode, returnType == typeof(void));
+        if (!subEmitter.EmitExpression(bodyNode, out var bodyType) || bodyType != returnType)
+            return false;
+        lambdaIl.Emit(OpCodes.Ret);
         return true;
     }
 

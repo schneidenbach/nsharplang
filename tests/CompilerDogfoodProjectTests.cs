@@ -4834,9 +4834,8 @@ class B
 
         // DECLINES (each routes to the C# path):
         // (a never-mutated CAPTURE now EMITS via the L3a display-class lowering — coverage in
-        // ColumnarCodegen_Parity_CapturingLambdas.)
-        // a BLOCK body (statement-bodied lambdas are a later rung).
-        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    return apply(x => {\n        return x * 2\n    }, v)\n}\n").Ok);
+        // ColumnarCodegen_Parity_CapturingLambdas; a BLOCK body now EMITS through EmitBody — coverage in
+        // ColumnarCodegen_Parity_BlockBodiedLambdas.)
         // a `:=` lambda (no inference source — the pipeline now rejects it with NL203).
         Assert.False(RouteColumnarProgram("func f(v: int): int {\n    g := x => x + 1\n    return g(v)\n}\n").Ok);
         // an ARITY mismatch against the expected delegate.
@@ -4980,6 +4979,46 @@ class B
         // a capture typed by a generic METHOD parameter — the display-class field signature would embed an
         // out-of-context MVAR (saves fine, TypeLoadException at load); ContainsGenericParameters declines.
         Assert.False(RouteColumnarProgram("func useIt<U>(v: U): int {\n    return 7\n}\n\nfunc apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc test<T>(seed: T, v: int): int {\n    let f: Func<int, int> = x => x + useIt(seed)\n    return apply(f, v)\n}\n").Ok);
+    }
+
+    // Lambdas arc: BLOCK-BODIED lambdas (`x => { ... }`). The kernel parses the body as a statement BLOCK
+    // (kind 25) via the statement kernel — mutual recursion in the other direction from
+    // statements-call-expressions — and the emitter routes kind-25 bodies through EmitBody, which owns
+    // always-returns checking for value lambdas (NL305-equivalent declines) and the trailing ret for void
+    // ones, exactly like a function body. Captures compose: a block body's locals shadow correctly, and a
+    // NESTED lambda inside a BLOCK-bodied lambda may capture the block's locals soundly by induction (the
+    // outer lambda's EmitBody sets the sub-emitter's body root, so the never-written scan applies one
+    // level down). The `:=` inferred path stays expression-only (a block body cannot single-pass infer
+    // its return type — returns type-check against a known return during emission).
+    [Fact]
+    public void ColumnarCodegen_Parity_BlockBodiedLambdas()
+    {
+        var prog =
+            "func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\n" +
+            "func run(a: Action<int>, v: int): int {\n    a(v)\n    return v + 1\n}\n\n" +
+            "func sink(n: int) {\n}\n\n" +
+            "func blockValue(v: int): int {\n    return apply(x => {\n        y := x * 2\n        return y + 1\n    }, v)\n}\n\n" +
+            "func blockVoid(v: int): int {\n    return run(x => {\n        sink(x)\n        sink(x * 2)\n    }, v)\n}\n\n" +
+            "func blockIf(v: int): int {\n    return apply(x => {\n        if x > 3 {\n            return x * 10\n        }\n        return x\n    }, v)\n}\n\n" +
+            "func blockCapture(v: int): int {\n    n := 7\n    return apply(x => {\n        y := x + n\n        return y * 2\n    }, v)\n}\n\n" +
+            "func blockTyped(v: int): int {\n    let g: Func<int, int> = x => {\n        return x * 3\n    }\n    return g(v)\n}\n\n" +
+            "func nestedInBlock(v: int): int {\n    return apply(x => {\n        k := x * 2\n        return apply(y => y + k, 1)\n    }, v)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("blockValue", new object[] { 5 }),
+            ("blockVoid", new object[] { 4 }),
+            ("blockIf", new object[] { 5 }),
+            ("blockIf", new object[] { 2 }),
+            ("blockCapture", new object[] { 3 }),
+            ("blockTyped", new object[] { 4 }),
+            ("nestedInBlock", new object[] { 5 }));
+
+        // DECLINES:
+        // a VALUE block body that does not always-return (the pipeline rejects it — NL305 family).
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    return apply(x => {\n        y := x * 2\n    }, v)\n}\n").Ok);
+        // a capture MUTATED inside the block body.
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 7\n    return apply(x => {\n        n = x\n        return n\n    }, v)\n}\n").Ok);
+        // a `:=` inferred lambda with a BLOCK body (no up-front return type to emit returns against).
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    g := () => {\n        return 5\n    }\n    return g() + v\n}\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either

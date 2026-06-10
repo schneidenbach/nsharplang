@@ -53,11 +53,12 @@
 //                                         `=>` token in the value span; children = [param Identifiers (kind 6,
 //                                         zero or more), body expression root] -- paramCount = childCount - 1.
 //                                         Params are UNTYPED by grammar (the production parser rejects `:` in a
-//                                         lambda list); BLOCK bodies (`=> { ... }`) refuse (-1, statement bodies
-//                                         are a later rung). Parsed at the full-expression entry and in call
-//                                         ARGUMENTS (the production's ParseExpression positions modeled so far).
-//                                         Kind 40 is TypedLocalDeclaration in ParserStatements -- 41 is the next
-//                                         free kind. )
+//                                         lambda list); the body is an EXPRESSION at this level or a statement
+//                                         BLOCK (kind 25, parsed by the statement kernel -- mutual recursion in
+//                                         the other direction from statements-call-expressions). Parsed at the
+//                                         full-expression entry and in call ARGUMENTS (the production's
+//                                         ParseExpression positions modeled so far). Kind 40 is
+//                                         TypedLocalDeclaration in ParserStatements -- 41 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, block-bodied lambdas; every other primary (this/base/
@@ -1119,7 +1120,16 @@ func ParseLambdaOrAssignmentExpressionNode(tokenKinds: int[], tokenStarts: int[]
     arrowLength := tokenValueLengths[st[0]]
     st[0] = st[0] + 1
 
-    body := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+    // BLOCK body `x => { ... }`: a statement BLOCK (kind 25) parsed by the statement kernel — the two
+    // kernels share the node table and the st/argStack conventions, and statements already call back into
+    // expressions, so this is the same mutual recursion in the other direction. Otherwise the body is an
+    // expression parsed at THIS level (a lambda can return a lambda).
+    body := -1
+    if st[0] < count && tokenKinds[st[0]] == 129 {
+        body = ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+    } else {
+        body = ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+    }
     if body < 0 {
         st[3] = argBase
         return -1
