@@ -8110,4 +8110,133 @@ func main(): int {
 
         Assert.Equal(18, Assert.IsType<int>(CompileAndInvoke(source)));
     }
+
+    [Fact]
+    public void ILCompiler_ClosedGenericFieldAccess_ReadStoreAndTypedLocal()
+    {
+        // B1: `b.item` on a CLOSED generic (Box<int>) failed with "Member item not found on
+        // type Box" — reflection member queries throw on TypeBuilderInstantiation, so the
+        // member paths must resolve through the OPEN definition's bookkeeping and rebound
+        // tokens, and typing must substitute the closed arguments (x is int, not object).
+        var source = @"
+class Box<T> {
+    item: T
+
+    constructor(v: T) {
+        item = v
+    }
+}
+
+func main(): int {
+    b := new Box<int>(5)
+    x := b.item
+    b.item = x + 2
+    return b.item
+}";
+        Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_ClosedGenericPropertyAccess_ResolvesThroughReboundGetter()
+    {
+        var source = @"
+class Box<T> {
+    item: T
+
+    constructor(v: T) {
+        item = v
+    }
+
+    Current: T {
+        get { return item }
+    }
+}
+
+func main(): int {
+    b := new Box<int>(41)
+    return b.Current + 1
+}";
+        Assert.Equal(42, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericTypedConstructorParameter_BindsWithSubstitution()
+    {
+        // B10: a ctor parameter whose type is ANOTHER generic over the same type parameter
+        // (`Holder<T>(i: Box<T>)`) failed to bind because the instantiated ctor still reports
+        // the OPEN parameter shapes; the binder must substitute the closed type arguments.
+        var source = @"
+class Box<T> {
+    item: T
+
+    constructor(v: T) {
+        item = v
+    }
+}
+
+class Holder<T> {
+    inner: Box<T>
+
+    constructor(i: Box<T>) {
+        inner = i
+    }
+}
+
+func main(): int {
+    h := new Holder<int>(new Box<int>(9))
+    return h.inner.item
+}";
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericInstanceMethod_OnPlainType_InfersAndAcceptsExplicitArgs()
+    {
+        // B12a: generic instance methods were never DEFINED with generic parameters
+        // (DeclareMethod resolved U to object and MakeGenericMethod threw
+        // InvalidOperationException). Both inference and explicit type arguments must bind.
+        var source = @"
+class Plain {
+    func Echo<U>(v: U): U {
+        return v
+    }
+}
+
+func main(): int {
+    p := new Plain()
+    a := p.Echo(40)
+    b := p.Echo<int>(2)
+    return a + b
+}";
+        Assert.Equal(42, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericInstanceMethod_OnGenericType_ValueAndReferenceTypeArgs()
+    {
+        // B12b: `Box<int>.Pair<U>` must rebind onto the closed type BEFORE MakeGenericMethod,
+        // and the method body's generic context must include the METHOD's own type parameters
+        // — without that, interpolating a U-typed value parameter emitted IL that only
+        // verified for reference-type instantiations (bool crashed with InvalidProgram).
+        var source = @"
+class Box<T> {
+    item: T
+
+    constructor(v: T) {
+        item = v
+    }
+
+    func Pair<U>(other: U): string {
+        return $""{item}|{other}""
+    }
+}
+
+func main(): string {
+    b := new Box<int>(5)
+    r := b.Pair(""x"")
+    v := b.Pair<bool>(true)
+    return $""{r};{v}""
+}";
+        Assert.Equal("5|x;5|True", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
 }

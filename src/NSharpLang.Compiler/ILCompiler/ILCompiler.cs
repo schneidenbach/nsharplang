@@ -7318,12 +7318,23 @@ public partial class ILCompiler
 
     private (MethodInfo? Method, Type[]? TypeArguments) CreateDeclaredMethodCandidate(DeclaredMethodOverload overload, CallExpression call, Expression? implicitReceiver)
     {
+        return CreateDeclaredMethodCandidate(overload, overload.Builder, call, implicitReceiver);
+    }
+
+    /// <summary>
+    /// Builds the callable candidate for a declared-method overload. <paramref name="declaredMethod"/>
+    /// is the overload's builder, possibly already rebound onto a CLOSED receiver type
+    /// (TypeBuilder.GetMethod) — generic methods instantiate via MakeGenericMethod on that
+    /// rebound method so `Box&lt;int&gt;.Pair&lt;string&gt;` composes in the order Reflection.Emit requires.
+    /// </summary>
+    private (MethodInfo? Method, Type[]? TypeArguments) CreateDeclaredMethodCandidate(DeclaredMethodOverload overload, MethodInfo declaredMethod, CallExpression call, Expression? implicitReceiver)
+    {
         var runtimeTypeParameters = GetRuntimeTypeParameters(overload.Declaration);
         if (runtimeTypeParameters.Length == 0)
         {
             return call.TypeArguments is { Count: > 0 }
                 ? (null, null)
-                : (overload.Builder, null);
+                : (declaredMethod, null);
         }
 
         Type[]? typeArguments = null;
@@ -7353,7 +7364,7 @@ public partial class ILCompiler
             return (specializedMethod, typeArguments);
         }
 
-        return (overload.Builder.MakeGenericMethod(typeArguments), typeArguments);
+        return (declaredMethod.MakeGenericMethod(typeArguments), typeArguments);
     }
 
     /// <summary>
@@ -7889,28 +7900,51 @@ public partial class ILCompiler
                 continue;
             }
 
-            var (candidateMethod, candidateTypeArguments) = CreateDeclaredMethodCandidate(overload, call, implicitReceiver);
+            // Rebind the open builder onto the CLOSED receiver type FIRST so that a generic
+            // METHOD on a generic TYPE instantiates as `Box<int>.Pair` → MakeGenericMethod
+            // (Reflection.Emit rejects the reverse order).
+            MethodInfo declaredMethod = overload.Builder;
+            if (targetType != null
+                && declaredMethod.DeclaringType is TypeBuilder
+                && targetType != declaredMethod.DeclaringType)
+            {
+                declaredMethod = TypeBuilder.GetMethod(targetType, overload.Builder);
+            }
+
+            var (candidateMethod, candidateTypeArguments) = CreateDeclaredMethodCandidate(overload, declaredMethod, call, implicitReceiver);
             if (candidateMethod == null)
             {
                 continue;
             }
 
-            if (targetType != null
-                && candidateMethod.DeclaringType is TypeBuilder
-                && targetType != candidateMethod.DeclaringType)
-            {
-                candidateMethod = TypeBuilder.GetMethod(targetType, candidateMethod);
-            }
-
-            var parameterTypes = overload.Builder.IsStatic
+            Type[] parameterTypes;
+            if (overload.Builder.IsStatic
                 && targetType == null
                 && implicitReceiver == null
                 && HasRuntimeTypeParameters(overload.Declaration)
-                && candidateTypeArguments != null
-                ? ResolveDeclaredMethodParameterTypes(overload.Declaration, candidateTypeArguments)
-                : candidateMethod.GetParameters()
-                    .Select(parameter => ResolveTargetGenericSignatureType(targetType, parameter.ParameterType))
-                    .ToArray();
+                && candidateTypeArguments != null)
+            {
+                parameterTypes = ResolveDeclaredMethodParameterTypes(overload.Declaration, candidateTypeArguments);
+            }
+            else
+            {
+                try
+                {
+                    parameterTypes = candidateMethod.GetParameters()
+                        .Select(parameter => ResolveTargetGenericSignatureType(targetType, parameter.ParameterType))
+                        .ToArray();
+                }
+                catch (NotSupportedException)
+                {
+                    // A generic-method instantiation over a builder cannot enumerate its
+                    // parameters; resolve them from the declaration with the method
+                    // type-argument substitution, then substitute the receiver's closed
+                    // type arguments.
+                    parameterTypes = ResolveDeclaredMethodParameterTypes(overload.Declaration, candidateTypeArguments ?? Type.EmptyTypes)
+                        .Select(parameterType => ResolveTargetGenericSignatureType(targetType, parameterType))
+                        .ToArray();
+                }
+            }
 
             if (!TryBindDeclaredParameters(
                     overload.Declaration.Parameters,
@@ -8065,9 +8099,26 @@ public partial class ILCompiler
             var candidateConstructor = type == typeBuilder
                 ? overload.Builder
                 : TypeBuilder.GetConstructor(type, overload.Builder);
+
+            // A CLOSED instantiation's ctor still reports the OPEN parameter shapes
+            // (`v: T`, `i: Box<T>`); substitute the closed type arguments by position so
+            // composed generic parameters (`Box<T>` on `Holder<int>` → `Box<int>`) bind and
+            // coerce correctly.
+            var runtimeParameterTypes = candidateConstructor.GetParameters()
+                .Select(parameter => parameter.ParameterType)
+                .ToArray();
+            if (type != typeBuilder && type.IsGenericType && !type.IsGenericTypeDefinition)
+            {
+                var closedTypeArguments = type.GetGenericArguments();
+                for (var i = 0; i < runtimeParameterTypes.Length; i++)
+                {
+                    runtimeParameterTypes[i] = SubstituteGenericSignatureTypeByPosition(runtimeParameterTypes[i], closedTypeArguments);
+                }
+            }
+
             if (!TryBindDeclaredParameters(
                     overload.Declaration.Parameters,
-                    candidateConstructor.GetParameters(),
+                    runtimeParameterTypes,
                     arguments,
                     out var boundArguments,
                     out var score,
@@ -15071,6 +15122,73 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Resolves an N#-declared instance FIELD on a CLOSED generic instantiation of an
+    /// uncreated user TypeBuilder (e.g. <c>Box&lt;int&gt;</c> while <c>Box</c> is still being
+    /// emitted). Reflection member queries throw NotSupportedException on a
+    /// TypeBuilderInstantiation, so walk the OPEN definition's bookkeeping and rebind the
+    /// FieldBuilder to the closed type via TypeBuilder.GetField. A field declared on a
+    /// NON-generic base builder needs no rebinding (its token is valid for any derived
+    /// receiver); generic BASE chains under a closed derived type are not yet supported
+    /// (returns null so callers keep their existing diagnostics).
+    /// </summary>
+    private FieldInfo? FindInstanceFieldOnClosedGeneratedType(Type closedType, string memberName)
+    {
+        if (closedType is TypeBuilder || !closedType.IsGenericType || closedType.IsGenericTypeDefinition)
+        {
+            return null;
+        }
+
+        if (!TryGetUserTypeDefinition(closedType, out var openTypeBuilder))
+        {
+            return null;
+        }
+
+        var openField = FindInstanceFieldOnBaseChain(openTypeBuilder, memberName);
+        if (openField == null)
+        {
+            return null;
+        }
+
+        if (openField.DeclaringType == openTypeBuilder)
+        {
+            return TypeBuilder.GetField(closedType, openField);
+        }
+
+        return openField.DeclaringType is { IsGenericType: false } ? openField : null;
+    }
+
+    /// <summary>
+    /// Accessor twin of <see cref="FindInstanceFieldOnClosedGeneratedType"/>: resolves an
+    /// N#-declared instance accessor (<c>get_X</c>/<c>set_X</c>) on a CLOSED generic
+    /// instantiation of an uncreated user TypeBuilder, rebinding via TypeBuilder.GetMethod.
+    /// </summary>
+    private MethodInfo? FindInstanceAccessorOnClosedGeneratedType(Type closedType, string accessorName)
+    {
+        if (closedType is TypeBuilder || !closedType.IsGenericType || closedType.IsGenericTypeDefinition)
+        {
+            return null;
+        }
+
+        if (!TryGetUserTypeDefinition(closedType, out var openTypeBuilder))
+        {
+            return null;
+        }
+
+        var openAccessor = FindInstanceAccessorOnBaseChain(openTypeBuilder, accessorName);
+        if (openAccessor == null)
+        {
+            return null;
+        }
+
+        if (openAccessor.DeclaringType == openTypeBuilder)
+        {
+            return TypeBuilder.GetMethod(closedType, openAccessor);
+        }
+
+        return openAccessor.DeclaringType is { IsGenericType: false } ? openAccessor : null;
+    }
+
+    /// <summary>
     /// Resolves an N#-declared instance ACCESSOR (<c>get_X</c>/<c>set_X</c>) by walking the
     /// receiver's base-class chain — the property may be declared on an inherited base type.
     /// The own type is checked first so a derived declaration shadows a base one.
@@ -18517,6 +18635,21 @@ public partial class ILCompiler
             throw new InvalidOperationException($"Member {memberName} not found on type {GetTypeKey(typeBuilder)}");
         }
 
+        // Closed generic instantiation of an uncreated user type: rebound open-definition tokens.
+        var closedGeneratedField = FindInstanceFieldOnClosedGeneratedType(objectType, memberName);
+        if (closedGeneratedField != null)
+        {
+            _currentIL.Emit(OpCodes.Ldfld, closedGeneratedField);
+            return;
+        }
+
+        var closedGeneratedGetter = FindInstanceAccessorOnClosedGeneratedType(objectType, $"get_{memberName}");
+        if (closedGeneratedGetter != null)
+        {
+            _currentIL.Emit(OpCodes.Callvirt, closedGeneratedGetter);
+            return;
+        }
+
         var property = ResolveRuntimeProperty(
             objectType,
             memberName,
@@ -18656,6 +18789,21 @@ public partial class ILCompiler
             }
 
             throw new InvalidOperationException($"Member {memberName} not found on type {GetTypeKey(typeBuilder)}");
+        }
+
+        // Closed generic instantiation of an uncreated user type: rebound open-definition tokens.
+        var closedGeneratedField = FindInstanceFieldOnClosedGeneratedType(objectType, memberName);
+        if (closedGeneratedField != null)
+        {
+            _currentIL.Emit(OpCodes.Stfld, closedGeneratedField);
+            return;
+        }
+
+        var closedGeneratedSetter = FindInstanceAccessorOnClosedGeneratedType(objectType, $"set_{memberName}");
+        if (closedGeneratedSetter != null)
+        {
+            _currentIL.Emit(OpCodes.Callvirt, closedGeneratedSetter);
+            return;
         }
 
         var property = ResolveRuntimeProperty(
@@ -18946,6 +19094,23 @@ public partial class ILCompiler
             }
 
             throw new InvalidOperationException($"Member {memberAccess.MemberName} not found on type {GetTypeKey(typeBuilder)}");
+        }
+
+        // Closed generic instantiation of an uncreated user type (Box<int>): reflection member
+        // queries throw on TypeBuilderInstantiation, so resolve through the open definition's
+        // bookkeeping and rebound tokens.
+        var closedGeneratedField = FindInstanceFieldOnClosedGeneratedType(memberOwnerType, memberAccess.MemberName);
+        if (closedGeneratedField != null)
+        {
+            _currentIL.Emit(OpCodes.Ldfld, closedGeneratedField);
+            return;
+        }
+
+        var closedGeneratedGetter = FindInstanceAccessorOnClosedGeneratedType(memberOwnerType, $"get_{memberAccess.MemberName}");
+        if (closedGeneratedGetter != null)
+        {
+            _currentIL.Emit(useAddressReceiver ? OpCodes.Call : OpCodes.Callvirt, closedGeneratedGetter);
+            return;
         }
 
         // Try to find a property first
@@ -19978,6 +20143,26 @@ public partial class ILCompiler
             }
 
             return typeof(object);
+        }
+
+        // Closed generic instantiation of an uncreated user type (Box<int>): type the member
+        // from the OPEN definition's bookkeeping, substituting the closed type arguments by
+        // position (item: T on Box<int> types as int).
+        if (memberOwnerType.IsGenericType
+            && !memberOwnerType.IsGenericTypeDefinition
+            && TryGetUserTypeDefinition(memberOwnerType, out var closedOwnerDefinition))
+        {
+            var openFieldForType = FindInstanceFieldOnBaseChain(closedOwnerDefinition, unwrapNullConditional.MemberName);
+            if (openFieldForType != null)
+            {
+                return SubstituteGenericSignatureTypeByPosition(openFieldForType.FieldType, memberOwnerType.GetGenericArguments());
+            }
+
+            var openGetterForType = FindInstanceAccessorOnBaseChain(closedOwnerDefinition, $"get_{unwrapNullConditional.MemberName}");
+            if (openGetterForType != null)
+            {
+                return SubstituteGenericSignatureTypeByPosition(openGetterForType.ReturnType, memberOwnerType.GetGenericArguments());
+            }
         }
 
         // Try to find a property
@@ -22544,13 +22729,7 @@ public partial class ILCompiler
     private void DeclareMethod(TypeBuilder typeBuilder, FunctionDeclaration funcDecl, IReadOnlyList<Type>? implementedInterfaces = null, string? declaringTypeName = null)
     {
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
-        var returnType = funcDecl.ReturnType != null
-            ? ResolveType(funcDecl.ReturnType, typeGenericParameters)
-            : typeof(void);
-
-        var parameterTypes = funcDecl.Parameters
-            .Select(p => ResolveParameterType(p, typeGenericParameters))
-            .ToArray();
+        var runtimeTypeParameters = GetRuntimeTypeParameters(funcDecl);
 
         var methodAttributes = GetConventionMethodVisibilityAttributes(funcDecl.Name, funcDecl.Modifiers);
 
@@ -22570,25 +22749,82 @@ public partial class ILCompiler
         if (funcDecl.Modifiers.HasFlag(Modifiers.Override))
             methodAttributes |= MethodAttributes.Virtual | MethodAttributes.ReuseSlot;
 
-        var interfaceMethods = implementedInterfaces == null
-            ? new List<MethodInfo>()
-            : implementedInterfaces
-                .SelectMany(@interface => GetInterfaceMethodCandidates(@interface, funcDecl.Name))
-                .Where(method => SignaturesMatch(method, returnType, parameterTypes))
-                .ToList();
+        Type returnType;
+        Type[] parameterTypes;
+        var signatureGenericParameters = typeGenericParameters;
+        MethodBuilder methodBuilder;
+        List<MethodInfo> interfaceMethods;
 
-        if (interfaceMethods.Count > 0 && !funcDecl.Modifiers.HasFlag(Modifiers.Static))
+        if (runtimeTypeParameters.Length > 0)
         {
-            methodAttributes &= ~MethodAttributes.MemberAccessMask;
-            methodAttributes |= MethodAttributes.Public;
-            methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
-        }
+            // GENERIC member method: the signature can reference method-level type parameters,
+            // which only exist after DefineGenericParameters — so define the method first and
+            // set the signature after (same order as top-level DeclareFunction). Generic
+            // methods never participate in interface-override wiring (SignaturesMatch is
+            // exact-typed and N# interface methods are non-generic today).
+            methodBuilder = typeBuilder.DefineMethod(GetEmittedMethodName(funcDecl), methodAttributes);
+            var methodGenericParameters = methodBuilder.DefineGenericParameters(
+                runtimeTypeParameters.Select(tp => tp.Name).ToArray());
 
-        var methodBuilder = typeBuilder.DefineMethod(
-            GetEmittedMethodName(funcDecl),
-            methodAttributes,
-            returnType,
-            parameterTypes);
+            if (funcDecl.Constraints != null)
+            {
+                foreach (var constraint in funcDecl.Constraints)
+                {
+                    var constrainedParameter = methodGenericParameters.FirstOrDefault(gp => gp.Name == constraint.TypeParameter);
+                    if (constrainedParameter != null)
+                    {
+                        ApplyGenericConstraints(constrainedParameter, constraint, methodGenericParameters);
+                    }
+                }
+            }
+
+            // Method type parameters are the innermost scope: list them first so a
+            // method-level name wins lookup over a same-named type-level parameter.
+            signatureGenericParameters = typeGenericParameters == null
+                ? methodGenericParameters
+                : methodGenericParameters.Concat(typeGenericParameters).ToArray();
+
+            returnType = funcDecl.ReturnType != null
+                ? ResolveType(funcDecl.ReturnType, signatureGenericParameters)
+                : typeof(void);
+            parameterTypes = funcDecl.Parameters
+                .Select(p => ResolveParameterType(p, signatureGenericParameters))
+                .ToArray();
+
+            methodBuilder.SetReturnType(returnType);
+            methodBuilder.SetParameters(parameterTypes);
+            interfaceMethods = new List<MethodInfo>();
+        }
+        else
+        {
+            returnType = funcDecl.ReturnType != null
+                ? ResolveType(funcDecl.ReturnType, typeGenericParameters)
+                : typeof(void);
+
+            parameterTypes = funcDecl.Parameters
+                .Select(p => ResolveParameterType(p, typeGenericParameters))
+                .ToArray();
+
+            interfaceMethods = implementedInterfaces == null
+                ? new List<MethodInfo>()
+                : implementedInterfaces
+                    .SelectMany(@interface => GetInterfaceMethodCandidates(@interface, funcDecl.Name))
+                    .Where(method => SignaturesMatch(method, returnType, parameterTypes))
+                    .ToList();
+
+            if (interfaceMethods.Count > 0 && !funcDecl.Modifiers.HasFlag(Modifiers.Static))
+            {
+                methodAttributes &= ~MethodAttributes.MemberAccessMask;
+                methodAttributes |= MethodAttributes.Public;
+                methodAttributes |= MethodAttributes.Virtual | MethodAttributes.Final | MethodAttributes.NewSlot;
+            }
+
+            methodBuilder = typeBuilder.DefineMethod(
+                GetEmittedMethodName(funcDecl),
+                methodAttributes,
+                returnType,
+                parameterTypes);
+        }
         DeclareGeneratedRegexCacheField(
             typeBuilder,
             funcDecl,
@@ -22604,14 +22840,14 @@ public partial class ILCompiler
         if (funcDecl.ReturnType != null)
         {
             var returnParameter = methodBuilder.DefineParameter(0, ParameterAttributes.Retval, null);
-            ApplyNullableAttribute(returnParameter.SetCustomAttribute, funcDecl.ReturnType, typeGenericParameters);
+            ApplyNullableAttribute(returnParameter.SetCustomAttribute, funcDecl.ReturnType, signatureGenericParameters);
         }
 
         // Define parameter names
         for (int i = 0; i < funcDecl.Parameters.Count; i++)
         {
             var parameterBuilder = methodBuilder.DefineParameter(i + 1, GetParameterAttributes(funcDecl.Parameters[i]), funcDecl.Parameters[i].Name);
-            ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i], typeGenericParameters);
+            ApplyParameterAttributes(parameterBuilder, funcDecl.Parameters[i], signatureGenericParameters);
         }
 
         // Store method for later body emission
@@ -23185,7 +23421,21 @@ public partial class ILCompiler
         }
 
         var typeGenericParameters = GetTypeGenericParameters(typeBuilder);
-        var returnType = GetDeclaredFunctionReturnType(funcDecl, typeGenericParameters);
+
+        // A generic member method's body resolves BOTH the method's own type parameters and the
+        // declaring type's; method parameters are the innermost scope so they are listed first.
+        var signatureGenericParameters = typeGenericParameters;
+        if (methodBuilder.IsGenericMethodDefinition)
+        {
+            var methodGenericParameters = methodBuilder.GetGenericArguments()
+                .Cast<GenericTypeParameterBuilder>()
+                .ToArray();
+            signatureGenericParameters = typeGenericParameters == null
+                ? methodGenericParameters
+                : methodGenericParameters.Concat(typeGenericParameters).ToArray();
+        }
+
+        var returnType = GetDeclaredFunctionReturnType(funcDecl, signatureGenericParameters);
 
         _currentIL = methodBuilder.GetILGenerator();
         var bodyReturnType = returnType;
@@ -23217,13 +23467,13 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Newobj, listCtor);
             _currentIL.Emit(OpCodes.Stloc, _currentYieldListLocal);
         }
-        _currentGenericParameters = typeGenericParameters;
+        _currentGenericParameters = signatureGenericParameters;
 
         // Map parameter names to indices
         // For instance methods, parameters start at index 1 (0 is 'this')
         // For static methods, parameters start at index 0
         int startIndex = methodBuilder.IsStatic ? 0 : 1;
-        RegisterParameterContext(funcDecl.Parameters, startIndex, typeGenericParameters);
+        RegisterParameterContext(funcDecl.Parameters, startIndex, signatureGenericParameters);
 
         InitializeStackBufferPromotions(
             funcDecl.Body,
