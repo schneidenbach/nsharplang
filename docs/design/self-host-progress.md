@@ -11,6 +11,19 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc L1c: zero-param `:=` lambdas, body-inferred returns (`36f47ac3`)
+
+`zero := () => 99` emits columnar: the `:=` initializer now parses at the lambda level, and a zero-param
+kind-39 initializer synthesizes its `<Lambda>_{n}` method signature-LESS, emits the body FIRST, then
+SetReturnType/SetParameters AFTER (spike-proven define-then-sign order) — void bodies yield Action, others
+Func<bodyType>; the local flows through the L1a delegate surface (Invoke, passing to delegate params).
+Param-ful `:=` lambdas stay declined (pipeline NL203) as do captures. Parity: int/void/string inferred
+bodies + pass-to-param + capture pin. 3972/3972; gate green (502s, no OOM with build servers pre-shutdown).
+Next: L2 typed locals (`let f: Func<int, int> = x => x + 1` — statement-kernel work, unlocks param-ful
+lambda locals via the L1b contextual machinery), then L3 captures (adversarial review) → L4 local functions.
+
+---
+
 ## 2026-06-10 — Lambdas arc L1b: columnar NON-CAPTURING lambda ARGUMENTS (`0b22ac3b`)
 
 The columnar pipeline now emits its first lambda expressions. Kernel: Lambda node kind 39 at a NEW precedence
