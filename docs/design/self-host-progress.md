@@ -11,6 +11,38 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Oracle/toolchain hygiene bundle: NL201 unresolved types, NL923 reference-load failures, installer integrity (audit-driven)
+
+Four audit-driven commits landed between D-15b and the generic-user-types bundle (`d4be7eef`, `e9273453`,
+`ad96360a`, `109efcd2`), two of which CHANGE ORACLE BEHAVIOR that future columnar/analysis slices must mirror:
+
+- **NL201 TypeNotFound at declared-type positions** (`109efcd2`): the Analyzer's ResolveSimpleType fallback no
+  longer silently fabricates `ExternalTypeInfo` for unrecognized names at parameter/return/field/property/
+  variable annotations, type aliases, union case properties, and `new` expressions (generic args via
+  recursion). Includes Levenshtein "Did you mean 'X'?" suggestions. Leniency deliberately retained: pass-1
+  signature collection, lazy cross-file member resolution, and DOTTED names (`new Union.Case`,
+  namespace-qualified externals). Generic-name probing is arity-aware (`List` → `` List`1 ``) and consults the
+  compiler-known generics map (extracted as `TryGetKnownOpenGenericType`). Local functions now register their
+  generic type parameters (latent gap). Visibility-blocked cross-file types now error (contract test updated).
+  **Phase D relevance:** partially addresses defect B14 (unknown type args now diagnosed at declared
+  positions — re-probe B14 before building its bundle slice); Arc 3's columnar diagnostics pass must
+  reproduce NL201 + suggestion semantics.
+- **NL923 ReferenceLoadFailure** (`e9273453`): all reference-assembly load/inspect failures (MLC probe loops,
+  metadata resolver candidate DLLs, reference loaders) are recorded and surfaced as advisory NL923 warnings
+  whenever the same analysis produced unresolved-name/type errors — a broken reference can no longer
+  masquerade as a bare "not found". NL923 is the one deliberate non-blocking exception in the NL9xx range
+  (special-cased in DiagnosticCatalog). Arc 3 must carry this pairing behavior.
+- Toolchain hardening (no oracle impact): GitHub Actions pinned to SHAs + `permissions:` on build.yml
+  (`d4be7eef`); `scripts/install.sh` now verifies SHA256SUMS for URL downloads and `publish-toolset.sh`
+  emits the sums asset (`ad96360a`) — releases MUST upload `SHA256SUMS` per docs/PUBLISHING.md.
+
+Full unit suite 3916/3916; all four commits individually gated (`VSCODE_TESTS=skip ./scripts/test-all.sh
+--commit`). Also flagged for a user decision: **generic unions (`union Result<T>`) do not parse** (NL102 at
+the `<`) despite being README's flagship example — chip `task_7bd7b47c` tracks implement-vs-fix-docs.
+Next: the generic-user-types ORACLE fix bundle (B1 first; recon below confirms root cause).
+
+---
+
 ## 2026-06-09 — Phase D-15b: columnar EXPLICIT generic type arguments (kind-38 GenericCallee)
 
 `Identity<int>(42)` now compiles through the columnar pipeline (`d0c079ba`), completing the generic-FUNCTION
