@@ -7,10 +7,12 @@
 // the node/child cursors across the per-type parses while st[0] (pos) is repositioned to each type's start.
 //
 // Scope this slice: parameter NAME + parameter TYPE (any form the type kernel supports: Simple / Generic /
-// Array / Nullable / Union / ByRef), and the `: ReturnType` return type (or none). Parameter modifiers
-// (`ref` 78, `out` 79, `params` 82, `this` 42) and attribute lists `[...]` are skipped; a `= default` value
-// is skipped (balanced) without being parsed (expression parsing is a later rung); optional `<TypeParams>`
-// between the name and `(` is skipped by scanning to the first `(`.
+// Array / Nullable / Union / ByRef), the `: ReturnType` return type (or none), and an optional generic
+// TYPE-PARAMETER list `<T, U>` between the name and `(` — each type parameter is a bare Identifier (an
+// inline constraint `<T: Base>` or any non-identifier form returns -1; `where` clauses live AFTER the
+// signature and are the host's concern via outResult[6]). Parameter modifiers (`ref` 78, `out` 79,
+// `params` 82, `this` 42) and attribute lists `[...]` are skipped; a `= default` value is skipped
+// (balanced) without being parsed (expression parsing is a later rung).
 // Deferred (the corpus avoids them): `->` return-type syntax, scoped/lifetime parameter annotations,
 // generic constraints, expression-bodied functions, and materializing default values.
 //
@@ -18,31 +20,64 @@
 //   outNodeKinds/... (8 columns) + outChildIndices : the shared type node table (see ParserTypeReferences.nl)
 //   outParamNameStarts[p], outParamNameLengths[p]  : byte span of parameter p's name
 //   outParamTypeRoots[p]                            : node id of parameter p's type tree root
+//   outTypeParamStarts[t], outTypeParamLengths[t]   : byte span of generic type parameter t's name
 //   outResult[0] = parameter count
 //   outResult[1] = return type tree root node id, or -1 when the function has no return type
 //   outResult[2] = total node count written to the shared table
 //   outResult[3], outResult[4] = byte span (start, length) of the function name (start -1 if anonymous)
+//   outResult[5] = generic type-parameter count (0 for a non-generic function)
+//   outResult[6] = the token index immediately AFTER the parsed signature (after the return type when one
+//                  exists, else after the `)`), so the host can verify what follows (the body `{`, a ctor
+//                  `: this/base` initializer, or an unmodelled `where` clause / `=>` body to decline)
 // Returns the parameter count, or -1 on a malformed signature / a parameter type the type kernel refuses.
 //
 // TokenType ordinals (Token.cs): Identifier 0, This 42, Ref 78, Out 79, Params 82, Assign 93, Func 7,
-// Colon 122, Comma 134, LeftParen 127, RightParen 128, LeftBrace 129, RightBrace 130, LeftBracket 131,
-// RightBracket 132.
+// Less 100, Greater 102, Colon 122, Comma 134, LeftParen 127, RightParen 128, LeftBrace 129,
+// RightBrace 130, LeftBracket 131, RightBracket 132.
 
-func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outParamNameStarts: int[], outParamNameLengths: int[], outParamTypeRoots: int[], outResult: int[]): int {
+func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, funcIndex: int, outNodeKinds: int[], outNameStarts: int[], outNameLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outParamNameStarts: int[], outParamNameLengths: int[], outParamTypeRoots: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
     funcNameStart := -1
     funcNameLength := 0
-    if funcIndex + 1 < count && tokenKinds[funcIndex + 1] == 0 {
-        funcNameStart = tokenStarts[funcIndex + 1]
-        funcNameLength = tokenValueLengths[funcIndex + 1]
-    }
-
-    // Scan to the parameter list `(`. Optional <TypeParams> between the name and `(` contain no `(`, so the
-    // first LeftParen after the keyword is unambiguously the parameter list.
     i := funcIndex + 1
-    while i < count && tokenKinds[i] != 127 {
+    if i < count && tokenKinds[i] == 0 {
+        funcNameStart = tokenStarts[i]
+        funcNameLength = tokenValueLengths[i]
         i = i + 1
     }
-    if i >= count {
+
+    // Optional generic TYPE-PARAMETER list `<T, U>`: bare comma-separated Identifiers only. An inline
+    // constraint (`<T: Base>`), an empty list, or any other form is unmodelled — return -1 (the host
+    // declines to the C# path). With no `<`, the list is empty.
+    typeParamCount := 0
+    if i < count && tokenKinds[i] == 100 {
+        i = i + 1
+        while i < count && tokenKinds[i] != 102 {
+            if tokenKinds[i] != 0 {
+                return -1
+            }
+            outTypeParamStarts[typeParamCount] = tokenStarts[i]
+            outTypeParamLengths[typeParamCount] = tokenValueLengths[i]
+            typeParamCount = typeParamCount + 1
+            i = i + 1
+
+            if i < count && tokenKinds[i] != 102 {
+                if tokenKinds[i] != 134 {
+                    return -1
+                }
+                i = i + 1
+            }
+        }
+        if i >= count || tokenKinds[i] != 102 || typeParamCount == 0 {
+            return -1
+        }
+        i = i + 1
+    }
+
+    // The parameter list `(` must follow the name (and optional type parameters) DIRECTLY. (Previously this
+    // scanned blindly to the first `(`, silently skipping a `<T>` list — a generic function then declined
+    // later at type resolution; the list is now parsed above, and anything ELSE in the gap is malformed and
+    // declines at parse instead of at emit.)
+    if i >= count || tokenKinds[i] != 127 {
         return -1
     }
     i = i + 1
@@ -171,5 +206,7 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
     outResult[2] = st[1]
     outResult[3] = funcNameStart
     outResult[4] = funcNameLength
+    outResult[5] = typeParamCount
+    outResult[6] = i
     return paramCount
 }

@@ -16,7 +16,7 @@ public sealed class ColumnarFunctionInput
     public ColumnarFunctionInput(
         string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
         int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
-        int bodyRoot, bool isStatic = false)
+        int bodyRoot, bool isStatic = false, string[]? typeParamNames = null)
     {
         Name = name;
         ReturnCanonical = returnCanonical;
@@ -30,6 +30,7 @@ public sealed class ColumnarFunctionInput
         ChildIndices = childIndices;
         BodyRoot = bodyRoot;
         IsStatic = isStatic;
+        TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
     }
 
     public string Name { get; }
@@ -47,6 +48,11 @@ public sealed class ColumnarFunctionInput
     // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-
     // ness is structural, not a member modifier). Set by the adapter from the kernel's outMethodStaticFlags.
     public bool IsStatic { get; }
+    // Generic TYPE-PARAMETER names (`func Identity<T>(x: T): T` → ["T"]); empty for a non-generic function. A
+    // generic TOP-LEVEL function declares a real CLR generic method (DefineGenericParameters, mirroring the
+    // oracle's primary strategy); call sites infer the type arguments from the emitted argument types and bind
+    // via MakeGenericMethod. Generic METHODS on user types decline (the oracle itself fails on them — B12).
+    public string[] TypeParamNames { get; }
 }
 
 /// <summary>
@@ -364,7 +370,7 @@ public sealed class ColumnarIlEmitter
     // MethodBuilder.GetParameters()/ReturnType is unsupported before the type is created — and a Call checks each
     // argument's type against the callee's param types (int and bool are both i4, so a mismatch would otherwise
     // produce verifiable-but-wrong IL rather than declining).
-    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> _siblings;
+    private readonly IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams)> _siblings;
     // User-defined enums in this program, by name -> (EnumBuilder, member->value). Lets member access `Enum.Member`
     // and enum match patterns resolve their underlying-int constant, and types resolve `Color` to its EnumBuilder.
     private readonly IReadOnlyDictionary<string, ColumnarEnumDef> _enumRegistry;
@@ -397,7 +403,7 @@ public sealed class ColumnarIlEmitter
         int[] childStart, int[] childCount, int[] childIndices, string source,
         Dictionary<string, int> paramOrdinals, IReadOnlyDictionary<string, Type> paramTypes, Type returnType,
         ILGenerator il,
-        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)> siblings,
+        IReadOnlyDictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams)> siblings,
         IReadOnlyDictionary<string, ColumnarEnumDef> enumRegistry,
         IReadOnlyDictionary<string, ColumnarStructDef> structRegistry,
         IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
@@ -618,6 +624,67 @@ public sealed class ColumnarIlEmitter
         }
     }
 
+    // Unify one declared TYPE PARAMETER against an argument's actual type for a generic sibling call. `declared`
+    // is one of `typeParams` (the callee's GenericTypeParameterBuilders, in declaration order); `binding` is the
+    // positional inference state. A FIRST encounter binds; a repeat must reference-equal the prior binding
+    // (Same(1, "x") conflicts → decline). Admissible bound types: the supported concrete value/reference types
+    // (incl. their arrays) and the CALLER's own open type parameters (a generic calling a generic — the spike
+    // proved MakeGenericMethod over an open T). A user TypeBuilder/EnumBuilder binding declines this slice.
+    private static bool TryUnifyTypeParam(Type[] typeParams, Type?[] binding, Type declared, Type actual)
+    {
+        var pos = -1;
+        for (var i = 0; i < typeParams.Length; i++)
+        {
+            if (ReferenceEquals(typeParams[i], declared)) { pos = i; break; }
+        }
+        if (pos < 0)
+            return false; // a type parameter from some other scope — not resolvable here.
+        if (actual is TypeBuilder || actual is EnumBuilder)
+            return false; // instantiating over an un-baked user type is a Reflection.Emit hazard — decline.
+        if (!actual.IsGenericParameter && !IsSupportedType(actual))
+            return false;
+        if (binding[pos] == null)
+        {
+            binding[pos] = actual;
+            return true;
+        }
+        return ReferenceEquals(binding[pos], actual) || binding[pos] == actual;
+    }
+
+    // Substitute an inferred binding into a generic sibling's declared RETURN type: T -> binding, T[] ->
+    // binding[], a concrete type -> itself, void -> void. Composed shapes over T are not modelled — decline.
+    private static bool TrySubstituteReturnType(Type[] typeParams, Type?[] binding, Type declaredReturn, out Type substituted)
+    {
+        substituted = null!;
+        if (declaredReturn.IsGenericParameter)
+        {
+            for (var i = 0; i < typeParams.Length; i++)
+            {
+                if (ReferenceEquals(typeParams[i], declaredReturn))
+                {
+                    substituted = binding[i]!;
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (declaredReturn.IsSZArray && declaredReturn.GetElementType()!.IsGenericParameter)
+        {
+            var element = declaredReturn.GetElementType()!;
+            for (var i = 0; i < typeParams.Length; i++)
+            {
+                if (ReferenceEquals(typeParams[i], element))
+                {
+                    substituted = binding[i]!.MakeArrayType();
+                    return true;
+                }
+            }
+            return false;
+        }
+        substituted = declaredReturn;
+        return true;
+    }
+
     // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
     // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
     // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
@@ -697,6 +764,30 @@ public sealed class ColumnarIlEmitter
     private static bool IsSupportedElementType(Type t) =>
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char) || t == typeof(string)
         || t == typeof(double) || t == typeof(float);
+
+    /// <summary>
+    /// Resolve a canonical type string for a GENERIC function's signature: a bare type-parameter name resolves to
+    /// its <see cref="GenericTypeParameterBuilder"/>, "T[]" to its array, and everything else falls through to
+    /// <see cref="TryResolveType"/>. Type parameters are checked FIRST, mirroring the oracle's ResolveType (a
+    /// generic parameter shadows same-named types within its function's signature). Composed shapes over T
+    /// (tuples, nested generics) are not modelled and fail — the function declines to the C# path.
+    /// </summary>
+    private static bool TryResolveTypeWithTypeParams(string canonical,
+        IReadOnlyDictionary<string, Type> typeParams,
+        IReadOnlyDictionary<string, ColumnarEnumDef>? enumRegistry,
+        IReadOnlyDictionary<string, ColumnarStructDef>? structRegistry,
+        IReadOnlyDictionary<string, ColumnarUnionDef>? unionRegistry, out Type type)
+    {
+        if (typeParams.TryGetValue(canonical, out type!))
+            return true;
+        if (canonical.EndsWith("[]", StringComparison.Ordinal)
+            && typeParams.TryGetValue(canonical.Substring(0, canonical.Length - 2), out var elementParam))
+        {
+            type = elementParam.MakeArrayType();
+            return true;
+        }
+        return TryResolveType(canonical, enumRegistry, structRegistry, unionRegistry, out type);
+    }
 
     /// <summary>
     /// Resolve a canonical N# type string (e.g. "int", "int[]") to its CLR <see cref="Type"/>. Handles a single
@@ -1093,6 +1184,11 @@ public sealed class ColumnarIlEmitter
             // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
             foreach (var m in structs[s].Methods)
             {
+                // A GENERIC method on a user type (`func With<U>(...)` in a type body) is not modelled — the
+                // oracle itself fails on them (probe B12: "Operation is not valid..."), so decline both the
+                // instance and static forms.
+                if (m.TypeParamNames.Length > 0)
+                    return false;
                 // A method whose name collides with a FIELD (instance or static) is rejected by the N# binder
                 // (NL306 — a name must be unique within the struct scope), so decline to keep the columnar path
                 // from accepting a program the language refuses.
@@ -1421,16 +1517,43 @@ public sealed class ColumnarIlEmitter
         var ordinalsByFunc = new Dictionary<string, int>[funcs.Count];
         var paramTypesByFunc = new Dictionary<string, Type>[funcs.Count];
         var returnTypeByFunc = new Type[funcs.Count];
-        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType)>(StringComparer.Ordinal);
+        var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams)>(StringComparer.Ordinal);
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
+            // A GENERIC function (`func Identity<T>(x: T): T`) declares a REAL CLR generic method — one
+            // definition with open type parameters, instantiated per call site via MakeGenericMethod — exactly
+            // the oracle's primary strategy. DefineGenericParameters must run BEFORE the signature is set so the
+            // param/return types can reference the GenericTypeParameterBuilders (the de-risking spike's order).
+            var emptyTypeParams = System.Array.Empty<Type>();
+            Type[] fnTypeParams = emptyTypeParams;
+            var typeParamMap = (Dictionary<string, Type>?)null;
+            if (fn.TypeParamNames.Length > 0)
+            {
+                methods[f] = type.DefineMethod(fn.Name, MethodAttributes.Public | MethodAttributes.Static);
+                var gpBuilders = methods[f].DefineGenericParameters(fn.TypeParamNames);
+                typeParamMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+                fnTypeParams = new Type[gpBuilders.Length];
+                for (var g = 0; g < gpBuilders.Length; g++)
+                {
+                    // A duplicate type-parameter name is malformed — decline.
+                    if (!typeParamMap.TryAdd(fn.TypeParamNames[g], gpBuilders[g]))
+                        return false;
+                    fnTypeParams[g] = gpBuilders[g];
+                }
+            }
             // The return type may be `void` (a procedure — its body need not always-return and `return` takes
             // no value); otherwise it must be a supported VALUE type. `void` is valid ONLY as a return type, so
             // it is handled here and NOT admitted by IsSupportedType (which gates params/locals/arrays/values).
             Type returnType;
             if (fn.ReturnCanonical == "void")
                 returnType = typeof(void);
+            else if (typeParamMap != null)
+            {
+                if (!TryResolveTypeWithTypeParams(fn.ReturnCanonical, typeParamMap, enumRegistry, structRegistry, unionRegistry, out returnType)
+                    || !(returnType.IsGenericParameter || (returnType.IsSZArray && returnType.GetElementType()!.IsGenericParameter) || IsSupportedType(returnType)))
+                    return false;
+            }
             else if (!TryResolveType(fn.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out returnType) || !IsSupportedType(returnType))
                 return false;
             var paramTypes = new Type[fn.ParamNames.Length];
@@ -1438,20 +1561,35 @@ public sealed class ColumnarIlEmitter
             var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
             for (var i = 0; i < fn.ParamNames.Length; i++)
             {
-                if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out var pt) || !IsSupportedType(pt))
+                Type pt;
+                if (typeParamMap != null)
+                {
+                    if (!TryResolveTypeWithTypeParams(fn.ParamCanonicals[i], typeParamMap, enumRegistry, structRegistry, unionRegistry, out pt)
+                        || !(pt.IsGenericParameter || (pt.IsSZArray && pt.GetElementType()!.IsGenericParameter) || IsSupportedType(pt)))
+                        return false;
+                }
+                else if (!TryResolveType(fn.ParamCanonicals[i], enumRegistry, structRegistry, unionRegistry, out pt) || !IsSupportedType(pt))
                     return false;
                 paramTypes[i] = pt;
                 ordinals[fn.ParamNames[i]] = i;
                 paramTypeMap[fn.ParamNames[i]] = pt;
             }
-            methods[f] = type.DefineMethod(
-                fn.Name, MethodAttributes.Public | MethodAttributes.Static, returnType, paramTypes);
+            if (fn.TypeParamNames.Length > 0)
+            {
+                methods[f].SetReturnType(returnType);
+                methods[f].SetParameters(paramTypes);
+            }
+            else
+            {
+                methods[f] = type.DefineMethod(
+                    fn.Name, MethodAttributes.Public | MethodAttributes.Static, returnType, paramTypes);
+            }
             ordinalsByFunc[f] = ordinals;
             paramTypesByFunc[f] = paramTypeMap;
             returnTypeByFunc[f] = returnType;
             // A duplicate top-level function name is an overload set the spike does not model — decline the
             // whole program rather than silently pick one (a real call would be ambiguous).
-            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, returnType)))
+            if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, returnType, fnTypeParams)))
                 return false;
         }
 
@@ -1645,7 +1783,11 @@ public sealed class ColumnarIlEmitter
                 // declining keeps the C# analyzer authoritative rather than silently compiling it.
                 if (_paramOrdinals.ContainsKey(name) || _locals.ContainsKey(name))
                     return false;
-                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0), out var initType) || !IsSupportedType(initType))
+                // A local of an open generic-parameter type (`y := x` inside a generic function, x: T) is legal —
+                // DeclareLocal over a GenericTypeParameterBuilder works (spike-proven) and loads/stores/returns
+                // of T flow by reference equality. T[] locals likewise.
+                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0), out var initType)
+                    || !(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || IsSupportedType(initType)))
                     return false;
                 var local = _il.DeclareLocal(initType);
                 _il.Emit(OpCodes.Stloc, local);
@@ -2596,6 +2738,49 @@ public sealed class ColumnarIlEmitter
                         var argCount = _childCount[idx] - 1;
                         if (argCount != target.ParamTypes.Length) // arity must match (no overloads / defaults / params).
                             return false;
+                        if (target.TypeParams.Length > 0)
+                        {
+                            // A GENERIC sibling: emit the args, INFERRING each type parameter by unifying the
+                            // declared parameter types (T / T[] / concrete) against the emitted argument types —
+                            // mirroring the oracle's TryInferDeclaredMethodTypeArguments. Conflicting bindings
+                            // (Same(1, "x")), unbound parameters, and composed shapes over T decline. The bound
+                            // types may be CONCRETE supported scalars/strings/arrays or the CALLER's own open
+                            // type parameters (a generic calling a generic) — user TypeBuilder/EnumBuilder
+                            // bindings decline this slice (Reflection.Emit instantiation hazards). The call binds
+                            // via MakeGenericMethod on the open MethodBuilder (the de-risking spike's pattern).
+                            var binding = new Type[target.TypeParams.Length];
+                            for (var a = 1; a <= argCount; a++)
+                            {
+                                if (!EmitExpression(Child(idx, a), out var gArgType))
+                                    return false;
+                                var declared = target.ParamTypes[a - 1];
+                                if (declared.IsGenericParameter)
+                                {
+                                    if (!TryUnifyTypeParam(target.TypeParams, binding, declared, gArgType))
+                                        return false;
+                                }
+                                else if (declared.IsSZArray && declared.GetElementType()!.IsGenericParameter)
+                                {
+                                    if (!gArgType.IsSZArray || !TryUnifyTypeParam(target.TypeParams, binding, declared.GetElementType()!, gArgType.GetElementType()!))
+                                        return false;
+                                }
+                                else if (declared != gArgType)
+                                {
+                                    return false;
+                                }
+                            }
+                            foreach (var bound in binding)
+                            {
+                                if (bound == null)
+                                    return false; // an uninferrable type parameter (no arg mentions it) declines.
+                            }
+                            var instantiated = ((MethodBuilder)target.Method).MakeGenericMethod(binding);
+                            _il.Emit(OpCodes.Call, instantiated);
+                            // The call's RESULT type substitutes the binding into the declared return shape.
+                            if (!TrySubstituteReturnType(target.TypeParams, binding, target.ReturnType, out type))
+                                return false;
+                            return true;
+                        }
                         // Each argument's type must match the callee's declared parameter type. int and bool are both
                         // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
                         // parameter) would emit verifiable-but-semantically-wrong IL instead of declining.
@@ -2797,6 +2982,9 @@ public sealed class ColumnarIlEmitter
                 else if (elementType == typeof(double)) _il.Emit(OpCodes.Ldelem_R8);
                 else if (elementType == typeof(float)) _il.Emit(OpCodes.Ldelem_R4);
                 else if (elementType == typeof(string)) _il.Emit(OpCodes.Ldelem_Ref);
+                // An OPEN generic-parameter element (xs: T[] inside a generic function): the type-operand
+                // `ldelem !!T` form loads any element type (spike-proven).
+                else if (elementType.IsGenericParameter) _il.Emit(OpCodes.Ldelem, elementType);
                 else return false; // other element types arrive with their type slices.
                 type = elementType;
                 return true;

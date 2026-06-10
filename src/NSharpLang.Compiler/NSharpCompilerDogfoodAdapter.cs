@@ -112,10 +112,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[5];
+                var sres = new int[7];
+        var sTypeParamStarts = new int[cap];
+        var sTypeParamLengths = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -216,10 +218,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[5];
+                var sres = new int[7];
+        var sTypeParamStarts = new int[cap];
+        var sTypeParamLengths = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -325,10 +329,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[5];
+                var sres = new int[7];
+        var sTypeParamStarts = new int[cap];
+        var sTypeParamLengths = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -454,10 +460,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[5];
+                var sres = new int[7];
+        var sTypeParamStarts = new int[cap];
+        var sTypeParamLengths = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
 
@@ -581,10 +589,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
                 var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
                 var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-                var sres = new int[5];
+                var sres = new int[7];
+        var sTypeParamStarts = new int[cap];
+        var sTypeParamLengths = new int[cap];
                 var paramCount = bindings.ParseFunctionSignature(
                     ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-                    pNameStart, pNameLen, pTypeRoot, sres);
+                    pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
                 if (paramCount < 0 || sres[3] < 0)
                     return false;
                 for (var p = 0; p < paramCount; p++)
@@ -1131,10 +1141,12 @@ internal static class NSharpCompilerDogfoodAdapter
         var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
         var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
         var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-        var sres = new int[5];
+        var sres = new int[7];
+        var sTypeParamStarts = new int[cap];
+        var sTypeParamLengths = new int[cap];
         var paramCount = bindings.ParseFunctionSignature(
             ck, cs, cv, n, funcIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pTypeRoot, sres);
+            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
         if (paramCount < 0 || sres[3] < 0)
             return false;
 
@@ -1155,13 +1167,21 @@ internal static class NSharpCompilerDogfoodAdapter
             paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
         }
 
-        var bodyBrace = -1;
-        for (var t = funcIndex + 1; t < n; t++)
-        {
-            if (ck[t] == 129) { bodyBrace = t; break; }
-        }
-        if (bodyBrace < 0)
+        // Generic TYPE PARAMETERS (`func Identity<T>(...)`): sres[5] names parsed by the kernel. The token at
+        // sres[6] (immediately after the signature) must be the body `{` — anything else is an unmodelled
+        // trailer (a `where T: Base` constraint clause, an `=>` expression body) and declines to the C# path.
+        // (Constraints CANNOT be silently dropped: the pipeline enforces NL208 at call sites, so ignoring them
+        // would over-accept constraint-violating programs.)
+        var bodyBrace = sres[6];
+        if (bodyBrace >= n || ck[bodyBrace] != 129)
             return false;
+        var typeParamNames = System.Array.Empty<string>();
+        if (sres[5] > 0)
+        {
+            typeParamNames = new string[sres[5]];
+            for (var t = 0; t < sres[5]; t++)
+                typeParamNames[t] = source.Substring(sTypeParamStarts[t], sTypeParamLengths[t]);
+        }
 
         var bk = new int[cap]; var bvs = new int[cap]; var bvl = new int[cap]; var bcs = new int[cap];
         var bcc = new int[cap]; var bci = new int[cap]; var bss = new int[cap]; var bsl = new int[cap];
@@ -1173,7 +1193,7 @@ internal static class NSharpCompilerDogfoodAdapter
 
         input = new Columnar.ColumnarFunctionInput(
             fname, returnCanonical, paramNames, paramCanonicals,
-            bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic);
+            bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic, typeParamNames);
         return true;
     }
 
@@ -1196,13 +1216,16 @@ internal static class NSharpCompilerDogfoodAdapter
         var sk = new int[cap]; var sns = new int[cap]; var snl = new int[cap]; var scs = new int[cap];
         var scc = new int[cap]; var sci = new int[cap]; var sss = new int[cap]; var ssl = new int[cap];
         var pNameStart = new int[cap]; var pNameLen = new int[cap]; var pTypeRoot = new int[cap];
-        var sres = new int[5];
+        var sres = new int[7];
+        var sTypeParamStarts = new int[cap];
+        var sTypeParamLengths = new int[cap];
         var paramCount = bindings.ParseFunctionSignature(
             ck, cs, cv, n, ctorIndex, sk, sns, snl, scs, scc, sci, sss, ssl,
-            pNameStart, pNameLen, pTypeRoot, sres);
-        // A constructor must have NO return type (sres[1] = -1). A non-negative return root means a `: <type>` was
-        // parsed — for a constructor that is malformed (or a chaining initializer the kernel rejected differently).
-        if (paramCount < 0 || sres[1] >= 0)
+            pNameStart, pNameLen, pTypeRoot, sTypeParamStarts, sTypeParamLengths, sres);
+        // A constructor must have NO return type (sres[1] = -1) and NO generic type parameters (sres[5] = 0). A
+        // non-negative return root means a `: <type>` was parsed — for a constructor that is malformed (or a
+        // chaining initializer the kernel rejected differently).
+        if (paramCount < 0 || sres[1] >= 0 || sres[5] != 0)
             return false;
 
         var paramNames = new string[paramCount];
@@ -2749,7 +2772,8 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int funcIndex,
         int[] outNodeKinds, int[] outNameStarts, int[] outNameLengths, int[] outChildStart, int[] outChildCount,
         int[] outChildIndices, int[] outSpanStarts, int[] outSpanLengths,
-        int[] outParamNameStarts, int[] outParamNameLengths, int[] outParamTypeRoots, int[] outResult);
+        int[] outParamNameStarts, int[] outParamNameLengths, int[] outParamTypeRoots,
+        int[] outTypeParamStarts, int[] outTypeParamLengths, int[] outResult);
     private delegate int ParseStatementNodesInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int start,
         int[] outNodeKinds, int[] outValueStarts, int[] outValueLengths, int[] outChildStart, int[] outChildCount,

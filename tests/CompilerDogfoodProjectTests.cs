@@ -768,7 +768,7 @@ class B
             {
                 kinds, starts, valueLengths, count, funcIndex,
                 new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[cap],
-                new int[cap], new int[cap], new int[cap], new int[5],
+                new int[cap], new int[cap], new int[cap], new int[cap], new int[cap], new int[7],
             }) ?? -2);
 
         Assert.True(paramCount == -1, $"Kernel should refuse malformed signature '{funcSource}' with -1, got {paramCount}.");
@@ -822,7 +822,9 @@ class B
         var paramNameStarts = new int[cap];
         var paramNameLengths = new int[cap];
         var paramTypeRoots = new int[cap];
-        var res = new int[5];
+        var typeParamStarts = new int[cap];
+        var typeParamLengths = new int[cap];
+        var res = new int[7];
 
         var paramCount = (int)(parseSig.Invoke(
             null,
@@ -830,7 +832,7 @@ class B
             {
                 kinds, starts, valueLengths, count, funcIndex,
                 k, ns, nl, cs, cc, ci, ss, sl,
-                paramNameStarts, paramNameLengths, paramTypeRoots, res,
+                paramNameStarts, paramNameLengths, paramTypeRoots, typeParamStarts, typeParamLengths, res,
             }) ?? -2);
 
         Assert.True(paramCount >= 0, $"Kernel refused function signature for '{label}'.");
@@ -4522,6 +4524,88 @@ class B
         Assert.False(RouteColumnarProgram("class B {\n    n: int\n}\n\nrecord R: B {\n    y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // GENERIC top-level FUNCTIONS (D-15a) — `func Identity<T>(x: T): T` declares a REAL CLR generic method
+    // (DefineGenericParameters, the oracle's primary strategy); call sites INFER the type arguments by unifying
+    // the declared parameter shapes (T / T[] / concrete) against the emitted argument types and bind via
+    // MakeGenericMethod on the open MethodBuilder. Explicit type arguments (Identity<int>(42)), constraints
+    // (where T: ...), generic METHODS on user types (oracle-broken, B12), and user-TypeBuilder bindings all
+    // decline. Invocations go through CONCRETE wrapper functions (an open generic method definition cannot be
+    // reflection-invoked directly). Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_GenericFunctions()
+    {
+        var prog =
+            // the headline surface: identity at TWO instantiations (int + string) in one program.
+            "func Identity<T>(x: T): T {\n    return x\n}\n\n" +
+            "func useInt(v: int): int {\n    return Identity(v)\n}\n\n" +
+            "func useStr(s: string): string {\n    return Identity(s)\n}\n\n" +
+            // multi type params; a MIXED concrete+generic signature; a concrete return from a T input.
+            "func Pick<A, B>(a: A, b: B): A {\n    return a\n}\n\n" +
+            "func pickFirst(a: int, b: string): int {\n    return Pick(a, b)\n}\n\n" +
+            "func Tag<T>(label: string, v: T): string {\n    return label\n}\n\n" +
+            "func tagOf(n: int): string {\n    return Tag(\"num\", n)\n}\n\n" +
+            "func LenLike<T>(x: T): int {\n    return 7\n}\n\n" +
+            "func lenLike(s: string): int {\n    return LenLike(s)\n}\n\n" +
+            // a T LOCAL inside the generic body; a T[] param with an element read; generic-calls-generic; RECURSION.
+            "func Echo<T>(x: T): T {\n    y := x\n    return y\n}\n\n" +
+            "func echoInt(v: int): int {\n    return Echo(v)\n}\n\n" +
+            "func FirstOf<T>(xs: T[]): T {\n    return xs[0]\n}\n\n" +
+            "func firstInt(xs: int[]): int {\n    return FirstOf(xs)\n}\n\n" +
+            "func firstStr(xs: string[]): string {\n    return FirstOf(xs)\n}\n\n" +
+            "func Wrap<T>(x: T): T {\n    return Identity(x)\n}\n\n" +
+            "func wrapInt(v: int): int {\n    return Wrap(v)\n}\n\n" +
+            "func CountDown<T>(x: T, n: int): int {\n    if n <= 0 {\n        return 0\n    }\n    return CountDown(x, n - 1) + 1\n}\n\n" +
+            "func countDown(v: string, n: int): int {\n    return CountDown(v, n)\n}\n\n" +
+            // the inferred result used in ARITHMETIC (the substituted return type is a real int).
+            "func plusOne(v: int): int {\n    return Identity(v) + 1\n}\n\n" +
+            // a VOID generic procedure called in statement position.
+            "func Consume<T>(x: T) {\n    k := 1\n    if k < 0 {\n        return\n    }\n}\n\n" +
+            "func consume(v: double): int {\n    Consume(v)\n    return 3\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useInt", new object[] { 42 }), ("useInt", new object[] { -7 }),
+            ("useStr", new object[] { "hi" }),
+            ("pickFirst", new object[] { 5, "x" }),
+            ("tagOf", new object[] { 9 }),
+            ("lenLike", new object[] { "abc" }),
+            ("echoInt", new object[] { 11 }),
+            ("firstInt", new object[] { new int[] { 3, 4 } }),
+            ("firstStr", new object[] { new string[] { "a", "b" } }),
+            ("wrapInt", new object[] { 6 }),
+            ("countDown", new object[] { "s", 5 }), ("countDown", new object[] { "s", 0 }),
+            ("plusOne", new object[] { 41 }),
+            ("consume", new object[] { 2.5 }));
+
+        // Metadata: the generic functions really are open CLR generic method definitions.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the generic-functions program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        var identity = loaded.GetType("ColumnarProgram")!.GetMethod("Identity")!;
+        Assert.True(identity.IsGenericMethodDefinition);
+        Assert.Equal(2, loaded.GetType("ColumnarProgram")!.GetMethod("Pick")!.GetGenericArguments().Length);
+
+        // DECLINES (each N#-pipeline-rejected or out of slice scope — declining routes to the C# path):
+        // EXPLICIT type arguments at a call site (Identity<int>(42)) — the expression kernel has no
+        // generic-call lookahead; the C# path handles them.
+        Assert.False(RouteColumnarProgram("func Identity<T>(x: T): T {\n    return x\n}\n\nfunc f(): int {\n    return Identity<int>(42)\n}\n").Ok);
+        // an INFERENCE CONFLICT (the pipeline rejects it: \"No matching overload\").
+        Assert.False(RouteColumnarProgram("func Same<T>(a: T, b: T): string {\n    return \"x\"\n}\n\nfunc f(): string {\n    return Same(1, \"x\")\n}\n").Ok);
+        // a WHERE constraint clause (cannot be silently dropped — NL208 is call-site enforced by the pipeline).
+        Assert.False(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc F<T>(x: T): int where T: Animal {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // an INLINE constraint in the type-parameter list.
+        Assert.False(RouteColumnarProgram("class Animal {\n    n: int\n}\n\nfunc F<T: Animal>(x: T): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // DUPLICATE type-parameter names.
+        Assert.False(RouteColumnarProgram("func F<T, T>(a: T, b: T): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // an UNINFERRABLE type parameter (no argument mentions T).
+        Assert.False(RouteColumnarProgram("func F<T>(x: int): int {\n    return x\n}\n\nfunc f(): int {\n    return F(5)\n}\n").Ok);
+        // a USER-TYPE binding (instantiating over an un-baked TypeBuilder is a Reflection.Emit hazard).
+        Assert.False(RouteColumnarProgram("record R {\n    y: int\n}\n\nfunc Identity<T>(x: T): T {\n    return x\n}\n\nfunc f(v: int): int {\n    r := new R { y: v }\n    r2 := Identity(r)\n    return r2.y\n}\n").Ok);
+        // a GENERIC METHOD on a user type (instance or static — the oracle itself fails on these, B12).
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func With<U>(u: U): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 2 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    static func Make<U>(u: U): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 2 }\n").Ok);
+        // an EXPRESSION-BODIED generic function.
+        Assert.False(RouteColumnarProgram("func Id2<T>(x: T): T => x\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+    }
+
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
     // an object initializer or a user constructor) must read/write the receiver's real storage. The
     // ILCompiler used to spill a `this.`-qualified value-type receiver into a throwaway temp — for a
@@ -5016,14 +5100,14 @@ class B
         {
             new[] { 7, 0, 127, 0, 122, 0, 128 }, new[] { 0, 5, 6, 7, 8, 9, 12 }, new[] { 4, 1, 1, 1, 1, 3, 1 }, 7, 0,
             new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15],
-            new int[15], new int[15], new int[15], new int[5],
+            new int[15], new int[15], new int[15], new int[15], new int[15], new int[7],
         };
         // `func g(): int`: Func Id ( ) : Id -> exercises ParseUnionTypeReferenceNode on the RETURN type "int".
         object[] FuncG() => new object[]
         {
             new[] { 7, 0, 127, 128, 122, 0 }, new[] { 0, 5, 6, 7, 8, 9 }, new[] { 4, 1, 1, 1, 1, 3 }, 6, 0,
             new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15], new int[15],
-            new int[15], new int[15], new int[15], new int[5],
+            new int[15], new int[15], new int[15], new int[15], new int[15], new int[7],
         };
         AssertColumnarMultiFileMatchesCSharp(new[] { types, sigs },
             ("ParseFunctionSignatureInto", FuncF()),
