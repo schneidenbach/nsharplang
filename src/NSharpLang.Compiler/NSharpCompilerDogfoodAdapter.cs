@@ -980,10 +980,10 @@ internal static class NSharpCompilerDogfoodAdapter
                 var baseName = outResult[6] > 0 ? source.Substring(outResult[5], outResult[6]) : null;
 
                 // Optional generic type parameters `<T, U>` (outResult[7] = count). v1 scope: generic CLASSES
-                // and value STRUCTS only — a generic RECORD declines (the oracle deliberately refuses init-only
-                // setter assignment on closed generics: .NET 10 PersistedAssemblyBuilder drops the
-                // modreq(IsExternalInit) from rebound member references), and a generic type with a BASE
-                // declines (generic base chains are unsupported in the oracle's closed-member machinery too).
+                // and value STRUCTS only — a generic RECORD declines (columnar does not yet model the oracle's
+                // backing-field lowering for init-only members on closed generics — the workaround for the
+                // .NET 10 PersistedAssemblyBuilder modreq drop), and a generic type with a BASE declines
+                // (generic base chains are unsupported in the oracle's closed-member machinery too).
                 var typeParamCount = outResult[7];
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)

@@ -8358,15 +8358,15 @@ func main(): int {
     }
 
     [Fact]
-    public void ILCompiler_GenericRecordObjectInit_RefusesWithClearDiagnostic()
+    public void ILCompiler_GenericRecordObjectInit_StoresBackingFieldDirectly()
     {
-        // B4: generic record object-init previously crashed emit with NotSupportedException.
-        // A correct emit is BLOCKED upstream: .NET 10 PersistedAssemblyBuilder drops the
-        // modreq(IsExternalInit) from member references rebound via TypeBuilder.GetMethod, so
-        // the init-setter call fails at RUNTIME with MissingMethodException (reproduced in a
-        // minimal Reflection.Emit spike with no N# code involved). Filed upstream as
-        // https://github.com/dotnet/runtime/issues/129234 — until it is resolved, the oracle
-        // must refuse with a clear compile error instead of emitting garbage.
+        // B4: generic record object-init. CALLING the init-only setter on a closed generic
+        // instantiation fails at RUNTIME with MissingMethodException — .NET 10
+        // PersistedAssemblyBuilder drops the modreq(IsExternalInit) from member references
+        // rebound via TypeBuilder.GetMethod (reproduced in a minimal Reflection.Emit spike
+        // with no N# code involved; upstream report withdrawn). The lowering therefore
+        // stores the assembly-visible auto-property backing field directly, which carries
+        // no modifiers to lose.
         var source = @"
 record Pair<T> {
     First: T
@@ -8377,9 +8377,170 @@ func main(): int {
     p := new Pair<int> { First: 1, Second: 2 }
     return p.First + p.Second
 }";
+        Assert.Equal(3, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericRecordObjectInit_DistinctInstantiationsCoexist()
+    {
+        // Pair<int> and Pair<string> rebind the same backing FieldBuilder to two different
+        // closed types; each store must use its own instantiation's token and value type.
+        var source = @"
+record Pair<T> {
+    First: T
+    Second: T
+}
+
+func main(): string {
+    numbers := new Pair<int> { First: 4, Second: 2 }
+    words := new Pair<string> { First: ""4"", Second: ""2"" }
+    return words.First + words.Second + (numbers.First + numbers.Second)
+}";
+        Assert.Equal("426", Assert.IsType<string>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericRecord_KeepsInitOnlyModreqOnEmittedSetter()
+    {
+        // The backing-field workaround is call-site only: the emitted setter must keep its
+        // modreq(IsExternalInit) so C# consumers of the saved assembly still see a true
+        // init-only property (the PersistedAssemblyBuilder bug affects only rebound
+        // MemberRef signatures, not the MethodDef).
+        var source = @"
+record Pair<T> {
+    First: T
+    Second: T
+}
+
+func main(): int {
+    p := new Pair<int> { First: 1, Second: 2 }
+    return p.First + p.Second
+}";
+        CompileAndInspect<int>(source, assembly =>
+        {
+            var pairType = assembly.GetType("Pair");
+            Assert.NotNull(pairType);
+            foreach (var propertyName in new[] { "First", "Second" })
+            {
+                var property = pairType!.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+                Assert.NotNull(property);
+                Assert.Contains(
+                    property!.SetMethod!.ReturnParameter.GetRequiredCustomModifiers(),
+                    modifier => modifier.FullName == "System.Runtime.CompilerServices.IsExternalInit");
+            }
+
+            return 0;
+        });
+    }
+
+    [Fact]
+    public void ILCompiler_GenericClassInitMember_ObjectInit_StoresBackingField()
+    {
+        // Explicit `init` members on generic CLASSES take the same backing-field lowering
+        // as record members (the rebound setter CALL would lose its modreq at runtime).
+        var source = @"
+class Box<T> {
+    init Value: T
+}
+
+func main(): int {
+    b := new Box<int> { Value: 5 }
+    return b.Value
+}";
+        Assert.Equal(5, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericCustomInitProperty_ObjectInit_RefusesWithClearDiagnostic()
+    {
+        // A custom-bodied init accessor has no sound lowering on a closed generic
+        // instantiation: the field store would bypass the body, and the rebound CALL loses
+        // its modreq(IsExternalInit) at runtime. Must refuse with a clear compile error.
+        var source = @"
+class Box<T> {
+    backing: T
+
+    init Value: T {
+        get {
+            return backing
+        }
+        set {
+            backing = value
+        }
+    }
+}
+
+func main(): int {
+    b := new Box<int> { Value: 5 }
+    return b.Value
+}";
         var exception = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source));
-        Assert.Contains("init-only member 'First'", exception.Message);
-        Assert.Contains("generic type 'Pair'", exception.Message);
+        Assert.Contains("init-only member 'Value'", exception.Message);
+        Assert.Contains("custom body", exception.Message);
+    }
+
+    [Fact]
+    public void ILCompiler_GenericRecordEquals_IsStructuralPerInstantiation()
+    {
+        // The synthesized Equals(object) used the bare generic TypeBuilder as the isinst
+        // TYPE token and the local signature — not loadable at runtime (TypeLoadException).
+        // Generic record bodies now use the self-instantiation (Pair<!T>) for type tokens.
+        var source = @"
+record Pair<T> {
+    First: T
+    Second: T
+}
+
+func main(): int {
+    a := new Pair<int> { First: 1, Second: 2 }
+    b := new Pair<int> { First: 1, Second: 2 }
+    c := new Pair<int> { First: 1, Second: 3 }
+    if a.Equals(b) {
+        if a.Equals(c) {
+            return 2
+        }
+        return 1
+    }
+    return 0
+}";
+        Assert.Equal(1, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericRecord_PrimaryConstructorForm()
+    {
+        // The positional form constructs through the synthesized primary constructor
+        // (no init-setter call sites), with properties read back on the instantiation.
+        var source = @"
+record Pair<T>(First: T, Second: T) {
+}
+
+func main(): int {
+    p := new Pair<int>(1, 2)
+    return p.First + p.Second
+}";
+        Assert.Equal(3, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericRecordWith_ClonesAndReassignsInitMember()
+    {
+        // `with` on a closed generic record: the synthesized <Clone>$ method and the member
+        // stores are rebound to the instantiation (calling protected object.MemberwiseClone
+        // across types would throw MethodAccessException; calling the init-only setter would
+        // hit the modreq drop pinned above).
+        var source = @"
+record Pair<T> {
+    First: T
+    Second: T
+}
+
+func main(): int {
+    p := new Pair<int> { First: 1, Second: 2 }
+    q := p with { Second: 40 }
+    return q.First + q.Second + p.Second
+}";
+        Assert.Equal(43, Assert.IsType<int>(CompileAndInvoke(source)));
     }
 
     [Fact]

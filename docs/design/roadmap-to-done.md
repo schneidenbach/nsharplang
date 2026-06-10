@@ -404,7 +404,11 @@ and 3/3 (`ee5a60ba` — B4 generic-record object-init refuses cleanly on an upst
 PersistedAssemblyBuilder modreq bug; B5 generic structs fixed transitively + pinned). D-16 columnar GENERIC
 TYPES landed (`a10d33f9` — generic classes end-to-end: kernel `<T,U>` decl parse, closed construction,
 rebound member access, TypesEquivalent for TypeBuilderInstantiation identity; generic records/bases/statics/
-value-struct-construction decline, pinned). **Next: generic value-struct construction + `where T: Base`
+value-struct-construction decline, pinned). B4 then CLOSED for the oracle: the upstream report was withdrawn
+and generic-record init members now emit via backing-field lowering (rebound FieldRefs carry no modreq to
+lose; setters keep their modreq for C# `init` interop), with `with`/Equals/Clone on generic records fixed
+and block-form record value semantics made real (see the self-host progress log); columnar still declines
+generic records pending that lowering. **Next: generic value-struct construction + `where T: Base`
 constraints → lambdas/closures** (the `project_csharp_retirement_map` slice order), then Stage 6 (route-all
 → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
 

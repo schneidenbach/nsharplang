@@ -5421,8 +5421,9 @@ class B
     [Fact]
     public void ColumnarCodegen_GenericTypeDeclines()
     {
-        // Generic RECORD: the oracle deliberately refuses init-only setter assignment on closed
-        // generics (upstream .NET 10 PersistedAssemblyBuilder modreq bug) — the adapter declines.
+        // Generic RECORD: columnar does not yet model the oracle's backing-field lowering for
+        // init-only members on closed generics (the .NET 10 PersistedAssemblyBuilder modreq-drop
+        // workaround) — the adapter declines.
         Assert.False(RouteColumnarProgram("record Pair<T> {\n    First: T\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // A generic type WITH a base: generic base chains are unsupported (oracle and columnar).
         Assert.False(RouteColumnarProgram("class B0 {\n    x: int\n}\n\nclass D<T>: B0 {\n    item: T\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);

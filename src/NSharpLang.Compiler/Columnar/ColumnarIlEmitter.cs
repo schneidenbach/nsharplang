@@ -208,8 +208,9 @@ public sealed class ColumnarStructInput
     // PASS 0a' declines both shapes by this flag.
     public bool IsRecord { get; }
     // Generic type parameters declared on the type (`class Box<T>` → ["T"]), or null for a non-generic type.
-    // The adapter already declines generic RECORDS (the oracle refuses init-only setters on closed generics —
-    // upstream .NET 10 PersistedAssemblyBuilder modreq bug) and generic types WITH a base. PASS 0 declares them
+    // The adapter already declines generic RECORDS (columnar does not yet model the oracle's backing-field
+    // lowering for init-only members on closed generics — the .NET 10 PersistedAssemblyBuilder modreq-drop
+    // workaround) and generic types WITH a base. PASS 0 declares them
     // via DefineGenericParameters; member signatures resolve these names before any other type lookup.
     public string[]? TypeParamNames { get; }
 }

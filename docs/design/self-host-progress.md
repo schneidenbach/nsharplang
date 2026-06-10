@@ -11,6 +11,42 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — B4 CLOSED: generic-record init members WORK via backing-field lowering (modreq workaround)
+
+The upstream report for the PersistedAssemblyBuilder modreq drop was withdrawn (user decision: no upstream
+dependency); the oracle now WORKS AROUND the bug instead of refusing. Key insight, spike-proven: the bug is
+confined to rebound **MemberRef** signatures — the **MethodDef** keeps its `modreq(IsExternalInit)`, and a
+**field** signature has no custom modifiers to lose. Since every N# init-only member with auto storage is
+backed by an `Assembly`-visible synthesized field, closed-generic call sites (object-init, `with`, member
+assignment) now store the rebound backing field directly (`TypeBuilder.GetField`) instead of calling the
+setter — byte-for-byte the setter body's effect. The emitted setter keeps its modreq, so **C# consumers of
+the saved assembly still see a true init-only property**. Block-form members resolve by member name;
+primary-constructor members only register `<Name>k__BackingField`, hence
+`FindInitOnlyBackingFieldOnClosedGeneratedType` tries both. Two previously UNTRACKED init-setter definition
+sites (primary-constructor record setters, custom-bodied `init` properties) carried the modreq but bypassed
+the old refusal — runtime MissingMethodException holes. Primary-ctor setters now join `_initOnlySetters`
+(auto storage); custom-bodied init setters land in `_customInitOnlySetters` and refuse with a clear compile
+error on closed generics (a field store would bypass the custom body — the one case with no sound lowering).
+
+**Latent generic-record body defects fixed in the same arc** (reachable the moment construction works):
+synthesized `<Clone>$`/`Equals` used the bare generic TypeBuilder as a TYPE token (castclass/isinst/local
+signature) — `TypeLoadException: Could not load type 'Pair'` at runtime; bodies now use the
+self-instantiation (`GetSelfInstantiatedType` → `Pair<!T>`; field/method DEF tokens on the bare builder are
+fine and unchanged). **Block-form record value semantics were vacuous** — `Equals`/`GetHashCode`/`ToString`
+enumerated only primary-constructor members, so block-form records compared always-equal with constant hash
+17 and printed name-only. New `GetRecordDataFields` enumerates primary members then block-form instance
+members (each resolved to backing storage); equality/hashing cover ALL instance data, ToString prints
+primary + public auto-property members (C#'s printable rule). ToString's box decision now also boxes
+unconstrained `!T` (was `IsValueType`-only — invalid IL for value instantiations).
+
+Pins: object-init returns values (not refusal), distinct instantiations coexist, modreq preserved on the
+emitted setter (CompileAndInspect), structural Equals per instantiation, primary-ctor form, `with` on closed
+generic records. Known follow-up: the ANALYZER does not yet enforce init-only assignment restrictions
+(assignment outside initializers is an emitter-level concern only); columnar still declines generic records
+until it models this lowering.
+
+---
+
 ## 2026-06-10 — Phase D-16: columnar GENERIC TYPES (`a10d33f9`)
 
 Generic user CLASSES compile through the columnar pipeline end-to-end, built directly on the corrected
@@ -54,13 +90,16 @@ closed generic instantiation — the init-setter call fails at RUNTIME with
 code; identical program without the modreq returns correctly — causality pinned by control run). Per the
 cardinal rule the oracle now REFUSES init-only setter assignment on closed generics with a clear compile
 error (init setters tracked in `_initOnlySetters` at definition); plain auto-property setters and fields on
-closed generics work and are pinned. Filed upstream as
-[dotnet/runtime#129234](https://github.com/dotnet/runtime/issues/129234) (2026-06-10) with the inline repro,
-metadata-blob evidence (modreq present on the MethodDef signature, absent from the MemberRef signature, so
-ECMA-335 binding cannot match), and root cause: `ModuleBuilderImpl.GetMethodSignature` rebuilds MemberRef
-signatures from `ParameterInfoWrapper`s that never consult the modifier arrays stored at `DefineMethod`
-time. Parameter-level modreqs are dropped too (verified); present since .NET 9 and still on `main`. **Consequence for columnar generic types (next slice): generic CLASSES and STRUCTS are in
-scope; generic RECORDS decline, matching the oracle's deliberate refusal.**
+closed generics work and are pinned. Evidence gathered: inline repro, metadata-blob analysis (modreq
+present on the MethodDef signature, absent from the MemberRef signature, so ECMA-335 binding cannot match),
+and root cause: `ModuleBuilderImpl.GetMethodSignature` rebuilds MemberRef signatures from
+`ParameterInfoWrapper`s that never consult the modifier arrays stored at `DefineMethod` time.
+Parameter-level modreqs are dropped too (verified); present since .NET 9 and still on `main`. The upstream
+report was withdrawn the same day (user decision: solve it in-compiler, no upstream dependency) — the
+refusal is SUPERSEDED by the backing-field workaround entry above. **Consequence for columnar generic types
+(next slice): generic CLASSES and STRUCTS are in scope; generic RECORDS decline, matching the oracle's
+deliberate refusal** (still true for columnar after the workaround — it declines until it models the
+lowering).
 
 Process notes: one Systems benchmark gate failure (HotResultCombinations 1.13 vs 1.05 limit) re-ran green
 after a 300s cool per the thermal protocol — and exposed a verification gap now fixed: gate verdicts are

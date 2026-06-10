@@ -96,10 +96,17 @@ public partial class ILCompiler
     private MethodBuilder? _entryPointWrapper;
     private Dictionary<string, MethodBuilder> _methods = new();
 
-    // Init-only setters (modreq IsExternalInit). Closed-generic call sites must refuse these
-    // with a compile error: .NET 10 PersistedAssemblyBuilder drops required custom modifiers
-    // from member references rebound via TypeBuilder.GetMethod (runtime MissingMethodException).
+    // Init-only setters (modreq IsExternalInit) whose storage is a synthesized backing
+    // field (block-form auto-properties and primary-constructor members). Closed-generic
+    // call sites must not CALL these: .NET 10 PersistedAssemblyBuilder drops required custom
+    // modifiers from member references rebound via TypeBuilder.GetMethod, so the call fails
+    // at RUNTIME with MissingMethodException. Object-init, `with`, and member-assignment
+    // lowering store the assembly-visible backing field directly instead — the same IL
+    // effect as the setter body, through a field signature that has no modifiers to lose.
     private readonly HashSet<MethodBuilder> _initOnlySetters = new();
+    // Init-only setters with a CUSTOM set body: storing the backing field would bypass the
+    // body, so closed-generic call sites refuse with a clear compile error instead.
+    private readonly HashSet<MethodBuilder> _customInitOnlySetters = new();
     private Dictionary<string, ConstructorBuilder> _constructors = new();
     private Dictionary<string, TypeBuilder> _types = new();
     // Unqualified names of every top-level newtype declared in this compilation unit.
@@ -15265,6 +15272,40 @@ public partial class ILCompiler
     }
 
     /// <summary>
+    /// Resolves the backing-field storage of an init-only AUTO member on a CLOSED generic
+    /// instantiation. Block-form auto-properties register their backing field under the
+    /// member name; primary-constructor members only under <c>&lt;Name&gt;k__BackingField</c>.
+    /// </summary>
+    private FieldInfo? FindInitOnlyBackingFieldOnClosedGeneratedType(Type closedType, string memberName)
+    {
+        return FindInstanceFieldOnClosedGeneratedType(closedType, memberName)
+            ?? FindInstanceFieldOnClosedGeneratedType(closedType, $"<{memberName}>k__BackingField");
+    }
+
+    /// <summary>
+    /// Resolves the synthesized record clone method (<see cref="RecordCloneMethodName"/>) on a
+    /// CLOSED generic instantiation of an uncreated user TypeBuilder, rebinding via
+    /// TypeBuilder.GetMethod. Used to lower `with` on closed generic records verifiably —
+    /// calling the protected object.MemberwiseClone across types fails at runtime with
+    /// MethodAccessException.
+    /// </summary>
+    private MethodInfo? FindRecordCloneOnClosedGeneratedType(Type closedType)
+    {
+        if (closedType is TypeBuilder || !closedType.IsGenericType || closedType.IsGenericTypeDefinition)
+        {
+            return null;
+        }
+
+        if (!TryGetUserTypeDefinition(closedType, out var openTypeBuilder)
+            || !_methods.TryGetValue(GetMethodKey(openTypeBuilder, RecordCloneMethodName), out var cloneMethod))
+        {
+            return null;
+        }
+
+        return TypeBuilder.GetMethod(closedType, cloneMethod);
+    }
+
+    /// <summary>
     /// Resolves an N#-declared instance ACCESSOR (<c>get_X</c>/<c>set_X</c>) by walking the
     /// receiver's base-class chain — the property may be declared on an inherited base type.
     /// The own type is checked first so a derived declaration shadows a base one.
@@ -17930,23 +17971,43 @@ public partial class ILCompiler
         if (closedGeneratedSetter != null && TryGetUserTypeDefinition(targetType, out var initializerSetterDefinition))
         {
             var openSetter = FindInstanceAccessorOnBaseChain(initializerSetterDefinition, $"set_{initializer.Name}")!;
-
-            // Init-only setters (records, `init`/`readonly` properties) cannot be called on a
-            // closed generic instantiation: .NET 10 PersistedAssemblyBuilder drops the
-            // modreq(IsExternalInit) from the rebound member reference and the call fails at
-            // RUNTIME with MissingMethodException (reproduced in a minimal Reflection.Emit
-            // spike with no N# code). Refuse with a compile error instead of emitting garbage.
-            if (_initOnlySetters.Contains(openSetter))
-            {
-                throw new InvalidOperationException(
-                    $"Cannot assign init-only member '{initializer.Name}' on generic type '{GetTypeKey(initializerSetterDefinition)}' through an object initializer yet — " +
-                    ".NET's persisted Reflection.Emit drops the init-only marker from generic member references. " +
-                    "Use a non-generic record, or a class with settable members, until the runtime issue is resolved.");
-            }
-
             var valueType = SubstituteGenericSignatureTypeByPosition(
                 openSetter.GetParameters()[0].ParameterType,
                 targetType.GetGenericArguments());
+
+            // Init-only setters (records, `init`/`readonly` properties) must not be CALLED on
+            // a closed generic instantiation: .NET 10 PersistedAssemblyBuilder drops the
+            // modreq(IsExternalInit) from the rebound member reference and the call fails at
+            // RUNTIME with MissingMethodException (reproduced in a minimal Reflection.Emit
+            // spike with no N# code). Auto-storage init members store the assembly-visible
+            // backing field instead — the same IL effect as the setter body, through a field
+            // signature that has no custom modifiers to lose. The emitted setter keeps its
+            // modreq, so C# consumers of the saved assembly still see a true init-only
+            // property. Custom-bodied init accessors cannot take the field store (it would
+            // bypass the body) and refuse with a clear compile error.
+            if (_initOnlySetters.Contains(openSetter)
+                && FindInitOnlyBackingFieldOnClosedGeneratedType(targetType, initializer.Name) is { } initializerBackingField)
+            {
+                EmitExpressionWithExpectedType(initializer.Value, valueType);
+                _currentIL.Emit(OpCodes.Stfld, initializerBackingField);
+                return;
+            }
+
+            if (_customInitOnlySetters.Contains(openSetter))
+            {
+                throw new InvalidOperationException(
+                    $"Cannot assign init-only member '{initializer.Name}' on generic type '{GetTypeKey(initializerSetterDefinition)}' — " +
+                    "its set accessor has a custom body, and .NET's persisted Reflection.Emit drops the init-only marker " +
+                    "from generic member references (the call would fail at runtime). " +
+                    "Use an auto init member, or a non-generic type.");
+            }
+
+            if (_initOnlySetters.Contains(openSetter))
+            {
+                throw new InvalidOperationException(
+                    $"Could not resolve the backing field of init-only member '{initializer.Name}' on generic type '{GetTypeKey(initializerSetterDefinition)}'");
+            }
+
             EmitExpressionWithExpectedType(initializer.Value, valueType);
             _currentIL.Emit(OpCodes.Callvirt, closedGeneratedSetter);
             return;
@@ -18006,6 +18067,12 @@ public partial class ILCompiler
                 _methods.TryGetValue(GetMethodKey(withCloneTypeBuilder, RecordCloneMethodName), out var cloneMethod))
             {
                 _currentIL.Emit(OpCodes.Callvirt, cloneMethod);
+            }
+            else if (FindRecordCloneOnClosedGeneratedType(targetType) is { } closedCloneMethod)
+            {
+                // Closed generic record (Pair<int>): rebind the synthesized clone method to
+                // the instantiation.
+                _currentIL.Emit(OpCodes.Callvirt, closedCloneMethod);
             }
             else
             {
@@ -18070,6 +18137,63 @@ public partial class ILCompiler
             }
 
             throw new InvalidOperationException($"Member {initializer.Name} not found on type {GetTypeKey(typeBuilder)}");
+        }
+
+        // Closed generic instantiation of an uncreated user type (Pair<int>): reflection
+        // member queries throw on TypeBuilderInstantiation, so resolve through the open
+        // definition's bookkeeping with rebound tokens, typing the value by positional
+        // substitution. Init-only setters must not be CALLED on a closed instantiation
+        // (.NET 10 PersistedAssemblyBuilder drops the modreq(IsExternalInit) from the rebound
+        // member reference — runtime MissingMethodException); they are auto-properties, so
+        // store the assembly-visible backing field instead.
+        if (targetType is not TypeBuilder && TryGetUserTypeDefinition(targetType, out var withMemberDefinition))
+        {
+            var openWithSetter = FindInstanceAccessorOnBaseChain(withMemberDefinition, $"set_{initializer.Name}");
+            if (openWithSetter != null)
+            {
+                var withValueType = SubstituteGenericSignatureTypeByPosition(
+                    openWithSetter.GetParameters()[0].ParameterType,
+                    targetType.GetGenericArguments());
+
+                if (_initOnlySetters.Contains(openWithSetter)
+                    && FindInitOnlyBackingFieldOnClosedGeneratedType(targetType, initializer.Name) is { } withBackingField)
+                {
+                    _currentIL.Emit(useAddressReceiver ? OpCodes.Ldloca_S : OpCodes.Ldloc, targetLocal);
+                    EmitExpressionWithExpectedType(initializer.Value, withValueType);
+                    _currentIL.Emit(OpCodes.Stfld, withBackingField);
+                    return;
+                }
+
+                if (_customInitOnlySetters.Contains(openWithSetter))
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot assign init-only member '{initializer.Name}' on generic type '{GetTypeKey(withMemberDefinition)}' in a `with` expression — " +
+                        "its set accessor has a custom body, and .NET's persisted Reflection.Emit drops the init-only marker " +
+                        "from generic member references (the call would fail at runtime). " +
+                        "Use an auto init member, or a non-generic type.");
+                }
+
+                if (!_initOnlySetters.Contains(openWithSetter)
+                    && FindInstanceAccessorOnClosedGeneratedType(targetType, $"set_{initializer.Name}") is { } closedWithSetter)
+                {
+                    _currentIL.Emit(useAddressReceiver ? OpCodes.Ldloca_S : OpCodes.Ldloc, targetLocal);
+                    EmitExpressionWithExpectedType(initializer.Value, withValueType);
+                    _currentIL.Emit(callOpcode, closedWithSetter);
+                    return;
+                }
+            }
+
+            var closedWithField = FindInstanceFieldOnClosedGeneratedType(targetType, initializer.Name);
+            if (closedWithField != null)
+            {
+                var openWithField = FindInstanceFieldOnBaseChain(withMemberDefinition, initializer.Name)!;
+                _currentIL.Emit(useAddressReceiver ? OpCodes.Ldloca_S : OpCodes.Ldloc, targetLocal);
+                EmitExpressionWithExpectedType(initializer.Value, SubstituteGenericSignatureTypeByPosition(
+                    openWithField.FieldType,
+                    targetType.GetGenericArguments()));
+                _currentIL.Emit(OpCodes.Stfld, closedWithField);
+                return;
+            }
         }
 
         var field = targetType.GetField(initializer.Name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
@@ -18920,6 +19044,32 @@ public partial class ILCompiler
         var closedGeneratedSetter = FindInstanceAccessorOnClosedGeneratedType(objectType, $"set_{memberName}");
         if (closedGeneratedSetter != null)
         {
+            // Init-only setters must not be CALLED on a closed instantiation (.NET 10
+            // PersistedAssemblyBuilder drops the modreq(IsExternalInit) from the rebound
+            // member reference — runtime MissingMethodException): store the auto-property
+            // backing field instead. Block-form members were already caught by the field
+            // path above; this covers primary-constructor members, whose backing field is
+            // registered only under <Name>k__BackingField.
+            if (TryGetUserTypeDefinition(objectType, out var assignmentDefinition)
+                && FindInstanceAccessorOnBaseChain(assignmentDefinition, $"set_{memberName}") is { } openAssignmentSetter)
+            {
+                if (_initOnlySetters.Contains(openAssignmentSetter)
+                    && FindInitOnlyBackingFieldOnClosedGeneratedType(objectType, memberName) is { } assignmentBackingField)
+                {
+                    _currentIL.Emit(OpCodes.Stfld, assignmentBackingField);
+                    return;
+                }
+
+                if (_customInitOnlySetters.Contains(openAssignmentSetter))
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot assign init-only member '{memberName}' on generic type '{GetTypeKey(assignmentDefinition)}' — " +
+                        "its set accessor has a custom body, and .NET's persisted Reflection.Emit drops the init-only marker " +
+                        "from generic member references (the call would fail at runtime). " +
+                        "Use an auto init member, or a non-generic type.");
+                }
+            }
+
             _currentIL.Emit(OpCodes.Callvirt, closedGeneratedSetter);
             return;
         }
@@ -22586,12 +22736,12 @@ public partial class ILCompiler
                 new[] { fieldType },
                 null,
                 null);
-            // Tracked so closed-generic call sites can refuse cleanly: .NET 10
-            // PersistedAssemblyBuilder drops required custom modifiers (modreq
-            // IsExternalInit) from member references rebound via TypeBuilder.GetMethod,
-            // so calling this setter on a closed instantiation fails at RUNTIME with
-            // MissingMethodException (proven by a minimal Reflection.Emit spike with no
-            // N# code involved).
+            // Tracked so closed-generic call sites store the backing field instead of
+            // calling the setter: .NET 10 PersistedAssemblyBuilder drops required custom
+            // modifiers (modreq IsExternalInit) from member references rebound via
+            // TypeBuilder.GetMethod, so calling this setter on a closed instantiation fails
+            // at RUNTIME with MissingMethodException (proven by a minimal Reflection.Emit
+            // spike with no N# code involved).
             _initOnlySetters.Add(setMethod);
         }
         else
@@ -22722,6 +22872,9 @@ public partial class ILCompiler
                     new[] { propertyType },
                     null,
                     null);
+                // Custom set body: a backing-field store would bypass it, so closed-generic
+                // call sites must refuse (the rebound CALL loses the modreq at runtime).
+                _customInitOnlySetters.Add(setMethod);
             }
             else
             {
@@ -25356,6 +25509,9 @@ public partial class ILCompiler
 
                 _methods[GetMethodKey(typeBuilder, $"set_{param.Name}")] = setter;
                 property.SetSetMethod(setter);
+                // Auto storage (the body is a plain backing-field store), so closed-generic
+                // call sites store the field instead of calling through the dropped modreq.
+                _initOnlySetters.Add(setter);
             }
 
             // Declare primary constructor
@@ -25724,6 +25880,58 @@ public partial class ILCompiler
             ?? throw new InvalidOperationException($"Could not resolve constructed generic member '{openMember.Name}' on '{constructedType}'");
     }
 
+    /// <summary>
+    /// The token for "this record's own type" inside its synthesized bodies. A bare generic
+    /// TypeBuilder used as a TYPE token (castclass/isinst/unbox.any/local signature) is not
+    /// loadable at runtime — generic records must use the self-instantiation
+    /// (<c>Pair&lt;!T&gt;</c>), matching what C# emits. Field and method DEF tokens on the
+    /// bare builder are fine: they resolve within the generic context.
+    /// </summary>
+    private static Type GetSelfInstantiatedType(TypeBuilder typeBuilder)
+    {
+        return typeBuilder.IsGenericTypeDefinition
+            ? typeBuilder.MakeGenericType(typeBuilder.GetGenericArguments())
+            : typeBuilder;
+    }
+
+    /// <summary>
+    /// The instance data members a record's synthesized value semantics (Equals,
+    /// GetHashCode, ToString) run over, in declaration order: primary-constructor members
+    /// first, then block-form members, each resolved to its backing storage. Equality and
+    /// hashing cover ALL instance data; ToString prints primary-constructor members and
+    /// block-form auto-property (public) members, mirroring C#'s printable-member rule.
+    /// </summary>
+    private List<(string Name, FieldBuilder Field, bool IsPrintable)> GetRecordDataFields(
+        RecordDeclaration recordDecl,
+        TypeBuilder typeBuilder)
+    {
+        var dataFields = new List<(string, FieldBuilder, bool)>();
+
+        if (recordDecl.PrimaryConstructorParameters != null)
+        {
+            foreach (var param in recordDecl.PrimaryConstructorParameters)
+            {
+                if (_fields.TryGetValue(GetFieldKey(typeBuilder, $"<{param.Name}>k__BackingField"), out var backingField))
+                {
+                    dataFields.Add((param.Name, backingField, true));
+                }
+            }
+        }
+
+        foreach (var member in recordDecl.Members)
+        {
+            if (member is FieldDeclaration fieldDecl
+                && !fieldDecl.Modifiers.HasFlag(Modifiers.Static)
+                && _fields.TryGetValue(GetFieldKey(typeBuilder, fieldDecl.Name), out var field)
+                && !field.IsStatic)
+            {
+                dataFields.Add((fieldDecl.Name, field, GetFieldEmission(fieldDecl, FieldOwnerKind.Record).EmitsAsAutoProperty));
+            }
+        }
+
+        return dataFields;
+    }
+
     private void EmitRecordEquals(RecordDeclaration recordDecl, TypeBuilder typeBuilder)
     {
         var equalsKey = GetMethodKey(typeBuilder, "Equals");
@@ -25733,6 +25941,7 @@ public partial class ILCompiler
         var il = equalsMethod.GetILGenerator();
         var returnFalse = il.DefineLabel();
         var compareFields = il.DefineLabel();
+        var selfType = GetSelfInstantiatedType(typeBuilder);
 
         // if (obj == null) return false;
         il.Emit(OpCodes.Ldarg_1);
@@ -25740,7 +25949,7 @@ public partial class ILCompiler
 
         // if (!(obj is RecordType)) return false;
         il.Emit(OpCodes.Ldarg_1);
-        il.Emit(OpCodes.Isinst, typeBuilder);
+        il.Emit(OpCodes.Isinst, selfType);
         il.Emit(OpCodes.Dup);
         il.Emit(OpCodes.Brtrue, compareFields);
         il.Emit(OpCodes.Pop);
@@ -25748,43 +25957,34 @@ public partial class ILCompiler
 
         // RecordType other = (RecordType)obj;
         il.MarkLabel(compareFields);
-        var otherLocal = il.DeclareLocal(typeBuilder);
+        var otherLocal = il.DeclareLocal(selfType);
         // After `isinst` of a value type the stack holds a *boxed* reference, so it
         // must be unboxed back to the value type before storing into a value-type
         // local. Skipping this produces unverifiable IL (StackUnexpected: found ref,
         // expected value). Reference-type records can store the reference directly.
         if (recordDecl.IsStruct)
         {
-            il.Emit(OpCodes.Unbox_Any, typeBuilder);
+            il.Emit(OpCodes.Unbox_Any, selfType);
         }
         il.Emit(OpCodes.Stloc, otherLocal);
 
-        // Compare each field
-        if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+        // Compare each instance data member (primary-constructor AND block-form)
+        foreach (var (_, dataField, _) in GetRecordDataFields(recordDecl, typeBuilder))
         {
-            foreach (var param in recordDecl.PrimaryConstructorParameters)
-            {
-                var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
-                if (_fields.TryGetValue(backingFieldKey, out var backingField))
+            EmitEqualityComparerEquals(
+                il,
+                dataField.FieldType,
+                () =>
                 {
-                    var fieldType = backingField.FieldType;
-
-                    EmitEqualityComparerEquals(
-                        il,
-                        fieldType,
-                        () =>
-                        {
-                            il.Emit(OpCodes.Ldarg_0);
-                            il.Emit(OpCodes.Ldfld, backingField);
-                        },
-                        () =>
-                        {
-                            il.Emit(OpCodes.Ldloc, otherLocal);
-                            il.Emit(OpCodes.Ldfld, backingField);
-                        });
-                    il.Emit(OpCodes.Brfalse, returnFalse);
-                }
-            }
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, dataField);
+                },
+                () =>
+                {
+                    il.Emit(OpCodes.Ldloc, otherLocal);
+                    il.Emit(OpCodes.Ldfld, dataField);
+                });
+            il.Emit(OpCodes.Brfalse, returnFalse);
         }
 
         // All fields are equal, return true
@@ -25887,34 +26087,25 @@ public partial class ILCompiler
         il.Emit(OpCodes.Ldc_I4, 17);
         il.Emit(OpCodes.Stloc, hashCodeLocal);
 
-        // Combine hash codes from all fields
-        if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
+        // Combine hash codes from all instance data members (primary-constructor AND block-form)
+        foreach (var (_, dataField, _) in GetRecordDataFields(recordDecl, typeBuilder))
         {
-            foreach (var param in recordDecl.PrimaryConstructorParameters)
-            {
-                var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
-                if (_fields.TryGetValue(backingFieldKey, out var backingField))
+            // hash = hash * 23 + field.GetHashCode();
+            il.Emit(OpCodes.Ldloc, hashCodeLocal);
+            il.Emit(OpCodes.Ldc_I4, 23);
+            il.Emit(OpCodes.Mul);
+
+            EmitEqualityComparerGetHashCode(
+                il,
+                dataField.FieldType,
+                () =>
                 {
-                    var fieldType = backingField.FieldType;
+                    il.Emit(OpCodes.Ldarg_0);
+                    il.Emit(OpCodes.Ldfld, dataField);
+                });
 
-                    // hash = hash * 23 + field.GetHashCode();
-                    il.Emit(OpCodes.Ldloc, hashCodeLocal);
-                    il.Emit(OpCodes.Ldc_I4, 23);
-                    il.Emit(OpCodes.Mul);
-
-                    EmitEqualityComparerGetHashCode(
-                        il,
-                        fieldType,
-                        () =>
-                        {
-                            il.Emit(OpCodes.Ldarg_0);
-                            il.Emit(OpCodes.Ldfld, backingField);
-                        });
-
-                    il.Emit(OpCodes.Add);
-                    il.Emit(OpCodes.Stloc, hashCodeLocal);
-                }
-            }
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Stloc, hashCodeLocal);
         }
 
         il.Emit(OpCodes.Ldloc, hashCodeLocal);
@@ -25950,7 +26141,7 @@ public partial class ILCompiler
         var il = cloneBuilder.GetILGenerator();
         il.Emit(OpCodes.Ldarg_0);
         il.Emit(OpCodes.Call, memberwiseClone);
-        il.Emit(OpCodes.Castclass, typeBuilder);
+        il.Emit(OpCodes.Castclass, GetSelfInstantiatedType(typeBuilder));
         il.Emit(OpCodes.Ret);
     }
 
@@ -25966,7 +26157,10 @@ public partial class ILCompiler
         var il = toStringMethod.GetILGenerator();
 
         // Build string: "RecordName { Prop1 = value1, Prop2 = value2 }"
-        if (recordDecl.PrimaryConstructorParameters == null || recordDecl.PrimaryConstructorParameters.Count == 0)
+        var printableFields = GetRecordDataFields(recordDecl, typeBuilder)
+            .Where(dataField => dataField.IsPrintable)
+            .ToList();
+        if (printableFields.Count == 0)
         {
             // No properties, just return the type name
             il.Emit(OpCodes.Ldstr, recordDecl.Name);
@@ -25999,42 +26193,39 @@ public partial class ILCompiler
         il.Emit(OpCodes.Callvirt, appendStringMethod);
         il.Emit(OpCodes.Pop);
 
-        // Append each property
-        for (int i = 0; i < recordDecl.PrimaryConstructorParameters.Count; i++)
+        // Append each printable member
+        for (int i = 0; i < printableFields.Count; i++)
         {
-            var param = recordDecl.PrimaryConstructorParameters[i];
-            var backingFieldKey = $"{recordDecl.Name}.<{param.Name}>k__BackingField";
+            var (memberName, dataField, _) = printableFields[i];
 
-            if (_fields.TryGetValue(backingFieldKey, out var backingField))
+            // Append "PropName = "
+            il.Emit(OpCodes.Ldloc, sbLocal);
+            il.Emit(OpCodes.Ldstr, $"{memberName} = ");
+            il.Emit(OpCodes.Callvirt, appendStringMethod);
+            il.Emit(OpCodes.Pop);
+
+            // Append value
+            il.Emit(OpCodes.Ldloc, sbLocal);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, dataField);
+
+            // Box value types — an unconstrained generic parameter may be one at runtime,
+            // so !T is always boxed (a no-op for reference instantiations).
+            if (dataField.FieldType.IsValueType || dataField.FieldType.IsGenericParameter)
             {
-                // Append "PropName = "
+                il.Emit(OpCodes.Box, dataField.FieldType);
+            }
+
+            il.Emit(OpCodes.Callvirt, appendObjectMethod);
+            il.Emit(OpCodes.Pop);
+
+            // Append ", " if not last property
+            if (i < printableFields.Count - 1)
+            {
                 il.Emit(OpCodes.Ldloc, sbLocal);
-                il.Emit(OpCodes.Ldstr, $"{param.Name} = ");
+                il.Emit(OpCodes.Ldstr, ", ");
                 il.Emit(OpCodes.Callvirt, appendStringMethod);
                 il.Emit(OpCodes.Pop);
-
-                // Append value
-                il.Emit(OpCodes.Ldloc, sbLocal);
-                il.Emit(OpCodes.Ldarg_0);
-                il.Emit(OpCodes.Ldfld, backingField);
-
-                // Box value types
-                if (backingField.FieldType.IsValueType)
-                {
-                    il.Emit(OpCodes.Box, backingField.FieldType);
-                }
-
-                il.Emit(OpCodes.Callvirt, appendObjectMethod);
-                il.Emit(OpCodes.Pop);
-
-                // Append ", " if not last property
-                if (i < recordDecl.PrimaryConstructorParameters.Count - 1)
-                {
-                    il.Emit(OpCodes.Ldloc, sbLocal);
-                    il.Emit(OpCodes.Ldstr, ", ");
-                    il.Emit(OpCodes.Callvirt, appendStringMethod);
-                    il.Emit(OpCodes.Pop);
-                }
             }
         }
 
