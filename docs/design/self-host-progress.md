@@ -11,6 +11,37 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — LAMBDAS ARC opened: oracle lambda-inference fix (`b20476e8`) + full recon
+
+VERIFY-FIRST probing of the oracle's lambda surface (the arc's §1.1 step) found a CRITICAL defect:
+`f := (x) => x + 1` — a `:=` lambda with NO delegate-type home — flowed Unknown parameter types into emit
+and produced a delegate whose invocation CRASHED with **AccessViolationException** at runtime. AnalyzeLambda
+now reports NL203 ("I can't figure out the type of lambda parameter 'x'" + help) when a parameter has
+neither an explicit type nor an expected-signature slot; zero-param `:=` lambdas stay legal. The fix exposed
+a second latent defect: EXTENSION-method calls (`count.Times(i => ...)`) threaded expected argument types
+positionally INCLUDING the `this` receiver, so a lambda argument paired with the receiver's type and lost
+its inference source (silently Unknown before; the 07-interfaces example lint caught the false NL203 after).
+The expected-type pairing now skips the `this` parameter, mirroring the validator's paramStartIndex shift.
+
+**Recon (workflow wx4ol2vbt; full maps in its task output).** Grammar: lambda params are UNTYPED-only
+(`(x: int) =>` does not parse — typing is 100% contextual via `Func<...>` annotations or argument position);
+`Func<T1..TRet>` is the only function-type spelling (no arrow types — Arrow is a type TERMINATOR). Oracle
+emit: 3-way split (non-capturing → static `<Lambda>_{n}` + ldnull/ldftn/newobj + per-callsite cache;
+this-only → instance method bound to arg0; captures → heap `<>c__DisplayClass{n}` with by-value snapshot +
+box-lifting for mutated captures; `<>LiftedStruct{n}` stack box for non-escaping local-function captures).
+Columnar TODAY: lambdas decline at KERNEL PARSE (-1, no Arrow branch — no explicit decline pin exists);
+`Func<int,int>` canonicals decline at TryResolveType (BCL generic heads); IsSupportedType rejects delegates;
+the C#-AST canonicalizer renders FunctionTypeReference as "?" (latent parity mismatch). Node kind 39 is free.
+
+**Sub-slice ladder:** L1a delegate-TYPE plumbing (Func/Action canonicals resolve + delegate-typed params
+invocable via callvirt Invoke; parity passes real Func instances as args) → L1b non-capturing
+expression-bodied lambdas in ARGUMENT position (expected type known → synthesize + ldftn) → L1c zero-param
+`:=` lambdas → L2 typed locals (`let f: Func<int,int> = ...`, statement kernel) → L3 captures/display
+classes (adversarial-review territory) → L4 local functions. L1b's /tmp spike: Func ctor persistence,
+forward-ldftn baking, interleaved DefineMethod (questions enumerated in the recon output).
+
+---
+
 ## 2026-06-10 — Phase D-17b: columnar generic-function `where` CONSTRAINTS + oracle circular-constraint fix
 
 Generic functions with `where` clauses now emit columnar instead of declining whole-file. Kernel
