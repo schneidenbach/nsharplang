@@ -411,9 +411,16 @@ and block-form record value semantics made real (see the self-host progress log)
 generic records pending that lowering. The ORACLE also gained GENERIC UNIONS (`d1c41b6e` — `union Result<T>`
 parse→analyze→emit→export, the README flagship; columnar still declines generic unions to the C# path per
 the D-10 pin, so columnar generic-union emit is a future Phase D coverage slice alongside the other union
-follow-ups). **Next: generic value-struct construction + `where T: Base`
-constraints → lambdas/closures** (the `project_csharp_retirement_map` slice order), then Stage 6 (route-all
-→ delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
+follow-ups). D-17a columnar VALUE-STRUCT user constructors landed (`e2f4a553` — generic structs included;
+ctor bodies accept partial assignment matching the oracle; the `new S()`-bypasses-parameterless-ctor oracle
+defect is recorded). D-17b columnar generic-function `where` CONSTRAINTS landed (kernel clause parse → flat
+rows; definition-time application + call-site enforce-or-decline at the MakeGenericMethod chokepoint; the
+five top-level scanners learned to not see `where ... class/struct` as declarations) plus an ORACLE fix:
+circular constraints (`where T: T`) used to HANG the compiler at declaration time — the analyzer now rejects
+them with NL208 (F-bounded stays legal); the interface-constraint member-dispatch NL103 emit crash is
+recorded for a future oracle bundle. **Next: the lambdas/closures arc** (the `project_csharp_retirement_map`
+slice order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on
+columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).

@@ -11,6 +11,53 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Phase D-17b: columnar generic-function `where` CONSTRAINTS + oracle circular-constraint fix
+
+Generic functions with `where` clauses now emit columnar instead of declining whole-file. Kernel
+(`ParserFunctionSignatures.nl`): clauses parse into FLAT ROWS — owner-name span + code (type-tree root >= 0 in
+the shared node table, or -2 `class` / -3 `struct` / -4 `new()`); `sres` grew int[7]→int[8] (`sres[7]` = row
+count) with three new out-arrays through the Bindings boundary (the D-15a/D-16 pattern; delegate + all 7 call
+sites). `sres[6]` (signature end) now lands PAST the clauses on the body `{`.
+
+**Scanner hazard found by fragment bisection:** a depth-0 `class`/`struct` KEYWORD inside a where clause was
+picked up as a phantom DECLARATION by all three top-level kernel scanners (`ParserDeclarations.nl`) AND the
+adapter's C#-side `TopLevelClassIndices`/`TopLevelStructIndices` → declCount mismatch → whole-file decline
+(`new()` and type refs were invisible to scanners — the giveaway). All five scanners now suppress keyword
+recognition from a depth-0 `where` (53) until the body `{`.
+
+Adapter: rows group per declared type parameter (specials mirror SpecialConstraintKind Class=1/Struct=2/New=4;
+type constraints canonicalize); declines — unknown owner name, `class`+`struct` or `struct`+`new()` combos
+(the production parser errors on the one-clause forms; the two-clause forms must not slip through), rows on a
+non-generic function or a constructor. Emitter: definition-time application between `DefineGenericParameters`
+and `SetReturnType` (attrs map exactly as the oracle's `ApplyGenericConstraints`; ONE base-type constraint per
+param — admissible targets: another of the function's own params (`where T: U`), a user REFERENCE-layout
+TypeBuilder, or a baked BCL class; interface lists / value types / arrays / enums / closed generics decline);
+the siblings tuple carries `(SpecialConstraints, BaseConstraints)` per position; CALL-SITE enforce-or-decline
+at the single `MakeGenericMethod` chokepoint (inferred + explicit paths): class/struct/new()/assignability
+checked on baked runtime bindings; a caller's open param or any emitted shape bound into a constrained
+position declines. /tmp spike proved: constraints persist + load under PersistedAssemblyBuilder; builder
+`MakeGenericMethod` validates NOTHING (a violating instantiation silently persists an assembly that fails at
+load) — so emitter enforcement is mandatory; `t.Assembly is AssemblyBuilder` cleanly separates emitted shapes
+from runtime types.
+
+**ORACLE DEFECT FIXED (probe-found): circular constraints HUNG the compiler.** `where T: T` (and mutual
+`where T: U where U: T`) sent `nlc check`/`run` into an infinite loop — 100% CPU, declaration-time, even
+UNCALLED (bisected to the ILCompiler's base-chain walks: a constrained param's BaseType IS its constraint, so
+a cycle never terminates). The analyzer now rejects direct type-parameter constraint cycles with NL208
+"circular constraint dependency" (C#'s CS0454 analog) before emit; F-bounded shapes (`where T:
+IComparable<T>`) stay legal. The columnar emitter independently declines cycles (the CLR refuses the metadata
+at load — probed TypeLoadException). **ORACLE DEFECT RECORDED (future bundle):** member dispatch on `T`
+through an INTERFACE constraint crashes at emit (NL103 "Method CompareTo not found on generic type parameter
+T") while base-CLASS constraint dispatch works — analyzer accepts, emitter can't bind; columnar declines both.
+
+Tests: `ColumnarCodegen_Parity_GenericConstraints` (parity over struct/class/new()/`T: U` accepts + metadata
+asserts on the loaded definitions + 11 decline pins incl. violations, circularity, `new T()` bodies,
+unverifiable open-param bindings); 4 where-clause cases in the kernel-vs-production signature parity test; 4
+analyzer circularity tests; the D-15a "where clause declines" pin FLIPPED (an uncalled user-class-constrained
+function now emits). 3966/3966; gate log `/tmp/gate-d17b.log`. Next: the lambdas/closures arc.
+
+---
+
 ## 2026-06-10 — Phase D-17a: columnar VALUE-STRUCT user constructors (`e2f4a553`)
 
 PASS 0c's wholesale value-type ctor decline lifted; generic structs (`GCell<int>`) flow through the D-16
