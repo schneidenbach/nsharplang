@@ -938,6 +938,10 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldNameLengths = new int[cap];
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
+                var outFieldStaticFlags = new int[cap];
+                var outFieldInitKinds = new int[cap];
+                var outFieldInitStarts = new int[cap];
+                var outFieldInitLengths = new int[cap];
                 var outMethodFuncIndices = new int[cap];
                 var outMethodStaticFlags = new int[cap];
                 var outCtorIndices = new int[cap];
@@ -945,7 +949,8 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outResult = new int[7];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
-                    outFieldTypeLengths, outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outResult);
+                    outFieldTypeLengths, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
+                    outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
                 // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
@@ -959,10 +964,18 @@ internal static class NSharpCompilerDogfoodAdapter
                 var baseName = outResult[6] > 0 ? source.Substring(outResult[5], outResult[6]) : null;
                 var fieldNames = new string[fieldCount];
                 var fieldTypes = new string[fieldCount];
+                var fieldStatics = new bool[fieldCount];
+                var fieldInitKinds = new int[fieldCount];
+                var fieldInitTexts = new string?[fieldCount];
                 for (var f = 0; f < fieldCount; f++)
                 {
                     fieldNames[f] = source.Substring(outFieldNameStarts[f], outFieldNameLengths[f]);
                     fieldTypes[f] = source.Substring(outFieldTypeStarts[f], outFieldTypeLengths[f]);
+                    fieldStatics[f] = outFieldStaticFlags[f] == 1;
+                    fieldInitKinds[f] = outFieldInitKinds[f];
+                    fieldInitTexts[f] = outFieldInitKinds[f] >= 0
+                        ? source.Substring(outFieldInitStarts[f], outFieldInitLengths[f])
+                        : null;
                 }
 
                 // Each method (its `func` token index recorded by the kernel) is parsed with the SAME signature +
@@ -1002,7 +1015,7 @@ internal static class NSharpCompilerDogfoodAdapter
                     properties.Add(propInput);
                 }
 
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName));
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName, fieldStatics, fieldInitKinds, fieldInitTexts));
             }
             return true;
         }
@@ -2745,6 +2758,7 @@ internal static class NSharpCompilerDogfoodAdapter
     private delegate int ParseStructDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
+        int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths,
         int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outResult);
     private delegate int ParseUnionDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,

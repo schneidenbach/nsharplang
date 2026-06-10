@@ -24969,6 +24969,11 @@ public partial class ILCompiler
 
         _currentTypeBuilder = typeBuilder;
 
+        // STATIC field initializers run in the record's type initializer (.cctor) exactly like a class's or a
+        // struct's — without this call a record's `static x: T = v` was silently DROPPED (the field stayed CLR
+        // zero/null at runtime).
+        EmitDeclaredStaticFieldInitializers(typeBuilder, recordDecl.Members, FieldOwnerKind.Record);
+
         // Emit property getters for primary constructor parameters
         if (recordDecl.PrimaryConstructorParameters != null && recordDecl.PrimaryConstructorParameters.Count > 0)
         {

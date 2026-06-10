@@ -5058,6 +5058,31 @@ func f(): int {
     }
 
     [Fact]
+    public void ILCompiler_RunsRecordStaticFieldInitializers()
+    {
+        // Regression: a RECORD's static-field initializers were silently DROPPED — EmitRecordBodies never called
+        // EmitDeclaredStaticFieldInitializers (classes and structs did), so `static label: string = "rc"` read
+        // back null and `static start: int = 7` read back 0 at runtime. The record path now emits the same
+        // .cctor the class/struct paths do.
+        var source = @"
+record RC {
+    y: int
+    static start: int = 7
+    static label: string = ""rc""
+}
+
+func f(): int {
+    return RC.start
+}
+
+func g(): string {
+    return RC.label
+}";
+        Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source, "f")));
+        Assert.Equal("rc", Assert.IsType<string>(CompileAndInvoke(source, "g")));
+    }
+
+    [Fact]
     public void ILCompiler_ThisRemainsValidInInstanceContexts()
     {
         // Over-firing pin for the static-context `this` guard: constructors, instance methods, and property

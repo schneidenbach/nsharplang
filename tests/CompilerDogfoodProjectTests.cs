@@ -4252,8 +4252,9 @@ class B
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    V: int {\n        get {\n            return n\n        }\n    }\n    static func V(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // SAME-ARITY type-distinguished static overloads (resolution is by arg count — the C# path handles these).
         Assert.False(RouteColumnarProgram("class C {\n    static func T(x: int): int {\n        return x\n    }\n    static func T(s: string): int {\n        return 9\n    }\n}\n\nfunc f(): int {\n    return C.T(1)\n}\n").Ok);
-        // STATIC FIELDS and STATIC PROPERTIES are the next slices — `static x: int` / `static X: int {` decline.
-        Assert.False(RouteColumnarProgram("class C {\n    static count: int\n    func one(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // STATIC FIELDS are now ACCEPTED (the D-13 slice — see ColumnarCodegen_Parity_StaticFields, which owns
+        // that surface); STATIC PROPERTIES remain the next slice and decline.
+        Assert.True(RouteColumnarProgram("class C {\n    static count: int\n    func one(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class C {\n    static X: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // an EXPRESSION-BODIED static method (no `{` body — out of the kernel's modelled shape).
         Assert.False(RouteColumnarProgram("class C {\n    static func Twice(x: int): int => x * 2\n}\n\nfunc f(): int {\n    return C.Twice(2)\n}\n").Ok);
@@ -4333,6 +4334,113 @@ class B
         // a derived FIELD or PROPERTY shadowing an inherited STATIC method.
         Assert.False(RouteColumnarProgram("class Base {\n    static func K(): int {\n        return 1\n    }\n}\n\nclass D: Base {\n    K: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
         Assert.False(RouteColumnarProgram("class Base {\n    static func K(): int {\n        return 1\n    }\n}\n\nclass D: Base {\n    n: int\n    K: int {\n        get {\n            return n\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
+    // STATIC FIELDS on classes/records/structs — `static name: Type [= <literal>]` members declared CLR-static
+    // (excluded from object-init/positional construction), initialized in the type's .cctor (declaration order,
+    // single-token literals incl. negated numerics), read/written via `TypeName.field` (chain-walked), and BARE
+    // inside INSTANCE member bodies only — the pipeline's pinned ASYMMETRY: a STATIC method body must qualify with
+    // the type name (bare access there is an NL103 error, so columnar's null-`_currentStruct` declines match it
+    // structurally). Value-matched vs the C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_StaticFields()
+    {
+        var prog =
+            // the headline surface: defaults (CLR zero), qualified read/write from top-level functions, and an
+            // int initializer. STATE CAUTION: the columnar side runs EVERY call against ONE loaded assembly while
+            // the oracle side compiles FRESH per invocation — so each function below is SELF-DETERMINISTIC (it
+            // resets any static it depends on before reading), except readDefault which must stay the FIRST call.
+            "class Counter {\n    static count: int\n    static start: int = 7\n}\n\n" +
+            "func readDefault(): int {\n    return Counter.count\n}\n\n" +
+            "func writeRead(v: int): int {\n    Counter.count = v\n    return Counter.count\n}\n\n" +
+            "func readInit(): int {\n    return Counter.start\n}\n\n" +
+            "func bump(): int {\n    Counter.count = 0\n    Counter.count = Counter.count + 1\n    return Counter.count\n}\n\n" +
+            // every literal-initializer kind: string (RAW semantics), double, float, bool, char, long, ulong,
+            // negated int + negated double.
+            "class Config {\n    static name: string = \"MyApp\"\n    static ratio: double = 3.5\n    static rf: float = 1.5f\n    static on: bool = true\n    static off: bool = false\n    static tag: char = 'x'\n    static big: long = 9000000000L\n    static mask: ulong = 18446744073709551615UL\n    static neg: int = -42\n    static negd: double = -2.5\n}\n\n" +
+            "func cfgName(): string {\n    return Config.name\n}\n\n" +
+            "func cfgRatio(): double {\n    return Config.ratio\n}\n\n" +
+            "func cfgRf(): float {\n    return Config.rf\n}\n\n" +
+            "func cfgOn(): bool {\n    return Config.on\n}\n\n" +
+            "func cfgOff(): bool {\n    return Config.off\n}\n\n" +
+            "func cfgTag(): char {\n    return Config.tag\n}\n\n" +
+            "func cfgBig(): long {\n    return Config.big\n}\n\n" +
+            "func cfgMask(): ulong {\n    return Config.mask\n}\n\n" +
+            "func cfgNeg(): int {\n    return Config.neg\n}\n\n" +
+            "func cfgNegD(): double {\n    return Config.negd\n}\n\n" +
+            // static fields used in expressions; cross-type qualified access from a STATIC method body.
+            "func scaled(k: int): int {\n    return Counter.start * k + Config.neg\n}\n\n" +
+            "class Reader {\n    static func Peek(): int {\n        return Counter.start + 1\n    }\n}\n\n" +
+            "func crossType(): int {\n    return Reader.Peek()\n}\n\n" +
+            // BARE static-field read+write inside an INSTANCE method (the pipeline accepts this — c6 probe), on a
+            // CLASS and on a VALUE STRUCT receiver; plus a QUALIFIED write from an instance method.
+            "class Acc {\n    static total: int = 10\n    n: int\n    constructor(n0: int) {\n        n = n0\n    }\n    func BumpBare(): int {\n        total = total + n\n        return total\n    }\n    func BumpQualified(): int {\n        Acc.total = Acc.total + n\n        return Acc.total\n    }\n}\n\n" +
+            "func accBare(n: int): int {\n    Acc.total = 10\n    a := new Acc(n)\n    return a.BumpBare()\n}\n\n" +
+            "func accQualified(n: int): int {\n    Acc.total = 10\n    a := new Acc(n)\n    return a.BumpQualified()\n}\n\n" +
+            "struct SAcc {\n    v: int\n    static seen: int = 100\n    func Mark(): int {\n        seen = seen + v\n        return seen\n    }\n}\n\n" +
+            "func structBare(v: int): int {\n    SAcc.seen = 100\n    s := new SAcc { v: v }\n    return s.Mark()\n}\n\n" +
+            // INHERITED static field via the derived type name (read AND write — the fixed oracle chain-walks).
+            "class FBase {\n    static count: int = 3\n}\n\n" +
+            "class FDer: FBase {\n    static func Tag(): int {\n        return 0\n    }\n}\n\n" +
+            "func inhRead(): int {\n    FBase.count = 3\n    return FDer.count\n}\n\n" +
+            "func inhWrite(v: int): int {\n    FDer.count = v\n    return FBase.count\n}\n\n" +
+            // static fields on a RECORD.\n
+            "record RC {\n    y: int\n    static label: string = \"rc\"\n}\n\n" +
+            "func recLabel(): string {\n    return RC.label\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("readDefault", new object[0]),
+            ("writeRead", new object[] { 5 }), ("writeRead", new object[] { -2 }),
+            ("readInit", new object[0]),
+            ("bump", new object[0]),
+            ("cfgName", new object[0]), ("cfgRatio", new object[0]), ("cfgRf", new object[0]),
+            ("cfgOn", new object[0]), ("cfgOff", new object[0]), ("cfgTag", new object[0]),
+            ("cfgBig", new object[0]), ("cfgMask", new object[0]),
+            ("cfgNeg", new object[0]), ("cfgNegD", new object[0]),
+            ("scaled", new object[] { 6 }), ("scaled", new object[] { 0 }),
+            ("crossType", new object[0]),
+            ("accBare", new object[] { 5 }),
+            ("accQualified", new object[] { 7 }),
+            ("structBare", new object[] { 9 }),
+            ("inhRead", new object[0]),
+            ("inhWrite", new object[] { 11 }),
+            ("recLabel", new object[0]));
+
+        // Metadata: the declared static fields really are CLR-static, and instance construction ignores them.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the static-fields program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        Assert.True(loaded.GetType("Counter")!.GetField("count")!.IsStatic);
+        Assert.True(loaded.GetType("Config")!.GetField("name")!.IsStatic);
+        Assert.False(loaded.GetType("Acc")!.GetField("n")!.IsStatic);
+
+        // DECLINES (each N#-pipeline-rejected or out of slice scope — declining routes to the C# path):
+        // BARE static-field access inside a STATIC method (the pipeline rejects it: NL103 "Undefined variable" —
+        // only `TypeName.field` resolves in a static body; the c4 probe pinned the asymmetry).
+        Assert.False(RouteColumnarProgram("class C {\n    static count: int = 7\n    static func Get(): int {\n        return count\n    }\n}\n\nfunc f(): int {\n    return C.Get()\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    static count: int = 7\n    static func Set(v: int) {\n        count = v\n    }\n}\n\nfunc f(): int {\n    C.Set(3)\n    return C.count\n}\n").Ok);
+        // `static count := 5` (inferred static fields are NL303-rejected by the pipeline).
+        Assert.False(RouteColumnarProgram("class C {\n    static count := 5\n}\n\nfunc f(): int {\n    return C.count\n}\n").Ok);
+        // a GENERAL initializer expression (user-type construction / arithmetic) — only single-token literals are
+        // modelled; the pipeline ACCEPTS these, so they fall back to the C# path.
+        Assert.False(RouteColumnarProgram("record Point {\n    x: int\n    y: int\n}\n\nclass H {\n    static origin: Point = new Point { x: 1, y: 2 }\n}\n\nfunc f(): int {\n    return H.origin.x\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    static count: int = 1 + 2\n}\n\nfunc f(): int {\n    return C.count\n}\n").Ok);
+        // an INSTANCE field with an initializer (pipeline-accepted; columnar declines until instance initializers
+        // are modelled — they need ctor-injection, not a .cctor).
+        Assert.False(RouteColumnarProgram("class C {\n    x: int = 5\n    constructor() {\n    }\n}\n\nfunc f(): int {\n    c := new C()\n    return c.x\n}\n").Ok);
+        // compound assignment on a static field (`+=` is pipeline-accepted; compound ops are not yet modelled).
+        Assert.False(RouteColumnarProgram("class C {\n    static count: int = 1\n}\n\nfunc f(): int {\n    C.count += 1\n    return C.count\n}\n").Ok);
+        // NL306 collisions: static field vs instance field; static field vs static method.
+        Assert.False(RouteColumnarProgram("class C {\n    static V: int = 1\n    V: int\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    static V: int = 1\n    static func V(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
+        // a literal initializer whose type does not match the declared field type (the pipeline converts; the
+        // columnar literal loader requires exact agreement).
+        Assert.False(RouteColumnarProgram("class C {\n    static d: double = 5\n}\n\nfunc f(): double {\n    return C.d\n}\n").Ok);
+        // a VALUE STRUCT with ONLY a static field (zero instance fields — the CLR zero-size layout edge).
+        Assert.False(RouteColumnarProgram("struct S {\n    static count: int = 1\n    func One(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return S.count\n}\n").Ok);
+        // a derived STATIC FIELD shadowing an inherited static field (no static-field hiding is modelled).
+        Assert.False(RouteColumnarProgram("class Base {\n    static count: int = 1\n}\n\nclass D: Base {\n    static count: int = 2\n}\n\nfunc f(): int {\n    return D.count\n}\n").Ok);
+        // a STATIC PROPERTY (`static X: int {`) remains the next slice.
+        Assert.False(RouteColumnarProgram("class C {\n    static X: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int {\n    return C.X\n}\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either

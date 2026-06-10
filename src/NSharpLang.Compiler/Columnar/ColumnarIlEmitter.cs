@@ -142,7 +142,7 @@ public sealed class ColumnarPropertyInput
 
 public sealed class ColumnarStructInput
 {
-    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string? baseName = null)
+    public ColumnarStructInput(string name, string[] fieldNames, string[] fieldTypeCanonicals, IReadOnlyList<ColumnarFunctionInput> methods, IReadOnlyList<ColumnarConstructorInput> constructors, IReadOnlyList<ColumnarPropertyInput> properties, bool isReference, string? baseName = null, bool[]? fieldStaticFlags = null, int[]? fieldInitKinds = null, string?[]? fieldInitTexts = null)
     {
         Name = name;
         FieldNames = fieldNames;
@@ -152,6 +152,9 @@ public sealed class ColumnarStructInput
         Properties = properties;
         IsReference = isReference;
         BaseName = baseName;
+        FieldStaticFlags = fieldStaticFlags;
+        FieldInitKinds = fieldInitKinds;
+        FieldInitTexts = fieldInitTexts;
     }
 
     public string Name { get; }
@@ -174,6 +177,18 @@ public sealed class ColumnarStructInput
     // and only from another declared class — the emitter validates and declines everything else (a struct/record/
     // enum/union/unknown base, a base on a value type).
     public string? BaseName { get; }
+    // Per-field STATIC flags, positionally aligned with FieldNames (null = all instance, for older callers). A
+    // static field is CLR-static on the type (FieldAttributes.Static), excluded from the instance FieldOrder
+    // (object-init / positional construction never bind it), and accessed via `TypeName.field` (or bare inside an
+    // INSTANCE member body — the N# pipeline's pinned asymmetry: bare static-field access resolves in instance
+    // contexts but NOT in static ones).
+    public bool[]? FieldStaticFlags { get; }
+    // Per-field INITIALIZER literal token kinds (-1 = none): IntLiteral 1 / FloatLiteral 2 / CharLiteral 3 /
+    // StringLiteral 4 / true 44 / false 45. Static fields only (the kernel declines instance-field initializers).
+    public int[]? FieldInitKinds { get; }
+    // The initializer's literal source text (incl. an optional leading `-` on numerics), aligned with
+    // FieldInitKinds; null where no initializer. Emitted into the type's .cctor in declaration order.
+    public string?[]? FieldInitTexts { get; }
 }
 
 /// <summary>
@@ -236,6 +251,10 @@ internal sealed class ColumnarStructDef
     // `TypeName.Method(args)` (chain-walked, nearest declaration first) and by bare calls inside this type's own
     // member bodies (after locals/params and sibling top-level functions — the empirically pinned N# order).
     public Dictionary<string, List<(MethodBuilder Builder, Type[] ParamTypes, Type ReturnType)>> StaticMethods { get; } = new(StringComparer.Ordinal);
+    // STATIC fields declared on this type, by name -> the FieldBuilder. CLR-static (ldsfld/stsfld); excluded from
+    // FieldOrder/Fields so object-init and positional construction never see them. Resolved by `TypeName.field`
+    // (chain-walked) and by bare names inside INSTANCE member bodies only (the pipeline's pinned asymmetry).
+    public Dictionary<string, FieldBuilder> StaticFields { get; } = new(StringComparer.Ordinal);
     // User CONSTRUCTORS (reference types this slice): each declared ConstructorBuilder + its param types. Positional
     // construction `new T(args)` matches a ctor by arg count + arg types. Empty when the type has no user ctor (then
     // DefaultCtor drives object-init). A type with ≥1 user ctor has NO DefaultCtor (object-init on it declines).
@@ -477,6 +496,109 @@ public sealed class ColumnarIlEmitter
         return false;
     }
 
+    // Emit the LOAD of a static-field initializer's single-token literal into a .cctor IL stream, validating that
+    // the literal agrees with the declared field type (mismatch declines — the oracle's implicit numeric
+    // conversions are not modelled). Mirrors the expression emitter's literal cases EXACTLY: int suffix
+    // classification (L/UL), float suffixes (f/d; m declines), RAW string literals (Trim('"'), no escape decode —
+    // matching the C# path's GetStringLiteralRuntimeValue), char escape decode, true/false. The text may carry a
+    // leading `-` for numeric literals (the kernel admits it only there).
+    private static bool TryEmitStaticFieldInitializerLoad(ILGenerator il, Type fieldType, int initKind, string text)
+    {
+        switch (initKind)
+        {
+            case 1: // IntLiteral (optionally negated): int, long, or ulong by suffix — must match the field type.
+            {
+                var negated = text.StartsWith("-", StringComparison.Ordinal);
+                var body = negated ? text.Substring(1).TrimStart() : text;
+                var end = body.Length;
+                var sawU = false;
+                var sawL = false;
+                while (end > 0 && (body[end - 1] is 'u' or 'U' or 'l' or 'L'))
+                {
+                    if (body[end - 1] is 'u' or 'U') sawU = true; else sawL = true;
+                    end--;
+                }
+                var digits = body.Substring(0, end);
+                if (sawU && sawL)
+                {
+                    // ulong: a negated ulong literal is invalid — decline.
+                    if (negated || fieldType != typeof(ulong) || !ulong.TryParse(digits, out var ulongValue))
+                        return false;
+                    il.Emit(OpCodes.Ldc_I8, unchecked((long)ulongValue));
+                    return true;
+                }
+                if (sawU)
+                    return false; // bare uint — not modelled.
+                if (sawL)
+                {
+                    if (fieldType != typeof(long) || !long.TryParse(digits, out var longValue))
+                        return false;
+                    il.Emit(OpCodes.Ldc_I8, negated ? -longValue : longValue);
+                    return true;
+                }
+                if (fieldType != typeof(int) || !int.TryParse(digits, out var intValue))
+                    return false;
+                il.Emit(OpCodes.Ldc_I4, negated ? -intValue : intValue);
+                return true;
+            }
+            case 2: // FloatLiteral (optionally negated): double or float by suffix; m (decimal) declines.
+            {
+                var negated = text.StartsWith("-", StringComparison.Ordinal);
+                var body = negated ? text.Substring(1).TrimStart() : text;
+                var last = body.Length > 0 ? body[body.Length - 1] : '\0';
+                if (last == 'm' || last == 'M')
+                    return false;
+                var isFloatLiteral = last == 'f' || last == 'F';
+                if (isFloatLiteral || last == 'd' || last == 'D')
+                    body = body.Substring(0, body.Length - 1);
+                if (!TryParseFloatingLiteralBody(body, out var doubleValue))
+                    return false;
+                if (negated)
+                    doubleValue = -doubleValue;
+                if (isFloatLiteral)
+                {
+                    if (fieldType != typeof(float))
+                        return false;
+                    il.Emit(OpCodes.Ldc_R4, (float)doubleValue);
+                    return true;
+                }
+                if (fieldType != typeof(double))
+                    return false;
+                il.Emit(OpCodes.Ldc_R8, doubleValue);
+                return true;
+            }
+            case 3: // CharLiteral: strip quotes, decode escapes, single code point.
+            {
+                if (fieldType != typeof(char))
+                    return false;
+                var raw = text;
+                if (raw.Length >= 2 && raw[0] == '\'' && raw[raw.Length - 1] == '\'')
+                    raw = raw.Substring(1, raw.Length - 2);
+                if (!TryDecodeLiteralBody(raw, out var charValue) || charValue.Length != 1)
+                    return false;
+                il.Emit(OpCodes.Ldc_I4, (int)charValue[0]);
+                return true;
+            }
+            case 4: // StringLiteral: RAW (Trim('"'), no escape decode — the N#/C#-path semantics).
+                if (fieldType != typeof(string))
+                    return false;
+                il.Emit(OpCodes.Ldstr, text.Trim('"'));
+                return true;
+            case 44: // true
+                if (fieldType != typeof(bool))
+                    return false;
+                il.Emit(OpCodes.Ldc_I4_1);
+                return true;
+            case 45: // false
+                if (fieldType != typeof(bool))
+                    return false;
+                il.Emit(OpCodes.Ldc_I4_0);
+                return true;
+            default:
+                return false;
+        }
+    }
+
     // Emit a bare (implicit-`this`) INSTANCE method call: `ldarg.0; <args>; call/callvirt`. Used by tiers 1 and 4
     // of the bare-call resolution (own-declared and inherited instance methods). Declines on an arity or arg-type
     // mismatch. A reference `this` calls via callvirt (matching the external-receiver path); a value-type `this`
@@ -496,6 +618,19 @@ public sealed class ColumnarIlEmitter
         _il.Emit(_currentStruct!.IsReference ? OpCodes.Callvirt : OpCodes.Call, method.Builder);
         type = method.ReturnType;
         return true;
+    }
+
+    // Resolve a STATIC FIELD on `def`'s chain by name, nearest declaration first (the oracle's chain-walked
+    // static-member resolution — `Derived.count` binds a base-declared static field).
+    private static bool TryFindStaticFieldOnChain(ColumnarStructDef def, string name, out FieldBuilder field)
+    {
+        for (var d = def; d != null; d = d.BaseDef)
+        {
+            if (d.StaticFields.TryGetValue(name, out field!))
+                return true;
+        }
+        field = null!;
+        return false;
     }
 
     // Resolve a STATIC method call on `def`'s chain by name + ARG COUNT, nearest declaration first. Mirrors the
@@ -815,16 +950,57 @@ public sealed class ColumnarIlEmitter
                 ? module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Class, typeof(object))
                 : module.DefineType(st.Name, TypeAttributes.Public | TypeAttributes.Sealed, typeof(ValueType));
             var fields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
+            var instanceFieldNames = new List<string>(st.FieldNames.Length);
+            var staticFieldDefs = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
+            var staticFieldInits = new List<(FieldBuilder Field, Type Type, int InitKind, string InitText)>();
             for (var fi = 0; fi < st.FieldNames.Length; fi++)
             {
                 if (!TryResolveType(st.FieldTypeCanonicals[fi], enumRegistry, structRegistry, unionRegistry, out var fieldType) || !IsSupportedType(fieldType))
                     return false;
+                var isStaticField = st.FieldStaticFlags != null && st.FieldStaticFlags[fi];
+                // A static and an instance field (or two fields of either kind) sharing a name is NL306 — decline.
+                if (fields.ContainsKey(st.FieldNames[fi]) || staticFieldDefs.ContainsKey(st.FieldNames[fi]))
+                    return false;
+                if (isStaticField)
+                {
+                    var sfb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public | FieldAttributes.Static);
+                    staticFieldDefs[st.FieldNames[fi]] = sfb;
+                    var initKind = st.FieldInitKinds != null ? st.FieldInitKinds[fi] : -1;
+                    if (initKind >= 0)
+                        staticFieldInits.Add((sfb, fieldType, initKind, st.FieldInitTexts![fi]!));
+                    continue;
+                }
+                // An INSTANCE field initializer is not modelled (the kernel declines it; defensive here).
+                if (st.FieldInitKinds != null && st.FieldInitKinds[fi] >= 0)
+                    return false;
                 var fb = tb.DefineField(st.FieldNames[fi], fieldType, FieldAttributes.Public);
-                if (!fields.TryAdd(st.FieldNames[fi], fb))
-                    return false; // a duplicate field name within one struct is malformed.
+                fields[st.FieldNames[fi]] = fb;
+                instanceFieldNames.Add(st.FieldNames[fi]);
+            }
+            // A value-type struct needs at least one INSTANCE field (a zero-size value type is a CLR layout edge
+            // case — the same rule the adapter applies to fully fieldless structs; statics do not give it a size).
+            if (!st.IsReference && instanceFieldNames.Count == 0)
+                return false;
+            // STATIC FIELD INITIALIZERS run in the type's .cctor, in declaration order (C# static-initializer
+            // semantics). Only single-token literals are modelled (the kernel guarantees it); the literal must
+            // agree with the declared field type — a mismatch declines (the oracle's implicit conversions are not
+            // modelled). Fields with no initializer keep the CLR zero default (no .cctor entry needed).
+            if (staticFieldInits.Count > 0)
+            {
+                var cctorIl = tb.DefineTypeInitializer().GetILGenerator();
+                foreach (var (sfField, sfType, sfKind, sfText) in staticFieldInits)
+                {
+                    if (!TryEmitStaticFieldInitializerLoad(cctorIl, sfType, sfKind, sfText))
+                        return false;
+                    cctorIl.Emit(OpCodes.Stsfld, sfField);
+                }
+                cctorIl.Emit(OpCodes.Ret);
             }
             structBuilders[s] = tb;
-            if (!structRegistry.TryAdd(st.Name, new ColumnarStructDef(tb, st.FieldNames, fields, st.IsReference)))
+            var newDef = new ColumnarStructDef(tb, instanceFieldNames.ToArray(), fields, st.IsReference);
+            foreach (var (sfName, sfBuilder) in staticFieldDefs)
+                newDef.StaticFields[sfName] = sfBuilder;
+            if (!structRegistry.TryAdd(st.Name, newDef))
                 return false; // a duplicate struct name is an ambiguous type.
         }
 
@@ -881,10 +1057,10 @@ public sealed class ColumnarIlEmitter
             // value receiver) — see TryEmitInstanceCall. Slice-1a methods READ fields (no field WRITE in a body yet).
             foreach (var m in structs[s].Methods)
             {
-                // A method whose name collides with a FIELD is rejected by the N# binder (NL306 — a name must be
-                // unique within the struct scope), so decline to keep the columnar path from accepting a program the
-                // language refuses.
-                if (def.Fields.ContainsKey(m.Name))
+                // A method whose name collides with a FIELD (instance or static) is rejected by the N# binder
+                // (NL306 — a name must be unique within the struct scope), so decline to keep the columnar path
+                // from accepting a program the language refuses.
+                if (def.Fields.ContainsKey(m.Name) || def.StaticFields.ContainsKey(m.Name))
                     return false;
                 if (m.IsStatic)
                 {
@@ -968,7 +1144,7 @@ public sealed class ColumnarIlEmitter
                 return false; // value-type properties are deferred.
             foreach (var prop in structs[s].Properties)
             {
-                if (def.Fields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.StaticMethods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name))
+                if (def.Fields.ContainsKey(prop.Name) || def.StaticFields.ContainsKey(prop.Name) || def.Methods.ContainsKey(prop.Name) || def.StaticMethods.ContainsKey(prop.Name) || def.Properties.ContainsKey(prop.Name))
                     return false; // a property colliding with a field/method/another property is a duplicate member.
                 // A synthesized accessor name ("get_Name"/"set_Name") must not collide with a user method of the same
                 // name (the N# pipeline accepts them as distinct symbols, but two CLR methods of identical signature
@@ -1010,22 +1186,29 @@ public sealed class ColumnarIlEmitter
             {
                 foreach (var fieldName in def.Fields.Keys)
                 {
-                    if (chain.Fields.ContainsKey(fieldName) || chain.Methods.ContainsKey(fieldName) || chain.StaticMethods.ContainsKey(fieldName) || chain.Properties.ContainsKey(fieldName))
+                    if (chain.Fields.ContainsKey(fieldName) || chain.StaticFields.ContainsKey(fieldName) || chain.Methods.ContainsKey(fieldName) || chain.StaticMethods.ContainsKey(fieldName) || chain.Properties.ContainsKey(fieldName))
+                        return false;
+                }
+                // A derived STATIC FIELD shadowing ANY inherited member (incl. another static field) is unverified
+                // against the oracle — decline every shape (unlike methods, no static-field hiding is modelled).
+                foreach (var staticFieldName in def.StaticFields.Keys)
+                {
+                    if (chain.Fields.ContainsKey(staticFieldName) || chain.StaticFields.ContainsKey(staticFieldName) || chain.Methods.ContainsKey(staticFieldName) || chain.StaticMethods.ContainsKey(staticFieldName) || chain.Properties.ContainsKey(staticFieldName))
                         return false;
                 }
                 foreach (var methodName in def.Methods.Keys)
                 {
-                    if (chain.Fields.ContainsKey(methodName) || chain.StaticMethods.ContainsKey(methodName) || chain.Properties.ContainsKey(methodName))
+                    if (chain.Fields.ContainsKey(methodName) || chain.StaticFields.ContainsKey(methodName) || chain.StaticMethods.ContainsKey(methodName) || chain.Properties.ContainsKey(methodName))
                         return false;
                 }
                 foreach (var staticName in def.StaticMethods.Keys)
                 {
-                    if (chain.Fields.ContainsKey(staticName) || chain.Methods.ContainsKey(staticName) || chain.Properties.ContainsKey(staticName))
+                    if (chain.Fields.ContainsKey(staticName) || chain.StaticFields.ContainsKey(staticName) || chain.Methods.ContainsKey(staticName) || chain.Properties.ContainsKey(staticName))
                         return false;
                 }
                 foreach (var propName in def.Properties.Keys)
                 {
-                    if (chain.Fields.ContainsKey(propName) || chain.Methods.ContainsKey(propName) || chain.StaticMethods.ContainsKey(propName) || chain.Properties.ContainsKey(propName))
+                    if (chain.Fields.ContainsKey(propName) || chain.StaticFields.ContainsKey(propName) || chain.Methods.ContainsKey(propName) || chain.StaticMethods.ContainsKey(propName) || chain.Properties.ContainsKey(propName))
                         return false;
                 }
             }
@@ -1515,6 +1698,24 @@ public sealed class ColumnarIlEmitter
                 {
                     var fieldReceiver = Child(target, 0);
                     var memberName = Text(target);
+                    // STATIC FIELD write `TypeName.field = value`: the receiver names a registered TYPE (not
+                    // shadowed by a local/param/sibling) — chain-walk its static fields (nearest first, matching
+                    // the fixed oracle) and `<value>; stsfld`. A type-name receiver whose member is NOT a static
+                    // field declines (a type name is not a value — nothing to fall through to).
+                    if (_kinds[fieldReceiver] == 6)
+                    {
+                        var staticRecvName = Text(fieldReceiver);
+                        if (!_locals.ContainsKey(staticRecvName) && !_paramOrdinals.ContainsKey(staticRecvName) && !_siblings.ContainsKey(staticRecvName)
+                            && _structRegistry.TryGetValue(staticRecvName, out var staticWriteOwner))
+                        {
+                            if (!TryFindStaticFieldOnChain(staticWriteOwner, memberName, out var staticFieldWrite))
+                                return false;
+                            if (!EmitExpression(Child(expr, 1), out var staticValueType) || staticValueType != staticFieldWrite.FieldType)
+                                return false;
+                            _il.Emit(OpCodes.Stsfld, staticFieldWrite);
+                            return true;
+                        }
+                    }
                     // PROPERTY setter write `receiver.Name = value` on a reference type: emit the receiver ref, the
                     // value (type-checked against the property type), then `callvirt set_Name`. The receiver must be a
                     // bare local/param (the modelled receiver forms) of a registered reference type with a settable
@@ -1601,6 +1802,18 @@ public sealed class ColumnarIlEmitter
                     if (!EmitExpression(Child(expr, 1), out var thisValueType) || thisValueType != thisFieldTarget.FieldType)
                         return false;
                     _il.Emit(OpCodes.Stfld, thisFieldTarget);
+                    return true;
+                }
+                // Bare STATIC-field write inside an INSTANCE member body (`count = expr` where count is a static
+                // field on the chain). The N# pipeline's pinned ASYMMETRY: bare static-field access resolves in
+                // INSTANCE contexts only — a STATIC method body must qualify (`TypeName.field`), so this is gated
+                // on `_currentStruct` (null in static bodies → declines exactly where the pipeline errors). No
+                // receiver: `<value>; stsfld`. (Statics need no address, so value-type enclosing types are fine.)
+                if (_currentStruct != null && TryFindStaticFieldOnChain(_currentStruct, targetName, out var bareStaticTarget))
+                {
+                    if (!EmitExpression(Child(expr, 1), out var bareStaticValueType) || bareStaticValueType != bareStaticTarget.FieldType)
+                        return false;
+                    _il.Emit(OpCodes.Stsfld, bareStaticTarget);
                     return true;
                 }
                 return false;
@@ -2018,6 +2231,17 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
+                // Bare STATIC-field read inside an INSTANCE member body. The N# pipeline's pinned ASYMMETRY: bare
+                // static-field access resolves in INSTANCE contexts only (a static body must qualify with the type
+                // name) — gated on `_currentStruct`, which is null in static bodies, so those decline exactly
+                // where the pipeline errors. No receiver: `ldsfld`.
+                if (_currentStruct != null && TryFindStaticFieldOnChain(_currentStruct, name, out var bareStaticField))
+                {
+                    _il.Emit(OpCodes.Ldsfld, bareStaticField);
+                    type = bareStaticField.FieldType;
+                    return true;
+                }
+
                 return false;
             }
 
@@ -2359,6 +2583,21 @@ public sealed class ColumnarIlEmitter
                             return false;
                         _il.Emit(OpCodes.Ldc_I4, memberValue);
                         type = userEnum.Builder;
+                        return true;
+                    }
+                    // A USER-TYPE STATIC FIELD read `TypeName.field`: the receiver names a registered struct/
+                    // record/class TYPE (not shadowed by a local/param/sibling) — chain-walk its static fields
+                    // (nearest declaration first; `Derived.count` binds a base-declared static, matching the
+                    // fixed oracle) and `ldsfld`. A member that is NOT a static field on the chain declines (a
+                    // type name is not a value — there is nothing to fall through to; static PROPERTIES are the
+                    // next slice).
+                    if (_structRegistry.TryGetValue(receiverIdent, out var staticOwner)
+                        && !_locals.ContainsKey(receiverIdent) && !_paramOrdinals.ContainsKey(receiverIdent) && !_siblings.ContainsKey(receiverIdent))
+                    {
+                        if (!TryFindStaticFieldOnChain(staticOwner, Text(idx), out var staticFieldRead))
+                            return false;
+                        _il.Emit(OpCodes.Ldsfld, staticFieldRead);
+                        type = staticFieldRead.FieldType;
                         return true;
                     }
                 }
