@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc: THIS captures (`8463d7c4`)
+
+Instance-method lambdas referencing bare fields/members bind the delegate DIRECTLY to `this` (the oracle's
+this-only path): BodyReferencesEnclosingChain detects chain-resolving bare names (siblings excluded — they
+beat members in the pinned order), and the lambda becomes an instance method ON THE ENCLOSING TypeBuilder
+(`ldarg.0; ldftn; newobj`, no display class). True reference capture: field WRITES inside lambdas hit the
+live object (probe: BumpTwice across two closures = 2; reads 105; instance-helper calls 40). Value-type
+`this` + ctor bodies decline. The probe detour re-confirmed a pre-existing decline (this-qualified ctor
+writes; bare writes are the modeled form). 3980/3980; gate 287s. The LAMBDAS ARC now stands at EIGHT landed
+rungs (oracle fix, L1a/b/c, L2, L3a/b, blocks, this) — remaining: capture-opaque widening (minor), L4 local
+functions; then Phase D resumes the retirement-map queue (match statements, columnar generic unions/records)
+toward route-all.
+
+---
+
 ## 2026-06-10 — Lambdas arc L3b: MUTATED captures via StrongBox lifting (`5aa789e5`)
 
 Shared closure mutation lands — the oracle's box-lift model: captured + bare-assigned names lift into a
