@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc L1a: columnar DELEGATE-TYPE plumbing (`bac8966e`)
+
+`Func<p,...,ret>` resolves in the columnar emitter as the production parser's function-type sugar — checked
+BEFORE the user-generic path (the parser special-cases the NAME, so the spelling is always a function type);
+the LAST argument is the return, and `void` there lowers to the matching System.Action (`Func<int,void>` IS
+Action<int>, the oracle's CreateDelegateType mapping). `Action<...>` falls back AFTER user-generic lookup
+(no parser sugar — a user Action<T> wins); bare `Action` after the registries. Args cap at 4 and must be
+BAKED runtime types (builder-arg delegates can't resolve ctor/Invoke — the tuple rule). IsSupportedType
+gains IsSupportedDelegateType; tuple elements exclude delegates. Case-9 bare-ident callees now split: a name
+carried by BOTH a value and any method tier still declines (pinned method-beats-local), a delegate-typed
+local/param with no competing method emits `callvirt Invoke` with exactly-typed args. PARITY FIX:
+ColumnarFunctionSymbol.CanonicalType renders FunctionTypeReference as `Func<p0,...,ret>` (previously "?" vs
+the kernel's verbatim generic — a latent signature mismatch). Parity test passes REAL delegate instances as
+invocation args (both pipelines resolve identical closed BCL delegates), incl. a stateful Action proving
+invocation reaches the instance; six decline pins incl. the first explicit LAMBDA-expression pin (kernel
+boundary until L1b). 3970/3970; gate green. **L1b spike GREEN in one shot:** forward-ldftn baking,
+interleaved DefineMethod, `Func<int,int>` (object, IntPtr) ctor persistence, delegate-local Invoke — the
+non-capturing lambda emit shape is fully de-risked. Next: L1b (kernel lambda node kind 39 + synthesized
+`<Lambda>_{n}` static methods + argument-position lambdas).
+
+---
+
 ## 2026-06-10 — LAMBDAS ARC opened: oracle lambda-inference fix (`b20476e8`) + full recon
 
 VERIFY-FIRST probing of the oracle's lambda surface (the arc's §1.1 step) found a CRITICAL defect:
