@@ -4483,6 +4483,45 @@ func Main() {
         ");
     }
 
+    // An untyped lambda parameter with NO inference source must be a compile-time error: the Unknown
+    // type used to flow into emit and produce a delegate whose invocation CORRUPTED MEMORY at runtime
+    // (AccessViolationException — probe-proven on `f := (x) => x + 1` + `f(5)`).
+    [Fact]
+    public void Lambda_UntypedParam_NoInferenceSource_Errors()
+    {
+        AssertHasError(@"
+            func Main() {
+                f := (x) => x + 1
+                result := f(5)
+            }
+        ", "can't figure out the type of lambda parameter");
+    }
+
+    [Fact]
+    public void Lambda_UntypedParams_NoInferenceSource_SingleErrorPerLambda()
+    {
+        var result = Analyze(@"
+            func Main() {
+                f := (x, y) => x + y
+                result := f(1, 2)
+            }
+        ");
+        Assert.Equal(1, result.Errors.Count(e =>
+            e.Message.Contains("can't figure out the type of lambda parameter")));
+    }
+
+    [Fact]
+    public void Lambda_ZeroParam_NoInferenceSource_NoError()
+    {
+        // Nothing to infer — `zero := () => 99` is legal and runs.
+        AssertNoErrors(@"
+            func Main() {
+                zero := () => 99
+                result := zero()
+            }
+        ");
+    }
+
     [Fact]
     public void Lambda_VarDecl_MultiParam_InfersParamTypes()
     {

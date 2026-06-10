@@ -7073,9 +7073,18 @@ public class Analyzer : IDisposable
         var argTypes = new List<TypeInfo>();
         if (calleeType is FunctionTypeInfo functionType && functionType.ParameterTypes != null)
         {
+            // An EXTENSION method's receiver is supplied by the member access, not the argument list,
+            // so pairing arguments with declared parameters skips the `this` parameter (mirrors the
+            // paramStartIndex shift in the argument validation below). Without the shift a lambda
+            // argument pairs with the RECEIVER's type and loses its delegate-type inference source.
+            var expectedParamOffset = functionType.Declaration is { Parameters.Count: > 0 } decl
+                && decl.Parameters[0].IsThis ? 1 : 0;
             for (int i = 0; i < call.Arguments.Count; i++)
             {
-                var expectedType = i < functionType.ParameterTypes.Count ? functionType.ParameterTypes[i] : null;
+                var expectedIndex = i + expectedParamOffset;
+                var expectedType = expectedIndex < functionType.ParameterTypes.Count
+                    ? functionType.ParameterTypes[expectedIndex]
+                    : null;
                 argTypes.Add(AnalyzeExpressionWithExpectedType(call.Arguments[i].Value, expectedType));
             }
         }
@@ -9895,7 +9904,7 @@ public class Analyzer : IDisposable
                     length);
             }
 
-            AnalyzeLambda(on.Handler);
+            AnalyzeLambda(on.Handler, reportInferenceFailure: false);
             return subscriptionType;
         }
 
@@ -9915,7 +9924,7 @@ public class Analyzer : IDisposable
                 column,
                 "This usually means the event is compiler-generated or inaccessible from N#.",
                 length);
-            AnalyzeLambda(on.Handler);
+            AnalyzeLambda(on.Handler, reportInferenceFailure: false);
             return subscriptionType;
         }
 
@@ -10076,11 +10085,12 @@ public class Analyzer : IDisposable
         };
     }
 
-    private FunctionTypeInfo AnalyzeLambda(LambdaExpression lambda, TypeInfo? expectedType = null)
+    private FunctionTypeInfo AnalyzeLambda(LambdaExpression lambda, TypeInfo? expectedType = null, bool reportInferenceFailure = true)
     {
         var expectedSignature = GetFunctionSignature(expectedType);
         PushScope(new Scope(ScopeKind.Function), lambda.Line, lambda.Column);
         var parameterTypes = new List<TypeInfo>();
+        var reportedParameterInferenceFailure = false;
 
         foreach (var param in lambda.Parameters)
         {
@@ -10089,13 +10099,34 @@ public class Analyzer : IDisposable
             var paramIndex = parameterTypes.Count;
             var hasExplicitType = param.Type is not null
                 && param.Type is not SimpleTypeReference { Name: "var" };
+            var hasInferenceSource = expectedSignature?.ParameterTypes != null
+                && paramIndex < expectedSignature.ParameterTypes.Count;
 
             var paramType = hasExplicitType
                 ? ResolveType(param.Type!)
-                : expectedSignature?.ParameterTypes != null && paramIndex < expectedSignature.ParameterTypes.Count
-                    ? expectedSignature.ParameterTypes[paramIndex]
+                : hasInferenceSource
+                    ? expectedSignature!.ParameterTypes![paramIndex]
                     : BuiltInTypes.Unknown;
             var (paramLine, paramColumn) = GetParameterDeclarationPosition(param, lambda.Line, lambda.Column);
+
+            // An untyped parameter with NO inference source (`f := x => x + 1` — nothing names the
+            // delegate type) must be a compile-time error: letting the Unknown type flow on emits a
+            // delegate with a garbage signature whose invocation CORRUPTS MEMORY at runtime
+            // (AccessViolationException — probe-proven). Reported once per lambda; suppressed on
+            // error-recovery paths that already diagnosed the surrounding statement.
+            if (!hasExplicitType && !hasInferenceSource
+                && reportInferenceFailure && !reportedParameterInferenceFailure)
+            {
+                Error(
+                    ErrorCode.CannotInferType,
+                    $"I can't figure out the type of lambda parameter '{param.Name}' — nothing here names the lambda's delegate type",
+                    paramLine,
+                    paramColumn,
+                    $"Give the lambda a typed home (e.g., 'let f: Func<int, int> = {param.Name} => ...') or pass it directly where a delegate type is expected.",
+                    param.Name.Length);
+                reportedParameterInferenceFailure = true;
+            }
+
             DeclareSymbol(param.Name, paramType, paramLine, paramColumn);
             RecordVariableInCurrentScope(param.Name, paramType);
             parameterTypes.Add(paramType);
