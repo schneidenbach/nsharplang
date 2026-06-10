@@ -103,6 +103,9 @@ Rules of the scope:
   a whitelisted BCL container, e.g. `Math`, poisons the in-process oracle even while briefly loaded) —
   see the StaticMethods region comments in CompilerDogfoodProjectTests.
 - `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
+- Enforced, not just convention: `CollectibleAssemblyScopeTests.TestSources_HaveNoDirectAssemblyLoadCallSites`
+  scans tests/ sources and fails on any direct `Assembly.Load`/`Assembly.LoadFile`/`Assembly.LoadFrom` call
+  site (comment mentions are fine; constructing `AssemblyLoadContext`s directly, as oracle helpers do, is fine).
 
 ## Test Categories
 
