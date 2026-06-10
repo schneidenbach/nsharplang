@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Phase D-14: columnar STATIC PROPERTIES (the static-member arc is COMPLETE) + 3-defect oracle fix bundle
+
+`static Name: Type { get {...} [set {...}] }` now compiles through the columnar pipeline (`c3da5311`),
+completing the static-member arc (D-12 methods → D-13 fields → D-14 properties). Kernel: the static-field
+branch routes a `{` after the type into outPropIndices with a static flag (the pre-existing member-order rule —
+fields+properties before methods/ctors — unchanged). Emitter: CLR-static `get_Name`/`set_Name` (setter `value`
+at arg 0), accessor BODIES are STATIC contexts (`_currentStruct` null → a bare backing-field reference declines
+exactly at the pipeline's NL103, probe-pinned d3b — backing access must be `TypeName.field`); `TypeName.Name`
+read/write chain-walks (after static fields); bare READS resolve in instance bodies (pbare-pinned asymmetry).
+
+THREE more oracle defects, found by probing and fixed first:
+- **NL304 demanded ctor assignment of uninitialized STATIC fields** (`Analyzer.CheckDefiniteAssignment` now
+  skips statics — a static is `.cctor`/zero-initialized, never an instance ctor's contract).
+- **A static property through an instance receiver (`c.X`) died at RUNTIME** (`callvirt` on a static accessor →
+  MissingMethodException) while instance-receiver static FIELDS already worked — because the CLR itself
+  tolerates ldfld/stfld on statics (ECMA-335 III.4.10/28 pops the receiver). Six accessor sites now mirror the
+  field behavior (Pop+`call` getters; spill-pop-call setters). N# semantics note: static member ACCESS through
+  an instance receiver is permitted (fields by CLR tolerance, properties by these helpers); static method
+  INVOCATION through a receiver stays an error (A3).
+- **`class D: R` (record base) compiled into an UNLOADABLE assembly** ("parent type is sealed" — records emit
+  sealed). Now a compile-time error like the struct-base rejection. The columnar side gained the record/class
+  distinction it lacked (`IsRecord` through input+def): record-as-base and record inheritance were silently
+  accepted with UNSEALED metadata (latent over-acceptance + metadata divergence) — both now decline, pinned.
+
+`ColumnarCodegen_Parity_StaticProperties`: 10 value-matched invocations + CLR metadata asserts + 11 decline
+pins; one stale D-12 pin flipped. 1235 ILCompiler+Analyzer+dogfood tests green; full non-IDE gate green.
+Cumulative static-member arc: 3 columnar slices, 3 oracle fix bundles (6+1+1+3 defects), ~80 parity
+invocations, ~60 decline pins. Next per the retirement-map order: **GENERICS** (generic functions → generic
+types → constraints → specialization; two-sided — the kernels do not parse `<T>` yet; the briefing's probe
+fan-out applies), then lambdas/closures.
+
+---
+
 ## 2026-06-09 — Phase D-13: columnar STATIC FIELDS (literal initializers, `.cctor`, chain-walked `Type.field`, bare-access asymmetry)
 
 The columnar pipeline now compiles `static name: Type [= <literal>]` fields on classes/records/structs
