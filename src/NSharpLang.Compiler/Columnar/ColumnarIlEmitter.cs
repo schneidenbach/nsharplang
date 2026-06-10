@@ -792,6 +792,37 @@ public sealed class ColumnarIlEmitter
 
         if (captures.Count == 0)
         {
+            // THIS-capture detection (bare-field/instance-member references in an INSTANCE method's lambda):
+            // a kind-6 name that is neither bound nor a sibling but resolves on the enclosing type's chain
+            // means the lambda needs `this`. The oracle's this-only path binds the delegate DIRECTLY to the
+            // current instance — the lambda becomes an instance method ON THE ENCLOSING TYPE, no display
+            // class, true reference capture (field mutation inside the lambda hits the real object, exactly
+            // the oracle's semantics). REFERENCE types only: a value-type `this` would bind a copy with
+            // different semantics (the oracle routes those through display-class copies) — decline.
+            if (_currentStruct != null
+                && BodyReferencesEnclosingChain(bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal)))
+            {
+                if (!_currentStruct.IsReference || _isConstructorBody)
+                    return false;
+                var instanceLambda = _currentStruct.Builder.DefineMethod(
+                    "<Lambda>_" + _lambdaCounter[0]++,
+                    MethodAttributes.Private | MethodAttributes.HideBySig, invoke.ReturnType, signatureTypes);
+                var instanceIl = instanceLambda.GetILGenerator();
+                var instanceOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+                foreach (var pair in ordinals)
+                    instanceOrdinals[pair.Key] = pair.Value + 1;
+                var instanceEmitter = new ColumnarIlEmitter(
+                    _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
+                    _source, instanceOrdinals, paramTypeMap, invoke.ReturnType, instanceIl, _siblings,
+                    _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
+                    programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
+                if (!EmitLambdaBody(instanceEmitter, instanceIl, bodyNode, invoke.ReturnType))
+                    return false;
+                _il.Emit(OpCodes.Ldarg_0);
+                _il.Emit(OpCodes.Ldftn, instanceLambda);
+                _il.Emit(OpCodes.Newobj, delegateCtor);
+                return true;
+            }
             var lambdaMethod = _programType.DefineMethod(
                 "<Lambda>_" + _lambdaCounter[0]++,
                 MethodAttributes.Private | MethodAttributes.Static, invoke.ReturnType, signatureTypes);
@@ -959,6 +990,41 @@ public sealed class ColumnarIlEmitter
         var first = (kind == 15 || kind == 16) ? 1 : 0; // child[0] of new/cast is the TYPE subtree.
         for (var c = first; c < _childCount[node]; c++)
             CollectLambdaCaptures(Child(node, c), bound, captures);
+    }
+
+    // True when a lambda body references a bare name that resolves on the ENCLOSING type's member chain
+    // (and is not a sibling function — siblings beat members in the pinned bare-call order and need no
+    // `this`). Such a body requires the instance-bound lowering: the delegate binds directly to the
+    // current `this` and the lambda lives as an instance method on the enclosing type.
+    private bool BodyReferencesEnclosingChain(int node, HashSet<string> bound)
+    {
+        var kind = _kinds[node];
+        if (kind == 38)
+            return false;
+        if (kind == 39)
+        {
+            var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
+            nestedBound.UnionWith(BoundParamsOf(node));
+            return BodyReferencesEnclosingChain(Child(node, _childCount[node] - 1), nestedBound);
+        }
+        if (kind == 6 && _valueStarts[node] >= 0 && _currentStruct != null)
+        {
+            var name = Text(node);
+            if (!bound.Contains(name) && !_locals.ContainsKey(name) && !_liftedLocals.ContainsKey(name)
+                && !_paramOrdinals.ContainsKey(name) && !_siblings.ContainsKey(name)
+                && (TryFindFieldOnChain(_currentStruct, name, out _)
+                    || TryFindMethodOnChain(_currentStruct, name, out _)
+                    || TryFindStaticFieldOnChain(_currentStruct, name, out _)
+                    || TryFindStaticPropertyOnChain(_currentStruct, name, out _)))
+                return true;
+        }
+        var first = (kind == 15 || kind == 16) ? 1 : 0;
+        for (var c = first; c < _childCount[node]; c++)
+        {
+            if (BodyReferencesEnclosingChain(Child(node, c), bound))
+                return true;
+        }
+        return false;
     }
 
     // L3b pre-scan: the LIFTED candidate set = names referenced inside any lambda subtree (unbound by its

@@ -5061,6 +5061,36 @@ class B
         Assert.False(RouteColumnarProgram("struct Box {\n    V: int\n}\n\nfunc test(a: int): int {\n    b := new Box { V: a }\n    let f: Func<int, int> = x => x + b.V\n    b.V = 99\n    return f(1) + b.V\n}\n").Ok);
     }
 
+    // Lambdas arc: THIS captures — a lambda in an INSTANCE method referencing bare fields/instance members
+    // binds the delegate DIRECTLY to the current `this` (the oracle's this-only path): the lambda becomes
+    // an instance method on the ENCLOSING type (no display class), so field reads see live state and field
+    // WRITES inside the lambda hit the real object — true reference capture. REFERENCE types only; a
+    // value-type `this` would bind a copy with different semantics (the oracle routes those through
+    // display-class copies) — struct this-captures decline.
+    [Fact]
+    public void ColumnarCodegen_Parity_ThisCaptureLambdas()
+    {
+        var prog =
+            "func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\n" +
+            "func run(a: Action, x: int): int {\n    a()\n    return x\n}\n\n" +
+            "class Counter {\n    Base: int\n    Count: int\n\n    constructor(b: int) {\n        Base = b\n        Count = 0\n    }\n\n" +
+            "    func AddBase(v: int): int {\n        return apply(x => x + Base, v)\n    }\n\n" +
+            "    func BumpTwice(v: int): int {\n        run(() => {\n            Count = Count + 1\n        }, v)\n        run(() => {\n            Count = Count + 1\n        }, v)\n        return Count\n    }\n\n" +
+            "    func Helper(n: int): int {\n        return n * 10\n    }\n\n" +
+            "    func ViaHelper(v: int): int {\n        return apply(x => Helper(x), v)\n    }\n}\n\n" +
+            "func useAddBase(b: int, v: int): int {\n    c := new Counter(b)\n    return c.AddBase(v)\n}\n\n" +
+            "func useBump(b: int, v: int): int {\n    c := new Counter(b)\n    return c.BumpTwice(v)\n}\n\n" +
+            "func useViaHelper(b: int, v: int): int {\n    c := new Counter(b)\n    return c.ViaHelper(v)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useAddBase", new object[] { 100, 5 }),
+            ("useBump", new object[] { 100, 1 }),
+            ("useViaHelper", new object[] { 100, 4 }));
+
+        // DECLINES: a VALUE-TYPE (struct) this-capture — binding a copied `this` diverges from the
+        // oracle's display-class-copy semantics.
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nstruct P {\n    X: int\n    func F(v: int): int {\n        return apply(x => x + X, v)\n    }\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+    }
+
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
     // an object initializer or a user constructor) must read/write the receiver's real storage. The
     // ILCompiler used to spill a `this.`-qualified value-type receiver into a throwaway temp — for a
