@@ -47,10 +47,19 @@
 //                                         span, children = the TYPE-kernel type-argument roots. Only ever appears
 //                                         as child[0] of a CallExpression; committed via the IsGenericCallTypeArgs
 //                                         lookahead, the Parser.cs IsGenericMethodCall mirror. Kind 37 is
-//                                         UnionCasePattern in ParserStatements -- 38 is the next free kind. )
+//                                         UnionCasePattern in ParserStatements. )
+//   Lambda                  -> kind 39  ( `x => expr` / `() => expr` / `(x, y) => expr` -- the level ABOVE
+//                                         assignment (ParseLambdaOrAssignmentExpression, Parser.cs:3660). The
+//                                         `=>` token in the value span; children = [param Identifiers (kind 6,
+//                                         zero or more), body expression root] -- paramCount = childCount - 1.
+//                                         Params are UNTYPED by grammar (the production parser rejects `:` in a
+//                                         lambda list); BLOCK bodies (`=> { ... }`) refuse (-1, statement bodies
+//                                         are a later rung). Parsed at the full-expression entry and in call
+//                                         ARGUMENTS (the production's ParseExpression positions modeled so far).
+//                                         40 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
-//   `is`/`as` type tests, range `..`, lambdas (the level above assignment); every other primary (this/base/
+//   `is`/`as` type tests, range `..`, block-bodied lambdas; every other primary (this/base/
 //   default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/...). A tuple
 //   `(a, b)` or named element `(x: e)` is refused (the parenthesized branch requires a lone `)` after the
 //   inner expression). Literal VALUE materialization (unescaping strings/chars) is the host's job; this
@@ -783,7 +792,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                     return -1
                 }
 
-                firstArg := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                firstArg := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                 if firstArg < 0 {
                     st[3] = argBase
                     return -1
@@ -799,7 +808,7 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
                         return -1
                     }
 
-                    nextArg := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                    nextArg := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
                     if nextArg < 0 {
                         st[3] = argBase
                         return -1
@@ -995,7 +1004,8 @@ func ParseTernaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 // ParseAssignmentExpression (Parser.cs:3599): a ternary target, optionally followed by an assignment
 // operator (= += -= *= /= ??=) and a right-hand value (AssignmentExpression, kind 14, operator token in the
 // value span, children [target, value]). Right-associative: the value recurses to the assignment level, so
-// a = b = c parses as a = (b = c). This is the full-expression entry (minus lambdas, deferred).
+// a = b = c parses as a = (b = c). The full-expression entry is ParseLambdaOrAssignmentExpressionNode (the
+// lambda level above this one).
 func ParseAssignmentExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
     if depth > 200 {
         return -1
@@ -1029,6 +1039,105 @@ func ParseAssignmentExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenV
     return target
 }
 
+// ParseLambdaOrAssignmentExpression (Parser.cs:3660): LAMBDA literals sit at the level ABOVE assignment.
+// Modeled shapes (Lambda kind 39, the `=>` token in the value span, children = [param Identifiers..., body]):
+//   `x => expr`     -- a bare Identifier DIRECTLY followed by Arrow 120 (the Parser.cs:3672 lookahead);
+//   `() => expr`    -- empty parenthesized list (`( ) =>`);
+//   `(x, y) => expr`-- a parenthesized BARE-identifier list, committed via a pure speculative scan mirroring
+//                      Parser.cs IsLambdaExpression (identifiers separated by commas to `)`, then `=>`) --
+//                      anything else in the list (a type annotation `:`, a default, a non-identifier) falls
+//                      through to the assignment level, where `(x, y)` refuses as an unmodeled tuple.
+// The BODY is an expression parsed at THIS level (a lambda can return a lambda, as in the production
+// ParseExpression recursion); a BLOCK body (`=> {`) makes the body parse refuse (-1) -- statement-bodied
+// lambdas are a later rung, and the refusal declines the whole program (safe under-acceptance).
+func ParseLambdaOrAssignmentExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, st: int[], argStack: int[], outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], depth: int): int {
+    if depth > 200 {
+        return -1
+    }
+
+    pos := st[0]
+    isLambda := false
+    if pos + 1 < count && tokenKinds[pos] == 0 && tokenKinds[pos + 1] == 120 {
+        isLambda = true
+    } else if pos < count && tokenKinds[pos] == 127 {
+        scan := pos + 1
+        valid := true
+        if scan < count && tokenKinds[scan] == 128 {
+            scan = scan + 1
+        } else {
+            scanning := true
+            while scanning {
+                if scan >= count || tokenKinds[scan] != 0 {
+                    valid = false
+                    scanning = false
+                } else {
+                    scan = scan + 1
+                    if scan < count && tokenKinds[scan] == 128 {
+                        scan = scan + 1
+                        scanning = false
+                    } else if scan < count && tokenKinds[scan] == 134 {
+                        scan = scan + 1
+                    } else {
+                        valid = false
+                        scanning = false
+                    }
+                }
+            }
+        }
+        if valid && scan < count && tokenKinds[scan] == 120 {
+            isLambda = true
+        }
+    }
+
+    if !isLambda {
+        return ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
+    }
+
+    spanStart := tokenStarts[st[0]]
+    argBase := st[3]
+    if tokenKinds[st[0]] == 0 {
+        paramNode := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, tokenStarts[st[0]], tokenValueLengths[st[0]], -1, 0, tokenStarts[st[0]], tokenValueLengths[st[0]])
+        argStack[st[3]] = paramNode
+        st[3] = st[3] + 1
+        st[0] = st[0] + 1
+    } else {
+        st[0] = st[0] + 1
+        while st[0] < count && tokenKinds[st[0]] != 128 {
+            paramNode := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, tokenStarts[st[0]], tokenValueLengths[st[0]], -1, 0, tokenStarts[st[0]], tokenValueLengths[st[0]])
+            argStack[st[3]] = paramNode
+            st[3] = st[3] + 1
+            st[0] = st[0] + 1
+            if st[0] < count && tokenKinds[st[0]] == 134 {
+                st[0] = st[0] + 1
+            }
+        }
+        st[0] = st[0] + 1
+    }
+
+    arrowStart := tokenStarts[st[0]]
+    arrowLength := tokenValueLengths[st[0]]
+    st[0] = st[0] + 1
+
+    body := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+    if body < 0 {
+        st[3] = argBase
+        return -1
+    }
+    argStack[st[3]] = body
+    st[3] = st[3] + 1
+
+    childRunStart := st[2]
+    a := argBase
+    while a < st[3] {
+        AppendExpressionChild(st, outChildIndices, argStack[a])
+        a = a + 1
+    }
+    childCount := st[3] - argBase
+    st[3] = argBase
+    bodySpanEnd := outSpanStarts[body] + outSpanLengths[body]
+    return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 39, arrowStart, arrowLength, childRunStart, childCount, spanStart, bodySpanEnd - spanStart)
+}
+
 func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, start: int, outNodeKinds: int[], outValueStarts: int[], outValueLengths: int[], outChildStart: int[], outChildCount: int[], outChildIndices: int[], outSpanStarts: int[], outSpanLengths: int[], outResult: int[]): int {
     st := new int[](6)
     st[0] = start
@@ -1039,7 +1148,7 @@ func ParseExpressionNodesInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
     st[5] = 0
     argStack := new int[](count + 1)
 
-    root := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+    root := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
     if root < 0 {
         return -1
     }

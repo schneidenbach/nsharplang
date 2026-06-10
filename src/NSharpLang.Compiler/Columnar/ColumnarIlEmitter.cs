@@ -443,7 +443,9 @@ public sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, ColumnarUnionCaseDef> unionCaseRegistry,
         ColumnarStructDef? currentStruct,
         ColumnarStructDef? enclosingType = null,
-        bool isConstructorBody = false)
+        bool isConstructorBody = false,
+        TypeBuilder? programType = null,
+        int[]? lambdaCounter = null)
     {
         _isConstructorBody = isConstructorBody;
         _kinds = kinds;
@@ -464,7 +466,16 @@ public sealed class ColumnarIlEmitter
         _unionCaseRegistry = unionCaseRegistry;
         _currentStruct = currentStruct;
         _enclosingType = enclosingType ?? currentStruct;
+        _programType = programType;
+        _lambdaCounter = lambdaCounter;
     }
+
+    // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
+    // contexts that do not model lambdas, e.g. the single-function wrapper — a kind-39 node then declines);
+    // the counter is a one-element box SHARED across every emitter instance of one program so names never
+    // collide (a lambda body's sub-emitter can itself synthesize nested lambdas).
+    private readonly TypeBuilder? _programType;
+    private readonly int[]? _lambdaCounter;
 
     // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
     // slice), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[], ulong[]). (Mixed
@@ -709,6 +720,63 @@ public sealed class ColumnarIlEmitter
             default:
                 return false;
         }
+    }
+
+    // Emit a NON-CAPTURING expression-bodied LAMBDA literal (kind 39 — L1b) against its expected delegate
+    // type: synthesize a Private|Static `<Lambda>_{n}` method on the Program type whose signature comes from
+    // the delegate's Invoke (lambda params are UNTYPED by grammar — typing is purely contextual, exactly the
+    // oracle's GetLambdaSignature), emit the body through a SUB-emitter whose scope holds ONLY the lambda
+    // parameters — an identifier reaching for an enclosing local/param fails to resolve and DECLINES, which
+    // is precisely the no-captures rule (sibling function calls are not captures and keep working) — then
+    // construct the delegate at the use site: `ldnull; ldftn <Lambda>_{n}; newobj <delegate>(object, IntPtr)`
+    // (the oracle's EmitStaticDelegate minus the per-callsite cache, which is unobservable). Interleaved
+    // DefineMethod + forward-ldftn baking on PersistedAssemblyBuilder are spike-proven. A VOID-returning
+    // delegate requires a void body expression (a discarded non-void body is a later rung — decline).
+    private bool TryEmitLambdaLiteral(int lambdaIdx, Type expectedDelegateType)
+    {
+        if (_programType == null || _lambdaCounter == null || !IsSupportedDelegateType(expectedDelegateType))
+            return false;
+        var invoke = expectedDelegateType.GetMethod("Invoke");
+        if (invoke == null)
+            return false;
+        var invokeParams = invoke.GetParameters();
+        var paramCount = _childCount[lambdaIdx] - 1;
+        if (paramCount != invokeParams.Length)
+            return false;
+        var ordinals = new Dictionary<string, int>(StringComparer.Ordinal);
+        var paramTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+        var signatureTypes = new Type[paramCount];
+        for (var p = 0; p < paramCount; p++)
+        {
+            var paramNode = Child(lambdaIdx, p);
+            if (_kinds[paramNode] != 6)
+                return false;
+            var paramName = Text(paramNode);
+            if (!ordinals.TryAdd(paramName, p))
+                return false; // duplicate parameter names are malformed — decline.
+            signatureTypes[p] = invokeParams[p].ParameterType;
+            paramTypeMap[paramName] = signatureTypes[p];
+        }
+        var lambdaMethod = _programType.DefineMethod(
+            "<Lambda>_" + _lambdaCounter[0]++,
+            MethodAttributes.Private | MethodAttributes.Static, invoke.ReturnType, signatureTypes);
+        var lambdaIl = lambdaMethod.GetILGenerator();
+        var subEmitter = new ColumnarIlEmitter(
+            _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
+            _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
+            _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
+            programType: _programType, lambdaCounter: _lambdaCounter);
+        var bodyNode = Child(lambdaIdx, paramCount);
+        if (!subEmitter.EmitExpression(bodyNode, out var bodyType) || bodyType != invoke.ReturnType)
+            return false;
+        lambdaIl.Emit(OpCodes.Ret);
+        var delegateCtor = expectedDelegateType.GetConstructor(new[] { typeof(object), typeof(IntPtr) });
+        if (delegateCtor == null)
+            return false;
+        _il.Emit(OpCodes.Ldnull);
+        _il.Emit(OpCodes.Ldftn, lambdaMethod);
+        _il.Emit(OpCodes.Newobj, delegateCtor);
+        return true;
     }
 
     // Invoke a DELEGATE-typed local or parameter (`t(v)` where `t: Func<int,int>` — L1a): load the delegate
@@ -2153,14 +2221,18 @@ public sealed class ColumnarIlEmitter
                 return false;
         }
 
-        // Pass 2: emit each body into its declared method's IL stream.
+        // Pass 2: emit each body into its declared method's IL stream. The Program TypeBuilder + a shared
+        // lambda counter ride along so bodies can synthesize `<Lambda>_{n}` static methods (L1b — interleaved
+        // DefineMethod and forward ldftn both bake at Save, spike-proven).
+        var lambdaCounter = new int[1];
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
             var il = methods[f].GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
-                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null);
+                source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
+                programType: type, lambdaCounter: lambdaCounter);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
         }
@@ -2177,7 +2249,8 @@ public sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
-                currentStruct: job.IsStatic ? null : job.Struct, enclosingType: job.Struct);
+                currentStruct: job.IsStatic ? null : job.Struct, enclosingType: job.Struct,
+                programType: type, lambdaCounter: lambdaCounter);
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
             if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
@@ -2195,7 +2268,7 @@ public sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 job.Ctor.Body.Kinds, job.Ctor.Body.ValueStarts, job.Ctor.Body.ValueLengths, job.Ctor.Body.ChildStart, job.Ctor.Body.ChildCount, job.Ctor.Body.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
-                isConstructorBody: true);
+                isConstructorBody: true, programType: type, lambdaCounter: lambdaCounter);
             if (job.Ctor.ChainInitKind != 0)
             {
                 // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
@@ -3324,9 +3397,19 @@ public sealed class ColumnarIlEmitter
                         // Each argument's type must match the callee's declared parameter type. int and bool are both
                         // i4 on the CLR stack, so without this check a mismatch (e.g. an int passed to a bool
                         // parameter) would emit verifiable-but-semantically-wrong IL instead of declining.
+                        // A LAMBDA literal argument (kind 39) is CONTEXTUALLY typed — the declared delegate
+                        // parameter supplies its signature (the production's expected-type flow); it synthesizes
+                        // a static `<Lambda>_{n}` method and constructs the delegate in place (L1b).
                         for (var a = 1; a <= argCount; a++)
                         {
-                            if (!EmitExpression(Child(idx, a), out var argType) || argType != target.ParamTypes[a - 1])
+                            var argNode = Child(idx, a);
+                            if (_kinds[argNode] == 39)
+                            {
+                                if (!TryEmitLambdaLiteral(argNode, target.ParamTypes[a - 1]))
+                                    return false;
+                                continue;
+                            }
+                            if (!EmitExpression(argNode, out var argType) || argType != target.ParamTypes[a - 1])
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, target.Method);

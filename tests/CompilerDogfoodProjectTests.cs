@@ -4758,10 +4758,71 @@ class B
         Assert.False(RouteColumnarProgram("func f(): int {\n    return 1\n}\n\nfunc g(f: Func<int, int>): int {\n    return f(5)\n}\n").Ok);
         // a delegate inside a TUPLE element (the L1a surface is params/locals only).
         Assert.False(RouteColumnarProgram("func g(p: (Func<int, int>, int)): int {\n    return 1\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
-        // a LAMBDA expression (kernel-declined until L1b) — pins the arc's current front-end boundary.
-        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(): int {\n    return apply(x => x * 2, 5)\n}\n").Ok);
         // invoking a NON-delegate param as a callee still declines.
         Assert.False(RouteColumnarProgram("func g(n: int): int {\n    return n(5)\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+    }
+
+    // Lambdas arc L1b: NON-CAPTURING expression-bodied LAMBDA literals in call-ARGUMENT position. The kernel
+    // parses `x => e` / `() => e` / `(x, y) => e` at the level above assignment (Lambda kind 39, the
+    // production's ParseLambdaOrAssignmentExpression mirror — committed via the same ident+arrow /
+    // speculative-paren-list lookaheads); the emitter types the lambda CONTEXTUALLY from the declared
+    // delegate parameter (params are untyped by grammar), synthesizes a Private|Static `<Lambda>_{n}` method
+    // on the Program type, emits the body in a scope holding ONLY the lambda parameters (an enclosing-local
+    // reference fails to resolve — exactly the no-captures rule), and constructs the delegate in place
+    // (`ldnull; ldftn; newobj` — the oracle's EmitStaticDelegate minus the unobservable cache).
+    [Fact]
+    public void ColumnarCodegen_Parity_LambdaArguments()
+    {
+        var prog =
+            "func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\n" +
+            "func combine(f: Func<int, int, int>): int {\n    return f(3, 4)\n}\n\n" +
+            "func pull(p: Func<int>): int {\n    return p()\n}\n\n" +
+            "func applyBoth(o: Func<int, int>, i: Func<int, int>, v: int): int {\n    return o(i(v))\n}\n\n" +
+            "func twice(n: int): int {\n    return n * 2\n}\n\n" +
+            "func sink(n: int) {\n}\n\n" +
+            "func run(a: Action<int>, v: int): int {\n    a(v)\n    return v + 1\n}\n\n" +
+            "func useSingle(v: int): int {\n    return apply(x => x * 2, v)\n}\n\n" +
+            "func useMulti(): int {\n    return combine((a, b) => a * b + 1)\n}\n\n" +
+            "func useZero(): int {\n    return pull(() => 99)\n}\n\n" +
+            "func useNestedArgs(v: int): int {\n    return applyBoth(x => x + 1, y => y * 3, v)\n}\n\n" +
+            "func useSibling(v: int): int {\n    return apply(x => twice(x) + 1, v)\n}\n\n" +
+            "func useAction(v: int): int {\n    return run(x => sink(x), v)\n}\n\n" +
+            "func useStrings(s: string): string {\n    return applyStr(x => x + \"!\", s)\n}\n\n" +
+            "func applyStr(t: Func<string, string>, s: string): string {\n    return t(s)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useSingle", new object[] { 5 }),
+            ("useMulti", new object[0]),
+            ("useZero", new object[0]),
+            ("useNestedArgs", new object[] { 2 }),
+            ("useSibling", new object[] { 4 }),
+            ("useAction", new object[] { 7 }),
+            ("useStrings", new object[] { "hey" }));
+
+        // Metadata: the synthesized lambda methods really are private statics on the program type.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the lambda-arguments program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        var lambdaMethods = loaded.GetType("ColumnarProgram")!
+            .GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
+            .Where(m => m.Name.StartsWith("<Lambda>_", StringComparison.Ordinal))
+            .ToList();
+        Assert.True(lambdaMethods.Count >= 7, $"expected >=7 synthesized lambda methods, got {lambdaMethods.Count}");
+
+        // DECLINES (each routes to the C# path):
+        // a CAPTURE (an enclosing local referenced in the body — display classes are L3).
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 10\n    return apply(x => x + n, v)\n}\n").Ok);
+        // a BLOCK body (statement-bodied lambdas are a later rung).
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    return apply(x => {\n        return x * 2\n    }, v)\n}\n").Ok);
+        // a `:=` lambda (no inference source — the pipeline now rejects it with NL203).
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    g := x => x + 1\n    return g(v)\n}\n").Ok);
+        // an ARITY mismatch against the expected delegate.
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    return apply((a, b) => a + b, v)\n}\n").Ok);
+        // a NON-VOID body against a void-returning delegate (discarded results are a later rung).
+        Assert.False(RouteColumnarProgram("func run(a: Action<int>, v: int): int {\n    a(v)\n    return v\n}\n\nfunc f(v: int): int {\n    return run(x => x + 1, v)\n}\n").Ok);
+        // a lambda against a NON-delegate parameter.
+        Assert.False(RouteColumnarProgram("func g(n: int): int {\n    return n\n}\n\nfunc f(): int {\n    return g(x => x)\n}\n").Ok);
+        // a lambda argument to a GENERIC sibling (binding unification does not model kind 39).
+        Assert.False(RouteColumnarProgram("func id<T>(x: T): T {\n    return x\n}\n\nfunc f(): int {\n    r := id(x => x)\n    return 2\n}\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
