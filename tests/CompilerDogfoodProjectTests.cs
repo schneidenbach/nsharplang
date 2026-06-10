@@ -3886,9 +3886,9 @@ class B
         // DECLINES (slice scope / N#-pipeline-rejected, verify-first confirmed):
         // object-init on a class WITH a user ctor (no parameterless ctor — N# rejects too).
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(v: int): int {\n    c := new C { X: v }\n    return c.X\n}\n").Ok);
-        // a VALUE-type struct constructor. (Constructor OVERLOADS are now supported — see
+        // (VALUE-type struct constructors are now supported — see
+        // ColumnarCodegen_Parity_ValueStructConstructors. Constructor OVERLOADS: see
         // ColumnarCodegen_Parity_ClassConstructorOverloads.)
-        Assert.False(RouteColumnarProgram("struct S {\n    X: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // a ctor that does NOT assign every field — the N# pipeline reports NL304 (definite assignment), so columnar
         // must DECLINE (else it accepts a program N# rejects, defaulting the unassigned field).
         Assert.False(RouteColumnarProgram("class C {\n    X: int\n    Y: int\n    constructor(x: int) {\n        X = x\n    }\n}\n\nfunc f(v: int): int {\n    c := new C(v)\n    return c.X + c.Y\n}\n").Ok);
@@ -5433,9 +5433,39 @@ class B
         Assert.False(RouteColumnarProgram("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc f(): int {\n    b := new Box<int, string>(1)\n    return b.item\n}\n").Ok);
         // STATIC members on a generic type: per-instantiation static semantics are unprobed — decline.
         Assert.False(RouteColumnarProgram("class Box<T> {\n    item: T\n    static func Mk(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
-        // Generic VALUE-STRUCT construction is a later sub-slice (case-15 closed construction is
-        // reference-types-only today).
-        Assert.False(RouteColumnarProgram("struct Cell<T> {\n    value: T\n\n    constructor(v: T) {\n        value = v\n    }\n}\n\nfunc f(): int {\n    c := new Cell<int>(1)\n    return c.value\n}\n").Ok);
+        // (Generic VALUE-STRUCT construction is now supported — see
+        // ColumnarCodegen_Parity_ValueStructConstructors.)
+        // A VALUE-TYPE ctor with a `: this(...)` chain declines: probing the oracle showed `new S()`
+        // with a declared parameterless `: this(...)` ctor ZERO-INITS instead of running the user ctor
+        // (an oracle defect recorded in the progress log) — decline-safe until fixed and pinned.
+        Assert.False(RouteColumnarProgram("struct P {\n    a: int\n    b: int\n\n    constructor(v: int) {\n        a = v\n        b = 0\n    }\n\n    constructor() : this(9) {\n    }\n}\n\nfunc f(): int {\n    p := new P(1)\n    return p.a\n}\n").Ok);
+        // A PARAMETERLESS value-type user ctor is the same hazard (`new S()` zero-inits, bypassing it).
+        Assert.False(RouteColumnarProgram("struct Q {\n    a: int\n\n    constructor() {\n        a = 7\n    }\n}\n\nfunc f(): int {\n    q := new Q()\n    return q.a\n}\n").Ok);
+    }
+
+    [Fact]
+    public void ColumnarCodegen_Parity_ValueStructConstructors()
+    {
+        // VALUE-TYPE user constructors: `newobj` on a value type zero-initializes then runs the ctor and
+        // pushes the value. The oracle ACCEPTS partial field assignment in struct ctors (probed:
+        // unassigned fields keep zero — unlike class ctors, which require NL304 definite assignment), so
+        // `partial` parity-checks that exact semantic. Generic structs close over the D-16 machinery
+        // (TypeBuilder.GetConstructor rebinding + substituted param checks).
+        var prog =
+            "struct Cell {\n    value: int\n\n    constructor(v: int) {\n        value = v\n    }\n\n    func Doubled(): int {\n        return value * 2\n    }\n}\n\n" +
+            "struct Wide {\n    a: int\n    b: int\n\n    constructor(v: int) {\n        a = v\n    }\n}\n\n" +
+            "struct GCell<T> {\n    value: T\n\n    constructor(v: T) {\n        value = v\n    }\n}\n\n" +
+            "func roundTrip(v: int): int {\n    c := new Cell(v)\n    return c.value\n}\n\n" +
+            "func viaMethod(v: int): int {\n    c := new Cell(v)\n    return c.Doubled()\n}\n\n" +
+            "func partialAssign(v: int): int {\n    w := new Wide(v)\n    return w.a + w.b\n}\n\n" +
+            "func genericInt(v: int): int {\n    g := new GCell<int>(v)\n    return g.value\n}\n\n" +
+            "func genericString(s: string): string {\n    g := new GCell<string>(s)\n    return g.value\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("roundTrip", new object[] { 5 }), ("roundTrip", new object[] { -1 }),
+            ("viaMethod", new object[] { 6 }),
+            ("partialAssign", new object[] { 9 }), ("partialAssign", new object[] { 0 }),
+            ("genericInt", new object[] { 42 }),
+            ("genericString", new object[] { "hi" }));
     }
 
     // Compile `source` BOTH ways, invoke `funcName` over each argument set, and assert the columnar

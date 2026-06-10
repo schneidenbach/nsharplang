@@ -411,6 +411,12 @@ public sealed class ColumnarIlEmitter
     // `continue` to its condition-check label. A break/continue outside any loop declines.
     private readonly Stack<(Label Break, Label Continue)> _loopLabels = new();
 
+    // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
+    // is the managed pointer to the caller's storage (newobj passes the new value's address), so
+    // bare field WRITES are correct there — unlike struct METHODS, whose receiver is a spilled
+    // temp copy (mutation would write the copy; those stay declined).
+    private readonly bool _isConstructorBody;
+
     private ColumnarIlEmitter(
         int[] kinds, int[] valueStarts, int[] valueLengths,
         int[] childStart, int[] childCount, int[] childIndices, string source,
@@ -422,8 +428,10 @@ public sealed class ColumnarIlEmitter
         IReadOnlyDictionary<string, ColumnarUnionDef> unionRegistry,
         IReadOnlyDictionary<string, ColumnarUnionCaseDef> unionCaseRegistry,
         ColumnarStructDef? currentStruct,
-        ColumnarStructDef? enclosingType = null)
+        ColumnarStructDef? enclosingType = null,
+        bool isConstructorBody = false)
     {
+        _isConstructorBody = isConstructorBody;
         _kinds = kinds;
         _valueStarts = valueStarts;
         _valueLengths = valueLengths;
@@ -1610,13 +1618,20 @@ public sealed class ColumnarIlEmitter
             if (structs[s].Constructors.Count == 0)
                 continue;
             var def = structRegistry[structs[s].Name];
-            // Value-type (struct) constructors are deferred — decline.
-            if (!def.IsReference)
-                return false;
             foreach (var ctor in structs[s].Constructors)
             {
                 if (ctor.ChainInitKind == 2 && def.BaseDef == null)
                     return false; // a `: base(...)` initializer requires a declared (modelled) base class.
+                // VALUE-TYPE ctor chains decline: probing the oracle showed `new S()` with a declared
+                // parameterless `: this(...)` ctor ZERO-INITS instead of running the user ctor (an oracle
+                // defect recorded for a future fix bundle) — decline-safe until those semantics are fixed
+                // and pinned. Positional value-type ctors (the supported shape) have no chain.
+                if (!def.IsReference && ctor.ChainInitKind != 0)
+                    return false;
+                // A PARAMETERLESS value-type user ctor is the same hazard (`new S()` zero-inits, bypassing
+                // it) — decline so columnar never emits a ctor the construction site won't call.
+                if (!def.IsReference && ctor.Body.ParamNames.Length == 0)
+                    return false;
                 var cParamTypes = new Type[ctor.Body.ParamNames.Length];
                 var cOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
                 var cParamTypeMap = new Dictionary<string, Type>(StringComparer.Ordinal);
@@ -1860,7 +1875,8 @@ public sealed class ColumnarIlEmitter
             var cil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Ctor.Body.Kinds, job.Ctor.Body.ValueStarts, job.Ctor.Body.ValueLengths, job.Ctor.Body.ChildStart, job.Ctor.Body.ChildCount, job.Ctor.Body.ChildIndices,
-                source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct);
+                source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
+                isConstructorBody: true);
             if (job.Ctor.ChainInitKind != 0)
             {
                 // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
@@ -1873,7 +1889,7 @@ public sealed class ColumnarIlEmitter
                 if (!emitter.EmitChainedConstructorCall(job.Ctor, job.Builder))
                     return false;
             }
-            else
+            else if (job.Struct.IsReference)
             {
                 // A non-chaining ctor must (1) contain no `return` (NL103) and (2) assign every OWN field (NL304 —
                 // inherited fields are the base ctor's responsibility). Validate BEFORE emitting — declining here
@@ -1896,6 +1912,14 @@ public sealed class ColumnarIlEmitter
                     cil.Emit(OpCodes.Ldarg_0);
                     cil.Emit(OpCodes.Call, objectCtor);
                 }
+            }
+            else
+            {
+                // VALUE-TYPE ctor: no base chain (value types don't chain), and NO all-fields-assigned
+                // validation — the oracle ACCEPTS partial assignment in struct ctors (probed: unassigned
+                // fields keep the zero-initialized value). Only `return` is forbidden (NL103).
+                if (emitter.ContainsReturnStatement(job.Ctor.Body.BodyRoot))
+                    return false;
             }
             if (!emitter.EmitBody(job.Ctor.Body.BodyRoot, isVoid: true))
                 return false;
@@ -2234,7 +2258,7 @@ public sealed class ColumnarIlEmitter
                 // DECLINES until the call site addresses the receiver's own storage (a later slice). A class/record
                 // ref is shared through the temp, so the mutation persists correctly. Resolution walks the BASE
                 // chain (nearest first) so a derived member may assign an INHERITED field.
-                if (_currentStruct != null && _currentStruct.IsReference && TryFindFieldOnChain(_currentStruct, targetName, out var thisFieldTarget))
+                if (_currentStruct != null && (_currentStruct.IsReference || _isConstructorBody) && TryFindFieldOnChain(_currentStruct, targetName, out var thisFieldTarget))
                 {
                     _il.Emit(OpCodes.Ldarg_0);
                     if (!EmitExpression(Child(expr, 1), out var thisValueType) || thisValueType != thisFieldTarget.FieldType)
@@ -3286,12 +3310,14 @@ public sealed class ColumnarIlEmitter
                         type = typeof(System.Text.StringBuilder);
                         return true;
                     }
-                    // A user CLASS/RECORD with a positional constructor: `new T(args)`. The type names a registered
-                    // reference type with ≥1 user ctor; resolve the OVERLOAD by arg COUNT — exactly one ctor must have
+                    // A user type with a positional constructor: `new T(args)`. The type names a registered
+                    // type with ≥1 user ctor; resolve the OVERLOAD by arg COUNT — exactly one ctor must have
                     // that param count (two with the same count are ambiguous-by-count → decline to C#). Emit each arg
                     // (type-checked against the chosen ctor's param type), then `newobj <ctor>`; the result's type is
-                    // the class. (Value-type construction is via object-init; a 0-ctor class declines here.)
-                    if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.IsReference && ctorDef.Constructors.Count > 0)
+                    // the type. (`newobj` on a VALUE type zero-initializes then runs the ctor and pushes the value —
+                    // the oracle's probed semantics for partially-assigning struct ctors. A 0-ctor type declines here;
+                    // fields-only value structs construct via object-init.)
+                    if (_structRegistry.TryGetValue(newTypeName, out var ctorDef) && ctorDef.Constructors.Count > 0)
                     {
                         var ctorArgCount = _childCount[idx] - 1;
                         ConstructorBuilder? chosenCtor = null;
@@ -3331,9 +3357,8 @@ public sealed class ColumnarIlEmitter
                         || !IsClosedUserGenericInstantiation(closedType))
                         return false;
                     if (!_structRegistry.TryGetValue(Text(typeNode), out var openGenericDef)
-                        || !openGenericDef.IsReference
                         || openGenericDef.Constructors.Count == 0)
-                        return false; // value-type generic construction + 0-ctor generic classes: later sub-slice.
+                        return false; // 0-ctor generic types decline (object-init on closed generics is unmodelled).
 
                     var closedCtorArgCount = _childCount[idx] - 1;
                     ConstructorBuilder? chosenOpenCtor = null;
