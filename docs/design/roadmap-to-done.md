@@ -395,9 +395,13 @@ slice. The live work is **Phase D rich-language columnar emit** (newest-on-top l
 [`self-host-progress.md`](self-host-progress.md) is the authoritative cursor): D-11d class inheritance landed;
 the oracle static-member fix bundle landed (`7952bc54`); D-12/13/14 columnar STATIC METHODS/FIELDS/PROPERTIES landed (`80204c27`, `2982ef50`, `c3da5311` — the
 static-member arc is complete); D-15a columnar GENERIC FUNCTIONS landed (`ca0b64da` — real CLR generic
-methods + call-site inference). D-15b explicit type args landed (`d0c079ba` — generic FUNCTIONS complete). **Next: the
-generic-user-types oracle fix bundle → columnar generic types → lambdas/closures** (the
-`project_csharp_retirement_map` slice order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`)
+methods + call-site inference). D-15b explicit type args landed (`d0c079ba` — generic FUNCTIONS complete). The
+audit-driven oracle hygiene bundle landed (NL201 unresolved types `109efcd2`, NL923 reference-load pairing
+`e9273453` — Arc-3 analysis ports must mirror both). Generic-user-types oracle fix bundle 1/3 landed
+(`47bd7d2e` — B1 closed-generic member access, B10 generic-typed ctor params, B12 generic instance methods;
+B14 fixed by NL201). **Next: oracle bundle 2/3 (B2/B13 construction-arity diagnostics) → 3/3 (B4/B5 generic
+records/structs emit) → columnar generic types → lambdas/closures** (the `project_csharp_retirement_map`
+slice order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`)
 and Phase T (CLI/LSP on columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
