@@ -15101,6 +15101,28 @@ public partial class ILCompiler
         return _fields.TryGetValue(fieldKey, out var fieldBuilder) ? fieldBuilder : null;
     }
 
+    // A STATIC property accessor reached through an INSTANCE receiver (`c.X` where X is static). N# permits
+    // static member ACCESS through an instance receiver — instance-receiver STATIC FIELD reads/writes already
+    // work because the CLR itself tolerates ldfld/stfld on static fields (ECMA-335 III.4.10/III.4.28: the object
+    // reference is popped and discarded) — but a `callvirt` against a STATIC accessor is invalid and used to die
+    // at RUNTIME with MissingMethodException. These helpers make accessors behave like the fields do.
+    // GETTER: the receiver value (or address) is on the stack — discard it, then a direct `call`.
+    private void EmitStaticGetterThroughInstanceReceiver(MethodBuilder getter)
+    {
+        _currentIL!.Emit(OpCodes.Pop);
+        _currentIL.Emit(OpCodes.Call, getter);
+    }
+
+    // SETTER twin: the stack is `receiver, value` — spill the value, discard the receiver, reload, `call`.
+    private void EmitStaticSetterThroughInstanceReceiver(MethodBuilder setter, Type valueType)
+    {
+        var spilledValue = _currentIL!.DeclareLocal(valueType);
+        _currentIL.Emit(OpCodes.Stloc, spilledValue);
+        _currentIL.Emit(OpCodes.Pop);
+        _currentIL.Emit(OpCodes.Ldloc, spilledValue);
+        _currentIL.Emit(OpCodes.Call, setter);
+    }
+
     private bool TryResolveCurrentTypeMember(
         Type type,
         string memberName,
@@ -16965,7 +16987,17 @@ public partial class ILCompiler
                     }
                     else if (getterMethod != null)
                     {
-                        _currentIL.Emit(OpCodes.Callvirt, getterMethod);
+                        if (getterMethod.IsStatic)
+                        {
+                            // Compound load through an instance receiver: the receiver was Dup'd, so the
+                            // stack is `receiver, receiver` — discard one and `call` leaves `receiver, value`,
+                            // exactly what the compound store path expects.
+                            EmitStaticGetterThroughInstanceReceiver(getterMethod);
+                        }
+                        else
+                        {
+                            _currentIL.Emit(OpCodes.Callvirt, getterMethod);
+                        }
                     }
                     else
                     {
@@ -17039,7 +17071,14 @@ public partial class ILCompiler
                 }
                 else if (setterMethod != null)
                 {
-                    _currentIL.Emit(OpCodes.Callvirt, setterMethod);
+                    if (setterMethod.IsStatic)
+                    {
+                        EmitStaticSetterThroughInstanceReceiver(setterMethod, GetMemberAccessType(memberAccess));
+                    }
+                    else
+                    {
+                        _currentIL.Emit(OpCodes.Callvirt, setterMethod);
+                    }
                 }
                 else
                 {
@@ -18466,6 +18505,11 @@ public partial class ILCompiler
             var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberName}");
             if (getterMethod != null)
             {
+                if (getterMethod.IsStatic)
+                {
+                    EmitStaticGetterThroughInstanceReceiver(getterMethod);
+                    return;
+                }
                 _currentIL.Emit(OpCodes.Callvirt, getterMethod);
                 return;
             }
@@ -18594,6 +18638,19 @@ public partial class ILCompiler
             var setterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"set_{memberName}");
             if (setterMethod != null)
             {
+                if (setterMethod.IsStatic)
+                {
+                    // The value's type comes from the getter sibling (the setter's parameter types are not
+                    // readable off an un-baked MethodBuilder). A set-only static property through an instance
+                    // receiver has no sibling to type the spill from — reject it with a clear diagnostic.
+                    var getterSibling = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberName}");
+                    if (getterSibling == null)
+                    {
+                        throw new InvalidOperationException($"Static set-only property {memberName} cannot be assigned through an instance receiver — use the type name");
+                    }
+                    EmitStaticSetterThroughInstanceReceiver(setterMethod, getterSibling.ReturnType);
+                    return;
+                }
                 _currentIL.Emit(OpCodes.Callvirt, setterMethod);
                 return;
             }
@@ -18879,6 +18936,11 @@ public partial class ILCompiler
             var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberAccess.MemberName}");
             if (getterMethod != null)
             {
+                if (getterMethod.IsStatic)
+                {
+                    EmitStaticGetterThroughInstanceReceiver(getterMethod);
+                    return;
+                }
                 _currentIL.Emit(useAddressReceiver ? OpCodes.Call : OpCodes.Callvirt, getterMethod);
                 return;
             }
@@ -21348,6 +21410,14 @@ public partial class ILCompiler
             }
             else if (candidateType.IsClass)
             {
+                // A RECORD is emitted as a SEALED class — accepting it as a base compiles an assembly that
+                // FAILS TO LOAD ("parent type is sealed"), a runtime crash instead of a compile-time error.
+                if (candidateType.IsSealed)
+                {
+                    throw new InvalidOperationException(
+                        $"Class {classDecl.Name} cannot inherit from {candidateType.Name}: records and sealed classes cannot be base types");
+                }
+
                 if (baseType != null)
                 {
                     throw new InvalidOperationException($"Class {classDecl.Name} cannot have multiple base classes");
@@ -24670,6 +24740,11 @@ public partial class ILCompiler
             var getterMethod = FindInstanceAccessorOnBaseChain(typeBuilder, $"get_{memberName}");
             if (getterMethod != null)
             {
+                if (getterMethod.IsStatic)
+                {
+                    EmitStaticGetterThroughInstanceReceiver(getterMethod);
+                    return getterMethod.ReturnType;
+                }
                 _currentIL.Emit(loadByAddress ? OpCodes.Call : OpCodes.Callvirt, getterMethod);
                 return getterMethod.ReturnType;
             }

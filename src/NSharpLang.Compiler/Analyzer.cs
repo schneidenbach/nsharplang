@@ -1445,6 +1445,13 @@ public class Analyzer : IDisposable
         {
             if (member is FieldDeclaration field)
             {
+                // Skip STATIC fields: they are not part of any instance constructor's contract — a static field
+                // is .cctor-initialized (or CLR zero/null), so NL304 must never demand a ctor assignment for it.
+                if (field.Modifiers.HasFlag(Modifiers.Static))
+                {
+                    continue;
+                }
+
                 // Skip fields with type inference (they always have initializers)
                 if (field.Type != null && field.Initializer == null && !IsNullableType(ResolveType(field.Type)))
                 {

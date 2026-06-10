@@ -428,10 +428,12 @@ func ParseEnumDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueL
 // present — outFieldInitKinds[f] = the literal's token kind (IntLiteral 1 / FloatLiteral 2 / CharLiteral 3 /
 // StringLiteral 4 / true 44 / false 45; an optional leading `-` (89) is admitted before a NUMERIC literal and is
 // included in the recorded span) with outFieldInitStarts/Lengths[f] covering the full initializer text; no
-// initializer leaves outFieldInitKinds[f] = -1. A GENERAL initializer expression (`= new T(...)`, `= a + b`), an
-// initializer on an INSTANCE field, a static PROPERTY (`static X: T {`), and `static constructor` are not yet
-// modelled and return -1 — the host declines the whole program to the C# path.
-func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outResult: int[]): int {
+// initializer leaves outFieldInitKinds[f] = -1. A STATIC PROPERTY `static name: Type { ... }` is recorded into
+// outPropIndices (the NAME token index, exactly like an instance property) with outPropStaticFlags[p] = 1; an
+// instance property gets flag 0. A GENERAL initializer expression (`= new T(...)`, `= a + b`), an initializer on
+// an INSTANCE field, and `static constructor` are not yet modelled and return -1 — the host declines the whole
+// program to the C# path.
+func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, structIndex: int, outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outFieldStaticFlags: int[], outFieldInitKinds: int[], outFieldInitStarts: int[], outFieldInitLengths: int[], outMethodFuncIndices: int[], outMethodStaticFlags: int[], outCtorIndices: int[], outPropIndices: int[], outPropStaticFlags: int[], outResult: int[]): int {
     pos := structIndex
     if pos >= count || (tokenKinds[pos] != 9 && tokenKinds[pos] != 13 && tokenKinds[pos] != 8) {
         return -1
@@ -475,13 +477,36 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
         if tokenKinds[pos] == 63 && pos + 1 < count && tokenKinds[pos + 1] == 7 {
             fieldsDone = 1
         } else if tokenKinds[pos] == 63 {
-            // STATIC FIELD: `static name: Type [= <literal>]`. Requires id `:` id; a `{` after the type is a
-            // static PROPERTY (unmodelled, -1); a non-literal initializer is a general expression (unmodelled, -1).
+            // STATIC FIELD `static name: Type [= <literal>]` or STATIC PROPERTY `static name: Type { ... }` —
+            // requires id `:` id; a `{` after the type is the property form (recorded into outPropIndices with
+            // outPropStaticFlags = 1, accessor block skipped like an instance property); a non-literal
+            // initializer is a general expression (unmodelled, -1).
             if pos + 3 >= count || tokenKinds[pos + 1] != 0 || tokenKinds[pos + 2] != 122 || tokenKinds[pos + 3] != 0 {
                 return -1
             }
             if pos + 4 < count && tokenKinds[pos + 4] == 129 {
-                return -1
+                outPropIndices[propCount] = pos + 1
+                outPropStaticFlags[propCount] = 1
+                propCount = propCount + 1
+                pos = pos + 4
+
+                sdepth := 0
+                sdone := 0
+                while pos < count && sdone == 0 {
+                    if tokenKinds[pos] == 129 {
+                        sdepth = sdepth + 1
+                    } else if tokenKinds[pos] == 130 {
+                        sdepth = sdepth - 1
+                        if sdepth == 0 {
+                            sdone = 1
+                        }
+                    }
+                    pos = pos + 1
+                }
+                if sdone == 0 {
+                    return -1
+                }
+                continue
             }
             outFieldNameStarts[fieldCount] = tokenStarts[pos + 1]
             outFieldNameLengths[fieldCount] = tokenValueLengths[pos + 1]
@@ -521,6 +546,7 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
             fieldsDone = 1
         } else if tokenKinds[pos] == 0 && pos + 3 < count && tokenKinds[pos + 1] == 122 && tokenKinds[pos + 2] == 0 && tokenKinds[pos + 3] == 129 {
             outPropIndices[propCount] = pos
+            outPropStaticFlags[propCount] = 0
             propCount = propCount + 1
             pos = pos + 3
 

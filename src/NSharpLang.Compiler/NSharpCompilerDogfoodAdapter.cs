@@ -927,11 +927,13 @@ internal static class NSharpCompilerDogfoodAdapter
 
             // Collect value-type structs (keyword 9, IsReference=false) AND reference-type records (keyword 13) and
             // classes (keyword 8), both IsReference=true — all three share the identical decl kernel + body syntax.
-            var decls = new System.Collections.Generic.List<(int Index, bool IsReference)>();
-            foreach (var i in TopLevelStructIndices(ck, n)) decls.Add((i, false));
-            foreach (var i in TopLevelRecordIndices(ck, n)) decls.Add((i, true));
-            foreach (var i in TopLevelClassIndices(ck, n)) decls.Add((i, true));
-            foreach (var (structIndex, isReference) in decls)
+            // Records carry IsRecord=true: the oracle emits records SEALED, so a record can never be a BASE type
+            // (and record inheritance itself is unmodelled) — the emitter declines those shapes by this flag.
+            var decls = new System.Collections.Generic.List<(int Index, bool IsReference, bool IsRecord)>();
+            foreach (var i in TopLevelStructIndices(ck, n)) decls.Add((i, false, false));
+            foreach (var i in TopLevelRecordIndices(ck, n)) decls.Add((i, true, true));
+            foreach (var i in TopLevelClassIndices(ck, n)) decls.Add((i, true, false));
+            foreach (var (structIndex, isReference, isRecord) in decls)
             {
                 var cap = n + 1;
                 var outFieldNameStarts = new int[cap];
@@ -946,11 +948,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outMethodStaticFlags = new int[cap];
                 var outCtorIndices = new int[cap];
                 var outPropIndices = new int[cap];
+                var outPropStaticFlags = new int[cap];
                 var outResult = new int[7];
                 var fieldCount = bindings.ParseStructDeclaration(
                     ck, cs, cv, n, structIndex, outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts,
                     outFieldTypeLengths, outFieldStaticFlags, outFieldInitKinds, outFieldInitStarts, outFieldInitLengths,
-                    outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outResult);
+                    outMethodFuncIndices, outMethodStaticFlags, outCtorIndices, outPropIndices, outPropStaticFlags, outResult);
                 // The kernel returns -1 on a parse failure; 0 is a legitimate FIELDLESS type. A zero-field
                 // REFERENCE type (a pure-behavior class — e.g. an inheritance base with only methods) is modelled;
                 // a zero-field VALUE struct keeps declining (a zero-size value type is a CLR layout edge case).
@@ -1010,12 +1013,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 var properties = new System.Collections.Generic.List<Columnar.ColumnarPropertyInput>(propCount);
                 for (var pr = 0; pr < propCount; pr++)
                 {
-                    if (!TryParseColumnarPropertyAt(bindings, ck, cs, cv, n, outPropIndices[pr], source, out var propInput))
+                    if (!TryParseColumnarPropertyAt(bindings, ck, cs, cv, n, outPropIndices[pr], source, out var propInput, isStatic: outPropStaticFlags[pr] == 1))
                         return false;
                     properties.Add(propInput);
                 }
 
-                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName, fieldStatics, fieldInitKinds, fieldInitTexts));
+                structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord));
             }
             return true;
         }
@@ -1258,7 +1261,7 @@ internal static class NSharpCompilerDogfoodAdapter
     // set-first ordering, an expression-bodied accessor, or a third accessor declines (get / get-set this slice).
     private static bool TryParseColumnarPropertyAt(
         Bindings bindings, int[] ck, int[] cs, int[] cv, int n, int propIndex, string source,
-        out Columnar.ColumnarPropertyInput input)
+        out Columnar.ColumnarPropertyInput input, bool isStatic = false)
     {
         input = null!;
         if (propIndex + 5 >= n)
@@ -1316,7 +1319,7 @@ internal static class NSharpCompilerDogfoodAdapter
             return false; // a set-first ordering / expression-bodied / unrecognized accessor -> decline.
         }
 
-        input = new Columnar.ColumnarPropertyInput(propName, propType, getter, setter);
+        input = new Columnar.ColumnarPropertyInput(propName, propType, getter, setter, isStatic);
         return true;
     }
 
@@ -2759,7 +2762,7 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int structIndex,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
         int[] outFieldStaticFlags, int[] outFieldInitKinds, int[] outFieldInitStarts, int[] outFieldInitLengths,
-        int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outResult);
+        int[] outMethodFuncIndices, int[] outMethodStaticFlags, int[] outCtorIndices, int[] outPropIndices, int[] outPropStaticFlags, int[] outResult);
     private delegate int ParseUnionDeclarationInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,

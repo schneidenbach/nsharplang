@@ -1195,6 +1195,24 @@ func Main() {
     }
 
     [Fact]
+    public void StaticFieldWithoutInitializer_NoConstructorError()
+    {
+        // Regression: NL304 demanded a constructor assignment for an uninitialized STATIC field — but a static
+        // field is .cctor-initialized (or CLR zero), never an instance constructor's contract. Statics are
+        // skipped; the unassigned INSTANCE field in the sibling test above must still fire.
+        AssertNoErrors(@"
+            class Counter {
+                static total: int
+                n: int
+
+                constructor(n0: int) {
+                    n = n0
+                }
+            }
+        ");
+    }
+
+    [Fact]
     public void TryCatchFinally_Valid()
     {
         AssertNoErrors(@"

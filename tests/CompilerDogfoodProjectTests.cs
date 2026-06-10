@@ -4252,10 +4252,10 @@ class B
         Assert.False(RouteColumnarProgram("class C {\n    n: int\n    V: int {\n        get {\n            return n\n        }\n    }\n    static func V(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // SAME-ARITY type-distinguished static overloads (resolution is by arg count — the C# path handles these).
         Assert.False(RouteColumnarProgram("class C {\n    static func T(x: int): int {\n        return x\n    }\n    static func T(s: string): int {\n        return 9\n    }\n}\n\nfunc f(): int {\n    return C.T(1)\n}\n").Ok);
-        // STATIC FIELDS are now ACCEPTED (the D-13 slice — see ColumnarCodegen_Parity_StaticFields, which owns
-        // that surface); STATIC PROPERTIES remain the next slice and decline.
+        // STATIC FIELDS (the D-13 slice) and STATIC PROPERTIES (the D-14 slice) are now ACCEPTED — see
+        // ColumnarCodegen_Parity_StaticFields / _StaticProperties, which own those surfaces.
         Assert.True(RouteColumnarProgram("class C {\n    static count: int\n    func one(): int {\n        return 1\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
-        Assert.False(RouteColumnarProgram("class C {\n    static X: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.True(RouteColumnarProgram("class C {\n    static X: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
         // an EXPRESSION-BODIED static method (no `{` body — out of the kernel's modelled shape).
         Assert.False(RouteColumnarProgram("class C {\n    static func Twice(x: int): int => x * 2\n}\n\nfunc f(): int {\n    return C.Twice(2)\n}\n").Ok);
         // `static constructor(...)` is not a modelled member.
@@ -4439,8 +4439,87 @@ class B
         Assert.False(RouteColumnarProgram("struct S {\n    static count: int = 1\n    func One(): int {\n        return 1\n    }\n}\n\nfunc f(): int {\n    return S.count\n}\n").Ok);
         // a derived STATIC FIELD shadowing an inherited static field (no static-field hiding is modelled).
         Assert.False(RouteColumnarProgram("class Base {\n    static count: int = 1\n}\n\nclass D: Base {\n    static count: int = 2\n}\n\nfunc f(): int {\n    return D.count\n}\n").Ok);
-        // a STATIC PROPERTY (`static X: int {`) remains the next slice.
-        Assert.False(RouteColumnarProgram("class C {\n    static X: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int {\n    return C.X\n}\n").Ok);
+        // STATIC PROPERTIES are now ACCEPTED (the D-14 slice — see ColumnarCodegen_Parity_StaticProperties).
+        Assert.True(RouteColumnarProgram("class C {\n    static X: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int {\n    return C.X\n}\n").Ok);
+    }
+
+    // STATIC PROPERTIES on classes/records — `static Name: Type { get {...} [set {...}] }` members with CLR-static
+    // accessors (the setter's `value` is arg 0; no implicit `this`), read/written via `TypeName.Name`
+    // (chain-walked), readable BARE inside INSTANCE member bodies (the pinned asymmetry), with accessor BODIES
+    // being STATIC contexts — a bare backing-field reference inside an accessor declines exactly where the N#
+    // pipeline reports NL103 (the backing access must be `TypeName.field`). Value-matched vs the (record-static-
+    // init- and instance-receiver-fixed) C# ILCompiler.
+    [Fact]
+    public void ColumnarCodegen_Parity_StaticProperties()
+    {
+        var prog =
+            // the headline surface: a get-only static property; a get/set static property over a QUALIFIED static
+            // backing field; reads and writes via the type name. (Stateful functions self-reset — the columnar
+            // side runs ONE assembly across the call list while the oracle compiles fresh per call.)
+            "class Counter {\n    static backing: int\n    static Five: int {\n        get {\n            return 5\n        }\n    }\n    static Value: int {\n        get {\n            return Counter.backing\n        }\n        set {\n            Counter.backing = value\n        }\n    }\n}\n\n" +
+            "func five(): int {\n    return Counter.Five\n}\n\n" +
+            "func setGet(v: int): int {\n    Counter.Value = v\n    return Counter.Value\n}\n\n" +
+            "func viaProp(v: int): int {\n    Counter.Value = v\n    return Counter.Value * 10 + Counter.Five\n}\n\n" +
+            // a STRING static property; a static property whose getter calls a STATIC METHOD bare (static body
+            // resolution through _enclosingType). NOTE the kernel parses fields+properties BEFORE methods/ctors
+            // (the pre-existing member-order rule), so the property precedes the static func.
+            "class Names {\n    static Tag: string {\n        get {\n            return Prefix() + \"x\"\n        }\n    }\n    static func Prefix(): string {\n        return \"n-\"\n    }\n}\n\n" +
+            "func tag(): string {\n    return Names.Tag\n}\n\n" +
+            // BARE static-property READ inside an INSTANCE method (pbare-pinned: the pipeline accepts it).
+            "class Acc {\n    n: int\n    static Seven: int {\n        get {\n            return 7\n        }\n    }\n    constructor(n0: int) {\n        n = n0\n    }\n    func Probe(): int {\n        return Seven + n\n    }\n}\n\n" +
+            "func bareRead(n: int): int {\n    a := new Acc(n)\n    return a.Probe()\n}\n\n" +
+            // an INHERITED static property via the derived type name (read AND write — the fixed oracle
+            // chain-walks get_X/set_X like static fields). The base is a CLASS: a RECORD can never be a base
+            // (the oracle emits records SEALED — pinned below).
+            "class PBase {\n    static store: int\n    static Stored: int {\n        get {\n            return PBase.store\n        }\n        set {\n            PBase.store = value\n        }\n    }\n}\n\n" +
+            "class PDer: PBase {\n    static func Tag(): int {\n        return 0\n    }\n}\n\n" +
+            "func inhProp(v: int): int {\n    PDer.Stored = v\n    return PBase.Stored\n}\n\n" +
+            // a STATIC property on a RECORD itself (accessors on the sealed record type are fine — only
+            // record-as-BASE is illegal).
+            "record RP {\n    y: int\n    static Nine: int {\n        get {\n            return 9\n        }\n    }\n}\n\n" +
+            "func recProp(): int {\n    return RP.Nine\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("five", new object[0]),
+            ("setGet", new object[] { 9 }), ("setGet", new object[] { -4 }),
+            ("viaProp", new object[] { 3 }),
+            ("tag", new object[0]),
+            ("bareRead", new object[] { 2 }), ("bareRead", new object[] { 0 }),
+            ("inhProp", new object[] { 11 }),
+            ("recProp", new object[0]));
+
+        // Metadata: the accessors really are CLR-static.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the static-properties program");
+        var loaded = System.Reflection.Assembly.Load(asm!);
+        Assert.True(loaded.GetType("Counter")!.GetMethod("get_Five")!.IsStatic);
+        Assert.True(loaded.GetType("Counter")!.GetMethod("set_Value")!.IsStatic);
+
+        // DECLINES (each N#-pipeline-rejected or out of slice scope):
+        // a BARE backing-field reference inside a static accessor body (the pipeline rejects it — NL103, the
+        // d3b probe; accessor bodies are STATIC contexts).
+        Assert.False(RouteColumnarProgram("class C {\n    static backing: int\n    static Value: int {\n        get {\n            return backing\n        }\n    }\n}\n\nfunc f(): int {\n    return C.Value\n}\n").Ok);
+        // a static property via an INSTANCE receiver (pipeline-accepted after the oracle fix; columnar declines).
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    constructor(n0: int) {\n        n = n0\n    }\n    static Five: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int {\n    c := new C(1)\n    return c.Five\n}\n").Ok);
+        // a bare static-property WRITE inside an instance method (unverified against the pipeline — only bare
+        // READS are pinned; the write declines).
+        Assert.False(RouteColumnarProgram("class C {\n    static backing: int\n    n: int\n    constructor(n0: int) {\n        n = n0\n    }\n    static Value: int {\n        get {\n            return C.backing\n        }\n        set {\n            C.backing = value\n        }\n    }\n    func Bump() {\n        Value = n\n    }\n}\n\nfunc f(): int {\n    c := new C(3)\n    c.Bump()\n    return C.Value\n}\n").Ok);
+        // a WRITE to a GET-ONLY static property.
+        Assert.False(RouteColumnarProgram("class C {\n    static Five: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int {\n    C.Five = 9\n    return C.Five\n}\n").Ok);
+        // an EXPRESSION-BODIED static property (`static Seven: int => 7` — pipeline-accepted; the kernel models
+        // block accessors only).
+        Assert.False(RouteColumnarProgram("class C {\n    static Seven: int => 7\n}\n\nfunc f(): int {\n    return C.Seven\n}\n").Ok);
+        // a static property on a VALUE STRUCT (value-type properties are deferred wholesale).
+        Assert.False(RouteColumnarProgram("struct S {\n    v: int\n    static Five: int {\n        get {\n            return 5\n        }\n    }\n}\n\nfunc f(): int {\n    return S.Five\n}\n").Ok);
+        // NL306: a static property colliding with a static field, and with a static method.
+        Assert.False(RouteColumnarProgram("class C {\n    static V: int\n    static V: int {\n        get {\n            return 1\n        }\n    }\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    static func V(): int {\n        return 1\n    }\n    static V: int {\n        get {\n            return 2\n        }\n    }\n}\n\nfunc f(): int {\n    return C.V\n}\n").Ok);
+        // a derived STATIC PROPERTY shadowing an inherited one (no static-member data hiding is modelled).
+        Assert.False(RouteColumnarProgram("class Base {\n    static X: int {\n        get {\n            return 1\n        }\n    }\n}\n\nclass D: Base {\n    static X: int {\n        get {\n            return 2\n        }\n    }\n}\n\nfunc f(): int {\n    return D.X\n}\n").Ok);
+        // a class inheriting from a RECORD (the oracle emits records SEALED — the assembly would not even load;
+        // the oracle now rejects it at compile time and columnar declines by the IsRecord flag), and RECORD
+        // inheritance itself.
+        Assert.False(RouteColumnarProgram("record R {\n    y: int\n}\n\nclass D: R {\n    n: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("class B {\n    n: int\n}\n\nrecord R: B {\n    y: int\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either

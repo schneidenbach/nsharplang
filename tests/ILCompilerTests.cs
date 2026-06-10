@@ -5058,6 +5058,32 @@ func f(): int {
     }
 
     [Fact]
+    public void ILCompiler_RejectsClassInheritingFromRecord()
+    {
+        // Regression: `class D: R` where R is a RECORD compiled successfully but produced an assembly that FAILS
+        // TO LOAD ("Could not load type 'D' ... because the parent type is sealed") — records are emitted sealed.
+        // A sealed base must be a compile-time error, like the struct-base rejection.
+        var source = @"
+record R {
+    y: int
+}
+
+class D: R {
+    n: int
+    constructor(n0: int) {
+        n = n0
+    }
+}
+
+func f(): int {
+    d := new D(1)
+    return d.n
+}";
+        var ex = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(source, "f"));
+        Assert.Contains("sealed", ex.Message);
+    }
+
+    [Fact]
     public void ILCompiler_RunsRecordStaticFieldInitializers()
     {
         // Regression: a RECORD's static-field initializers were silently DROPPED — EmitRecordBodies never called
@@ -5080,6 +5106,39 @@ func g(): string {
 }";
         Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source, "f")));
         Assert.Equal("rc", Assert.IsType<string>(CompileAndInvoke(source, "g")));
+    }
+
+    [Fact]
+    public void ILCompiler_CanAccessStaticPropertyThroughInstanceReceiver()
+    {
+        // Regression: `c.X` where X is a STATIC property compiled a `callvirt` against the static getter and died
+        // at RUNTIME with MissingMethodException (instance-receiver STATIC FIELD access already worked — the CLR
+        // tolerates ldfld/stfld on statics by popping the receiver). The accessor paths now mirror the field
+        // behavior: discard the receiver, direct `call`. Covers read AND write (the setter spills the value).
+        var source = @"
+class C {
+    static backing: int
+    n: int
+    constructor(n0: int) {
+        n = n0
+    }
+    static Value: int {
+        get {
+            return C.backing
+        }
+        set {
+            C.backing = value
+        }
+    }
+}
+
+func f(v: int): int {
+    c := new C(2)
+    c.Value = v
+    return c.Value
+}";
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source, "f", 9)));
+        Assert.Equal(-3, Assert.IsType<int>(CompileAndInvoke(source, "f", -3)));
     }
 
     [Fact]
