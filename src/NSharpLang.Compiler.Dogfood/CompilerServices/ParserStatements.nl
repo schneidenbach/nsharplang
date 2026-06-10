@@ -17,6 +17,10 @@
 //   ForStatement                 -> kind 28  ( for <init>; <cond>; <incr> <body>; children [init, cond, incr, body] )
 //   ForeachStatement             -> kind 29  ( foreach <var> in <coll> <body>; var in the value span, children [coll, body] )
 //   TupleDeconstructionStatement -> kind 30  ( n0, n1, ... := <tuple>; children [name0..nameN-1 (Identifier kind 6), value] )
+//   TypedLocalDeclaration        -> kind 40  ( [let] name: Type = init; the TYPE's source span in the VALUE slot
+//                                             (type trees cannot share this table — kind spaces collide), children
+//                                             [name Identifier (kind 6), init root]. Kinds 31-39 belong to the
+//                                             expression/pattern kernel; 41 is the next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
@@ -317,6 +321,74 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         st[3] = deconArgBase
 
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 30, -1, 0, deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
+    }
+
+    // TYPED local declaration (kind 40): `let name: Type = init` (Let 19) or bare `name: Type = init`.
+    // Type TREES cannot share the statement node table (the type kernel's kind space 0-6 collides with
+    // expression kinds), so the TYPE rides as a SOURCE SPAN in the kind-40 node's VALUE slot — the host
+    // canonicalizes the span text. The span is delimited STRUCTURALLY: balanced angles (`>>` 112 closes
+    // two) and ()/[] groups, ending at the first depth-0 `=` (93). Children = [name Identifier (kind 6),
+    // init root]; the initializer parses at the LAMBDA level (so `let f: Func<int, int> = x => x + 1`
+    // carries a kind-39 initializer the emitter types from the DECLARED type). A typed declaration with
+    // no initializer never finds a depth-0 `=` and refuses; `let name := init` is unmodeled (-1).
+    isTypedLocal := false
+    typedNameIndex := start
+    if kind == 19 && start + 2 < count && tokenKinds[start + 1] == 0 && tokenKinds[start + 2] == 122 {
+        isTypedLocal = true
+        typedNameIndex = start + 1
+    } else if kind == 0 && start + 1 < count && tokenKinds[start + 1] == 122 {
+        isTypedLocal = true
+    }
+    if isTypedLocal {
+        typedNameStart := tokenStarts[typedNameIndex]
+        typedNameLength := tokenValueLengths[typedNameIndex]
+        typeFirst := typedNameIndex + 2
+        scanPos := typeFirst
+        angleDepth := 0
+        groupDepth := 0
+        scanning := true
+        while scanning {
+            if scanPos >= count {
+                return -1
+            }
+            k := tokenKinds[scanPos]
+            if k == 93 && angleDepth == 0 && groupDepth == 0 {
+                scanning = false
+            } else {
+                if k == 100 {
+                    angleDepth = angleDepth + 1
+                } else if k == 102 {
+                    angleDepth = angleDepth - 1
+                } else if k == 112 {
+                    angleDepth = angleDepth - 2
+                } else if k == 127 || k == 131 {
+                    groupDepth = groupDepth + 1
+                } else if k == 128 || k == 132 {
+                    groupDepth = groupDepth - 1
+                }
+                if angleDepth < 0 || groupDepth < 0 {
+                    return -1
+                }
+                scanPos = scanPos + 1
+            }
+        }
+        if scanPos == typeFirst {
+            return -1
+        }
+        typeSpanStart := tokenStarts[typeFirst]
+        typeSpanEnd := tokenStarts[scanPos - 1] + tokenValueLengths[scanPos - 1]
+        st[0] = scanPos + 1
+        typedInit := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        if typedInit < 0 {
+            return -1
+        }
+        typedNameNode := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, typedNameStart, typedNameLength, -1, 0, typedNameStart, typedNameLength)
+        typedInitEnd := outSpanStarts[typedInit] + outSpanLengths[typedInit]
+        typedChildRunStart := st[2]
+        AppendExpressionChild(st, outChildIndices, typedNameNode)
+        AppendExpressionChild(st, outChildIndices, typedInit)
+        declStart := tokenStarts[start]
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 40, typeSpanStart, typeSpanEnd - typeSpanStart, typedChildRunStart, 2, declStart, typedInitEnd - declStart)
     }
 
     if kind == 0 && start + 1 < count && tokenKinds[start + 1] == 121 {

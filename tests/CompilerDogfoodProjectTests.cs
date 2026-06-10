@@ -4856,6 +4856,48 @@ class B
             .GetMethod("f")!.Invoke(null, null));
     }
 
+    // Lambdas arc L2: TYPED LOCAL declarations — `let name: Type = init` and the bare `name: Type = init`
+    // (statement kind 40; the declared TYPE rides as a source span in the node's value slot because type
+    // trees cannot share the statement table's kind space; the emitter whitespace-strips the span onto the
+    // canonical grammar). A kind-39 LAMBDA initializer is typed contextually from the DECLARED delegate
+    // type via the L1b machinery — this is the slice that unlocks PARAM-FUL lambda locals
+    // (`let g: Func<int, int> = x => x + 3`). `let` locals are MUTABLE (probe-pinned against the pipeline),
+    // so they emit as plain locals; mismatched initializers (pipeline NL202), no-initializer declarations,
+    // lambda arity mismatches, and captures all decline.
+    [Fact]
+    public void ColumnarCodegen_Parity_TypedLocals()
+    {
+        var prog =
+            "func useInt(): int {\n    let n: int = 5\n    return n + 1\n}\n\n" +
+            "func useBare(): int {\n    n: int = 7\n    return n * 2\n}\n\n" +
+            "func useLambda(v: int): int {\n    let g: Func<int, int> = x => x + 3\n    return g(v)\n}\n\n" +
+            "func useMulti(): int {\n    let c: Func<int, int, int> = (a, b) => a * b\n    return c(6, 7)\n}\n\n" +
+            "func useMutate(): int {\n    let n: int = 5\n    n = 9\n    return n\n}\n\n" +
+            "func useString(): string {\n    let s: string = \"hi\"\n    return s + \"!\"\n}\n\n" +
+            "func pull(p: Func<int>): int {\n    return p()\n}\n\n" +
+            "func passTyped(): int {\n    let z: Func<int> = () => 31\n    return pull(z)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useInt", new object[0]),
+            ("useBare", new object[0]),
+            ("useLambda", new object[] { 5 }),
+            ("useMulti", new object[0]),
+            ("useMutate", new object[0]),
+            ("useString", new object[0]),
+            ("passTyped", new object[0]));
+
+        // DECLINES (each routes to the C# path):
+        // a MISMATCHED initializer (pipeline NL202).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    let n: int = \"x\"\n    return 2\n}\n").Ok);
+        // a typed declaration with NO initializer.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    let n: int\n    n = 5\n    return n\n}\n").Ok);
+        // a lambda ARITY mismatch against the declared delegate.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    let g: Func<int, int> = (a, b) => a + b\n    return 2\n}\n").Ok);
+        // a CAPTURE in a typed-local lambda.
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    let g: Func<int, int> = x => x + v\n    return g(1)\n}\n").Ok);
+        // SHADOWING a parameter.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    let n: int = 5\n    return n\n}\n").Ok);
+    }
+
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
     // an object initializer or a user constructor) must read/write the receiver's real storage. The
     // ILCompiler used to spill a `this.`-qualified value-type receiver into a throwaway temp — for a

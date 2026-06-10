@@ -1416,6 +1416,20 @@ public sealed class ColumnarIlEmitter
         return true;
     }
 
+    // Strip ALL whitespace from a declared-type source span (`Func<int, int>` -> `Func<int,int>`): canonicals
+    // never contain spaces, so this maps well-formed annotation text onto the canonical grammar; anything
+    // pathological (comments inside the annotation) produces an unresolvable string and declines.
+    private static string RemoveWhitespace(string s)
+    {
+        var sb = new System.Text.StringBuilder(s.Length);
+        foreach (var c in s)
+        {
+            if (!char.IsWhiteSpace(c))
+                sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
     // Split `s` on commas at bracket depth 0 (parens, angle brackets, and square brackets all nest), so a tuple
     // canonical `(int,int),string` splits into its top-level element canons without breaking nested tuples/generics.
     private static List<string> SplitTopLevelCommas(string s)
@@ -2487,6 +2501,38 @@ public sealed class ColumnarIlEmitter
                 var local = _il.DeclareLocal(initType);
                 _il.Emit(OpCodes.Stloc, local);
                 _locals[name] = local;
+                return true;
+            }
+
+            case 40: // TypedLocalDeclaration (`[let] name: Type = init` — L2): the DECLARED type's source
+            {        // span rides in the value slot (whitespace-stripped to the canonical — canonicals never
+                     // contain spaces); children = [name Identifier, init]. A kind-39 lambda initializer is
+                     // typed CONTEXTUALLY from the declared delegate type (the L1b machinery — this is what
+                     // unlocks `let f: Func<int, int> = x => x + 1`); any other initializer must emit exactly
+                     // the declared type (a mismatch is pipeline-rejected NL202 — decline). `let` locals are
+                     // MUTABLE in N# (probe-pinned: `let n: int = 5  n = 6` runs), so a plain local suffices.
+                if (_childCount[idx] != 2 || _kinds[Child(idx, 0)] != 6)
+                    return false;
+                var declaredName = Text(Child(idx, 0));
+                if (_paramOrdinals.ContainsKey(declaredName) || _locals.ContainsKey(declaredName))
+                    return false; // shadowing/redeclaration — the pipeline diagnoses these; decline.
+                var typeCanonical = RemoveWhitespace(Text(idx));
+                if (!TryResolveType(typeCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var declaredType)
+                    || !IsSupportedType(declaredType))
+                    return false;
+                var declaredInit = Child(idx, 1);
+                if (_kinds[declaredInit] == 39)
+                {
+                    if (!TryEmitLambdaLiteral(declaredInit, declaredType))
+                        return false;
+                }
+                else if (!EmitExpression(declaredInit, out var declaredInitType) || declaredInitType != declaredType)
+                {
+                    return false;
+                }
+                var declaredLocal = _il.DeclareLocal(declaredType);
+                _il.Emit(OpCodes.Stloc, declaredLocal);
+                _locals[declaredName] = declaredLocal;
                 return true;
             }
 

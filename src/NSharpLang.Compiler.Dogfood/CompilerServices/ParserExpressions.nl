@@ -56,7 +56,8 @@
 //                                         lambda list); BLOCK bodies (`=> { ... }`) refuse (-1, statement bodies
 //                                         are a later rung). Parsed at the full-expression entry and in call
 //                                         ARGUMENTS (the production's ParseExpression positions modeled so far).
-//                                         40 is the next free kind. )
+//                                         Kind 40 is TypedLocalDeclaration in ParserStatements -- 41 is the next
+//                                         free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, block-bodied lambdas; every other primary (this/base/
