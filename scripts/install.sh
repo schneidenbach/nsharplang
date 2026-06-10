@@ -13,6 +13,7 @@ DRY_RUN=0
 SKIP_VSCODE=0
 UNINSTALL=0
 UPDATE_PATH=1
+VERIFY_DOWNLOADS=1
 
 usage() {
   cat <<EOF
@@ -33,6 +34,8 @@ Options:
   --no-vsix-fallback    Do not try a VSIX fallback after Marketplace install
   --skip-vscode         Do not install/probe the VS Code extension
   --no-path-update      Do not update shell profile files
+  --no-verify           Skip SHA256 verification of URL downloads (NOT recommended;
+                        only for custom --source locations without a SHA256SUMS asset)
   --uninstall           Remove N# installed payloads instead
   --dry-run             Print commands without running them
   --help, -h            Show this help text
@@ -44,8 +47,13 @@ Version pinning:
 Environment:
   NSHARP_TOOLSET_URL    Default toolset URL
   NSHARP_VSIX_URL       VSIX fallback URL when Marketplace install fails
+  NSHARP_SUMS_URL       SHA256SUMS URL (default: SHA256SUMS next to the download)
   NSHARP_INSTALL_DIR    Install directory (default: ~/.nsharp)
   NSHARP_ENV_FILE       Shell env file (default: <install-dir>/env)
+
+Integrity:
+  URL downloads are verified against the release's SHA256SUMS asset and the
+  install aborts on any mismatch or missing checksum entry.
 EOF
 }
 
@@ -84,6 +92,7 @@ while [[ $# -gt 0 ]]; do
     --no-vsix-fallback) VSCODE_VSIX_URL="" ;;
     --skip-vscode) SKIP_VSCODE=1 ;;
     --no-path-update) UPDATE_PATH=0 ;;
+    --no-verify) VERIFY_DOWNLOADS=0 ;;
     --uninstall) UNINSTALL=1 ;;
     --dry-run) DRY_RUN=1 ;;
     --help|-h) usage; exit 0 ;;
@@ -111,6 +120,71 @@ require_safe_install_dir() {
     echo "ERROR: refusing unsafe N# install directory: ${INSTALL_DIR:-<empty>}" >&2
     exit 1
   fi
+}
+
+compute_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    echo "ERROR: required command not found: sha256sum or shasum" >&2
+    exit 1
+  fi
+}
+
+# Verify a downloaded file against the SHA256SUMS asset published next to it.
+# Hard-fails on a missing sums file, a missing entry, or a hash mismatch — a
+# compromised or corrupted download must never be installed silently.
+verify_download() {
+  local url="$1"
+  local file="$2"
+  local work_dir="$3"
+
+  if [[ "$VERIFY_DOWNLOADS" -eq 0 ]]; then
+    echo "WARNING: --no-verify set; skipping SHA256 verification for $url" >&2
+    return 0
+  fi
+
+  # file:// sources are local artifacts in the caller's trust domain (same as a local
+  # directory --source, which never goes through a download at all).
+  if [[ "$url" == file://* ]]; then
+    echo "==> Skipping SHA256 verification for local source $url" >&2
+    return 0
+  fi
+
+  local entry
+  entry="$(basename "${url%%\?*}")"
+  local sums_url="${NSHARP_SUMS_URL:-${url%/*}/SHA256SUMS}"
+  local sums_file="$work_dir/SHA256SUMS.nsharp"
+
+  echo "+ curl -fsSL $sums_url -o $sums_file" >&2
+  if ! curl -fsSL "$sums_url" -o "$sums_file"; then
+    echo "ERROR: could not fetch checksums from $sums_url to verify $entry." >&2
+    echo "Refusing to install an unverified download." >&2
+    echo "If you trust this source, re-run with --no-verify, or set NSHARP_SUMS_URL to the SHA256SUMS asset for this release." >&2
+    exit 1
+  fi
+
+  local expected
+  expected="$(awk -v name="$entry" '{ entry_name = $2; sub(/^\*/, "", entry_name) } entry_name == name { print $1; exit }' "$sums_file")"
+  if [[ -z "$expected" ]]; then
+    echo "ERROR: $sums_url has no entry for $entry; refusing to install." >&2
+    exit 1
+  fi
+
+  local actual
+  actual="$(compute_sha256 "$file")"
+  if [[ "$actual" != "$expected" ]]; then
+    echo "ERROR: SHA256 mismatch for $entry" >&2
+    echo "  expected: $expected" >&2
+    echo "  actual:   $actual" >&2
+    echo "The download may be corrupted or tampered with. Aborting install." >&2
+    exit 1
+  fi
+
+  # stderr: callers of prepare_toolset_source capture stdout as the resolved toolset path.
+  echo "==> Verified SHA256 for $entry" >&2
 }
 
 resolve_dotnet_root() {
@@ -320,6 +394,7 @@ prepare_toolset_source() {
   local archive="$work_dir/nsharp-toolset.tar.gz"
   echo "+ curl -fsSL $source -o $archive" >&2
   curl -fsSL "$source" -o "$archive"
+  verify_download "$source" "$archive" "$work_dir"
   extract_toolset_archive "$archive" "$work_dir/extracted"
 }
 
@@ -394,6 +469,7 @@ install_vscode_extension() {
       require_command curl
       echo "==> Marketplace install failed; trying VSIX fallback: $VSCODE_VSIX_URL"
       curl -fsSL "$VSCODE_VSIX_URL" -o "$tmp"
+      verify_download "$VSCODE_VSIX_URL" "$tmp" "$(dirname "$tmp")"
       code --install-extension "$tmp" --force
       rm -f "$tmp"
       return 0
