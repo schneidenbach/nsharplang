@@ -4825,6 +4825,37 @@ class B
         Assert.False(RouteColumnarProgram("func id<T>(x: T): T {\n    return x\n}\n\nfunc f(): int {\n    r := id(x => x)\n    return 2\n}\n").Ok);
     }
 
+    // Lambdas arc L1c: ZERO-PARAM `:=` lambdas with BODY-INFERRED return types (`zero := () => 99`). No
+    // expected delegate type exists at a `:=` declaration, but a zero-param lambda has no inference gap:
+    // the synthesized `<Lambda>_{n}` method is defined signature-less, its body emits FIRST (yielding the
+    // return type), and SetReturnType/SetParameters run AFTER (spike-proven order on
+    // PersistedAssemblyBuilder). Void bodies yield Action; the local then flows through the L1a delegate
+    // surface (invocation, passing to delegate-typed params). Param-ful `:=` lambdas stay declined — the
+    // pipeline rejects them with NL203 (no inference source).
+    [Fact]
+    public void ColumnarCodegen_Parity_InferredZeroParamLambdas()
+    {
+        var prog =
+            "func sink(n: int) {\n}\n\n" +
+            "func pull(p: Func<int>): int {\n    return p()\n}\n\n" +
+            "func useZeroLocal(): int {\n    zero := () => 99\n    return zero()\n}\n\n" +
+            "func useVoidLocal(v: int): int {\n    act := () => sink(7)\n    act()\n    return v + 1\n}\n\n" +
+            "func passLocal(): int {\n    zero := () => 42\n    return pull(zero)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("useZeroLocal", new object[0]),
+            ("useVoidLocal", new object[] { 4 }),
+            ("passLocal", new object[0]));
+
+        // DECLINES: a CAPTURE inside a zero-param `:=` lambda (the body references an enclosing param).
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    zero := () => v + 1\n    return zero()\n}\n").Ok);
+        // a STRING-typed inferred body works too — pin the accept (Func<string>).
+        var (ok, asm, _, _) = RouteColumnarProgram(
+            "func f(): string {\n    word := () => \"hi\"\n    return word()\n}\n");
+        Assert.True(ok, "columnar must emit a Func<string> inferred zero-param lambda");
+        Assert.Equal("hi", System.Reflection.Assembly.Load(asm!).GetType("ColumnarProgram")!
+            .GetMethod("f")!.Invoke(null, null));
+    }
+
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
     // an object initializer or a user constructor) must read/write the receiver's real storage. The
     // ILCompiler used to spill a `this.`-qualified value-type receiver into a throwaway temp — for a

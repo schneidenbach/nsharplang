@@ -323,7 +323,9 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         nameStart := tokenStarts[start]
         nameLength := tokenValueLengths[start]
         st[0] = start + 2
-        initRoot := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        // The `:=` initializer parses at the LAMBDA level (the full-expression entry) so `zero := () => 99`
+        // yields a Lambda (kind 39) initializer; all non-lambda shapes fall through to assignment unchanged.
+        initRoot := ParseLambdaOrAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
         if initRoot < 0 {
             return -1
         }

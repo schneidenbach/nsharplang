@@ -779,6 +779,44 @@ public sealed class ColumnarIlEmitter
         return true;
     }
 
+    // Emit a ZERO-PARAM expression-bodied lambda with a BODY-INFERRED return type (`zero := () => 99` —
+    // L1c): no expected delegate type exists at a `:=` declaration, but a zero-param lambda has no
+    // inference gap — the synthesized method is defined signature-LESS, its body emits first (yielding the
+    // return type), and SetReturnType/SetParameters run AFTER (spike-proven on PersistedAssemblyBuilder).
+    // A void body yields Action; otherwise Func<bodyType> — which must be a modeled delegate (a
+    // builder-typed body would produce a builder-arg delegate; IsSupportedDelegateType refuses it).
+    // Param-ful `:=` lambdas have no inference source and are pipeline-rejected (NL203) — decline.
+    private bool TryEmitInferredZeroParamLambda(int lambdaIdx, out Type delegateType)
+    {
+        delegateType = null!;
+        if (_programType == null || _lambdaCounter == null || _childCount[lambdaIdx] != 1)
+            return false;
+        var lambdaMethod = _programType.DefineMethod(
+            "<Lambda>_" + _lambdaCounter[0]++, MethodAttributes.Private | MethodAttributes.Static);
+        var lambdaIl = lambdaMethod.GetILGenerator();
+        var subEmitter = new ColumnarIlEmitter(
+            _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
+            _source, new Dictionary<string, int>(StringComparer.Ordinal),
+            new Dictionary<string, Type>(StringComparer.Ordinal), typeof(void), lambdaIl, _siblings,
+            _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
+            programType: _programType, lambdaCounter: _lambdaCounter);
+        if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out var bodyType))
+            return false;
+        lambdaIl.Emit(OpCodes.Ret);
+        delegateType = bodyType == typeof(void) ? typeof(Action) : typeof(Func<>).MakeGenericType(bodyType);
+        if (!IsSupportedDelegateType(delegateType))
+            return false;
+        lambdaMethod.SetReturnType(bodyType);
+        lambdaMethod.SetParameters(Type.EmptyTypes);
+        var delegateCtor = delegateType.GetConstructor(new[] { typeof(object), typeof(IntPtr) });
+        if (delegateCtor == null)
+            return false;
+        _il.Emit(OpCodes.Ldnull);
+        _il.Emit(OpCodes.Ldftn, lambdaMethod);
+        _il.Emit(OpCodes.Newobj, delegateCtor);
+        return true;
+    }
+
     // Invoke a DELEGATE-typed local or parameter (`t(v)` where `t: Func<int,int>` — L1a): load the delegate
     // value, emit each argument exactly typed against Invoke's parameters, `callvirt Invoke`. Fires ONLY when
     // no method tier carries the name (the pipeline's pinned method-beats-local order — the caller checks);
@@ -2425,10 +2463,25 @@ public sealed class ColumnarIlEmitter
                 // declining keeps the C# analyzer authoritative rather than silently compiling it.
                 if (_paramOrdinals.ContainsKey(name) || _locals.ContainsKey(name))
                     return false;
+                if (_childCount[idx] == 0)
+                    return false;
+                // A ZERO-PARAM lambda initializer (`zero := () => 99` — L1c): the only `:=` lambda shape with
+                // no inference gap (param-ful `:=` lambdas are pipeline-rejected with NL203). The return type
+                // is INFERRED from the body, so the synthesized method's signature is set AFTER the body emits
+                // (spike-proven order); the local's type is Func<bodyType> (or Action for a void body).
+                if (_kinds[Child(idx, 0)] == 39)
+                {
+                    if (!TryEmitInferredZeroParamLambda(Child(idx, 0), out var lambdaType))
+                        return false;
+                    var lambdaLocal = _il.DeclareLocal(lambdaType);
+                    _il.Emit(OpCodes.Stloc, lambdaLocal);
+                    _locals[name] = lambdaLocal;
+                    return true;
+                }
                 // A local of an open generic-parameter type (`y := x` inside a generic function, x: T) is legal —
                 // DeclareLocal over a GenericTypeParameterBuilder works (spike-proven) and loads/stores/returns
                 // of T flow by reference equality. T[] locals likewise.
-                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0), out var initType)
+                if (!EmitExpression(Child(idx, 0), out var initType)
                     || !(initType.IsGenericParameter || (initType.IsSZArray && initType.GetElementType()!.IsGenericParameter) || IsSupportedType(initType)))
                     return false;
                 var local = _il.DeclareLocal(initType);
