@@ -27,7 +27,7 @@ public static class EventInteropProbe
     public static void ResetStatic() => StaticCount = 0;
 }
 
-public partial class ILCompilerTests
+public class ILCompilerEventsTests : ILCompilerTestBase
 {
     [Fact]
     public void ILCompiler_OnSubscription_InstanceEvent_FiresWhileSubscribedAndStopsAfterOff()

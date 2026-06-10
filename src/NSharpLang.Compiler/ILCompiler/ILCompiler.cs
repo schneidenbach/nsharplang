@@ -570,7 +570,7 @@ public partial class ILCompiler
         try
         {
             var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
-            var assembly = AppDomain.CurrentDomain.GetAssemblies()
+            var assembly = ExternalAssemblyScan.Loaded()
                 .FirstOrDefault(candidate => AssemblyName.ReferenceMatchesDefinition(candidate.GetName(), assemblyName));
             if (assembly == null)
             {
@@ -612,7 +612,7 @@ public partial class ILCompiler
         try
         {
             var assemblyName = AssemblyName.GetAssemblyName(assemblyPath);
-            var alreadyLoaded = AppDomain.CurrentDomain.GetAssemblies()
+            var alreadyLoaded = ExternalAssemblyScan.Loaded()
                 .Any(assembly => AssemblyName.ReferenceMatchesDefinition(assembly.GetName(), assemblyName));
 
             if (!alreadyLoaded)
@@ -635,7 +635,7 @@ public partial class ILCompiler
 
         try
         {
-            var alreadyLoaded = AppDomain.CurrentDomain.GetAssemblies()
+            var alreadyLoaded = ExternalAssemblyScan.Loaded()
                 .Any(assembly => string.Equals(assembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
             if (alreadyLoaded)
             {
@@ -1245,7 +1245,7 @@ public partial class ILCompiler
 
     private static Type ResolveTestFrameworkType(string fullTypeName, params string[] assemblyNames)
     {
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var assembly in ExternalAssemblyScan.Loaded())
         {
             var loadedType = assembly.GetType(fullTypeName, throwOnError: false);
             if (loadedType != null)
@@ -21485,7 +21485,7 @@ public partial class ILCompiler
         }
 
         var resolved = ResolveExternalGenericTypeUncached(typeName, arity);
-        _externalTypeCacheAssemblyCount = AppDomain.CurrentDomain.GetAssemblies().Length;
+        _externalTypeCacheAssemblyCount = ExternalAssemblyScan.Loaded().Length;
         _externalGenericTypeCache[key] = resolved;
         return resolved;
     }
@@ -21520,7 +21520,7 @@ public partial class ILCompiler
                 return resolved;
             }
 
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            foreach (var assembly in ExternalAssemblyScan.Loaded())
             {
                 resolved = assembly.GetType(candidate, throwOnError: false, ignoreCase: false);
                 if (resolved != null && IsMatchingGenericTypeDefinition(resolved, typeName, arity))
@@ -21536,7 +21536,7 @@ public partial class ILCompiler
         }
 
         Type? match = null;
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var assembly in ExternalAssemblyScan.Loaded())
         {
             Type[] types;
             try
@@ -21653,7 +21653,7 @@ public partial class ILCompiler
             return resolved;
         }
 
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var assembly in ExternalAssemblyScan.Loaded())
         {
             resolved = assembly.GetType(candidate, throwOnError: false, ignoreCase: false);
             if (resolved != null)
@@ -21676,14 +21676,14 @@ public partial class ILCompiler
         }
 
         var resolved = ResolveExternalTypeUncached(typeName, allowGlobalSimpleNameFallback);
-        _externalTypeCacheAssemblyCount = AppDomain.CurrentDomain.GetAssemblies().Length;
+        _externalTypeCacheAssemblyCount = ExternalAssemblyScan.Loaded().Length;
         _externalTypeCache[key] = resolved;
         return resolved;
     }
 
     private void RefreshExternalTypeCachesIfAssemblySetChanged()
     {
-        var assemblyCount = AppDomain.CurrentDomain.GetAssemblies().Length;
+        var assemblyCount = ExternalAssemblyScan.Loaded().Length;
         if (assemblyCount == _externalTypeCacheAssemblyCount)
         {
             return;
@@ -21735,7 +21735,7 @@ public partial class ILCompiler
         if (allowGlobalSimpleNameFallback && !typeName.Contains('.'))
         {
             Type? match = null;
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            foreach (var assembly in ExternalAssemblyScan.Loaded())
             {
                 Type[] types;
                 try

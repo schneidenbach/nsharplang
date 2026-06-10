@@ -97,7 +97,7 @@ public class DocQuery
         foreach (var assembly in seedAssemblies)
             AddAssembly(assembly);
 
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies().Where(a => !a.IsDynamic))
+        foreach (var assembly in ExternalAssemblyScan.Loaded())
             AddAssembly(assembly);
 
         // Discover additional assemblies from reference packs

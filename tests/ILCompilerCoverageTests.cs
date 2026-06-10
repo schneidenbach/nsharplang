@@ -9,7 +9,7 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
-public partial class ILCompilerTests
+public class ILCompilerCoverageTests : ILCompilerTestBase
 {
     private static bool HasLiftedStorageField(Assembly assembly)
     {

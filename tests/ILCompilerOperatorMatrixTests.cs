@@ -4,7 +4,7 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
-public partial class ILCompilerTests
+public class ILCompilerOperatorMatrixTests : ILCompilerTestBase
 {
     private static T InvokeStatic<T>(Assembly assembly, string methodName)
     {

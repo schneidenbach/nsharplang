@@ -89,7 +89,7 @@ public partial class ILCompiler
         };
         arguments.AddRange(call.Arguments);
 
-        var candidates = AppDomain.CurrentDomain.GetAssemblies()
+        var candidates = ExternalAssemblyScan.Loaded()
             .SelectMany(GetLoadableTypes)
             .Where(IsImportedExtensionContainerType)
             .SelectMany(GetRuntimeStaticMethods)

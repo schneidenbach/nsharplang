@@ -8,7 +8,7 @@ using Xunit;
 
 namespace NSharpLang.Tests;
 
-public partial class ILCompilerTests
+public class VisibilityConventionsTests : ILCompilerTestBase
 {
     [Theory]
     [InlineData("Name", true)]

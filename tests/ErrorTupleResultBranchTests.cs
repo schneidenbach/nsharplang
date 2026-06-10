@@ -22,7 +22,7 @@ namespace NSharpLang.Tests;
 ///      <c>err</c> — i.e. the sugar does not multiply EH regions, add filters/finally, or
 ///      use exceptions as the normal success control-flow mechanism.
 /// </summary>
-public partial class ILCompilerTests
+public class ErrorTupleResultBranchTests : ILCompilerTestBase
 {
     private const string ErrorTupleProgram = """
 import System

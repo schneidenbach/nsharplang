@@ -519,7 +519,7 @@ public class ExpressionTypeResolver
 
     private Type? TryResolveFromLoadedAssemblies(string typeName)
     {
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        foreach (var assembly in ExternalAssemblyScan.Loaded())
         {
             var type = assembly.GetType(typeName);
             if (type != null) return type;
