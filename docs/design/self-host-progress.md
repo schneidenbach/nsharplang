@@ -11,6 +11,24 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc: BLOCK-BODIED lambdas (`2d0199e6`)
+
+`x => { ... }` emits columnar — the slice that makes lambdas practically useful. Kernel: the lambda's `{`
+body parses as a statement BLOCK (kind 25) via the FIRST expressions→statements cross-kernel call (same
+mutual recursion as statements-call-expressions, other direction). Emitter: kind-25 bodies route through
+the sub-emitter's EmitBody — always-returns checking (non-returning value blocks decline, NL305 family)
+and trailing-ret for void come free, exactly like a function body; shared by the static and capturing
+branches. EMERGENT + induction-sound: nested lambdas inside block-bodied lambdas capture the block's
+locals (the outer EmitBody sets the sub-emitter's body root, so the L3a never-written scan applies one
+level down — probe-verified). `:=` inferred lambdas stay expression-only (block returns need the type up
+front — pinned). Parity: 7 invocations + 3 pins; the L1b block pin replaced. 3978/3978. Gate took four
+attempts for THREE distinct non-code causes (stale pin → fixed; HotResultCombinations thermal flake 1.46
+post-sleep; post-sleep OOM; then green at 318s with healthy ratios 0.71/0.86 after build-server shutdown).
+REMAINING lambda surface: L3b mutated captures (box-lifting), capture-opaque body widening (match/object-
+init in capturing lambdas), `this` captures, L4 local functions.
+
+---
+
 ## 2026-06-10 — Lambdas arc L3a: CAPTURING lambdas, never-mutated captures (`4aefe87c`)
 
 The columnar pipeline emits its first CLOSURES. Scope contract: a by-value snapshot into a display class
