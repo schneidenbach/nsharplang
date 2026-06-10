@@ -79,6 +79,31 @@ public void TestFullCompilation()
 }
 ```
 
+### 4. Emitted Assemblies Load Into Collectible Scopes
+Tests that reflect over or invoke an emitted assembly (columnar parity programs, the compiled
+dogfood project, `MultiFileCompiler` outputs) must load it through `CollectibleAssemblyScope`
+(tests/CollectibleAssemblyScope.cs):
+
+```csharp
+using var loadScope = CollectibleAssemblyScope.Load(asm!);                  // emitted byte[]
+using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);    // emitted .dll
+var type = loadScope.Assembly.GetType(typeName!)!;
+```
+
+Never `Assembly.Load(bytes)` or `Assembly.LoadFile(path)`: each call pins the assembly in a fresh
+NON-collectible AssemblyLoadContext for the test host's lifetime. The parity suite loads hundreds of
+emitted assemblies per run and grows every slice — the pinned pile intermittently OOM-crashed the
+xUnit host ("Test host process crashed : Out of memory"). Pinned assemblies also stay visible to the
+C# oracle's AppDomain-wide external-type scan forever (the ROUTE-ONLY `Math` hazard documented in
+CompilerDogfoodProjectTests); an unloaded scope drops back out of that scan.
+
+Rules of the scope:
+- Keep every `Type`/`MethodInfo`/delegate obtained from `loadScope.Assembly` inside the `using` scope.
+- Some pins must stay ROUTE-ONLY and never load the emitted assembly at all (a global type named like
+  a whitelisted BCL container, e.g. `Math`, poisons the in-process oracle even while briefly loaded) —
+  see the StaticMethods region comments in CompilerDogfoodProjectTests.
+- `CollectibleAssemblyScopeTests` pins the contract (collectible, non-default, reclaimable after Dispose).
+
 ## Test Categories
 
 ### Lexer Tests

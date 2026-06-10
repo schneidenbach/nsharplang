@@ -55,7 +55,8 @@ public class CompilerDogfoodProjectTests
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenizeWithIndentation = programType.GetMethod(
@@ -402,7 +403,8 @@ class B
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenize = programType.GetMethod(
@@ -645,7 +647,8 @@ class B
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenize = programType.GetMethod(
@@ -951,7 +954,8 @@ class B
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenize = programType.GetMethod(
@@ -1275,7 +1279,8 @@ class B
             var result = new MultiFileCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
-            var programType = Assembly.Load(File.ReadAllBytes(outputPath)).GetType("Program")
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var programType = loadScope.Assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenize = programType.GetMethod("TokenizeMetadataWithIndentationInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
             var parseStmt = programType.GetMethod("ParseStatementNodesInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -3312,7 +3317,8 @@ class B
 
         var (ok, asm, typeName, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the int-enum program");
-        var type = System.Reflection.Assembly.Load(asm!).GetType(typeName!)!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
 
         // Each member-access return yields an enum value whose underlying int matches the C# pipeline AND the
         // auto-incremented ordinal.
@@ -3429,7 +3435,8 @@ class B
         // Pin the exact explicit-then-auto-increment values columnar emits.
         var (ok, asm, typeName, _) = RouteColumnarProgram(explicitVals);
         Assert.True(ok);
-        var type = System.Reflection.Assembly.Load(asm!).GetType(typeName!)!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
         Assert.Equal(5, type.GetMethod("aVal")!.Invoke(null, null));
         Assert.Equal(6, type.GetMethod("bVal")!.Invoke(null, null));
         Assert.Equal(20, type.GetMethod("cVal")!.Invoke(null, null));
@@ -3462,7 +3469,8 @@ class B
         // Metadata: the emitted Point is a value type with public int fields X, Y in order.
         var (ok, asm, typeName, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the fields-only struct program");
-        var asmLoaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var asmLoaded = loadScope.Assembly;
         var pointType = asmLoaded.GetType("Point")!;
         Assert.True(pointType.IsValueType);
         Assert.Equal(typeof(ValueType), pointType.BaseType);
@@ -3544,7 +3552,8 @@ class B
         // Metadata: Rect.area is a public INSTANCE method returning int.
         var (ok, asm, typeName, _) = RouteColumnarProgram(prog);
         Assert.True(ok);
-        var rectType = System.Reflection.Assembly.Load(asm!).GetType("Rect")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var rectType = loadScope.Assembly.GetType("Rect")!;
         var areaMethod = rectType.GetMethod("area")!;
         Assert.False(areaMethod.IsStatic);
         Assert.Equal(typeof(int), areaMethod.ReturnType);
@@ -3590,7 +3599,8 @@ class B
         // Metadata: the emitted Point is a reference type (class) with public int fields X, Y.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the fields-only record program");
-        var pointType = System.Reflection.Assembly.Load(asm!).GetType("Point")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var pointType = loadScope.Assembly.GetType("Point")!;
         Assert.True(pointType.IsClass);
         Assert.False(pointType.IsValueType);
         var fields = pointType.GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
@@ -3649,7 +3659,8 @@ class B
         // public int field `value`.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the union program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         var resultType = loaded.GetType("Result")!;
         Assert.True(resultType.IsAbstract);
         Assert.True(resultType.IsClass);
@@ -3814,7 +3825,8 @@ class B
         // Metadata: Box is a reference type (class) with public int fields + public instance methods.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the class-with-methods program");
-        var boxType = System.Reflection.Assembly.Load(asm!).GetType("Box")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var boxType = loadScope.Assembly.GetType("Box")!;
         Assert.True(boxType.IsClass);
         Assert.False(boxType.IsValueType);
         var getM = boxType.GetMethod("Get")!;
@@ -3890,7 +3902,8 @@ class B
         // Metadata: Counter is a class with a single 2-arg ctor and NO parameterless ctor.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the class-with-constructor program");
-        var counterType = System.Reflection.Assembly.Load(asm!).GetType("Counter")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var counterType = loadScope.Assembly.GetType("Counter")!;
         var ctors = counterType.GetConstructors();
         Assert.Single(ctors);
         Assert.Equal(2, ctors[0].GetParameters().Length);
@@ -3927,7 +3940,8 @@ class B
         // Metadata: P has two public constructors (arity 2 and 1).
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the overloaded-constructor program");
-        var pType = System.Reflection.Assembly.Load(asm!).GetType("P")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var pType = loadScope.Assembly.GetType("P")!;
         Assert.Equal(2, pType.GetConstructors().Length);
 
         // DECLINES: a DUPLICATE-signature ctor (both `(int)` — the N# binder rejects the duplicate). An
@@ -3960,7 +3974,8 @@ class B
         // Metadata: C has two constructors.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the chaining-constructor program");
-        var cType = System.Reflection.Assembly.Load(asm!).GetType("C")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var cType = loadScope.Assembly.GetType("C")!;
         Assert.Equal(2, cType.GetConstructors().Length);
 
         // DECLINE: a chained arg that is a COMPLEX expression (`this(x + y)` — only a param/int-literal arg is
@@ -3992,7 +4007,8 @@ class B
         // Metadata: C has a get_Doubled accessor method returning int.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the get-only-property program");
-        var cType = System.Reflection.Assembly.Load(asm!).GetType("C")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var cType = loadScope.Assembly.GetType("C")!;
         var getDoubled = cType.GetMethod("get_Doubled")!;
         Assert.NotNull(getDoubled);
         Assert.Equal(typeof(int), getDoubled.ReturnType);
@@ -4027,7 +4043,8 @@ class B
         // Metadata: Box has get_Value and set_Value accessors.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the get/set-property program");
-        var boxType = System.Reflection.Assembly.Load(asm!).GetType("Box")!;
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var boxType = loadScope.Assembly.GetType("Box")!;
         Assert.NotNull(boxType.GetMethod("get_Value"));
         Assert.NotNull(boxType.GetMethod("set_Value"));
 
@@ -4083,7 +4100,8 @@ class B
         // Metadata: D's CLR base type is Base (not object) — the TypeBuilder was re-parented.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the inheritance program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         Assert.Equal("Base", loaded.GetType("D")!.BaseType!.Name);
         Assert.Equal("B", loaded.GetType("C")!.BaseType!.Name);
         Assert.Equal("A", loaded.GetType("B")!.BaseType!.Name);
@@ -4247,7 +4265,8 @@ class B
         // Metadata: the declared statics really are CLR-static on their declaring types.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the static-methods program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         Assert.True(loaded.GetType("Counter")!.GetMethod("Add")!.IsStatic);
         Assert.True(loaded.GetType("SV")!.GetMethod("Triple")!.IsStatic);
         Assert.False(loaded.GetType("Calc")!.GetMethod("FromInstance")!.IsStatic);
@@ -4422,7 +4441,8 @@ class B
         // Metadata: the declared static fields really are CLR-static, and instance construction ignores them.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the static-fields program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         Assert.True(loaded.GetType("Counter")!.GetField("count")!.IsStatic);
         Assert.True(loaded.GetType("Config")!.GetField("name")!.IsStatic);
         Assert.False(loaded.GetType("Acc")!.GetField("n")!.IsStatic);
@@ -4504,7 +4524,8 @@ class B
         // Metadata: the accessors really are CLR-static.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the static-properties program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         Assert.True(loaded.GetType("Counter")!.GetMethod("get_Five")!.IsStatic);
         Assert.True(loaded.GetType("Counter")!.GetMethod("set_Value")!.IsStatic);
 
@@ -4600,7 +4621,8 @@ class B
         // Metadata: the generic functions really are open CLR generic method definitions.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the generic-functions program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         var identity = loaded.GetType("ColumnarProgram")!.GetMethod("Identity")!;
         Assert.True(identity.IsGenericMethodDefinition);
         Assert.Equal(2, loaded.GetType("ColumnarProgram")!.GetMethod("Pick")!.GetGenericArguments().Length);
@@ -4670,7 +4692,8 @@ class B
         // Metadata: the constraints really are emitted onto the open generic definitions.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the constrained-generics program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         var programType = loaded.GetType("ColumnarProgram")!;
         var boxT = programType.GetMethod("boxVal")!.GetGenericArguments()[0];
         Assert.True(boxT.GenericParameterAttributes.HasFlag(System.Reflection.GenericParameterAttributes.NotNullableValueTypeConstraint));
@@ -4801,7 +4824,8 @@ class B
         // Metadata: the synthesized lambda methods really are private statics on the program type.
         var (ok, asm, _, _) = RouteColumnarProgram(prog);
         Assert.True(ok, "columnar must emit the lambda-arguments program");
-        var loaded = System.Reflection.Assembly.Load(asm!);
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
         var lambdaMethods = loaded.GetType("ColumnarProgram")!
             .GetMethods(System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)
             .Where(m => m.Name.StartsWith("<Lambda>_", StringComparison.Ordinal))
@@ -4852,7 +4876,8 @@ class B
         var (ok, asm, _, _) = RouteColumnarProgram(
             "func f(): string {\n    word := () => \"hi\"\n    return word()\n}\n");
         Assert.True(ok, "columnar must emit a Func<string> inferred zero-param lambda");
-        Assert.Equal("hi", System.Reflection.Assembly.Load(asm!).GetType("ColumnarProgram")!
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        Assert.Equal("hi", loadScope.Assembly.GetType("ColumnarProgram")!
             .GetMethod("f")!.Invoke(null, null));
     }
 
@@ -5433,7 +5458,8 @@ class B
         var sources = cluster.Select(n => File.ReadAllText(Path.Combine(dir, n))).ToArray();
         var (ok, assembly, _, methodNames) = RouteColumnarMultiFile(sources);
         Assert.True(ok, $"Columnar backend declined the merged {cluster.Length}-file eligible cluster.");
-        Assert.NotNull(System.Reflection.Assembly.Load(assembly!)); // the merged IL is a valid, loadable assembly.
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the merged IL is a valid, loadable assembly.
+        Assert.NotNull(loadScope.Assembly);
         // The three files eligible ONLY via cross-file resolution must contribute their public functions —
         // i.e. the merge actually emitted them (single-file each declines; see ColumnarCodegen_MultiFile_*).
         Assert.Contains("ParseFunctionSignatureInto", methodNames!); // ParserFunctionSignatures -> ParserTypeReferences
@@ -5468,7 +5494,8 @@ class B
             var (ok, assembly, _, methodNames) = RouteColumnarProgram(File.ReadAllText(Path.Combine(dir, name)));
             Assert.True(ok, $"Expected the columnar backend to compile dogfood file {name}, but it declined.");
             Assert.NotEmpty(methodNames!);
-            Assert.NotNull(System.Reflection.Assembly.Load(assembly!)); // the emitted IL is a loadable assembly.
+            using var loadScope = CollectibleAssemblyScope.Load(assembly!); // the emitted IL is a loadable assembly.
+            Assert.NotNull(loadScope.Assembly);
         }
 
         var totalCompiling = Directory.EnumerateFiles(dir, "*.nl")
@@ -5754,7 +5781,8 @@ class B
         var (ok, assembly, typeName, methodName) = RouteColumnarEmit(source);
         Assert.True(ok, $"Columnar codegen declined a function the parity gate expects it to emit:\n{source}");
         Assert.Equal(funcName, methodName);
-        var columnarMethod = System.Reflection.Assembly.Load(assembly!).GetType(typeName!)!.GetMethod(methodName!)!;
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var columnarMethod = loadScope.Assembly.GetType(typeName!)!.GetMethod(methodName!)!;
 
         foreach (var args in argSets)
         {
@@ -5809,7 +5837,8 @@ class B
     {
         var (ok, assembly, typeName, methodNames) = RouteColumnarProgram(source);
         Assert.True(ok, $"Columnar program codegen declined a source the multi-function gate expects:\n{source}");
-        var type = System.Reflection.Assembly.Load(assembly!).GetType(typeName!)!;
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
         foreach (var (func, args) in calls)
         {
             Assert.Contains(func, methodNames!);
@@ -5840,7 +5869,8 @@ class B
     {
         var (ok, assembly, typeName, methodNames) = RouteColumnarMultiFile(sources);
         Assert.True(ok, "Columnar multi-file codegen declined a source set the gate expects it to emit.");
-        var type = System.Reflection.Assembly.Load(assembly!).GetType(typeName!)!;
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var type = loadScope.Assembly.GetType(typeName!)!;
         foreach (var (func, args) in calls)
         {
             Assert.Contains(func, methodNames!);
@@ -5908,7 +5938,8 @@ class B
         var (ok, assembly, typeName, methodName) = RouteColumnarEmit(source);
         Assert.True(ok, $"Columnar codegen declined a supported spike function:\n{source}");
         Assert.Equal(funcName, methodName);
-        var asm = System.Reflection.Assembly.Load(assembly!);
+        using var loadScope = CollectibleAssemblyScope.Load(assembly!);
+        var asm = loadScope.Assembly;
         var type = asm.GetType(typeName!);
         Assert.NotNull(type);
         var method = type!.GetMethod(methodName!);
@@ -6065,7 +6096,8 @@ class B
             var result = new MultiFileCompiler(projectRoot, config)
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenize = programType.GetMethod("TokenizeMetadataWithIndentationInto", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -6192,7 +6224,8 @@ class B
                 .CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(e => e.Message)));
 
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenize = programType.GetMethod(
@@ -7812,7 +7845,8 @@ class OtherZetaType {
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
             Assert.True(File.Exists(outputPath));
 
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var tokenizeCount = programType.GetMethod(
@@ -17144,7 +17178,8 @@ func main() {
             var result = compiler.CompileToIlAssembly("NSharpLang.Compiler.Dogfood", outputPath);
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.Message)));
 
-            var assembly = Assembly.Load(File.ReadAllBytes(outputPath));
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var programType = assembly.GetType("Program")
                 ?? throw new InvalidOperationException("Dogfood assembly did not emit Program.");
             var selectBest = programType.GetMethod(

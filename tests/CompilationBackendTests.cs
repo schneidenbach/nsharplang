@@ -518,7 +518,8 @@ class Square : IShape {
 
             Assert.True(result.Success);
 
-            var assembly = Assembly.LoadFile(outputPath);
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             Assert.NotNull(assembly.GetType("InteropLib.MathUtils", throwOnError: false));
             Assert.NotNull(assembly.GetType("InteropLib.Geometry.IShape", throwOnError: false));
             Assert.NotNull(assembly.GetType("InteropLib.Geometry.Square", throwOnError: false));
@@ -693,7 +694,8 @@ enum Status: string {
 
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors.Select(error => error.FormatForMsBuild())));
 
-            var assembly = Assembly.LoadFile(outputPath);
+            using var loadScope = CollectibleAssemblyScope.LoadFromFile(outputPath);
+            var assembly = loadScope.Assembly;
             var addressType = assembly.GetType("NSharpInteropLib.Models.Address", throwOnError: true)!;
             var instance = Activator.CreateInstance(addressType, "123 Main St", "Springfield", "62701");
             var fullAddress = addressType.GetProperty("FullAddress")!.GetValue(instance);
