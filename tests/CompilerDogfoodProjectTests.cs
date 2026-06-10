@@ -4833,8 +4833,8 @@ class B
         Assert.True(lambdaMethods.Count >= 7, $"expected >=7 synthesized lambda methods, got {lambdaMethods.Count}");
 
         // DECLINES (each routes to the C# path):
-        // a CAPTURE (an enclosing local referenced in the body — display classes are L3).
-        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 10\n    return apply(x => x + n, v)\n}\n").Ok);
+        // (a never-mutated CAPTURE now EMITS via the L3a display-class lowering — coverage in
+        // ColumnarCodegen_Parity_CapturingLambdas.)
         // a BLOCK body (statement-bodied lambdas are a later rung).
         Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    return apply(x => {\n        return x * 2\n    }, v)\n}\n").Ok);
         // a `:=` lambda (no inference source — the pipeline now rejects it with NL203).
@@ -4917,10 +4917,69 @@ class B
         Assert.False(RouteColumnarProgram("func f(): int {\n    let n: int\n    n = 5\n    return n\n}\n").Ok);
         // a lambda ARITY mismatch against the declared delegate.
         Assert.False(RouteColumnarProgram("func f(): int {\n    let g: Func<int, int> = (a, b) => a + b\n    return 2\n}\n").Ok);
-        // a CAPTURE in a typed-local lambda.
-        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    let g: Func<int, int> = x => x + v\n    return g(1)\n}\n").Ok);
+        // (a never-mutated CAPTURE in a typed-local lambda now EMITS via L3a — see
+        // ColumnarCodegen_Parity_CapturingLambdas, which parity-gates the same shape.)
         // SHADOWING a parameter.
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    let n: int = 5\n    return n\n}\n").Ok);
+    }
+
+    // Lambdas arc L3a: CAPTURING lambdas — NEVER-MUTATED captures only. A by-value snapshot into a display
+    // class (`<>c__DisplayClass{n}`: public field per capture, the lambda as an INSTANCE method, the
+    // delegate bound to the closure instance) is semantics-IDENTICAL to the oracle's lowering exactly when
+    // nothing in the enclosing body writes the captured name — the oracle only box-lifts MUTATED captures;
+    // un-mutated ones are snapshot fields there too. The whole-body write scan covers assignments (incl.
+    // compound/for-increments), foreach loop variables, tuple deconstructions, and writes INSIDE the lambda
+    // itself; capture-opaque node kinds (casts, explicit-generic callees, match/pattern kinds, object
+    // initializers) decline the capturing branch because their identifier children are not value reads.
+    // Display classes bake BEFORE the Program type (the oracle's closure-types-first order; spike-proven).
+    [Fact]
+    public void ColumnarCodegen_Parity_CapturingLambdas()
+    {
+        var prog =
+            "func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\n" +
+            "func applyS(t: Func<string, string>, s: string): string {\n    return t(s)\n}\n\n" +
+            "func captureLocal(v: int): int {\n    n := 10\n    return apply(x => x + n, v)\n}\n\n" +
+            "func captureParam(v: int, k: int): int {\n    return apply(x => x * k, v)\n}\n\n" +
+            "func captureTwo(v: int): int {\n    a := 100\n    b := 20\n    return apply(x => x + a + b, v)\n}\n\n" +
+            "func captureTyped(v: int): int {\n    n := 7\n    let g: Func<int, int> = x => x * n\n    return g(v)\n}\n\n" +
+            "func captureString(s: string): string {\n    suffix := \"!\"\n    return applyS(x => x + suffix, s)\n}\n\n" +
+            "func captureMixed(v: int): int {\n    n := 3\n    return apply(x => x + n, v) + apply(x => x * 2, v)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("captureLocal", new object[] { 5 }),
+            ("captureParam", new object[] { 5, 3 }),
+            ("captureTwo", new object[] { 3 }),
+            ("captureTyped", new object[] { 6 }),
+            ("captureString", new object[] { "hi" }),
+            ("captureMixed", new object[] { 4 }));
+
+        // Metadata: capturing lambdas produce module-level display classes; the non-capturing one in
+        // captureMixed stays a static <Lambda>_ method on the program type.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the capturing-lambdas program");
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
+        Assert.True(loaded.GetTypes().Count(t => t.Name.StartsWith("<>c__DisplayClass", StringComparison.Ordinal)) >= 5,
+            "expected >=5 display classes");
+
+        // DECLINES (mutation in EITHER direction breaks snapshot equivalence — the oracle box-lifts there):
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 10\n    n = 11\n    return apply(x => x + n, v)\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 10\n    r := apply(x => x + n, v)\n    n = 12\n    return r + n\n}\n").Ok);
+        // a FOREACH loop variable (re-stored every iteration — a write the kind-14 scan alone would miss).
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(a: int[]): int {\n    total := 0\n    foreach e in a {\n        total = total + apply(x => x + e, 1)\n    }\n    return total\n}\n").Ok);
+        // a NESTED capture chain (the inner lambda's sub-emitter has no body root to scan).
+        Assert.False(RouteColumnarProgram("func applyBoth(o: Func<int, Func<int, int>>): int {\n    return 1\n}\n\nfunc f(v: int): int {\n    n := 5\n    return applyBoth(x => y => x + y + n)\n}\n").Ok);
+        // a WRITE to the capture INSIDE the lambda body.
+        Assert.False(RouteColumnarProgram("func run(a: Action<int>, v: int): int {\n    a(v)\n    return v\n}\n\nfunc f(v: int): int {\n    n := 10\n    return run(x => n = x, v)\n}\n").Ok);
+        // a capture inside a MATCH-bearing body (capture-opaque kind — arm bindings are not value reads).
+        Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc f(v: int): int {\n    n := 1\n    return apply(x => match x {\n        0 => n,\n        _ => x + n\n    }, v)\n}\n").Ok);
+        // ADVERSARIAL-REVIEW REGRESSIONS (both probe-confirmed against the pre-fix emitter):
+        // a MEMBER write through a captured value-struct local (`b.V = 99`) — the bare-ident write scan
+        // missed it and the by-value snapshot DIVERGED from the oracle's box-lift (columnar 101 vs oracle
+        // 199); the scan now walks member/index assignment targets to the root receiver.
+        Assert.False(RouteColumnarProgram("struct Box {\n    V: int\n}\n\nfunc test(a: int): int {\n    b := new Box { V: a }\n    let f: Func<int, int> = x => x + b.V\n    b.V = 99\n    return f(1) + b.V\n}\n").Ok);
+        // a capture typed by a generic METHOD parameter — the display-class field signature would embed an
+        // out-of-context MVAR (saves fine, TypeLoadException at load); ContainsGenericParameters declines.
+        Assert.False(RouteColumnarProgram("func useIt<U>(v: U): int {\n    return 7\n}\n\nfunc apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nfunc test<T>(seed: T, v: int): int {\n    let f: Func<int, int> = x => x + useIt(seed)\n    return apply(f, v)\n}\n").Ok);
     }
 
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either

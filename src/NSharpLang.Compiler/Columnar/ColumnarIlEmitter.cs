@@ -445,7 +445,8 @@ public sealed class ColumnarIlEmitter
         ColumnarStructDef? enclosingType = null,
         bool isConstructorBody = false,
         TypeBuilder? programType = null,
-        int[]? lambdaCounter = null)
+        int[]? lambdaCounter = null,
+        List<TypeBuilder>? displayClasses = null)
     {
         _isConstructorBody = isConstructorBody;
         _kinds = kinds;
@@ -468,6 +469,7 @@ public sealed class ColumnarIlEmitter
         _enclosingType = enclosingType ?? currentStruct;
         _programType = programType;
         _lambdaCounter = lambdaCounter;
+        _displayClasses = displayClasses;
     }
 
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
@@ -476,6 +478,12 @@ public sealed class ColumnarIlEmitter
     // collide (a lambda body's sub-emitter can itself synthesize nested lambdas).
     private readonly TypeBuilder? _programType;
     private readonly int[]? _lambdaCounter;
+    // CAPTURING lambdas (L3a): display-class TypeBuilders collected here bake BEFORE the Program type at
+    // finalization (the oracle's closure-types-first order). Shared across the program's emitter instances
+    // like the counter; null in contexts that do not model lambdas.
+    private readonly List<TypeBuilder>? _displayClasses;
+    // The current body's root statement (set by EmitBody) — anchors the L3a never-mutated capture scan.
+    private int _bodyRoot = -1;
 
     // The types the type-aware emitter currently handles: int/bool/long/ulong scalars (double is a later
     // slice), plus a single-dimension ARRAY of a supported element type (e.g. int[], long[], ulong[]). (Mixed
@@ -757,26 +765,199 @@ public sealed class ColumnarIlEmitter
             signatureTypes[p] = invokeParams[p].ParameterType;
             paramTypeMap[paramName] = signatureTypes[p];
         }
-        var lambdaMethod = _programType.DefineMethod(
-            "<Lambda>_" + _lambdaCounter[0]++,
-            MethodAttributes.Private | MethodAttributes.Static, invoke.ReturnType, signatureTypes);
-        var lambdaIl = lambdaMethod.GetILGenerator();
-        var subEmitter = new ColumnarIlEmitter(
-            _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
-            _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
-            _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
-            programType: _programType, lambdaCounter: _lambdaCounter);
-        var bodyNode = Child(lambdaIdx, paramCount);
-        if (!subEmitter.EmitExpression(bodyNode, out var bodyType) || bodyType != invoke.ReturnType)
-            return false;
-        lambdaIl.Emit(OpCodes.Ret);
         var delegateCtor = expectedDelegateType.GetConstructor(new[] { typeof(object), typeof(IntPtr) });
         if (delegateCtor == null)
             return false;
-        _il.Emit(OpCodes.Ldnull);
-        _il.Emit(OpCodes.Ldftn, lambdaMethod);
+        var bodyNode = Child(lambdaIdx, paramCount);
+
+        // CAPTURE SET (L3a): kind-6 identifiers in the body that resolve in the ENCLOSING scope and are not
+        // bound by this (or a nested) lambda's parameters. Empty -> the L1b static lowering below.
+        var captures = new SortedSet<string>(StringComparer.Ordinal);
+        CollectLambdaCaptures(bodyNode, new HashSet<string>(ordinals.Keys, StringComparer.Ordinal), captures);
+
+        if (captures.Count == 0)
+        {
+            var lambdaMethod = _programType.DefineMethod(
+                "<Lambda>_" + _lambdaCounter[0]++,
+                MethodAttributes.Private | MethodAttributes.Static, invoke.ReturnType, signatureTypes);
+            var lambdaIl = lambdaMethod.GetILGenerator();
+            var subEmitter = new ColumnarIlEmitter(
+                _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
+                _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
+                _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
+                programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
+            if (!subEmitter.EmitExpression(bodyNode, out var bodyType) || bodyType != invoke.ReturnType)
+                return false;
+            lambdaIl.Emit(OpCodes.Ret);
+            _il.Emit(OpCodes.Ldnull);
+            _il.Emit(OpCodes.Ldftn, lambdaMethod);
+            _il.Emit(OpCodes.Newobj, delegateCtor);
+            return true;
+        }
+
+        // CAPTURING lambda (L3a — NEVER-MUTATED captures only): a by-value snapshot into a display class is
+        // semantics-identical to the oracle's shared-cell lowering exactly when NOTHING in the enclosing body
+        // writes the captured name (the oracle only box-lifts MUTATED captures; un-mutated ones are snapshot
+        // fields there too). The whole-body write scan needs the body root — null inside a lambda's own
+        // sub-emitter, so nested capture CHAINS decline. The capture scan reads kind-6 nodes positionally,
+        // so node kinds whose children are NOT ordinary expressions (casts and explicit-generic callees carry
+        // TYPE-kernel nodes with a colliding kind space; match arms and object initializers carry binding/
+        // field-name identifiers that are not value reads) decline the capturing branch outright.
+        if (_bodyRoot < 0 || _displayClasses == null
+            || ContainsCaptureOpaqueKind(bodyNode)
+            || IsAnyNameWritten(_bodyRoot, captures))
+            return false;
+        var captureTypes = new Type[captures.Count];
+        var captureNames = new string[captures.Count];
+        var ci = 0;
+        foreach (var captureName in captures)
+        {
+            var captureType = _locals.TryGetValue(captureName, out var capturedLocal)
+                ? capturedLocal.LocalType
+                : _paramTypes[captureName];
+            // A capture typed by (or embedding) a generic METHOD parameter would put an out-of-context
+            // MVAR into the display class's field signature — unencodable CLI metadata that saves but
+            // throws TypeLoadException at load (adversarial-review finding, probe-confirmed). Decline.
+            if (!IsSupportedType(captureType)
+                || captureType.IsGenericParameter || captureType.ContainsGenericParameters)
+                return false;
+            captureNames[ci] = captureName;
+            captureTypes[ci] = captureType;
+            ci++;
+        }
+        var moduleBuilder = (ModuleBuilder)_programType.Module;
+        var display = moduleBuilder.DefineType(
+            "<>c__DisplayClass" + _lambdaCounter[0]++,
+            TypeAttributes.NotPublic | TypeAttributes.Class | TypeAttributes.Sealed);
+        var displayCtor = display.DefineDefaultConstructor(MethodAttributes.Public);
+        var displayFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
+        for (var f = 0; f < captureNames.Length; f++)
+            displayFields[captureNames[f]] = display.DefineField(captureNames[f], captureTypes[f], FieldAttributes.Public);
+        var displayDef = new ColumnarStructDef(display, captureNames, displayFields, isReference: true);
+        // The lambda becomes an INSTANCE method on the display class: arg 0 is the closure, so parameter
+        // ordinals shift +1; captured names fall through the sub-emitter's locals/params to the
+        // `_currentStruct` field chain — `ldarg.0; ldfld` — which is exactly the snapshot-read emission.
+        var shiftedOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var pair in ordinals)
+            shiftedOrdinals[pair.Key] = pair.Value + 1;
+        var closureMethod = display.DefineMethod(
+            "<Lambda>", MethodAttributes.Public | MethodAttributes.HideBySig, invoke.ReturnType, signatureTypes);
+        var closureIl = closureMethod.GetILGenerator();
+        var closureEmitter = new ColumnarIlEmitter(
+            _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
+            _source, shiftedOrdinals, paramTypeMap, invoke.ReturnType, closureIl, _siblings,
+            _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
+            programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
+        if (!closureEmitter.EmitExpression(bodyNode, out var closureBodyType) || closureBodyType != invoke.ReturnType)
+            return false;
+        closureIl.Emit(OpCodes.Ret);
+        _displayClasses.Add(display);
+        // Use site: construct the closure, snapshot every capture, bind the delegate to it.
+        _il.Emit(OpCodes.Newobj, displayCtor);
+        for (var f = 0; f < captureNames.Length; f++)
+        {
+            _il.Emit(OpCodes.Dup);
+            if (_locals.TryGetValue(captureNames[f], out var sourceLocal))
+                _il.Emit(OpCodes.Ldloc, sourceLocal);
+            else
+                EmitLoadArgument(_paramOrdinals[captureNames[f]]);
+            _il.Emit(OpCodes.Stfld, displayFields[captureNames[f]]);
+        }
+        _il.Emit(OpCodes.Ldftn, closureMethod);
         _il.Emit(OpCodes.Newobj, delegateCtor);
         return true;
+    }
+
+    // Collect the CAPTURES of a lambda body: kind-6 identifiers resolving in the enclosing locals/params
+    // and not bound by this lambda's (or a nested lambda's) parameter list. TYPE-kernel subtrees never
+    // contribute (their kind space collides with expression kinds — a type node can masquerade as kind 6
+    // with a VALUELESS span): the walk skips the type child of casts (16) / new-expressions (15) and all
+    // children of generic callees (38), and the kind-6 branch refuses value-less nodes outright (a
+    // TYPE-tuple node carries nameStart -1 — Text() would throw). Field-name identifiers inside the
+    // remaining capture-opaque kinds are NOT excluded here — the capturing branch declines those bodies.
+    private void CollectLambdaCaptures(int node, HashSet<string> bound, SortedSet<string> captures)
+    {
+        var kind = _kinds[node];
+        if (kind == 38)
+            return; // children are TYPE subtrees only; the callee name lives in the value span.
+        if (kind == 39)
+        {
+            var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
+            var nestedParams = _childCount[node] - 1;
+            for (var p = 0; p < nestedParams; p++)
+            {
+                if (_kinds[Child(node, p)] == 6)
+                    nestedBound.Add(Text(Child(node, p)));
+            }
+            CollectLambdaCaptures(Child(node, nestedParams), nestedBound, captures);
+            return;
+        }
+        if (kind == 6)
+        {
+            if (_valueStarts[node] < 0)
+                return; // a value-less masquerading TYPE node — never a name read.
+            var name = Text(node);
+            if (!bound.Contains(name) && (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name)))
+                captures.Add(name);
+        }
+        var first = (kind == 15 || kind == 16) ? 1 : 0; // child[0] of new/cast is the TYPE subtree.
+        for (var c = first; c < _childCount[node]; c++)
+            CollectLambdaCaptures(Child(node, c), bound, captures);
+    }
+
+    // Kinds whose identifier CHILDREN are not value reads — match/pattern kinds (18/19/32-35, 37) carry
+    // arm BINDINGS; object initializers (36) carry field NAMES. A capturing lambda containing any of them
+    // declines (under-accept); casts/new/generic-callees are handled precisely by the capture walk above.
+    private bool ContainsCaptureOpaqueKind(int node)
+    {
+        var k = _kinds[node];
+        if (k == 18 || k == 19 || (k >= 32 && k <= 37))
+            return true;
+        for (var c = 0; c < _childCount[node]; c++)
+        {
+            if (ContainsCaptureOpaqueKind(Child(node, c)))
+                return true;
+        }
+        return false;
+    }
+
+    // True when any statement in the subtree WRITES one of `names`: an assignment (kind 14, incl. the
+    // compound forms — the for-loop increment is one of these) targeting the bare identifier OR any
+    // member/index path whose ROOT receiver is the name (`b.V = 99` on a captured value-struct local
+    // diverges from the oracle, which box-lifts member-mutated value-type captures — adversarial-review
+    // finding, probe-confirmed 101 vs 199; root-receiver matching also conservatively declines reference-
+    // type member writes, which would be benign — under-accept), a foreach (kind 29) whose loop variable
+    // re-stores per iteration, or a tuple deconstruction (kind 30) binding it. `:=`/typed declarations
+    // cannot RE-declare an existing name (declined at declaration), so they are not writes.
+    private bool IsAnyNameWritten(int node, SortedSet<string> names)
+    {
+        switch (_kinds[node])
+        {
+            case 14:
+                var target = Child(node, 0);
+                while ((_kinds[target] == 8 || _kinds[target] == 10) && _childCount[target] > 0)
+                    target = Child(target, 0); // walk member/index paths to the root receiver.
+                if (_kinds[target] == 6 && _valueStarts[target] >= 0 && names.Contains(Text(target)))
+                    return true;
+                break;
+            case 29:
+                if (names.Contains(Text(node)))
+                    return true;
+                break;
+            case 30:
+                for (var n = 0; n < _childCount[node] - 1; n++)
+                {
+                    if (_kinds[Child(node, n)] == 6 && names.Contains(Text(Child(node, n))))
+                        return true;
+                }
+                break;
+        }
+        for (var c = 0; c < _childCount[node]; c++)
+        {
+            if (IsAnyNameWritten(Child(node, c), names))
+                return true;
+        }
+        return false;
     }
 
     // Emit a ZERO-PARAM expression-bodied lambda with a BODY-INFERRED return type (`zero := () => 99` —
@@ -799,7 +980,7 @@ public sealed class ColumnarIlEmitter
             _source, new Dictionary<string, int>(StringComparer.Ordinal),
             new Dictionary<string, Type>(StringComparer.Ordinal), typeof(void), lambdaIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
-            programType: _programType, lambdaCounter: _lambdaCounter);
+            programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
         if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out var bodyType))
             return false;
         lambdaIl.Emit(OpCodes.Ret);
@@ -2277,6 +2458,7 @@ public sealed class ColumnarIlEmitter
         // lambda counter ride along so bodies can synthesize `<Lambda>_{n}` static methods (L1b — interleaved
         // DefineMethod and forward ldftn both bake at Save, spike-proven).
         var lambdaCounter = new int[1];
+        var displayClasses = new List<TypeBuilder>();
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
@@ -2284,7 +2466,7 @@ public sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
                 source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
-                programType: type, lambdaCounter: lambdaCounter);
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
         }
@@ -2302,7 +2484,7 @@ public sealed class ColumnarIlEmitter
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, job.ReturnType, mil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry,
                 currentStruct: job.IsStatic ? null : job.Struct, enclosingType: job.Struct,
-                programType: type, lambdaCounter: lambdaCounter);
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             // A property SETTER body is void (it assigns a field and falls through); a method/getter is a value
             // function (always-returns). EmitBody handles both — pass isVoid by the job's declared return type.
             if (!emitter.EmitBody(job.Method.BodyRoot, job.ReturnType == typeof(void)))
@@ -2320,7 +2502,7 @@ public sealed class ColumnarIlEmitter
             var emitter = new ColumnarIlEmitter(
                 job.Ctor.Body.Kinds, job.Ctor.Body.ValueStarts, job.Ctor.Body.ValueLengths, job.Ctor.Body.ChildStart, job.Ctor.Body.ChildCount, job.Ctor.Body.ChildIndices,
                 source, job.Ordinals, job.ParamTypes, typeof(void), cil, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, job.Struct,
-                isConstructorBody: true, programType: type, lambdaCounter: lambdaCounter);
+                isConstructorBody: true, programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
             if (job.Ctor.ChainInitKind != 0)
             {
                 // A `: this(...)` (kind 1) or `: base(...)` (kind 2) CHAINING constructor delegates field assignment
@@ -2392,6 +2574,10 @@ public sealed class ColumnarIlEmitter
         foreach (var baseTb in unionBaseBuilders)
             baseTb.CreateType();
 
+        // Display classes (capturing lambdas) bake BEFORE the Program type — the oracle's
+        // closure-types-first order; their instance methods are referenced by ldftn from Program bodies.
+        foreach (var displayTb in displayClasses)
+            displayTb.CreateType();
         type.CreateType();
         using var stream = new MemoryStream();
         builder.Save(stream);
@@ -2406,6 +2592,10 @@ public sealed class ColumnarIlEmitter
     // unreachable code).
     private bool EmitBody(int bodyRoot, bool isVoid)
     {
+        // The body root anchors the never-mutated capture scan (L3a): a lambda may capture an enclosing
+        // local/param only when NOTHING in this whole body writes it. Null inside a lambda's own
+        // sub-emitter (EmitExpression is entered directly), so nested capture chains decline.
+        _bodyRoot = bodyRoot;
         if (!isVoid)
             return AlwaysReturns(bodyRoot) && EmitStatement(bodyRoot);
         var fallsThrough = !AlwaysReturns(bodyRoot);
