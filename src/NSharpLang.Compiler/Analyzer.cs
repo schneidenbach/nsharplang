@@ -10136,6 +10136,24 @@ public class Analyzer : IDisposable
         {
             type = ResolveDeclaredType(newExpr.Type);
 
+            // A locally-declared GENERIC type constructed without type arguments previously
+            // emitted an open-type token (BadImageFormatException at runtime). N# does not
+            // infer class type arguments from constructor arguments (the C# rule) — they
+            // must be explicit.
+            if (newExpr.Type is SimpleTypeReference bareTypeReference
+                && !bareTypeReference.Name.Contains('.')
+                && GetDeclaredTypeParameterCount(type) > 0)
+            {
+                var requiredCount = GetDeclaredTypeParameterCount(type);
+                Error(
+                    ErrorCode.InvalidTypeArgument,
+                    $"Generic type '{bareTypeReference.Name}' requires {requiredCount} type argument(s)",
+                    bareTypeReference.Line,
+                    bareTypeReference.Column,
+                    $"Specify them explicitly: 'new {bareTypeReference.Name}<...>(...)'",
+                    bareTypeReference.Name.Length);
+            }
+
             // Special case: if the type is a qualified name like "Result.Success",
             // it might be a union case. Check if the base type is a union.
             if (newExpr.Type is SimpleTypeReference simpleRef && simpleRef.Name.Contains('.'))
@@ -11019,6 +11037,8 @@ public class Analyzer : IDisposable
                 _reportUnresolvedTypes = previousReport;
             }
 
+            var declaredTypeParameterCount = GetDeclaredTypeParameterCount(resolvedName);
+
             // Report the generic name as unresolved only when it is not compiler-known
             // (Result, Task, Func, ...) and the arity-qualified external probe also misses
             // (e.g. `Lst<int>` instead of `List<int>`).
@@ -11037,10 +11057,47 @@ public class Analyzer : IDisposable
                     BuildUnresolvedTypeSuggestion(generic.Name),
                     generic.Name.Length);
             }
+
+            // Arity validation for locally-declared generic types: a wrong count previously
+            // sailed through analysis and the emitter produced an unloadable assembly
+            // (TypeLoadException at runtime). Reported at declared-type positions only, with
+            // the same dedupe as NL201 (this resolver runs in both analysis passes).
+            if (previousReport && declaredTypeParameterCount >= 0
+                && declaredTypeParameterCount != generic.TypeArguments.Count
+                && _reportedUnresolvedTypeRefs.Add((generic.Name, generic.Line, generic.Column)))
+            {
+                var message = declaredTypeParameterCount == 0
+                    ? $"'{generic.Name}' is not generic, but {generic.TypeArguments.Count} type argument(s) were provided"
+                    : $"Generic type '{generic.Name}' takes {declaredTypeParameterCount} type argument(s), but {generic.TypeArguments.Count} were provided";
+                Error(
+                    ErrorCode.InvalidTypeArgument,
+                    message,
+                    generic.Line,
+                    generic.Column,
+                    declaredTypeParameterCount == 0
+                        ? $"Remove the type arguments: '{generic.Name}'"
+                        : $"Match the declaration's type parameter count for '{generic.Name}'",
+                    generic.Name.Length);
+            }
         }
 
         return new GenericTypeInfo(generic.Name, typeArguments);
     }
+
+    /// <summary>
+    /// The declared generic-parameter count for a locally-declared type, or -1 when the
+    /// resolved info carries no declaration (external/built-in/unresolved) and arity cannot
+    /// be validated locally.
+    /// </summary>
+    private static int GetDeclaredTypeParameterCount(TypeInfo resolvedName)
+        => resolvedName switch
+        {
+            ClassTypeInfo classInfo => classInfo.Declaration.TypeParameters?.Count ?? 0,
+            StructTypeInfo structInfo => structInfo.Declaration.TypeParameters?.Count ?? 0,
+            RecordTypeInfo recordInfo => recordInfo.Declaration.TypeParameters?.Count ?? 0,
+            InterfaceTypeInfo interfaceInfo => interfaceInfo.Declaration.TypeParameters?.Count ?? 0,
+            _ => -1
+        };
 
     private TypeInfo ResolveAnonymousUnionType(UnionTypeReference union)
     {

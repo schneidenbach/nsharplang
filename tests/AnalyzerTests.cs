@@ -9132,6 +9132,51 @@ func bad(a: Vec2, b: Vec2): Vec2 {
     }
 
     [Fact]
+    public void GenericNew_MissingTypeArguments_ReportsInvalidTypeArgument()
+    {
+        // B2: `new Box(5)` on a generic class previously emitted an open-type token and
+        // crashed at runtime with BadImageFormatException. N# requires explicit type
+        // arguments (no class-type-argument inference, the C# rule).
+        var result = Analyze("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box(5)\n    return 0\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Contains("requires 1 type argument", error.Message);
+    }
+
+    [Fact]
+    public void GenericNew_WrongArity_ReportsInvalidTypeArgument()
+    {
+        // B13: wrong type-argument count previously emitted an unloadable assembly
+        // (TypeLoadException at runtime).
+        var result = Analyze("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box<int, string>(5)\n    return 0\n}\n");
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.Contains("takes 1 type argument(s), but 2 were provided", error.Message);
+    }
+
+    [Fact]
+    public void GenericAnnotation_WrongArity_ReportsInvalidTypeArgument()
+    {
+        var result = Analyze("class Box<T> {\n    item: T\n}\n\nfunc Handle(input: Box<int, bool>) {\n    _ = input\n}\n");
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument && e.Message.Contains("takes 1 type argument(s), but 2 were provided"));
+    }
+
+    [Fact]
+    public void GenericNew_UnknownTypeArgument_ReportsTypeNotFound()
+    {
+        // B14 pin: `new Box<Nope>(5)` is diagnosed at analysis (NL201 on the type argument)
+        // instead of sailing through to IL emission.
+        var result = Analyze("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box<Nope>(5)\n    return 0\n}\n");
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.TypeNotFound && e.Message.Contains("'Nope'"));
+    }
+
+    [Fact]
+    public void GenericNew_CorrectArity_HasNoArityDiagnostics()
+    {
+        var result = Analyze("class Box<T> {\n    item: T\n\n    constructor(v: T) {\n        item = v\n    }\n}\n\nfunc Use(): int {\n    b := new Box<int>(5)\n    return b.item\n}\n");
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.InvalidTypeArgument);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeNotFound);
+    }
+
+    [Fact]
     public void ReferenceLoadFailure_SurfacedAsWarning_WhenTypeResolutionFails()
     {
         // A reference assembly that failed to load is the classic root cause behind a
