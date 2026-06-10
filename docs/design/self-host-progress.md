@@ -11,6 +11,36 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-09 — Generic-user-types ORACLE fix bundle 1/3: resolution defects B1 + B10 + B12 (`47bd7d2e`)
+
+First sub-bundle of the fix-oracle-first arc. All three resolution defects fixed with verify-first probes
+and 5 `ILCompiler_*` regression pins; 3921/3921 unit tests; gate green first try.
+
+- **B1 closed-generic member access**: `b.item`/properties on `Box<int>` — reflection member queries throw
+  on TypeBuilderInstantiation and the open-definition recursion dead-ended (uncreated `TypeBuilder.GetField`
+  throws too; only the METHOD path had its own bookkeeping). New
+  `FindInstanceFieldOnClosedGeneratedType`/`...AccessorOnClosedGeneratedType` walk the open chain and rebind
+  via `TypeBuilder.GetField/GetMethod`; typing substitutes closed args positionally (int, not object).
+  Generic BASE chains under closed derived types remain unsupported (null → existing diagnostics).
+- **B10**: `BindDeclaredConstructorCall` substitutes closed type args into the OPEN ctor parameter shapes
+  (`Holder<T>(i: Box<T>)` now binds `Box<int>`), fixing coercion types too.
+- **B12 was BROADER than the probe map**: generic instance methods failed on ALL user types — `DeclareMethod`
+  never called `DefineGenericParameters` (U degraded to object at definition; `MakeGenericMethod` threw).
+  Now mirrors `DeclareFunction`'s define→generic-params→Set* order (non-generic path byte-identical);
+  `EmitMethodBody` merges method+type generic params (method-first = innermost scope) — without this,
+  interpolating a value-type U emitted InvalidProgram IL that only verified for reference instantiations;
+  `BindDeclaredMethodCall` rebinds onto the closed receiver BEFORE `MakeGenericMethod` (`Box<int>.Pair<bool>`
+  composes; Reflection.Emit rejects the reverse) and falls back to declaration-resolved parameter types when
+  a MethodBuilderInstantiation can't enumerate parameters.
+
+**Sub-bundle 2 probes (done):** B14 is ALREADY FIXED by the NL201 slice (`new Box<Nope>(5)` → NL201 at
+check time — pin it); B2 (`new Box(5)`) still emits BadImageFormat garbage and B13 (wrong arity) emits
+TypeLoadException garbage — both need analyzer-side arity validation (InvalidTypeArgument NL207: missing
+args on a generic local type at `new`, count mismatch in ResolveGenericType for locally-declared generics).
+Next: that sub-bundle, then B4/B5 (generic records/structs emit).
+
+---
+
 ## 2026-06-09 — Oracle/toolchain hygiene bundle: NL201 unresolved types, NL923 reference-load failures, installer integrity (audit-driven)
 
 Four audit-driven commits landed between D-15b and the generic-user-types bundle (`d4be7eef`, `e9273453`,
