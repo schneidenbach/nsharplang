@@ -194,6 +194,9 @@ envelopes (`schemaVersion: 1` for `check` and `query diagnostics`):
 - `NL920` — source generator assembly was discovered but cannot be loaded.
 - `NL921` — a generator reported a diagnostic or crashed while running.
 - `NL922` — generated C# failed compilation.
+- `NL923` — a reference assembly failed to load or be fully inspected; emitted as an
+  advisory (non-blocking) warning alongside unresolved-name/type errors so the root
+  cause of a misleading "not found" is visible.
 
 Current limitations are explicit: generator runs are deterministic and clean
 stale generated output, but there is no persistent incremental cache yet;

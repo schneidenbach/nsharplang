@@ -155,6 +155,7 @@ Under the near-zero-warnings policy these are build-blocking **errors**, not war
 - `NL904`: ObsoleteUsage (promoted from warning to error)
 - `NL905`: PossibleNullAccess — flow-based; unguarded nullable dereference/index/call is an error. Emitted from semantic analysis (visible through `nlc check`, `nlc query diagnostics`, and LSP), not the linter.
 - `NL907`: Nullability — nullability mismatch (promoted from warning to error)
+- `NL923`: ReferenceLoadFailure — **advisory warning, never build-blocking** (the one deliberate exception to the errors-only policy in this range). Emitted when a reference assembly failed to load or be fully inspected AND the same analysis produced unresolved-name/type errors, so a broken reference can't masquerade as a plain "not found". Healthy compilations stay quiet even if a best-effort probe failed.
 
 **Removed:** `NL906` (UnnecessaryTypeAnnotation) is deleted — redundant type annotations are pure style, handled by the formatter rather than a diagnostic. The `NL906` slot is retired and not reused.
 

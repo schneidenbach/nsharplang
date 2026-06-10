@@ -9061,4 +9061,47 @@ func bad(a: Vec2, b: Vec2): Vec2 {
     return a + b
 }", ErrorCode.TypeMismatch);
     }
+
+    [Fact]
+    public void ReferenceLoadFailure_SurfacedAsWarning_WhenTypeResolutionFails()
+    {
+        // A reference assembly that failed to load is the classic root cause behind a
+        // misleading "name not found" — NL923 must pair the two so the failure is diagnosable.
+        // `MissingExternalType.Create()` resolves the receiver via external type lookup and
+        // reports UndefinedVariable when it is not found (the analyzer's unresolved-name signal).
+        var lexer = new Lexer("func Main() {\n    x := MissingExternalType.Create()\n}\n", "test.nl");
+        var parser = new Parser(lexer.Tokenize());
+        var unit = parser.ParseCompilationUnit();
+
+        using var analyzer = new Analyzer();
+        analyzer.LoadSystemAssemblies();
+        analyzer.RecordReferenceLoadFailure("/refs/Broken.dll", new IOException("simulated corrupt reference"));
+
+        var result = analyzer.Analyze(unit);
+
+        Assert.Contains(result.Errors, e => e.Severity == ErrorSeverity.Error);
+        var warning = Assert.Single(result.Errors, e => e.Code == ErrorCode.ReferenceLoadFailure);
+        Assert.Equal(ErrorSeverity.Warning, warning.Severity);
+        Assert.Contains("/refs/Broken.dll", warning.Message);
+        Assert.Contains("simulated corrupt reference", warning.Message);
+    }
+
+    [Fact]
+    public void ReferenceLoadFailure_NotSurfaced_WhenAnalysisIsClean()
+    {
+        // Best-effort probe failures must stay quiet when every type resolved — healthy
+        // compilations should not warn about assemblies they never needed.
+        var lexer = new Lexer("func Add(a: int, b: int): int {\n    return a + b\n}\n", "test.nl");
+        var parser = new Parser(lexer.Tokenize());
+        var unit = parser.ParseCompilationUnit();
+
+        using var analyzer = new Analyzer();
+        analyzer.LoadSystemAssemblies();
+        analyzer.RecordReferenceLoadFailure("/refs/Broken.dll", new IOException("simulated corrupt reference"));
+
+        var result = analyzer.Analyze(unit);
+
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.ReferenceLoadFailure);
+        Assert.False(result.HasErrors);
+    }
 }

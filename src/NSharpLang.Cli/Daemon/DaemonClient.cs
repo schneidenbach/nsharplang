@@ -85,7 +85,7 @@ public static class DaemonClient
             // Daemon not running or socket stale — clean up only when connect proved it stale.
             if (ShouldDeleteStaleSocket(ex))
             {
-                try { File.Delete(socketPath); } catch { }
+                try { File.Delete(socketPath); } catch { /* best-effort cleanup of a stale socket */ }
             }
             return null;
         }
@@ -130,7 +130,7 @@ public static class DaemonClient
             // Socket exists but daemon is dead — clean up only when connect proved it stale.
             if (ShouldDeleteStaleSocket(ex))
             {
-                try { File.Delete(socketPath); } catch { }
+                try { File.Delete(socketPath); } catch { /* best-effort cleanup of a stale socket */ }
             }
             return false;
         }

@@ -144,6 +144,12 @@ public class Analyzer : IDisposable
     private MetadataLoadContext? _mlc;
     private WellKnownTypes? _wellKnownTypes;
     private readonly List<Assembly> _mlcAssemblies = new();
+
+    // Reference assemblies that failed to load or be inspected, keyed by identity (file path
+    // or assembly name) → first failure detail. Surfaced as NL923 warnings whenever analysis
+    // also produced unresolved-type errors, so a broken reference can't silently masquerade
+    // as a plain "type not found".
+    private readonly Dictionary<string, string> _referenceLoadFailures = new(StringComparer.Ordinal);
     private readonly HashSet<string> _referencedPackageNames = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Type> _externalTypeCache = new(); // Cache for external type lookups
     private readonly Dictionary<string, bool> _externalNamespaceCache = new(); // Cache for namespace existence checks
@@ -381,7 +387,57 @@ public class Analyzer : IDisposable
 
         PopScope();
 
+        ReportReferenceLoadFailures();
+
         return new AnalysisResult(_errors, _semanticModel, _bindingMap);
+    }
+
+    /// <summary>
+    /// Surfaces recorded reference-load failures as NL923 warnings, but only when this
+    /// analysis also produced unresolved-type errors. A reference assembly that fails to
+    /// load is the classic root cause behind misleading "type not found" diagnostics; pairing
+    /// the two makes the failure diagnosable. Healthy compilations stay quiet even if a
+    /// best-effort probe failed along the way.
+    /// </summary>
+    private void ReportReferenceLoadFailures()
+    {
+        var resolverFailures = _metadataResolver?.LoadFailures;
+        if (_referenceLoadFailures.Count == 0 && (resolverFailures == null || resolverFailures.Count == 0))
+            return;
+
+        var hasUnresolvedTypeError = _errors.Any(e =>
+            e.Severity == ErrorSeverity.Error &&
+            e.Code is ErrorCode.TypeNotFound
+                or ErrorCode.CannotResolveType
+                or ErrorCode.UndefinedType
+                or ErrorCode.UndefinedVariable);
+        if (!hasUnresolvedTypeError)
+            return;
+
+        var failures = new SortedDictionary<string, string>(_referenceLoadFailures, StringComparer.Ordinal);
+        if (resolverFailures != null)
+        {
+            foreach (var (identity, detail) in resolverFailures)
+                failures.TryAdd(identity, detail);
+        }
+
+        foreach (var (identity, detail) in failures)
+        {
+            Warning(
+                ErrorCode.ReferenceLoadFailure,
+                $"Reference assembly '{identity}' could not be loaded or fully inspected ({detail}); types from it may be reported as not found.",
+                1, 1);
+        }
+    }
+
+    /// <summary>
+    /// Records a reference assembly that failed to load or be inspected. Internal so tests
+    /// can exercise the NL923 surfacing contract without fabricating corrupt binaries.
+    /// </summary>
+    internal void RecordReferenceLoadFailure(string identity, Exception exception)
+    {
+        if (!_referenceLoadFailures.ContainsKey(identity))
+            _referenceLoadFailures[identity] = $"{exception.GetType().Name}: {exception.Message}";
     }
 
     private void AnalyzeDeclaration(Declaration decl)
@@ -11151,7 +11207,11 @@ public class Analyzer : IDisposable
                         return new ReflectionTypeInfo(type);
                     }
                 }
-                catch { continue; }
+                catch (Exception ex)
+                {
+                    RecordReferenceLoadFailure(assembly.GetName().Name ?? assembly.ToString(), ex);
+                    continue;
+                }
             }
         }
 
@@ -11168,7 +11228,11 @@ public class Analyzer : IDisposable
                     return new ReflectionTypeInfo(matchingType);
                 }
             }
-            catch { continue; }
+            catch (Exception ex)
+            {
+                RecordReferenceLoadFailure(assembly.GetName().Name ?? assembly.ToString(), ex);
+                continue;
+            }
         }
 
         return null;
@@ -14042,7 +14106,11 @@ public class Analyzer : IDisposable
                     return resolved;
                 }
             }
-            catch { continue; }
+            catch (Exception ex)
+            {
+                RecordReferenceLoadFailure(assembly.GetName().Name ?? assembly.ToString(), ex);
+                continue;
+            }
         }
 
         return null;
@@ -14496,6 +14564,7 @@ public class Analyzer : IDisposable
         }
         catch (Exception ex)
         {
+            RecordReferenceLoadFailure(assemblyPath, ex);
             Console.Error.WriteLine($"Warning: Could not load assembly from {assemblyPath}: {ex.Message}");
         }
     }
@@ -14712,6 +14781,9 @@ public class Analyzer : IDisposable
                 }
                 catch (Exception ex)
                 {
+                    RecordReferenceLoadFailure(
+                        reference.Nuget ?? reference.Project ?? reference.ToString() ?? "<unknown reference>",
+                        ex);
                     Console.Error.WriteLine($"Warning: Failed to load reference: {ex.Message}");
                 }
             }
@@ -15036,6 +15108,16 @@ public class Analyzer : IDisposable
 
         private readonly List<string> _searchDirectories = new();
 
+        // Candidate assembly files that existed on disk but failed to load, keyed by path →
+        // first failure detail. Drained by Analyzer.ReportReferenceLoadFailures (NL923).
+        internal Dictionary<string, string> LoadFailures { get; } = new(StringComparer.Ordinal);
+
+        private void RecordLoadFailure(string path, Exception exception)
+        {
+            if (!LoadFailures.ContainsKey(path))
+                LoadFailures[path] = $"{exception.GetType().Name}: {exception.Message}";
+        }
+
         public void AddSearchDirectory(string directory)
         {
             if (!string.IsNullOrEmpty(directory) && Directory.Exists(directory) && !_searchDirectories.Contains(directory))
@@ -15054,7 +15136,11 @@ public class Analyzer : IDisposable
                 if (File.Exists(dllPath))
                 {
                     try { return context.LoadFromAssemblyPath(dllPath); }
-                    catch { continue; }
+                    catch (Exception ex)
+                    {
+                        RecordLoadFailure(dllPath, ex);
+                        continue;
+                    }
                 }
             }
 
@@ -15087,7 +15173,7 @@ public class Analyzer : IDisposable
             return null;
         }
 
-        private static Assembly? TryLoadFromNuGetPackageDir(MetadataLoadContext context, string packageDir, string simpleName)
+        private Assembly? TryLoadFromNuGetPackageDir(MetadataLoadContext context, string packageDir, string simpleName)
         {
             if (!Directory.Exists(packageDir)) return null;
 
@@ -15102,7 +15188,11 @@ public class Analyzer : IDisposable
                 if (File.Exists(dllPath))
                 {
                     try { return context.LoadFromAssemblyPath(dllPath); }
-                    catch { continue; }
+                    catch (Exception ex)
+                    {
+                        RecordLoadFailure(dllPath, ex);
+                        continue;
+                    }
                 }
             }
             return null;

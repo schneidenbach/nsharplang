@@ -639,7 +639,13 @@ public class DaemonServer
         if (paramsElement.Value.TryGetProperty(key, out var prop))
         {
             try { return JsonSerializer.Deserialize<T>(prop.GetRawText(), DaemonJsonOptions); }
-            catch { return default; }
+            catch (Exception ex)
+            {
+                // Tolerate the malformed param (caller treats it as absent) but leave a trace —
+                // a silently-dropped param turns protocol bugs into undebuggable client hangs.
+                Console.Error.WriteLine($"[daemon] Ignoring malformed request param '{key}' (expected {typeof(T).Name}): {ex.Message}");
+                return default;
+            }
         }
         return default;
     }

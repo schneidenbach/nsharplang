@@ -111,7 +111,11 @@ public static class DiagnosticCatalog
             // All compiler diagnostics are build-blocking errors. N# is strict: semantic and
             // correctness signals (visibility convention NL903, obsolete usage NL904, possible
             // null access NL905, nullability NL907) all block the build rather than warn.
-            const DiagnosticSeverity severity = DiagnosticSeverity.Error;
+            // Exception: NL923 is advisory context emitted alongside type-resolution errors
+            // (a reference assembly failed to load); it must never block a build on its own.
+            var severity = code == ErrorCode.ReferenceLoadFailure
+                ? DiagnosticSeverity.Warning
+                : DiagnosticSeverity.Error;
 
             yield return new DiagnosticDescriptor(
                 diagnosticCode,
