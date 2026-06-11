@@ -2746,9 +2746,9 @@ class B
             ("litMax", new object[] { }),
             ("readArr", new object[] { new ulong[] { 1UL, hi, 7UL }, 1 }));
 
-        // DECLINE: unary minus on ulong (C# forbids it), and casts involving ulong (not modelled).
+        // DECLINE: unary minus on ulong (C# forbids it). (Casts involving ulong — `(long)a` — are now
+        // ACCEPTED via the SC-5 cast grid; see ColumnarCodegen_Parity_WideningAndCasts.)
         Assert.False(RouteColumnarProgram("func f(a: ulong): ulong {\n    return -a\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("func f(a: ulong): long {\n    return (long)a\n}\n").Ok);
     }
 
     // string.IndexOf(char) (1-arg) and string.IndexOf(string, StringComparison) with the StringComparison ENUM
@@ -4019,6 +4019,67 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // SCALAR COMPLETENESS SC-5 (Phase D) — IMPLICIT WIDENING + NEGATIVE LITERALS + the FULL CAST GRID.
+    // TryEmitImplicitWidening emits C#'s implicit numeric conversions on the already-emitted value at
+    // every flow site (typed-locals, returns, reassignments, param stores, and ALL call-argument tiers):
+    // the int-promotable set -> long/double/float (conv.i8/r8/r4) or int (identity), long/float -> double,
+    // long -> float. uint/ulong SOURCES stay excluded (pinned). Negative literals (`s: short = -300` —
+    // unary minus wrapping the bare literal) join the constant-conversion rule for SIGNED targets.
+    // Explicit casts now cover the full scalar grid (conv.u1/i1/i2/u2/u4; int<->uint slot-mates are
+    // identity; ulong from uint zero-extends, from int sign-extends — C# unchecked semantics).
+    [Fact]
+    public void ColumnarCodegen_Parity_WideningAndCasts()
+    {
+        var prog =
+            "func takesLong(l: long): long {\n    return l\n}\n\n" +
+            "func takesDouble(d: double): double {\n    return d\n}\n\n" +
+            // WIDENING at: call args, typed-locals, returns, reassignment.
+            "func argWiden(n: int): long {\n    return takesLong(n)\n}\n\n" +
+            "func localWiden(n: int): double {\n    d: double = n\n    return d + 0.5\n}\n\n" +
+            "func returnWiden(n: int): long {\n    return n\n}\n\n" +
+            "func reassignWiden(n: int): long {\n    l: long = 0\n    l = n\n    return l\n}\n\n" +
+            "func byteWiden(b: byte): double {\n    return takesDouble(b)\n}\n\n" +
+            "func floatWiden(f: float): double {\n    return f\n}\n\n" +
+            // NEGATIVE literal adoption (signed targets).
+            "func negShort(): int {\n    s: short = -300\n    return s + 0\n}\n\n" +
+            "func negSbyte(): int {\n    v: sbyte = -127\n    return v + 0\n}\n\n" +
+            "func negLong(): long {\n    l: long = -2000000000\n    return l\n}\n\n" +
+            // EXPLICIT casts across the grid (truncations match C#'s conv opcodes exactly).
+            "func castDown(n: int): int {\n    b := (byte)n\n    s := (short)n\n    u := (ushort)n\n    v := (sbyte)n\n    return b + s + u + v\n}\n\n" +
+            "func castDouble(d: double): int {\n    return (int)d\n}\n\n" +
+            "func castULong(u: uint): ulong {\n    return (ulong)u\n}\n\n" +
+            "func castIntUint(n: int): uint {\n    return (uint)n\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("argWiden", new object[] { 5 }), ("argWiden", new object[] { -7 }),
+            ("localWiden", new object[] { 3 }),
+            ("returnWiden", new object[] { 9 }),
+            ("reassignWiden", new object[] { -4 }),
+            ("byteWiden", new object[] { (byte)200 }),
+            ("floatWiden", new object[] { 1.5f }),
+            ("negShort", System.Array.Empty<object>()),
+            ("negSbyte", System.Array.Empty<object>()),
+            ("negLong", System.Array.Empty<object>()),
+            ("castDown", new object[] { 300 }), ("castDown", new object[] { -1 }),
+            ("castDouble", new object[] { 3.7 }), ("castDouble", new object[] { -3.7 }),
+            ("castULong", new object[] { 4000000000U }),
+            ("castIntUint", new object[] { -1 }));
+
+        // DECLINES:
+        // an UNSUFFIXED literal beyond int range, even on a LONG target: the PIPELINE overflows at emit
+        // (NL103 "Arithmetic operation resulted in an overflow" — oracle defect bundle #13); columnar caps
+        // constant conversion at int range so it declines the same shapes (suffixed 5000000000L is fine).
+        Assert.False(RouteColumnarProgram("func f(): long {\n    l: long = 5000000000\n    return l\n}\n").Ok);
+        // the exact MINVALUE negative literals (`v: sbyte = -128`): the PIPELINE rejects them NL202 —
+        // its negation range check is off by one (oracle defect bundle #14); columnar matches the decline.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    v: sbyte = -128\n    return v + 0\n}\n").Ok);
+        // a NEGATIVE literal on an UNSIGNED target (the pipeline's NL202).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    b: byte = -1\n    return b + 0\n}\n").Ok);
+        // NARROWING without a cast (`l` into an int — the pipeline requires the explicit cast).
+        Assert.False(RouteColumnarProgram("func f(l: long): int {\n    n: int = l\n    return n\n}\n").Ok);
+        // uint/ulong SOURCES never widen implicitly columnar-side (extension subtleties — pinned).
+        Assert.False(RouteColumnarProgram("func g(d: double): double {\n    return d\n}\n\nfunc f(u: uint): double {\n    return g(u)\n}\n").Ok);
+    }
+
     // SCALAR COMPLETENESS SC-4 (Phase D) — SMALL-INT SCALARS (byte/sbyte/short/ushort) + uint. All are
     // i4-slot types: loads sign/zero-extend by the storage type, so the small ints join char in the ECMA
     // §12.4.7 INT-PROMOTION set (any mix — `b + s` — promotes to int with NO conversion IL; arithmetic,
@@ -4070,13 +4131,12 @@ class B
         Assert.False(RouteColumnarProgram("func f(): uint {\n    u: uint = 4000000000\n    return u / 2\n}\n").Ok);
         // an OUT-OF-RANGE literal (`b: byte = 300` is the pipeline's NL202).
         Assert.False(RouteColumnarProgram("func f(): int {\n    b: byte = 300\n    return b + 0\n}\n").Ok);
-        // a NEGATIVE literal initializer (`s: short = -300` — unary minus wraps the literal; the
-        // constant-conversion rule reads bare literals only — the widening slice).
-        Assert.False(RouteColumnarProgram("func f(): int {\n    s: short = -300\n    return s + 0\n}\n").Ok);
+        // (NEGATIVE literal initializers — `s: short = -300` — are now ACCEPTED via the SC-5
+        // unary-minus constant conversion; see ColumnarCodegen_Parity_WideningAndCasts.)
         // NARROWING a non-literal (`b = n` from an int — the pipeline requires an explicit cast, NL202).
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    b: byte = 1\n    b = n\n    return b + 0\n}\n").Ok);
-        // explicit small-int CASTS (`(byte)n`) are not modelled yet (the casts rung).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    b := (byte)n\n    return b + 0\n}\n").Ok);
+        // (explicit small-int CASTS — `(byte)n` — are now ACCEPTED via the SC-5 cast extension;
+        // see ColumnarCodegen_Parity_WideningAndCasts.)
         // int/uint MIXING needs a conversion (`i + u` is the pipeline's promoted-to-long in C#; unmodelled).
         Assert.False(RouteColumnarProgram("func f(i: int, u: uint): bool {\n    return i < u\n}\n").Ok);
     }
@@ -5715,9 +5775,8 @@ class B
         // Mixed int+double has NO implicit widening in the columnar backend (the operands' types must match) ->
         // it declines, so the C# fallback (which DOES widen) stays authoritative. Verifies the safe decline.
         Assert.False(RouteColumnarProgram("func mix(a: int, b: double): double {\n    return a + b\n}\n").Ok);
-        // Returning a `float` literal from a `double` function declines too (no implicit float->double widening on
-        // return — the value type must match the return type exactly).
-        Assert.False(RouteColumnarProgram("func f(): double {\n    return 3.5f\n}\n").Ok);
+        // (Returning a `float` from a `double` function is now ACCEPTED via SC-5 implicit widening —
+        // float->double conv.r8 at the return site; see ColumnarCodegen_Parity_WideningAndCasts.)
     }
 
     // FLOAT (System.Single, r4) — the second floating-point type, mirroring double: f/F-suffixed literals (Ldc_R4),

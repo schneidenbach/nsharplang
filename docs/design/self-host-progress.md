@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — SCALAR COMPLETENESS SC-5: implicit widening + negative literals + the full cast grid
+
+**Implicit widening** (`TryEmitImplicitWidening` — C#'s implicit numeric conversions emitted on the
+already-on-stack value): the int-promotable set → long/double/float (conv.i8/r8/r4) or int (identity —
+loads already extend), long/float → double, long → float; applied at EVERY flow site — typed-locals
+(`d: double = n`), returns (`return n` on long, `return f` on double), local/param reassignment, and
+ALL call-argument tiers (sibling/static/implicit-this/struct-method — `takesLong(n)` works). uint/ulong
+SOURCES stay excluded (extension/precision subtleties — pinned). **Negative literals** join the constant
+conversion through the unary-minus wrap (`s: short = -300`, `v: sbyte = -127`) for signed targets.
+**The full explicit-cast grid**: conv.u1/i1/i2/u2 truncations, `(uint)n`/`(int)u` slot-mate identity,
+`(ulong)` sign- vs zero-extends by source (C# unchecked semantics), every numeric → double/float/long.
+
+**TWO new oracle defects (parity-harness/probe-found):** (#13) the pipeline OVERFLOWS on any unsuffixed
+literal beyond int range regardless of target (`l: long = 5000000000` → NL103 "Arithmetic operation
+resulted in an overflow"; suffixed `5000000000L` is fine) — columnar caps constant conversion at int
+range to match; (#14) the pipeline rejects exact-MINVALUE negative literals (`v: sbyte = -128` → NL202 —
+its negation range check is off by one) — columnar caps negative magnitudes at MaxValue to match.
+
+Parity: `ColumnarCodegen_Parity_WideningAndCasts` (15 functions, 16 invocations) + 5 decline pins
+(beyond-int literals, MinValue literals, negative-on-unsigned, long→int narrowing, uint-source widening);
+three stale pins flipped (`(long)a` ulong cast, float-literal double return — the old pin's "pipeline
+rejects" claim was WRONG, probed: the oracle always accepted; ULong cast pin). 288/288; gate green.
+
+SCALAR ARC remaining: SC-6 decimal (op_* host boundary — the last scalar rung).
+
+---
+
 ## 2026-06-11 — SCALAR COMPLETENESS SC-4: small-int scalars + uint + constant conversion
 
 byte/sbyte/short/ushort/uint join the modelled scalar set. All are i4-slot types — loads sign/zero-extend

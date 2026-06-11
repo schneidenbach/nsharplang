@@ -1595,7 +1595,9 @@ public sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Ldarg_0);
         for (var a = 1; a <= argCount; a++)
         {
-            if (!EmitExpression(Child(callIdx, a), out var argType) || !TypesEquivalent(argType, method.ParamTypes[a - 1]))
+            if (!EmitExpression(Child(callIdx, a), out var argType))
+                return false;
+            if (!TypesEquivalent(argType, method.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, method.ParamTypes[a - 1]))
                 return false;
         }
         _il.Emit(_currentStruct!.IsReference ? OpCodes.Callvirt : OpCodes.Call, method.Builder);
@@ -3231,8 +3233,8 @@ public sealed class ColumnarIlEmitter
                 {
                     return false;
                 }
-                if (!TypesEquivalent(retType, _returnType))
-                    return false;
+                if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType))
+                    return false; // exact or implicitly-widenable (`return n` on a long function) only.
                 _il.Emit(OpCodes.Ret);
                 return true;
             }
@@ -3328,9 +3330,12 @@ public sealed class ColumnarIlEmitter
                 {
                     // `b: byte = 200` / `u: ulong = 10` — the in-range literal adopts the declared type.
                 }
-                else if (!EmitExpression(declaredInit, out var declaredInitType) || !TypesEquivalent(declaredInitType, declaredType))
+                else
                 {
-                    return false;
+                    if (!EmitExpression(declaredInit, out var declaredInitType))
+                        return false;
+                    if (!TypesEquivalent(declaredInitType, declaredType) && !TryEmitImplicitWidening(declaredInitType, declaredType))
+                        return false; // exact or implicitly-widenable (`w: long = n`) only.
                 }
                 // L3b: a lifted candidate declares as a shared StrongBox<T> (the L3b lift; lambda-typed
                 // initializers stay unlifted — a reassigned-and-captured delegate local declines later).
@@ -3662,7 +3667,7 @@ public sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(valueType, assignTarget.LocalType))
+                    if (!TypesEquivalent(valueType, assignTarget.LocalType) && !TryEmitImplicitWidening(valueType, assignTarget.LocalType))
                         return false;
                     _il.Emit(OpCodes.Stloc, assignTarget);
                     return true;
@@ -3686,7 +3691,7 @@ public sealed class ColumnarIlEmitter
                     {
                         return false;
                     }
-                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]))
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]) && !TryEmitImplicitWidening(paramValueType, _paramTypes[targetName]))
                         return false;
                     EmitStoreArgument(paramOrdinal);
                     return true;
@@ -4540,7 +4545,9 @@ public sealed class ColumnarIlEmitter
                                     return false;
                                 continue;
                             }
-                            if (!EmitExpression(argNode, out var argType) || !TypesEquivalent(argType, target.ParamTypes[a - 1]))
+                            if (!EmitExpression(argNode, out var argType))
+                                return false;
+                            if (!TypesEquivalent(argType, target.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, target.ParamTypes[a - 1]))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, target.Method);
@@ -4967,12 +4974,22 @@ public sealed class ColumnarIlEmitter
                 // float/double->int truncates toward zero exactly as the C# path's conv.i4 does (same opcode).
                 if (sourceType != targetType)
                 {
-                    if (targetType == typeof(double)) _il.Emit(OpCodes.Conv_R8);      // int/long/char/float -> double (widen)
-                    else if (targetType == typeof(float)) _il.Emit(OpCodes.Conv_R4);  // int/long/char/double -> float
-                    else if (targetType == typeof(long)) _il.Emit(OpCodes.Conv_I8);   // int/char/double/float -> long
-                    else if (targetType == typeof(char)) _il.Emit(OpCodes.Conv_U2);   // int/long/double/float -> char (truncate)
-                    else if (sourceType == typeof(long) || sourceType == typeof(double) || sourceType == typeof(float)) _il.Emit(OpCodes.Conv_I4); // long/double/float -> int
-                    // char -> int is identity (the char is already an i4 code point): no opcode.
+                    if (targetType == typeof(double)) _il.Emit(OpCodes.Conv_R8);      // any numeric -> double (widen)
+                    else if (targetType == typeof(float)) _il.Emit(OpCodes.Conv_R4);  // any numeric -> float
+                    else if (targetType == typeof(long)) _il.Emit(OpCodes.Conv_I8);   // i4-slot/double/float -> long (sign-extend)
+                    else if (targetType == typeof(ulong)) _il.Emit(sourceType == typeof(uint) ? OpCodes.Conv_U8 : OpCodes.Conv_I8); // C# unchecked: int sign-extends, uint zero-extends
+                    else if (targetType == typeof(char)) _il.Emit(OpCodes.Conv_U2);   // -> char (truncate)
+                    else if (targetType == typeof(byte)) _il.Emit(OpCodes.Conv_U1);   // -> byte (truncate)
+                    else if (targetType == typeof(sbyte)) _il.Emit(OpCodes.Conv_I1);  // -> sbyte (truncate)
+                    else if (targetType == typeof(short)) _il.Emit(OpCodes.Conv_I2);  // -> short (truncate)
+                    else if (targetType == typeof(ushort)) _il.Emit(OpCodes.Conv_U2); // -> ushort (truncate)
+                    else if (targetType == typeof(uint) || targetType == typeof(int))
+                    {
+                        // -> int/uint: i8/r8/r4 sources truncate to the i4 slot; i4-slot sources are identity
+                        // (C# unchecked emits nothing for int<->uint<->small-int slot-mates).
+                        if (sourceType == typeof(long) || sourceType == typeof(ulong) || sourceType == typeof(double) || sourceType == typeof(float))
+                            _il.Emit(targetType == typeof(uint) ? OpCodes.Conv_U4 : OpCodes.Conv_I4);
+                    }
                 }
                 type = targetType;
                 return true;
@@ -5814,7 +5831,8 @@ public sealed class ColumnarIlEmitter
     }
 
     // Scalars that participate in explicit numeric casts (int/long/char on the i4/i8 slots; double on r8, float on r4).
-    private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float);
+    private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float)
+        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort) || t == typeof(uint) || t == typeof(ulong);
 
     // The underlying int value of a System.StringComparison named constant (the enum's documented stable values).
     // An enum on the CLR stack is just its underlying int, so an enum constant emits `ldc.i4 <value>`.
@@ -5895,7 +5913,9 @@ public sealed class ColumnarIlEmitter
                 return false;
             for (var a = 1; a <= argCount; a++)
             {
-                if (!EmitExpression(Child(callIdx, a), out var argType) || !TypesEquivalent(argType, userStatic.ParamTypes[a - 1]))
+                if (!EmitExpression(Child(callIdx, a), out var argType))
+                    return false;
+                if (!TypesEquivalent(argType, userStatic.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, userStatic.ParamTypes[a - 1]))
                     return false;
             }
             _il.Emit(OpCodes.Call, userStatic.Builder);
@@ -6068,6 +6088,32 @@ public sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(char)
         || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort);
 
+    // C#'s implicit NUMERIC widening for the modelled scalars, emitted as a conversion on the value
+    // already on the stack: the int-promotable set (int/char/small ints) -> long (conv.i8), -> double
+    // (conv.r8), -> float (conv.r4), or -> int (identity — the load already extended); long/float ->
+    // double; long -> float. uint/ulong SOURCES are excluded (their extension/precision rules are
+    // subtler — those mixes decline, pinned for a later rung).
+    private bool TryEmitImplicitWidening(Type source, Type target)
+    {
+        if (IsIntPromotable(source))
+        {
+            if (target == typeof(int))
+                return true; // already an extended i4.
+            if (target == typeof(long)) { _il.Emit(OpCodes.Conv_I8); return true; }
+            if (target == typeof(double)) { _il.Emit(OpCodes.Conv_R8); return true; }
+            if (target == typeof(float)) { _il.Emit(OpCodes.Conv_R4); return true; }
+            return false;
+        }
+        if (source == typeof(long))
+        {
+            if (target == typeof(double)) { _il.Emit(OpCodes.Conv_R8); return true; }
+            if (target == typeof(float)) { _il.Emit(OpCodes.Conv_R4); return true; }
+            return false;
+        }
+        if (source == typeof(float) && target == typeof(double)) { _il.Emit(OpCodes.Conv_R8); return true; }
+        return false;
+    }
+
     // An UNSUFFIXED int literal ADOPTS a small-int/uint/long/ulong target when its value fits — C#'s
     // implicit constant conversion (`b: byte = 200`, `u: ulong = 10`, `return 50` on a byte function).
     // Small ints + uint load as i4 (uint over int.MaxValue wraps the bit pattern, the standard emit);
@@ -6076,6 +6122,14 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitIntLiteralAsType(int node, Type target, out Type type)
     {
         type = null!;
+        // A NEGATIVE literal arrives as unary minus (kind 11, "-") wrapping the bare literal —
+        // `s: short = -300`. Signed targets only; the value emits pre-negated (no Neg opcode).
+        var negative = false;
+        if (_kinds[node] == 11 && _childCount[node] == 1 && Text(node) == "-")
+        {
+            negative = true;
+            node = Child(node, 0);
+        }
         if (_kinds[node] != 0 || _valueStarts[node] < 0)
             return false;
         var text = Text(node);
@@ -6083,6 +6137,26 @@ public sealed class ColumnarIlEmitter
             return false; // a suffixed literal has its own fixed type.
         if (!ulong.TryParse(text, out var value))
             return false;
+        if (negative)
+        {
+            if (target == typeof(byte) || target == typeof(ushort) || target == typeof(uint) || target == typeof(ulong))
+                return false; // no negative values on unsigned targets (the pipeline's NL202).
+            // Negative magnitudes cap at the MAXVALUE magnitude, not MinValue: the PIPELINE rejects
+            // `v: sbyte = -128` (and the other exact MinValues) with NL202 — its negation range check is
+            // off by one (oracle defect bundle #14) — and overflows on any unsuffixed literal beyond int
+            // range regardless of target (`l: long = -5000000000` → NL103 overflow — defect #13).
+            var min = target == typeof(sbyte) ? (ulong)sbyte.MaxValue
+                : target == typeof(short) ? (ulong)short.MaxValue
+                : (ulong)int.MaxValue;
+            if (value > min)
+                return false;
+            if (target == typeof(long))
+                _il.Emit(OpCodes.Ldc_I8, -(long)value);
+            else
+                _il.Emit(OpCodes.Ldc_I4, (int)(-(long)value));
+            type = target;
+            return true;
+        }
         if (target == typeof(byte) || target == typeof(sbyte) || target == typeof(short)
             || target == typeof(ushort) || target == typeof(uint))
         {
@@ -6101,17 +6175,14 @@ public sealed class ColumnarIlEmitter
             type = target;
             return true;
         }
-        if (target == typeof(long))
+        if (target == typeof(long) || target == typeof(ulong))
         {
-            if (value > long.MaxValue)
+            // Positive magnitudes ALSO cap at int.MaxValue: the pipeline overflows on unsuffixed
+            // literals beyond int range whatever the target (oracle defect bundle #13) — suffixed
+            // literals (5000000000L) carry their own type and never reach this rule.
+            if (value > int.MaxValue)
                 return false;
             _il.Emit(OpCodes.Ldc_I8, (long)value);
-            type = target;
-            return true;
-        }
-        if (target == typeof(ulong))
-        {
-            _il.Emit(OpCodes.Ldc_I8, unchecked((long)value));
             type = target;
             return true;
         }
@@ -6352,7 +6423,9 @@ public sealed class ColumnarIlEmitter
                     _il.Emit(d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, receiverTemp);
                     for (var a = 0; a < argCount; a++)
                     {
-                        if (!EmitExpression(Child(callIdx, 1 + a), out var argType) || !TypesEquivalent(argType, structMethod.ParamTypes[a]))
+                        if (!EmitExpression(Child(callIdx, 1 + a), out var argType))
+                            return false;
+                        if (!TypesEquivalent(argType, structMethod.ParamTypes[a]) && !TryEmitImplicitWidening(argType, structMethod.ParamTypes[a]))
                             return false;
                     }
                     _il.Emit(d.IsReference ? OpCodes.Callvirt : OpCodes.Call, structMethod.Builder);
