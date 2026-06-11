@@ -3156,6 +3156,80 @@ class B
         Assert.True(RouteColumnarProgram("func g(n: int): int {\n    return match n {\n        x when x == 1 => 10,\n        x when x == 2 => 20\n    }\n}\n").Ok);
     }
 
+    // MATCH in EVERY EXPRESSION POSITION — the kernel parses `match` as a PRIMARY (kind 18) and the emitter's
+    // kind-18 case lives in the general EmitExpression switch, so positions beyond `return` compose emergently.
+    // Probe-verified against the oracle pipeline: `:=`/typed-local inits, call args, binary operands (both
+    // sides, incl. precedence and comparisons), parenthesized arithmetic, if/while conditions, reassignment,
+    // nested arms, complex scrutinee expressions, index positions, postfix receivers (member/call), match as
+    // another match's scrutinee (parenthesized or not), non-capturing lambda bodies, foreach iterables, and
+    // unary operands. The postfix-receiver and match-as-scrutinee shapes additionally pin the oracle fix for
+    // the expected-type leak (the contextual type used to misbind postfix against the wrong type and emit
+    // invalid IL for match-as-scrutinee). The bare-STATEMENT form is pipeline-rejected (NL313: the match value
+    // is ignored — N# has no match statement) and stays a columnar decline, as do a typed local whose declared
+    // type the arms cannot produce (NL202) and mixed arm result types.
+    [Fact]
+    public void ColumnarCodegen_Parity_MatchExpressionPositions()
+    {
+        var prog =
+            "func wrap(s: string): string {\n    return \"[\" + s + \"]\"\n}\n\n" +
+            "func apply(f: Func<int, string>, v: int): string {\n    return f(v)\n}\n\n" +
+            "func inferInit(n: int): string {\n    r := match n { x when x > 3 => \"big\", _ => \"small\" }\n    return r\n}\n\n" +
+            "func typedInit(n: int): string {\n    let r: string = match n { 1 => \"one\", _ => \"other\" }\n    return r\n}\n\n" +
+            "func callArg(n: int): string {\n    return wrap(match n { 1 => \"one\", _ => \"other\" })\n}\n\n" +
+            "func rightOperand(n: int): string {\n    return \"x\" + match n { 1 => \"one\", _ => \"other\" }\n}\n\n" +
+            "func leftOperand(n: int): int {\n    return match n { 1 => 10, _ => 20 } + 5\n}\n\n" +
+            "func parenArith(n: int): int {\n    return (match n { 1 => 10, _ => 20 }) + 5\n}\n\n" +
+            "func precedenceMix(n: int): int {\n    return 2 * match n { 1 => 3, _ => 4 } + 1\n}\n\n" +
+            "func compared(n: int): bool {\n    return match n { 1 => 5, _ => 0 } > 3\n}\n\n" +
+            "func negated(n: int): bool {\n    return !match n { 1 => false, _ => true }\n}\n\n" +
+            "func ifCond(n: int): string {\n    if match n { 1 => true, _ => false } {\n        return \"yes\"\n    }\n    return \"no\"\n}\n\n" +
+            "func whileCond(): int {\n    i := 0\n    while match i { x when x < 3 => true, _ => false } {\n        i = i + 1\n    }\n    return i\n}\n\n" +
+            "func reassigned(n: int): string {\n    r := \"a\"\n    r = match n { 2 => \"two\", _ => \"other\" }\n    return r\n}\n\n" +
+            "func nestedArm(n: int): string {\n    return match n { 1 => \"one\", _ => match 3 { 3 => \"three\", _ => \"x\" } }\n}\n\n" +
+            "func scrutineeExpr(n: int): string {\n    return match n + 1 { 2 => \"two\", _ => \"x\" }\n}\n\n" +
+            "func indexPos(n: int): int {\n    arr := new int[](3)\n    arr[0] = 10\n    arr[1] = 20\n    arr[2] = 30\n    return arr[match n { 2 => 1, _ => 0 }]\n}\n\n" +
+            "func postfixMember(n: int): int {\n    return match n { 1 => \"one\", _ => \"o\" }.Length\n}\n\n" +
+            "func postfixCall(n: int): string {\n    return match n { 1 => \" one \", _ => \" o \" }.Trim()\n}\n\n" +
+            "func matchScrutinee(n: int): string {\n    return match (match n { 1 => 2, _ => 0 }) { 2 => \"two\", _ => \"x\" }\n}\n\n" +
+            "func unparenScrutinee(n: int): string {\n    return match match n { 1 => 2, _ => 0 } { 2 => \"two\", _ => \"x\" }\n}\n\n" +
+            "func lambdaBody(n: int): string {\n    return apply(x => match x { 1 => \"one\", _ => \"other\" }, n)\n}\n\n" +
+            "func foreachIterable(n: int): int {\n    a := new int[](2)\n    a[0] = 1\n    a[1] = 2\n    b := new int[](1)\n    b[0] = 9\n    total := 0\n    foreach x in match n { 1 => a, _ => b } {\n        total = total + x\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("inferInit", new object[] { 5 }), ("inferInit", new object[] { 1 }),
+            ("typedInit", new object[] { 1 }), ("typedInit", new object[] { 9 }),
+            ("callArg", new object[] { 1 }), ("callArg", new object[] { 2 }),
+            ("rightOperand", new object[] { 2 }),
+            ("leftOperand", new object[] { 1 }), ("leftOperand", new object[] { 2 }),
+            ("parenArith", new object[] { 2 }),
+            ("precedenceMix", new object[] { 1 }), ("precedenceMix", new object[] { 9 }),
+            ("compared", new object[] { 1 }), ("compared", new object[] { 9 }),
+            ("negated", new object[] { 1 }), ("negated", new object[] { 9 }),
+            ("ifCond", new object[] { 1 }), ("ifCond", new object[] { 2 }),
+            ("whileCond", new object[0]),
+            ("reassigned", new object[] { 2 }), ("reassigned", new object[] { 7 }),
+            ("nestedArm", new object[] { 1 }), ("nestedArm", new object[] { 2 }),
+            ("scrutineeExpr", new object[] { 1 }), ("scrutineeExpr", new object[] { 5 }),
+            ("indexPos", new object[] { 2 }), ("indexPos", new object[] { 0 }),
+            ("postfixMember", new object[] { 1 }), ("postfixMember", new object[] { 9 }),
+            ("postfixCall", new object[] { 1 }), ("postfixCall", new object[] { 9 }),
+            ("matchScrutinee", new object[] { 1 }), ("matchScrutinee", new object[] { 9 }),
+            ("unparenScrutinee", new object[] { 1 }),
+            ("lambdaBody", new object[] { 1 }), ("lambdaBody", new object[] { 5 }),
+            ("foreachIterable", new object[] { 1 }), ("foreachIterable", new object[] { 5 }));
+
+        // The bare-STATEMENT form is pipeline-rejected (NL313: the match value is ignored) -> columnar declines.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    match n { 1 => \"one\", _ => \"other\" }\n    return 5\n}\n").Ok);
+        // A typed local whose declared type the arms cannot produce is pipeline-rejected (NL202) -> decline.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    let r: int = match 1 { 1 => \"one\", _ => \"other\" }\n    return r\n}\n").Ok);
+        // Mixed arm result types (string vs int) are pipeline-rejected -> decline.
+        Assert.False(RouteColumnarProgram("func f(): string {\n    r := match 1 { 1 => \"one\", _ => 2 }\n    return r\n}\n").Ok);
+        // ROUTE-ONLY: parameterless int.ToString() is not on the BCL instance-call whitelist (only the
+        // 1-arg format overload is), so a value-receiver call ON a match declines — the POSITION works
+        // (postfixCall above proves call-on-match via the whitelisted string.Trim); the whitelist gap is
+        // the scalar/strings completeness slice's to flip. The pipeline ACCEPTS this shape (returns "42").
+        Assert.False(RouteColumnarProgram("func f(n: int): string {\n    return match n { 1 => 42, _ => 0 }.ToString()\n}\n").Ok);
+    }
+
     // MATCH PATTERN HARDENING — the columnar match-arm emitter only models LITERAL patterns (int/float/char/string/
     // bool) and IDENTIFIER patterns (`_` discard / binding). Any OTHER primary the pattern parser can yield — a
     // parenthesized `(0)` (which C# parses as a positional pattern and rejects on a scalar), a member access, a call,
