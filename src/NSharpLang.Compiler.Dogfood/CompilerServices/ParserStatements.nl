@@ -26,16 +26,21 @@
 //                                             SKIPS the whole declaration (first depth-0 `{`, balanced to its
 //                                             close — the struct kernel's method-skip discipline); the host
 //                                             re-locates the keyword by byte offset and parses the signature +
-//                                             body through the existing kernels. 42 is the next free kind. )
+//                                             body through the existing kernels. )
+//   ThrowStatement               -> kind 48  ( throw <expr>; 1 child = the exception expression )
+//   TryStatement                 -> kind 49  ( try {} catch... ; children [tryBlock, catch1..catchN] )
+//   CatchClause                  -> kind 50  ( one catch; value span = the exception TYPE name token, -1 for
+//                                             a bare catch; children [nameIdent (kind 6)?, block]. 51 is the
+//                                             next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)`, let/const/readonly + typed `name: Type = init` declarations,
-// throw/try/using/lock/switch/yield/print/assert/local-functions, and statements whose expression parts use
-// a not-yet-supported form (e.g. `new`/`alloc`). Block statement-list gathers child node ids on the LIFO
-// `argStack` (recursion is LIFO) and appends the contiguous child run after `}`, exactly as calls/generics do.
+// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, finally/using/lock/switch/yield/
+// print/assert, and statements whose expression parts use a not-yet-supported form (e.g. `alloc`). Block
+// statement-list gathers child node ids on the LIFO `argStack` (recursion is LIFO) and appends the
+// contiguous child run after `}`, exactly as calls/generics do.
 //
 // Node-table columns are the EXPRESSION table (see ParserExpressions.nl).
 //   outResult[0] = root statement node id (== nodeCount-1), outResult[1] = token index past the statement.
@@ -98,9 +103,15 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         return ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
     }
 
-    // `try { } catch { }` (Try 38 / Catch 39) -- TryStatement kind 49, children [tryBlock, catchBlock].
-    // E2 models the BARE single-catch form: a `(` after `catch` (typed binding, E3), a second `catch`,
-    // or a `finally` (40, E4) refuse (-1). Both bodies must be `{ }` BLOCKS.
+    // `try { } catch ... { } [catch ... { }]*` (Try 38 / Catch 39) -- TryStatement kind 49, children
+    // [tryBlock, catch1, ..., catchN] (variable arity -> LIFO arg-stack, like blocks). Each catch is a
+    // kind-50 CatchClause node: value span = the exception TYPE name token (-1 for a bare catch),
+    // children [nameIdent?, block] -- the bound variable as a 0-child kind-6 identifier, so the name
+    // reads as a USE in every name scan (the linter treats catch variables as always used). E3 models
+    // all FOUR production catch forms (Parser.cs:3016-3051): bare `catch {`, parenthesized
+    // `catch (e: T) {` / `catch (T) {` / `catch (T e) {`, and paren-less `catch e: T {`. The TYPE must
+    // be a single Identifier token (the emitter's BCL exception whitelist needs no more); a `finally`
+    // (40, E4) refuses (-1). All bodies must be `{ }` BLOCKS.
     if kind == 38 {
         tryStart := tokenStarts[start]
         st[0] = start + 1
@@ -111,25 +122,106 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         if tryBlock < 0 {
             return -1
         }
-        if st[0] >= count || tokenKinds[st[0]] != 39 {
+        tryArgBase := st[3]
+        argStack[st[3]] = tryBlock
+        st[3] = st[3] + 1
+        while st[0] < count && tokenKinds[st[0]] == 39 {
+            catchStart := tokenStarts[st[0]]
+            st[0] = st[0] + 1
+            typeStart := 0 - 1
+            typeLen := 0
+            nameStart := 0 - 1
+            nameLen := 0
+            if st[0] < count && tokenKinds[st[0]] == 127 {
+                st[0] = st[0] + 1
+                if st[0] + 1 < count && tokenKinds[st[0]] == 0 && tokenKinds[st[0] + 1] == 122 {
+                    nameStart = tokenStarts[st[0]]
+                    nameLen = tokenValueLengths[st[0]]
+                    st[0] = st[0] + 2
+                    if st[0] >= count || tokenKinds[st[0]] != 0 {
+                        st[3] = tryArgBase
+                        return -1
+                    }
+                    typeStart = tokenStarts[st[0]]
+                    typeLen = tokenValueLengths[st[0]]
+                    st[0] = st[0] + 1
+                } else {
+                    if st[0] >= count || tokenKinds[st[0]] != 0 {
+                        st[3] = tryArgBase
+                        return -1
+                    }
+                    typeStart = tokenStarts[st[0]]
+                    typeLen = tokenValueLengths[st[0]]
+                    st[0] = st[0] + 1
+                    if st[0] < count && tokenKinds[st[0]] == 0 {
+                        nameStart = tokenStarts[st[0]]
+                        nameLen = tokenValueLengths[st[0]]
+                        st[0] = st[0] + 1
+                    }
+                }
+                if st[0] >= count || tokenKinds[st[0]] != 128 {
+                    st[3] = tryArgBase
+                    return -1
+                }
+                st[0] = st[0] + 1
+            } else if st[0] + 1 < count && tokenKinds[st[0]] == 0 && tokenKinds[st[0] + 1] == 122 {
+                nameStart = tokenStarts[st[0]]
+                nameLen = tokenValueLengths[st[0]]
+                st[0] = st[0] + 2
+                if st[0] >= count || tokenKinds[st[0]] != 0 {
+                    st[3] = tryArgBase
+                    return -1
+                }
+                typeStart = tokenStarts[st[0]]
+                typeLen = tokenValueLengths[st[0]]
+                st[0] = st[0] + 1
+            }
+            if st[0] >= count || tokenKinds[st[0]] != 129 {
+                st[3] = tryArgBase
+                return -1
+            }
+            catchBody := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if catchBody < 0 {
+                st[3] = tryArgBase
+                return -1
+            }
+            catchEnd := outSpanStarts[catchBody] + outSpanLengths[catchBody]
+            clauseChildCount := 1
+            if nameStart >= 0 {
+                clauseChildCount = 2
+            }
+            nameNode := 0 - 1
+            if nameStart >= 0 {
+                nameNode = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, nameStart, nameLen, st[2], 0, nameStart, nameLen)
+            }
+            clauseChildRun := st[2]
+            if nameNode >= 0 {
+                AppendExpressionChild(st, outChildIndices, nameNode)
+            }
+            AppendExpressionChild(st, outChildIndices, catchBody)
+            clause := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 50, typeStart, typeLen, clauseChildRun, clauseChildCount, catchStart, catchEnd - catchStart)
+            argStack[st[3]] = clause
+            st[3] = st[3] + 1
+        }
+        childTotal := st[3] - tryArgBase
+        if childTotal < 2 {
+            st[3] = tryArgBase
             return -1
         }
-        st[0] = st[0] + 1
-        if st[0] >= count || tokenKinds[st[0]] != 129 {
+        if st[0] < count && tokenKinds[st[0]] == 40 {
+            st[3] = tryArgBase
             return -1
         }
-        catchBlock := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
-        if catchBlock < 0 {
-            return -1
-        }
-        if st[0] < count && (tokenKinds[st[0]] == 39 || tokenKinds[st[0]] == 40) {
-            return -1
-        }
-        tryEnd := outSpanStarts[catchBlock] + outSpanLengths[catchBlock]
+        lastClause := argStack[st[3] - 1]
+        tryEnd := outSpanStarts[lastClause] + outSpanLengths[lastClause]
         tryChildRun := st[2]
-        AppendExpressionChild(st, outChildIndices, tryBlock)
-        AppendExpressionChild(st, outChildIndices, catchBlock)
-        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 49, -1, 0, tryChildRun, 2, tryStart, tryEnd - tryStart)
+        a := tryArgBase
+        while a < st[3] {
+            AppendExpressionChild(st, outChildIndices, argStack[a])
+            a = a + 1
+        }
+        st[3] = tryArgBase
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 49, -1, 0, tryChildRun, childTotal, tryStart, tryEnd - tryStart)
     }
 
     if kind == 27 {

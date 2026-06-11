@@ -11,10 +11,12 @@ namespace NSharpLang.Compiler.Columnar;
 ///
 /// This walks the SAME node tables Stage 3 (<see cref="ColumnarTypeInferer"/>) walks, over the statement node
 /// kinds the parser kernel emits: 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement,
-/// 24 VariableDeclaration, 25 Block, 26 While, 27 If. The kernel refuses any other statement form (throw,
-/// switch, try, for, foreach, wrapper blocks …), so on every body the columnar pass accepts, those shapes
-/// cannot occur — which is exactly why <see cref="StatementAlwaysReturns"/> is a faithful RESTRICTION of the
-/// real <c>Analyzer.StatementAlwaysReturns</c> to the columnar subset (Return / Block / If-with-else). The
+/// 24 VariableDeclaration, 25 Block, 26 While, 27 If, 28 For, 29 Foreach, 30 Deconstruction, 40 TypedLocal,
+/// 41 LocalFunction, 48 Throw, 49 Try (children [tryBlock, kind-50 CatchClauses]). The kernel refuses any
+/// other statement form (switch, finally, using, lock, wrapper blocks …), so on every body the columnar pass
+/// accepts, those shapes cannot occur — which is exactly why <see cref="StatementAlwaysReturns"/> is a
+/// faithful RESTRICTION of the real <c>Analyzer.StatementAlwaysReturns</c> to the columnar subset. EVERY
+/// kernel statement addition must extend StatementAlwaysReturns + CollectUnreachable in the SAME slice. The
 /// rules are mirrored on the C# AST by the parity oracle in the tests, so the columnar diagnostics are
 /// verified identical to walking the object-graph AST; definitive routed parity follows at stages 4–5.
 /// </summary>
@@ -112,9 +114,15 @@ public sealed class ColumnarDiagnosticsPass
                     CollectUnreachable(Child(idx, 2), diagnostics);
                 break;
 
-            case 49: // Try [tryBlock, catchBlock] — recurse into both regions.
+            case 49: // Try [tryBlock, catch1..catchN] — recurse into the try and every clause's block
+                // (each clause is a kind-50 CatchClause whose block is its LAST child).
                 CollectUnreachable(Child(idx, 0), diagnostics);
-                CollectUnreachable(Child(idx, 1), diagnostics);
+                for (var n = 1; n < _childCount[idx]; n++)
+                {
+                    var clause = Child(idx, n);
+                    CollectUnreachable(Child(clause, _childCount[clause] - 1), diagnostics);
+                }
+
                 break;
 
             // 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement, 24 VariableDeclaration,
@@ -137,9 +145,19 @@ public sealed class ColumnarDiagnosticsPass
             case 48: // Throw — always exits, exactly like the analyzer's StatementAlwaysReturns throw arm.
                 return true;
 
-            case 49: // Try [tryBlock, catchBlock] — exits iff the try AND every catch exit (the analyzer's
-                // TryStatement arm; E2's single bare catch makes that both children).
-                return StatementAlwaysReturns(Child(idx, 0)) && StatementAlwaysReturns(Child(idx, 1));
+            case 49: // Try [tryBlock, catch1..catchN] — exits iff the try AND every catch clause's block
+            {        // exit (the analyzer's TryStatement arm; clause blocks are kind-50 LAST children).
+                if (!StatementAlwaysReturns(Child(idx, 0)))
+                    return false;
+                for (var n = 1; n < _childCount[idx]; n++)
+                {
+                    var clause = Child(idx, n);
+                    if (!StatementAlwaysReturns(Child(clause, _childCount[clause] - 1)))
+                        return false;
+                }
+
+                return true;
+            }
 
             case 25: // Block — exits if any statement exits.
                 for (var n = 0; n < _childCount[idx]; n++)

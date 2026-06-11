@@ -491,9 +491,11 @@ public sealed class ColumnarIlEmitter
         Dictionary<int, string>? declaredLocalFuncNodes = null,
         IEnumerable<string>? visibleLocalFuncs = null,
         IReadOnlyDictionary<string, string?[]>? siblingReturnTupleNames = null,
-        IReadOnlyDictionary<string, string?[]>? paramTupleNames = null)
+        IReadOnlyDictionary<string, string?[]>? paramTupleNames = null,
+        HashSet<string>? enclosingBindingNames = null)
     {
         _isConstructorBody = isConstructorBody;
+        _enclosingBindingNames = enclosingBindingNames ?? s_noEnclosingBindings;
         _kinds = kinds;
         _valueStarts = valueStarts;
         _valueLengths = valueLengths;
@@ -540,6 +542,76 @@ public sealed class ColumnarIlEmitter
     private readonly List<TypeBuilder>? _displayClasses;
     // The current body's root statement (set by EmitBody) — anchors the L3a never-mutated capture scan.
     private int _bodyRoot = -1;
+    // NL316 ACROSS NESTED-BODY BOUNDARIES: every binding name visible in the ENCLOSING function at the point
+    // this nested body (lambda / local function) was reached. The pipeline rejects ANY nested binding —
+    // lambda param, local-func param, `:=`/typed local, foreach var, deconstruction name, catch var — that
+    // shadows an enclosing binding ("'e' shadows an existing 'e' from an enclosing scope"), but a nested
+    // sub-emitter's own maps cannot see the parent's names, so every binding site must ALSO check this set
+    // (probe-found over-accepts: lambda locals/params, local-func locals/params, catch vars all compiled
+    // pipeline-rejected NL316 programs). Lambdas get the parent's LIVE snapshot (textual visibility); local
+    // functions get the parent's STRUCTURAL superset (their bodies emit after the parent's — extra declines
+    // are safe under-acceptance). Empty for top-level bodies.
+    private readonly HashSet<string> _enclosingBindingNames;
+    private static readonly HashSet<string> s_noEnclosingBindings = new(StringComparer.Ordinal);
+
+    // Whether `name` is bound ANYWHERE visible to code in this body — its own locals/params/lifted/boxed
+    // tiers plus every enclosing binding. Declaring it again is the pipeline's NL316 — decline.
+    private bool IsVisibleBindingName(string name)
+        => _locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name) || _liftedLocals.ContainsKey(name)
+           || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name))
+           || _enclosingBindingNames.Contains(name);
+
+    // The set a nested body created RIGHT NOW must treat as enclosing bindings (this emitter's live
+    // visibility plus its own enclosing set — transitive for nested-in-nested chains).
+    private HashSet<string> VisibleBindingNamesSnapshot()
+    {
+        var names = new HashSet<string>(_enclosingBindingNames, StringComparer.Ordinal);
+        names.UnionWith(_locals.Keys);
+        names.UnionWith(_paramOrdinals.Keys);
+        names.UnionWith(_liftedLocals.Keys);
+        if (_boxedCaptures != null)
+            names.UnionWith(_boxedCaptures.Keys);
+        return names;
+    }
+
+    // Every name any statement in a body table BINDS (`:=` 24, typed-local 40 name child, foreach 29 var,
+    // deconstruction 30 names, catch-clause 50 vars) — the STRUCTURAL superset used for local-function
+    // bodies, which emit after their parent body finished (no live snapshot exists). Type subtrees are safe
+    // to recurse: type-kernel kinds are 0-7, disjoint from these binding kinds.
+    private static void CollectBindingNames(
+        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount,
+        int[] childIndices, string source, int node, HashSet<string> names)
+    {
+        switch (kinds[node])
+        {
+            case 24:
+            case 29:
+                if (valueStarts[node] >= 0)
+                    names.Add(source.Substring(valueStarts[node], valueLengths[node]));
+                break;
+            case 30:
+                for (var n = 0; n < childCount[node] - 1; n++)
+                {
+                    var child = childIndices[childStart[node] + n];
+                    if (kinds[child] == 6 && valueStarts[child] >= 0)
+                        names.Add(source.Substring(valueStarts[child], valueLengths[child]));
+                }
+
+                break;
+            case 40:
+            case 50:
+                if (childCount[node] == 2)
+                {
+                    var nameChild = childIndices[childStart[node]];
+                    if (kinds[nameChild] == 6 && valueStarts[nameChild] >= 0)
+                        names.Add(source.Substring(valueStarts[nameChild], valueLengths[nameChild]));
+                }
+
+                break;
+        }
+        for (var c = 0; c < childCount[node]; c++)
+            CollectBindingNames(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[childStart[node] + c], names);
+    }
     // MUTATED captures (L3b): names that are captured by some lambda in this body AND mutated via
     // bare-identifier assignment get LIFTED into a shared StrongBox<T> (the oracle's box-lift model) —
     // the box reference is what closures snapshot, so mutation is shared in both directions.
@@ -857,6 +929,8 @@ public sealed class ColumnarIlEmitter
             var paramName = Text(paramNode);
             if (!ordinals.TryAdd(paramName, p))
                 return false; // duplicate parameter names are malformed — decline.
+            if (IsVisibleBindingName(paramName))
+                return false; // a lambda param shadowing an ENCLOSING binding is the pipeline's NL316.
             signatureTypes[p] = invokeParams[p].ParameterType;
             paramTypeMap[paramName] = signatureTypes[p];
         }
@@ -895,7 +969,8 @@ public sealed class ColumnarIlEmitter
                     _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
                     _source, instanceOrdinals, paramTypeMap, invoke.ReturnType, instanceIl, _siblings,
                     _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: _currentStruct,
-                    programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
+                    programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
+                    enclosingBindingNames: VisibleBindingNamesSnapshot());
                 if (!EmitLambdaBody(instanceEmitter, instanceIl, bodyNode, invoke.ReturnType))
                     return false;
                 _il.Emit(OpCodes.Ldarg_0);
@@ -911,7 +986,8 @@ public sealed class ColumnarIlEmitter
                 _kinds, _valueStarts, _valueLengths, _childStart, _childCount, _childIndices,
                 _source, ordinals, paramTypeMap, invoke.ReturnType, lambdaIl, _siblings,
                 _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
-                programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
+                programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
+                enclosingBindingNames: VisibleBindingNamesSnapshot());
             if (!EmitLambdaBody(subEmitter, lambdaIl, bodyNode, invoke.ReturnType))
                 return false;
             _il.Emit(OpCodes.Ldnull);
@@ -993,7 +1069,8 @@ public sealed class ColumnarIlEmitter
             _source, shiftedOrdinals, paramTypeMap, invoke.ReturnType, closureIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: displayDef,
             programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
-            boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null);
+            boxedCaptures: boxedCaptureMap.Count > 0 ? boxedCaptureMap : null,
+            enclosingBindingNames: VisibleBindingNamesSnapshot());
         if (!EmitLambdaBody(closureEmitter, closureIl, bodyNode, invoke.ReturnType))
             return false;
         _displayClasses.Add(display);
@@ -1337,7 +1414,8 @@ public sealed class ColumnarIlEmitter
             _source, new Dictionary<string, int>(StringComparer.Ordinal),
             new Dictionary<string, Type>(StringComparer.Ordinal), typeof(void), lambdaIl, _siblings,
             _enumRegistry, _structRegistry, _unionRegistry, _unionCaseRegistry, currentStruct: null,
-            programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses);
+            programType: _programType, lambdaCounter: _lambdaCounter, displayClasses: _displayClasses,
+            enclosingBindingNames: VisibleBindingNamesSnapshot());
         if (!subEmitter.EmitExpression(Child(lambdaIdx, 0), out var bodyType))
             return false;
         lambdaIl.Emit(OpCodes.Ret);
@@ -3019,6 +3097,12 @@ public sealed class ColumnarIlEmitter
                 return false;
             if (fn.LocalFunctions != null)
             {
+                // NL316 across the local-function boundary: the pipeline rejects a local-func PARAM or
+                // body binding that shadows a parent binding. Local bodies emit AFTER the parent's, so no
+                // live snapshot exists — use the parent's STRUCTURAL binding superset (params + every name
+                // any parent statement binds; extra declines are safe under-acceptance).
+                var parentBindings = new HashSet<string>(ordinalsByFunc[f].Keys, StringComparer.Ordinal);
+                CollectBindingNames(fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices, source, fn.BodyRoot, parentBindings);
                 var visiblePrefix = new List<string>();
                 foreach (var (_, localFn) in fn.LocalFunctions)
                 {
@@ -3030,6 +3114,8 @@ public sealed class ColumnarIlEmitter
                     {
                         if (!localOrdinals.TryAdd(localFn.ParamNames[lp], lp))
                             return false;
+                        if (parentBindings.Contains(localFn.ParamNames[lp]))
+                            return false; // a local-func param shadowing a parent binding — NL316.
                         localParamTypes[localFn.ParamNames[lp]] = target.ParamTypes[lp];
                     }
                     var localIl = target.Method.GetILGenerator();
@@ -3039,7 +3125,8 @@ public sealed class ColumnarIlEmitter
                         localFn.Kinds, localFn.ValueStarts, localFn.ValueLengths, localFn.ChildStart, localFn.ChildCount, localFn.ChildIndices,
                         source, localOrdinals, localParamTypes, target.ReturnType, localIl, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                         programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
-                        localFuncs: localFuncs, visibleLocalFuncs: visiblePrefix);
+                        localFuncs: localFuncs, visibleLocalFuncs: visiblePrefix,
+                        enclosingBindingNames: parentBindings);
                     if (!localEmitter.EmitBody(localFn.BodyRoot, target.ReturnType == typeof(void)))
                         return false;
                 }
@@ -3273,18 +3360,22 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 49: // TryStatement [tryBlock, catchBlock] — `try { } catch { }` (E2: the BARE single-catch
-            {        // form; typed catches/finally are E3/E4). BeginCatchBlock(Exception) implicitly leaves
-                     // the try and pushes the exception (popped — bare catch); EndExceptionBlock implicitly
-                     // leaves the catch (spike-proven). Returns inside the regions go through the body's
-                     // leave tail. NESTED try declines (one level this rung); break/continue crossing the
-                     // region boundary would emit invalid branches — loops inside are fine, but a try inside
-                     // a LOOP whose body breaks out declines via the loop-label check below.
-                if (_childCount[idx] != 2 || _inProtectedRegion)
+            case 49: // TryStatement [tryBlock, catch1..catchN] — each catch a kind-50 CatchClause (value
+            {        // span = exception TYPE name, -1 = bare; children [nameIdent?, block]). The clauses
+                     // emit as sequential BeginCatchBlock(type) regions, giving first-match-in-declaration-
+                     // order natively (probe-pinned, incl. base-before-derived). BeginCatchBlock implicitly
+                     // leaves the prior region and PUSHES the exception typed as the catch type — stloc the
+                     // bound variable (a fresh block-scoped local; shadowing declines = the pipeline's
+                     // NL316) or Pop when unbound. Unknown/non-whitelist exception types decline (the
+                     // pipeline silently resolves unknown names to a CATCH-ALL — oracle defect #16 — and
+                     // accepts non-exception types as dead clauses — #17; declining inherits neither).
+                     // Returns inside any region go through the body's leave tail. NESTED try declines (one
+                     // level this rung); a try inside a LOOP declines via the loop-label check (break/
+                     // continue would branch OUT of the region — E4 revisits).
+                if (_childCount[idx] < 2 || _inProtectedRegion)
                     return false;
                 if (_loopLabels.Count > 0)
-                    return false; // a `break`/`continue` inside the region would branch OUT of it — decline
-                                  // try-inside-loop wholesale this rung (under-accept; E4 revisits).
+                    return false;
                 if (_protectedResult == null && _returnType != typeof(void))
                     _protectedResult = _il.DeclareLocal(_returnType);
                 if (!_protectedDoneCreated)
@@ -3296,10 +3387,45 @@ public sealed class ColumnarIlEmitter
                 _il.BeginExceptionBlock();
                 if (!EmitStatement(Child(idx, 0)))
                     return false;
-                _il.BeginCatchBlock(typeof(Exception));
-                _il.Emit(OpCodes.Pop); // bare catch discards the exception object.
-                if (!EmitStatement(Child(idx, 1)))
-                    return false;
+                for (var c = 1; c < _childCount[idx]; c++)
+                {
+                    var clause = Child(idx, c);
+                    if (_kinds[clause] != 50)
+                        return false;
+                    Type catchType;
+                    if (_valueStarts[clause] >= 0)
+                    {
+                        if (!TryResolveBclExceptionType(Text(clause), out catchType))
+                            return false;
+                    }
+                    else
+                    {
+                        catchType = typeof(Exception); // bare catch — the pipeline's exact default.
+                    }
+                    _il.BeginCatchBlock(catchType);
+                    var hasBinding = _childCount[clause] == 2;
+                    string? catchVarName = null;
+                    if (hasBinding)
+                    {
+                        catchVarName = Text(Child(clause, 0));
+                        // Shadowing an existing binding — incl. one in an ENCLOSING function when this is a
+                        // nested body — is the pipeline's NL316 error; `_` is the discard spelling. Both
+                        // decline rather than model unverified semantics.
+                        if (catchVarName == "_" || IsVisibleBindingName(catchVarName))
+                            return false;
+                        var catchLocal = _il.DeclareLocal(catchType);
+                        _il.Emit(OpCodes.Stloc, catchLocal);
+                        _locals[catchVarName] = catchLocal;
+                    }
+                    else
+                    {
+                        _il.Emit(OpCodes.Pop); // unbound catch discards the exception object.
+                    }
+                    if (!EmitStatement(Child(clause, _childCount[clause] - 1)))
+                        return false;
+                    if (catchVarName != null)
+                        _locals.Remove(catchVarName); // the binding is scoped to its own clause.
+                }
                 _il.EndExceptionBlock();
                 _inProtectedRegion = false;
                 return true;
@@ -3380,11 +3506,11 @@ public sealed class ColumnarIlEmitter
             case 24: // VariableDeclaration (`:=`): emit the initializer, declare a local of the initializer's
             {        // type (inferred), store into it.
                 var name = Text(idx);
-                // Decline a local that shadows a parameter or redeclares a local: N# treats shadowing as a
-                // diagnostic (and a same-`:=` redeclaration as an error), which the spike does not model —
-                // declining keeps the C# analyzer authoritative rather than silently compiling it.
-                if (_paramOrdinals.ContainsKey(name) || _locals.ContainsKey(name) || _liftedLocals.ContainsKey(name)
-                    || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
+                // Decline a local that shadows a parameter or redeclares a local — incl. a binding in an
+                // ENCLOSING function when this is a nested (lambda/local-func) body: N# treats shadowing as
+                // a diagnostic (NL316; a same-`:=` redeclaration as an error), which the spike does not
+                // model — declining keeps the C# analyzer authoritative rather than silently compiling it.
+                if (IsVisibleBindingName(name))
                     return false;
                 if (_childCount[idx] == 0)
                     return false;
@@ -3439,9 +3565,8 @@ public sealed class ColumnarIlEmitter
                 if (_childCount[idx] != 2 || _kinds[Child(idx, 0)] != 6)
                     return false;
                 var declaredName = Text(Child(idx, 0));
-                if (_paramOrdinals.ContainsKey(declaredName) || _locals.ContainsKey(declaredName) || _liftedLocals.ContainsKey(declaredName)
-                    || (_boxedCaptures != null && _boxedCaptures.ContainsKey(declaredName)))
-                    return false; // shadowing/redeclaration — the pipeline diagnoses these; decline.
+                if (IsVisibleBindingName(declaredName))
+                    return false; // shadowing/redeclaration (incl. enclosing-scope NL316) — decline.
                 var typeCanonical = RemoveWhitespace(Text(idx));
                 // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
                 // canonical for resolution; the names are recorded for member access below. (The BARE
@@ -4015,8 +4140,8 @@ public sealed class ColumnarIlEmitter
                 // A body that always transfers on every path makes the increment unreachable -> decline (as for/while).
                 if (AlwaysReturns(body))
                     return false;
-                // The loop variable must not shadow an existing local/param (shadowing is not modelled).
-                if (_locals.ContainsKey(varName) || _paramOrdinals.ContainsKey(varName))
+                // The loop variable must not shadow an existing binding — own OR enclosing (NL316).
+                if (IsVisibleBindingName(varName))
                     return false;
 
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
@@ -4113,8 +4238,8 @@ public sealed class ColumnarIlEmitter
                     var name = Text(Child(idx, i));
                     if (name == "_") // discard — the element is not bound.
                         continue;
-                    if (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name))
-                        return false; // redeclaration / shadow is not modelled (keep the C# analyzer authoritative).
+                    if (IsVisibleBindingName(name))
+                        return false; // redeclaration / shadow — own OR enclosing (NL316) — is not modelled.
                     var field = tupleType.GetField("Item" + (i + 1), BindingFlags.Public | BindingFlags.Instance);
                     if (field == null)
                         return false;
@@ -4168,8 +4293,19 @@ public sealed class ColumnarIlEmitter
             case 20: // Return
             case 48: // Throw — always exits (E1; mirrored in ColumnarDiagnosticsPass).
                 return true;
-            case 49: // Try — exits iff the TRY block AND the CATCH block both exit (the analyzer's rule).
-                return AlwaysReturns(Child(idx, 0)) && AlwaysReturns(Child(idx, 1));
+            case 49: // Try — exits iff the TRY block AND every catch clause's block exit (the analyzer's
+            {        // TryStatement rule; children are [tryBlock, kind-50 clauses with block LAST]).
+                if (!AlwaysReturns(Child(idx, 0)))
+                    return false;
+                for (var n = 1; n < _childCount[idx]; n++)
+                {
+                    var clause = Child(idx, n);
+                    if (!AlwaysReturns(Child(clause, _childCount[clause] - 1)))
+                        return false;
+                }
+
+                return true;
+            }
             case 25: // Block
                 for (var n = 0; n < _childCount[idx]; n++)
                 {
@@ -4183,6 +4319,35 @@ public sealed class ColumnarIlEmitter
             default:
                 return false;
         }
+    }
+
+    // The BCL exception types a typed catch clause may name (E3). Each simple name must resolve to the
+    // SAME runtime type the pipeline's ResolveType binds — all are System-namespace exceptions reachable
+    // by simple name on the oracle path. Anything else declines: the pipeline silently resolves UNKNOWN
+    // names to a catch-all (oracle defect #16) and accepts non-exception types as dead clauses (#17);
+    // declining inherits neither wrongness. User-defined exception classes are not modelled (a columnar
+    // class cannot derive a BCL base yet).
+    private static bool TryResolveBclExceptionType(string name, out Type type)
+    {
+        type = name switch
+        {
+            "Exception" => typeof(Exception),
+            "InvalidOperationException" => typeof(InvalidOperationException),
+            "ArgumentException" => typeof(ArgumentException),
+            "ArgumentNullException" => typeof(ArgumentNullException),
+            "ArgumentOutOfRangeException" => typeof(ArgumentOutOfRangeException),
+            "FormatException" => typeof(FormatException),
+            "NotSupportedException" => typeof(NotSupportedException),
+            "NotImplementedException" => typeof(NotImplementedException),
+            "DivideByZeroException" => typeof(DivideByZeroException),
+            "ArithmeticException" => typeof(ArithmeticException),
+            "OverflowException" => typeof(OverflowException),
+            "NullReferenceException" => typeof(NullReferenceException),
+            "IndexOutOfRangeException" => typeof(IndexOutOfRangeException),
+            "InvalidCastException" => typeof(InvalidCastException),
+            _ => null!,
+        };
+        return type != null;
     }
 
     // A reference-type CONSTRUCTOR body is valid for columnar emit iff it (1) contains NO `return` statement — the
@@ -4993,6 +5158,14 @@ public sealed class ColumnarIlEmitter
                     // receiver is discarded with the whole assembly on false).
                     if (!EmitExpression(Child(idx, 0), out var structReceiverType))
                         return false;
+                    // `e.Message` on an Exception-derived receiver (the typed-catch bound variable's main
+                    // use) — callvirt get_Message, exactly the property get the pipeline binds.
+                    if (member == "Message" && typeof(Exception).IsAssignableFrom(structReceiverType))
+                    {
+                        _il.Emit(OpCodes.Callvirt, typeof(Exception).GetProperty(nameof(Exception.Message))!.GetGetMethod()!);
+                        type = typeof(string);
+                        return true;
+                    }
                     ColumnarStructDef? fieldStruct = null;
                     foreach (var d in _structRegistry.Values)
                     {
@@ -5811,10 +5984,8 @@ public sealed class ColumnarIlEmitter
                         var patName = Text(patternNode);
                         if (patName != "_")
                         {
-                            if (_locals.ContainsKey(patName) || _paramOrdinals.ContainsKey(patName)
-                                || _liftedLocals.ContainsKey(patName)
-                                || (_boxedCaptures != null && _boxedCaptures.ContainsKey(patName)))
-                                return false; // a binding that shadows is not modelled.
+                            if (IsVisibleBindingName(patName))
+                                return false; // a binding that shadows (own OR enclosing, NL316) is not modelled.
                             var bindLocal = _il.DeclareLocal(matchValueType);
                             _il.Emit(OpCodes.Ldloc, matchLocal);
                             _il.Emit(OpCodes.Stloc, bindLocal);

@@ -1869,6 +1869,11 @@ class B
             ("func nested(ok: bool): int {\n    if ok {\n        inner := 1\n    }\n    return 2\n}\n", 1),
             // two unused locals.
             ("func r(): int {\n    a := 1\n    b := 2\n    return 3\n}\n", 2),
+            // an UNUSED catch variable never reports — the Linter marks catch vars used at declaration.
+            ("func t(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: DivideByZeroException) {\n        return 0 - 1\n    }\n}\n", 0),
+            // a local used ONLY inside a throw expression is used; an unused `:=` local INSIDE a catch
+            // block still reports (the catch block is a normal scope).
+            ("func u(n: int): int {\n    msg := \"boom\"\n    try {\n        return 100 / n\n    } catch {\n        dead := 5\n        throw new Exception(msg)\n    }\n}\n", 1),
         };
 
         foreach (var (src, unused) in cases)
@@ -1971,6 +1976,19 @@ class B
                 break;
             case ExpressionStatement e:
                 MirrorCollectIds(e.Expression, used);
+                break;
+            case ThrowStatement t:
+                if (t.Expression != null) MirrorCollectIds(t.Expression, used);
+                break;
+            case TryStatement ts:
+                MirrorWalkUnused(ts.TryBlock, used, stack, unused);
+                foreach (var c in ts.CatchClauses)
+                {
+                    // The Linter marks catch variables used at declaration (never NL001) — mirror that.
+                    if (c.VariableName != null) used.Add(c.VariableName);
+                    MirrorWalkUnused(c.Block, used, stack, unused);
+                }
+
                 break;
         }
     }
@@ -4020,6 +4038,125 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // EXCEPTIONS E3 (Phase D) — TYPED catches + exception BINDING. Each catch is a kind-50 CatchClause
+    // (value span = the exception TYPE name token, -1 = bare; children [nameIdent (kind 6)?, block]) under
+    // kind 49's [tryBlock, catch1..catchN]. All FOUR production catch forms parse (Parser.cs:3016-3051):
+    // `catch (e: T)`, `catch (T)`, `catch (T e)`, and paren-less `catch e: T`. Clauses emit as sequential
+    // BeginCatchBlock(type) regions — first-match-in-declaration-order natively, base-before-derived
+    // accepted (no dead-clause diagnostic, probe-pinned). The bound variable is a fresh clause-scoped
+    // local (stloc of the pushed exception); the name child is a kind-6 USE in every name scan, mirroring
+    // the Linter's catch-vars-are-always-used rule (no NL001). `e.Message` resolves via the new
+    // Exception-receiver member arm (callvirt get_Message). Types resolve through a strict BCL exception
+    // whitelist — the pipeline silently turns UNKNOWN type names into catch-alls (oracle defect #16) and
+    // accepts non-exception types as dead clauses (#17); columnar declines both.
+    [Fact]
+    public void ColumnarCodegen_Parity_TypedCatches()
+    {
+        var boom =
+            "func boom(k: int): int {\n    if k == 1 {\n        throw new InvalidOperationException(\"ioe\")\n    }\n    if k == 2 {\n        throw new FormatException(\"fmt\")\n    }\n    if k == 3 {\n        throw new NotSupportedException(\"nse\")\n    }\n    return 10\n}\n\n";
+        var prog = boom +
+            // multi-catch first-match + trailing bare catch (probed: 10 / -1 / -2 / -9).
+            "func selective(k: int): int {\n    try {\n        return boom(k)\n    } catch (e: FormatException) {\n        return 0 - 2\n    } catch (e2: InvalidOperationException) {\n        return 0 - 1\n    } catch {\n        return 0 - 9\n    }\n}\n\n" +
+            // the paren-less form.
+            "func parenless(k: int): int {\n    try {\n        return boom(k)\n    } catch e: InvalidOperationException {\n        return 0 - 1\n    } catch {\n        return 0 - 9\n    }\n}\n\n" +
+            // the type-only form (no binding).
+            "func typeOnly(k: int): int {\n    try {\n        return boom(k)\n    } catch (InvalidOperationException) {\n        return 0 - 1\n    } catch {\n        return 0 - 9\n    }\n}\n\n" +
+            // the C#-style type-then-var form.
+            "func csharpStyle(k: int): int {\n    try {\n        return boom(k)\n    } catch (InvalidOperationException e) {\n        return 0 - 1\n    } catch {\n        return 0 - 9\n    }\n}\n\n" +
+            // the bound variable's main use: e.Message (probed: 5).
+            "func msgLen(): int {\n    try {\n        throw new InvalidOperationException(\"hello\")\n    } catch (e: InvalidOperationException) {\n        return e.Message.Length\n    }\n}\n\n" +
+            // an Exception-typed binding catches a derived throw; .Message still resolves (probed: 3).
+            "func baseTyped(): int {\n    try {\n        throw new FormatException(\"xyz\")\n    } catch (e: Exception) {\n        return e.Message.Length\n    }\n}\n\n" +
+            // the SAME variable name in two sibling clauses — separate clause scopes (probed: 2 / 40).
+            "func sameName(k: int): int {\n    try {\n        if k == 1 {\n            throw new InvalidOperationException(\"aa\")\n        }\n        throw new FormatException(\"bbbb\")\n    } catch (e: InvalidOperationException) {\n        return e.Message.Length\n    } catch (e: FormatException) {\n        return e.Message.Length * 10\n    }\n}\n\n" +
+            // a typed clause over a RUNTIME fault (probed: 20 / -1).
+            "func dbz(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: DivideByZeroException) {\n        return 0 - 1\n    }\n}\n\n" +
+            // base BEFORE derived: accepted, base wins (probed: -1; the derived clause is dead).
+            "func baseFirst(k: int): int {\n    try {\n        if k == 1 {\n            throw new FormatException(\"x\")\n        }\n        return 10\n    } catch (e: Exception) {\n        return 0 - 1\n    } catch (e2: FormatException) {\n        return 0 - 2\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("selective", new object[] { 0 }), ("selective", new object[] { 1 }),
+            ("selective", new object[] { 2 }), ("selective", new object[] { 3 }),
+            ("parenless", new object[] { 0 }), ("parenless", new object[] { 1 }),
+            ("typeOnly", new object[] { 1 }), ("csharpStyle", new object[] { 1 }),
+            ("msgLen", System.Array.Empty<object>()), ("baseTyped", System.Array.Empty<object>()),
+            ("sameName", new object[] { 1 }), ("sameName", new object[] { 2 }),
+            ("dbz", new object[] { 5 }), ("dbz", new object[] { 0 }),
+            ("baseFirst", new object[] { 1 }), ("baseFirst", new object[] { 0 }));
+
+        // PROPAGATION + the throw-in-catch family: route-only (throwing invocations don't value-compare),
+        // exact exception type + message parity.
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram(boom +
+                // an uncaught type escapes the typed clause.
+                "func escape(k: int): int {\n    try {\n        return boom(k)\n    } catch (e: InvalidOperationException) {\n        return 0 - 1\n    }\n}\n\n" +
+                // wrap-and-rethrow with the bound var flowing into the new exception.
+                "func wrap(): int {\n    try {\n        throw new FormatException(\"orig\")\n    } catch (e: FormatException) {\n        throw new InvalidOperationException(e.Message)\n    }\n}\n\n" +
+                // rethrowing the BOUND VARIABLE (N# has no bare rethrow — NL102, pinned in E1).
+                "func rethrow(): int {\n    try {\n        throw new FormatException(\"orig\")\n    } catch (e: FormatException) {\n        throw e\n    }\n}\n");
+            Assert.True(ok, "columnar must emit the typed-catch propagation program");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            var progType = scope.Assembly.GetType(typeName!)!;
+            var escaped = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("escape")!.Invoke(null, new object[] { 2 }));
+            Assert.Equal("fmt", Assert.IsType<FormatException>(escaped.InnerException).Message);
+            var wrapped = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("wrap")!.Invoke(null, null));
+            Assert.Equal("orig", Assert.IsType<InvalidOperationException>(wrapped.InnerException).Message);
+            var rethrown = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("rethrow")!.Invoke(null, null));
+            Assert.Equal("orig", Assert.IsType<FormatException>(rethrown.InnerException).Message);
+        }
+
+        // DECLINES:
+        // an UNKNOWN exception type — the pipeline accepts it as a silent CATCH-ALL (oracle defect #16);
+        // columnar refuses to inherit that wrongness.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: TotallyMadeUpException) {\n        return 0 - 1\n    }\n}\n").Ok);
+        // a NON-exception catch type — pipeline-accepted as a dead clause (defect #17).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: int) {\n        return 0 - 1\n    }\n}\n").Ok);
+        // a catch variable SHADOWING an existing local — the pipeline's NL316 error; declining keeps the
+        // real diagnostic authoritative.
+        Assert.False(RouteColumnarProgram("func f(k: int): int {\n    e := 5\n    try {\n        if k == 1 {\n            throw new InvalidOperationException(\"x\")\n        }\n        return e\n    } catch (e: InvalidOperationException) {\n        return 0 - 1\n    }\n}\n").Ok);
+        // `_` as the catch variable name (discard spelling — unmodelled semantics).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (_: DivideByZeroException) {\n        return 0 - 1\n    }\n}\n").Ok);
+        // a MULTI-TOKEN catch type (`System.FormatException` — the kernel's single-Identifier type gate).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: System.FormatException) {\n        return 0 - 1\n    }\n}\n").Ok);
+    }
+
+    // NL316 ACROSS NESTED-BODY BOUNDARIES — the adversarial review of E3 chased the capture scan and the
+    // probes found the REAL hole adjacent to it: a nested body's binding (lambda param, local-func param,
+    // `:=`/typed local, foreach var, deconstruction name, catch var) that shadows an ENCLOSING binding is
+    // the pipeline's NL316 error, but sub-emitters couldn't see the parent's names — columnar COMPILED
+    // pipeline-rejected programs (lambda locals/params and local-func locals/params were pre-existing
+    // over-accepts since the lambdas/L4-i arcs; E3's catch vars added one more). Every binding site now
+    // also checks `_enclosingBindingNames`: lambdas get the parent's LIVE snapshot (textual visibility),
+    // local functions get the parent's STRUCTURAL binding superset (their bodies emit after the parent's;
+    // extra declines are safe under-acceptance).
+    [Fact]
+    public void ColumnarCodegen_NestedBindingShadowing_DeclinesAndLegitCasesEmit()
+    {
+        // LEGITIMATE nested try/catch shapes keep emitting (no shadowing): a lambda catching and
+        // returning a CAPTURED outer local, and a fully isolated lambda try/catch.
+        AssertColumnarProgramMatchesCSharp(
+            "func viaCapture(): int {\n    e := 5\n    g: Func<int> = () => {\n        try {\n            return 100 / 0\n        } catch (ex: DivideByZeroException) {\n            return e\n        }\n    }\n    return g()\n}\n\n" +
+            "func isolated(): int {\n    g: Func<int> = () => {\n        try {\n            return 100 / 0\n        } catch (ex: DivideByZeroException) {\n            return 3\n        }\n    }\n    return g()\n}\n",
+            ("viaCapture", System.Array.Empty<object>()),
+            ("isolated", System.Array.Empty<object>()));
+
+        // DECLINES — every shape below is pipeline-REJECTED with NL316 (probed verbatim):
+        // a CATCH VAR inside a lambda shadowing the captured outer local.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    e := 5\n    g: Func<int> = () => {\n        try {\n            return 100 / 0\n        } catch (e: DivideByZeroException) {\n            return 7\n        }\n    }\n    return g() + e\n}\n").Ok);
+        // a catch var matching an outer local the lambda never otherwise touches.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    ex := 5\n    g: Func<int> = () => {\n        try {\n            return 100 / 0\n        } catch (ex: DivideByZeroException) {\n            return 7\n        }\n    }\n    return g() + ex\n}\n").Ok);
+        // a lambda-body `:=` LOCAL shadowing an outer local (pre-existing over-accept, now closed).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    e := 5\n    g: Func<int> = () => {\n        e := 3\n        return e\n    }\n    return g() + e\n}\n").Ok);
+        // a lambda PARAM shadowing an outer local (pre-existing over-accept, now closed).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    e := 5\n    g: Func<int, int> = e => e + 1\n    return g(1) + e\n}\n").Ok);
+        // a LOCAL-FUNCTION body local shadowing the parent's local (pre-existing over-accept, now closed).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    e := 5\n    func g(): int {\n        e := 3\n        return e\n    }\n    return g() + e\n}\n").Ok);
+        // a LOCAL-FUNCTION param shadowing the parent's local (pre-existing over-accept, now closed).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    e := 5\n    func g(e: int): int {\n        return e + 1\n    }\n    return g(1) + e\n}\n").Ok);
+    }
+
     // EXCEPTIONS E2 (Phase D) — try + BARE catch (Try 38 / Catch 39 — empirically verified; statement
     // kind 49, children [tryBlock, catchBlock]). Spike-pinned IL rules: `ret` is INVALID inside a
     // protected region, so a protected `return` lowers to `stloc result; leave done` with ONE
@@ -4082,14 +4219,8 @@ class B
             }
         }
 
-        // DECLINES (all pipeline-VALID programs — these pins flip to coverage as E3/E4 land):
-        // a TYPED catch, parenthesized (E3).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: InvalidOperationException) {\n        return 0 - 1\n    }\n}\n").Ok);
-        // a TYPED catch, paren-less — the pipeline's SECOND accepted form (Parser.cs:3046), refused by
-        // the same next-token-must-be-`{` check (E3).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch e: InvalidOperationException {\n        return 0 - 1\n    }\n}\n").Ok);
-        // a SECOND catch clause (E3 multi-clause).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch {\n        return 0 - 1\n    } catch {\n        return 0 - 2\n    }\n}\n").Ok);
+        // DECLINES (all pipeline-VALID programs — these pins flip to coverage as E4 lands). The E2-era
+        // typed-catch and multi-clause pins FLIPPED in E3 — covered by ColumnarCodegen_Parity_TypedCatches.
         // a FINALLY after the catch (E4).
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } catch {\n        r = 0 - 1\n    } finally {\n        r = r + 1\n    }\n    return r\n}\n").Ok);
         // try with ONLY a finally — no catch at all (E4).

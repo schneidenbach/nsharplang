@@ -11,6 +11,60 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — EXCEPTIONS E3: typed catches + exception binding
+
+Each catch is now a **kind-50 CatchClause** node (value span = the exception TYPE name token, -1 for
+bare; children [nameIdent (kind 6)?, block]) under kind 49's `[tryBlock, catch1..catchN]` (variable
+arity via the LIFO arg-stack, the block discipline). All FOUR production catch forms parse
+(Parser.cs:3016-3051): `catch (e: T)`, `catch (T)`, `catch (T e)`, paren-less `catch e: T` — plus
+bare. The TYPE must be a single Identifier token. Cross-line `}\ncatch` follows the same
+no-newline-skip discipline as `}\nelse` (pre-existing kernel policy).
+
+**Emit:** clauses become sequential `BeginCatchBlock(type)` regions — first-match-in-declaration-
+order natively; base-before-derived is accepted with a dead second clause (probe-pinned: no
+dead-clause diagnostic in the pipeline). The bound variable is a fresh clause-scoped local (stloc of
+the pushed exception, registered in `_locals` only during its clause's block). Types resolve through
+a strict 14-name BCL exception whitelist; `e.Message` resolves via a new Exception-receiver arm in
+case 8's user-type branch (callvirt get_Message) — the arm must live INSIDE that branch: all
+non-Length/non-ItemN members route there and `return false` for unregistered receivers (bisected
+when the first parity run declined every `.Message` shape).
+
+**Probe-found oracle defects (queued #16/#17):** an UNKNOWN exception type (`catch (e:
+TotallyMadeUpException)`) compiles with no NL201 and silently becomes a CATCH-ALL; a NON-exception
+type (`catch (e: int)`) compiles to a dead clause (no CS0155 analog). Columnar declines both rather
+than inherit either. Catch-var SHADOWING is the pipeline's NL316 error — declining is parity-by-
+rejection (the oracle EmitTry's store-into-existing-local branch is dead code behind it). NO bare
+rethrow exists in N# (NL102, E1) — `throw e` of the bound var is the rethrow spelling.
+
+**Faithfulness:** both AlwaysReturns mirrors take the all-clauses rule (try AND every clause block);
+CollectUnreachable recurses every region. The name child being a kind-6 USE makes every name scan
+treat catch vars as always-used — the Linter's exact rule (no NL001), for free. The NL001 mirror
+test's C#-side walk gained TryStatement/ThrowStatement arms (a latent test-mirror gap: a local used
+only in a throw expression was missed C#-side) + catch cases.
+
+**Adversarial review → the REAL hole was NL316 across nested-body boundaries.** The review flagged
+the capture scan reading the catch-var name child; probing the claim found the adjacent CARDINAL
+violations: sub-emitters couldn't see the parent's binding names, so a nested binding shadowing an
+enclosing one — pipeline-REJECTED NL316 — COMPILED columnar-side. Probe matrix: catch vars (E3-new),
+lambda `:=` locals, lambda PARAMS, local-func locals, local-func PARAMS all over-accepted (the
+lambda/local-func ones pre-existing since the lambdas/L4-i arcs); foreach/deconstruction-in-lambda
+already declined. Fix: `_enclosingBindingNames` threaded into every nested sub-emitter — lambdas get
+the parent's LIVE snapshot (textual visibility, matching the analyzer's sequential scope walk), local
+functions get the parent's STRUCTURAL binding superset (their bodies emit after the parent's; extra
+declines are safe) — and ALL six binding sites (`:=`, typed locals, foreach vars, deconstruction
+names, match-arm bindings, catch vars) plus lambda/local-func PARAM registration now check it via one
+`IsVisibleBindingName` helper. Legit nested try/catch (capturing and isolated lambdas) value-proven.
+
+Parity: `ColumnarCodegen_Parity_TypedCatches` — 16 value invocations across all forms (selectivity,
+multi-catch, same-name sibling clauses, e.Message/.Length, base-typed binding, DivideByZeroException
+runtime fault, base-first ordering) + 3 route-only exact-exception pins (uncaught-type propagation,
+wrap-and-rethrow via e.Message, `throw e`) + 5 decline pins (#16, #17, NL316 shadowing, `_` binding,
+multi-token type) + `ColumnarCodegen_NestedBindingShadowing_DeclinesAndLegitCasesEmit` (6 NL316
+decline pins + 2 nested-try value cases). E2's typed-catch/multi-clause pins FLIPPED. 302/302; gate
+(see commit). NEXT: E4 finally (+ try-inside-loop revisit), E5 using/lock.
+
+---
+
 ## 2026-06-11 — E2b: throw-terminated exception blocks emitted INVALID IL — both pipelines, fixed both
 
 E3's VERIFY-FIRST probe sweep found the wrap-and-rethrow catch pattern (`try {...} catch { throw new
