@@ -4017,6 +4017,41 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // SCALAR COMPLETENESS SC-2 (Phase D) — POSTFIX `++`/`--` (kernel kind 44 PostfixUnary, single wrap
+    // after the suffix chain). Statement position steps in place; expression position keeps the PRE-step
+    // value (C# post-semantics, probe-pinned: `m := n++` reads the old n). int/long/ulong on bare
+    // locals/params; double/float DECLINE — the pipeline's `++` on them silently NO-OPS (oracle defect
+    // bundle), so columnar declining keeps it from ever diverging. Prefix `++n` is pipeline-rejected
+    // (NL313). The write scans treat kind 44 like an assignment (capture-lifting soundness).
+    [Fact]
+    public void ColumnarCodegen_Parity_PostfixIncrementDecrement()
+    {
+        var prog =
+            "func stepLocal(n: int): int {\n    a := n\n    a++\n    a++\n    a--\n    return a\n}\n\n" +
+            "func stepParam(n: int): int {\n    n++\n    return n\n}\n\n" +
+            "func stepLong(l: long): long {\n    l++\n    l--\n    l++\n    return l\n}\n\n" +
+            "func stepUlong(u: ulong): ulong {\n    u++\n    return u\n}\n\n" +
+            // EXPRESSION position: the value is the PRE-step value.
+            "func postValue(n: int): int {\n    m := n++\n    return m * 100 + n\n}\n\n" +
+            // the classic counting FOR loop increment.
+            "func countUp(n: int): int {\n    sum := 0\n    for i := 0; i < n; i++ {\n        sum += i\n    }\n    return sum\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("stepLocal", new object[] { 5 }), ("stepLocal", new object[] { -2 }),
+            ("stepParam", new object[] { 9 }),
+            ("stepLong", new object[] { 100L }),
+            ("stepUlong", new object[] { 7UL }),
+            ("postValue", new object[] { 5 }),
+            ("countUp", new object[] { 5 }), ("countUp", new object[] { 0 }));
+
+        // DECLINES:
+        // double/float `++` — the PIPELINE silently no-ops them (oracle defect bundle); columnar declines.
+        Assert.False(RouteColumnarProgram("func f(): double {\n    d := 1.5\n    d++\n    return d\n}\n").Ok);
+        // prefix `++n` is pipeline-rejected (NL313) — and unparsed by the kernel.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    n := 5\n    ++n\n    return n\n}\n").Ok);
+        // `++` through a MEMBER path (storage-addressing rung).
+        Assert.False(RouteColumnarProgram("struct P {\n    x: int\n}\n\nfunc f(): int {\n    p := new P { x: 1 }\n    p.x++\n    return p.x\n}\n").Ok);
+    }
+
     // SCALAR COMPLETENESS SC-1+3 (Phase D) — COMPOUND ASSIGNMENT (`+=` `-=` `*=` `/=`) and the TERNARY
     // (`cond ? then : else`). Both were ALREADY PARSED (kind 14 carries the op text; ternary is kind 13)
     // and only the emitter declined them. Compound lowers to load/op/store on a bare LOCAL/PARAM with the

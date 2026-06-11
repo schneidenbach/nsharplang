@@ -69,7 +69,13 @@
 //                                         element NAME in the name slot, ONE child (the element value). Only
 //                                         ever a kind-17 child; naming is ALL-OR-NOTHING per literal. The
 //                                         name is metadata (not a value read) so scans traverse the child
-//                                         normally. 44 is the next free kind. )
+//                                         normally. )
+//   PostfixUnary            -> kind 44  ( `n++` / `n--` (Increment 113 / Decrement 114) -- the operator
+//                                         token in the value span, ONE child [target]. Single wrap after the
+//                                         postfix suffix chain; the target child is a VALUE expression the
+//                                         scans traverse normally -- and a WRITE: the write scans treat a
+//                                         kind-44 like a kind-14 assignment to its target. 45 is the next
+//                                         free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
@@ -908,6 +914,24 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
             expr = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 9, -1, 0, childRunStart, childCount, objSpanStart, rightParenEnd - objSpanStart)
         } else {
             matched = false
+        }
+    }
+
+    // Postfix `++`/`--` (Increment 113 / Decrement 114) -- a SINGLE wrap after the suffix chain
+    // (PostfixUnary kind 44, the operator token in the value span, ONE child [target]; `n++++` does
+    // not re-enter, matching the production grammar). The emitter validates the target (a bare
+    // local/param) and models C# post-semantics (the expression's value is the PRE-step value).
+    if st[0] < count {
+        postOp := tokenKinds[st[0]]
+        if postOp == 113 || postOp == 114 {
+            postOpStart := tokenStarts[st[0]]
+            postOpLength := tokenValueLengths[st[0]]
+            postOpEnd := postOpStart + postOpLength
+            st[0] = st[0] + 1
+            postChildRun := st[2]
+            AppendExpressionChild(st, outChildIndices, expr)
+            postSpanStart := outSpanStarts[expr]
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 44, postOpStart, postOpLength, postChildRun, 1, postSpanStart, postOpEnd - postSpanStart)
         }
     }
 

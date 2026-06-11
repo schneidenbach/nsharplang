@@ -11,6 +11,25 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — SCALAR COMPLETENESS SC-2: postfix `++`/`--`
+
+Kernel kind **44 PostfixUnary** (Increment 113 / Decrement 114 — verified by reflection; operator token
+in the value span, ONE child [target], a single wrap after the postfix suffix chain — `n++++` does not
+re-enter; 45 is next free). Statement position steps in place (a kind-44 expression-statement branch in
+case 23 — which also makes the classic `for i := 0; i < n; i++` increment work with NO for-loop change,
+the kernel already wraps increments as expression statements); expression position keeps the PRE-step
+value (`ldloc; dup; ldc.i4.1; [conv.i8]; add/sub; stloc` — C# post-semantics, probe-pinned: `m := n++`
+reads the old n). int/long/ulong on bare locals/params; **double/float DECLINE — ORACLE DEFECT #11: the
+pipeline's `++`/`--` on them silently NO-OPS** (probed: `d := 1.5; d++` leaves 1.5); prefix `++n` is
+pipeline-rejected NL313 (unparsed). **Write-scan soundness:** all three write scans
+(IsNameBareAssigned / IsNameStructurallyWritten / IsAnyNameWritten) treat kind 44 exactly like a kind-14
+assignment to its target — a captured `n` mutated via `n++` lifts/declines correctly (the L3a lesson).
+
+Parity: `ColumnarCodegen_Parity_PostfixIncrementDecrement` (6 functions incl. the counting for loop and
+pre-step expression value) + 3 decline pins. 286/286; gate green (see commit).
+
+---
+
 ## 2026-06-11 — SCALAR COMPLETENESS SC-1+3: compound assignment + ternary (emit-only)
 
 The scalar arc opens with its two EMIT-ONLY rungs — both shapes were ALREADY PARSED (the assignment

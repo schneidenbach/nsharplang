@@ -1180,7 +1180,7 @@ public sealed class ColumnarIlEmitter
             remaining.ExceptWith(bound);
             return remaining.Count > 0 && IsNameBareAssigned(Child(node, _childCount[node] - 1), remaining);
         }
-        if (_kinds[node] == 14)
+        if (_kinds[node] == 14 || _kinds[node] == 44) // assignment OR postfix `++`/`--` — both write the target.
         {
             var target = Child(node, 0);
             if (_kinds[target] == 6 && _valueStarts[target] >= 0 && names.Contains(Text(target)))
@@ -1202,6 +1202,7 @@ public sealed class ColumnarIlEmitter
         switch (_kinds[node])
         {
             case 14:
+            case 44: // postfix `++`/`--` writes its target exactly like an assignment.
                 var structuralTarget = Child(node, 0);
                 if (_kinds[structuralTarget] == 8 || _kinds[structuralTarget] == 10)
                 {
@@ -1260,6 +1261,7 @@ public sealed class ColumnarIlEmitter
         switch (_kinds[node])
         {
             case 14:
+            case 44: // postfix `++`/`--` writes its target exactly like an assignment.
                 var target = Child(node, 0);
                 while ((_kinds[target] == 8 || _kinds[target] == 10) && _childCount[target] > 0)
                     target = Child(target, 0); // walk member/index paths to the root receiver.
@@ -3415,6 +3417,11 @@ public sealed class ColumnarIlEmitter
                      // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = Child(idx, 0);
 
+                if (_kinds[expr] == 44) // a bare `n++` / `n--` statement — the stepped value is not kept.
+                {
+                    return TryEmitPostfixUnary(expr, keepValue: false, out _);
+                }
+
                 if (_kinds[expr] == 9) // a bare call statement.
                 {
                     // Emit the call. A void call (e.g. Array.Fill) leaves nothing on the stack; a NON-void call
@@ -5133,6 +5140,15 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 44: // PostfixUnary [target] — `n++` / `n--` in EXPRESSION position: C# post-semantics, the
+            {        // value is the PRE-step value. Bare LOCAL/PARAM targets of int/long/ulong only (the
+                     // pipeline's double/float `++` silently NO-OPS — an oracle defect; columnar declines those
+                     // so it never diverges). Lifted/boxed targets decline (capture rung).
+                if (!TryEmitPostfixUnary(idx, keepValue: true, out type))
+                    return false;
+                return true;
+            }
+
             case 13: // Ternary [cond, then, else] — `cond ? then : else`, a branch/merge with ONE result on the
             {        // stack. Both arms must produce the SAME type (TypesEquivalent — the match-arm unification
                      // rule); MIXED-type arms decline to the C# path (its implicit-conversion unification is a
@@ -6005,6 +6021,59 @@ public sealed class ColumnarIlEmitter
             default:
                 return null;
         }
+    }
+
+    // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM of int/long/ulong: load, step by one, store —
+    // keeping the PRE-step value on the stack when `keepValue` (C# post-semantics; `m := n++` reads the
+    // old n). double/float decline (the pipeline's `++` on them silently no-ops — oracle defect bundle);
+    // lifted/boxed captures and non-identifier targets decline.
+    private bool TryEmitPostfixUnary(int idx, bool keepValue, out Type type)
+    {
+        type = null!;
+        if (_childCount[idx] != 1)
+            return false;
+        var target = Child(idx, 0);
+        if (_kinds[target] != 6 || _valueStarts[target] < 0)
+            return false;
+        var name = Text(target);
+        if (_liftedLocals.ContainsKey(name) || (_boxedCaptures != null && _boxedCaptures.ContainsKey(name)))
+            return false;
+        LocalBuilder? local = null;
+        var paramOrdinal = -1;
+        Type targetType;
+        if (_locals.TryGetValue(name, out var found))
+        {
+            local = found;
+            targetType = found.LocalType;
+        }
+        else if (_paramOrdinals.TryGetValue(name, out var ordinal))
+        {
+            paramOrdinal = ordinal;
+            targetType = _paramTypes[name];
+        }
+        else
+        {
+            return false;
+        }
+        if (targetType != typeof(int) && targetType != typeof(long) && targetType != typeof(ulong))
+            return false;
+
+        if (local != null)
+            _il.Emit(OpCodes.Ldloc, local);
+        else
+            EmitLoadArgument(paramOrdinal);
+        if (keepValue)
+            _il.Emit(OpCodes.Dup);
+        _il.Emit(OpCodes.Ldc_I4_1);
+        if (targetType != typeof(int))
+            _il.Emit(OpCodes.Conv_I8); // long AND ulong step by an i8 one (u8 shares the slot).
+        _il.Emit(Text(idx) == "++" ? OpCodes.Add : OpCodes.Sub);
+        if (local != null)
+            _il.Emit(OpCodes.Stloc, local);
+        else
+            EmitStoreArgument(paramOrdinal);
+        type = targetType;
+        return true;
     }
 
     // Rewrites a named tuple member to its ItemN spelling when the receiver's tracked names contain it;
