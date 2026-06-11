@@ -4020,6 +4020,49 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // NULL & NULLABLE N2 (Phase D) — Nullable<T> VALUE types over the baked value scalars. `int?`
+    // resolves to the real System.Nullable<int>; LIFTING (`n: int? = 5`, `= null`, `= v`, lifted args
+    // and returns) emits `newobj Nullable<T>(T)` / `initobj` — the exact C# conversions; `n ?? d`
+    // lowers `tmp.HasValue ? tmp.GetValueOrDefault() : d` (result = the ELEMENT type); `n == null` is
+    // !HasValue, `n != null` is HasValue. Nullable over BUILDER value types (user structs/enums)
+    // declines — reflection cannot reach their members at emit.
+    [Fact]
+    public void ColumnarCodegen_Parity_NullableValueTypes()
+    {
+        var prog =
+            "func unwrapOr(n: int?, d: int): int {\n    return n ?? d\n}\n\n" +
+            "func viaValue(v: int): int {\n    n: int? = v\n    return unwrapOr(n, 0)\n}\n\n" +
+            "func viaNull(): int {\n    n: int? = null\n    return unwrapOr(n, 7)\n}\n\n" +
+            "func viaLiteral(): int {\n    n: int? = 5\n    return n ?? 0\n}\n\n" +
+            "func hasValue(n: int?): bool {\n    return n != null\n}\n\n" +
+            "func isEmpty(n: int?): bool {\n    return n == null\n}\n\n" +
+            "func mkNullable(v: int): int? {\n    return v\n}\n\n" +
+            "func mkEmpty(): int? {\n    return null\n}\n\n" +
+            "func roundTrip(v: int): int {\n    return (mkNullable(v) ?? 0) + (mkEmpty() ?? 100)\n}\n\n" +
+            "func liftedArg(): bool {\n    return hasValue(3) && hasValue(null) == false\n}\n\n" +
+            "func reassigned(v: int): int {\n    n: int? = null\n    n = v\n    return n ?? -1\n}\n\n" +
+            // a second element type (double?).
+            "func dblOr(d: double?, fallback: double): double {\n    return d ?? fallback\n}\n\n" +
+            "func dblFlow(): double {\n    d: double? = 2.5\n    return dblOr(d, 0.0) + dblOr(null, 1.25)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("viaValue", new object[] { 9 }),
+            ("viaNull", System.Array.Empty<object>()),
+            ("viaLiteral", System.Array.Empty<object>()),
+            ("hasValue", new object?[] { null }), ("hasValue", new object?[] { 4 }),
+            ("isEmpty", new object?[] { null }), ("isEmpty", new object?[] { 4 }),
+            ("roundTrip", new object[] { 11 }),
+            ("liftedArg", System.Array.Empty<object>()),
+            ("reassigned", new object[] { 6 }),
+            ("dblFlow", System.Array.Empty<object>()));
+
+        // DECLINES:
+        // Nullable over a BUILDER value type (a user struct) — emit-time reflection cannot reach it.
+        Assert.False(RouteColumnarProgram("struct P {\n    x: int\n}\n\nfunc f(p: P?): bool {\n    return p == null\n}\n").Ok);
+        // Nullable ARITHMETIC (`n + 1` on int? — lifted operators are a later rung; the pipeline's
+        // behavior needs probing before modelling).
+        Assert.False(RouteColumnarProgram("func f(n: int?): int {\n    return (n + 1) ?? 0\n}\n").Ok);
+    }
+
     // NULL & NULLABLE N1 (Phase D) — null literals, REFERENCE-type nullability, and `??` coalescing.
     // `string?` annotations resolve to their element type (annotation-only at runtime — the nullable
     // tracking is the analyzer's); a bare NULL literal adopts any reference-typed target (returns,
@@ -4051,9 +4094,8 @@ class B
             ("coalesceChain", new object[] { "a", "b" }));
 
         // DECLINES:
-        // NULLABLE VALUE types (`int?` = Nullable<T> — a real different runtime type; the N2 rung).
-        Assert.False(RouteColumnarProgram("func f(n: int?): int {\n    return n ?? 0\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("func f(): int {\n    n: int? = 5\n    return n ?? 0\n}\n").Ok);
+        // (NULLABLE VALUE types — `int?` — are now ACCEPTED via the N2 lifting; see
+        // ColumnarCodegen_Parity_NullableValueTypes.)
         // `??` with a VALUE-typed left (meaningless on non-nullables; the pipeline rejects).
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    return n ?? 0\n}\n").Ok);
         // `must` (the dedicated null-assertion operator — a later rung).

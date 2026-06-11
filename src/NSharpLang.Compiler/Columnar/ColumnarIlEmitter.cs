@@ -571,6 +571,7 @@ public sealed class ColumnarIlEmitter
                                                   // promotes small ints to INT (ECMA §12.4.7), uint runs native u4
         || t == typeof(decimal)                   // decimal (SC-6): a baked VALUE struct — arithmetic and
                                                   // comparisons call System.Decimal's op_* methods
+        || IsSupportedNullable(t)                 // Nullable<T> over a baked value scalar (null N2)
         || t == typeof(System.Text.StringBuilder)
         || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
         || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
@@ -1832,15 +1833,23 @@ public sealed class ColumnarIlEmitter
         }
         // A `?` suffix on a REFERENCE type (`string?`, `Box?`) is annotation-only at runtime — the
         // nullable tracking lives in the analyzer; the CLR type is the element itself. A VALUE-type `?`
-        // (int? = Nullable<T>) is a real different runtime type — that is the N2 rung; decline here.
+        // is the REAL Nullable<T> (N2) — modelled over the BAKED value scalars (builders inside a
+        // Nullable cannot reflect their members; those decline).
         if (canonical.EndsWith("?", StringComparison.Ordinal))
         {
             var nullableElement = canonical.Substring(0, canonical.Length - 1);
-            if (TryResolveType(nullableElement, enumRegistry, structRegistry, unionRegistry, out var elementResolved)
-                && !elementResolved.IsValueType)
+            if (TryResolveType(nullableElement, enumRegistry, structRegistry, unionRegistry, out var elementResolved))
             {
-                type = elementResolved;
-                return true;
+                if (!elementResolved.IsValueType)
+                {
+                    type = elementResolved;
+                    return true;
+                }
+                if (IsLiftableNullableElement(elementResolved))
+                {
+                    type = typeof(System.Nullable<>).MakeGenericType(elementResolved);
+                    return true;
+                }
             }
             type = null!;
             return false;
@@ -3255,6 +3264,13 @@ public sealed class ColumnarIlEmitter
                 {
                     // `return null` on a reference-typed function.
                 }
+                else if (IsSupportedNullable(_returnType))
+                {
+                    // `return 5` / `return null` / `return n` on an int? function — the lifted
+                    // conversion OWNS the emission; failure declines the whole program.
+                    if (!TryEmitValueAsNullable(retNode, _returnType, out retType))
+                        return false;
+                }
                 else if (!EmitExpression(retNode, out retType))
                 {
                     return false;
@@ -3359,6 +3375,12 @@ public sealed class ColumnarIlEmitter
                 else if (TryEmitNullLiteralAsType(declaredInit, declaredType, out _))
                 {
                     // `s: string? = null` (a `?`-annotated reference resolves to its element type).
+                }
+                else if (IsSupportedNullable(declaredType))
+                {
+                    // `n: int? = 5` / `= null` / `= v` — the lifted conversion owns the emission.
+                    if (!TryEmitValueAsNullable(declaredInit, declaredType, out _))
+                        return false;
                 }
                 else
                 {
@@ -3704,6 +3726,12 @@ public sealed class ColumnarIlEmitter
                     {
                         // `s = null` on a reference-typed local.
                     }
+                    else if (IsSupportedNullable(assignTarget.LocalType))
+                    {
+                        // lifted re-store onto an int? local (owns the emission).
+                        if (!TryEmitValueAsNullable(Child(expr, 1), assignTarget.LocalType, out valueType))
+                            return false;
+                    }
                     else if (!EmitExpression(Child(expr, 1), out valueType))
                     {
                         return false;
@@ -3731,6 +3759,12 @@ public sealed class ColumnarIlEmitter
                     else if (TryEmitNullLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType))
                     {
                         // `s = null` on a reference-typed param.
+                    }
+                    else if (IsSupportedNullable(_paramTypes[targetName]))
+                    {
+                        // lifted re-store onto an int? param (owns the emission).
+                        if (!TryEmitValueAsNullable(Child(expr, 1), _paramTypes[targetName], out paramValueType))
+                            return false;
                     }
                     else if (!EmitExpression(Child(expr, 1), out paramValueType))
                     {
@@ -4417,8 +4451,25 @@ public sealed class ColumnarIlEmitter
                         type = typeof(bool);
                         return true;
                     }
-                    if (!EmitExpression(valueNode, out var nullCmpType) || nullCmpType.IsValueType)
-                        return false; // value types never compare to null here (Nullable<T> is the N2 rung).
+                    if (!EmitExpression(valueNode, out var nullCmpType))
+                        return false;
+                    if (IsSupportedNullable(nullCmpType))
+                    {
+                        // `n == null` on a Nullable<T> is !HasValue (and != null is HasValue) — the C# lowering.
+                        var nullableTemp = _il.DeclareLocal(nullCmpType);
+                        _il.Emit(OpCodes.Stloc, nullableTemp);
+                        _il.Emit(OpCodes.Ldloca, nullableTemp);
+                        _il.Emit(OpCodes.Call, nullCmpType.GetMethod("get_HasValue")!);
+                        if (op == "==")
+                        {
+                            _il.Emit(OpCodes.Ldc_I4_0);
+                            _il.Emit(OpCodes.Ceq);
+                        }
+                        type = typeof(bool);
+                        return true;
+                    }
+                    if (nullCmpType.IsValueType)
+                        return false; // plain value types never compare to null (the pipeline rejects).
                     _il.Emit(OpCodes.Ldnull);
                     _il.Emit(OpCodes.Ceq);
                     if (op == "!=")
@@ -4431,10 +4482,37 @@ public sealed class ColumnarIlEmitter
                 }
                 if (op == "??")
                 {
-                    // `a ?? b` on REFERENCE types: `<a>; dup; brtrue end; pop; <b>; end:` — the exact
-                    // C# lowering. Both sides must share one reference type (TypesEquivalent); a NULL
-                    // literal right (`a ?? null`) keeps the left's type. Nullable<T> lefts are N2.
-                    if (!EmitExpression(Child(idx, 0), out var coalesceLeft) || coalesceLeft.IsValueType)
+                    // `a ?? b` — REFERENCE left: `<a>; dup; brtrue end; pop; <b>; end:`. NULLABLE<T>
+                    // left (N2): `tmp = a; tmp.HasValue ? tmp.GetValueOrDefault() : <b as T>` — both the
+                    // exact C# lowerings. The Nullable form's RESULT is the ELEMENT type.
+                    if (!EmitExpression(Child(idx, 0), out var coalesceLeft))
+                        return false;
+                    if (IsSupportedNullable(coalesceLeft))
+                    {
+                        var coalesceElement = coalesceLeft.GetGenericArguments()[0];
+                        var nullableLocal = _il.DeclareLocal(coalesceLeft);
+                        _il.Emit(OpCodes.Stloc, nullableLocal);
+                        var elseLabel2 = _il.DefineLabel();
+                        var endLabel2 = _il.DefineLabel();
+                        _il.Emit(OpCodes.Ldloca, nullableLocal);
+                        _il.Emit(OpCodes.Call, coalesceLeft.GetMethod("get_HasValue")!);
+                        _il.Emit(OpCodes.Brfalse, elseLabel2);
+                        _il.Emit(OpCodes.Ldloca, nullableLocal);
+                        _il.Emit(OpCodes.Call, coalesceLeft.GetMethod("GetValueOrDefault", Type.EmptyTypes)!);
+                        _il.Emit(OpCodes.Br, endLabel2);
+                        _il.MarkLabel(elseLabel2);
+                        if (!TryEmitIntLiteralAsType(Child(idx, 1), coalesceElement, out _))
+                        {
+                            // emit-then-check is decline-safe: a false return abandons the program.
+                            if (!EmitExpression(Child(idx, 1), out var coalesceRightType)
+                                || !TypesEquivalent(coalesceRightType, coalesceElement))
+                                return false;
+                        }
+                        _il.MarkLabel(endLabel2);
+                        type = coalesceElement;
+                        return true;
+                    }
+                    if (coalesceLeft.IsValueType)
                         return false;
                     var coalesceEnd = _il.DefineLabel();
                     _il.Emit(OpCodes.Dup);
@@ -4673,6 +4751,14 @@ public sealed class ColumnarIlEmitter
                             if (TryEmitNullLiteralAsType(argNode, target.ParamTypes[a - 1], out argType))
                             {
                                 continue; // a NULL argument onto a reference-typed param.
+                            }
+                            if (IsSupportedNullable(target.ParamTypes[a - 1]))
+                            {
+                                // a lifted T -> T? argument (incl. bare null and T? pass-through) —
+                                // OWNS the emission; failure declines the whole program.
+                                if (!TryEmitValueAsNullable(argNode, target.ParamTypes[a - 1], out argType))
+                                    return false;
+                                continue;
                             }
                             if (!EmitExpression(argNode, out argType))
                                 return false;
@@ -6290,6 +6376,57 @@ public sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Ldc_I4, (bits[3] >> 16) & 0xFF);
         _il.Emit(OpCodes.Newobj, typeof(decimal).GetConstructor(new[] { typeof(int), typeof(int), typeof(int), typeof(bool), typeof(byte) })!);
         type = typeof(decimal);
+        return true;
+    }
+
+    // The value scalars a Nullable<T> may lift (null N2): BAKED runtime value types only — a
+    // Nullable over a TypeBuilder/EnumBuilder cannot reflect its ctor/members at emit.
+    private static bool IsLiftableNullableElement(Type t) =>
+        t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(uint)
+        || t == typeof(short) || t == typeof(ushort) || t == typeof(byte) || t == typeof(sbyte)
+        || t == typeof(bool) || t == typeof(char) || t == typeof(double) || t == typeof(float)
+        || t == typeof(decimal);
+
+    private static bool IsSupportedNullable(Type t) =>
+        t.IsGenericType && !t.IsGenericTypeDefinition
+        && t.GetGenericTypeDefinition() == typeof(System.Nullable<>)
+        && IsLiftableNullableElement(t.GetGenericArguments()[0]);
+
+    // LIFTING onto a Nullable<T> target (null N2): a bare NULL emits default(T?) (initobj on a temp);
+    // an already-T? value passes through; a T-typed value (or an int literal adopting T) wraps via
+    // `newobj Nullable<T>(T)` — the exact C# conversions for `n: int? = 5` / `= null` / `= v` / `= m`.
+    // The caller must invoke this ONLY when the target IS a supported Nullable, and a FALSE return is a
+    // WHOLE-PROGRAM decline (the value may already be on the stack — never fall through and re-emit).
+    private bool TryEmitValueAsNullable(int node, Type target, out Type type)
+    {
+        type = null!;
+        var element = target.GetGenericArguments()[0];
+        if (_kinds[node] == 5)
+        {
+            var defaultLocal = _il.DeclareLocal(target);
+            _il.Emit(OpCodes.Ldloca, defaultLocal);
+            _il.Emit(OpCodes.Initobj, target);
+            _il.Emit(OpCodes.Ldloc, defaultLocal);
+            type = target;
+            return true;
+        }
+        if (TryEmitIntLiteralAsType(node, element, out _))
+        {
+            _il.Emit(OpCodes.Newobj, target.GetConstructor(new[] { element })!);
+            type = target;
+            return true;
+        }
+        if (!EmitExpression(node, out var emitted))
+            return false;
+        if (TypesEquivalent(emitted, target))
+        {
+            type = target; // already a T? value — pass through.
+            return true;
+        }
+        if (!TypesEquivalent(emitted, element))
+            return false; // emitted-but-wrong — the caller declines the whole program (stack abandoned).
+        _il.Emit(OpCodes.Newobj, target.GetConstructor(new[] { element })!);
+        type = target;
         return true;
     }
 

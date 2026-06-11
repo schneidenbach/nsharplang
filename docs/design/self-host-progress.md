@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — NULL & NULLABLE N2: Nullable&lt;T&gt; value types
+
+`int?` (and every baked value scalar's `?`) resolves to the REAL `System.Nullable<T>`. **Lifting** at all
+five expected-type sites: bare null → `initobj` default(T?); an int literal adopting T or a T-typed value
+→ `newobj Nullable<T>(T)`; an already-T? value passes through — the exact C# implicit conversions.
+**`n ?? d`** lowers `tmp.HasValue ? tmp.GetValueOrDefault() : d` with the ELEMENT result type;
+**`n == null` / `n != null`** lower to `!HasValue` / `HasValue`. Nullable over BUILDER value types (user
+structs/enums) declines — emit-time reflection cannot reach their members; lifted ARITHMETIC (`n + 1`)
+declines pending oracle probes (pinned).
+
+**Emit-ownership lesson (caught by the parity harness as InvalidProgramException):** the first lifting
+draft emitted the value before knowing its type and let call sites FALL THROUGH and re-emit on mismatch —
+a double load. The rule now: when the target IS a supported Nullable, the lifted path OWNS the emission
+and a false return is a whole-program decline (the emit-then-check pattern is only safe when false
+abandons the assembly — never when a caller continues emitting).
+
+Parity: `ColumnarCodegen_Parity_NullableValueTypes` (13 functions, 11 invocations incl. lifted args,
+nullable returns, double?) + 2 decline pins; the two N1 Nullable pins flipped. 295/295; gate (see commit).
+REMAINING null rungs: `must`, is/as (kernel parse work), lifted arithmetic (probe-first).
+
+---
+
 ## 2026-06-11 — NULL & NULLABLE N1: null literals, reference nullability, `??` coalescing
 
 The null arc opens. The kernel ALWAYS parsed the surface (null literal = kind 5; `??` = the precedence-1
