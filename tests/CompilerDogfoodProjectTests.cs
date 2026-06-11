@@ -4048,13 +4048,39 @@ class B
             "func lateReturn(n: int): int {\n    try {\n        return 100 / n\n    } catch {\n    }\n    return 0 - 7\n}\n\n" +
             // VOID body: a value-less protected `return` (leave with no stloc) + fall-through tail.
             "func punt(n: int) {\n    try {\n        if n == 0 {\n            return\n        }\n    } catch {\n    }\n}\n\n" +
-            "func viaPunt(n: int): int {\n    punt(n)\n    return 9\n}\n";
+            "func viaPunt(n: int): int {\n    punt(n)\n    return 9\n}\n\n" +
+            // MIXED exits: try throws / catch returns, and try returns / catch throws.
+            "func throwTry(): int {\n    try {\n        throw new FormatException(\"orig\")\n    } catch {\n        return 7\n    }\n}\n\n" +
+            "func throwCatch(): int {\n    try {\n        return 5\n    } catch {\n        throw new InvalidOperationException(\"b\")\n    }\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("safe", new object[] { 5 }), ("safe", new object[] { 0 }),
             ("guarded", new object[] { 3 }), ("guarded", new object[] { 0 }),
             ("sideEffect", new object[] { 4 }), ("sideEffect", new object[] { 0 }),
             ("lateReturn", new object[] { 5 }), ("lateReturn", new object[] { 0 }),
-            ("viaPunt", new object[] { 0 }), ("viaPunt", new object[] { 3 }));
+            ("viaPunt", new object[] { 0 }), ("viaPunt", new object[] { 3 }),
+            ("throwTry", System.Array.Empty<object>()), ("throwCatch", System.Array.Empty<object>()));
+
+        // The ALL-THROWS try/catch (wrap-and-rethrow): EVERY region exits via throw, no return anywhere.
+        // Route-only (a throwing invocation does not value-compare) — the tail must still emit, because
+        // the implicit `leave`s make the post-block position reachable in the JIT's view (probe-found
+        // InvalidProgramException in BOTH pipelines; the oracle's _emittedExceptionBlockInBody fix is the
+        // twin). The columnar tail now emits whenever ANY try exists, not only when a protected return
+        // targeted it.
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram(
+                "func wrap(): int {\n    try {\n        throw new FormatException(\"orig\")\n    } catch {\n        throw new InvalidOperationException(\"wrapped\")\n    }\n}\n\n" +
+                "func wrapVoid() {\n    try {\n        throw new FormatException(\"orig\")\n    } catch {\n        throw new InvalidOperationException(\"wrapped\")\n    }\n}\n");
+            Assert.True(ok, "columnar must emit the all-throws try/catch program");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            var progType = scope.Assembly.GetType(typeName!)!;
+            foreach (var fn in new[] { "wrap", "wrapVoid" })
+            {
+                var thrown = Assert.Throws<System.Reflection.TargetInvocationException>(
+                    () => progType.GetMethod(fn)!.Invoke(null, null));
+                var inner = Assert.IsType<InvalidOperationException>(thrown.InnerException);
+                Assert.Equal("wrapped", inner.Message);
+            }
+        }
 
         // DECLINES (all pipeline-VALID programs — these pins flip to coverage as E3/E4 land):
         // a TYPED catch, parenthesized (E3).

@@ -427,7 +427,6 @@ public sealed class ColumnarIlEmitter
     private LocalBuilder? _protectedResult;
     private Label _protectedDone;
     private bool _protectedDoneCreated;
-    private bool _protectedReturnUsed;
     private bool _inProtectedRegion;
     private readonly ILGenerator _il;
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
@@ -3214,9 +3213,13 @@ public sealed class ColumnarIlEmitter
     }
 
     // The single body-level tail every protected-region `return` leaves to (E2): `done: [ldloc result;] ret`.
+    // Emitted whenever ANY try exists — not only when a protected return targeted it: Reflection.Emit's
+    // implicit `leave`s (BeginCatchBlock/EndExceptionBlock) make the post-block position reachable in the
+    // JIT's view even when every region exits via `throw`, so an all-throws try/catch without this tail
+    // falls off a reachable method end (InvalidProgramException — probe-found, both pipelines).
     private void EmitProtectedReturnTail(bool isVoid)
     {
-        if (!_protectedReturnUsed)
+        if (!_protectedDoneCreated)
             return;
         _il.MarkLabel(_protectedDone);
         if (!isVoid)
@@ -3328,7 +3331,6 @@ public sealed class ColumnarIlEmitter
                     if (_inProtectedRegion)
                     {
                         _il.Emit(OpCodes.Leave, _protectedDone);
-                        _protectedReturnUsed = true;
                         return true;
                     }
                     _il.Emit(OpCodes.Ret);
@@ -3369,7 +3371,6 @@ public sealed class ColumnarIlEmitter
                     // E2: `ret` is invalid inside try/catch — store + leave to the body tail (spike rule 1).
                     _il.Emit(OpCodes.Stloc, _protectedResult!);
                     _il.Emit(OpCodes.Leave, _protectedDone);
-                    _protectedReturnUsed = true;
                     return true;
                 }
                 _il.Emit(OpCodes.Ret);

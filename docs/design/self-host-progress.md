@@ -11,6 +11,41 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — E2b: throw-terminated exception blocks emitted INVALID IL — both pipelines, fixed both
+
+E3's VERIFY-FIRST probe sweep found the wrap-and-rethrow catch pattern (`try {...} catch { throw new
+... }`) throwing **InvalidProgramException on every call — in BOTH pipelines** (oracle defect #18 +
+an E2 columnar hole the parity tests missed because no shape exited every region via throw).
+
+**Mechanics:** Reflection.Emit's BeginCatchBlock/BeginFinallyBlock/EndExceptionBlock append implicit
+`leave` instructions, which make the post-block position reachable in the JIT importer's view EVEN
+when every region exits via `throw` (the leaves are dead, but the importer doesn't do dead-code
+analysis — a `leave` makes its target reachable). A value body whose only exits are throws inside a
+try/catch (or lock/using — same mechanics through their try/finally) therefore still needs a method
+tail; without one, control "falls off" a reachable method end. IL dump pinned it: both leaves
+targeted offset 33 of a 33-byte method.
+
+**Oracle fix:** new `_emittedExceptionBlockInBody` (set at all SIX BeginExceptionBlock sites —
+EmitTry/EmitLock/EmitUsing/EmitAssertThrows, plus EmitErrorTupleDeconstruction and
+BeginAsyncFaultGuard, the latter two found by the adversarial review as invariant gaps that cannot
+manifest on analyzer-accepted input — NL305 guarantees code follows a non-exiting declaration, and
+async tails are unconditional — but are hardened anyway; reset per body; saved/restored across
+nested-body emission in NestedMethodReturnContext). The structured-return tail now also fires when the body
+emitted an exception block and never returned, at all THREE tail sites: top-level functions
+(~11140), type-member methods (~24009), nested lambda/local-function bodies
+(TryCloseNestedStructuredReturn — value bodies only; void/generator/async keep their own tails).
+
+**Columnar twin:** EmitProtectedReturnTail emits whenever ANY try exists (`_protectedDoneCreated`),
+not only when a protected return targeted it; `_protectedReturnUsed` deleted. The all-throws tail is
+`done: ldloc result; ret` over a never-stored (zero-initialized, InitLocals) local — dead in
+practice, reachable in the importer's view, valid.
+
+Pins: ILCompiler_ThrowTerminatedExceptionBlocks_EmitValidIl (wrap, var-flow wrap, lock-throw,
+local-func all-throws — exact messages) + TryBareCatch grew throwTry/throwCatch value parity and the
+route-only all-throws wrap/wrapVoid pins. 300/300; gate (see commit).
+
+---
+
 ## 2026-06-11 — EXCEPTIONS E2: try + bare catch — protected regions enter the emitter
 
 `try { } catch { }` (Try **38** / Catch **39** / Finally **40** — empirically verified) parses as
