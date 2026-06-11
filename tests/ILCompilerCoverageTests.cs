@@ -24,6 +24,69 @@ public class ILCompilerCoverageTests : ILCompilerTestBase
             || type.Name.StartsWith("<>LiftedBox", StringComparison.Ordinal);
     }
 
+    // NAMED TUPLE member access (`t.x` on a value typed (x: int, y: int)): the analyzer always resolved
+    // names via TupleTypeInfo, but the emitter resolved members by literal-name reflection on the erased
+    // CLR ValueTuple<> (which only has ItemN fields) and threw "Member x not found on type ValueTuple`2".
+    // The emitter now retains declared element names per variable (_tupleElementNamesByVariable) and
+    // rewrites named members to their positional ItemN spelling at the member-resolution tails.
+    [Fact]
+    public void ILCompiler_NamedTupleMemberAccess_AllReceiverShapes()
+    {
+        var source = @"
+func mk(): (x: int, y: int) {
+    return (x: 3, y: 4)
+}
+
+func dist(p: (x: int, y: int)): int {
+    return p.x + p.y
+}
+
+func viaLambdaParamShadow(): int {
+    t := (a: 100, b: 200)
+    f: Func<int, int> = n => n + 1
+    return f(t.a)
+}
+
+func main(): int {
+    t := mk()                      // local inferred from a call's declared return type
+    lit := (a: 10, b: 20)          // local inferred from a NAMED tuple literal
+    copy := lit                    // identifier copy propagates the names
+    sum := t.x + t.y               // 7
+    sum = sum + lit.a + lit.b      // +30 = 37
+    sum = sum + copy.a             // +10 = 47
+    sum = sum + dist((x: 5, y: 6)) // +11 = 58 (PARAM receiver inside dist)
+    sum = sum + mk().x             // +3 = 61 (direct CALL receiver)
+    sum = sum + t.Item1            // +3 = 64 (positional spelling stays valid on a named tuple)
+    sum = sum + viaLambdaParamShadow() // +101 = 165 (names survive the lambda body boundary)
+    return sum
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(165, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void ILCompiler_NamedTupleMemberAccess_CrossNamedAssignmentStaysPositional()
+    {
+        // Tuple identity is positional — differently-named tuple types assign freely (C# semantics),
+        // and the RECEIVING name set governs member access.
+        var source = @"
+func mk(): (x: int, y: int) {
+    return (x: 3, y: 4)
+}
+
+func take(p: (a: int, b: int)): int {
+    return p.a + p.b
+}
+
+func main(): int {
+    return take(mk())
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(7, Assert.IsType<int>(result));
+    }
+
     [Fact]
     public void ILCompiler_CanExecuteLockStatementAndReleaseMonitor()
     {

@@ -909,6 +909,7 @@ public partial class ILCompiler
     {
         var savedParameters = _parameters;
         var savedParameterTypes = _parameterTypes;
+        var savedTupleElementNames = _tupleElementNamesByVariable;
         var savedInferredLocalTypes = _inferredLocalTypes;
         var savedByRefParameters = _byRefParameters;
         var savedExpectedExpressionType = _expectedExpressionType;
@@ -919,6 +920,9 @@ public partial class ILCompiler
         _parameterTypes = savedParameterTypes != null
             ? new Dictionary<string, Type>(savedParameterTypes, StringComparer.Ordinal)
             : new Dictionary<string, Type>(StringComparer.Ordinal);
+        _tupleElementNamesByVariable = savedTupleElementNames != null
+            ? new Dictionary<string, string?[]>(savedTupleElementNames, StringComparer.Ordinal)
+            : new Dictionary<string, string?[]>(StringComparer.Ordinal);
         _inferredLocalTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
         _byRefParameters = savedByRefParameters != null
             ? new HashSet<string>(savedByRefParameters, StringComparer.Ordinal)
@@ -960,6 +964,8 @@ public partial class ILCompiler
         {
             _parameters = savedParameters;
             _parameterTypes = savedParameterTypes;
+        _tupleElementNamesByVariable = savedTupleElementNames;
+            _tupleElementNamesByVariable = savedTupleElementNames;
             _inferredLocalTypes = savedInferredLocalTypes;
             _byRefParameters = savedByRefParameters;
             _expectedExpressionType = savedExpectedExpressionType;

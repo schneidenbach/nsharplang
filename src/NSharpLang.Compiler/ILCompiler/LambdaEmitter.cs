@@ -112,6 +112,7 @@ public partial class ILCompiler
         var savedLocals = _locals;
         var savedParameters = _parameters;
         var savedParameterTypes = _parameterTypes;
+        var savedTupleElementNames = _tupleElementNamesByVariable;
         var savedByRefParameters = _byRefParameters;
         var savedInferredLocalTypes = _inferredLocalTypes;
         var savedCurrentReturnType = _currentReturnType;
@@ -239,6 +240,7 @@ public partial class ILCompiler
         _locals = savedLocals;
         _parameters = savedParameters;
         _parameterTypes = savedParameterTypes;
+        _tupleElementNamesByVariable = savedTupleElementNames;
         _byRefParameters = savedByRefParameters;
         _inferredLocalTypes = savedInferredLocalTypes;
         _currentReturnType = savedCurrentReturnType;
@@ -659,6 +661,7 @@ public partial class ILCompiler
         var savedLocals = _locals;
         var savedParameters = _parameters;
         var savedParameterTypes = _parameterTypes;
+        var savedTupleElementNames = _tupleElementNamesByVariable;
         var savedByRefParameters = _byRefParameters;
         var savedInferredLocalTypes = _inferredLocalTypes;
         var savedCurrentReturnType = _currentReturnType;
@@ -781,6 +784,7 @@ public partial class ILCompiler
         _locals = savedLocals;
         _parameters = savedParameters;
         _parameterTypes = savedParameterTypes;
+        _tupleElementNamesByVariable = savedTupleElementNames;
         _byRefParameters = savedByRefParameters;
         _inferredLocalTypes = savedInferredLocalTypes;
         _currentReturnType = savedCurrentReturnType;
@@ -867,6 +871,7 @@ public partial class ILCompiler
         var savedLocals = _locals;
         var savedParameters = _parameters;
         var savedParameterTypes = _parameterTypes;
+        var savedTupleElementNames = _tupleElementNamesByVariable;
         var savedByRefParameters = _byRefParameters;
         var savedCurrentReturnType = _currentReturnType;
         var savedCurrentAsyncReturnType = _currentAsyncReturnType;
@@ -996,6 +1001,7 @@ public partial class ILCompiler
         _locals = savedLocals;
         _parameters = savedParameters;
         _parameterTypes = savedParameterTypes;
+        _tupleElementNamesByVariable = savedTupleElementNames;
         _byRefParameters = savedByRefParameters;
         _currentReturnType = savedCurrentReturnType;
         _currentAsyncReturnType = savedCurrentAsyncReturnType;

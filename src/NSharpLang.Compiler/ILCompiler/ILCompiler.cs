@@ -67,6 +67,12 @@ public partial class ILCompiler
     private Dictionary<string, int>? _parameters;
     private Dictionary<string, Type>? _parameterTypes;
     private Dictionary<string, Type>? _inferredLocalTypes;
+    // Tuple ELEMENT NAMES per tuple-typed variable (named-tuple member access `t.x` -> ItemN): the CLR
+    // erases tuple names (ValueTuple<> is positional; names live only in TupleElementNamesAttribute
+    // metadata, which this backend does not emit), so the declared names are retained per variable here.
+    // Fresh per body (InitializeBodyContext); saved/restored with _parameterTypes across nested-body
+    // boundaries (lambdas, local functions, embedded runtime calls).
+    private Dictionary<string, string?[]>? _tupleElementNamesByVariable;
     private HashSet<string>? _byRefParameters;
     private GenericTypeParameterBuilder[]? _currentGenericParameters;
 
@@ -1364,6 +1370,7 @@ public partial class ILCompiler
         _locals = new Dictionary<string, LocalBuilder>();
         _parameters = new Dictionary<string, int>();
         _parameterTypes = new Dictionary<string, Type>();
+        _tupleElementNamesByVariable = new Dictionary<string, string?[]>(StringComparer.Ordinal);
         _byRefParameters = new HashSet<string>();
         _currentReturnType = returnType;
         _liftLocalsIntoBoxes = liftLocalsIntoBoxes;
@@ -8980,6 +8987,7 @@ public partial class ILCompiler
             // The logical type seen by the body is always the value type; an `in`-lowered
             // parameter is read by dereferencing the managed reference (see _byRefParameters).
             _parameterTypes[parameter.Name] = logicalParameterType;
+            RegisterTupleElementNames(parameter.Name, parameter.Type as TupleTypeReference);
 
             if (parameterType.IsByRef || parameter.Modifier is Ast.ParameterModifier.Ref or Ast.ParameterModifier.Out)
             {
@@ -11693,6 +11701,21 @@ public partial class ILCompiler
         else
         {
             throw new InvalidOperationException("Variable must have either a type or an initializer");
+        }
+
+        // Retain declared/derived tuple ELEMENT NAMES for named member access (`t.x` -> ItemN); a
+        // re-declaration without names sheds any stale entry.
+        if (varDecl.Type is TupleTypeReference declaredTupleType)
+        {
+            RegisterTupleElementNames(varDecl.Name, declaredTupleType);
+        }
+        else
+        {
+            var derivedTupleNames = varDecl.Initializer != null ? ResolveExpressionTupleElementNames(varDecl.Initializer) : null;
+            if (derivedTupleNames != null)
+                (_tupleElementNamesByVariable ??= new Dictionary<string, string?[]>(StringComparer.Ordinal))[varDecl.Name] = derivedTupleNames;
+            else
+                _tupleElementNamesByVariable?.Remove(varDecl.Name);
         }
 
         // Declare local
@@ -19191,7 +19214,7 @@ public partial class ILCompiler
 
             _currentIL.MarkLabel(hasValueLabel);
             _currentIL.Emit(OpCodes.Ldloc, objectLocal);
-            EmitMemberLoadValue(receiverType, nonNullMemberAccess.MemberName);
+            EmitMemberLoadValue(receiverType, ResolveEffectiveTupleMemberName(nonNullMemberAccess.Object, receiverType, nonNullMemberAccess.MemberName));
             if (resultType != nonNullValueType)
             {
                 var nullableCtor = resultType.GetConstructor(new[] { nonNullValueType });
@@ -19381,10 +19404,13 @@ public partial class ILCompiler
             return;
         }
 
+        // A NAMED tuple element (`t.x` on (x: int, y: int)) rewrites to its positional ItemN field.
+        var effectiveMemberName = ResolveEffectiveTupleMemberName(memberAccess.Object, memberOwnerType, memberAccess.MemberName);
+
         // Try to find a property first
         var property = ResolveRuntimeProperty(
             memberOwnerType,
-            memberAccess.MemberName,
+            effectiveMemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (property?.Getter != null)
         {
@@ -19395,7 +19421,7 @@ public partial class ILCompiler
         // Try to find a field
         var field = ResolveRuntimeField(
             memberOwnerType,
-            memberAccess.MemberName,
+            effectiveMemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (field != null)
         {
@@ -20487,10 +20513,13 @@ public partial class ILCompiler
             }
         }
 
+        // A NAMED tuple element (`t.x`) types as its positional ItemN field.
+        var effectiveTypeMemberName = ResolveEffectiveTupleMemberName(unwrapNullConditional.Object, memberOwnerType, unwrapNullConditional.MemberName);
+
         // Try to find a property
         var property = ResolveRuntimeProperty(
             memberOwnerType,
-            unwrapNullConditional.MemberName,
+            effectiveTypeMemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (property != null)
         {
@@ -20500,7 +20529,7 @@ public partial class ILCompiler
         // Try to find a field
         var field = ResolveRuntimeField(
             memberOwnerType,
-            unwrapNullConditional.MemberName,
+            effectiveTypeMemberName,
             BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static);
         if (field != null)
         {
@@ -20508,6 +20537,75 @@ public partial class ILCompiler
         }
 
         return typeof(object);
+    }
+
+    // ---- Named-tuple element access (`t.x` on a value typed (x: int, y: int)) ----
+    // The analyzer resolves named tuple members via TupleTypeInfo (TryResolveTupleMember); the emitter
+    // works with erased CLR ValueTuple<> types, so the declared names are retained per variable
+    // (_tupleElementNamesByVariable) and rewritten to the positional ItemN spelling at the member-
+    // resolution tails. Name sources: explicit tuple-type annotations on locals/params, named tuple
+    // LITERAL initializers, identifier copies, and direct CALL initializers/receivers via the callee's
+    // declared return type (single-overload only — ambiguity skips names, leaving the original error).
+
+    private void RegisterTupleElementNames(string variableName, TupleTypeReference? tupleType)
+    {
+        var names = tupleType != null ? TupleElementNamesOrNull(tupleType) : null;
+        if (names != null)
+            (_tupleElementNamesByVariable ??= new Dictionary<string, string?[]>(StringComparer.Ordinal))[variableName] = names;
+        else
+            _tupleElementNamesByVariable?.Remove(variableName);
+    }
+
+    private static string?[]? TupleElementNamesOrNull(TupleTypeReference tupleType)
+        => tupleType.Elements.Any(e => !string.IsNullOrEmpty(e.Name))
+            ? tupleType.Elements.Select(e => e.Name).ToArray()
+            : null;
+
+    private string?[]? ResolveExpressionTupleElementNames(Expression expression)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression identifier:
+                return _tupleElementNamesByVariable != null
+                    && _tupleElementNamesByVariable.TryGetValue(identifier.Name, out var variableNames)
+                    ? variableNames
+                    : null;
+            case TupleExpression tupleLiteral when tupleLiteral.Elements.Any(e => !string.IsNullOrEmpty(e.Name)):
+                return tupleLiteral.Elements.Select(e => e.Name).ToArray();
+            case ParenthesizedExpression parenthesized:
+                return ResolveExpressionTupleElementNames(parenthesized.Inner);
+            case CallExpression { Callee: IdentifierExpression callee }:
+                if (_declaredMethodOverloads.TryGetValue(callee.Name, out var overloads)
+                    && overloads.Count == 1
+                    && overloads[0].Declaration.ReturnType is TupleTypeReference declaredReturn)
+                {
+                    return TupleElementNamesOrNull(declaredReturn);
+                }
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    // Rewrites a NAMED tuple member to its positional ItemN spelling when the receiver is tuple-typed
+    // and its retained element names contain the member; every other shape returns the original name
+    // (so non-tuple members and genuinely-unknown names keep their existing diagnostics).
+    private string ResolveEffectiveTupleMemberName(Expression receiver, Type receiverType, string memberName)
+    {
+        if (!receiverType.IsGenericType
+            || receiverType.FullName?.StartsWith("System.ValueTuple`", StringComparison.Ordinal) != true)
+        {
+            return memberName;
+        }
+        var names = ResolveExpressionTupleElementNames(receiver);
+        if (names == null)
+            return memberName;
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (names[i] == memberName)
+                return "Item" + (i + 1);
+        }
+        return memberName;
     }
 
     private Type GetIndexAccessType(IndexAccessExpression indexAccess)

@@ -834,6 +834,7 @@ public partial class ILCompiler
         var savedLocals = _locals;
         var savedParameters = _parameters;
         var savedParameterTypes = _parameterTypes;
+        var savedTupleElementNames = _tupleElementNamesByVariable;
         var savedByRefParameters = _byRefParameters;
         var savedCurrentGenericParameters = _currentGenericParameters;
         var savedCurrentReturnType = _currentReturnType;
@@ -973,6 +974,8 @@ public partial class ILCompiler
             _locals = savedLocals;
             _parameters = savedParameters;
             _parameterTypes = savedParameterTypes;
+        _tupleElementNamesByVariable = savedTupleElementNames;
+            _tupleElementNamesByVariable = savedTupleElementNames;
             _byRefParameters = savedByRefParameters;
             _currentGenericParameters = savedCurrentGenericParameters;
             _currentReturnType = savedCurrentReturnType;
