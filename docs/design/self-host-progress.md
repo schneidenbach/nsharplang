@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — STRINGS slice 1: FULL ESCAPES — a language-semantics fix, all three paths converge
+
+N# string literals historically materialized RAW on the IL path (`Trim('"')` only —
+`GetStringLiteralRuntimeValue`): `"a\nb"` was FOUR characters, a lone `"` was UNWRITABLE (the lexer
+consumed `\"` for delimiting while the value kept the backslash), and the IL path silently DIVERGED
+from the TRANSPILE path (Roslyn always decoded the same token text) — while CHAR literals always
+decoded. Probes + the corpus audit settled the design: the corpus uses backslashes almost exclusively
+in char literals (unaffected), the only string hits are example ASCII art where raw rendering was
+visibly wrong, and N# has a SEPARATE raw-string feature (`"""`, DESIGN.md) for no-escape semantics —
+so C#-style escapes in regular strings are the intended design and raw was the defect.
+
+Fix: the single shared **`StringLiteralDecoder`** (new file) decodes the char-literal escape set
+(`\' \" \\ \0 \a \b \f \n \r \t \v`; an UNKNOWN pair passes through raw — no new diagnostic, the
+parser never rejected one); ALL SIX of the oracle's Trim sites route through it, and the columnar
+kind-3 emit calls the same decoder — both pipelines materialize byte-identically and now agree with
+the transpile path. The lexer needed NO change (it always kept escape pairs verbatim, quote-aware).
+
+**The ENTIRE 3997-test unit suite passed unchanged** — nothing relied on raw semantics. Parity:
+`ColumnarCodegen_Parity_StringEscapes` (7 functions incl. char-escape match patterns and the
+unknown-escape pass-through, + exact-value pins: `say \"hi\"` decodes to `say "hi"`, `"a\nb"`.Length
+is 3). Remaining strings rungs (queued): the BCL string-method whitelist gaps (parameterless
+int.ToString(), .Substring(1) — the match-positions ROUTE-ONLY pins), interpolation columnar-side.
+
+---
+
 ## 2026-06-11 — SCALAR COMPLETENESS SC-6: decimal — THE SCALAR ARC CLOSES
 
 decimal joins the modelled set (builtin + IsSupportedType — a baked VALUE struct, not an IL primitive).

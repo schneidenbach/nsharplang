@@ -4298,10 +4298,11 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 3: // StringLiteral — N# string literals are RAW: the C# path emits `value.Trim('"')` with NO
-            {       // escape processing (ILCompiler.GetStringLiteralRuntimeValue), so a backslash stays literal.
-                    // Match that EXACTLY (Trim('"') over the source substring) — do NOT decode escapes here.
-                _il.Emit(OpCodes.Ldstr, Text(idx).Trim('"'));
+            case 3: // StringLiteral — FULL ESCAPES (strings slice): the value decodes the C#-style escape
+            {       // set via the SHARED StringLiteralDecoder (the exact rule the C# path's
+                    // GetStringLiteralRuntimeValue applies — both pipelines materialize byte-identically;
+                    // the transpile path always decoded via Roslyn, so all three now agree).
+                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(Text(idx)));
                 type = typeof(string);
                 return true;
             }

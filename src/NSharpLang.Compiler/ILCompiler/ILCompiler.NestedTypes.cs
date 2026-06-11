@@ -381,7 +381,7 @@ public partial class ILCompiler
                     FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
 
                 var constantValue = member.Value is StringLiteralExpression stringLiteral
-                    ? stringLiteral.Value.Trim('"')
+                    ? StringLiteralDecoder.Decode(stringLiteral.Value)
                     : member.Name;
                 fieldBuilder.SetConstant(constantValue);
                 _fields[GetFieldKey(stringEnumType, member.Name)] = fieldBuilder;

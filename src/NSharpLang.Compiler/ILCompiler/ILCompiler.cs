@@ -1302,7 +1302,7 @@ public partial class ILCompiler
             IntLiteralExpression intLiteral => ParseIntLiteralValue(intLiteral.Value),
             FloatLiteralExpression floatLiteral => ParseFloatingLiteralObject(floatLiteral.Value),
             CharLiteralExpression charLiteral => ParseCharLiteralValue(charLiteral.Value),
-            StringLiteralExpression stringLiteral => stringLiteral.Value.Trim('"'),
+            StringLiteralExpression stringLiteral => StringLiteralDecoder.Decode(stringLiteral.Value),
             BoolLiteralExpression boolLiteral => boolLiteral.Value,
             NullLiteralExpression => null,
             _ => throw new NotSupportedException($"InlineData does not support {expression.GetType().Name} in IL compiler")
@@ -5550,7 +5550,7 @@ public partial class ILCompiler
             IntLiteralExpression intLiteral => (ParseIntLiteralValue(intLiteral.Value), typeof(int)),
             FloatLiteralExpression floatLiteral => EvaluateFloatingLiteralArgument(floatLiteral.Value),
             CharLiteralExpression charLiteral => (ParseCharLiteralValue(charLiteral.Value), typeof(char)),
-            StringLiteralExpression stringLiteral => (stringLiteral.Value.Trim('"'), typeof(string)),
+            StringLiteralExpression stringLiteral => (StringLiteralDecoder.Decode(stringLiteral.Value), typeof(string)),
             BoolLiteralExpression boolLiteral => (boolLiteral.Value, typeof(bool)),
             UnaryExpression unary => EvaluateAttributeUnaryArgument(unary),
             BinaryExpression binary => EvaluateAttributeBinaryArgument(binary),
@@ -14363,7 +14363,7 @@ public partial class ILCompiler
 
         if (pattern is LiteralPattern { Literal: StringLiteralExpression stringLiteral })
         {
-            key = stringLiteral.Value.Trim('"');
+            key = StringLiteralDecoder.Decode(stringLiteral.Value);
             return true;
         }
 
@@ -14814,7 +14814,10 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Ldstr, GetStringLiteralRuntimeValue(strLit));
     }
 
-    private static string GetStringLiteralRuntimeValue(StringLiteralExpression strLit) => strLit.Value.Trim('"');
+    // FULL ESCAPES (strings slice): the runtime value DECODES the C#-style escape set — the single
+    // shared rule in StringLiteralDecoder (the columnar emitter calls the same decoder; the transpile
+    // path always decoded via Roslyn, so the three paths now agree).
+    private static string GetStringLiteralRuntimeValue(StringLiteralExpression strLit) => StringLiteralDecoder.Decode(strLit.Value);
 
     private void EmitCharLiteral(CharLiteralExpression charLit)
     {
@@ -22148,7 +22151,7 @@ public partial class ILCompiler
                     FieldAttributes.Public | FieldAttributes.Static | FieldAttributes.Literal | FieldAttributes.HasDefault);
 
                 var constantValue = member.Value is StringLiteralExpression stringLiteral
-                    ? stringLiteral.Value.Trim('"')
+                    ? StringLiteralDecoder.Decode(stringLiteral.Value)
                     : member.Name;
                 fieldBuilder.SetConstant(constantValue);
                 _fields[GetFieldKey(typeBuilder, member.Name)] = fieldBuilder;

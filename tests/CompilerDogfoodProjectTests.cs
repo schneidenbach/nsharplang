@@ -4019,6 +4019,45 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // STRINGS slice (Phase D) — FULL ESCAPES. N# string literals historically materialized RAW
+    // (`Trim('"')` only — `"\n"` was TWO characters, a lone `"` was unwritable since the lexer ate `\"`
+    // for delimiting while the value kept the backslash, and the IL path silently DIVERGED from the
+    // transpile path, which always decoded via Roslyn). Both pipelines now decode the C#-style escape
+    // set through the single shared StringLiteralDecoder (`\' \" \\ \0 \a \b \f \n \r \t \v`); an
+    // UNKNOWN escape pair passes through raw (no new diagnostic — the parser never rejected one). Char
+    // literals always decoded; they are unchanged.
+    [Fact]
+    public void ColumnarCodegen_Parity_StringEscapes()
+    {
+        var prog =
+            "func newlineLen(): int {\n    return \"a\\nb\".Length\n}\n\n" +
+            "func tabLen(): int {\n    return \"tab\\there\".Length\n}\n\n" +
+            "func quoted(): string {\n    return \"say \\\"hi\\\"\"\n}\n\n" +
+            "func backslash(): int {\n    return \"c:\\\\path\".Length\n}\n\n" +
+            "func nul(): int {\n    s := \"a\\0b\"\n    return s.Length\n}\n\n" +
+            "func charMatch(c: char): int {\n    return match c {\n        '\\n' => 1,\n        '\\t' => 2,\n        _ => 0\n    }\n}\n\n" +
+            // an UNKNOWN escape pair passes through raw on both pipelines.
+            "func unknownEscape(): int {\n    return \"a\\qb\".Length\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("newlineLen", System.Array.Empty<object>()),
+            ("tabLen", System.Array.Empty<object>()),
+            ("quoted", System.Array.Empty<object>()),
+            ("backslash", System.Array.Empty<object>()),
+            ("nul", System.Array.Empty<object>()),
+            ("charMatch", new object[] { '\n' }), ("charMatch", new object[] { '\t' }), ("charMatch", new object[] { 'x' }),
+            ("unknownEscape", System.Array.Empty<object>()));
+
+        // The decoded values are the C#-escaped ones (pin the EXACT semantics, not just both-pipeline
+        // agreement): "a\nb" is 3 chars, the quoted string is exactly `say "hi"`.
+        var (ok, asm, typeName, _) = RouteColumnarProgram(
+            "func quoted(): string {\n    return \"say \\\"hi\\\"\"\n}\n\nfunc nl(): int {\n    return \"a\\nb\".Length\n}\n");
+        Assert.True(ok, "columnar must emit the escapes program");
+        using var scope = CollectibleAssemblyScope.Load(asm!);
+        var progType = scope.Assembly.GetType(typeName!)!;
+        Assert.Equal("say \"hi\"", progType.GetMethod("quoted")!.Invoke(null, null));
+        Assert.Equal(3, progType.GetMethod("nl")!.Invoke(null, null));
+    }
+
     // SCALAR COMPLETENESS SC-6 (Phase D) — DECIMAL. Not an IL primitive: literals emit the
     // bits-decomposed 5-arg Decimal ctor (exact — never via double), arithmetic/comparisons/negate call
     // System.Decimal's op_* statics, compound assignment lowers through the same operators, and casts
