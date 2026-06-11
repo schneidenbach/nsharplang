@@ -4272,7 +4272,10 @@ class B
             "func capacity(): int {\n    l := new List<int>(8)\n    d := new Dictionary<string, int>(10)\n    l.Add(3)\n    d[\"x\"] = 4\n    return l[0] + d[\"x\"]\n}\n\n" +
             // NESTED generics compose (probed: \"localhost\" / 8).
             "func nestedDict(): string {\n    d := new Dictionary<string, Dictionary<string, string>>()\n    d[\"db\"] = new Dictionary<string, string>()\n    d[\"db\"][\"host\"] = \"localhost\"\n    return d[\"db\"][\"host\"]\n}\n\n" +
-            "func nestedList(): int {\n    m := new List<List<int>>()\n    inner := new List<int>()\n    inner.Add(7)\n    m.Add(inner)\n    return m[0].Count + m[0][0]\n}\n";
+            "func nestedList(): int {\n    m := new List<List<int>>()\n    inner := new List<int>()\n    inner.Add(7)\n    m.Add(inner)\n    return m[0].Count + m[0][0]\n}\n\n" +
+            // foreach over a DICTIONARY — KeyValuePair binding, .Key and .Value (probed: 3; the same
+            // boxed-interface enumerator shape, element = KeyValuePair<K,V>).
+            "func dictForeach(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"bb\"] = 2\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value + kvp.Key.Length * 10\n    }\n    return s\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("listCore", System.Array.Empty<object>()),
             ("listStr", System.Array.Empty<object>()),
@@ -4286,7 +4289,8 @@ class B
             ("dictOverwrite", System.Array.Empty<object>()),
             ("capacity", System.Array.Empty<object>()),
             ("nestedDict", System.Array.Empty<object>()),
-            ("nestedList", System.Array.Empty<object>()));
+            ("nestedList", System.Array.Empty<object>()),
+            ("dictForeach", System.Array.Empty<object>()));
 
         // EXCEPTION parity (route-only; exact types — all probe-pinned against the oracle).
         {
@@ -4316,8 +4320,7 @@ class B
         Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 9 })\n    return l[0].X + l.Count\n}\n").Ok);
         // List<T> inside a GENERIC function (open type param element).
         Assert.False(RouteColumnarProgram("func first<T>(items: List<T>): T {\n    return items[0]\n}\n\nfunc f(): int {\n    l := new List<int>()\n    l.Add(42)\n    return first(l)\n}\n").Ok);
-        // foreach over a DICTIONARY (KeyValuePair binding — probed working oracle-side, 3).
-        Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value\n    }\n    return s\n}\n").Ok);
+        // (dict foreach FLIPPED — the dictForeach parity case above covers it.)
         // other BCL generics (HashSet) and Dictionary.Add stay out.
         Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    return h.Count\n}\n").Ok);
         Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 1)\n    return d.Count\n}\n").Ok);

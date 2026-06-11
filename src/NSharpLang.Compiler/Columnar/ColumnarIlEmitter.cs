@@ -680,6 +680,12 @@ public sealed class ColumnarIlEmitter
         || IsSupportedDelegateType(t)             // a closed System.Func/Action over baked runtime types (L1a)
         || IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V> over baked runtime types
 
+    // A closed KeyValuePair<K,V> over baked runtime args — the Dictionary foreach loop variable's type
+    // (only that path produces it; .Key/.Value resolve via the case-8 KVP arms).
+    private static bool IsSupportedKeyValuePairType(Type t)
+        => t.IsGenericType && !t.IsGenericTypeDefinition && t is not TypeBuilder
+           && t.GetGenericTypeDefinition() == typeof(KeyValuePair<,>);
+
     // A closed BCL List<T>/Dictionary<K,V> over BAKED runtime type arguments (TryResolveType's collection
     // branch only produces these — builder-typed arguments decline at resolution, so the closed type's
     // members reflect normally).
@@ -4324,18 +4330,22 @@ public sealed class ColumnarIlEmitter
                 // index loop; everything else declines -> C# fallback.
                 if (!EmitExpression(collectionNode, out var collectionType))
                     return false;
-                if (IsSupportedCollectionType(collectionType) && collectionType.GetGenericTypeDefinition() == typeof(List<>))
+                if (IsSupportedCollectionType(collectionType))
                 {
-                    // `foreach v in list` — the ORACLE's exact lowering (probe-pinned, incl. the
-                    // mutation-during-iteration InvalidOperationException, which an index loop would
-                    // silently miss): the enumerator is fetched via the IEnumerable<T> INTERFACE (the
-                    // List<T>.Enumerator struct is BOXED — the oracle resolves the interface first),
-                    // MoveNext/get_Current/Dispose all callvirt through the interfaces, and Dispose is
-                    // emitted at a dispose label AFTER the loop (NOT try/finally — `break` branches to
-                    // it; early returns/exceptions skip it, exactly as the oracle does; the boxed List
-                    // enumerator's Dispose is a no-op so value parity holds).
-                    var listElementType = collectionType.GetGenericArguments()[0];
-                    if (!IsSupportedType(listElementType))
+                    // `foreach v in list` / `foreach kvp in dict` — the ORACLE's exact lowering
+                    // (probe-pinned, incl. the mutation-during-iteration InvalidOperationException,
+                    // which an index loop would silently miss): the enumerator is fetched via the
+                    // IEnumerable<T> INTERFACE (the struct enumerator is BOXED — the oracle resolves
+                    // the interface first), MoveNext/get_Current/Dispose all callvirt through the
+                    // interfaces, and Dispose is emitted at a dispose label AFTER the loop (NOT
+                    // try/finally — `break` branches to it; early returns/exceptions skip it, exactly
+                    // as the oracle does; the boxed enumerator's Dispose is a no-op so value parity
+                    // holds). A Dictionary enumerates KeyValuePair<K,V> — the loop var binds the pair
+                    // (kvp.Key/.Value resolve via the case-8 KVP arms).
+                    var listElementType = collectionType.GetGenericTypeDefinition() == typeof(List<>)
+                        ? collectionType.GetGenericArguments()[0]
+                        : typeof(KeyValuePair<,>).MakeGenericType(collectionType.GetGenericArguments());
+                    if (!IsSupportedType(listElementType) && !IsSupportedKeyValuePairType(listElementType))
                         return false;
                     var enumerableInterface = typeof(IEnumerable<>).MakeGenericType(listElementType);
                     var enumeratorInterface = typeof(IEnumerator<>).MakeGenericType(listElementType);
@@ -5531,6 +5541,18 @@ public sealed class ColumnarIlEmitter
                     {
                         _il.Emit(OpCodes.Callvirt, structReceiverType.GetProperty("Count")!.GetGetMethod()!);
                         type = typeof(int);
+                        return true;
+                    }
+                    // `kvp.Key` / `kvp.Value` on a KeyValuePair<K,V> (the Dictionary foreach loop
+                    // variable) — a VALUE-type receiver: spill, ldloca, call the non-virtual getter.
+                    if (member is "Key" or "Value" && IsSupportedKeyValuePairType(structReceiverType))
+                    {
+                        var kvpTemp = _il.DeclareLocal(structReceiverType);
+                        _il.Emit(OpCodes.Stloc, kvpTemp);
+                        _il.Emit(OpCodes.Ldloca, kvpTemp);
+                        var kvpGetter = structReceiverType.GetProperty(member)!.GetGetMethod()!;
+                        _il.Emit(OpCodes.Call, kvpGetter);
+                        type = kvpGetter.ReturnType;
                         return true;
                     }
                     ColumnarStructDef? fieldStruct = null;
