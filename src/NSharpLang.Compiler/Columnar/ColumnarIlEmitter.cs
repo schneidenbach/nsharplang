@@ -17,7 +17,8 @@ public sealed class ColumnarFunctionInput
         string name, string returnCanonical, string[] paramNames, string[] paramCanonicals,
         int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
         int bodyRoot, bool isStatic = false, string[]? typeParamNames = null,
-        int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null)
+        int[]? typeParamSpecialConstraints = null, string[][]? typeParamTypeConstraints = null,
+        string[]? returnTupleElementNames = null, string[]?[]? paramTupleElementNames = null)
     {
         Name = name;
         ReturnCanonical = returnCanonical;
@@ -31,6 +32,8 @@ public sealed class ColumnarFunctionInput
         ChildIndices = childIndices;
         BodyRoot = bodyRoot;
         IsStatic = isStatic;
+        ReturnTupleElementNames = returnTupleElementNames;
+        ParamTupleElementNames = paramTupleElementNames;
         TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
         TypeParamSpecialConstraints = typeParamSpecialConstraints ?? new int[TypeParamNames.Length];
         if (typeParamTypeConstraints == null)
@@ -57,6 +60,11 @@ public sealed class ColumnarFunctionInput
     // shifted). Always false for a top-level function (those are CLR-static on the Program type, but their static-
     // ness is structural, not a member modifier). Set by the adapter from the kernel's outMethodStaticFlags.
     public bool IsStatic { get; }
+    // Tuple ELEMENT NAMES declared on the RETURN type / each PARAM type (`(x: int, y: int)`), null when
+    // unnamed or non-tuple — canonicals ERASE names (tuple identity is positional, .NET semantics), so
+    // they travel here for the emitter's name->ItemN member mapping.
+    public string[]? ReturnTupleElementNames { get; }
+    public string[]?[]? ParamTupleElementNames { get; }
     // Generic TYPE-PARAMETER names (`func Identity<T>(x: T): T` → ["T"]); empty for a non-generic function. A
     // generic TOP-LEVEL function declares a real CLR generic method (DefineGenericParameters, mirroring the
     // oracle's primary strategy); call sites infer the type arguments from the emitted argument types and bind
@@ -406,6 +414,12 @@ public sealed class ColumnarIlEmitter
     private readonly Dictionary<string, int> _paramOrdinals;
     private readonly IReadOnlyDictionary<string, Type> _paramTypes;
     private readonly Type _returnType;
+    // Tuple ELEMENT NAMES per tuple-typed variable (`t.x` -> ItemN): seeded from named param annotations,
+    // grown at `:=`/typed-local declarations whose initializers/annotations carry names. The CLR erases
+    // tuple names (ValueTuple<> is positional), so this is the only name source at member-access time.
+    private readonly Dictionary<string, string?[]> _tupleNamesByVariable = new(StringComparer.Ordinal);
+    // Sibling functions' RETURN tuple element names (for `mk().x` and `t := mk()` name derivation).
+    private readonly IReadOnlyDictionary<string, string?[]>? _siblingReturnTupleNames;
     private readonly ILGenerator _il;
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
     // type). All are declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to
@@ -467,7 +481,9 @@ public sealed class ColumnarIlEmitter
         Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? boxedCaptures = null,
         Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? localFuncs = null,
         Dictionary<int, string>? declaredLocalFuncNodes = null,
-        IEnumerable<string>? visibleLocalFuncs = null)
+        IEnumerable<string>? visibleLocalFuncs = null,
+        IReadOnlyDictionary<string, string?[]>? siblingReturnTupleNames = null,
+        IReadOnlyDictionary<string, string?[]>? paramTupleNames = null)
     {
         _isConstructorBody = isConstructorBody;
         _kinds = kinds;
@@ -480,6 +496,12 @@ public sealed class ColumnarIlEmitter
         _paramOrdinals = paramOrdinals;
         _paramTypes = paramTypes;
         _returnType = returnType;
+        _siblingReturnTupleNames = siblingReturnTupleNames;
+        if (paramTupleNames != null)
+        {
+            foreach (var (tupleParamName, tupleParamElementNames) in paramTupleNames)
+                _tupleNamesByVariable[tupleParamName] = tupleParamElementNames;
+        }
         _il = il;
         _siblings = siblings;
         _enumRegistry = enumRegistry;
@@ -2712,6 +2734,9 @@ public sealed class ColumnarIlEmitter
         var paramTypesByFunc = new Dictionary<string, Type>[funcs.Count];
         var returnTypeByFunc = new Type[funcs.Count];
         var siblings = new Dictionary<string, (MethodInfo Method, Type[] ParamTypes, Type ReturnType, Type[] TypeParams, int[] SpecialConstraints, Type?[] BaseConstraints)>(StringComparer.Ordinal);
+        // Sibling RETURN tuple element names (a `(x: int, y: int)` return) — drives `t := mk()` / `mk().x`
+        // name derivation; canonicals stay name-erased.
+        var siblingReturnTupleNames = new Dictionary<string, string?[]>(StringComparer.Ordinal);
         for (var f = 0; f < funcs.Count; f++)
         {
             var fn = funcs[f];
@@ -2870,6 +2895,8 @@ public sealed class ColumnarIlEmitter
             returnTypeByFunc[f] = returnType;
             // A duplicate top-level function name is an overload set the spike does not model — decline the
             // whole program rather than silently pick one (a real call would be ambiguous).
+            if (fn.ReturnTupleElementNames != null)
+                siblingReturnTupleNames[fn.Name] = fn.ReturnTupleElementNames;
             if (!siblings.TryAdd(fn.Name, (methods[f], paramTypes, returnType, fnTypeParams, fnSpecialConstraints, fnBaseConstraints)))
                 return false;
         }
@@ -2916,11 +2943,21 @@ public sealed class ColumnarIlEmitter
                     declaredLocalFuncNodes[nodeIndex] = localFn.Name;
                 }
             }
+            Dictionary<string, string?[]>? fnParamTupleNames = null;
+            if (fn.ParamTupleElementNames != null)
+            {
+                for (var pn = 0; pn < fn.ParamNames.Length && pn < fn.ParamTupleElementNames.Length; pn++)
+                {
+                    if (fn.ParamTupleElementNames[pn] is { } paramElementNames)
+                        (fnParamTupleNames ??= new Dictionary<string, string?[]>(StringComparer.Ordinal))[fn.ParamNames[pn]] = paramElementNames;
+                }
+            }
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
                 source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
                 programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
-                localFuncs: localFuncs, declaredLocalFuncNodes: declaredLocalFuncNodes);
+                localFuncs: localFuncs, declaredLocalFuncNodes: declaredLocalFuncNodes,
+                siblingReturnTupleNames: siblingReturnTupleNames, paramTupleNames: fnParamTupleNames);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
             if (fn.LocalFunctions != null)
@@ -3236,6 +3273,10 @@ public sealed class ColumnarIlEmitter
                 var local = _il.DeclareLocal(initType);
                 _il.Emit(OpCodes.Stloc, local);
                 _locals[name] = local;
+                // Tuple ELEMENT NAMES derived from the initializer (a named literal, an identifier copy,
+                // or a sibling call with a named return type) carry onto the local for member access.
+                if (TupleNamesOfExpressionNode(Child(idx, 0)) is { } inferredTupleNames)
+                    _tupleNamesByVariable[name] = inferredTupleNames;
                 return true;
             }
 
@@ -3253,6 +3294,10 @@ public sealed class ColumnarIlEmitter
                     || (_boxedCaptures != null && _boxedCaptures.ContainsKey(declaredName)))
                     return false; // shadowing/redeclaration — the pipeline diagnoses these; decline.
                 var typeCanonical = RemoveWhitespace(Text(idx));
+                // A NAMED tuple annotation (`let t: (x: int, y: int) = ...`) strips to the positional
+                // canonical for resolution; the names are recorded for member access below. (The BARE
+                // form with a tuple type is a production-grammar parse error — the kernel refuses it.)
+                typeCanonical = StripTupleElementNames(typeCanonical, out var declaredTupleNames);
                 if (!TryResolveType(typeCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var declaredType)
                     || !IsSupportedType(declaredType))
                     return false;
@@ -3289,6 +3334,10 @@ public sealed class ColumnarIlEmitter
                 var declaredLocal = _il.DeclareLocal(declaredType);
                 _il.Emit(OpCodes.Stloc, declaredLocal);
                 _locals[declaredName] = declaredLocal;
+                if (declaredTupleNames != null)
+                    _tupleNamesByVariable[declaredName] = declaredTupleNames;
+                else if (_kinds[declaredInit] != 39 && TupleNamesOfExpressionNode(declaredInit) is { } typedInitNames)
+                    _tupleNamesByVariable[declaredName] = typedInitNames;
                 return true;
             }
 
@@ -4492,6 +4541,10 @@ public sealed class ColumnarIlEmitter
                 // Instance member access: `.Length` (array/string/StringBuilder -> int) or `.ItemN` (a tuple
                 // element). Anything else declines BEFORE the receiver is emitted (no wasted side effects).
                 var member = Text(idx);
+                // A NAMED tuple element (`t.x` on a receiver whose declared names contain x) rewrites to the
+                // positional ItemN spelling BEFORE the accessor gate — names come from the per-variable map
+                // (annotated params, named-literal/call-derived locals), never the erased CLR type.
+                member = MaybeRewriteTupleMemberName(Child(idx, 0), member);
                 // `.ItemN` is a tuple element accessor only if a DIGIT follows "Item" (so `.Items`/`.ItemFoo`
                 // decline early without emitting the receiver); the actual element is still gated by GetField below.
                 var isTupleItem = member.Length > 4 && member.StartsWith("Item", StringComparison.Ordinal) && char.IsDigit(member[4]);
@@ -4829,7 +4882,12 @@ public sealed class ColumnarIlEmitter
                 var elementTypes = new Type[arity];
                 for (var i = 0; i < arity; i++)
                 {
-                    if (!EmitExpression(Child(idx, i), out var elemType) || !IsSupportedType(elemType))
+                    // A NAMED element (kind-43 wrapper, `(x: 1, y: 2)`) emits its VALUE child — names are
+                    // compile-time metadata (the `:=` declaration path records them for member access).
+                    var elementNode = Child(idx, i);
+                    if (_kinds[elementNode] == 43)
+                        elementNode = Child(elementNode, 0);
+                    if (!EmitExpression(elementNode, out var elemType) || !IsSupportedType(elemType))
                         return false;
                     elementTypes[i] = elemType;
                 }
@@ -5812,6 +5870,113 @@ public sealed class ColumnarIlEmitter
                 return m;
         }
         return null;
+    }
+
+    // ---- Named-tuple element names (the columnar mirror of the oracle's _tupleElementNamesByVariable) ----
+
+    // The tuple element names statically derivable for an expression node: an identifier with tracked
+    // names, a parenthesized wrap, a NAMED tuple literal (kind-17 with kind-43 wrappers), or a direct
+    // sibling call whose declared return type carries names. Null = no names (no rewrite happens).
+    private string?[]? TupleNamesOfExpressionNode(int node)
+    {
+        switch (_kinds[node])
+        {
+            case 6:
+                return _valueStarts[node] >= 0 && _tupleNamesByVariable.TryGetValue(Text(node), out var variableNames)
+                    ? variableNames
+                    : null;
+            case 7:
+                return _childCount[node] == 1 ? TupleNamesOfExpressionNode(Child(node, 0)) : null;
+            case 17:
+            {
+                if (_childCount[node] == 0 || _kinds[Child(node, 0)] != 43)
+                    return null;
+                var literalNames = new string?[_childCount[node]];
+                for (var i = 0; i < literalNames.Length; i++)
+                {
+                    var elementNode = Child(node, i);
+                    if (_kinds[elementNode] != 43)
+                        return null; // all-or-nothing by the kernel; defensive.
+                    literalNames[i] = Text(elementNode);
+                }
+                return literalNames;
+            }
+            case 9:
+            {
+                var callee = Child(node, 0);
+                if (_kinds[callee] == 6 && _valueStarts[callee] >= 0 && _siblingReturnTupleNames != null
+                    && !_locals.ContainsKey(Text(callee)) && !_paramOrdinals.ContainsKey(Text(callee))
+                    && _siblingReturnTupleNames.TryGetValue(Text(callee), out var returnNames))
+                {
+                    return returnNames;
+                }
+                return null;
+            }
+            default:
+                return null;
+        }
+    }
+
+    // Rewrites a named tuple member to its ItemN spelling when the receiver's tracked names contain it;
+    // any other shape returns the original member (declining exactly as before this feature).
+    private string MaybeRewriteTupleMemberName(int receiverNode, string member)
+    {
+        var names = TupleNamesOfExpressionNode(receiverNode);
+        if (names == null)
+            return member;
+        for (var i = 0; i < names.Length; i++)
+        {
+            if (names[i] == member)
+                return "Item" + (i + 1);
+        }
+        return member;
+    }
+
+    // Splits a TOP-LEVEL named-tuple canonical span (`(x:int,y:int)` from a typed-local annotation) into
+    // the name-erased canonical (`(int,int)`) and the element names; a positional canonical returns names
+    // null with the input unchanged. Only the top level is interpreted — a nested NAMED tuple stays in its
+    // element canonical and fails resolution (decline; the canonical contract is name-free).
+    private static string StripTupleElementNames(string canonical, out string?[]? names)
+    {
+        names = null;
+        if (canonical.Length < 2 || canonical[0] != '(' || canonical[^1] != ')')
+            return canonical;
+        var elements = SplitTopLevelCommas(canonical.Substring(1, canonical.Length - 2));
+        var stripped = new string[elements.Count];
+        string?[]? collected = null;
+        for (var i = 0; i < elements.Count; i++)
+        {
+            var element = elements[i];
+            var colon = element.IndexOf(':');
+            // A name prefix is a bare identifier before the FIRST ':' — generics/arrays cannot precede a
+            // ':' in a type canonical, so a simple scan suffices.
+            if (colon > 0 && IsBareIdentifier(element.Substring(0, colon)))
+            {
+                (collected ??= new string?[elements.Count])[i] = element.Substring(0, colon);
+                stripped[i] = element.Substring(colon + 1);
+            }
+            else
+            {
+                stripped[i] = element;
+            }
+        }
+        if (collected == null)
+            return canonical;
+        names = collected;
+        return "(" + string.Join(",", stripped) + ")";
+    }
+
+    private static bool IsBareIdentifier(string text)
+    {
+        if (text.Length == 0)
+            return false;
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (!char.IsLetterOrDigit(c) && c != '_')
+                return false;
+        }
+        return !char.IsDigit(text[0]);
     }
 
     // Rebuilds the canonical type string from an embedded TYPE subtree in the expression node table

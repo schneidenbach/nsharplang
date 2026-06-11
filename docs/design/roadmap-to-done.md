@@ -428,9 +428,13 @@ progress log), MATCH POSITIONS parity-proved match expressions in every position
 landed (above), and columnar GENERIC RECORDS landed (the D-16 adapter decline flipped — columnar's
 plain-field record model needs no modreq lowering; closed-generic reference object-init + review-driven
 declines for type-param/member collisions, record user ctors — whose body assignments the PIPELINE drops,
-a newly-pinned oracle defect — and static fields on generic types). **Next: NAMED TUPLES** (per-element
-name metadata in the columnar table), then scalar completeness (the `project_csharp_retirement_map` slice
-order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
+a newly-pinned oracle defect — and static fields on generic types). NAMED TUPLES then landed in two
+halves (oracle `7e151c7c`: t.x threw at emit despite analyzer acceptance — per-variable name retention +
+ItemN rewriting; columnar: kernel kinds 7/43 name channels, name-erased canonicals, the same per-variable
+mapping; a pre-existing bare-tuple-typed-local over-accept fixed). **Next: SCALAR COMPLETENESS**
+(byte/sbyte/short/ushort/uint, decimal, widening, `+=`/`++`/`--`, ternary, casts — the
+`project_csharp_retirement_map` slice order), then Stage 6 (route-all → delete `ILCompiler/` +
+`Analyzer.cs`) and Phase T (CLI/LSP on columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).

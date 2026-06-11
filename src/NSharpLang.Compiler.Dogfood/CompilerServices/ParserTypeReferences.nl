@@ -14,10 +14,13 @@
 //   UnionTypeReference    -> kind 4   e.g. int | string, List<int> | string (slice 7; arms are postfix
 //                                     types, and a union may itself be a generic argument: List<int | T>)
 //   ByRefTypeReference    -> kind 5   e.g. &int, &List<int>, &int[] (slice 8; `&` prefixing a postfix type)
-//   TupleTypeReference    -> kind 6   e.g. (int, int), (int, string)[] -- a `(` + >=2 comma-separated element
-//                                     types + `)`. POSITIONAL only (named elements `(x: int, ...)` refuse).
+//   TupleTypeReference    -> kind 6   e.g. (int, int), (x: int, y: int) -- a `(` + >=2 comma-separated element
+//                                     types + `)`. NAMED elements are ALL-OR-NOTHING (partial naming refuses,
+//                                     the production-parser rule): each named element wraps in a kind 7 below.
+//   NamedTupleElement     -> kind 7   `name: Type` inside a NAMED tuple type -- the element NAME in the name
+//                                     slot, ONE child (the element type). Only ever a kind-6 child; canonicals
+//                                     ERASE it (tuple identity is positional), the host extracts the names.
 // Deferred to later rungs:
-//   - NAMED tuple elements `(x: int, ...)` -- the columnar table does not yet carry per-element name metadata.
 //   - FunctionTypeReference `Func<...>` -- the C# parser special-cases the *identifier text* "Func", but
 //     this kernel has no source string (only token offsets), so it cannot distinguish Func from any other
 //     generic name; Func is therefore excluded from the corpus and will parse as a Generic node. Resolving
@@ -138,18 +141,43 @@ func ParseBaseTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValu
     }
 
     // Tuple type `(T0, T1, ...)` (TupleTypeReference -> kind 6): a `(` introducing a comma-separated list of at
-    // least TWO postfix/union element types, closed by `)`. Positional only (named elements `(x: int, ...)` are
-    // not modelled -- the `:` after the first element makes the comma form refuse). A single `(T)` is not a tuple
-    // (no comma) -> refuse. Variable arity via the LIFO arg-stack, exactly like the generic argument list.
+    // least TWO postfix/union element types, closed by `)`. A single `(T)` is not a tuple (no comma) -> refuse.
+    // Variable arity via the LIFO arg-stack, exactly like the generic argument list.
+    //
+    // NAMED elements `(x: int, y: int)` are modelled ALL-OR-NOTHING (the production parser errors on partial
+    // naming -- probe-pinned): each `Identifier :` prefix wraps its element type in a NamedTupleElement node
+    // (kind 7, the element NAME in the name slot, ONE child = the element type). The tuple's children are then
+    // either all kind-7 wrappers or all bare element types. Names are ERASED from canonicals (tuple identity is
+    // positional -- .NET semantics); the host extracts them for the emitter's name->ItemN member mapping.
     if tokenKinds[pos] == 127 {
         tupleTypeStart := tokenStarts[pos]
         st[0] = pos + 1
         tupleArgBase := st[3]
 
+        // namedForm: -1 undecided, 1 named, 0 positional -- decided by the FIRST element, enforced after.
+        namedForm := 0 - 1
+        if st[0] + 1 < count && tokenKinds[st[0]] == 0 && tokenKinds[st[0] + 1] == 122 {
+            namedForm = 1
+        }
+
+        firstElemNameStart := 0 - 1
+        firstElemNameLength := 0
+        if namedForm == 1 {
+            firstElemNameStart = tokenStarts[st[0]]
+            firstElemNameLength = tokenValueLengths[st[0]]
+            st[0] = st[0] + 2
+        }
         firstElem := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if firstElem < 0 {
             st[3] = tupleArgBase
             return -1
+        }
+        if namedForm == 1 {
+            firstWrapRun := st[2]
+            AppendTypeReferenceChild(st, outChildIndices, firstElem)
+            firstElem = EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 7, firstElemNameStart, firstElemNameLength, firstWrapRun, 1, firstElemNameStart, outSpanStarts[firstElem] + outSpanLengths[firstElem] - firstElemNameStart)
+        } else {
+            namedForm = 0
         }
 
         argStack[st[3]] = firstElem
@@ -162,10 +190,29 @@ func ParseBaseTypeReferenceNode(tokenKinds: int[], tokenStarts: int[], tokenValu
 
         while st[0] < count && tokenKinds[st[0]] == 134 {
             st[0] = st[0] + 1
+            elemNameStart := 0 - 1
+            elemNameLength := 0
+            if st[0] + 1 < count && tokenKinds[st[0]] == 0 && tokenKinds[st[0] + 1] == 122 {
+                if namedForm == 0 {
+                    st[3] = tupleArgBase
+                    return -1
+                }
+                elemNameStart = tokenStarts[st[0]]
+                elemNameLength = tokenValueLengths[st[0]]
+                st[0] = st[0] + 2
+            } else if namedForm == 1 {
+                st[3] = tupleArgBase
+                return -1
+            }
             nextElem := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
             if nextElem < 0 {
                 st[3] = tupleArgBase
                 return -1
+            }
+            if namedForm == 1 {
+                wrapRun := st[2]
+                AppendTypeReferenceChild(st, outChildIndices, nextElem)
+                nextElem = EmitTypeReferenceNode(st, outNodeKinds, outNameStarts, outNameLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 7, elemNameStart, elemNameLength, wrapRun, 1, elemNameStart, outSpanStarts[nextElem] + outSpanLengths[nextElem] - elemNameStart)
             }
 
             argStack[st[3]] = nextElem

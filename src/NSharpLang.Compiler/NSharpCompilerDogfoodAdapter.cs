@@ -1255,11 +1255,17 @@ internal static class NSharpCompilerDogfoodAdapter
             : "void";
         var paramNames = new string[paramCount];
         var paramCanonicals = new string[paramCount];
+        string[]?[]? paramTupleNames = null;
         for (var p = 0; p < paramCount; p++)
         {
             paramNames[p] = source.Substring(pNameStart[p], pNameLen[p]);
             paramCanonicals[p] = ColumnarTypeCanon(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]);
+            if (TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, pTypeRoot[p]) is { } paramElementNames)
+                (paramTupleNames ??= new string[paramCount][])[p] = paramElementNames;
         }
+        var returnTupleNames = sres[1] >= 0
+            ? TupleElementNamesOfType(sk, sns, snl, scs, scc, sci, source, sres[1])
+            : null;
 
         // Generic TYPE PARAMETERS (`func Identity<T>(...)`): sres[5] names parsed by the kernel. The token at
         // sres[6] (immediately after the signature, PAST any `where` clauses) must be the body `{` — anything
@@ -1330,7 +1336,8 @@ internal static class NSharpCompilerDogfoodAdapter
         input = new Columnar.ColumnarFunctionInput(
             fname, returnCanonical, paramNames, paramCanonicals,
             bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic, typeParamNames,
-            typeParamSpecials, typeParamTypeConstraints);
+            typeParamSpecials, typeParamTypeConstraints,
+            returnTupleElementNames: returnTupleNames, paramTupleElementNames: paramTupleNames);
 
         // LOCAL FUNCTIONS (kind-41 statements that are DIRECT children of the root block): each node's
         // value span is the `func` keyword's byte span — re-locate the token and parse the nested
@@ -1571,14 +1578,19 @@ internal static class NSharpCompilerDogfoodAdapter
             {
                 // Tuple `(e0, e1, ...)` -> the canonical `(e0,e1,...)` (parens + comma-joined element canons, no
                 // spaces) — the SAME format ColumnarFunctionSymbol.CanonicalType produces and the emitter's
-                // TryResolveType parses back into a System.ValueTuple.
+                // TryResolveType parses back into a System.ValueTuple. NAMED elements (kind-7 wrapper children)
+                // are ERASED — tuple identity is positional (.NET semantics), exactly like the C# canonical,
+                // which also drops TupleTypeElement names; the names travel separately (TupleElementNamesOfType).
                 var sb = new System.Text.StringBuilder();
                 sb.Append('(');
                 var run = childStart[idx];
                 for (var k = 0; k < childCount[idx]; k++)
                 {
                     if (k > 0) sb.Append(',');
-                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, childIndices[run + k]));
+                    var elem = childIndices[run + k];
+                    if (kinds[elem] == 7)
+                        elem = childIndices[childStart[elem]]; // unwrap NamedTupleElement -> the element type.
+                    sb.Append(ColumnarTypeCanon(kinds, valueStarts, valueLengths, childStart, childCount, childIndices, source, elem));
                 }
 
                 sb.Append(')');
@@ -1587,6 +1599,30 @@ internal static class NSharpCompilerDogfoodAdapter
             default:
                 return "?";
         }
+    }
+
+    // Tuple ELEMENT NAMES of a type-node root: a kind-6 tuple whose children are kind-7 NamedTupleElement
+    // wrappers yields the element-name texts (all-or-nothing by the kernel); any other root yields null.
+    // Canonicals ERASE the names (tuple identity is positional); these travel on ColumnarFunctionInput for
+    // the emitter's name->ItemN member mapping.
+    private static string[]? TupleElementNamesOfType(
+        int[] kinds, int[] valueStarts, int[] valueLengths, int[] childStart, int[] childCount, int[] childIndices,
+        string source, int root)
+    {
+        if (root < 0 || kinds[root] != 6 || childCount[root] == 0)
+            return null;
+        var run = childStart[root];
+        if (kinds[childIndices[run]] != 7)
+            return null;
+        var names = new string[childCount[root]];
+        for (var k = 0; k < names.Length; k++)
+        {
+            var elem = childIndices[run + k];
+            if (kinds[elem] != 7)
+                return null;
+            names[k] = source.Substring(valueStarts[elem], valueLengths[elem]);
+        }
+        return names;
     }
 
     /// <summary>Indices of every depth-0 <c>func</c> keyword (TokenType.Func == 7) in the compacted stream.</summary>

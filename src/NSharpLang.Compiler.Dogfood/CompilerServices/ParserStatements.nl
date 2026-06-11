@@ -381,6 +381,12 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         typedNameStart := tokenStarts[typedNameIndex]
         typedNameLength := tokenValueLengths[typedNameIndex]
         typeFirst := typedNameIndex + 2
+        // The BARE form's type span must not start with `(` -- the production grammar REJECTS a bare
+        // tuple-typed local (`t: (int, int) = ...` is a parse error; only `let t: (...)` parses --
+        // probe-pinned; accepting it was a routed over-accept). The `let` form is unaffected.
+        if kind == 0 && typeFirst < count && tokenKinds[typeFirst] == 127 {
+            return -1
+        }
         scanPos := typeFirst
         angleDepth := 0
         groupDepth := 0

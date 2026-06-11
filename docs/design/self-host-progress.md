@@ -11,6 +11,48 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — NAMED TUPLES: oracle member-access fix (`7e151c7c`) + columnar end-to-end
+
+The retirement-map queue's named-tuples slice, in two halves.
+
+**ORACLE HALF (fix-oracle-first, `7e151c7c`):** `t.x` on a value typed `(x: int, y: int)` was accepted by
+the ANALYZER (TupleTypeInfo has always mapped both ItemN and element names) but THREW at emit — the
+ILCompiler resolved members by literal-name reflection over the erased CLR ValueTuple<> (ItemN fields
+only): "Member x not found on type ValueTuple`2" (NL103). Names parsed and silently dropped everywhere.
+Fix: a per-variable element-name retention map (`_tupleElementNamesByVariable`, fresh per body in
+InitializeBodyContext, saved/restored with `_parameterTypes` across lambda/local-function/embedded-call
+boundaries) + name→ItemN rewriting at the three member-resolution tails. Name sources: annotated
+locals/params, NAMED literal initializers, identifier copies, direct call receivers via the callee's
+declared return (single-overload). Probe-pinned semantics: tuple identity is POSITIONAL (cross-named
+assignment legal — C# rule; the receiving annotation's names govern), partial naming is a parse error,
+the BARE tuple-typed local (`t: (int, int) = ...`) is a production parse error (only `let` parses).
+
+**COLUMNAR HALF:** the kernels gained name channels — type-kernel kind 7 NamedTupleElement (name span +
+one child, only ever a kind-6 tuple child) and expression-kernel kind 43 (the literal twin, only ever a
+kind-17 child); naming is all-or-nothing in both. **Canonicals stay name-ERASED** (`(int,int)` — .NET
+positional identity; ColumnarTypeCanon unwraps kind-7, matching ColumnarFunctionSymbol which always
+dropped names) and the names travel separately: `ColumnarFunctionInput.Return/ParamTupleElementNames`
+(adapter-extracted) → the emitter's `_tupleNamesByVariable` + a sibling return-names map (threaded as
+optional emitter-ctor params — sub-emitters without them just decline named access, safely). The
+member-access path rewrites name→ItemN by peeking the receiver node (identifier/paren/named-literal/
+sibling-call); `let t: (x: int, y: int) = ...` strips names from the span canonical and records them.
+**Pre-existing OVER-ACCEPT fixed:** columnar routed the BARE tuple-typed local the production grammar
+rejects — the kind-40 kernel now refuses a `(`-starting type span in the bare form (pinned).
+
+Parity: `ColumnarCodegen_Parity_NamedTuples` (7 both-pipeline shapes: call-derived names, cross-named
+assignment, named literals + copies + mixed ItemN, direct-call receivers, `let` annotations, positional
+tuples unchanged, deconstruction) + 5 decline pins (bare forms, partial naming ×2, wrong member name);
+2 oracle regression tests (all receiver shapes incl. lambda-boundary; cross-named). Two stale pins
+flipped (the kernel type-tree refusal test now pins PARTIAL naming instead; the named-param route pin
+became a parity case). Residual (recorded): TupleElementNamesAttribute is not emitted on signatures —
+C# interop sees positional tuples from the IL backend (the Transpiler path preserves names); a future
+interop slice. 284/284; both gates green (see commits).
+
+NEXT (retirement-map queue): SCALAR COMPLETENESS (byte/sbyte/short/ushort/uint, decimal, widening,
+`+=`/`++`/`--`, ternary, casts) — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-11 — Columnar GENERIC RECORDS: the D-16 adapter decline flips
 
 The retirement-map queue's generic-records slice — small by design: columnar's record model emits plain

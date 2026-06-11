@@ -64,14 +64,19 @@
 //                                         [typeRoot (a TYPE-kernel subtree -- name scans must skip the whole
 //                                         node, like kind 38)]. The brace-less union-case construction form
 //                                         (`new Color.Red`, `new Opt.None<int>`); the emitter declines every
-//                                         non-union-case type root. 43 is the next free kind. )
+//                                         non-union-case type root. )
+//   NamedTupleElement       -> kind 43  ( `name: value` inside a NAMED tuple literal `(x: 1, y: 2)` -- the
+//                                         element NAME in the name slot, ONE child (the element value). Only
+//                                         ever a kind-17 child; naming is ALL-OR-NOTHING per literal. The
+//                                         name is metadata (not a value read) so scans traverse the child
+//                                         normally. 44 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
-//   `is`/`as` type tests, range `..`, block-bodied lambdas; every other primary (this/base/
-//   default/new/alloc/match/tuple/array-literal/object-initializer/interpolated string/...). A tuple
-//   `(a, b)` or named element `(x: e)` is refused (the parenthesized branch requires a lone `)` after the
-//   inner expression). Literal VALUE materialization (unescaping strings/chars) is the host's job; this
-//   kernel records the value token's byte span only.
+//   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
+//   interpolated string/...). (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
+//   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
+//   Literal VALUE materialization (unescaping strings/chars) is the host's job; this kernel records the
+//   value token's byte span only.
 //
 // Node-table columns (caller-allocated to capacity >= count+1; outChildIndices likewise):
 //   outNodeKinds[i]    : 0..7 per the list above
@@ -645,6 +650,56 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         st[3] = castSaveArg
         st[4] = 0
         st[0] = pos + 1
+
+        // NAMED tuple literal `(x: 1, y: 2)` (TupleExpression kind 17 whose children are kind-43
+        // NamedTupleElement wrappers -- element NAME in the name slot, ONE child = the element value).
+        // ALL-OR-NOTHING naming (partial naming is a production-parser error, probe-pinned) and >=2
+        // elements (a single named element is not a tuple) -- refuse otherwise. Detected by the
+        // `Identifier :` lookahead, which no other parenthesised expression form can start with.
+        if st[0] + 1 < count && tokenKinds[st[0]] == 0 && tokenKinds[st[0] + 1] == 122 {
+            namedTupleArgBase := st[3]
+            namedScanning := true
+            while namedScanning {
+                if st[0] + 1 >= count || tokenKinds[st[0]] != 0 || tokenKinds[st[0] + 1] != 122 {
+                    st[3] = namedTupleArgBase
+                    return -1
+                }
+                namedElemNameStart := tokenStarts[st[0]]
+                namedElemNameLength := tokenValueLengths[st[0]]
+                st[0] = st[0] + 2
+                namedElemValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if namedElemValue < 0 {
+                    st[3] = namedTupleArgBase
+                    return -1
+                }
+                namedWrapRun := st[2]
+                AppendExpressionChild(st, outChildIndices, namedElemValue)
+                namedWrapped := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 43, namedElemNameStart, namedElemNameLength, namedWrapRun, 1, namedElemNameStart, outSpanStarts[namedElemValue] + outSpanLengths[namedElemValue] - namedElemNameStart)
+                argStack[st[3]] = namedWrapped
+                st[3] = st[3] + 1
+                if st[0] < count && tokenKinds[st[0]] == 134 {
+                    st[0] = st[0] + 1
+                } else {
+                    namedScanning = false
+                }
+            }
+            if st[0] >= count || tokenKinds[st[0]] != 128 || st[3] - namedTupleArgBase < 2 {
+                st[3] = namedTupleArgBase
+                return -1
+            }
+            namedTupleEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            namedTupleChildCount := st[3] - namedTupleArgBase
+            namedTupleChildRun := st[2]
+            namedTupleArg := namedTupleArgBase
+            while namedTupleArg < st[3] {
+                AppendExpressionChild(st, outChildIndices, argStack[namedTupleArg])
+                namedTupleArg = namedTupleArg + 1
+            }
+            st[3] = namedTupleArgBase
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 17, -1, 0, namedTupleChildRun, namedTupleChildCount, parenStart, namedTupleEnd - parenStart)
+        }
+
         inner := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
         if inner < 0 {
             return -1

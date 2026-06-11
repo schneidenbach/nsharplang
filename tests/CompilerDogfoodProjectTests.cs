@@ -447,12 +447,12 @@ class B
             foreach (var t in new[] { "int", "int[]", "string", "bool", "string[]" })
                 AssertTypeReferenceTreeLikeProduction(t, tokenize, parseTypeRefs);
 
-            // Refused (-1) seam: a single parenthesised type `(int)` is not a tuple (no comma), and a NAMED tuple
-            // element `(x: int, ...)` is not modelled (the columnar table carries no per-element name metadata) --
-            // the `:` after the first element breaks the comma form. (Positional tuples like `(int, string)` now
-            // PARSE -- see ColumnarCodegen_Parity_TupleMultiReturn.) `Func<...>` is NOT refused: without source
-            // access the kernel cannot detect the "Func" identifier text, so it parses as a Generic node.
-            foreach (var t in new[] { "(int)", "(x: int, y: int)" })
+            // Refused (-1) seam: a single parenthesised type `(int)` is not a tuple (no comma), and a
+            // PARTIALLY named tuple is a production parse error (naming is all-or-nothing). (Positional
+            // AND fully-NAMED tuples now PARSE -- named elements wrap in kind-7 NamedTupleElement nodes,
+            // see ColumnarCodegen_Parity_NamedTuples.) `Func<...>` is NOT refused: without source access
+            // the kernel cannot detect the "Func" identifier text, so it parses as a Generic node.
+            foreach (var t in new[] { "(int)", "(x: int, int)", "(int, y: int)" })
                 AssertTypeReferenceRefused(t, tokenize, parseTypeRefs);
 
             // Depth cap: generic nesting beyond 64 returns the -1 overflow sentinel (a tested, documented
@@ -3039,9 +3039,11 @@ class B
             ("minMaxSum", new object[] { new[] { 3, 1, 4, 1, 5, 9, 2 } }), ("minMaxSum", new object[] { new[] { 7 } }),
             ("nested", new object[] { 2, 3, 4 }), ("nested", new object[] { 10, -5, 1 }));
 
-        // A NAMED tuple element `(x: int, ...)` is not modelled (the columnar table carries no per-element name
-        // metadata) -> the tuple type refuses at parse, so the whole function declines to the C# parser.
-        Assert.False(RouteColumnarProgram("func f(t: (x: int, y: int)): int {\n    return t.Item1\n}\n").Ok);
+        // NAMED tuple elements are now ACCEPTED with full parity (kind-7 NamedTupleElement wrappers,
+        // name-erased canonicals) -- see ColumnarCodegen_Parity_NamedTuples.
+        AssertColumnarProgramMatchesCSharp(
+            "func f(t: (x: int, y: int)): int {\n    return t.Item1 + t.y\n}\n\nfunc g(): int {\n    return f((x: 30, y: 4))\n}\n",
+            ("g", System.Array.Empty<object>()));
     }
 
     // TUPLE multi-return (sub-slice 2): tuple TYPE references `(int, int)` on params + returns (parser kernel type
@@ -4013,6 +4015,56 @@ class B
         // duplicates; the signature guard compares via TypesEquivalent (two Opt<int> instantiations are
         // referentially distinct — adversarial-review finding: raw != would emit BOTH ctor rows).
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
+    // NAMED TUPLES (Phase D) — `(x: int, y: int)` types and `(x: 1, y: 2)` literals with NAME-based member
+    // access (`t.x` -> ItemN). Names are compile-time metadata (the CLR's ValueTuple is positional; tuple
+    // identity ignores names — C#/.NET semantics, probe-pinned by cross-named assignment), so the canonicals
+    // stay name-ERASED ((int,int)) on BOTH sides and the names travel separately: type-kernel kind-7 /
+    // expression-kernel kind-43 NamedTupleElement wrappers -> ColumnarFunctionInput.Return/ParamTupleElementNames
+    // -> the emitter's per-variable name map, mirroring the oracle's _tupleElementNamesByVariable (which this
+    // slice's oracle half added — name access previously THREW at emit despite the analyzer accepting it).
+    // ALL-OR-NOTHING naming (partial naming is a production parse error).
+    [Fact]
+    public void ColumnarCodegen_Parity_NamedTuples()
+    {
+        var prog =
+            // Named RETURN type: `t := mk()` derives names from the callee's declared return.
+            "func mk(): (x: int, y: int) {\n    return (x: 3, y: 4)\n}\n\n" +
+            "func viaCall(): int {\n    t := mk()\n    return t.x + t.y\n}\n\n" +
+            // Named PARAM annotation; cross-named assignment (names are positional sugar — receiving names win).
+            "func dist(p: (a: int, b: int)): int {\n    return p.a + p.b\n}\n\n" +
+            "func crossNamed(): int {\n    return dist(mk())\n}\n\n" +
+            // Named LITERAL local + identifier copy; mixed positional ItemN on a named tuple.
+            "func viaLiteral(): int {\n    lit := (a: 10, b: 20)\n    copy := lit\n    return lit.a + copy.b + lit.Item1\n}\n\n" +
+            // Direct CALL receiver.
+            "func directCall(): int {\n    return mk().x\n}\n\n" +
+            // `let` typed-local with a NAMED tuple annotation (the only typed-local tuple form the
+            // production grammar parses).
+            "func viaLet(): int {\n    let t: (m: int, n: int) = (1, 2)\n    return t.m + t.n\n}\n\n" +
+            // Positional tuples keep working untouched alongside.
+            "func positional(): int {\n    t := (7, 8)\n    return t.Item1 + t.Item2\n}\n\n" +
+            // Deconstruction of a named tuple stays positional.
+            "func deconstructed(): int {\n    a, b := mk()\n    return a * 10 + b\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("viaCall", System.Array.Empty<object>()),
+            ("crossNamed", System.Array.Empty<object>()),
+            ("viaLiteral", System.Array.Empty<object>()),
+            ("directCall", System.Array.Empty<object>()),
+            ("viaLet", System.Array.Empty<object>()),
+            ("positional", System.Array.Empty<object>()),
+            ("deconstructed", System.Array.Empty<object>()));
+
+        // DECLINES (forms the pipeline rejects):
+        // the BARE tuple-typed local (`t: (int, int) = ...`) is a production-grammar PARSE ERROR (only the
+        // `let` form parses) — the kernel refuses it (was a routed over-accept before this slice).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    t: (int, int) = (1, 2)\n    return t.Item1\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(): int {\n    t: (x: int, y: int) = (1, 2)\n    return t.x\n}\n").Ok);
+        // PARTIALLY named literals/types are production parse errors (all-or-nothing naming).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    t := (x: 1, 2)\n    return t.Item2\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func mk(): (x: int, int) {\n    return (1, 2)\n}\n\nfunc f(): int {\n    return mk().Item1\n}\n").Ok);
+        // a WRONG member name on a named tuple (the analyzer reports UndefinedMember; columnar declines).
+        Assert.False(RouteColumnarProgram("func mk(): (x: int, y: int) {\n    return (x: 3, y: 4)\n}\n\nfunc f(): int {\n    t := mk()\n    return t.z\n}\n").Ok);
     }
 
     // CLASS (slice 1a) — the FIFTH user-defined type. A `class` (token 8) reuses the record infrastructure: it is a
