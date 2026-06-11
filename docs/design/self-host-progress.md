@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Lambdas arc L4-i: LOCAL FUNCTIONS, non-capturing (`1118b3d4`)
+
+`func name(...) { ... }` statements emit columnar: kernel kind 41 (byte-span anchor + balanced skip),
+adapter re-parses the nested declaration recursively (root-block only — nested-block kind-41s decline),
+emitter pre-declares `<parent>g__{n}` statics with the LOCAL-shadows-SIBLING call tier (probe-pinned, the
+OPPOSITE of the value rule). **TWO pipeline truths the parity harness surfaced that columnar-only probes
+missed:** (1) local-function visibility is STRICTLY TEXTUAL (NL412 on any forward reference, parent and
+inter-local — true mutual recursion is IMPOSSIBLE in N#; the emitter's first draft over-accepted it, now a
+visible-set grows as declarations are reached); (2) ORACLE DEFECT: a lambda argument to a LOCAL function
+fails the oracle's emit (NL103 "No matching overload for local function use"; lambda-to-sibling works) —
+columnar declines the shape, defect queued for an oracle bundle (with the interface-constraint dispatch
+crash and the parameterless-struct-ctor bypass). Parity: 6 shapes + 6 pins. 3981/3981; gate 291s.
+
+**The lambdas arc closes its main ladder at NINE landed rungs in one session** (oracle inference fix,
+L1a/b/c, L2 typed locals, L3a/b captures, block bodies, this-captures, L4-i local functions) — columnar
+lambdas went from nonexistent to covering the practical surface. Remaining minor rungs (captures in local
+functions, locals-as-values, nested-block scoping, capture-opaque widening, `this` primary parse) are
+pinned and documented. NEXT: Phase D resumes the retirement-map queue — match STATEMENTS, columnar generic
+unions/records — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-10 — Lambdas arc: THIS captures (`8463d7c4`)
 
 Instance-method lambdas referencing bare fields/members bind the delegate DIRECTLY to `this` (the oracle's
