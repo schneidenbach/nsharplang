@@ -1895,6 +1895,93 @@ func classify(x: int, y: int): string {
         Assert.Equal("neither zero", Assert.IsType<string>(CompileAndInvoke(source, "classify", 1, 1)));
     }
 
+    // A match used as a postfix RECEIVER inherits the OUTER expression's expected type (the
+    // member's result type, e.g. int for `.Length`); the receiver must still be typed from its
+    // own arms. These shapes used to bind the member against the wrong type ("Member Length not
+    // found on type Int32") or emit invalid casts.
+    [Fact]
+    public void ILCompiler_MatchExpression_PostfixMemberAccess_BindsResultType()
+    {
+        var source = @"
+func lengthOf(x: int): int {
+    return match x { 1 => ""one"", _ => ""o"" }.Length
+}";
+
+        Assert.Equal(3, Assert.IsType<int>(CompileAndInvoke(source, "lengthOf", 1)));
+        Assert.Equal(1, Assert.IsType<int>(CompileAndInvoke(source, "lengthOf", 9)));
+    }
+
+    [Fact]
+    public void ILCompiler_MatchExpression_PostfixCall_BindsResultType()
+    {
+        var source = @"
+func asText(x: int): string {
+    return match x { 1 => 42, _ => 0 }.ToString()
+}";
+
+        Assert.Equal("42", Assert.IsType<string>(CompileAndInvoke(source, "asText", 1)));
+        Assert.Equal("0", Assert.IsType<string>(CompileAndInvoke(source, "asText", 9)));
+    }
+
+    [Fact]
+    public void ILCompiler_MatchExpression_PostfixIndex_BindsResultType()
+    {
+        var source = @"
+func pick(x: int): int {
+    a := new int[](2)
+    a[0] = 7
+    a[1] = 8
+    b := new int[](1)
+    b[0] = 9
+    return match x { 1 => a, _ => b }[0]
+}";
+
+        Assert.Equal(7, Assert.IsType<int>(CompileAndInvoke(source, "pick", 1)));
+        Assert.Equal(9, Assert.IsType<int>(CompileAndInvoke(source, "pick", 5)));
+    }
+
+    // A match SCRUTINEE that is itself a match used to be typed at the outer match's result type
+    // (the expected-type context leaked through), emitting invalid IL.
+    [Fact]
+    public void ILCompiler_MatchExpression_MatchAsScrutinee_EmitsValidIL()
+    {
+        var source = @"
+func relabel(x: int): string {
+    return match (match x { 1 => 2, _ => 0 }) { 2 => ""two"", _ => ""x"" }
+}
+
+func relabelUnparenthesized(x: int): string {
+    return match match x { 1 => 2, _ => 0 } { 2 => ""two"", _ => ""x"" }
+}";
+
+        Assert.Equal("two", Assert.IsType<string>(CompileAndInvoke(source, "relabel", 1)));
+        Assert.Equal("x", Assert.IsType<string>(CompileAndInvoke(source, "relabel", 9)));
+        Assert.Equal("two", Assert.IsType<string>(CompileAndInvoke(source, "relabelUnparenthesized", 1)));
+        Assert.Equal("x", Assert.IsType<string>(CompileAndInvoke(source, "relabelUnparenthesized", 9)));
+    }
+
+    // Target-typed arms must keep working under the all-arms-fit guard: a null arm fits any
+    // reference-type target, and int arms fit a wider numeric target.
+    [Fact]
+    public void ILCompiler_MatchExpression_TargetTypedArms_StillFitExpectedType()
+    {
+        var source = @"
+func maybeText(x: int): string {
+    let r: string = match x { 1 => null, _ => ""a"" }
+    return r
+}
+
+func widened(x: int): long {
+    let r: long = match x { 1 => 2, _ => 3 }
+    return r
+}";
+
+        Assert.Null(CompileAndInvoke(source, "maybeText", 1));
+        Assert.Equal("a", Assert.IsType<string>(CompileAndInvoke(source, "maybeText", 9)));
+        Assert.Equal(2L, Assert.IsType<long>(CompileAndInvoke(source, "widened", 1)));
+        Assert.Equal(3L, Assert.IsType<long>(CompileAndInvoke(source, "widened", 9)));
+    }
+
     [Fact]
     public void ILCompiler_CanCompileSimpleRecord()
     {

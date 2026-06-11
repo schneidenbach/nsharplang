@@ -19914,21 +19914,52 @@ public partial class ILCompiler
 
     private Type GetMatchExpressionType(MatchExpression match)
     {
-        if (_expectedExpressionType != null && _expectedExpressionType != typeof(void))
-        {
-            return _expectedExpressionType;
-        }
+        var expected = _expectedExpressionType != null && _expectedExpressionType != typeof(void)
+            ? _expectedExpressionType
+            : null;
 
         if (match.Cases.Count == 0)
         {
-            return typeof(object);
+            return expected ?? typeof(object);
         }
 
-        var matchValueType = GetExpressionType(match.Value);
+        // The scrutinee's type is never contextual: a surrounding expected type describes the
+        // match RESULT, not the value being matched. Without clearing, a match-as-scrutinee
+        // (`match (match a { ... }) { ... }`) types the inner match as the OUTER result type
+        // and the emitted IL is invalid.
+        var savedExpected = _expectedExpressionType;
+        Type matchValueType;
+        _expectedExpressionType = null;
+        try
+        {
+            matchValueType = GetExpressionType(match.Value);
+        }
+        finally
+        {
+            _expectedExpressionType = savedExpected;
+        }
+
+        // The expected type wins only when EVERY arm can produce it. A match used as a
+        // member-access/index/call RECEIVER inherits the OUTER expression's expected type
+        // (`match n { ... }.Length` under an int target sees int); trusting it unconditionally
+        // bound postfix members against the wrong type and emitted invalid IL for matches whose
+        // arms cannot produce the contextual type.
+        var allArmsFitExpected = expected != null;
+
         var resultType = GetMatchCaseExpressionType(match.Cases[0], matchValueType);
+        if (allArmsFitExpected && !MatchArmFitsExpectedType(match.Cases[0], resultType, expected!))
+        {
+            allArmsFitExpected = false;
+        }
+
         foreach (var matchCase in match.Cases.Skip(1))
         {
             var caseType = GetMatchCaseExpressionType(matchCase, matchValueType);
+            if (allArmsFitExpected && !MatchArmFitsExpectedType(matchCase, caseType, expected!))
+            {
+                allArmsFitExpected = false;
+            }
+
             if (caseType == resultType)
             {
                 continue;
@@ -19945,10 +19976,20 @@ public partial class ILCompiler
                 continue;
             }
 
-            return typeof(object);
+            resultType = typeof(object);
         }
 
-        return resultType;
+        return allArmsFitExpected ? expected! : resultType;
+    }
+
+    private bool MatchArmFitsExpectedType(MatchCase matchCase, Type caseType, Type expectedType)
+    {
+        if (matchCase.Expression is NullLiteralExpression)
+        {
+            return CanAssignNullToType(expectedType);
+        }
+
+        return caseType == expectedType || AreTypesAssignmentCompatible(expectedType, caseType);
     }
 
     private Type GetMatchCaseExpressionType(MatchCase matchCase, Type matchValueType)
@@ -24022,8 +24063,21 @@ public partial class ILCompiler
         }
 
         // Store the matched value in a local (evaluated exactly once; reused for every test).
-        var matchValueType = GetExpressionType(match.Value);
-        EmitExpression(match.Value);
+        // The scrutinee is typed and emitted OUTSIDE the surrounding expected-type context: its
+        // type is self-determined (the expected type describes the match RESULT — letting it
+        // leak emitted the inner match of a match-as-scrutinee at the outer result type).
+        var savedScrutineeExpected = _expectedExpressionType;
+        Type matchValueType;
+        _expectedExpressionType = null;
+        try
+        {
+            matchValueType = GetExpressionType(match.Value);
+            EmitExpression(match.Value);
+        }
+        finally
+        {
+            _expectedExpressionType = savedScrutineeExpected;
+        }
         var matchLocal = _currentIL.DeclareLocal(matchValueType);
         _currentIL.Emit(OpCodes.Stloc, matchLocal);
 
