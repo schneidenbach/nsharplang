@@ -46,6 +46,15 @@ non-virtual getter) and IsSupportedKeyValuePairType for the loop-var local.
 compound-assignment arm: receiver and index evaluate ONCE into temps (C#'s single-evaluation
 semantics), get_Item, the scalar/string op selection (the bare-local compound discipline), set_Item.
 
+**Gate-validation postscript:** rung 3's first two gate runs failed the Systems benchmark step on
+SHIFTING scenarios (CallerBuffers 1.0556, then ResultAbi 1.4774) with absolute medians DOUBLED
+machine-wide — concurrent-session load, not the commit. An A/B settled it: the parent `402bbae1`
+passed in a calm window, and the DECIDING run at `cab8581d` in the same window passed clean
+(CallerBuffers 0.9994, all scenarios ≤1.0, medians back to baseline). Process lessons recorded:
+commits are BLOCKED on the gate-verdict grep (never chained blindly); benchmark disputes get
+benchmark-only/A-B controls; shifting-scenario failures with elevated absolute medians = load, not
+regression.
+
 Parity: `ColumnarCodegen_Parity_Collections` — 15 value functions + 3 exception-parity pins
 (ArgumentOutOfRangeException / KeyNotFoundException / mutation InvalidOperationException) + 4
 decline pins (List-of-user-type, List&lt;T&gt;-in-generic-func, HashSet, Dictionary.Add — every one
