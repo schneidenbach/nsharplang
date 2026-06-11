@@ -46,6 +46,82 @@ func main(): int {
         Assert.Equal(803, Assert.IsType<int>(result));
     }
 
+    // Reflection.Emit's BeginCatchBlock/BeginFinallyBlock/EndExceptionBlock append implicit `leave`
+    // instructions, which make the post-block position reachable in the JIT importer's view EVEN when
+    // every region exits via `throw`. A value body whose only exits are throws inside a try/catch (or
+    // lock/using) therefore still needs the structured-return tail — without it, control "falls off" a
+    // reachable method end and EVERY call throws InvalidProgramException (probe-found while mapping the
+    // exceptions arc: the wrap-and-rethrow catch pattern was broken in every position). The tail now
+    // also emits when the body emitted an exception block and never returned (_emittedExceptionBlockInBody)
+    // at all three tail sites: top-level functions, type-member methods, and nested lambda/local-function
+    // bodies (TryCloseNestedStructuredReturn).
+    [Fact]
+    public void ILCompiler_ThrowTerminatedExceptionBlocks_EmitValidIl()
+    {
+        // The wrap-and-rethrow catch pattern: both regions exit via throw, no return anywhere.
+        var wrapped = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    try {
+        throw new FormatException(""orig"")
+    } catch {
+        throw new InvalidOperationException(""wrapped"")
+    }
+}"));
+        Assert.Equal("wrapped", wrapped.Message);
+
+        // Typed catch with the bound variable flowing into the new exception.
+        var flowed = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    try {
+        throw new FormatException(""orig"")
+    } catch (e: FormatException) {
+        throw new InvalidOperationException(e.Message)
+    }
+}"));
+        Assert.Equal("orig", flowed.Message);
+
+        // lock body that always throws — EmitLock's try/finally has the same implicit-leave mechanics.
+        var locked = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func locker(): string {
+    return ""k""
+}
+
+func main(): int {
+    lock locker() {
+        throw new InvalidOperationException(""locked"")
+    }
+}"));
+        Assert.Equal("locked", locked.Message);
+
+        // Nested local function whose body is an all-throws try/catch (the nested-body tail closer).
+        var nested = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    func g(): int {
+        try {
+            throw new FormatException(""a"")
+        } catch {
+            throw new InvalidOperationException(""lam"")
+        }
+    }
+    return g()
+}"));
+        Assert.Equal("lam", nested.Message);
+
+        // Block-bodied lambda all-throws (LambdaEmitter goes through the same nested-body tail closer).
+        var lambda = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    g: Func<int> = () => {
+        try {
+            throw new FormatException(""a"")
+        } catch {
+            throw new InvalidOperationException(""lam2"")
+        }
+    }
+    return g()
+}"));
+        Assert.Equal("lam2", lambda.Message);
+    }
+
     [Fact]
     public void ILCompiler_NamedTupleMemberAccess_AllReceiverShapes()
     {

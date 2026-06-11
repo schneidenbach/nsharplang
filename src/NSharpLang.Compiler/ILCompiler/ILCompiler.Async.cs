@@ -83,6 +83,7 @@ public partial class ILCompiler
         Label? ReturnLabel,
         LocalBuilder? ReturnLocal,
         bool UsesStructuredReturn,
+        bool EmittedExceptionBlockInBody,
         int ExceptionBlockDepth,
         bool AsyncFaultGuardCompletionEmitted);
 
@@ -96,12 +97,14 @@ public partial class ILCompiler
             _currentReturnLabel,
             _currentReturnLocal,
             _usesStructuredReturn,
+            _emittedExceptionBlockInBody,
             _exceptionBlockDepth,
             _asyncFaultGuardCompletionEmitted);
 
         _currentReturnLabel = null;
         _currentReturnLocal = null;
         _usesStructuredReturn = false;
+        _emittedExceptionBlockInBody = false;
         _exceptionBlockDepth = 0;
         _asyncFaultGuardCompletionEmitted = false;
         return saved;
@@ -113,6 +116,7 @@ public partial class ILCompiler
         _currentReturnLabel = saved.ReturnLabel;
         _currentReturnLocal = saved.ReturnLocal;
         _usesStructuredReturn = saved.UsesStructuredReturn;
+        _emittedExceptionBlockInBody = saved.EmittedExceptionBlockInBody;
         _exceptionBlockDepth = saved.ExceptionBlockDepth;
         _asyncFaultGuardCompletionEmitted = saved.AsyncFaultGuardCompletionEmitted;
     }
@@ -128,7 +132,12 @@ public partial class ILCompiler
     /// </summary>
     private bool TryCloseNestedStructuredReturn()
     {
-        if (!_usesStructuredReturn)
+        // The tail is also required when the nested body emitted an exception block but never returned
+        // (all regions exit via `throw`): the implicit `leave`s make the post-block position reachable
+        // in the JIT's view, so a VALUE body (_currentReturnLocal != null) without the tail falls off a
+        // reachable method end. Void nested bodies keep their caller's unconditional trailing `ret`.
+        if (!_usesStructuredReturn
+            && !(_emittedExceptionBlockInBody && _currentReturnLocal != null && _currentGeneratorReturnType == null))
         {
             return false;
         }
@@ -162,6 +171,7 @@ public partial class ILCompiler
 
         _currentIL.BeginExceptionBlock();
         _exceptionBlockDepth++;
+        _emittedExceptionBlockInBody = true;
         _asyncFaultGuardCompletionEmitted = false;
         return true;
     }

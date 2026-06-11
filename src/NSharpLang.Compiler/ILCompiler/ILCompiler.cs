@@ -89,6 +89,12 @@ public partial class ILCompiler
     private Label? _currentReturnLabel;
     private LocalBuilder? _currentReturnLocal;
     private bool _usesStructuredReturn;
+    // Whether this body emitted any exception block (try/lock/using/assert-throws). Reflection.Emit's
+    // BeginCatchBlock/BeginFinallyBlock/EndExceptionBlock append implicit `leave` instructions, which make
+    // the post-block position reachable in the JIT importer's view EVEN when every region exits via
+    // `throw` — so a value body whose only exits are throws inside such a block still needs the
+    // structured-return tail, or control "falls off" a reachable method end (InvalidProgramException).
+    private bool _emittedExceptionBlockInBody;
     private int _exceptionBlockDepth;
     private Type? _currentYieldElementType;
     private LocalBuilder? _currentYieldListLocal;
@@ -1349,6 +1355,7 @@ public partial class ILCompiler
         _currentReturnLabel = null;
         _currentReturnLocal = null;
         _usesStructuredReturn = false;
+        _emittedExceptionBlockInBody = false;
         _exceptionBlockDepth = 0;
         _asyncFaultGuardCompletionEmitted = false;
         _currentYieldElementType = null;
@@ -1398,6 +1405,7 @@ public partial class ILCompiler
         var returnLocalType = _currentAsyncReturnType ?? (bodyReturnType == typeof(void) ? null : bodyReturnType);
         _currentReturnLocal = returnLocalType != null ? _currentIL.DeclareLocal(returnLocalType) : null;
         _usesStructuredReturn = false;
+        _emittedExceptionBlockInBody = false;
         _exceptionBlockDepth = 0;
     }
 
@@ -11124,8 +11132,14 @@ public partial class ILCompiler
         {
             EndAsyncFaultGuard();
         }
-        // Ensure function ends with a return
-        else if (_usesStructuredReturn)
+        // Ensure function ends with a return. The structured tail is ALSO required when the body emitted
+        // any exception block and never returned (every region exits via `throw`): the implicit `leave`s
+        // Reflection.Emit appends make the post-block position reachable in the JIT's view, so a value
+        // body without the tail falls off a reachable method end — InvalidProgramException at runtime.
+        // (Void bodies get their unconditional trailing `ret` below; generators/async have their own tails.)
+        else if (_usesStructuredReturn
+            || (_emittedExceptionBlockInBody && returnType != typeof(void)
+                && _currentGeneratorReturnType == null && _currentAsyncReturnType == null))
         {
             EmitStructuredReturnTarget();
         }
@@ -11660,6 +11674,7 @@ public partial class ILCompiler
         }
 
         _currentIL.BeginExceptionBlock();
+        _emittedExceptionBlockInBody = true;
         EmitStatement(assertThrows.Body);
         _currentIL.Emit(OpCodes.Ldstr, $"Expected exception of type {exceptionType.Name} was not thrown");
         _currentIL.Emit(OpCodes.Newobj, invalidOperationCtor);
@@ -11904,6 +11919,7 @@ public partial class ILCompiler
         }
 
         _currentIL.BeginExceptionBlock();
+        _emittedExceptionBlockInBody = true;
         if (resultName == "_")
         {
             EmitExpression(tupleDecl.Initializer);
@@ -12953,6 +12969,7 @@ public partial class ILCompiler
         // EmitReturn lower returns to a structured `leave` to the method's return label.
         _currentIL.BeginExceptionBlock();
         _exceptionBlockDepth++;
+        _emittedExceptionBlockInBody = true;
         EmitStatement(lockStmt.Body);
         _currentIL.BeginFinallyBlock();
         _currentIL.Emit(OpCodes.Ldloc, lockLocal);
@@ -13639,6 +13656,7 @@ public partial class ILCompiler
         // Begin exception block
         _currentIL.BeginExceptionBlock();
         _exceptionBlockDepth++;
+        _emittedExceptionBlockInBody = true;
 
         // Emit the try block
         EmitStatement(tryStmt.TryBlock);
@@ -13742,6 +13760,7 @@ public partial class ILCompiler
         // Track the protected region so a `return` inside the body lowers to a structured
         // `leave` (see EmitReturn) instead of an illegal `ret` out of the try block.
         _exceptionBlockDepth++;
+        _emittedExceptionBlockInBody = true;
 
         // Emit the body
         if (usingStmt.Body != null)
@@ -23983,8 +24002,14 @@ public partial class ILCompiler
         {
             EndAsyncFaultGuard();
         }
-        // Ensure method ends with a return
-        else if (_usesStructuredReturn)
+        // Ensure method ends with a return. The structured tail is ALSO required when the body emitted
+        // any exception block and never returned (every region exits via `throw`): the implicit `leave`s
+        // Reflection.Emit appends make the post-block position reachable in the JIT's view, so a value
+        // body without the tail falls off a reachable method end — InvalidProgramException at runtime.
+        // (Void bodies get their unconditional trailing `ret` below; generators/async have their own tails.)
+        else if (_usesStructuredReturn
+            || (_emittedExceptionBlockInBody && returnType != typeof(void)
+                && _currentGeneratorReturnType == null && _currentAsyncReturnType == null))
         {
             EmitStructuredReturnTarget();
         }
