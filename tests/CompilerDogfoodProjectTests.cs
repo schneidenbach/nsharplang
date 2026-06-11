@@ -4020,6 +4020,42 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // NULL & NULLABLE N3 (Phase D) — the `must` PREFIX null-assert (Must token 20, kernel kind 45,
+    // ONE child recursing at the unary level so `must must x` chains). The emit mirrors the oracle's
+    // EmitMustExpression exactly: Nullable<T> unwraps HasValue/get_Value (throwing
+    // InvalidOperationException("must unwrap failed: value was null") — the EXACT pipeline message);
+    // references null-check dup/brtrue/pop/throw keeping their type; plain value types pass through.
+    [Fact]
+    public void ColumnarCodegen_Parity_MustOperator()
+    {
+        var prog =
+            "func unwrapRef(s: string?): string {\n    return must s\n}\n\n" +
+            "func unwrapVal(n: int?): int {\n    return must n\n}\n\n" +
+            "func viaRef(): int {\n    return unwrapRef(\"okay\").Length\n}\n\n" +
+            "func viaVal(): int {\n    n: int? = 42\n    return must n\n}\n\n" +
+
+            "func chained(s: string?): int {\n    return (must s).Length\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("viaRef", System.Array.Empty<object>()),
+            ("viaVal", System.Array.Empty<object>()),
+            ("chained", new object[] { "abc" }));
+
+        // a REDUNDANT `must` on a plain value type is the pipeline's NL907 lint — decline.
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    return must v\n}\n").Ok);
+
+        // The THROW path: route-only (a throwing invocation does not value-compare) — the columnar emit
+        // must throw the pipeline's EXACT exception type and message.
+        var (ok, asm, typeName, _) = RouteColumnarProgram(
+            "func unwrapRef(s: string?): string {\n    return must s\n}\n\nfunc boom(): string {\n    return unwrapRef(null)\n}\n");
+        Assert.True(ok, "columnar must emit the must program");
+        using var scope = CollectibleAssemblyScope.Load(asm!);
+        var progType = scope.Assembly.GetType(typeName!)!;
+        var thrown = Assert.Throws<System.Reflection.TargetInvocationException>(
+            () => progType.GetMethod("boom")!.Invoke(null, null));
+        var inner = Assert.IsType<InvalidOperationException>(thrown.InnerException);
+        Assert.Equal("must unwrap failed: value was null", inner.Message);
+    }
+
     // NULL & NULLABLE N2 (Phase D) — Nullable<T> VALUE types over the baked value scalars. `int?`
     // resolves to the real System.Nullable<int>; LIFTING (`n: int? = 5`, `= null`, `= v`, lifted args
     // and returns) emits `newobj Nullable<T>(T)` / `initobj` — the exact C# conversions; `n ?? d`

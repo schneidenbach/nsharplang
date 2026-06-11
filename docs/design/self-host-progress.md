@@ -11,6 +11,23 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — NULL & NULLABLE N3: the `must` prefix null-assert
+
+`must <operand>` (Must token **20** — empirically verified, NOT the 51 a source-line count suggested;
+the doctrine's verify-ordinals rule pays again) parses as kernel kind **45 MustExpression** (one child,
+recursing at the unary level so `must must x` chains — the production shape; 46 next free). The emit
+mirrors the oracle's `EmitMustExpression` exactly: a Nullable&lt;T&gt; unwraps HasValue/get_Value, throwing
+`InvalidOperationException("must unwrap failed: value was null")` — the byte-exact pipeline message —
+when empty; a reference null-checks dup/brtrue/pop/throw keeping its type. **A redundant `must` on a
+plain value type DECLINES** — probe-found: the pipeline's analyzer rejects it with NL907 before the
+oracle emitter's no-op pass-through would ever run (the emit-side mirror alone would have over-accepted).
+
+Parity: `ColumnarCodegen_Parity_MustOperator` (5 functions incl. `(must s).Length` chaining and
+Nullable unwraps) + the route-only THROW pin (exact exception type + message) + the NL907 decline pin.
+296/296; gate (see commit). REMAINING null rungs: is/as (kernel parse), lifted arithmetic (probe-first).
+
+---
+
 ## 2026-06-11 — NULL & NULLABLE N2: Nullable&lt;T&gt; value types
 
 `int?` (and every baked value scalar's `?`) resolves to the REAL `System.Nullable<T>`. **Lifting** at all

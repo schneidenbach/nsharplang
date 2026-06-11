@@ -5452,6 +5452,49 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 45: // MustExpression [operand] — `must x`, the prefix null-assert (the oracle's
+            {        // EmitMustExpression mirror): a NULLABLE<T> unwraps via HasValue/get_Value (throwing
+                     // InvalidOperationException("must unwrap failed: value was null") when empty — the EXACT
+                     // pipeline message); a REFERENCE null-checks dup/brtrue/pop/throw keeping its type; a
+                     // plain VALUE type passes through unchanged (the pipeline's no-op).
+                if (_childCount[idx] != 1 || !EmitExpression(Child(idx, 0), out var mustType))
+                    return false;
+                if (IsSupportedNullable(mustType))
+                {
+                    var mustElement = mustType.GetGenericArguments()[0];
+                    var mustLocal = _il.DeclareLocal(mustType);
+                    _il.Emit(OpCodes.Stloc, mustLocal);
+                    var mustOk = _il.DefineLabel();
+                    _il.Emit(OpCodes.Ldloca, mustLocal);
+                    _il.Emit(OpCodes.Call, mustType.GetMethod("get_HasValue")!);
+                    _il.Emit(OpCodes.Brtrue, mustOk);
+                    _il.Emit(OpCodes.Ldstr, "must unwrap failed: value was null");
+                    _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!);
+                    _il.Emit(OpCodes.Throw);
+                    _il.MarkLabel(mustOk);
+                    _il.Emit(OpCodes.Ldloca, mustLocal);
+                    _il.Emit(OpCodes.Call, mustType.GetMethod("get_Value")!);
+                    type = mustElement;
+                    return true;
+                }
+                if (!mustType.IsValueType)
+                {
+                    var refOk = _il.DefineLabel();
+                    _il.Emit(OpCodes.Dup);
+                    _il.Emit(OpCodes.Brtrue, refOk);
+                    _il.Emit(OpCodes.Pop);
+                    _il.Emit(OpCodes.Ldstr, "must unwrap failed: value was null");
+                    _il.Emit(OpCodes.Newobj, typeof(InvalidOperationException).GetConstructor(new[] { typeof(string) })!);
+                    _il.Emit(OpCodes.Throw);
+                    _il.MarkLabel(refOk);
+                    type = mustType;
+                    return true;
+                }
+                // a plain VALUE type: the pipeline REJECTS redundant `must` (NL907 — the analyzer
+                // gates it before the emitter's no-op would run) — decline so the C# path reports it.
+                return false;
+            }
+
             case 13: // Ternary [cond, then, else] — `cond ? then : else`, a branch/merge with ONE result on the
             {        // stack. Both arms must produce the SAME type (TypesEquivalent — the match-arm unification
                      // rule); MIXED-type arms decline to the C# path (its implicit-conversion unification is a

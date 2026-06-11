@@ -74,8 +74,10 @@
 //                                         token in the value span, ONE child [target]. Single wrap after the
 //                                         postfix suffix chain; the target child is a VALUE expression the
 //                                         scans traverse normally -- and a WRITE: the write scans treat a
-//                                         kind-44 like a kind-14 assignment to its target. 45 is the next
-//                                         free kind. )
+//                                         kind-44 like a kind-14 assignment to its target. )
+//   MustExpression          -> kind 45  ( `must <operand>` (Must 20) -- the prefix null-assert, ONE child;
+//                                         unwraps a Nullable<T> to T or null-checks a reference, throwing
+//                                         InvalidOperationException when null. 46 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
@@ -951,6 +953,20 @@ func ParseUnaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
     pos := st[0]
     if pos < count {
         k := tokenKinds[pos]
+        // `must <operand>` (Must 20) -- the prefix null-assert (MustExpression kind 45, ONE child;
+        // the operand recurses at THIS unary level so `must must x` chains like the production parser).
+        if k == 20 {
+            mustStart := tokenStarts[pos]
+            st[0] = pos + 1
+            mustOperand := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if mustOperand < 0 {
+                return -1
+            }
+            mustSpanEnd := outSpanStarts[mustOperand] + outSpanLengths[mustOperand]
+            mustChildRun := st[2]
+            AppendExpressionChild(st, outChildIndices, mustOperand)
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 45, -1, 0, mustChildRun, 1, mustStart, mustSpanEnd - mustStart)
+        }
         if k == 106 || k == 89 || k == 110 || k == 113 || k == 114 || k == 109 {
             opStart := tokenStarts[pos]
             opLength := tokenValueLengths[pos]
