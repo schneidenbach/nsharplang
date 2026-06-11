@@ -4238,6 +4238,55 @@ class B
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: System.FormatException) {\n        return 0 - 1\n    }\n}\n").Ok);
     }
 
+    // RECORDS COMPLETION (Phase D) — `with` expressions + the synthesized VALUE members. PASS 0e
+    // synthesizes Equals(object)/GetHashCode()/`<Clone>$` on every NON-GENERIC record whose field types
+    // are baked runtime types, mirroring the oracle's EmitRecordEquals/EmitRecordGetHashCode/
+    // EmitRecordCloneMethod verbatim (null-check + isinst + per-field EqualityComparer<T>.Default;
+    // hash = 17/23 accumulator; MemberwiseClone + castclass). PROBE-PINNED SEMANTICS: `==`/`!=` on
+    // records AND classes is REFERENCE equality (NOT C# record semantics — value equality lives only in
+    // `.Equals`); a class `.Equals` is the pipeline's NL103 (no synthesis on classes — parity by
+    // rejection). `with` (token 71, expression kind 52 [receiver, name/value pairs]) lowers through
+    // `<Clone>$` + stfld overwrites; with-on-generic-record is the known-broken oracle B4 residual and
+    // with-on-class falls to an unverifiable raw MemberwiseClone — both decline.
+    [Fact]
+    public void ColumnarCodegen_Parity_RecordValueMembersAndWith()
+    {
+        var rec = "record Point {\n    X: int\n    Y: int\n}\n\n";
+        var prog = rec +
+            // `with` copies then overwrites; the source is untouched (probed: 1003).
+            "func withOne(): int {\n    p := new Point { X: 1, Y: 2 }\n    q := p with { X: 10 }\n    return q.X * 100 + q.Y + p.X\n}\n\n" +
+            // overwriting every field (probed: 78).
+            "func withAll(): int {\n    p := new Point { X: 1, Y: 2 }\n    q := p with { X: 7, Y: 8 }\n    return q.X * 10 + q.Y\n}\n\n" +
+            // a PURE clone (zero pairs) is a distinct instance with equal values.
+            "func withClone(): int {\n    p := new Point { X: 3, Y: 4 }\n    q := p with { }\n    r := 0\n    if p == q {\n        r = r + 1\n    }\n    if p.Equals(q) {\n        r = r + 10\n    }\n    return r\n}\n\n" +
+            // .Equals is VALUE equality (probed: 1); GetHashCode agrees on equal values (probed: 1).
+            "func valueEquals(): int {\n    a := new Point { X: 1, Y: 2 }\n    b := new Point { X: 1, Y: 2 }\n    c := new Point { X: 9, Y: 2 }\n    r := 0\n    if a.Equals(b) {\n        r = r + 1\n    }\n    if a.Equals(c) {\n        r = r + 10\n    }\n    return r\n}\n\n" +
+            "func hashAgrees(): int {\n    a := new Point { X: 3, Y: 4 }\n    b := new Point { X: 3, Y: 4 }\n    return a.GetHashCode() == b.GetHashCode() ? 1 : 0\n}\n\n" +
+            // `==`/`!=` are REFERENCE identity on records (probed: 0 for equal-valued, 1 for same-ref).
+            "func refEq(): int {\n    a := new Point { X: 1, Y: 2 }\n    b := new Point { X: 1, Y: 2 }\n    a2 := a\n    r := 0\n    if a == b {\n        r = r + 1\n    }\n    if a == a2 {\n        r = r + 10\n    }\n    if a != b {\n        r = r + 100\n    }\n    return r\n}\n\n" +
+            // ...and on classes (probed: 10).
+            "class CBox {\n    v: int\n}\n\nfunc classRefEq(): int {\n    a := new CBox { v: 1 }\n    b := new CBox { v: 1 }\n    a2 := a\n    r := 0\n    if a == b {\n        r = r + 1\n    }\n    if a == a2 {\n        r = r + 10\n    }\n    return r\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("withOne", System.Array.Empty<object>()),
+            ("withAll", System.Array.Empty<object>()),
+            ("withClone", System.Array.Empty<object>()),
+            ("valueEquals", System.Array.Empty<object>()),
+            ("hashAgrees", System.Array.Empty<object>()),
+            ("refEq", System.Array.Empty<object>()),
+            ("classRefEq", System.Array.Empty<object>()));
+
+        // DECLINES:
+        // `.Equals` on a CLASS — the pipeline's NL103 ("Method Equals not found"); no synthesis there.
+        Assert.False(RouteColumnarProgram("class CBox {\n    v: int\n}\n\nfunc f(): int {\n    a := new CBox { v: 1 }\n    b := new CBox { v: 1 }\n    return a.Equals(b) ? 1 : 0\n}\n").Ok);
+        // `with` on a CLASS (oracle-side it calls the protected MemberwiseClone cross-type — unverifiable).
+        Assert.False(RouteColumnarProgram("class CBox {\n    v: int\n}\n\nfunc f(): int {\n    a := new CBox { v: 1 }\n    b := a with { v: 2 }\n    return b.v\n}\n").Ok);
+        // `with` on a GENERIC record — the oracle's with-on-generic emit is the known-broken B4 residual;
+        // route-decline ONLY (never invoke the oracle side).
+        Assert.False(RouteColumnarProgram("record Pair<T> {\n    A: T\n    B: T\n}\n\nfunc f(): int {\n    p := new Pair<int> { A: 1, B: 2 }\n    q := p with { A: 5 }\n    return q.A\n}\n").Ok);
+        // an UNKNOWN field name in the with pairs.
+        Assert.False(RouteColumnarProgram("record Point {\n    X: int\n    Y: int\n}\n\nfunc f(): int {\n    p := new Point { X: 1, Y: 2 }\n    q := p with { Z: 9 }\n    return q.X\n}\n").Ok);
+    }
+
     // NL316 ACROSS NESTED-BODY BOUNDARIES — the adversarial review of E3 chased the capture scan and the
     // probes found the REAL hole adjacent to it: a nested body's binding (lambda param, local-func param,
     // `:=`/typed local, foreach var, deconstruction name, catch var) that shadows an ENCLOSING binding is

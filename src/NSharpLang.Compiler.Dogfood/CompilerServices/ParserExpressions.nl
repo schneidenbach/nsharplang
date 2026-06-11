@@ -81,9 +81,14 @@
 //   IsExpression            -> kind 46  ( `value is Type` (Is 47) -- children [value, typeRoot]; the
 //                                         typeRoot is a TYPE subtree (scans walk child 0 only). )
 //   AsExpression            -> kind 47  ( `value as Type` (As 48) -- the null-propagating cast twin of
-//                                         kind 46; same child shape. 48 is the next free kind. )
+//                                         kind 46; same child shape. )
+//   WithExpression          -> kind 52  ( `expr with { Field: value, ... }` (With 71) -- the kind-36
+//                                         object-init pair layout with the RECEIVER in place of the type
+//                                         root: children [receiver, name0 (kind 6), value0, ...]; zero
+//                                         pairs = a pure clone. Kinds 48-51 are STATEMENT kinds
+//                                         (throw/try/catch/lock); 53 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
-//   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
+//   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
 //   interpolated string/...). (Tuples `(a, b)` AND named tuples `(x: 1, y: 2)` PARSE — kinds 17/43; match,
 //   new-expressions, object initializers, bare-new and block-bodied lambdas have their own kinds above.)
@@ -918,6 +923,59 @@ func ParsePostfixExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
             }
             st[3] = argBase
             expr = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 9, -1, 0, childRunStart, childCount, objSpanStart, rightParenEnd - objSpanStart)
+        } else if pos + 1 < count && tokenKinds[pos] == 71 && tokenKinds[pos + 1] == 129 {
+            // `expr with { Field: value, ... }` (With 71) -- WithExpression kind 52: children
+            // [receiver, name0 (Identifier kind 6), value0, name1, value1, ...] -- the kind-36
+            // object-initializer pair layout with the RECEIVER expression in place of the type root
+            // (the production parses `with` in this same postfix loop, Parser.cs:4510). Zero pairs
+            // (a pure clone) are valid. Pairs gather on the LIFO arg-stack exactly as kind 36 does.
+            receiverSpanStart := outSpanStarts[expr]
+            st[0] = pos + 2
+            wArgBase := st[3]
+            argStack[st[3]] = expr
+            st[3] = st[3] + 1
+            while st[0] < count && tokenKinds[st[0]] != 130 {
+                if tokenKinds[st[0]] != 0 {
+                    st[3] = wArgBase
+                    return -1
+                }
+                wNameStart := tokenStarts[st[0]]
+                wNameLen := tokenValueLengths[st[0]]
+                st[0] = st[0] + 1
+                if st[0] >= count || tokenKinds[st[0]] != 122 {
+                    st[3] = wArgBase
+                    return -1
+                }
+                st[0] = st[0] + 1
+                wNameNode := EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 6, wNameStart, wNameLen, -1, 0, wNameStart, wNameLen)
+                argStack[st[3]] = wNameNode
+                st[3] = st[3] + 1
+                wValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+                if wValue < 0 {
+                    st[3] = wArgBase
+                    return -1
+                }
+                argStack[st[3]] = wValue
+                st[3] = st[3] + 1
+                if st[0] < count && tokenKinds[st[0]] == 134 {
+                    st[0] = st[0] + 1
+                }
+            }
+            if st[0] >= count || tokenKinds[st[0]] != 130 {
+                st[3] = wArgBase
+                return -1
+            }
+            withEnd := tokenStarts[st[0]] + tokenValueLengths[st[0]]
+            st[0] = st[0] + 1
+            wChildCount := st[3] - wArgBase
+            wChildRun := st[2]
+            wArg := wArgBase
+            while wArg < st[3] {
+                AppendExpressionChild(st, outChildIndices, argStack[wArg])
+                wArg = wArg + 1
+            }
+            st[3] = wArgBase
+            expr = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 52, -1, 0, wChildRun, wChildCount, receiverSpanStart, withEnd - receiverSpanStart)
         } else {
             matched = false
         }

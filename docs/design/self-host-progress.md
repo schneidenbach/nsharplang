@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — RECORDS COMPLETION: `with` + the synthesized value members
+
+**PASS 0e** synthesizes the record value members on every NON-GENERIC record whose field types are
+baked runtime types, mirroring the oracle VERBATIM: `Equals(object)` (null-check + isinst + per-field
+`EqualityComparer<T>.Default.Equals`), `GetHashCode()` (the 17/23 accumulator), and `<Clone>$`
+(MemberwiseClone + castclass — the FAMILY-access wrapper `with` lowers through). A USER method named
+Equals/GetHashCode keeps ownership (the pinned `hsh` behavior — that member's synthesis is skipped).
+Classes get NONE: a class `.Equals` is the pipeline's NL103 (probe-pinned) — parity by rejection.
+
+**Probe-pinned N# semantic, mirrored exactly: `==`/`!=` on records AND classes is REFERENCE
+equality** (NOT C# record semantics — value equality lives only in `.Equals`): a new ceq arm for
+registered reference-type operands. `.Equals(other)`/`.GetHashCode()` resolve AFTER user methods in
+the instance-call path (record receivers only; unboxed value args decline).
+
+**`with`** (token 71 — empirical) parses in the kernel's postfix loop exactly where the production
+parses it (Parser.cs:4510): expression kind 52 [receiver, name/value pairs] (53 next free), the
+kind-36 pair layout with the receiver in place of the type root; zero pairs = a pure clone. Emit:
+callvirt `<Clone>$`, stfld overwrites, exactly the oracle's EmitWithExpression. Kind 52 joined
+ContainsCaptureOpaqueKind (its kind-6 children are FIELD names — the positional capture scan would
+mis-read them). DECLINED: with-on-CLASS (oracle-side it calls the protected MemberwiseClone
+cross-type — unverifiable IL), with-on-GENERIC-record (the known-broken oracle B4 residual),
+unknown field names, builder-typed-field records (no synthesis).
+
+Slice tooling note: first slice run on the new `./scripts/dev.sh` inner loop (aea1ca80) — focused +
+`--since` change-aware selection; the full --commit gate unchanged. Record `.ToString()` remains
+pipeline-rejected (NL905 maybe-null on the receiver) — pinned by probe, no columnar surface.
+
+Parity: `ColumnarCodegen_Parity_RecordValueMembersAndWith` — 7 value functions (with-one/all/pure-
+clone, value-Equals, hash agreement, record + class reference-`==`) + 4 decline pins. 306/306; gate
+(see commit). NEXT (retirement-map queue): collections, async, interfaces — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-11 — EXCEPTIONS E5: the lock statement — THE EXCEPTIONS ARC's MAIN LADDER CLOSES
 
 `lock <expr> { }` (Lock token **80** — empirically verified) parses as **kind 51** [lockee, body]

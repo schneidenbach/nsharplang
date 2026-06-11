@@ -32,8 +32,8 @@
 //                                             finallyBlock? (a trailing kind-25 block)] )
 //   CatchClause                  -> kind 50  ( one catch; value span = the exception TYPE name token, -1 for
 //                                             a bare catch; children [nameIdent (kind 6)?, block] )
-//   LockStatement                -> kind 51  ( lock <expr> { }; children [lockee, body]. 52 is the next
-//                                             free kind. )
+//   LockStatement                -> kind 51  ( lock <expr> { }; children [lockee, body]. Kind 52 is the
+//                                             expression kernel's WithExpression; 53 is the next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the

@@ -333,6 +333,14 @@ internal sealed class ColumnarStructDef
     // the property type). A `receiver.Name` read resolves to `callvirt get_Name`; a `receiver.Name = v` write (when a
     // setter exists) to `callvirt set_Name`.
     public Dictionary<string, (MethodBuilder Getter, MethodBuilder? Setter, Type PropertyType)> Properties { get; } = new(StringComparer.Ordinal);
+    // The SYNTHESIZED value-semantics members on a RECORD (the oracle generates them only on records — a class
+    // `.Equals` is its NL103): Equals(object) (null-check + isinst + per-field EqualityComparer<T>.Default),
+    // GetHashCode (the 17/23 accumulator), and the `<Clone>$` MemberwiseClone wrapper `with` lowers through.
+    // Null when the record's fields prevent the synthesis (builder-typed/generic field types) or the type is
+    // generic — `.Equals`/`.GetHashCode`/`with` then decline.
+    public MethodBuilder? RecordEquals { get; set; }
+    public MethodBuilder? RecordGetHashCode { get; set; }
+    public MethodBuilder? RecordClone { get; set; }
 }
 
 /// <summary>
@@ -1353,7 +1361,10 @@ public sealed class ColumnarIlEmitter
     private bool ContainsCaptureOpaqueKind(int node)
     {
         var k = _kinds[node];
-        if (k == 18 || k == 19 || (k >= 32 && k <= 37))
+        // 18/19 match arms, 32-37 patterns/object-init, 52 with-expressions: their kind-6 children are
+        // FIELD names / pattern bindings, not value reads — the positional capture scan would mis-read
+        // them as identifier uses.
+        if (k == 18 || k == 19 || (k >= 32 && k <= 37) || k == 52)
             return true;
         for (var c = 0; c < _childCount[node]; c++)
         {
@@ -2771,6 +2782,34 @@ public sealed class ColumnarIlEmitter
                 dcil.Emit(OpCodes.Ret);
                 def.DefaultCtor = dcb;
             }
+        }
+
+        // PASS 0e (record value members): synthesize Equals(object) / GetHashCode() / `<Clone>$` on each
+        // NON-GENERIC record whose field types are all BAKED runtime types — EqualityComparer<T>.Default
+        // cannot be reflected over emitted builders at emit time, so builder-typed fields skip the
+        // synthesis (`.Equals`/`.GetHashCode`/`with` on those records then decline). Classes get NONE of
+        // these: a class `.Equals` is the pipeline's NL103 (probe-pinned) — parity by rejection. A USER
+        // method already named Equals/GetHashCode keeps ownership (the pinned `hsh` behavior): that
+        // member's synthesis is skipped and resolution finds the user method as before.
+        foreach (var st in structs)
+        {
+            if (!st.IsRecord)
+                continue;
+            var def = structRegistry[st.Name];
+            if (def.GenericParameters != null)
+                continue;
+            var fieldsBaked = true;
+            foreach (var fieldName in def.FieldOrder)
+            {
+                if (def.Fields[fieldName].FieldType.Module is System.Reflection.Emit.ModuleBuilder)
+                {
+                    fieldsBaked = false;
+                    break;
+                }
+            }
+            if (!fieldsBaked)
+                continue;
+            SynthesizeRecordValueMembers(def);
         }
 
         // PASS 0 (unions): define every user union — an ABSTRACT base class plus one SEALED nested case class per
@@ -4405,6 +4444,106 @@ public sealed class ColumnarIlEmitter
         }
     }
 
+    // The registered struct/record/class def whose TypeBuilder IS this builder, or null.
+    private ColumnarStructDef? FindDefByBuilder(TypeBuilder builder)
+    {
+        foreach (var d in _structRegistry.Values)
+        {
+            if (d.Builder == builder)
+                return d;
+        }
+
+        return null;
+    }
+
+    // PASS 0e bodies — the oracle's synthesized record members VERBATIM (EmitRecordEquals /
+    // EmitRecordGetHashCode / EmitRecordCloneMethod): Equals(object) = null-check + isinst + per-field
+    // EqualityComparer<T>.Default.Equals chain; GetHashCode = `hash = 17; hash = hash * 23 +
+    // EqualityComparer<T>.Default.GetHashCode(field)`; `<Clone>$` = object.MemberwiseClone + castclass
+    // (the FAMILY-access clone wrapper `with` lowers through — calling MemberwiseClone cross-type is
+    // unverifiable IL, calling the public wrapper is not). Virtual + matching signatures make
+    // Equals/GetHashCode implicit overrides of object's.
+    private static void SynthesizeRecordValueMembers(ColumnarStructDef def)
+    {
+        var tb = def.Builder;
+        if (!def.Methods.ContainsKey("Equals"))
+        {
+            var equals = tb.DefineMethod(
+                "Equals", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+                typeof(bool), new[] { typeof(object) });
+            var eil = equals.GetILGenerator();
+            var returnFalse = eil.DefineLabel();
+            var compareFields = eil.DefineLabel();
+            eil.Emit(OpCodes.Ldarg_1);
+            eil.Emit(OpCodes.Brfalse, returnFalse);
+            eil.Emit(OpCodes.Ldarg_1);
+            eil.Emit(OpCodes.Isinst, tb);
+            eil.Emit(OpCodes.Dup);
+            eil.Emit(OpCodes.Brtrue, compareFields);
+            eil.Emit(OpCodes.Pop);
+            eil.Emit(OpCodes.Br, returnFalse);
+            eil.MarkLabel(compareFields);
+            var other = eil.DeclareLocal(tb);
+            eil.Emit(OpCodes.Stloc, other);
+            foreach (var fieldName in def.FieldOrder)
+            {
+                var field = def.Fields[fieldName];
+                var comparer = typeof(EqualityComparer<>).MakeGenericType(field.FieldType);
+                eil.Emit(OpCodes.Call, comparer.GetProperty(nameof(EqualityComparer<int>.Default))!.GetGetMethod()!);
+                eil.Emit(OpCodes.Ldarg_0);
+                eil.Emit(OpCodes.Ldfld, field);
+                eil.Emit(OpCodes.Ldloc, other);
+                eil.Emit(OpCodes.Ldfld, field);
+                eil.Emit(OpCodes.Callvirt, comparer.GetMethod(nameof(Equals), new[] { field.FieldType, field.FieldType })!);
+                eil.Emit(OpCodes.Brfalse, returnFalse);
+            }
+            eil.Emit(OpCodes.Ldc_I4_1);
+            eil.Emit(OpCodes.Ret);
+            eil.MarkLabel(returnFalse);
+            eil.Emit(OpCodes.Ldc_I4_0);
+            eil.Emit(OpCodes.Ret);
+            def.RecordEquals = equals;
+        }
+
+        if (!def.Methods.ContainsKey("GetHashCode"))
+        {
+            var hash = tb.DefineMethod(
+                "GetHashCode", MethodAttributes.Public | MethodAttributes.Virtual | MethodAttributes.HideBySig,
+                typeof(int), Type.EmptyTypes);
+            var hil = hash.GetILGenerator();
+            var acc = hil.DeclareLocal(typeof(int));
+            hil.Emit(OpCodes.Ldc_I4, 17);
+            hil.Emit(OpCodes.Stloc, acc);
+            foreach (var fieldName in def.FieldOrder)
+            {
+                var field = def.Fields[fieldName];
+                var comparer = typeof(EqualityComparer<>).MakeGenericType(field.FieldType);
+                hil.Emit(OpCodes.Ldloc, acc);
+                hil.Emit(OpCodes.Ldc_I4, 23);
+                hil.Emit(OpCodes.Mul);
+                hil.Emit(OpCodes.Call, comparer.GetProperty(nameof(EqualityComparer<int>.Default))!.GetGetMethod()!);
+                hil.Emit(OpCodes.Ldarg_0);
+                hil.Emit(OpCodes.Ldfld, field);
+                hil.Emit(OpCodes.Callvirt, comparer.GetMethod(nameof(GetHashCode), new[] { field.FieldType })!);
+                hil.Emit(OpCodes.Add);
+                hil.Emit(OpCodes.Stloc, acc);
+            }
+            hil.Emit(OpCodes.Ldloc, acc);
+            hil.Emit(OpCodes.Ret);
+            def.RecordGetHashCode = hash;
+        }
+
+        var clone = tb.DefineMethod(
+            "<Clone>$", MethodAttributes.Public | MethodAttributes.HideBySig,
+            tb, Type.EmptyTypes);
+        var cil = clone.GetILGenerator();
+        cil.Emit(OpCodes.Ldarg_0);
+        cil.Emit(OpCodes.Call, typeof(object).GetMethod("MemberwiseClone", BindingFlags.Instance | BindingFlags.NonPublic)!);
+        cil.Emit(OpCodes.Castclass, tb);
+        cil.Emit(OpCodes.Ret);
+        def.RecordClone = clone;
+    }
+
     // The BCL exception types a typed catch clause may name (E3). Each simple name must resolve to the
     // SAME runtime type the pipeline's ResolveType binds — all are System-namespace exceptions reachable
     // by simple name on the oracle path. Anything else declines: the pipeline silently resolves UNKNOWN
@@ -4997,6 +5136,15 @@ public sealed class ColumnarIlEmitter
                             // references). `!=` negates the result.
                             _il.Emit(OpCodes.Call, typeof(string).GetMethod("op_Equality", new[] { typeof(string), typeof(string) })!);
                             if (op == "!=") { _il.Emit(OpCodes.Ldc_I4_0); _il.Emit(OpCodes.Ceq); }
+                            type = typeof(bool);
+                            return true;
+                        }
+                        // REFERENCE identity on registered user reference types (records AND classes): the
+                        // pipeline's `==`/`!=` on user reference values is reference equality (probe-pinned —
+                        // record VALUE equality lives in `.Equals`, never in `==`) — exactly `ceq`.
+                        if (opType is TypeBuilder eqOperandTb && FindDefByBuilder(eqOperandTb) is { IsReference: true })
+                        {
+                            EmitComparison(op);
                             type = typeof(bool);
                             return true;
                         }
@@ -5815,6 +5963,48 @@ public sealed class ColumnarIlEmitter
                 }
                 _il.Emit(OpCodes.Ldloc, structValue);
                 type = initStructDef.Builder;
+                return true;
+            }
+
+            case 52: // WithExpression [receiver, name0, value0, ...] — `r with { Field: v, ... }`: callvirt
+            {        // the synthesized `<Clone>$` (PASS 0e), then stfld each named field on the clone — the
+                     // oracle's EmitWithExpression verbatim. Receivers: NON-GENERIC records carrying the
+                     // synthesis; classes decline (their `with` falls to a raw cross-type MemberwiseClone
+                     // call oracle-side — unverifiable IL), generic records decline (the oracle's
+                     // with-on-generic emit is the known-broken B4 residual), builder-typed-field records
+                     // decline (no synthesis). Zero pairs = a pure clone.
+                if ((_childCount[idx] & 1) == 0)
+                    return false; // [receiver + name/value pairs] is always odd.
+                if (!EmitExpression(Child(idx, 0), out var withReceiverType))
+                    return false;
+                if (withReceiverType is not TypeBuilder withTb
+                    || FindDefByBuilder(withTb) is not { IsRecord: true, RecordClone: not null } withDef)
+                    return false;
+                _il.Emit(OpCodes.Callvirt, withDef.RecordClone);
+                var cloneLocal = _il.DeclareLocal(withReceiverType);
+                _il.Emit(OpCodes.Stloc, cloneLocal);
+                for (var p = 1; p + 1 < _childCount[idx]; p += 2)
+                {
+                    var withNameChild = Child(idx, p);
+                    if (_kinds[withNameChild] != 6 || _valueStarts[withNameChild] < 0)
+                        return false;
+                    if (!withDef.Fields.TryGetValue(Text(withNameChild), out var withField))
+                        return false;
+                    _il.Emit(OpCodes.Ldloc, cloneLocal);
+                    if (TryEmitIntLiteralAsType(Child(idx, p + 1), withField.FieldType, out var withValueType))
+                    {
+                        // constant adoption (`with { X: 10 }` on a small-int field).
+                    }
+                    else if (!EmitExpression(Child(idx, p + 1), out withValueType))
+                    {
+                        return false;
+                    }
+                    if (!TypesEquivalent(withValueType, withField.FieldType) && !TryEmitImplicitWidening(withValueType, withField.FieldType))
+                        return false;
+                    _il.Emit(OpCodes.Stfld, withField);
+                }
+                _il.Emit(OpCodes.Ldloc, cloneLocal);
+                type = withReceiverType;
                 return true;
             }
 
@@ -7214,6 +7404,29 @@ public sealed class ColumnarIlEmitter
                     }
                     _il.Emit(d.IsReference ? OpCodes.Callvirt : OpCodes.Call, structMethod.Builder);
                     type = structMethod.ReturnType;
+                    return true;
+                }
+            }
+            // The synthesized RECORD value members (PASS 0e): `.Equals(other)` -> callvirt the generated
+            // Equals(object) (a reference arg converts to object implicitly; an unboxed value arg
+            // declines); `.GetHashCode()` -> callvirt the generated override. Classes have neither —
+            // the pipeline's NL103 (probe-pinned) — so they fall through to the decline below.
+            if (FindDefByBuilder((TypeBuilder)receiverType) is { IsRecord: true } recordDef)
+            {
+                if (member == "Equals" && argCount == 1 && recordDef.RecordEquals != null)
+                {
+                    if (!EmitExpression(Child(callIdx, 1), out var equalsArgType))
+                        return false;
+                    if (equalsArgType.IsValueType)
+                        return false; // the object param would need a box — unmodeled.
+                    _il.Emit(OpCodes.Callvirt, recordDef.RecordEquals);
+                    type = typeof(bool);
+                    return true;
+                }
+                if (member == "GetHashCode" && argCount == 0 && recordDef.RecordGetHashCode != null)
+                {
+                    _il.Emit(OpCodes.Callvirt, recordDef.RecordGetHashCode);
+                    type = typeof(int);
                     return true;
                 }
             }
