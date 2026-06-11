@@ -49,10 +49,15 @@ public partial class ILCompiler
             "packages");
     }
 
-    private readonly struct BranchTarget(Label label, bool useLeave)
+    // A break/continue target plus the protected-region depth where its loop was ENTERED. A branch from a
+    // deeper depth crosses outward through a try/catch/finally boundary, where `br` is invalid IL — it must
+    // `leave` (which also runs intervening finallys). A branch at the SAME depth (the whole loop inside one
+    // region, or no region at all) stays a plain `br` (probe-pinned: break/continue inside try-in-loop threw
+    // InvalidProgramException on every call; a loop wholly inside a try was fine).
+    private readonly struct BranchTarget(Label label, int exceptionBlockDepth)
     {
         public Label Label { get; } = label;
-        public bool UseLeave { get; } = useLeave;
+        public int ExceptionBlockDepth { get; } = exceptionBlockDepth;
     }
 
     private readonly CompilationUnit _compilationUnit;
@@ -12680,8 +12685,8 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Br, conditionLabel);
 
         _currentIL.MarkLabel(bodyLabel);
-        _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
-        _continueLabels.Push(new BranchTarget(continueLabel, useLeave: false));
+        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth));
+        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth));
         try
         {
             EmitStatement(forStmt.Body);
@@ -12884,8 +12889,8 @@ public partial class ILCompiler
         EmitConditionBranch(whileStmt.Condition, endLabel, branchIfTrue: false);
 
         // Emit body
-        _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
-        _continueLabels.Push(new BranchTarget(conditionLabel, useLeave: false));
+        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth));
+        _continueLabels.Push(new BranchTarget(conditionLabel, _exceptionBlockDepth));
         try
         {
             EmitStatement(whileStmt.Body);
@@ -12912,7 +12917,7 @@ public partial class ILCompiler
         if (_breakLabels.Count == 0) throw new InvalidOperationException("break used outside of a loop or switch");
 
         var breakTarget = _breakLabels.Peek();
-        _currentIL.Emit(breakTarget.UseLeave ? OpCodes.Leave : OpCodes.Br, breakTarget.Label);
+        _currentIL.Emit(_exceptionBlockDepth > breakTarget.ExceptionBlockDepth ? OpCodes.Leave : OpCodes.Br, breakTarget.Label);
     }
 
     /// <summary>
@@ -12924,7 +12929,7 @@ public partial class ILCompiler
         if (_continueLabels.Count == 0) throw new InvalidOperationException("continue used outside of a loop");
 
         var continueTarget = _continueLabels.Peek();
-        _currentIL.Emit(continueTarget.UseLeave ? OpCodes.Leave : OpCodes.Br, continueTarget.Label);
+        _currentIL.Emit(_exceptionBlockDepth > continueTarget.ExceptionBlockDepth ? OpCodes.Leave : OpCodes.Br, continueTarget.Label);
     }
 
     /// <summary>
@@ -13004,7 +13009,7 @@ public partial class ILCompiler
         // case body. Falls back to the linear test chain below when arms aren't dispatchable.
         var usedDispatch = TryEmitSwitchDispatch(switchStmt, switchValueType, switchLocal, bodyLabels, endLabel);
 
-        _breakLabels.Push(new BranchTarget(endLabel, useLeave: false));
+        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth));
         try
         {
             for (int i = 0; i < switchStmt.Cases.Count; i++)
@@ -13286,8 +13291,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(disposeLabel, useLeave: false));
-        _continueLabels.Push(new BranchTarget(loopStart, useLeave: false));
+        _breakLabels.Push(new BranchTarget(disposeLabel, _exceptionBlockDepth));
+        _continueLabels.Push(new BranchTarget(loopStart, _exceptionBlockDepth));
         try
         {
             EmitStatement(foreachStmt.Body);
@@ -13395,8 +13400,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(disposeLabel, useLeave: false));
-        _continueLabels.Push(new BranchTarget(loopStart, useLeave: false));
+        _breakLabels.Push(new BranchTarget(disposeLabel, _exceptionBlockDepth));
+        _continueLabels.Push(new BranchTarget(loopStart, _exceptionBlockDepth));
         try
         {
             EmitStatement(awaitForeachStmt.Body);
@@ -13529,8 +13534,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(loopEnd, useLeave: false));
-        _continueLabels.Push(new BranchTarget(continueLabel, useLeave: false));
+        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth));
+        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth));
         try
         {
             EmitStatement(foreachStmt.Body);
@@ -13621,8 +13626,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(loopEnd, useLeave: false));
-        _continueLabels.Push(new BranchTarget(continueLabel, useLeave: false));
+        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth));
+        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth));
         try
         {
             EmitStatement(foreachStmt.Body);

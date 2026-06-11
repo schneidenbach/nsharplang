@@ -122,6 +122,91 @@ func main(): int {
         Assert.Equal("lam2", lambda.Message);
     }
 
+    // break/continue from inside a try/catch/finally whose loop began OUTSIDE the region crossed the
+    // boundary with a plain `br` — invalid IL, InvalidProgramException on every call (probe-found while
+    // mapping the exceptions arc; fully general across while/for/foreach). BranchTarget now records the
+    // protected-region depth at loop entry and EmitBreak/EmitContinue emit `leave` when the branch exits
+    // outward (which also runs an intervening finally); a loop wholly inside one region keeps `br`.
+    [Fact]
+    public void ILCompiler_LoopBranchesCrossingExceptionRegions_EmitValidIl()
+    {
+        // break out of a try/catch inside a while loop.
+        Assert.Equal(183, CompileAndInvoke(@"
+func main(): int {
+    total := 0
+    i := 0
+    while i < 10 {
+        try {
+            if i == 3 {
+                break
+            }
+            total = total + 100 / (i + 1)
+        } catch {
+            total = total + 1000
+        }
+        i = i + 1
+    }
+    return total
+}"));
+
+        // continue from inside a try/catch in a loop.
+        Assert.Equal(8, CompileAndInvoke(@"
+func main(): int {
+    total := 0
+    i := 0
+    while i < 4 {
+        i = i + 1
+        try {
+            if i == 2 {
+                continue
+            }
+            total = total + i
+        } catch {
+            total = total + 1000
+        }
+    }
+    return total
+}"));
+
+        // break THROUGH a finally — the handler must run on the break path.
+        Assert.Equal(32, CompileAndInvoke(@"
+func main(): int {
+    total := 0
+    i := 0
+    while i < 5 {
+        try {
+            if i == 2 {
+                break
+            }
+            total = total + 1
+        } finally {
+            total = total + 10
+        }
+        i = i + 1
+    }
+    return total
+}"));
+
+        // a loop WHOLLY inside a try — the break does not cross; plain `br` stays valid.
+        Assert.Equal(3, CompileAndInvoke(@"
+func main(): int {
+    total := 0
+    try {
+        i := 0
+        while i < 10 {
+            if i == 3 {
+                break
+            }
+            total = total + 1
+            i = i + 1
+        }
+    } catch {
+        total = 0 - 1
+    }
+    return total
+}"));
+    }
+
     [Fact]
     public void ILCompiler_NamedTupleMemberAccess_AllReceiverShapes()
     {
