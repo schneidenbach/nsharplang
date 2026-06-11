@@ -11,6 +11,49 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — Columnar GENERIC RECORDS: the D-16 adapter decline flips
+
+The retirement-map queue's generic-records slice — small by design: columnar's record model emits plain
+public FIELDS (no init-only properties), so the oracle's backing-field lowering for closed-generic init
+members (`14faa92c`, the .NET 10 PersistedAssemblyBuilder modreq workaround) is oracle-internal with no
+columnar analog needed. The slice: (1) the adapter's generic-RECORD decline removed (generic-with-BASE
+stays declined); (2) a CLOSED GENERIC REFERENCE object-init branch in kind 36 (`new Pair<int> { first: 1 }`
+— rebound default ctor + rebound `GetField` stores + positional field-type substitution, the
+generic-union construction machinery's analog; generic ctor-less CLASS object-init lands free); (3) a
+kind-0 guard declining object-init on a BARE generic head (`new Pair { ... }` = NL207 — this also closed a
+latent open-generic-newobj hazard). Member reads/methods on closed records ride the existing D-16
+closed-receiver machinery unchanged. Probe-pinned: records do NOT adopt the expected type (NL207 —
+explicit args required everywhere, unlike union cases).
+
+**ADVERSARIAL REVIEW (focused single-lens, probe-confirmed pre/post-diff) found two HIGHs, both from the
+adapter flip routing unmodeled shapes — fixed by adapter declines + pins:** (1) a MEMBER name colliding
+with a TYPE-PARAMETER name (`record W<T> { T: int }`, methods/properties too) — pipeline NL306, columnar
+accepted; now declined (union CASE fields are a DIFFERENT scope — `union U<T> { A { T: int } }` is
+pipeline-ACCEPTED, probe-pinned with a parity case). (2) RECORDS with USER CONSTRUCTORS: **the pipeline
+silently DROPS record ctor-body field assignments** (`new R(5)` → x==0; columnar's faithful emit → 5) — a
+pre-existing, previously-unpinned behavior divergence LIVE for non-generic records too; records with user
+ctors now decline (generic AND non-generic) until the oracle is fixed. Also declined: STATIC FIELD use on
+generic types (BOTH pipelines emit an invalid open-generic static-field token → BadImageFormatException —
+parity-by-accident on broken IL).
+
+**ORACLE DEFECT BUNDLE grows to 10:** (7) generic VALUE-STRUCT object-init = NL103 emit crash ("Specified
+method is not supported"; analyzer accepts); (8) record user-ctor body assignments DROPPED (the HIGH above
+— harms real users silently); (9) static-field tokens on open generics = BadImageFormatException (both
+emitters); (10) duplicate type-parameter names (`record W<T, T>`) accepted undiagnosed (columnar declines).
+Bundle items 4 (unchecked object-init field initializers) is confirmed FULLY GENERAL — records, unions,
+generic and non-generic alike.
+
+Parity: `ColumnarCodegen_Parity_GenericRecords` (7 functions: explicit-args init, two instantiations,
+methods returning T, nested Pair<Pair<int>>, generic ctor-less class init; 10 decline pins incl. the
+review findings); the D-16 generic-record pin in `ColumnarCodegen_GenericTypeDeclines` replaced with a
+pointer; `caseFieldNamedT` parity case added to the generic-unions test. 147/147 dogfood; full gate green
+(see commit).
+
+NEXT (retirement-map queue): NAMED TUPLES (per-element name metadata in the columnar table), then scalar
+completeness — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-11 — Columnar GENERIC UNIONS: the D-10 pin flips (`union Result<T>` emits columnar)
 
 The retirement-map queue's generic-unions slice lands; the columnar pipeline now emits the README's

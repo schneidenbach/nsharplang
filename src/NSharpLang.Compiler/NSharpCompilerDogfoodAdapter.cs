@@ -999,16 +999,16 @@ internal static class NSharpCompilerDogfoodAdapter
                 // inherit, only from a registered class — anything else declines there).
                 var baseName = outResult[6] > 0 ? source.Substring(outResult[5], outResult[6]) : null;
 
-                // Optional generic type parameters `<T, U>` (outResult[7] = count). v1 scope: generic CLASSES
-                // and value STRUCTS only — a generic RECORD declines (columnar does not yet model the oracle's
-                // backing-field lowering for init-only members on closed generics — the workaround for the
-                // .NET 10 PersistedAssemblyBuilder modreq drop), and a generic type with a BASE declines
-                // (generic base chains are unsupported in the oracle's closed-member machinery too).
+                // Optional generic type parameters `<T, U>` (outResult[7] = count). Generic RECORDS are
+                // modelled (columnar's record fields are plain public fields — the oracle's backing-field
+                // lowering for init-only members is an oracle-internal concern, no modreq to lose here); a
+                // generic type with a BASE declines (generic base chains are unsupported in the oracle's
+                // closed-member machinery too).
                 var typeParamCount = outResult[7];
                 string[]? typeParamNames = null;
                 if (typeParamCount > 0)
                 {
-                    if (isRecord || baseName != null)
+                    if (baseName != null)
                         return false;
 
                     typeParamNames = new string[typeParamCount];
@@ -1049,6 +1049,12 @@ internal static class NSharpCompilerDogfoodAdapter
                 // like a nameless, void-returning function — the adapter verifies the identifier text is literally
                 // "constructor" and that there is no return type / chaining initializer (decline otherwise).
                 var ctorCount = outResult[3];
+                // A RECORD with a USER CONSTRUCTOR declines (generic or not): the pipeline silently DROPS the
+                // ctor body's field assignments (a record ctor emits only the base call — `new R(5)` yields
+                // x==0 where columnar's faithful emit yields 5; adversarial-review finding, probe-confirmed
+                // BOTH builds). Until the oracle defect is fixed, accepting would emit DIFFERENT-behavior IL.
+                if (isRecord && ctorCount > 0)
+                    return false;
                 var constructors = new System.Collections.Generic.List<Columnar.ColumnarConstructorInput>(ctorCount);
                 for (var c = 0; c < ctorCount; c++)
                 {
@@ -1066,6 +1072,37 @@ internal static class NSharpCompilerDogfoodAdapter
                     if (!TryParseColumnarPropertyAt(bindings, ck, cs, cv, n, outPropIndices[pr], source, out var propInput, isStatic: outPropStaticFlags[pr] == 1))
                         return false;
                     properties.Add(propInput);
+                }
+
+                if (typeParamNames != null)
+                {
+                    // Pipeline NL306 parity: a MEMBER name colliding with a TYPE-PARAMETER name is "already
+                    // declared in this scope" — decline (adversarial-review finding: columnar accepted
+                    // `record W<T> { T: int }` shapes the pipeline rejects).
+                    var typeParamSet = new System.Collections.Generic.HashSet<string>(typeParamNames, System.StringComparer.Ordinal);
+                    foreach (var fn in fieldNames)
+                    {
+                        if (typeParamSet.Contains(fn))
+                            return false;
+                    }
+                    foreach (var m in methods)
+                    {
+                        if (typeParamSet.Contains(m.Name))
+                            return false;
+                    }
+                    foreach (var p in properties)
+                    {
+                        if (typeParamSet.Contains(p.Name))
+                            return false;
+                    }
+                    // STATIC fields on a generic type: both pipelines today emit a static-field token against
+                    // the OPEN generic (BadImageFormatException at JIT — oracle defect bundle). Decline so
+                    // columnar never ships invalid IL; the program routes to the analyzer-backed C# path.
+                    foreach (var isStaticField in fieldStatics)
+                    {
+                        if (isStaticField)
+                            return false;
+                    }
                 }
 
                 structs.Add(new Columnar.ColumnarStructInput(structName, fieldNames, fieldTypes, methods, constructors, properties, isReference, baseName, fieldStatics, fieldInitKinds, fieldInitTexts, isRecord, typeParamNames));

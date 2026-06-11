@@ -424,10 +424,13 @@ five top-level scanners learned to not see `where ... class/struct` as declarati
 circular constraints (`where T: T`) used to HANG the compiler at declaration time — the analyzer now rejects
 them with NL208 (F-bounded stays legal); the interface-constraint member-dispatch NL103 emit crash is
 recorded for a future oracle bundle. The LAMBDAS ARC then closed its main ladder (nine rungs — see the
-progress log), MATCH POSITIONS parity-proved match expressions in every position, and columnar GENERIC
-UNIONS landed (above). **Next: columnar GENERIC RECORDS via backing-field lowering** (mirror `14faa92c`),
-then named tuples and scalar completeness (the `project_csharp_retirement_map` slice order), then Stage 6
-(route-all → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
+progress log), MATCH POSITIONS parity-proved match expressions in every position, columnar GENERIC UNIONS
+landed (above), and columnar GENERIC RECORDS landed (the D-16 adapter decline flipped — columnar's
+plain-field record model needs no modreq lowering; closed-generic reference object-init + review-driven
+declines for type-param/member collisions, record user ctors — whose body assignments the PIPELINE drops,
+a newly-pinned oracle defect — and static fields on generic types). **Next: NAMED TUPLES** (per-element
+name metadata in the columnar table), then scalar completeness (the `project_csharp_retirement_map` slice
+order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).

@@ -3932,7 +3932,11 @@ class B
             // A generic union whose case fields are ALL concrete-typed (T declared but unused in fields) —
             // the former D-10 decline-pin program shape, now accepted with full parity.
             "union Tag<T> {\n    A { x: int }\n    B { y: int }\n}\n\n" +
-            "func tagged(v: int): int {\n    t: Tag<string> = new Tag.A { x: v }\n    return match t {\n        Tag.A { x } => x,\n        Tag.B { y } => y\n    }\n}\n";
+            "func tagged(v: int): int {\n    t: Tag<string> = new Tag.A { x: v }\n    return match t {\n        Tag.A { x } => x,\n        Tag.B { y } => y\n    }\n}\n\n" +
+            // A case FIELD named like the union's type parameter: pipeline-ACCEPTED (case fields are their
+            // own scope, unlike record/class members where the collision is NL306 — probe-pinned).
+            "union Scoped<T> {\n    A { T: int }\n    B { }\n}\n\n" +
+            "func caseFieldNamedT(v: int): int {\n    u := new Scoped.A<int> { T: v }\n    return match u {\n        Scoped.A { T } => T,\n        Scoped.B => -1\n    }\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("roundTrip", new object[] { 42 }), ("roundTrip", new object[] { 0 }), ("roundTrip", new object[] { -7 }),
             ("noneVal", System.Array.Empty<object>()),
@@ -3951,7 +3955,8 @@ class B
             ("viaLocal", new object[] { 17 }),
             ("genericReturn", System.Array.Empty<object>()),
             ("structArg", new object[] { 3, 4 }),
-            ("tagged", new object[] { 21 }));
+            ("tagged", new object[] { 21 }),
+            ("caseFieldNamedT", new object[] { 31 }));
 
         // Metadata: the emitted Opt is an ABSTRACT GENERIC type definition; Some is a sealed nested generic
         // case whose BaseType is Opt closed over Some's OWN redeclared parameter; `value` is that parameter.
@@ -6162,13 +6167,77 @@ class B
             ("nested", new object[] { 41 }), ("nested", new object[] { 0 }));
     }
 
+    // GENERIC RECORDS (Phase D) — the D-16 adapter decline FLIPPED: columnar's record model emits plain
+    // public FIELDS (no init-only properties), so the oracle's backing-field lowering for closed-generic
+    // init members (the .NET 10 PersistedAssemblyBuilder modreq workaround, `14faa92c`) is an
+    // oracle-internal concern with no columnar analog needed. Closed-generic REFERENCE object-init
+    // (`new Pair<int> { first: 1 }`) rebinds the default ctor + field handles onto the instantiation
+    // (TypeBuilder.GetConstructor/GetField — the union-construction machinery's analog) with positional
+    // field-type substitution; member reads/methods ride the existing D-16 closed-receiver machinery.
+    // Records do NOT adopt the expected type (probe-pinned NL207 — explicit args required everywhere,
+    // unlike union cases). Generic VALUE-STRUCT object-init DECLINES: the pipeline itself crashes at emit
+    // (NL103 "Specified method is not supported" — oracle defect bundle).
+    [Fact]
+    public void ColumnarCodegen_Parity_GenericRecords()
+    {
+        var prog =
+            "record Pair<T> {\n    first: T\n    second: T\n\n    func firstOf(): T {\n        return first\n    }\n}\n\n" +
+            "func mk(a: int, b: int): Pair<int> {\n    return new Pair<int> { first: a, second: b }\n}\n\n" +
+            "func sum(p: Pair<int>): int {\n    return p.first + p.second\n}\n\n" +
+            "func roundTrip(a: int, b: int): int {\n    return sum(mk(a, b))\n}\n\n" +
+            // A SECOND instantiation + member access on the substituted field type; a method returning T.
+            "func strLens(x: string, y: string): int {\n    s := new Pair<string> { first: x, second: y }\n    return s.first.Length + s.second.Length\n}\n\n" +
+            "func viaMethod(v: int): int {\n    p := new Pair<int> { first: v, second: 0 }\n    return p.firstOf()\n}\n\n" +
+            // NESTED generic argument: Pair<Pair<int>> — construction and chained member reads.
+            "func nested(v: int): int {\n    inner := new Pair<int> { first: v, second: v + 1 }\n    outer := new Pair<Pair<int>> { first: inner, second: inner }\n    return outer.first.first + outer.second.second\n}\n\n" +
+            // A generic ctor-less CLASS object-init (the same closed-reference branch).
+            "class Box<T> {\n    v: T\n}\n\n" +
+            "func boxed(n: int): int {\n    b := new Box<int> { v: n }\n    return b.v\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("roundTrip", new object[] { 3, 4 }), ("roundTrip", new object[] { -2, 2 }),
+            ("strLens", new object[] { "ab", "cde" }), ("strLens", new object[] { "", "" }),
+            ("viaMethod", new object[] { 9 }),
+            ("nested", new object[] { 5 }),
+            ("boxed", new object[] { 11 }));
+
+        // DECLINES (slice scope / forms the pipeline rejects):
+        // a GENERIC VALUE-STRUCT object-init — the pipeline itself fails at emit (NL103 "Specified method
+        // is not supported"; analyzer accepts — oracle defect bundle); columnar declines so the C# path
+        // reports it.
+        Assert.False(RouteColumnarProgram("struct Pt<T> {\n    x: T\n}\n\nfunc f(): int {\n    p := new Pt<int> { x: 2 }\n    return p.x\n}\n").Ok);
+        // a BARE generic record name in construction (records never adopt — NL207, probe-pinned).
+        Assert.False(RouteColumnarProgram("record Pair<T> {\n    first: T\n}\n\nfunc f(): int {\n    p: Pair<int> = new Pair { first: 1 }\n    return p.first\n}\n").Ok);
+        // wrong ARITY at the object-init site (NL207).
+        Assert.False(RouteColumnarProgram("record Pair<T> {\n    first: T\n}\n\nfunc f(): int {\n    p := new Pair<int, string> { first: 1 }\n    return p.first\n}\n").Ok);
+        // a FIELD-VALUE type mismatch under substitution: columnar declines; the oracle ACCEPTS and emits
+        // IL that throws InvalidCastException at runtime — object-init field initializers are never
+        // type-checked (oracle defect bundle, fully general). ROUTE-ONLY pin until the NL202 check lands.
+        Assert.False(RouteColumnarProgram("record Pair<T> {\n    first: T\n    second: T\n}\n\nfunc f(): int {\n    p := new Pair<int> { first: \"x\", second: 2 }\n    return p.second\n}\n").Ok);
+        // a MEMBER name colliding with a TYPE-PARAMETER name — the pipeline rejects with NL306 ("already
+        // declared in this scope"); columnar declines field/method/property collisions (adversarial-review
+        // finding — note union CASE fields are a DIFFERENT scope: `union U<T> { A { T: int } }` is
+        // pipeline-ACCEPTED, probe-pinned in the union parity test).
+        Assert.False(RouteColumnarProgram("record W<T> {\n    T: int\n}\n\nfunc f(): int {\n    w := new W<string> { T: 3 }\n    return w.T\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class W<T> {\n    x: int\n    func T(): int {\n        return 2\n    }\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // a RECORD with a USER CONSTRUCTOR (generic or not): the pipeline DROPS the ctor body's field
+        // assignments (`new R(5)` yields x==0 — oracle defect bundle); columnar's faithful emit would
+        // DIVERGE (5), so records with user ctors decline until the oracle is fixed.
+        Assert.False(RouteColumnarProgram("record R<T> {\n    x: T\n\n    constructor(v: T) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R<int>(5)\n    return r.x\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("record R {\n    x: int\n\n    constructor(v: int) {\n        x = v\n    }\n}\n\nfunc f(): int {\n    r := new R(5)\n    return r.x\n}\n").Ok);
+        // STATIC FIELD use on a generic type: BOTH pipelines today emit an invalid static-field token
+        // against the open generic (BadImageFormatException at JIT — oracle defect bundle); columnar
+        // declines rather than ship invalid IL.
+        Assert.False(RouteColumnarProgram("record S<T> {\n    x: T\n    static count: int\n}\n\nfunc f(): int {\n    S.count = 7\n    return S.count\n}\n").Ok);
+        // DUPLICATE type-parameter names: the pipeline ACCEPTS `record W<T, T>` (an oracle defect — no
+        // diagnostic); columnar declines (the safe direction).
+        Assert.False(RouteColumnarProgram("record W<T, T> {\n    x: int\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+    }
+
     [Fact]
     public void ColumnarCodegen_GenericTypeDeclines()
     {
-        // Generic RECORD: columnar does not yet model the oracle's backing-field lowering for
-        // init-only members on closed generics (the .NET 10 PersistedAssemblyBuilder modreq-drop
-        // workaround) — the adapter declines.
-        Assert.False(RouteColumnarProgram("record Pair<T> {\n    First: T\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
+        // Generic RECORDS are now ACCEPTED with full parity — see ColumnarCodegen_Parity_GenericRecords
+        // (the columnar record model emits plain fields, so the oracle's modreq lowering needs no analog).
         // A generic type WITH a base: generic base chains are unsupported (oracle and columnar).
         Assert.False(RouteColumnarProgram("class B0 {\n    x: int\n}\n\nclass D<T>: B0 {\n    item: T\n}\n\nfunc f(): int {\n    return 1\n}\n").Ok);
         // An inline constraint on the declaration list is unmodelled (kernel parse declines).

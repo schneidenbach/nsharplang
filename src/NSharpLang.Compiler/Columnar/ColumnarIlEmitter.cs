@@ -4887,6 +4887,52 @@ public sealed class ColumnarIlEmitter
                     return TryEmitUnionCaseConstruction(genericInitCaseDef, explicitArgs, idx, pairCount, out type);
                 }
 
+                // CLOSED GENERIC REFERENCE object-init: `new Pair<int> { first: 1, ... }` — a Generic type root
+                // (kind 1) whose head names a registered generic RECORD or default-ctor CLASS. The default ctor
+                // and every field handle are REBOUND onto the instantiation (TypeBuilder.GetConstructor/GetField,
+                // the union-construction machinery's analog) and each field's expected value type substitutes the
+                // arguments positionally (`first: T` on Pair<int> expects int). Generic VALUE structs DECLINE:
+                // the pipeline itself fails their object-init at emit (NL103 "Specified method is not supported"
+                // — oracle defect bundle item; accepting would diverge). A user-ctor class has no default ctor —
+                // object-init declines exactly like the non-generic rule below.
+                if (_kinds[typeRootNode] == 1 && _structRegistry.TryGetValue(Text(typeRootNode), out var closedInitDef)
+                    && closedInitDef.Builder.IsGenericTypeDefinition)
+                {
+                    if (!closedInitDef.IsReference || closedInitDef.DefaultCtor == null)
+                        return false;
+                    var closedArity = closedInitDef.Builder.GetGenericArguments().Length;
+                    if (_childCount[typeRootNode] != closedArity)
+                        return false;
+                    var closedInitArgs = new Type[closedArity];
+                    for (var i = 0; i < closedArity; i++)
+                    {
+                        if (!TryBuildTypeNodeCanonical(Child(typeRootNode, i), out var closedArgCanonical)
+                            || !TryResolveType(closedArgCanonical, _enumRegistry, _structRegistry, _unionRegistry, out closedInitArgs[i])
+                            || !IsSupportedType(closedInitArgs[i]))
+                            return false;
+                    }
+                    var closedInitType = closedInitDef.Builder.MakeGenericType(closedInitArgs);
+                    _il.Emit(OpCodes.Newobj, TypeBuilder.GetConstructor(closedInitType, closedInitDef.DefaultCtor));
+                    var closedAssigned = new HashSet<string>(StringComparer.Ordinal);
+                    for (var p = 0; p < pairCount; p++)
+                    {
+                        var nameNode = Child(idx, 1 + (2 * p));
+                        var valueNode = Child(idx, 2 + (2 * p));
+                        if (_kinds[nameNode] != 6)
+                            return false;
+                        var fieldName = Text(nameNode);
+                        if (!closedInitDef.Fields.TryGetValue(fieldName, out var openInitField) || !closedAssigned.Add(fieldName))
+                            return false; // unknown or duplicately-assigned field -> decline.
+                        var expectedInitType = SubstituteClosedTypeArguments(openInitField.FieldType, closedInitArgs);
+                        _il.Emit(OpCodes.Dup);
+                        if (!EmitExpression(valueNode, out var closedInitValueType) || !TypesEquivalent(closedInitValueType, expectedInitType))
+                            return false;
+                        _il.Emit(OpCodes.Stfld, TypeBuilder.GetField(closedInitType, openInitField));
+                    }
+                    type = closedInitType;
+                    return true;
+                }
+
                 if (_kinds[typeRootNode] != 0)
                     return false; // not a Simple type-ref.
                 var assigned = new HashSet<string>(StringComparer.Ordinal);
@@ -4908,6 +4954,9 @@ public sealed class ColumnarIlEmitter
 
                 if (!_structRegistry.TryGetValue(Text(typeRootNode), out var initStructDef))
                     return false; // not a registered struct/record/union-case type.
+                if (initStructDef.Builder.IsGenericTypeDefinition)
+                    return false; // a GENERIC type's bare name is an arity error (NL207) — `new Pair { ... }`
+                                  // never constructs the open definition; the closed form is the kind-1 branch.
                 if (initStructDef.IsReference)
                 {
                     // RECORD/CLASS (reference type): `newobj <default ctor>` then per named field `dup; <value>;
