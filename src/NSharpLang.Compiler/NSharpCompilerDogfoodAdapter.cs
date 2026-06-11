@@ -1281,6 +1281,32 @@ internal static class NSharpCompilerDogfoodAdapter
             fname, returnCanonical, paramNames, paramCanonicals,
             bk, bvs, bvl, bcs, bcc, bci, bres[0], isStatic, typeParamNames,
             typeParamSpecials, typeParamTypeConstraints);
+
+        // LOCAL FUNCTIONS (kind-41 statements that are DIRECT children of the root block): each node's
+        // value span is the `func` keyword's byte span — re-locate the token and parse the nested
+        // declaration through the same kernels (recursively: a local function may declare its own).
+        // Nested-BLOCK declarations are deliberately NOT collected — their kind-41 nodes stay undeclared
+        // and the emitter declines them (scope-precise under-acceptance).
+        var rootBlock = bres[0];
+        if (bk[rootBlock] == 25)
+        {
+            for (var rc = 0; rc < bcc[rootBlock]; rc++)
+            {
+                var stmtNode = bci[bcs[rootBlock] + rc];
+                if (bk[stmtNode] != 41)
+                    continue;
+                var funcTokenIndex = -1;
+                for (var ti = 0; ti < n; ti++)
+                {
+                    if (cs[ti] == bvs[stmtNode] && ck[ti] == 7) { funcTokenIndex = ti; break; }
+                }
+                if (funcTokenIndex < 0)
+                    return false;
+                if (!TryParseColumnarFunctionAt(bindings, ck, cs, cv, n, funcTokenIndex, source, out var localFn))
+                    return false;
+                (input.LocalFunctions ??= new List<(int, Columnar.ColumnarFunctionInput)>()).Add((stmtNode, localFn));
+            }
+        }
         return true;
     }
 

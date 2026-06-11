@@ -5091,6 +5091,54 @@ class B
         Assert.False(RouteColumnarProgram("func apply(t: Func<int, int>, v: int): int {\n    return t(v)\n}\n\nstruct P {\n    X: int\n    func F(v: int): int {\n        return apply(x => x + X, v)\n    }\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
     }
 
+    // Lambdas arc L4-i: LOCAL FUNCTIONS (non-capturing). The kernel records a kind-41 statement (the
+    // `func` keyword's byte span; the declaration is skipped balanced-brace style); the adapter re-locates
+    // the token and parses the nested declaration through the same kernels, attaching it to the parent's
+    // input (root-block declarations only — nested-block ones stay undeclared and their kind-41 nodes
+    // decline, scope-precise). The emitter pre-declares each as a `<parent>g__{n}` static BEFORE the parent
+    // body emits (forward calls + self/mutual recursion bake at Save) and emits local bodies after, sharing
+    // the local-func map. At call sites a local function SHADOWS a same-named sibling (probe-pinned: the
+    // pipeline calls the local — the OPPOSITE of the value rule, where methods beat locals). Captures and
+    // local-functions-as-values are later rungs and decline.
+    [Fact]
+    public void ColumnarCodegen_Parity_LocalFunctions()
+    {
+        var prog =
+            "func pick(): int {\n    return 100\n}\n\n" +
+            "func helper(n: int): int {\n    return n + 1\n}\n\n" +
+            "func basic(v: int): int {\n    func double(n: int): int {\n        return n * 2\n    }\n    return double(v) + 1\n}\n\n" +
+            "func selfRec(v: int): int {\n    func fact(n: int): int {\n        if n <= 1 {\n            return 1\n        }\n        return n * fact(n - 1)\n    }\n    return fact(v)\n}\n\n" +
+            "func backChain(v: int): int {\n    func g(n: int): int {\n        return n + 1\n    }\n    func h(n: int): int {\n        return g(n) * 2\n    }\n    return h(v)\n}\n\n" +
+            "func shadows(): int {\n    func pick(): int {\n        return 7\n    }\n    return pick()\n}\n\n" +
+            "func viaSibling(v: int): int {\n    func wrap(n: int): int {\n        return helper(n) * 2\n    }\n    return wrap(v)\n}\n\n" +
+            "func delegateToLocal(v: int): int {\n    func use(t: Func<int, int>, n: int): int {\n        return t(n)\n    }\n    let tripler: Func<int, int> = x => x * 3\n    return use(tripler, v)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("basic", new object[] { 21 }),
+            ("selfRec", new object[] { 5 }),
+            ("backChain", new object[] { 4 }),
+            ("shadows", new object[0]),
+            ("viaSibling", new object[] { 4 }),
+            ("delegateToLocal", new object[] { 5 }));
+
+        // DECLINES (each routes to the C# path):
+        // FORWARD references are pipeline-rejected (NL412 — probe-pinned textual scoping, so true mutual
+        // recursion is impossible): a parent call BEFORE the declaration, and a local calling a LATER local.
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    r := early(v)\n    func early(n: int): int {\n        return n * 2\n    }\n    return r\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func isEven(n: int): int {\n        if n == 0 {\n            return 1\n        }\n        return isOdd(n - 1)\n    }\n    func isOdd(n: int): int {\n        if n == 0 {\n            return 0\n        }\n        return isEven(n - 1)\n    }\n    return isEven(v)\n}\n").Ok);
+        // a CAPTURE of an enclosing local (the oracle prepends capture params — a later rung).
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    k := 10\n    func addK(n: int): int {\n        return n + k\n    }\n    return addK(v)\n}\n").Ok);
+        // a NESTED-BLOCK local function (scoping is a later rung; the kind-41 node stays undeclared).
+        Assert.False(RouteColumnarProgram("func f(c: bool, v: int): int {\n    if c {\n        func g(n: int): int {\n            return n + 1\n        }\n        return g(v)\n    }\n    return v\n}\n").Ok);
+        // a local function used as a VALUE (delegate materialization at the boundary — a later rung).
+        Assert.False(RouteColumnarProgram("func pull(p: Func<int>): int {\n    return p()\n}\n\nfunc f(): int {\n    func nine(): int {\n        return 9\n    }\n    return pull(nine)\n}\n").Ok);
+        // a local function in a MEMBER body.
+        Assert.False(RouteColumnarProgram("class C {\n    n: int\n    func M(v: int): int {\n        func g(x: int): int {\n            return x + 1\n        }\n        return g(v)\n    }\n}\n\nfunc f(): int {\n    return 2\n}\n").Ok);
+        // a LAMBDA argument to a local function — ORACLE DEFECT (NL103 "No matching overload for local
+        // function use", found by parity; lambda-to-SIBLING works): columnar declines to avoid an
+        // acceptance divergence until the oracle's local-function lambda binding is fixed.
+        Assert.False(RouteColumnarProgram("func f(v: int): int {\n    func use(t: Func<int, int>, n: int): int {\n        return t(n)\n    }\n    return use(x => x * 3, v)\n}\n").Ok);
+    }
+
     // Regression: a struct instance method whose receiver is a struct LOCAL (constructed via either
     // an object initializer or a user constructor) must read/write the receiver's real storage. The
     // ILCompiler used to spill a `this.`-qualified value-type receiver into a throwaway temp — for a

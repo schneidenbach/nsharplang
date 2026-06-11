@@ -20,7 +20,13 @@
 //   TypedLocalDeclaration        -> kind 40  ( [let] name: Type = init; the TYPE's source span in the VALUE slot
 //                                             (type trees cannot share this table — kind spaces collide), children
 //                                             [name Identifier (kind 6), init root]. Kinds 31-39 belong to the
-//                                             expression/pattern kernel; 41 is the next free kind. )
+//                                             expression/pattern kernel. )
+//   LocalFunctionDeclaration     -> kind 41  ( `func name(...) ... { body }` as a STATEMENT. The kernel records
+//                                             ONLY the `func` keyword's byte span (value slot, no children) and
+//                                             SKIPS the whole declaration (first depth-0 `{`, balanced to its
+//                                             close — the struct kernel's method-skip discipline); the host
+//                                             re-locates the keyword by byte offset and parses the signature +
+//                                             body through the existing kernels. 42 is the next free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
@@ -321,6 +327,38 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         st[3] = deconArgBase
 
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 30, -1, 0, deconChildRunStart, deconChildCount, deconStart, deconValueEnd - deconStart)
+    }
+
+    // LOCAL FUNCTION declaration (kind 41): `func name(...) ... { body }` as a statement. Record the
+    // `func` keyword's byte span and SKIP the declaration: scan to the first depth-0 `{` (the signature
+    // contains no braces in modeled forms; a `{` inside a default value mis-anchors the skip and the
+    // resulting parse fails downstream — a safe refusal), then balanced to its close.
+    if kind == 7 {
+        localFuncSpanStart := tokenStarts[start]
+        localFuncSpanLength := tokenValueLengths[start]
+        funcScan := start + 1
+        while funcScan < count && tokenKinds[funcScan] != 129 {
+            funcScan = funcScan + 1
+        }
+        if funcScan >= count {
+            return -1
+        }
+        localFuncDepth := 1
+        funcScan = funcScan + 1
+        while funcScan < count && localFuncDepth > 0 {
+            if tokenKinds[funcScan] == 129 {
+                localFuncDepth = localFuncDepth + 1
+            } else if tokenKinds[funcScan] == 130 {
+                localFuncDepth = localFuncDepth - 1
+            }
+            funcScan = funcScan + 1
+        }
+        if localFuncDepth != 0 {
+            return -1
+        }
+        st[0] = funcScan
+        localFuncEnd := tokenStarts[funcScan - 1] + tokenValueLengths[funcScan - 1]
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 41, localFuncSpanStart, localFuncSpanLength, -1, 0, localFuncSpanStart, localFuncEnd - localFuncSpanStart)
     }
 
     // TYPED local declaration (kind 40): `let name: Type = init` (Let 19) or bare `name: Type = init`.

@@ -67,6 +67,11 @@ public sealed class ColumnarFunctionInput
     // (a base class, `string`, or another of the function's own type parameters). Both default to "none".
     public int[] TypeParamSpecialConstraints { get; }
     public string[][] TypeParamTypeConstraints { get; }
+    // LOCAL FUNCTIONS declared as DIRECT children of this body's root block (kind-41 statements): the body
+    // node index paired with the nested declaration's own parsed input (set by the adapter; null when none).
+    // The emitter declares them as `<parent>g__{n}` statics before the body emits; a kind-41 node whose
+    // index is NOT in this list (a nested-block declaration) declines.
+    public List<(int NodeIndex, ColumnarFunctionInput Fn)>? LocalFunctions { get; set; }
 }
 
 /// <summary>
@@ -447,7 +452,10 @@ public sealed class ColumnarIlEmitter
         TypeBuilder? programType = null,
         int[]? lambdaCounter = null,
         List<TypeBuilder>? displayClasses = null,
-        Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? boxedCaptures = null)
+        Dictionary<string, (FieldBuilder BoxField, Type ValueType)>? boxedCaptures = null,
+        Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? localFuncs = null,
+        Dictionary<int, string>? declaredLocalFuncNodes = null,
+        IEnumerable<string>? visibleLocalFuncs = null)
     {
         _isConstructorBody = isConstructorBody;
         _kinds = kinds;
@@ -472,6 +480,10 @@ public sealed class ColumnarIlEmitter
         _lambdaCounter = lambdaCounter;
         _displayClasses = displayClasses;
         _boxedCaptures = boxedCaptures;
+        _localFuncs = localFuncs;
+        _declaredLocalFuncNodes = declaredLocalFuncNodes;
+        if (visibleLocalFuncs != null)
+            _visibleLocalFuncs.UnionWith(visibleLocalFuncs);
     }
 
     // LAMBDA support (L1b): the Program TypeBuilder hosts synthesized `<Lambda>_{n}` static methods (null in
@@ -495,6 +507,18 @@ public sealed class ColumnarIlEmitter
     // never enter _liftedLocals, and their capture or usage declines exactly as in L3a.
     private HashSet<string>? _liftedCandidates;
     private readonly Dictionary<string, (LocalBuilder Box, Type ValueType)> _liftedLocals = new(StringComparer.Ordinal);
+    // LOCAL FUNCTIONS (L4-i): name -> the synthesized `<parent>g__{n}` static (declared before the body
+    // emits, so self/mutual recursion and parent calls all forward-reference MethodBuilders that bake at
+    // Save). Checked in the bare-call order BEFORE siblings — a local function SHADOWS a same-named
+    // sibling (probe-pinned: the pipeline calls the local). _declaredLocalFuncNodes holds the kind-41
+    // body-node indices that were declared; any other kind-41 (a nested-block declaration) declines.
+    private readonly Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? _localFuncs;
+    private readonly Dictionary<int, string>? _declaredLocalFuncNodes;
+    // Local-function VISIBILITY is strictly TEXTUAL (probe-pinned: the pipeline NL412s a call before the
+    // declaration, in the parent AND between locals — so true mutual recursion is impossible; only
+    // self-recursion and backward calls). A name enters this set when its kind-41 statement is reached;
+    // the call tier requires it. Local bodies start pre-populated with declarations up to themselves.
+    private readonly HashSet<string> _visibleLocalFuncs = new(StringComparer.Ordinal);
     // In a CLOSURE emitter: captured-and-lifted names -> the display field holding the shared box. Reads
     // emit `ldarg.0; ldfld boxField; ldfld Value`, writes `ldarg.0; ldfld boxField; <v>; stfld Value` —
     // checked before every other resolution tier (a boxed name is never also a lambda param or local).
@@ -2747,12 +2771,73 @@ public sealed class ColumnarIlEmitter
         {
             var fn = funcs[f];
             var il = methods[f].GetILGenerator();
+            // LOCAL FUNCTIONS (L4-i): declare each root-block local function as a `<parent>g__{n}` static
+            // BEFORE the parent body emits (forward calls bake at Save); bodies emit after the parent's.
+            // Non-generic, resolvable signatures only; duplicate names decline. A local function SHADOWS a
+            // same-named sibling at call sites (probe-pinned), so the map is its own resolution tier.
+            Dictionary<string, (MethodBuilder Method, Type[] ParamTypes, Type ReturnType)>? localFuncs = null;
+            Dictionary<int, string>? declaredLocalFuncNodes = null;
+            if (fn.LocalFunctions != null)
+            {
+                localFuncs = new Dictionary<string, (MethodBuilder, Type[], Type)>(StringComparer.Ordinal);
+                declaredLocalFuncNodes = new Dictionary<int, string>();
+                foreach (var (nodeIndex, localFn) in fn.LocalFunctions)
+                {
+                    if (localFn.TypeParamNames.Length > 0 || localFn.LocalFunctions != null)
+                        return false; // generic local functions / local-local functions — later rungs.
+                    Type localReturn;
+                    if (localFn.ReturnCanonical == "void")
+                        localReturn = typeof(void);
+                    else if (!TryResolveType(localFn.ReturnCanonical, enumRegistry, structRegistry, unionRegistry, out localReturn) || !IsSupportedType(localReturn))
+                        return false;
+                    var localParams = new Type[localFn.ParamNames.Length];
+                    for (var lp = 0; lp < localParams.Length; lp++)
+                    {
+                        if (!TryResolveType(localFn.ParamCanonicals[lp], enumRegistry, structRegistry, unionRegistry, out localParams[lp]) || !IsSupportedType(localParams[lp]))
+                            return false;
+                    }
+                    var localMethod = type.DefineMethod(
+                        "<" + fn.Name + ">g__" + lambdaCounter[0]++,
+                        MethodAttributes.Private | MethodAttributes.Static, localReturn, localParams);
+                    if (!localFuncs.TryAdd(localFn.Name, (localMethod, localParams, localReturn)))
+                        return false;
+                    declaredLocalFuncNodes[nodeIndex] = localFn.Name;
+                }
+            }
             var emitter = new ColumnarIlEmitter(
                 fn.Kinds, fn.ValueStarts, fn.ValueLengths, fn.ChildStart, fn.ChildCount, fn.ChildIndices,
                 source, ordinalsByFunc[f], paramTypesByFunc[f], returnTypeByFunc[f], il, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
-                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses);
+                programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                localFuncs: localFuncs, declaredLocalFuncNodes: declaredLocalFuncNodes);
             if (!emitter.EmitBody(fn.BodyRoot, returnTypeByFunc[f] == typeof(void)))
                 return false;
+            if (fn.LocalFunctions != null)
+            {
+                var visiblePrefix = new List<string>();
+                foreach (var (_, localFn) in fn.LocalFunctions)
+                {
+                    visiblePrefix.Add(localFn.Name);
+                    var target = localFuncs![localFn.Name];
+                    var localOrdinals = new Dictionary<string, int>(StringComparer.Ordinal);
+                    var localParamTypes = new Dictionary<string, Type>(StringComparer.Ordinal);
+                    for (var lp = 0; lp < localFn.ParamNames.Length; lp++)
+                    {
+                        if (!localOrdinals.TryAdd(localFn.ParamNames[lp], lp))
+                            return false;
+                        localParamTypes[localFn.ParamNames[lp]] = target.ParamTypes[lp];
+                    }
+                    var localIl = target.Method.GetILGenerator();
+                    // The local body shares the SAME localFuncs map (self/mutual recursion + the parent's
+                    // other local functions); outer locals/params are NOT in scope — captures decline.
+                    var localEmitter = new ColumnarIlEmitter(
+                        localFn.Kinds, localFn.ValueStarts, localFn.ValueLengths, localFn.ChildStart, localFn.ChildCount, localFn.ChildIndices,
+                        source, localOrdinals, localParamTypes, target.ReturnType, localIl, siblings, enumRegistry, structRegistry, unionRegistry, unionCaseRegistry, currentStruct: null,
+                        programType: type, lambdaCounter: lambdaCounter, displayClasses: displayClasses,
+                        localFuncs: localFuncs, visibleLocalFuncs: visiblePrefix);
+                    if (!localEmitter.EmitBody(localFn.BodyRoot, target.ReturnType == typeof(void)))
+                        return false;
+                }
+            }
         }
 
         // Emit struct method bodies (before finalizing the struct types). An INSTANCE body runs with
@@ -2763,6 +2848,8 @@ public sealed class ColumnarIlEmitter
         // `call` top-level funcs (siblings); a forward `call` to any MethodBuilder resolves at Save.
         foreach (var job in structMethodJobs)
         {
+            if (job.Method.LocalFunctions != null)
+                return false; // local functions in MEMBER bodies — a later rung (L4-i is top-level only).
             var mil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Method.Kinds, job.Method.ValueStarts, job.Method.ValueLengths, job.Method.ChildStart, job.Method.ChildCount, job.Method.ChildIndices,
@@ -2782,6 +2869,8 @@ public sealed class ColumnarIlEmitter
         var objectCtor = typeof(object).GetConstructor(Type.EmptyTypes)!;
         foreach (var job in structCtorJobs)
         {
+            if (job.Ctor.Body.LocalFunctions != null)
+                return false; // local functions in CONSTRUCTOR bodies — a later rung.
             var cil = job.Builder.GetILGenerator();
             var emitter = new ColumnarIlEmitter(
                 job.Ctor.Body.Kinds, job.Ctor.Body.ValueStarts, job.Ctor.Body.ValueLengths, job.Ctor.Body.ChildStart, job.Ctor.Body.ChildCount, job.Ctor.Body.ChildIndices,
@@ -3065,6 +3154,15 @@ public sealed class ColumnarIlEmitter
                 _locals[declaredName] = declaredLocal;
                 return true;
             }
+
+            case 41: // LocalFunctionDeclaration — the declaration itself emits NO IL (the method was
+                     // pre-declared before the body walk); reaching it makes the NAME visible (textual
+                     // scoping, probe-pinned). A kind-41 node NOT in the declared map is a nested-block
+                     // local function (scoping is a later rung) — decline.
+                if (_declaredLocalFuncNodes == null || !_declaredLocalFuncNodes.TryGetValue(idx, out var declaredLocalName))
+                    return false;
+                _visibleLocalFuncs.Add(declaredLocalName);
+                return true;
 
             case 27: // If [condition, then, else?] — general form covering all four then/else
             {        // fall-through-vs-return combinations, with a fall-through merge label.
@@ -4066,6 +4164,31 @@ public sealed class ColumnarIlEmitter
                     // it); tier 3 anchors on `_enclosingType` so it fires in static bodies too. Tiers 2 and 3 can
                     // never compete: a name carried by both an instance and a static method anywhere on the chain
                     // was declined in PASS 0b/0b''.
+                    // LOCAL FUNCTIONS shadow same-named siblings at call sites (probe-pinned: the
+                    // pipeline calls the local) — their tier comes FIRST.
+                    if (_localFuncs != null && _visibleLocalFuncs.Contains(name)
+                        && _localFuncs.TryGetValue(name, out var localTarget))
+                    {
+                        var localArgCount = _childCount[idx] - 1;
+                        if (localArgCount != localTarget.ParamTypes.Length)
+                            return false;
+                        for (var a = 1; a <= localArgCount; a++)
+                        {
+                            var localArgNode = Child(idx, a);
+                            // A LAMBDA argument to a LOCAL function is an ORACLE DEFECT (its emitter fails
+                            // with NL103 "No matching overload for local function use" — found by parity;
+                            // lambda-to-SIBLING works). Columnar could emit it, but accepting a program the
+                            // pipeline errors on is an acceptance divergence — decline until the oracle's
+                            // local-function lambda binding is fixed (recorded for an oracle bundle).
+                            if (_kinds[localArgNode] == 39)
+                                return false;
+                            if (!EmitExpression(localArgNode, out var localArgType) || localArgType != localTarget.ParamTypes[a - 1])
+                                return false;
+                        }
+                        _il.Emit(OpCodes.Call, localTarget.Method);
+                        type = localTarget.ReturnType;
+                        return true;
+                    }
                     if (_siblings.TryGetValue(name, out var target))
                     {
                         var argCount = _childCount[idx] - 1;
