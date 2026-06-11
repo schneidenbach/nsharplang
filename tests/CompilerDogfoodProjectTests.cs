@@ -2431,8 +2431,8 @@ class B
             ("eqIgnoreCase", new object[] { 'A', 'a' }), ("eqIgnoreCase", new object[] { 'A', 'b' }));
 
         // an unknown method, a non-string receiver, or a wrong arity/arg type declines (C# path authoritative).
-        // (s.IndexOf(char) 1-arg IS now modelled — see ColumnarCodegen_Parity_StringComparisonAndIndexOf.)
-        Assert.False(RouteColumnarProgram("func f(s: string): string {\n    return s.ToUpper()\n}\n").Ok);          // unsupported method
+        // (s.IndexOf(char) 1-arg and s.ToUpper() ARE now modelled — see
+        // ColumnarCodegen_Parity_StringComparisonAndIndexOf / ColumnarCodegen_Parity_StringBclWhitelist.)
         Assert.False(RouteColumnarProgram("func f(s: string): int {\n    return s.IndexOf('a', 'b')\n}\n").Ok);     // IndexOf(char, char) — unsupported overload
     }
 
@@ -3227,11 +3227,11 @@ class B
         Assert.False(RouteColumnarProgram("func f(): int {\n    let r: int = match 1 { 1 => \"one\", _ => \"other\" }\n    return r\n}\n").Ok);
         // Mixed arm result types (string vs int) are pipeline-rejected -> decline.
         Assert.False(RouteColumnarProgram("func f(): string {\n    r := match 1 { 1 => \"one\", _ => 2 }\n    return r\n}\n").Ok);
-        // ROUTE-ONLY: parameterless int.ToString() is not on the BCL instance-call whitelist (only the
-        // 1-arg format overload is), so a value-receiver call ON a match declines — the POSITION works
-        // (postfixCall above proves call-on-match via the whitelisted string.Trim); the whitelist gap is
-        // the scalar/strings completeness slice's to flip. The pipeline ACCEPTS this shape (returns "42").
-        Assert.False(RouteColumnarProgram("func f(n: int): string {\n    return match n { 1 => 42, _ => 0 }.ToString()\n}\n").Ok);
+        // (parameterless int.ToString() ON a match receiver is now ACCEPTED — the strings slice widened
+        // the BCL whitelist; see ColumnarCodegen_Parity_StringBclWhitelist.)
+        AssertColumnarProgramMatchesCSharp(
+            "func f(n: int): string {\n    return match n { 1 => 42, _ => 0 }.ToString()\n}\n",
+            ("f", new object[] { 1 }), ("f", new object[] { 9 }));
     }
 
     // MATCH PATTERN HARDENING — the columnar match-arm emitter only models LITERAL patterns (int/float/char/string/
@@ -4017,6 +4017,39 @@ class B
         // duplicates; the signature guard compares via TypesEquivalent (two Opt<int> instantiations are
         // referentially distinct — adversarial-review finding: raw != would emit BOTH ctor rows).
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
+    // STRINGS slice 2 (Phase D) — the BCL string-method WHITELIST widened: parameterless ToString() on
+    // every value scalar (spill + ldloca + call the type's OWN overload — the exact C# binding, culture
+    // and all), string.Substring(int), ToUpper/ToLower/ToString on string, Contains/StartsWith/EndsWith
+    // (string) -> bool, Replace(string,string). Each binds the identical overload the pipeline binds, so
+    // text/culture behavior matches exactly. The match-positions ROUTE-ONLY pin (.ToString() on a match
+    // receiver) flips to parity.
+    [Fact]
+    public void ColumnarCodegen_Parity_StringBclWhitelist()
+    {
+        var prog =
+            "func intStr(n: int): string {\n    return n.ToString()\n}\n\n" +
+            "func longStr(l: long): string {\n    return l.ToString()\n}\n\n" +
+            "func dblStr(d: double): string {\n    return d.ToString()\n}\n\n" +
+            "func boolStr(b: bool): string {\n    return b.ToString()\n}\n\n" +
+            "func sub1(s: string): string {\n    return s.Substring(2)\n}\n\n" +
+            "func upLow(s: string): string {\n    return s.ToUpper() + s.ToLower()\n}\n\n" +
+            "func has(s: string, t: string): bool {\n    return s.Contains(t)\n}\n\n" +
+            "func edges(s: string): bool {\n    return s.StartsWith(\"ab\") && s.EndsWith(\"yz\")\n}\n\n" +
+            "func swap(s: string): string {\n    return s.Replace(\"a\", \"o\")\n}\n\n" +
+            "func chained(n: int): string {\n    return n.ToString().Substring(1).ToUpper()\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("intStr", new object[] { 42 }), ("intStr", new object[] { -7 }),
+            ("longStr", new object[] { 9000000000L }),
+            ("dblStr", new object[] { 2.5 }),
+            ("boolStr", new object[] { true }), ("boolStr", new object[] { false }),
+            ("sub1", new object[] { "abcdef" }),
+            ("upLow", new object[] { "AbC" }),
+            ("has", new object[] { "haystack", "ays" }), ("has", new object[] { "haystack", "zzz" }),
+            ("edges", new object[] { "abcyz" }), ("edges", new object[] { "abc" }),
+            ("swap", new object[] { "banana" }),
+            ("chained", new object[] { -42 }));
     }
 
     // STRINGS slice (Phase D) — FULL ESCAPES. N# string literals historically materialized RAW

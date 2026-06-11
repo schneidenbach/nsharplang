@@ -11,6 +11,21 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — STRINGS slice 2: the BCL string-method whitelist widened
+
+Parameterless **ToString() on every value scalar** (int/long/ulong/uint/short/ushort/byte/sbyte/double/
+float/bool/char/decimal — spill + ldloca + `call` the type's OWN overload, the exact C# binding, culture
+and all), **string.Substring(int)** (the match-positions ROUTE-ONLY gap — its pin FLIPS to a parity
+case), **ToUpper/ToLower/ToString** on string, **Contains/StartsWith/EndsWith(string)** → bool, and
+**Replace(string,string)**. Every entry binds the identical overload the pipeline binds. Parity:
+`ColumnarCodegen_Parity_StringBclWhitelist` (10 functions, 14 invocations incl. the chained
+`n.ToString().Substring(1).ToUpper()`); two stale pins flipped (the match-receiver ToString route-only
+pin became a parity case; the old `s.ToUpper()` unsupported-method pin). 291/291; gate green.
+
+Remaining strings rung (queued): interpolation columnar-side ($-strings — the kernel refuses them).
+
+---
+
 ## 2026-06-11 — STRINGS slice 1: FULL ESCAPES — a language-semantics fix, all three paths converge
 
 N# string literals historically materialized RAW on the IL path (`Trim('"')` only —

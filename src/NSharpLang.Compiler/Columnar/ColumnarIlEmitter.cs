@@ -6625,6 +6625,70 @@ public sealed class ColumnarIlEmitter
             type = typeof(string);
             return true;
         }
+        // string.Substring(int) — the 1-arg overload (the match-positions ROUTE-ONLY gap, flipped by the
+        // strings slice).
+        if (receiverType == typeof(string) && member == "Substring" && argCount == 1)
+        {
+            var method = typeof(string).GetMethod(nameof(string.Substring), new[] { typeof(int) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(int)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(string);
+            return true;
+        }
+        // Parameterless string members: ToUpper/ToLower (invariant-agnostic — the C# path binds the SAME
+        // overloads, so culture behavior is identical on both pipelines) and ToString (identity, but the
+        // pipeline accepts it — bind the real method for exactness).
+        if (receiverType == typeof(string) && argCount == 0 && member is "ToUpper" or "ToLower" or "ToString")
+        {
+            var method = typeof(string).GetMethod(member, Type.EmptyTypes);
+            if (method == null)
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(string);
+            return true;
+        }
+        // 1-arg string predicates/transforms over string arguments — exact overloads, both pipelines bind
+        // identically: Contains/StartsWith/EndsWith(string) -> bool; Replace(string,string) -> string.
+        if (receiverType == typeof(string) && argCount == 1 && member is "Contains" or "StartsWith" or "EndsWith")
+        {
+            var method = typeof(string).GetMethod(member, new[] { typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(bool);
+            return true;
+        }
+        if (receiverType == typeof(string) && argCount == 2 && member == "Replace")
+        {
+            var method = typeof(string).GetMethod(nameof(string.Replace), new[] { typeof(string), typeof(string) });
+            if (method == null || !EmitArg(callIdx, 1, typeof(string)) || !EmitArg(callIdx, 2, typeof(string)))
+                return false;
+            _il.Emit(OpCodes.Callvirt, method);
+            type = typeof(string);
+            return true;
+        }
+        // Parameterless ToString() on the VALUE scalars (the match-positions ROUTE-ONLY gap): a value-type
+        // instance call — spill the receiver, `ldloca`, `call` the type's OWN ToString overload (never the
+        // object virtual — the C# path binds the same concrete method, so the text matches exactly,
+        // culture and all).
+        if (member == "ToString" && argCount == 0
+            && (receiverType == typeof(int) || receiverType == typeof(long) || receiverType == typeof(ulong)
+                || receiverType == typeof(uint) || receiverType == typeof(short) || receiverType == typeof(ushort)
+                || receiverType == typeof(byte) || receiverType == typeof(sbyte)
+                || receiverType == typeof(double) || receiverType == typeof(float)
+                || receiverType == typeof(bool) || receiverType == typeof(char) || receiverType == typeof(decimal)))
+        {
+            var method = receiverType.GetMethod(nameof(object.ToString), Type.EmptyTypes);
+            if (method == null)
+                return false;
+            var temp = _il.DeclareLocal(receiverType);
+            _il.Emit(OpCodes.Stloc, temp);
+            _il.Emit(OpCodes.Ldloca, temp);
+            _il.Emit(OpCodes.Call, method);
+            type = typeof(string);
+            return true;
+        }
         if (receiverType == typeof(System.Text.StringBuilder))
         {
             // Mutating-builder instance methods (the receiver builder is already on the stack):
