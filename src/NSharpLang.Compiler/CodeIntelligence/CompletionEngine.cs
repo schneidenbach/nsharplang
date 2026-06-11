@@ -201,7 +201,12 @@ public class CompletionEngine
         // owns the name.
         if (receiver != null && IsStaticAccess(receiver, semanticModel) && ResolveSourceTypeByName(receiver, snapshot) is { } sourceTypeInfo)
         {
-            var memberResult = ResolveMemberCompletionsFromTypeInfo(sourceTypeInfo, receiver, snapshot, completions);
+            var memberResult = ResolveMemberCompletionsFromTypeInfo(
+                sourceTypeInfo,
+                receiver,
+                snapshot,
+                completions,
+                MemberFilter.StaticOnly);
             if (memberResult != null) return memberResult;
         }
 
@@ -231,7 +236,12 @@ public class CompletionEngine
             if (receiverType != null && !BuiltInTypes.IsUnknown(receiverType))
             {
                 var displayReceiver = receiver ?? FormatReceiverExpression(memberAccess.Object) ?? "<expression>";
-                var memberResult = ResolveMemberCompletionsFromTypeInfo(receiverType, displayReceiver, snapshot, completions);
+                var memberResult = ResolveMemberCompletionsFromTypeInfo(
+                    receiverType,
+                    displayReceiver,
+                    snapshot,
+                    completions,
+                    MemberFilter.InstanceOnly);
                 if (memberResult != null) return memberResult;
             }
         }
@@ -244,7 +254,12 @@ public class CompletionEngine
         var textualReceiverType = ResolveReceiverExpressionFromText(receiver, semanticModel, snapshot);
         if (textualReceiverType != null && !BuiltInTypes.IsUnknown(textualReceiverType))
         {
-            var memberResult = ResolveMemberCompletionsFromTypeInfo(textualReceiverType, receiver, snapshot, completions);
+            var memberResult = ResolveMemberCompletionsFromTypeInfo(
+                textualReceiverType,
+                receiver,
+                snapshot,
+                completions,
+                MemberFilter.InstanceOnly);
             if (memberResult != null) return memberResult;
         }
 
@@ -255,7 +270,12 @@ public class CompletionEngine
                           ?? semanticModel.LookupIdentifier(receiver);
             if (typeInfo != null)
             {
-                var memberResult = ResolveMemberCompletionsFromTypeInfo(typeInfo, receiver, snapshot, completions);
+                var memberResult = ResolveMemberCompletionsFromTypeInfo(
+                    typeInfo,
+                    receiver,
+                    snapshot,
+                    completions,
+                    MemberFilter.InstanceOnly);
                 if (memberResult != null) return memberResult;
             }
         }
@@ -266,7 +286,12 @@ public class CompletionEngine
             var typeFromAst = ResolveReceiverTypeFromAst(receiver, cu, snapshot);
             if (typeFromAst != null)
             {
-                var memberResult = ResolveMemberCompletionsFromTypeInfo(typeFromAst, receiver, snapshot, completions);
+                var memberResult = ResolveMemberCompletionsFromTypeInfo(
+                    typeFromAst,
+                    receiver,
+                    snapshot,
+                    completions,
+                    MemberFilter.InstanceOnly);
                 if (memberResult != null) return memberResult;
             }
         }
@@ -361,8 +386,12 @@ public class CompletionEngine
     /// Resolve member completions from a TypeInfo — handles both .NET types (via reflection)
     /// and N# user-defined types (via AST member extraction).
     /// </summary>
-    private CompletionResult? ResolveMemberCompletionsFromTypeInfo(TypeInfo typeInfo, string receiver,
-        ProjectSnapshot snapshot, Dictionary<string, List<CompletionItem>> completions)
+    private CompletionResult? ResolveMemberCompletionsFromTypeInfo(
+        TypeInfo typeInfo,
+        string receiver,
+        ProjectSnapshot snapshot,
+        Dictionary<string, List<CompletionItem>> completions,
+        MemberFilter filter)
     {
         var typeName = FormatTypeInfo(typeInfo);
 
@@ -370,7 +399,7 @@ public class CompletionEngine
         // The Language Server already follows this rule; the shared playground/CLI
         // engine needs the same behavior so `Person.` does not accidentally bind to
         // an unrelated loaded CLR type named Person.
-        var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot);
+        var nsharpMembers = GetNSharpTypeMembers(typeInfo, snapshot, filter);
         if (nsharpMembers.Count > 0)
         {
             AddGroupedCompletionsByKind(nsharpMembers, completions);
@@ -387,7 +416,7 @@ public class CompletionEngine
         var clrType = TryResolveType(clrTypeName, snapshot);
         if (clrType != null)
         {
-            var members = GetTypeMembers(clrType, MemberFilter.InstanceOnly);
+            var members = GetTypeMembers(clrType, filter);
             AddGroupedCompletionsByKind(members, completions);
             return new CompletionResult(CompletionContext.MemberAccess, receiver, clrType.FullName, completions);
         }
@@ -639,7 +668,7 @@ public class CompletionEngine
             method.IsStatic));
     }
 
-    private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot)
+    private List<CompletionItem> GetNSharpTypeMembers(TypeInfo typeInfo, ProjectSnapshot snapshot, MemberFilter filter)
     {
         var items = new List<CompletionItem>();
         var declaration = ResolveNSharpTypeDeclaration(typeInfo, snapshot);
@@ -660,7 +689,15 @@ public class CompletionEngine
             if (item != null) items.Add(item);
         }
 
-        foreach (var member in snapshot.SharedAnalyzer.GetGeneratedMembers(typeInfo, includeStaticMembers: true))
+        var generatedMembers = filter switch
+        {
+            MemberFilter.StaticOnly => snapshot.SharedAnalyzer.GetGeneratedMembers(typeInfo, includeStaticMembers: true)
+                .Where(static member => member.IsStatic),
+            MemberFilter.InstanceOnly => snapshot.SharedAnalyzer.GetGeneratedMembers(typeInfo, includeStaticMembers: false),
+            _ => snapshot.SharedAnalyzer.GetGeneratedMembers(typeInfo, includeStaticMembers: true)
+        };
+
+        foreach (var member in generatedMembers)
         {
             items.Add(GeneratedMemberToCompletionItem(member));
         }

@@ -80,6 +80,20 @@ public class CountTransitionsShapeTests
     }
 
     [Theory]
+    // Bound is the carried value; scalar code re-reads it after `previous = current`.
+    [InlineData("previous")]
+    // Bound is the counter; scalar code can re-read it after the conditional increment.
+    [InlineData("count")]
+    // Bound is declared by the accepted temp statement.
+    [InlineData("current")]
+    public void Rejects_BoundsWrittenByMatchedForLoopBody(string bound)
+    {
+        var shape = CountTransitionsShape.TryMatch(FirstLoop<ForStatement>(
+            "    count := 4\n    previous := 4\n    current := 4\n    for i := 0; i < " + bound + "; i++ {\n        current := a[i]\n        if current != previous {\n            count = count + 1\n        }\n        previous = current\n    }"));
+        Assert.Null(shape);
+    }
+
+    [Theory]
     // while-form: increment not last (carry follows it).
     [InlineData("    count := 0\n    previous := a[0]\n    i := 1\n    while i < n {\n        current := a[i]\n        if current != previous {\n            count = count + 1\n        }\n        i = i + 1\n        previous = current\n    }")]
     // while-form: missing the carry.
@@ -87,5 +101,13 @@ public class CountTransitionsShapeTests
     public void Rejects_NonCountTransitionsWhileShapes(string body)
     {
         Assert.Null(CountTransitionsShape.TryMatch(FirstLoop<WhileStatement>(body)));
+    }
+
+    [Fact]
+    public void Rejects_BoundsWrittenByMatchedWhileLoopBody()
+    {
+        var shape = CountTransitionsShape.TryMatch(FirstLoop<WhileStatement>(
+            "    count := 0\n    previous := 4\n    i := 0\n    while i < previous {\n        current := a[i]\n        if current != previous {\n            count = count + 1\n        }\n        previous = current\n        i = i + 1\n    }"));
+        Assert.Null(shape);
     }
 }

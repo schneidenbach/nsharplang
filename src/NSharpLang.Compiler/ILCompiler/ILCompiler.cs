@@ -54,10 +54,15 @@ public partial class ILCompiler
     // `leave` (which also runs intervening finallys). A branch at the SAME depth (the whole loop inside one
     // region, or no region at all) stays a plain `br` (probe-pinned: break/continue inside try-in-loop threw
     // InvalidProgramException on every call; a loop wholly inside a try was fine).
-    private readonly struct BranchTarget(Label label, int exceptionBlockDepth)
+    // FinallyHandlerDepth records how many FINALLY handlers enclosed the loop entry: a branch from a deeper
+    // finally depth would exit a finally handler, where even `leave` is invalid IL (ECMA-335: a finally may
+    // only complete via endfinally). The analyzer rejects that shape with NL319, so reaching it here is a
+    // compiler bug — EmitBreak/EmitContinue throw rather than emit the invalid opcode.
+    private readonly struct BranchTarget(Label label, int exceptionBlockDepth, int finallyHandlerDepth)
     {
         public Label Label { get; } = label;
         public int ExceptionBlockDepth { get; } = exceptionBlockDepth;
+        public int FinallyHandlerDepth { get; } = finallyHandlerDepth;
     }
 
     private readonly CompilationUnit _compilationUnit;
@@ -101,6 +106,12 @@ public partial class ILCompiler
     // structured-return tail, or control "falls off" a reachable method end (InvalidProgramException).
     private bool _emittedExceptionBlockInBody;
     private int _exceptionBlockDepth;
+    // How many FINALLY handlers are currently being emitted (finallys nest). While > 0, a return —
+    // or a break/continue whose target sits at a shallower finally depth — would have to `leave`
+    // out of the handler, which ECMA-335 forbids (LeaveOutOfFinally; InvalidProgramException on
+    // every call). The analyzer rejects those shapes with NL319 before emit; the emit-path guards
+    // throw on the compiler-bug case instead of producing the invalid IL.
+    private int _finallyHandlerDepth;
     private Type? _currentYieldElementType;
     private LocalBuilder? _currentYieldListLocal;
     private Label? _currentYieldBreakLabel;
@@ -1362,6 +1373,7 @@ public partial class ILCompiler
         _usesStructuredReturn = false;
         _emittedExceptionBlockInBody = false;
         _exceptionBlockDepth = 0;
+        _finallyHandlerDepth = 0;
         _asyncFaultGuardCompletionEmitted = false;
         _currentYieldElementType = null;
         _currentYieldListLocal = null;
@@ -1412,6 +1424,7 @@ public partial class ILCompiler
         _usesStructuredReturn = false;
         _emittedExceptionBlockInBody = false;
         _exceptionBlockDepth = 0;
+        _finallyHandlerDepth = 0;
     }
 
     private Type CreateStrongBoxType(Type valueType)
@@ -2928,102 +2941,20 @@ public partial class ILCompiler
     {
         switch (expression)
         {
-            case OnSubscriptionExpression onSubscription:
-                CollectEscapingLocalFunctionCapturedStorageNames(onSubscription.Target, candidates, captured);
-                CollectEscapingLocalFunctionCapturedStorageNames(onSubscription.Handler, candidates, captured);
-                break;
             case LambdaExpression lambda:
                 CollectEscapingLocalFunctionCapturedStorageNames(lambda.BlockBody, candidates, captured);
-                break;
-            case BinaryExpression binary:
-                CollectEscapingLocalFunctionCapturedStorageNames(binary.Left, candidates, captured);
-                CollectEscapingLocalFunctionCapturedStorageNames(binary.Right, candidates, captured);
-                break;
-            case UnaryExpression unary:
-                CollectEscapingLocalFunctionCapturedStorageNames(unary.Operand, candidates, captured);
-                break;
-            case CallExpression call:
-                CollectEscapingLocalFunctionCapturedStorageNames(call.Callee, candidates, captured);
-                foreach (var argument in call.Arguments)
+                if (lambda.ExpressionBody != null)
                 {
-                    CollectEscapingLocalFunctionCapturedStorageNames(argument.Value, candidates, captured);
+                    CollectEscapingLocalFunctionCapturedStorageNames(lambda.ExpressionBody, candidates, captured);
                 }
                 break;
-            case AssignmentExpression assignment:
-                CollectEscapingLocalFunctionCapturedStorageNames(assignment.Target, candidates, captured);
-                CollectEscapingLocalFunctionCapturedStorageNames(assignment.Value, candidates, captured);
-                break;
-            case MemberAccessExpression memberAccess:
-                CollectEscapingLocalFunctionCapturedStorageNames(memberAccess.Object, candidates, captured);
-                break;
-            case IndexAccessExpression indexAccess:
-                CollectEscapingLocalFunctionCapturedStorageNames(indexAccess.Object, candidates, captured);
-                CollectEscapingLocalFunctionCapturedStorageNames(indexAccess.Index, candidates, captured);
-                break;
-            case TernaryExpression ternary:
-                CollectEscapingLocalFunctionCapturedStorageNames(ternary.Condition, candidates, captured);
-                CollectEscapingLocalFunctionCapturedStorageNames(ternary.ThenExpression, candidates, captured);
-                CollectEscapingLocalFunctionCapturedStorageNames(ternary.ElseExpression, candidates, captured);
-                break;
-            case ArrayLiteralExpression arrayLiteral:
-                foreach (var element in arrayLiteral.Elements)
+            default:
+                // Purely structural: the walk only exists to find nested blocks/lambdas inside
+                // expressions, so visit every child via AstChildren (fail-safe enumeration).
+                foreach (var child in AstChildren.Of(expression))
                 {
-                    CollectEscapingLocalFunctionCapturedStorageNames(element, candidates, captured);
+                    CollectEscapingLocalFunctionCapturedStorageNames(child, candidates, captured);
                 }
-                break;
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    CollectEscapingLocalFunctionCapturedStorageNames(element.Value, candidates, captured);
-                }
-                break;
-            case ObjectInitializerExpression initializer:
-                foreach (var property in initializer.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectEscapingLocalFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
-                    }
-                    CollectEscapingLocalFunctionCapturedStorageNames(property.Value, candidates, captured);
-                }
-                break;
-            case NewExpression newExpression:
-                foreach (var argument in newExpression.ConstructorArguments)
-                {
-                    CollectEscapingLocalFunctionCapturedStorageNames(argument.Value, candidates, captured);
-                }
-                if (newExpression.Initializer != null)
-                {
-                    CollectEscapingLocalFunctionCapturedStorageNames(newExpression.Initializer, candidates, captured);
-                }
-                break;
-            case CastExpression castExpression:
-                CollectEscapingLocalFunctionCapturedStorageNames(castExpression.Expression, candidates, captured);
-                break;
-            case MatchExpression matchExpression:
-                CollectEscapingLocalFunctionCapturedStorageNames(matchExpression.Value, candidates, captured);
-                foreach (var matchCase in matchExpression.Cases)
-                {
-                    if (matchCase.Guard != null)
-                    {
-                        CollectEscapingLocalFunctionCapturedStorageNames(matchCase.Guard, candidates, captured);
-                    }
-                    CollectEscapingLocalFunctionCapturedStorageNames(matchCase.Expression, candidates, captured);
-                }
-                break;
-            case WithExpression withExpression:
-                CollectEscapingLocalFunctionCapturedStorageNames(withExpression.Target, candidates, captured);
-                foreach (var property in withExpression.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectEscapingLocalFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
-                    }
-                    CollectEscapingLocalFunctionCapturedStorageNames(property.Value, candidates, captured);
-                }
-                break;
-            case ParenthesizedExpression parenthesizedExpression:
-                CollectEscapingLocalFunctionCapturedStorageNames(parenthesizedExpression.Inner, candidates, captured);
                 break;
         }
     }
@@ -3176,10 +3107,6 @@ public partial class ILCompiler
             case UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PreDecrement or UnaryOperator.PostIncrement or UnaryOperator.PostDecrement } unary:
                 AddMutatedTargetName(unary.Operand, captured, mutated);
                 break;
-            case OnSubscriptionExpression onSubscription:
-                CollectMutatedCapturedStorageNames(onSubscription.Target, captured, mutated);
-                CollectMutatedCapturedStorageNames(onSubscription.Handler, captured, mutated);
-                break;
             case LambdaExpression lambda:
                 var lambdaCaptured = RemoveShadowedCapturedNames(
                     captured,
@@ -3193,39 +3120,6 @@ public partial class ILCompiler
                     CollectMutatedCapturedStorageNames(lambda.BlockBody, lambdaCaptured, mutated);
                 }
                 break;
-            case InterpolatedStringExpression interpolatedString:
-                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
-                {
-                    CollectMutatedCapturedStorageNames(hole.Expression, captured, mutated);
-                }
-                break;
-            case RangeExpression range:
-                if (range.Start != null)
-                {
-                    CollectMutatedCapturedStorageNames(range.Start, captured, mutated);
-                }
-                if (range.End != null)
-                {
-                    CollectMutatedCapturedStorageNames(range.End, captured, mutated);
-                }
-                break;
-            case BinaryExpression binary:
-                CollectMutatedCapturedStorageNames(binary.Left, captured, mutated);
-                CollectMutatedCapturedStorageNames(binary.Right, captured, mutated);
-                break;
-            case UnaryExpression unary:
-                CollectMutatedCapturedStorageNames(unary.Operand, captured, mutated);
-                break;
-            case MustExpression mustExpression:
-                CollectMutatedCapturedStorageNames(mustExpression.Expression, captured, mutated);
-                break;
-            case MemberAccessExpression memberAccess:
-                CollectMutatedCapturedStorageNames(memberAccess.Object, captured, mutated);
-                break;
-            case IndexAccessExpression indexAccess:
-                CollectMutatedCapturedStorageNames(indexAccess.Object, captured, mutated);
-                CollectMutatedCapturedStorageNames(indexAccess.Index, captured, mutated);
-                break;
             case CallExpression call:
                 CollectMutatedCapturedStorageNames(call.Callee, captured, mutated);
                 foreach (var argument in call.Arguments)
@@ -3238,33 +3132,6 @@ public partial class ILCompiler
                     {
                         CollectMutatedCapturedStorageNames(argument.Value, captured, mutated);
                     }
-                }
-                break;
-            case TernaryExpression ternary:
-                CollectMutatedCapturedStorageNames(ternary.Condition, captured, mutated);
-                CollectMutatedCapturedStorageNames(ternary.ThenExpression, captured, mutated);
-                CollectMutatedCapturedStorageNames(ternary.ElseExpression, captured, mutated);
-                break;
-            case ArrayLiteralExpression arrayLiteral:
-                foreach (var element in arrayLiteral.Elements)
-                {
-                    CollectMutatedCapturedStorageNames(element, captured, mutated);
-                }
-                break;
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    CollectMutatedCapturedStorageNames(element.Value, captured, mutated);
-                }
-                break;
-            case ObjectInitializerExpression initializer:
-                foreach (var property in initializer.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectMutatedCapturedStorageNames(property.IndexExpression, captured, mutated);
-                    }
-                    CollectMutatedCapturedStorageNames(property.Value, captured, mutated);
                 }
                 break;
             case NewExpression newExpression:
@@ -3283,55 +3150,19 @@ public partial class ILCompiler
                 {
                     CollectMutatedCapturedStorageNames(newExpression.Initializer, captured, mutated);
                 }
-                break;
-            case CastExpression castExpression:
-                CollectMutatedCapturedStorageNames(castExpression.Expression, captured, mutated);
-                break;
-            case IsExpression isExpression:
-                CollectMutatedCapturedStorageNames(isExpression.Expression, captured, mutated);
-                break;
-            case MatchExpression matchExpression:
-                CollectMutatedCapturedStorageNames(matchExpression.Value, captured, mutated);
-                foreach (var matchCase in matchExpression.Cases)
+                if (newExpression.ArrayLengthExpression != null)
                 {
-                    if (matchCase.Guard != null)
-                    {
-                        CollectMutatedCapturedStorageNames(matchCase.Guard, captured, mutated);
-                    }
-                    CollectMutatedCapturedStorageNames(matchCase.Expression, captured, mutated);
+                    CollectMutatedCapturedStorageNames(newExpression.ArrayLengthExpression, captured, mutated);
                 }
                 break;
-            case SpreadExpression spreadExpression:
-                CollectMutatedCapturedStorageNames(spreadExpression.Expression, captured, mutated);
-                break;
-            case WithExpression withExpression:
-                CollectMutatedCapturedStorageNames(withExpression.Target, captured, mutated);
-                foreach (var property in withExpression.Properties)
+            default:
+                // Purely structural: only assignment targets, ++/--, and ref/out arguments
+                // (handled above) can mutate; visit every other child via AstChildren
+                // (fail-safe enumeration).
+                foreach (var child in AstChildren.Of(expression))
                 {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectMutatedCapturedStorageNames(property.IndexExpression, captured, mutated);
-                    }
-                    CollectMutatedCapturedStorageNames(property.Value, captured, mutated);
+                    CollectMutatedCapturedStorageNames(child, captured, mutated);
                 }
-                break;
-            case AwaitExpression awaitExpression:
-                CollectMutatedCapturedStorageNames(awaitExpression.Expression, captured, mutated);
-                break;
-            case ThrowExpression throwExpression:
-                CollectMutatedCapturedStorageNames(throwExpression.Expression, captured, mutated);
-                break;
-            case NameofExpression nameofExpression:
-                CollectMutatedCapturedStorageNames(nameofExpression.Target, captured, mutated);
-                break;
-            case CheckedExpression checkedExpression:
-                CollectMutatedCapturedStorageNames(checkedExpression.Expression, captured, mutated);
-                break;
-            case UncheckedExpression uncheckedExpression:
-                CollectMutatedCapturedStorageNames(uncheckedExpression.Expression, captured, mutated);
-                break;
-            case ParenthesizedExpression parenthesizedExpression:
-                CollectMutatedCapturedStorageNames(parenthesizedExpression.Inner, captured, mutated);
                 break;
         }
     }
@@ -3546,96 +3377,9 @@ public partial class ILCompiler
     {
         switch (expression)
         {
-            case OnSubscriptionExpression onSubscription:
-                // The handler is a lambda with its own scope (skipped like LambdaExpression);
-                // only the event-target expression lives in the current scope.
-                CollectPotentialLocalStorageNames(onSubscription.Target, candidates);
-                break;
             case LambdaExpression:
-                break;
-            case InterpolatedStringExpression interpolatedString:
-                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
-                {
-                    CollectPotentialLocalStorageNames(hole.Expression, candidates);
-                }
-                break;
-            case RangeExpression range:
-                if (range.Start != null)
-                {
-                    CollectPotentialLocalStorageNames(range.Start, candidates);
-                }
-                if (range.End != null)
-                {
-                    CollectPotentialLocalStorageNames(range.End, candidates);
-                }
-                break;
-            case BinaryExpression binary:
-                CollectPotentialLocalStorageNames(binary.Left, candidates);
-                CollectPotentialLocalStorageNames(binary.Right, candidates);
-                break;
-            case UnaryExpression unary:
-                CollectPotentialLocalStorageNames(unary.Operand, candidates);
-                break;
-            case MustExpression mustExpression:
-                CollectPotentialLocalStorageNames(mustExpression.Expression, candidates);
-                break;
-            case MemberAccessExpression memberAccess:
-                CollectPotentialLocalStorageNames(memberAccess.Object, candidates);
-                break;
-            case IndexAccessExpression indexAccess:
-                CollectPotentialLocalStorageNames(indexAccess.Object, candidates);
-                CollectPotentialLocalStorageNames(indexAccess.Index, candidates);
-                break;
-            case CallExpression call:
-                CollectPotentialLocalStorageNames(call.Callee, candidates);
-                foreach (var argument in call.Arguments)
-                {
-                    CollectPotentialLocalStorageNames(argument.Value, candidates);
-                }
-                break;
-            case AssignmentExpression assignment:
-                CollectPotentialLocalStorageNames(assignment.Target, candidates);
-                CollectPotentialLocalStorageNames(assignment.Value, candidates);
-                break;
-            case TernaryExpression ternary:
-                CollectPotentialLocalStorageNames(ternary.Condition, candidates);
-                CollectPotentialLocalStorageNames(ternary.ThenExpression, candidates);
-                CollectPotentialLocalStorageNames(ternary.ElseExpression, candidates);
-                break;
-            case ArrayLiteralExpression arrayLiteral:
-                foreach (var element in arrayLiteral.Elements)
-                {
-                    CollectPotentialLocalStorageNames(element, candidates);
-                }
-                break;
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    CollectPotentialLocalStorageNames(element.Value, candidates);
-                }
-                break;
-            case ObjectInitializerExpression initializer:
-                foreach (var property in initializer.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectPotentialLocalStorageNames(property.IndexExpression, candidates);
-                    }
-                    CollectPotentialLocalStorageNames(property.Value, candidates);
-                }
-                break;
-            case NewExpression newExpression:
-                foreach (var argument in newExpression.ConstructorArguments)
-                {
-                    CollectPotentialLocalStorageNames(argument.Value, candidates);
-                }
-                if (newExpression.Initializer != null)
-                {
-                    CollectPotentialLocalStorageNames(newExpression.Initializer, candidates);
-                }
-                break;
-            case CastExpression castExpression:
-                CollectPotentialLocalStorageNames(castExpression.Expression, candidates);
+                // Lambdas have their own scope; their bodies never declare storage in the
+                // enclosing frame. (This also skips `on` handlers, which recurse here.)
                 break;
             case IsExpression isExpression:
                 CollectPotentialLocalStorageNames(isExpression.Expression, candidates);
@@ -3645,48 +3389,23 @@ public partial class ILCompiler
                 }
                 break;
             case MatchExpression matchExpression:
-                CollectPotentialLocalStorageNames(matchExpression.Value, candidates);
                 foreach (var matchCase in matchExpression.Cases)
                 {
                     CollectPatternBindingNames(matchCase.Pattern, candidates);
-                    if (matchCase.Guard != null)
-                    {
-                        CollectPotentialLocalStorageNames(matchCase.Guard, candidates);
-                    }
-                    CollectPotentialLocalStorageNames(matchCase.Expression, candidates);
                 }
-                break;
-            case SpreadExpression spreadExpression:
-                CollectPotentialLocalStorageNames(spreadExpression.Expression, candidates);
-                break;
-            case WithExpression withExpression:
-                CollectPotentialLocalStorageNames(withExpression.Target, candidates);
-                foreach (var property in withExpression.Properties)
+                foreach (var child in AstChildren.Of(matchExpression))
                 {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectPotentialLocalStorageNames(property.IndexExpression, candidates);
-                    }
-                    CollectPotentialLocalStorageNames(property.Value, candidates);
+                    CollectPotentialLocalStorageNames(child, candidates);
                 }
                 break;
-            case AwaitExpression awaitExpression:
-                CollectPotentialLocalStorageNames(awaitExpression.Expression, candidates);
-                break;
-            case ThrowExpression throwExpression:
-                CollectPotentialLocalStorageNames(throwExpression.Expression, candidates);
-                break;
-            case NameofExpression nameofExpression:
-                CollectPotentialLocalStorageNames(nameofExpression.Target, candidates);
-                break;
-            case CheckedExpression checkedExpression:
-                CollectPotentialLocalStorageNames(checkedExpression.Expression, candidates);
-                break;
-            case UncheckedExpression uncheckedExpression:
-                CollectPotentialLocalStorageNames(uncheckedExpression.Expression, candidates);
-                break;
-            case ParenthesizedExpression parenthesizedExpression:
-                CollectPotentialLocalStorageNames(parenthesizedExpression.Inner, candidates);
+            default:
+                // Purely structural: only is-bindings and match patterns (handled above)
+                // introduce storage names; visit every other child via AstChildren
+                // (fail-safe enumeration).
+                foreach (var child in AstChildren.Of(expression))
+                {
+                    CollectPotentialLocalStorageNames(child, candidates);
+                }
                 break;
         }
     }
@@ -3822,142 +3541,16 @@ public partial class ILCompiler
     {
         switch (expression)
         {
-            case OnSubscriptionExpression onSubscription:
-                CollectNestedFunctionCapturedStorageNames(onSubscription.Target, candidates, captured);
-                CollectNestedFunctionCapturedStorageNames(onSubscription.Handler, candidates, captured);
-                break;
             case LambdaExpression lambda:
                 CollectLambdaCapturedStorageNames(lambda, candidates, captured);
                 break;
-            case InterpolatedStringExpression interpolatedString:
-                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
+            default:
+                // Purely structural: the walk only exists to find nested lambdas inside
+                // expressions, so visit every child via AstChildren (fail-safe enumeration).
+                foreach (var child in AstChildren.Of(expression))
                 {
-                    CollectNestedFunctionCapturedStorageNames(hole.Expression, candidates, captured);
+                    CollectNestedFunctionCapturedStorageNames(child, candidates, captured);
                 }
-                break;
-            case RangeExpression range:
-                if (range.Start != null)
-                {
-                    CollectNestedFunctionCapturedStorageNames(range.Start, candidates, captured);
-                }
-                if (range.End != null)
-                {
-                    CollectNestedFunctionCapturedStorageNames(range.End, candidates, captured);
-                }
-                break;
-            case BinaryExpression binary:
-                CollectNestedFunctionCapturedStorageNames(binary.Left, candidates, captured);
-                CollectNestedFunctionCapturedStorageNames(binary.Right, candidates, captured);
-                break;
-            case UnaryExpression unary:
-                CollectNestedFunctionCapturedStorageNames(unary.Operand, candidates, captured);
-                break;
-            case MustExpression mustExpression:
-                CollectNestedFunctionCapturedStorageNames(mustExpression.Expression, candidates, captured);
-                break;
-            case MemberAccessExpression memberAccess:
-                CollectNestedFunctionCapturedStorageNames(memberAccess.Object, candidates, captured);
-                break;
-            case IndexAccessExpression indexAccess:
-                CollectNestedFunctionCapturedStorageNames(indexAccess.Object, candidates, captured);
-                CollectNestedFunctionCapturedStorageNames(indexAccess.Index, candidates, captured);
-                break;
-            case CallExpression call:
-                CollectNestedFunctionCapturedStorageNames(call.Callee, candidates, captured);
-                foreach (var argument in call.Arguments)
-                {
-                    CollectNestedFunctionCapturedStorageNames(argument.Value, candidates, captured);
-                }
-                break;
-            case AssignmentExpression assignment:
-                CollectNestedFunctionCapturedStorageNames(assignment.Target, candidates, captured);
-                CollectNestedFunctionCapturedStorageNames(assignment.Value, candidates, captured);
-                break;
-            case TernaryExpression ternary:
-                CollectNestedFunctionCapturedStorageNames(ternary.Condition, candidates, captured);
-                CollectNestedFunctionCapturedStorageNames(ternary.ThenExpression, candidates, captured);
-                CollectNestedFunctionCapturedStorageNames(ternary.ElseExpression, candidates, captured);
-                break;
-            case ArrayLiteralExpression arrayLiteral:
-                foreach (var element in arrayLiteral.Elements)
-                {
-                    CollectNestedFunctionCapturedStorageNames(element, candidates, captured);
-                }
-                break;
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    CollectNestedFunctionCapturedStorageNames(element.Value, candidates, captured);
-                }
-                break;
-            case ObjectInitializerExpression initializer:
-                foreach (var property in initializer.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectNestedFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
-                    }
-                    CollectNestedFunctionCapturedStorageNames(property.Value, candidates, captured);
-                }
-                break;
-            case NewExpression newExpression:
-                foreach (var argument in newExpression.ConstructorArguments)
-                {
-                    CollectNestedFunctionCapturedStorageNames(argument.Value, candidates, captured);
-                }
-                if (newExpression.Initializer != null)
-                {
-                    CollectNestedFunctionCapturedStorageNames(newExpression.Initializer, candidates, captured);
-                }
-                break;
-            case CastExpression castExpression:
-                CollectNestedFunctionCapturedStorageNames(castExpression.Expression, candidates, captured);
-                break;
-            case IsExpression isExpression:
-                CollectNestedFunctionCapturedStorageNames(isExpression.Expression, candidates, captured);
-                break;
-            case MatchExpression matchExpression:
-                CollectNestedFunctionCapturedStorageNames(matchExpression.Value, candidates, captured);
-                foreach (var matchCase in matchExpression.Cases)
-                {
-                    if (matchCase.Guard != null)
-                    {
-                        CollectNestedFunctionCapturedStorageNames(matchCase.Guard, candidates, captured);
-                    }
-                    CollectNestedFunctionCapturedStorageNames(matchCase.Expression, candidates, captured);
-                }
-                break;
-            case SpreadExpression spreadExpression:
-                CollectNestedFunctionCapturedStorageNames(spreadExpression.Expression, candidates, captured);
-                break;
-            case WithExpression withExpression:
-                CollectNestedFunctionCapturedStorageNames(withExpression.Target, candidates, captured);
-                foreach (var property in withExpression.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectNestedFunctionCapturedStorageNames(property.IndexExpression, candidates, captured);
-                    }
-                    CollectNestedFunctionCapturedStorageNames(property.Value, candidates, captured);
-                }
-                break;
-            case AwaitExpression awaitExpression:
-                CollectNestedFunctionCapturedStorageNames(awaitExpression.Expression, candidates, captured);
-                break;
-            case ThrowExpression throwExpression:
-                CollectNestedFunctionCapturedStorageNames(throwExpression.Expression, candidates, captured);
-                break;
-            case NameofExpression nameofExpression:
-                CollectNestedFunctionCapturedStorageNames(nameofExpression.Target, candidates, captured);
-                break;
-            case CheckedExpression checkedExpression:
-                CollectNestedFunctionCapturedStorageNames(checkedExpression.Expression, candidates, captured);
-                break;
-            case UncheckedExpression uncheckedExpression:
-                CollectNestedFunctionCapturedStorageNames(uncheckedExpression.Expression, candidates, captured);
-                break;
-            case ParenthesizedExpression parenthesizedExpression:
-                CollectNestedFunctionCapturedStorageNames(parenthesizedExpression.Inner, candidates, captured);
                 break;
         }
     }
@@ -4163,10 +3756,6 @@ public partial class ILCompiler
                     captured.Add(identifier.Name);
                 }
                 break;
-            case OnSubscriptionExpression onSubscription:
-                CollectCandidateIdentifierReferences(onSubscription.Target, candidates, captured, shadowed);
-                CollectCandidateIdentifierReferences(onSubscription.Handler, candidates, captured, shadowed);
-                break;
             case LambdaExpression lambda:
                 var nestedShadowed = new HashSet<string>(shadowed, StringComparer.Ordinal);
                 foreach (var parameter in lambda.Parameters)
@@ -4182,150 +3771,15 @@ public partial class ILCompiler
                     CollectCandidateIdentifierReferences(lambda.BlockBody, candidates, captured, nestedShadowed);
                 }
                 break;
-            case InterpolatedStringExpression interpolatedString:
-                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
-                {
-                    CollectCandidateIdentifierReferences(hole.Expression, candidates, captured, shadowed);
-                }
-                break;
-            case RangeExpression range:
-                if (range.Start != null)
-                {
-                    CollectCandidateIdentifierReferences(range.Start, candidates, captured, shadowed);
-                }
-                if (range.End != null)
-                {
-                    CollectCandidateIdentifierReferences(range.End, candidates, captured, shadowed);
-                }
-                break;
-            case BinaryExpression binary:
-                CollectCandidateIdentifierReferences(binary.Left, candidates, captured, shadowed);
-                CollectCandidateIdentifierReferences(binary.Right, candidates, captured, shadowed);
-                break;
-            case UnaryExpression unary:
-                CollectCandidateIdentifierReferences(unary.Operand, candidates, captured, shadowed);
-                break;
-            case MustExpression mustExpression:
-                CollectCandidateIdentifierReferences(mustExpression.Expression, candidates, captured, shadowed);
-                break;
-            case MemberAccessExpression memberAccess:
-                CollectCandidateIdentifierReferences(memberAccess.Object, candidates, captured, shadowed);
-                break;
-            case IndexAccessExpression indexAccess:
-                CollectCandidateIdentifierReferences(indexAccess.Object, candidates, captured, shadowed);
-                CollectCandidateIdentifierReferences(indexAccess.Index, candidates, captured, shadowed);
-                break;
-            case CallExpression call:
-                CollectCandidateIdentifierReferences(call.Callee, candidates, captured, shadowed);
-                foreach (var argument in call.Arguments)
-                {
-                    CollectCandidateIdentifierReferences(argument.Value, candidates, captured, shadowed);
-                }
-                break;
-            case AssignmentExpression assignment:
-                CollectCandidateIdentifierReferences(assignment.Target, candidates, captured, shadowed);
-                CollectCandidateIdentifierReferences(assignment.Value, candidates, captured, shadowed);
-                break;
-            case TernaryExpression ternary:
-                CollectCandidateIdentifierReferences(ternary.Condition, candidates, captured, shadowed);
-                CollectCandidateIdentifierReferences(ternary.ThenExpression, candidates, captured, shadowed);
-                CollectCandidateIdentifierReferences(ternary.ElseExpression, candidates, captured, shadowed);
-                break;
-            case ArrayLiteralExpression arrayLiteral:
-                foreach (var element in arrayLiteral.Elements)
-                {
-                    CollectCandidateIdentifierReferences(element, candidates, captured, shadowed);
-                }
-                break;
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    CollectCandidateIdentifierReferences(element.Value, candidates, captured, shadowed);
-                }
-                break;
-            case ObjectInitializerExpression initializer:
-                foreach (var property in initializer.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectCandidateIdentifierReferences(property.IndexExpression, candidates, captured, shadowed);
-                    }
-                    CollectCandidateIdentifierReferences(property.Value, candidates, captured, shadowed);
-                }
-                break;
-            case NewExpression newExpression:
-                foreach (var argument in newExpression.ConstructorArguments)
-                {
-                    CollectCandidateIdentifierReferences(argument.Value, candidates, captured, shadowed);
-                }
-                if (newExpression.Initializer != null)
-                {
-                    CollectCandidateIdentifierReferences(newExpression.Initializer, candidates, captured, shadowed);
-                }
-                break;
-            case CastExpression castExpression:
-                CollectCandidateIdentifierReferences(castExpression.Expression, candidates, captured, shadowed);
-                break;
-            case IsExpression isExpression:
-                CollectCandidateIdentifierReferences(isExpression.Expression, candidates, captured, shadowed);
-                break;
-            case MatchExpression matchExpression:
-                CollectCandidateIdentifierReferences(matchExpression.Value, candidates, captured, shadowed);
-                foreach (var matchCase in matchExpression.Cases)
-                {
-                    if (matchCase.Guard != null)
-                    {
-                        CollectCandidateIdentifierReferences(matchCase.Guard, candidates, captured, shadowed);
-                    }
-                    CollectCandidateIdentifierReferences(matchCase.Expression, candidates, captured, shadowed);
-                }
-                break;
-            case SpreadExpression spreadExpression:
-                CollectCandidateIdentifierReferences(spreadExpression.Expression, candidates, captured, shadowed);
-                break;
-            case WithExpression withExpression:
-                CollectCandidateIdentifierReferences(withExpression.Target, candidates, captured, shadowed);
-                foreach (var property in withExpression.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        CollectCandidateIdentifierReferences(property.IndexExpression, candidates, captured, shadowed);
-                    }
-                    CollectCandidateIdentifierReferences(property.Value, candidates, captured, shadowed);
-                }
-                break;
-            case AwaitExpression awaitExpression:
-                CollectCandidateIdentifierReferences(awaitExpression.Expression, candidates, captured, shadowed);
-                break;
-            case ThrowExpression throwExpression:
-                CollectCandidateIdentifierReferences(throwExpression.Expression, candidates, captured, shadowed);
-                break;
-            case NameofExpression nameofExpression:
-                CollectCandidateIdentifierReferences(nameofExpression.Target, candidates, captured, shadowed);
-                break;
-            case CheckedExpression checkedExpression:
-                CollectCandidateIdentifierReferences(checkedExpression.Expression, candidates, captured, shadowed);
-                break;
-            case UncheckedExpression uncheckedExpression:
-                CollectCandidateIdentifierReferences(uncheckedExpression.Expression, candidates, captured, shadowed);
-                break;
-            case ParenthesizedExpression parenthesizedExpression:
-                CollectCandidateIdentifierReferences(parenthesizedExpression.Inner, candidates, captured, shadowed);
-                break;
-            case IntLiteralExpression:
-            case FloatLiteralExpression:
-            case CharLiteralExpression:
-            case StringLiteralExpression:
-            case BoolLiteralExpression:
-            case NullLiteralExpression:
-            case ThisExpression:
-            case BaseExpression:
-            case DefaultExpression:
-            case TypeOfExpression:
-            case SizeOfExpression:
-                break;
             default:
-                AddUnshadowedCandidates(candidates, captured, shadowed);
+                // Purely structural: a candidate referenced anywhere in a child expression is
+                // captured. Routing through AstChildren (instead of per-node child lists) keeps
+                // this fail-safe — a missing child slot here used to skip the subtree and emit
+                // "Undefined variable or parameter" when the nested body read a local only there.
+                foreach (var child in AstChildren.Of(expression))
+                {
+                    CollectCandidateIdentifierReferences(child, candidates, captured, shadowed);
+                }
                 break;
         }
     }
@@ -4479,8 +3933,7 @@ public partial class ILCompiler
             TupleExpression tupleExpression => tupleExpression.Elements.Any(element => ContainsNestedFunction(element.Value)),
             ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
                 (property.IndexExpression != null && ContainsNestedFunction(property.IndexExpression)) || ContainsNestedFunction(property.Value)),
-            NewExpression newExpression => newExpression.ConstructorArguments.Any(argument => ContainsNestedFunction(argument.Value))
-                || (newExpression.Initializer != null && ContainsNestedFunction(newExpression.Initializer)),
+            NewExpression newExpression => AstChildren.Of(newExpression).Any(ContainsNestedFunction),
             CastExpression castExpression => ContainsNestedFunction(castExpression.Expression),
             IsExpression isExpression => ContainsNestedFunction(isExpression.Expression),
             MatchExpression matchExpression => ContainsNestedFunction(matchExpression.Value)
@@ -4638,8 +4091,7 @@ public partial class ILCompiler
             TupleExpression tupleExpression => tupleExpression.Elements.Any(element => ContainsLambda(element.Value)),
             ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
                 (property.IndexExpression != null && ContainsLambda(property.IndexExpression)) || ContainsLambda(property.Value)),
-            NewExpression newExpression => newExpression.ConstructorArguments.Any(argument => ContainsLambda(argument.Value))
-                || (newExpression.Initializer != null && ContainsLambda(newExpression.Initializer)),
+            NewExpression newExpression => AstChildren.Of(newExpression).Any(ContainsLambda),
             CastExpression castExpression => ContainsLambda(castExpression.Expression),
             IsExpression isExpression => ContainsLambda(isExpression.Expression),
             MatchExpression matchExpression => ContainsLambda(matchExpression.Value)
@@ -4719,8 +4171,7 @@ public partial class ILCompiler
             ObjectInitializerExpression objectInitializerExpression => objectInitializerExpression.Properties.Any(property =>
                 (property.IndexExpression != null && ContainsAwait(property.IndexExpression))
                 || ContainsAwait(property.Value)),
-            NewExpression newExpression => newExpression.ConstructorArguments.Any(argument => ContainsAwait(argument.Value))
-                || (newExpression.Initializer != null && ContainsAwait(newExpression.Initializer)),
+            NewExpression newExpression => AstChildren.Of(newExpression).Any(ContainsAwait),
             AllocExpression allocExpression => ContainsAwait(allocExpression.Expression),
             StackAllocExpression stackAllocExpression => ContainsAwait(stackAllocExpression.LengthExpression),
             CastExpression castExpression => ContainsAwait(castExpression.Expression),
@@ -10576,24 +10027,7 @@ public partial class ILCompiler
     }
 
     private Version GetAssemblyVersion()
-    {
-        if (!string.IsNullOrWhiteSpace(_projectConfig?.Version)
-            && Version.TryParse(_projectConfig.Version, out var configuredVersion))
-        {
-            return NormalizeAssemblyVersion(configuredVersion);
-        }
-
-        return new Version(1, 0, 0, 0);
-    }
-
-    private static Version NormalizeAssemblyVersion(Version version)
-    {
-        return new Version(
-            version.Major >= 0 ? version.Major : 1,
-            version.Minor >= 0 ? version.Minor : 0,
-            version.Build >= 0 ? version.Build : 0,
-            version.Revision >= 0 ? version.Revision : 0);
-    }
+        => AssemblyVersionUtilities.GetAssemblyVersionOrDefault(_projectConfig?.Version);
 
     private MethodBuilder? GetEntryPointMethod()
     {
@@ -12099,6 +11533,13 @@ public partial class ILCompiler
     private void EmitReturn(ReturnStatement ret)
     {
         if (_currentIL == null) throw new InvalidOperationException("No IL generator context");
+        if (_finallyHandlerDepth > 0)
+        {
+            // The analyzer rejects this shape with NL319; emitting it would produce a `leave` out of
+            // a finally handler — invalid IL (InvalidProgramException on every call). Never emit it.
+            throw new InvalidOperationException(
+                "compiler bug: a return inside a finally block reached IL emission — the analyzer must reject it with NL319");
+        }
 
         if (_currentGeneratorReturnType != null)
         {
@@ -12685,8 +12126,8 @@ public partial class ILCompiler
         _currentIL.Emit(OpCodes.Br, conditionLabel);
 
         _currentIL.MarkLabel(bodyLabel);
-        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth));
-        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth, _finallyHandlerDepth));
+        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             EmitStatement(forStmt.Body);
@@ -12889,8 +12330,8 @@ public partial class ILCompiler
         EmitConditionBranch(whileStmt.Condition, endLabel, branchIfTrue: false);
 
         // Emit body
-        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth));
-        _continueLabels.Push(new BranchTarget(conditionLabel, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth, _finallyHandlerDepth));
+        _continueLabels.Push(new BranchTarget(conditionLabel, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             EmitStatement(whileStmt.Body);
@@ -12917,6 +12358,13 @@ public partial class ILCompiler
         if (_breakLabels.Count == 0) throw new InvalidOperationException("break used outside of a loop or switch");
 
         var breakTarget = _breakLabels.Peek();
+        if (_finallyHandlerDepth > breakTarget.FinallyHandlerDepth)
+        {
+            // Analyzer-rejected shape (NL319): the branch would exit a finally handler, where even
+            // `leave` is invalid IL. Throw rather than emit it.
+            throw new InvalidOperationException(
+                "compiler bug: a break out of a finally block reached IL emission — the analyzer must reject it with NL319");
+        }
         _currentIL.Emit(_exceptionBlockDepth > breakTarget.ExceptionBlockDepth ? OpCodes.Leave : OpCodes.Br, breakTarget.Label);
     }
 
@@ -12929,6 +12377,12 @@ public partial class ILCompiler
         if (_continueLabels.Count == 0) throw new InvalidOperationException("continue used outside of a loop");
 
         var continueTarget = _continueLabels.Peek();
+        if (_finallyHandlerDepth > continueTarget.FinallyHandlerDepth)
+        {
+            // Analyzer-rejected shape (NL319): see EmitBreak.
+            throw new InvalidOperationException(
+                "compiler bug: a continue out of a finally block reached IL emission — the analyzer must reject it with NL319");
+        }
         _currentIL.Emit(_exceptionBlockDepth > continueTarget.ExceptionBlockDepth ? OpCodes.Leave : OpCodes.Br, continueTarget.Label);
     }
 
@@ -12963,6 +12417,18 @@ public partial class ILCompiler
         }
 
         EmitExpression(lockStmt.LockObject);
+        // The lockee is stored into an `object` local, so anything that is not already a reference
+        // on the stack must be boxed first — a bare `stloc` of a raw value into the object local is
+        // unverifiable IL (StackUnexpected) whose fake reference segfaults inside Monitor.Enter.
+        // The analyzer rejects value-typed and non-reference-constrained generic lockees with NL320,
+        // so this only fires for generic type parameters that passed (e.g. `where T: class`), where
+        // `box !!T` is the required lowering (a no-op at runtime for reference instantiations) —
+        // and it is defense in depth should an analyzer gap ever let a value type through.
+        var lockeeType = GetExpressionType(lockStmt.LockObject);
+        if (lockeeType.IsValueType || lockeeType.IsGenericParameter)
+        {
+            _currentIL.Emit(OpCodes.Box, lockeeType);
+        }
         var lockLocal = _currentIL.DeclareLocal(typeof(object));
         _currentIL.Emit(OpCodes.Stloc, lockLocal);
 
@@ -13009,7 +12475,7 @@ public partial class ILCompiler
         // case body. Falls back to the linear test chain below when arms aren't dispatchable.
         var usedDispatch = TryEmitSwitchDispatch(switchStmt, switchValueType, switchLocal, bodyLabels, endLabel);
 
-        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(endLabel, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             for (int i = 0; i < switchStmt.Cases.Count; i++)
@@ -13291,8 +12757,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(disposeLabel, _exceptionBlockDepth));
-        _continueLabels.Push(new BranchTarget(loopStart, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(disposeLabel, _exceptionBlockDepth, _finallyHandlerDepth));
+        _continueLabels.Push(new BranchTarget(loopStart, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             EmitStatement(foreachStmt.Body);
@@ -13400,8 +12866,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(disposeLabel, _exceptionBlockDepth));
-        _continueLabels.Push(new BranchTarget(loopStart, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(disposeLabel, _exceptionBlockDepth, _finallyHandlerDepth));
+        _continueLabels.Push(new BranchTarget(loopStart, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             EmitStatement(awaitForeachStmt.Body);
@@ -13534,8 +13000,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth));
-        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth, _finallyHandlerDepth));
+        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             EmitStatement(foreachStmt.Body);
@@ -13626,8 +13092,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth));
-        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth, _finallyHandlerDepth));
+        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             EmitStatement(foreachStmt.Body);
@@ -13714,7 +13180,13 @@ public partial class ILCompiler
         if (tryStmt.FinallyBlock != null)
         {
             _currentIL.BeginFinallyBlock();
+            // While the handler's statements emit, control transfers that would exit it (return,
+            // break/continue to an outer loop) are invalid IL — the analyzer rejects them (NL319)
+            // and the emit-path guards throw if one slips through. Loops opened INSIDE the finally
+            // record this depth at entry, so their own break/continue stay legal.
+            _finallyHandlerDepth++;
             EmitStatement(tryStmt.FinallyBlock);
+            _finallyHandlerDepth--;
         }
 
         // End exception block
@@ -19892,7 +19364,10 @@ public partial class ILCompiler
             ?? throw new InvalidOperationException($"Could not resolve Span<{elementType.Name}>(void*, int) constructor.");
 
         var lengthLocal = _currentIL.DeclareLocal(typeof(int));
-        EmitExpression(stackAlloc.LengthExpression);
+        // Verifiability backstop: the analyzer guarantees an int-convertible length, but the
+        // localloc byte count and the Span(void*, int) ctor both require an int32 stack slot,
+        // so normalize like the array-length path does rather than trusting the raw stack type.
+        EmitExpressionWithExpectedType(stackAlloc.LengthExpression, typeof(int));
         _currentIL.Emit(OpCodes.Dup);
         _currentIL.Emit(OpCodes.Stloc, lengthLocal);
         _currentIL.Emit(OpCodes.Sizeof, elementType);
@@ -21968,7 +21443,11 @@ public partial class ILCompiler
         {
             var constraintType = ResolveType(typeConstraint, genericParameters);
 
-            if (constraintType.IsClass)
+            if (constraintType.IsGenericParameter)
+            {
+                baseClassConstraint = constraintType;
+            }
+            else if (constraintType.IsClass)
             {
                 // Base class constraint (can only have one)
                 baseClassConstraint = constraintType;
@@ -23252,6 +22731,10 @@ public partial class ILCompiler
             var methodGenericParameters = methodBuilder.DefineGenericParameters(
                 runtimeTypeParameters.Select(tp => tp.Name).ToArray());
 
+            // Method type parameters are the innermost scope: list them first so a
+            // method-level name wins lookup over a same-named type-level parameter.
+            signatureGenericParameters = CombineGenericParameters(methodGenericParameters, typeGenericParameters);
+
             if (funcDecl.Constraints != null)
             {
                 foreach (var constraint in funcDecl.Constraints)
@@ -23259,16 +22742,10 @@ public partial class ILCompiler
                     var constrainedParameter = methodGenericParameters.FirstOrDefault(gp => gp.Name == constraint.TypeParameter);
                     if (constrainedParameter != null)
                     {
-                        ApplyGenericConstraints(constrainedParameter, constraint, methodGenericParameters);
+                        ApplyGenericConstraints(constrainedParameter, constraint, signatureGenericParameters);
                     }
                 }
             }
-
-            // Method type parameters are the innermost scope: list them first so a
-            // method-level name wins lookup over a same-named type-level parameter.
-            signatureGenericParameters = typeGenericParameters == null
-                ? methodGenericParameters
-                : methodGenericParameters.Concat(typeGenericParameters).ToArray();
 
             returnType = funcDecl.ReturnType != null
                 ? ResolveType(funcDecl.ReturnType, signatureGenericParameters)

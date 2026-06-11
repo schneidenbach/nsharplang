@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Compiler;
@@ -29,7 +31,7 @@ namespace NSharpLang.Compiler;
 /// negative is harmless (scalar loop unchanged), a false positive must be impossible. Enforced:
 /// <list type="bullet">
 /// <item>condition is <c>index &lt; bound</c> with a loop-invariant side-effect-free bound (id/int-literal/array
-///   <c>.Length</c>) that is not the index;</item>
+///   <c>.Length</c>) that is not the index and is not written by the matched loop body;</item>
 /// <item>the body is exactly: a temp <c>current := a[index]</c>; an <c>if current != previous { count++ }</c>
 ///   with no else and a single unit counter increment; a carry <c>previous = current</c>;</item>
 /// <item>the array is indexed only by <c>index</c>; counter/array/index/previous/current are five DISTINCT
@@ -66,7 +68,7 @@ public sealed record CountTransitionsShape(
             return null;
         if (statements[3] is not ExpressionStatement { Expression: { } increment } || !IsUnitIncrement(increment, indexId.Name))
             return null;
-        return TryMatchBody(statements[0], statements[1], statements[2], indexId, bound);
+        return TryMatchBody(statements[0], statements[1], statements[2], increment, indexId, bound);
     }
 
     /// <summary>Matches the for-form (the unit index increment is the iterator; the body is temp; if; carry).
@@ -79,10 +81,16 @@ public sealed record CountTransitionsShape(
             return null;
         if (loop.Body is not BlockStatement { Statements: { Count: 3 } statements })
             return null;
-        return TryMatchBody(statements[0], statements[1], statements[2], indexId, bound);
+        return TryMatchBody(statements[0], statements[1], statements[2], loop.Iterator, indexId, bound);
     }
 
-    private static CountTransitionsShape? TryMatchBody(Statement tempStatement, Statement ifStatement, Statement carryStatement, IdentifierExpression indexId, Expression bound)
+    private static CountTransitionsShape? TryMatchBody(
+        Statement tempStatement,
+        Statement ifStatement,
+        Statement carryStatement,
+        Expression iterator,
+        IdentifierExpression indexId,
+        Expression bound)
     {
         var index = indexId.Name;
 
@@ -119,6 +127,8 @@ public sealed record CountTransitionsShape(
         var previous = previousId.Name;
         var array = arrayRef.Name;
         if (!AllDistinct(counter, array, index, previous, current))
+            return null;
+        if (BoundReadsIdentifierWrittenByMatchedLoop(bound, tempStatement, ifStatement, carryStatement, iterator))
             return null;
 
         return new CountTransitionsShape(counterId, arrayRef, indexId, previousId, bound);
@@ -225,6 +235,98 @@ public sealed record CountTransitionsShape(
         MemberAccessExpression { IsNullConditional: false, MemberName: "Length", Object: IdentifierExpression } => true,
         _ => false,
     };
+
+    private static bool BoundReadsIdentifierWrittenByMatchedLoop(
+        Expression bound,
+        Statement tempStatement,
+        Statement ifStatement,
+        Statement carryStatement,
+        Expression iterator)
+    {
+        var boundReads = new HashSet<string>(StringComparer.Ordinal);
+        CollectIdentifierReads(bound, boundReads);
+        if (boundReads.Count == 0)
+            return false;
+
+        var writes = new HashSet<string>(StringComparer.Ordinal);
+        CollectIdentifierWrites(tempStatement, writes);
+        CollectIdentifierWrites(ifStatement, writes);
+        CollectIdentifierWrites(carryStatement, writes);
+        CollectIdentifierWrites(iterator, writes);
+        return writes.Overlaps(boundReads);
+    }
+
+    private static void CollectIdentifierReads(Expression expression, HashSet<string> reads)
+    {
+        switch (expression)
+        {
+            case IdentifierExpression id:
+                reads.Add(id.Name);
+                break;
+            case MemberAccessExpression member:
+                CollectIdentifierReads(member.Object, reads);
+                break;
+            case ParenthesizedExpression parenthesized:
+                CollectIdentifierReads(parenthesized.Inner, reads);
+                break;
+        }
+    }
+
+    private static void CollectIdentifierWrites(Statement statement, HashSet<string> writes)
+    {
+        switch (statement)
+        {
+            case VariableDeclarationStatement declaration:
+                writes.Add(declaration.Name);
+                break;
+            case ExpressionStatement expressionStatement:
+                CollectIdentifierWrites(expressionStatement.Expression, writes);
+                break;
+            case BlockStatement block:
+                foreach (var child in block.Statements)
+                    CollectIdentifierWrites(child, writes);
+                break;
+            case IfStatement ifStatement:
+                CollectIdentifierWrites(ifStatement.ThenStatement, writes);
+                if (ifStatement.ElseStatement != null)
+                    CollectIdentifierWrites(ifStatement.ElseStatement, writes);
+                break;
+        }
+    }
+
+    private static void CollectIdentifierWrites(Expression expression, HashSet<string> writes)
+    {
+        switch (expression)
+        {
+            case AssignmentExpression assignment:
+                CollectAssignmentTargetWrites(assignment.Target, writes);
+                CollectIdentifierWrites(assignment.Value, writes);
+                break;
+            case UnaryExpression { Operator: UnaryOperator.PreIncrement or UnaryOperator.PostIncrement or UnaryOperator.PreDecrement or UnaryOperator.PostDecrement } unary:
+                CollectAssignmentTargetWrites(unary.Operand, writes);
+                break;
+            case BinaryExpression binary:
+                CollectIdentifierWrites(binary.Left, writes);
+                CollectIdentifierWrites(binary.Right, writes);
+                break;
+            case ParenthesizedExpression parenthesized:
+                CollectIdentifierWrites(parenthesized.Inner, writes);
+                break;
+        }
+    }
+
+    private static void CollectAssignmentTargetWrites(Expression target, HashSet<string> writes)
+    {
+        switch (target)
+        {
+            case IdentifierExpression id:
+                writes.Add(id.Name);
+                break;
+            case ParenthesizedExpression parenthesized:
+                CollectAssignmentTargetWrites(parenthesized.Inner, writes);
+                break;
+        }
+    }
 
     private static bool IsLiteralOne(Expression expression)
         => expression is IntLiteralExpression { Value: "1" };

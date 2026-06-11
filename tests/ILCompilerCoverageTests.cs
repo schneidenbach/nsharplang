@@ -207,6 +207,128 @@ func main(): int {
 }"));
     }
 
+    // Control transfer OUT of a finally handler is analyzer-rejected (NL319, the CS0157 analog) —
+    // emitting it would produce a `leave` out of the handler, which ECMA-335 forbids
+    // (ilverify: LeaveOutOfFinally; InvalidProgramException on every call). This harness compiles
+    // through the ILCompiler directly, BYPASSING the analyzer, so it pins the emitter's
+    // defense-in-depth guards: they must throw a compiler-bug error rather than emit the invalid IL.
+    [Fact]
+    public void ILCompiler_ControlTransferOutOfFinally_NeverReachesEmit()
+    {
+        // return out of a finally (the void form that previously built and crashed at runtime).
+        var ret = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main() {
+    n := 0
+    try {
+        n = n + 1
+    } finally {
+        return
+    }
+}"));
+        Assert.Contains("NL319", ret.Message);
+
+        // break out of a finally to a loop outside it.
+        var brk = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    total := 0
+    i := 0
+    while i < 5 {
+        i = i + 1
+        try {
+            total = total + 1
+        } finally {
+            if i == 2 {
+                break
+            }
+        }
+    }
+    return total
+}"));
+        Assert.Contains("NL319", brk.Message);
+
+        // continue out of a finally to a loop outside it.
+        var cont = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    total := 0
+    i := 0
+    while i < 5 {
+        i = i + 1
+        try {
+            total = total + 1
+        } finally {
+            if i == 2 {
+                continue
+            }
+        }
+    }
+    return total
+}"));
+        Assert.Contains("NL319", cont.Message);
+
+        // a loop OPENED inside the finally — its own break/continue never leave the handler and
+        // must keep compiling and running (the guard records the loop-entry finally depth).
+        Assert.Equal(4, CompileAndInvoke(@"
+func main(): int {
+    total := 0
+    try {
+        total = total + 1
+    } finally {
+        i := 0
+        while i < 10 {
+            if i == 3 {
+                break
+            }
+            total = total + 1
+            i = i + 1
+        }
+    }
+    return total
+}"));
+    }
+
+    [Fact]
+    public void ILCompiler_NestedBodiesDoNotCaptureOuterLoopBranchTargets()
+    {
+        // The analyzer rejects both shapes as ordinary invalid break/continue usage. This direct
+        // ILCompiler harness bypasses analysis, so it pins the emitter isolation guard: nested
+        // method bodies must not reuse the enclosing method's loop labels.
+        var lambdaBreak = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    i := 0
+    while i < 1 {
+        try {
+            i = i + 1
+        } finally {
+            let f: Func<int> = () => {
+                break
+                return 1
+            }
+            i = f()
+        }
+    }
+    return i
+}"));
+        Assert.Contains("break used outside", lambdaBreak.Message);
+
+        var localContinue = Assert.Throws<InvalidOperationException>(() => CompileAndInvoke(@"
+func main(): int {
+    i := 0
+    while i < 1 {
+        try {
+            i = i + 1
+        } finally {
+            func bump(): int {
+                continue
+                return 1
+            }
+            i = bump()
+        }
+    }
+    return i
+}"));
+        Assert.Contains("continue used outside", localContinue.Message);
+    }
+
     [Fact]
     public void ILCompiler_NamedTupleMemberAccess_AllReceiverShapes()
     {

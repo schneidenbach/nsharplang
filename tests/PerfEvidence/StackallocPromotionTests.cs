@@ -306,6 +306,36 @@ func main(): int {
     }
 
     [Fact]
+    public void IlShape_BufferEscapingInsideArrayLength_StaysHeapArray()
+    {
+        // NewExpression.ArrayLengthExpression was a skipped walker subtree: a buffer escaping
+        // through a call placed inside `new T[...]`'s length must still disqualify promotion.
+        // Two newarr instructions are expected: the unpromoted literal buffer and the
+        // dynamically-sized byte array.
+        const string source = @"
+func sink(values: int[]): int {
+    return values[0]
+}
+
+func main(): int {
+    buf: int[] = [7, 8, 9]
+    other := new byte[sink(buf)]
+    return other.Length
+}";
+
+        var result = ILShapeInspector.Compile(source, assembly =>
+        {
+            var method = ILShapeInspector.GetProgramMethod(assembly, "main");
+            Assert.True(
+                ILShapeInspector.CountOpcode(method, OpCodes.Newarr) >= 2,
+                "Expected a buffer escaping inside an array-length expression to remain a heap array (newarr).");
+            return (int)method.Invoke(null, null)!;
+        });
+
+        Assert.Equal(7, result);
+    }
+
+    [Fact]
     public void IlShape_NestedBlockBuffer_StaysHeapArray()
     {
         // Promotion storage is method-wide and string-keyed and is never scope-restored. A buffer

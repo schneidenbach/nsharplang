@@ -28,6 +28,163 @@ public class TranspilerTests
     }
 
     [Fact]
+    public void InferredStackallocDeclaration_EmitsExplicitSpanType()
+    {
+        // F1: C# types `var x = stackalloc T[n];` as T* and demands an unsafe context (CS0214),
+        // so a type-inferred stackalloc declaration must spell out the Span<T> type instead.
+        var source = @"
+func Scratch(): int {
+    scratch := stackalloc byte[4]
+    return scratch.Length
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("Span<byte> scratch = stackalloc byte[4];", csharp);
+        Assert.DoesNotContain("var scratch", csharp);
+    }
+
+    [Fact]
+    public void InferredStackallocDeclaration_NonConstantLength_EmitsExplicitSpanType()
+    {
+        var source = @"
+func Scratch(n: int): int {
+    scratch := stackalloc int[n]
+    return scratch.Length
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("Span<int> scratch = stackalloc int[n];", csharp);
+        Assert.DoesNotContain("var scratch", csharp);
+    }
+
+    [Fact]
+    public void ExplicitlyTypedStackallocDeclaration_IsUnchanged()
+    {
+        var source = @"
+func Scratch(): int {
+    scratch: Span<byte> = stackalloc byte[4]
+    return scratch.Length
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("Span<byte> scratch = stackalloc byte[4];", csharp);
+    }
+
+    [Fact]
+    public void StackallocReassignment_AfterTypedDeclaration_StaysAnAssignment()
+    {
+        // Reassigning a span local from a fresh stackalloc is valid C# 8; only the
+        // declaration needs the explicit type.
+        var source = @"
+func Scratch(): int {
+    scratch: Span<byte> = stackalloc byte[4]
+    scratch = stackalloc byte[8]
+    return scratch.Length
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("scratch = stackalloc byte[8];", csharp);
+    }
+
+    [Fact]
+    public void ConditionalStackallocInitializer_EmitsExplicitSpanType()
+    {
+        var source = @"
+func Scratch(big: bool): int {
+    scratch := big ? stackalloc byte[8] : stackalloc byte[4]
+    return scratch.Length
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("Span<byte> scratch =", csharp);
+        Assert.DoesNotContain("var scratch", csharp);
+    }
+
+    [Fact]
+    public void UnionCaseConstruction_LowersToPositionalRecordArguments()
+    {
+        // Union cases lower to positional C# records (record Success(int value)), so the
+        // property-style construction braces must become named constructor arguments — an
+        // object initializer has no argument for the required primary-constructor parameter.
+        var source = @"
+union Outcome {
+    Success { value: int }
+    Failure { error: string }
+}
+
+func Make(): Outcome {
+    return new Outcome.Success { value: 42 }
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("new Outcome.Success(value: 42)", csharp);
+        Assert.DoesNotContain("value = 42", csharp);
+    }
+
+    [Fact]
+    public void InferredUnionCaseDeclaration_EmitsUnionTypeInsteadOfVar()
+    {
+        // `var v = new Verdict.Pass(...)` would type the local as the CASE record, so a match
+        // arm over another case becomes CS8121. N# types the value as the UNION.
+        var source = @"
+union Verdict {
+    Pass { score: int }
+    Fail { reason: string }
+}
+
+func Score(): int {
+    verdict := new Verdict.Pass { score: 42 }
+    return match verdict {
+        Verdict.Pass { score } => score,
+        Verdict.Fail { reason } => 0
+    }
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("Verdict verdict = new Verdict.Pass(score: 42);", csharp);
+        Assert.DoesNotContain("var verdict", csharp);
+    }
+
+    [Fact]
+    public void GenericUnionCaseConstruction_LowersToPositionalRecordArguments()
+    {
+        var source = @"
+union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}
+
+func Make(): Result<int> {
+    return new Result.Success<int> { value: 42 }
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("new Result<int>.Success(value: 42)", csharp);
+    }
+
+    [Fact]
+    public void NonStackallocInferredDeclaration_StillEmitsVar()
+    {
+        var source = @"
+func Value(): int {
+    x := 1
+    return x
+}
+";
+        var csharp = Transpile(source);
+
+        Assert.Contains("var x = 1;", csharp);
+    }
+
+    [Fact]
     public void OkInsideLambda_DoesNotInheritOuterResultReturnType()
     {
         // C1: a bare Ok(x) inside a lambda nested in a Result-returning function must not be
@@ -4791,6 +4948,19 @@ func Test() {
         ";
         var result = Transpile(source);
         Assert.Contains("new int[] { 1, 2, 3 }", result);
+    }
+
+    [Fact]
+    public void SizedArrayAllocationWithConstructorArguments_TranspilerRejectsUnanalyzedAst()
+    {
+        var source = @"
+func Test() {
+    nums := new int[3](SideEffect())
+}
+        ";
+
+        var exception = Assert.Throws<InvalidOperationException>(() => Transpile(source));
+        Assert.Contains("Sized array construction cannot also have constructor arguments", exception.Message);
     }
 
     [Fact]

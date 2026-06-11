@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using System.Text.Json;
@@ -294,6 +295,303 @@ class Box {}
         var finding = Assert.Single(report.Findings,
             f => f.Code == "NSYS010" && f.Message.Contains("Cold", StringComparison.Ordinal));
         Assert.Equal(new[] { "Caller", "Cold" }, finding.CallPath);
+    }
+
+    private const string HotCalleeAllocSource = """
+class Alloc {
+    func Helper(): Box {
+        return alloc new Box()
+    }
+
+    [hot]
+    func Hot(): int {
+        value := this.Helper()
+        return value.Tag
+    }
+}
+
+class Box {
+    Tag: int
+}
+""";
+
+    private const string HotCalleeCleanSource = """
+class Clean {
+    func Helper(): int {
+        return 1
+    }
+}
+""";
+
+    [Theory]
+    [InlineData("a_alloc.nl", "z_clean.nl")]
+    [InlineData("z_alloc.nl", "a_clean.nl")]
+    public void HotCallee_SameMethodNameInTwoClasses_FlagsNsys010RegardlessOfFileOrder(string allocFile, string cleanFile)
+    {
+        var report = AnalyzeFiles(new Dictionary<string, string>
+        {
+            [allocFile] = HotCalleeAllocSource,
+            [cleanFile] = HotCalleeCleanSource,
+        });
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS010");
+        Assert.Equal("Alloc.Hot", finding.Function);
+        Assert.Contains("Alloc.Helper", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HotCallee_SameFileLaterDuplicate_StillFlagged()
+    {
+        var report = Analyze(HotCalleeAllocSource + Environment.NewLine + HotCalleeCleanSource);
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS010");
+        Assert.Equal("Alloc.Hot", finding.Function);
+        Assert.Contains("Alloc.Helper", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HotCallee_CleanHotPath_NotBlamedForUnrelatedAllocator()
+    {
+        var report = AnalyzeFiles(new Dictionary<string, string>
+        {
+            ["a_clean.nl"] = """
+class Clean {
+    func Helper(): int {
+        return 1
+    }
+
+    [hot]
+    func Hot(): int {
+        return this.Helper()
+    }
+}
+""",
+            ["z_alloc.nl"] = """
+class Alloc {
+    func Helper(): Box {
+        return alloc new Box()
+    }
+}
+
+class Box {}
+""",
+        });
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS010");
+        var hot = Assert.Single(report.Functions, function => function.Name == "Clean.Hot");
+        Assert.False(hot.Effects.Allocates);
+    }
+
+    [Fact]
+    public void FilePrivateTopLevelDuplicates_ResolvePerFile()
+    {
+        var report = AnalyzeFiles(new Dictionary<string, string>
+        {
+            ["a_other.nl"] = """
+func helper(): int {
+    return 2
+}
+""",
+            ["z_hot.nl"] = """
+func helper(): int {
+    box := alloc new Box()
+    return box.Tag
+}
+
+[hot]
+func HotPath(): int {
+    return helper()
+}
+
+class Box {
+    Tag: int
+}
+""",
+        });
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS010");
+        Assert.Equal("HotPath", finding.Function);
+
+        // Both file-private duplicates are distinct functions: each body is analyzed and reported.
+        var helpers = report.Functions.Where(function => function.Name == "helper").ToList();
+        Assert.Equal(2, helpers.Count);
+        Assert.False(helpers.Single(function => function.File.EndsWith("a_other.nl", StringComparison.Ordinal)).Effects.Allocates);
+        Assert.True(helpers.Single(function => function.File.EndsWith("z_hot.nl", StringComparison.Ordinal)).Effects.Allocates);
+    }
+
+    [Fact]
+    public void HotCallee_OverloadsResolveByArity_AllocatingOverloadFlagged()
+    {
+        var report = Analyze("""
+class Alloc {
+    func Helper(): int {
+        return 1
+    }
+
+    func Helper(n: int): Box {
+        return alloc new Box()
+    }
+
+    [hot]
+    func Hot(): int {
+        value := this.Helper(2)
+        return 1
+    }
+}
+
+class Box {}
+""");
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS010");
+        Assert.Equal("Alloc.Hot", finding.Function);
+    }
+
+    [Fact]
+    public void HotCallee_OverloadsResolveByArity_CleanOverloadNotFlagged()
+    {
+        var report = Analyze("""
+class Alloc {
+    func Helper(): int {
+        return 1
+    }
+
+    func Helper(n: int): Box {
+        return alloc new Box()
+    }
+
+    [hot]
+    func Hot(): int {
+        return this.Helper()
+    }
+}
+
+class Box {}
+""");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS010");
+        var hot = Assert.Single(report.Functions, function => function.Name == "Alloc.Hot");
+        Assert.False(hot.Effects.Allocates);
+    }
+
+    [Fact]
+    public void Nsys050_NotSuppressedByCoincidentalName()
+    {
+        var report = Analyze("""
+class Unrelated {
+    func Helper(): int {
+        return 1
+    }
+}
+
+[hot]
+func Hot(io: SomeUnknownService): int {
+    return io.Helper()
+}
+""");
+
+        Assert.Contains(report.Findings,
+            f => f.Code == "NSYS050" && f.Message.Contains("io.Helper", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void HotConstrainedGenericCall_ResolvesThroughConstraintInterface()
+    {
+        var report = Analyze("""
+interface Sortable<T> {
+    func LessThan(other: T): bool
+}
+
+struct Pair : Sortable<Pair> {
+    Value: int
+
+    func LessThan(other: Pair): bool {
+        return Value < other.Value
+    }
+}
+
+[hot]
+func SortPair<T>(items: T[]): int where T : struct, Sortable<T> {
+    if items.Length < 2 {
+        return 0
+    }
+
+    if items[1].LessThan(items[0]) {
+        tmp := items[0]
+        items[0] = items[1]
+        items[1] = tmp
+    }
+
+    return 0
+}
+""");
+
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS050");
+        var sortPair = Assert.Single(report.Functions, function => function.Name == "SortPair");
+        Assert.Contains("Sortable.LessThan", sortPair.Calls);
+    }
+
+    [Fact]
+    public void HotCallee_ResolvesAcrossFileImport()
+    {
+        var report = AnalyzeFiles(new Dictionary<string, string>
+        {
+            ["lib.nl"] = """
+func MakeBox(): Box {
+    return alloc new Box()
+}
+
+class Box {}
+""",
+            ["main.nl"] = """
+import "lib"
+
+[hot]
+func Hot(): int {
+    value := MakeBox()
+    return 1
+}
+""",
+        });
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS010");
+        Assert.Equal("Hot", finding.Function);
+        Assert.Contains("MakeBox", finding.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void HotCallee_ImportedDuplicateSourceSite_ResolvesImportedDeclaration()
+    {
+        var report = AnalyzeFiles(new Dictionary<string, string>
+        {
+            ["libA.nl"] = """
+func MakeBox(): Box {
+    return alloc new Box()
+}
+
+class Box {
+    Tag: int
+}
+""",
+            ["libB.nl"] = """
+func MakeBox(): int {
+    return 1
+}
+""",
+            ["main.nl"] = """
+import "libA"
+
+[hot]
+func Hot(): int {
+    value := MakeBox()
+    return value.Tag
+}
+""",
+        });
+
+        var finding = Assert.Single(report.Findings, f => f.Code == "NSYS010");
+        Assert.Equal("Hot", finding.Function);
+        Assert.Contains("MakeBox", finding.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(report.Findings, f => f.Code == "NSYS050");
     }
 
     [Fact]
@@ -2708,6 +3006,51 @@ func Run(): int {
     }
 
     [Fact]
+    public void StackallocExpression_ByteTypedLength_CompilesAndRuns()
+    {
+        // A small-int length widens implicitly to int; the emitted Span(void*, int) ctor must
+        // still see an int32 element count.
+        var result = CompileAndInvoke("""
+import System
+
+func Run(): int {
+    count: byte = 16
+    scratch := stackalloc byte[count]
+    return scratch.Length
+}
+""", "Run");
+
+        Assert.Equal(16, result);
+    }
+
+    [Fact]
+    public void StackallocExpression_LongTypedLength_IsNormalizedToInt32()
+    {
+        // Verifiability backstop pin: the analyzer rejects long lengths up front (NL202), but a
+        // direct ILCompiler compile bypasses the analyzer — exactly the gap scenario — and the
+        // emitter must still normalize the count to int32 (a raw int64 on the stack produced
+        // StackUnexpected/Unverifiable IL at the mul and the Span(void*, int) ctor).
+        var result = ILShapeInspector.Compile("""
+import System
+
+func Run(): int {
+    count: long = 8
+    scratch := stackalloc byte[count]
+    return scratch.Length
+}
+""", assembly =>
+        {
+            var method = assembly.GetType("Program")!.GetMethod("Run", BindingFlags.Public | BindingFlags.Static)!;
+            Assert.True(
+                ILShapeInspector.CountOpcode(method, OpCodes.Conv_I4) >= 1,
+                "Expected the long-typed stackalloc length to be narrowed to int32 (conv.i4).");
+            return method.Invoke(null, null);
+        });
+
+        Assert.Equal(8, result);
+    }
+
+    [Fact]
     public void ArrayCanFlowToReadOnlySpanParameter()
     {
         var result = CompileAndInvoke("""
@@ -2767,19 +3110,42 @@ func Run(): int {
     }
 
     private static SystemsReport Analyze(string source, string profile = "default", string mode = "strict", Action<ProjectConfig>? configure = null)
+        => AnalyzeFiles(new Dictionary<string, string> { ["Program.nl"] = source }, profile, mode, configure);
+
+    private static SystemsReport AnalyzeFiles(
+        IReadOnlyDictionary<string, string> sources,
+        string profile = "default",
+        string mode = "strict",
+        Action<ProjectConfig>? configure = null)
     {
         var projectRoot = Path.Combine(Path.GetTempPath(), $"nsharp-systems-analysis-{Guid.NewGuid():N}");
-        var file = Path.Combine(projectRoot, "Program.nl");
-        var unit = Parse(source, file);
 
         var config = ProjectFileParser.CreateDefault("SystemsTest");
         config.Language.Profile = profile;
         config.Language.Systems.Mode = mode;
         configure?.Invoke(config);
 
-        return new SystemsAnalyzer(projectRoot, config).Analyze(
-            new Dictionary<string, CompilationUnit> { [file] = unit },
-            new PerformanceFactStore());
+        return AnalyzeProject(projectRoot, config, sources);
+    }
+
+    private static SystemsReport AnalyzeProject(string projectRoot, ProjectConfig config, IReadOnlyDictionary<string, string> sources)
+    {
+        var sourceTexts = sources.ToDictionary(
+            kvp => Path.Combine(projectRoot, kvp.Key),
+            kvp => kvp.Value,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (file, text) in sourceTexts)
+        {
+            Parse(text, file);
+        }
+
+        // Run the same analysis pipeline `nlc check` runs (parse + semantic Analyzer + systems
+        // policy): systems callee resolution consumes the Analyzer's semantic models, so feeding
+        // SystemsAnalyzer bare ASTs would conservatively flag every user call as unknown.
+        var compiler = new MultiFileCompiler(sourceTexts.Keys, projectRoot, config, sourceTexts);
+        compiler.CompileForAnalysis();
+        return compiler.SystemsReport;
     }
 
     private static SystemsReport AnalyzeWithSidecar(string source, bool allowHotSidecars)
@@ -2812,16 +3178,12 @@ func Run(): int {
             var sidecarPath = Path.Combine(projectRoot, "external.hotsummary.json");
             File.WriteAllText(sidecarPath, sidecarJson);
 
-            var file = Path.Combine(projectRoot, "Program.nl");
-            var unit = Parse(source, file);
             var config = ProjectFileParser.CreateDefault("SystemsSidecar");
             config.Language.Profile = "systems";
             config.Language.Systems.HotSummaryFiles.Add("external.hotsummary.json");
             config.Language.Systems.AllowHotSidecars = allowHotSidecars;
 
-            return new SystemsAnalyzer(projectRoot, config).Analyze(
-                new Dictionary<string, CompilationUnit> { [file] = unit },
-                new PerformanceFactStore());
+            return AnalyzeProject(projectRoot, config, new Dictionary<string, string> { ["Program.nl"] = source });
         }
         finally
         {

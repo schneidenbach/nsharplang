@@ -17,6 +17,77 @@ echo "N# VS Code Integration Tests"
 echo "======================================="
 echo
 
+vscode_last_summary_count() {
+    local output="$1"
+    local label="$2"
+    local summary
+
+    summary="$(grep -Eo "[0-9]+ $label" "$output" 2>/dev/null | tail -1 || true)"
+    if [ -z "$summary" ]; then
+        echo 0
+        return
+    fi
+
+    echo "${summary%% *}"
+}
+
+vscode_passing_count_from_file() {
+    vscode_last_summary_count "$1" "passing"
+}
+
+vscode_failing_count_from_file() {
+    vscode_last_summary_count "$1" "failing"
+}
+
+vscode_output_has_failures() {
+    local output="$1"
+    local failing_count
+
+    failing_count="$(vscode_failing_count_from_file "$output")"
+    [ "$failing_count" -gt 0 ] || grep -Eq '✗' "$output"
+}
+
+run_vscode_harness_self_test() {
+    local output
+    output="$(mktemp)"
+
+    printf '  0 passing (3ms)\n' > "$output"
+    if [ "$(vscode_passing_count_from_file "$output")" -ne 0 ]; then
+        echo "Expected 0 passing to parse as zero tests"
+        rm -f "$output"
+        return 1
+    fi
+
+    printf '  12 passing (3s)\n' > "$output"
+    if [ "$(vscode_passing_count_from_file "$output")" -ne 12 ]; then
+        echo "Expected positive passing count to parse correctly"
+        rm -f "$output"
+        return 1
+    fi
+
+    printf '  1 failing\n' > "$output"
+    if ! vscode_output_has_failures "$output"; then
+        echo "Expected positive failing count to be treated as a failure"
+        rm -f "$output"
+        return 1
+    fi
+
+    printf '  0 failing\n' > "$output"
+    if vscode_output_has_failures "$output"; then
+        echo "Expected zero failing count not to be treated as a failure"
+        rm -f "$output"
+        return 1
+    fi
+
+    rm -f "$output"
+    echo "VS Code integration harness self-test passed"
+}
+
+if [ "${NSHARP_VSCODE_HARNESS_SELF_TEST:-}" = "1" ]; then
+    run_vscode_harness_self_test
+    exit $?
+fi
+
 # Check prerequisites
 if ! command -v code >/dev/null 2>&1; then
     echo -e "${RED}Error: VS Code ('code' command) not found on PATH${NC}"
@@ -197,9 +268,11 @@ run_vscode_tests() {
     local passed_seen=0
     local host_exit_seen=0
     local passed_at=0
+    local passing_count=0
 
     while kill -0 "$node_pid" 2>/dev/null; do
-        if [ "$passed_seen" = "0" ] && grep -Eq '[0-9]+ passing' "$output"; then
+        passing_count="$(vscode_passing_count_from_file "$output")"
+        if [ "$passed_seen" = "0" ] && [ "$passing_count" -gt 0 ]; then
             passed_seen=1
             passed_at="$(date +%s)"
         fi
@@ -212,7 +285,7 @@ run_vscode_tests() {
         # both "N passing" and "M failing"; without this guard the early-return reported success and
         # bypassed mocha's non-zero exit code. On any failing line, fall through to the real
         # wait/status below so the failure propagates.
-        if grep -Eq '[0-9]+ failing|✗|[0-9]+ pending, [0-9]+ failing' "$output"; then
+        if vscode_output_has_failures "$output"; then
             passed_seen=0
         fi
 
@@ -237,9 +310,17 @@ run_vscode_tests() {
     done
 
     local status
-    wait "$node_pid"
-    status=$?
+    if wait "$node_pid"; then
+        status=0
+    else
+        status=$?
+    fi
+    passing_count="$(vscode_passing_count_from_file "$output")"
     cat "$output"
+    if [ "$status" = "0" ] && [ "$passing_count" -eq 0 ]; then
+        echo -e "${RED}Error: VS Code integration harness ran 0 tests${NC}"
+        status=1
+    fi
     rm -f "$output"
     return "$status"
 }

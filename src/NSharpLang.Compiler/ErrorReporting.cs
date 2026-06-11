@@ -51,6 +51,9 @@ public enum ErrorCode
     ShadowedDeclaration = 316,
     EventRequiresOnOff = 317,
     InvalidEventSubscription = 318,
+    ControlTransferOutOfFinally = 319,
+    LockRequiresReferenceType = 320,
+    InvalidSizedArrayConstructorArguments = 321,
 
     // Function/Method errors (400-499)
     WrongArgumentCount = 401,
@@ -1499,6 +1502,72 @@ public static class ErrorMessageBuilder
             HumanExplanation = humanExplanation,
             ContextualHint = contextualHint,
             DocsUrl = "https://docs.n-sharp.dev/errors/NL306"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style error for a `return`, `break`, or `continue` that would leave a `finally` block (NL319,
+    /// the CS0157 analog). ECMA-335 requires a finally handler to complete via its own end; the runtime must always
+    /// finish running it, so no control transfer may exit it early.
+    /// </summary>
+    public static CompilerError ControlTransferOutOfFinally(string fileName, int line, int column, string sourceSnippet,
+        int length, string keyword)
+    {
+        var humanExplanation = $"This `{keyword}` would leave the enclosing `finally` block:";
+
+        var target = keyword == "return" ? "the function" : "a loop outside the `finally`";
+        var contextualHint =
+            $"Control cannot leave a `finally` block — the runtime must always finish running it,\n" +
+            $"whether the `try` completed normally or an exception is in flight. This `{keyword}`\n" +
+            $"would exit the `finally` early to reach {target}, which the CLR forbids.\n" +
+            "`throw` is allowed, and loops opened inside the `finally` can still `break`/`continue`.";
+
+        return new CompilerError(ErrorCode.ControlTransferOutOfFinally, $"Control cannot leave a 'finally' block with '{keyword}'", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = $"Move the `{keyword}` outside the `finally` block (e.g. set a flag in the finally and act on it afterwards)",
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL319"
+        };
+    }
+
+    /// <summary>
+    /// Create an Elm-style error for a `lock` statement whose lockee is a value type (NL320, the CS0185 analog).
+    /// When the lockee is an unconstrained generic type parameter, pass <paramref name="isTypeParameter"/> so the
+    /// hint explains the constraint route instead of calling the type a value type outright.
+    /// </summary>
+    public static CompilerError LockRequiresReferenceType(string fileName, int line, int column, string sourceSnippet,
+        int length, string typeName, bool isTypeParameter = false)
+    {
+        var humanExplanation = isTypeParameter
+            ? $"This `lock` statement needs a reference type, but `{typeName}` is a type parameter that may be a value type:"
+            : $"This `lock` statement needs a reference type, but `{typeName}` is a value type:";
+
+        var contextualHint = isTypeParameter
+            ? $"`Monitor` locks on object IDENTITY. If `{typeName}` is instantiated with a value type, the\n" +
+              "value would be boxed into a fresh object on every `lock`, so no two threads would ever\n" +
+              "contend on the same lock — the lock would guard nothing."
+            : "`Monitor` locks on object IDENTITY. A value type has no stable identity: it would be\n" +
+              "boxed into a fresh object on every `lock`, so no two threads would ever contend on\n" +
+              "the same lock — the lock would guard nothing.";
+
+        var suggestion = isTypeParameter
+            ? $"Constrain `{typeName}` to a reference type (`where {typeName}: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`"
+            : "Lock on a dedicated `object` field instead: `sync: object = new object()`";
+
+        return new CompilerError(ErrorCode.LockRequiresReferenceType, $"'{typeName}' is not a reference type as required by the lock statement", line, column, ErrorSeverity.Error)
+        {
+            FileName = fileName,
+            SourceSnippet = sourceSnippet,
+            Length = length,
+            ActualType = typeName,
+            HumanExplanation = humanExplanation,
+            ContextualHint = contextualHint,
+            Suggestion = suggestion,
+            DocsUrl = "https://docs.n-sharp.dev/errors/NL320"
         };
     }
 

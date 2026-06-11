@@ -381,7 +381,7 @@ gaps (4g+ general if, 4i calls) are pulled in as the routed corpus needs them.
 → 5 (route) → 6 (delete C#). Phase T (route columnar into CLI/LSP) follows stages 3–4.
 
 **Perf capstone (Track C) — COMPLETE 2026-06-07.** The rigorous single-machine cross-language re-run is done:
-N#/best-native is now **MEASURED ≤2.0× at 4096** (worst cell 2.49×), down from 8.24–10.5× — `systems-vs-native.md`
+N#/best-native is now **MEASURED ≤2.02× at 4096** (worst cell 2.49×), down from 8.24–10.5× — `systems-vs-native.md`
 leads with the authoritative post-vectorization table. **P4** (LLVM/NativeAOT backend) is **evaluated and
 deferred** — decision doc [`p4-llvm-nativeaot-backend-evaluation.md`](p4-llvm-nativeaot-backend-evaluation.md):
 the structural backend's order-of-magnitude prize was captured by Phase P's `Vector<T>` emission, so it stays

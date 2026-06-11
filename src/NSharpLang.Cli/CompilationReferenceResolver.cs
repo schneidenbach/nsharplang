@@ -160,10 +160,14 @@ internal static class CompilationReferenceResolver
                 var outputAssembly = BuildCSharpProjectReference(resolvedProjectReferencePath, options);
                 AddDllReference(config, outputAssembly);
                 result.AddRuntimeAsset(outputAssembly);
-                SourceGeneratorReferenceResolver.AddDirectReference(
-                    config,
-                    outputAssembly,
-                    projectReference.Project!);
+                if (SourceGeneratorReferenceResolver.IsRoslynComponentProject(resolvedProjectReferencePath))
+                {
+                    SourceGeneratorReferenceResolver.AddProjectReference(
+                        config,
+                        outputAssembly,
+                        projectReference.Project!);
+                }
+
                 config.Dependencies.Remove(projectReference);
                 continue;
             }

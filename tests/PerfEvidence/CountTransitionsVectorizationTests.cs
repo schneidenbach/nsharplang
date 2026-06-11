@@ -117,6 +117,22 @@ func lastPrev(a: int[], n: int): int {
     return previous
 }";
 
+    private const string WhileMutablePreviousBound = @"
+func mutablePreviousBound(a: int[]): int {
+    count := 0
+    previous := 4
+    i := 0
+    while i < previous {
+        current := a[i]
+        if current != previous {
+            count = count + 1
+        }
+        previous = current
+        i = i + 1
+    }
+    return count * 1000 + i * 10 + previous
+}";
+
     [Theory]
     [InlineData(1)]
     [InlineData(2)]
@@ -160,6 +176,18 @@ func lastPrev(a: int[], n: int): int {
         Assert.Equal(1, Calls(ForCount, "countTransitions", true)); // CountTransitionsInt32
         Assert.Equal(0, Calls(WhileCount, "ctW", false));
         Assert.Equal(1, Calls(WhileCount, "ctW", true));
+    }
+
+    [Fact]
+    public void CountTransitions_MutableBoundFallsBackToScalar()
+    {
+        var data = new[] { 3, 2, 2, 2 };
+        Assert.Equal(0, Calls(WhileMutablePreviousBound, "mutablePreviousBound", true));
+
+        var scalar = Run(WhileMutablePreviousBound, "mutablePreviousBound", false, new object[] { data });
+        var vectorizationEnabled = Run(WhileMutablePreviousBound, "mutablePreviousBound", true, new object[] { data });
+        Assert.Equal(2022, scalar);
+        Assert.Equal(scalar, vectorizationEnabled);
     }
 
     [Fact]

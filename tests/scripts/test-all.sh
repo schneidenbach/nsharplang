@@ -39,16 +39,18 @@ Options:
 Plain ./scripts/test-all.sh may return a validated cache hit for fast local
 development. Do not use a cached hit as a pre-commit or release verification.
 
-Within a fresh isolated run (including --commit), individual gate steps may be
+Within a plain fresh isolated development run, individual gate steps may be
 skipped when their ENTIRE input set is byte-identical to inputs that previously
-passed that step on the same toolchain (validated per-step cache). --release,
---fresh, --no-cache, and --clean disable per-step skipping and run everything.
+passed that step on the same toolchain (validated per-step cache). --commit,
+--release, --fresh, --no-cache, and --clean disable per-step skipping and run
+everything.
 EOF
             exit 0
             ;;
         --commit|--pre-commit)
             FORCE_RUN=1
             FRESH_REASON="pre-commit verification"
+            STEP_CACHE_OFF=1
             ;;
         --release)
             FORCE_RUN=1
@@ -214,6 +216,9 @@ tool_versions = {
     "code": (run_text(["code", "--version"]) or "").splitlines()[:2],
 }
 
+# Behavior-changing environment for the gate. Keep in sync with ENV_NAMES in
+# the per-step salt in tests/scripts/test-all-core.sh
+# (GateStepInputSetGuardTests enforces it).
 env_names = [
     "VSCODE_TESTS",
     "TEST_SUITE",
@@ -221,6 +226,7 @@ env_names = [
     "TEST_ALL_JOBS",
     "NLC_MSBUILD_SINGLE_NODE",
     "DOTNET_ROOT",
+    "NSHARP_COLUMNAR_BACKEND",
 ]
 
 signature = {
@@ -500,6 +506,11 @@ set +e
     export NSHARP_TEST_ALL_ISOLATED=1
     export NSHARP_TEST_STEP_CACHE_ROOT="$CACHE_ROOT/steps"
     export NSHARP_TEST_STEP_CACHE_OFF="$STEP_CACHE_OFF"
+    # Golden regeneration must never leak into the gate: the isolated copy is
+    # discarded, and NSHARP_UPDATE_DIAGNOSTIC_GOLDENS=1 makes golden tests
+    # self-satisfying (rewrite, then compare against the rewrite). Regenerate
+    # goldens with plain `dotnet test` in the working tree instead.
+    unset NSHARP_UPDATE_DIAGNOSTIC_GOLDENS
     "$RUN_REPO/tests/scripts/test-all-core.sh" ${CORE_ARGS[@]+"${CORE_ARGS[@]}"}
 )
 CORE_EXIT=$?

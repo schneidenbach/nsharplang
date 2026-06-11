@@ -9,8 +9,11 @@ test claims stay tied to concrete runs.
 
 ## BenchmarkDotNet Gate
 
-Current gate: every Systems N#/runtime benchmark row must have ratio `<= 1.00`
-against its matched C# baseline and must allocate `0 B`.
+Current product gate: every Systems N#/runtime benchmark row must have median
+ratio `<= 1.05` against its matched C# baseline and must allocate `0 B`. The
+1.05 tolerance is deliberate: `scripts/benchmark-systems.sh` gates on medians
+instead of means to avoid thermally-throttled tail iterations turning
+near-parity rows flaky.
 
 Command:
 
@@ -41,10 +44,10 @@ Gate result:
 - Required rows: 12
 - Observed rows: 12
 - Allocation gate: every row reported `Allocated=0 B`
-- Throughput gate: all N#/runtime rows reported BenchmarkDotNet `Ratio <= 1.00`
-  against matched C# baselines. The recorded pre-commit isolated full gate after
-  generated JSON context proof promotion observed worst computed N# ratio
-  `0.9903`, below the hard cap.
+- Throughput gate: all N#/runtime rows were below the current median-ratio cap
+  of `1.05` against matched C# baselines. The recorded pre-commit isolated full
+  gate after generated JSON context proof promotion observed worst computed N#
+  ratio `0.9903`, below both the current cap and parity.
 
 Worst throughput ratios from that recorded passing isolated run:
 

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 
 namespace NSharpLang.Tests;
 
@@ -288,6 +289,182 @@ func main() {
 
         Assert.Single(unusedDiags);
         Assert.Contains("'unused'", unusedDiags[0].Message);
+    }
+
+    #endregion
+
+    #region Skipped-subtree reads (array lengths, stackalloc lengths, alloc, indexer keys)
+
+    // These subtrees were dropped by the expression walker (fail-open switch default), producing
+    // false NL001/NL012 "never read" diagnostics for variables read only inside them. The walker
+    // now recurses through AstChildren, so every child slot is visited.
+
+    [Fact]
+    public void VariableUsedOnlyAsArrayLength_ShouldNotBeMarkedUnused()
+    {
+        var source = @"
+func main() {
+    n := 4
+    arr := new int[n]
+    print arr.Length
+}";
+
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'n'"));
+    }
+
+    [Fact]
+    public void VariableUsedOnlyAsStackallocLength_ShouldNotBeMarkedUnused()
+    {
+        var source = @"
+func main() {
+    len := 16
+    scratch := stackalloc byte[len]
+    print scratch.Length
+}";
+
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'len'"));
+    }
+
+    [Fact]
+    public void VariableUsedOnlyUnderAllocMarker_ShouldNotBeMarkedUnused()
+    {
+        var source = @"
+func main() {
+    n := 4
+    arr := alloc new byte[n]
+    print arr.Length
+}";
+
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'n'"));
+    }
+
+    [Fact]
+    public void VariableUsedOnlyAsIndexerInitializerKey_ShouldNotBeMarkedUnused()
+    {
+        var source = @"
+import System.Collections.Generic
+
+func main() {
+    key := ""one""
+    dict := new Dictionary<string, int> {
+        [key] = 1
+    }
+    print dict.Count
+}";
+
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'key'"));
+    }
+
+    [Fact]
+    public void ParameterUsedOnlyInStackallocLength_ShouldNotBeMarkedUnread()
+    {
+        var source = @"
+func Scratch(size: int): int {
+    scratch := stackalloc byte[size]
+    return scratch.Length
+}";
+
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'size'"));
+    }
+
+    [Fact]
+    public void ParameterUsedOnlyAsArrayLength_ShouldNotBeMarkedUnread()
+    {
+        var source = @"
+func Make(count: int): int {
+    arr := new int[count]
+    return arr.Length
+}";
+
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL012" && d.Message.Contains("'count'"));
+    }
+
+    [Fact]
+    public void ParserErrorPlaceholder_InArrayLength_SuppressesUnusedVariableFollowOn()
+    {
+        var unit = new CompilationUnit(
+            Namespace: null,
+            Imports: new List<ImportDirective>(),
+            FileImports: new List<Statement>(),
+            Package: null,
+            Declarations: new List<Declaration>
+            {
+                new FunctionDeclaration(
+                    "main",
+                    new List<Parameter>(),
+                    ReturnType: null,
+                    Body: new BlockStatement(
+                        new List<Statement>
+                        {
+                            new VariableDeclarationStatement(
+                                "arr",
+                                Type: null,
+                                Initializer: new NewExpression(
+                                    new ArrayTypeReference(new SimpleTypeReference("int")),
+                                    new List<Argument>(),
+                                    Initializer: null,
+                                    Line: 2,
+                                    Column: 15,
+                                    ArrayLengthExpression: new IdentifierExpression("<error>", 2, 23)),
+                                VariableKind.Let,
+                                Line: 2,
+                                Column: 9)
+                        },
+                        1,
+                        13),
+                    ExpressionBody: null,
+                    TypeParameters: null,
+                    Constraints: null,
+                    Modifiers.None,
+                    new List<AttributeNode>(),
+                    IsOperatorOverload: false,
+                    OperatorSymbol: null,
+                    IsConversionOperator: false,
+                    IsImplicitConversion: false,
+                    Line: 1,
+                    Column: 1)
+            },
+            Line: 1,
+            Column: 1);
+
+        var diagnostics = new Linter().Lint(unit, "test.nl");
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'arr'"));
+    }
+
+    [Fact]
+    public void VariableUsedOnlyInOnSubscriptionHandler_ShouldNotBeMarkedUnused()
+    {
+        // `on` handler bodies were another skipped subtree (no OnSubscriptionExpression case);
+        // the AstChildren-routed default now reaches them.
+        var source = @"
+class Button {
+    event Clicked: System.EventHandler
+}
+
+func main() {
+    message := ""clicked""
+    button := new Button()
+    on button.Clicked (sender, args) => {
+        print message
+    }
+}";
+
+        var diagnostics = Lint(source);
+
+        Assert.DoesNotContain(diagnostics, d => d.Code == "NL001" && d.Message.Contains("'message'"));
     }
 
     #endregion

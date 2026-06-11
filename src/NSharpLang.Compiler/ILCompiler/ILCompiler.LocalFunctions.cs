@@ -1442,28 +1442,6 @@ public partial class ILCompiler
                     FindEscapingLocalFunctionReferences(argument.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
                 }
                 break;
-            case BinaryExpression binary:
-                FindEscapingLocalFunctionReferences(binary.Left, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                FindEscapingLocalFunctionReferences(binary.Right, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case UnaryExpression unary:
-                FindEscapingLocalFunctionReferences(unary.Operand, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case AssignmentExpression assignment:
-                FindEscapingLocalFunctionReferences(assignment.Target, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                FindEscapingLocalFunctionReferences(assignment.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case MemberAccessExpression memberAccess:
-                FindEscapingLocalFunctionReferences(memberAccess.Object, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case IndexAccessExpression indexAccess:
-                FindEscapingLocalFunctionReferences(indexAccess.Object, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                FindEscapingLocalFunctionReferences(indexAccess.Index, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case OnSubscriptionExpression onSubscription:
-                FindEscapingLocalFunctionReferences(onSubscription.Target, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                FindEscapingLocalFunctionReferences(onSubscription.Handler, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
             case LambdaExpression lambda:
                 if (lambda.ExpressionBody != null)
                 {
@@ -1474,100 +1452,18 @@ public partial class ILCompiler
                     FindEscapingLocalFunctionReferences(lambda.BlockBody, localFunctionNames, escapingNames);
                 }
                 break;
-            case ParenthesizedExpression parenthesized:
-                FindEscapingLocalFunctionReferences(parenthesized.Inner, localFunctionNames, escapingNames, isDirectCallCallee: false);
+            case NameofExpression:
+                // nameof never invokes or stores its operand (it emits a string literal), so a
+                // local function referenced only by name does not escape.
                 break;
-            case TernaryExpression ternary:
-                FindEscapingLocalFunctionReferences(ternary.Condition, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                FindEscapingLocalFunctionReferences(ternary.ThenExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                FindEscapingLocalFunctionReferences(ternary.ElseExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case ArrayLiteralExpression arrayLiteral:
-                foreach (var element in arrayLiteral.Elements)
+            default:
+                // Everything else is purely structural: any non-callee reference in a child
+                // expression escapes. Routing through AstChildren (instead of per-node child
+                // lists) keeps this fail-safe — a node or child slot missing here used to skip
+                // the subtree and emit invalid direct calls for escaping local functions.
+                foreach (var child in AstChildren.Of(expression))
                 {
-                    FindEscapingLocalFunctionReferences(element, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                break;
-            case SpreadExpression spread:
-                FindEscapingLocalFunctionReferences(spread.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    FindEscapingLocalFunctionReferences(element.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                break;
-            case InterpolatedStringExpression interpolatedString:
-                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
-                {
-                    FindEscapingLocalFunctionReferences(hole.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                break;
-            case RangeExpression range:
-                if (range.Start != null)
-                {
-                    FindEscapingLocalFunctionReferences(range.Start, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                if (range.End != null)
-                {
-                    FindEscapingLocalFunctionReferences(range.End, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                break;
-            case IsExpression isExpression:
-                FindEscapingLocalFunctionReferences(isExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case WithExpression withExpression:
-                FindEscapingLocalFunctionReferences(withExpression.Target, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                foreach (var property in withExpression.Properties)
-                {
-                    if (property.IndexExpression != null)
-                    {
-                        FindEscapingLocalFunctionReferences(property.IndexExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                    }
-                    FindEscapingLocalFunctionReferences(property.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                break;
-            case AwaitExpression awaitExpression:
-                FindEscapingLocalFunctionReferences(awaitExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case ThrowExpression throwExpression:
-                FindEscapingLocalFunctionReferences(throwExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case CastExpression castExpression:
-                FindEscapingLocalFunctionReferences(castExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case CheckedExpression checkedExpression:
-                FindEscapingLocalFunctionReferences(checkedExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case UncheckedExpression uncheckedExpression:
-                FindEscapingLocalFunctionReferences(uncheckedExpression.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                break;
-            case MatchExpression matchExpression:
-                FindEscapingLocalFunctionReferences(matchExpression.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                foreach (var matchCase in matchExpression.Cases)
-                {
-                    if (matchCase.Guard != null)
-                    {
-                        FindEscapingLocalFunctionReferences(matchCase.Guard, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                    }
-                    FindEscapingLocalFunctionReferences(matchCase.Expression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                break;
-            case NewExpression newExpression:
-                foreach (var argument in newExpression.ConstructorArguments)
-                {
-                    FindEscapingLocalFunctionReferences(argument.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                }
-                if (newExpression.Initializer != null)
-                {
-                    foreach (var property in newExpression.Initializer.Properties)
-                    {
-                        if (property.IndexExpression != null)
-                        {
-                            FindEscapingLocalFunctionReferences(property.IndexExpression, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                        }
-                        FindEscapingLocalFunctionReferences(property.Value, localFunctionNames, escapingNames, isDirectCallCallee: false);
-                    }
+                    FindEscapingLocalFunctionReferences(child, localFunctionNames, escapingNames, isDirectCallCallee: false);
                 }
                 break;
         }

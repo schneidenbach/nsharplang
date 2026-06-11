@@ -238,12 +238,18 @@ public static class SourceGeneratorPipeline
             if (diagnostics.Any(diagnostic => diagnostic.Severity == ErrorSeverity.Error))
             {
                 analysisAssemblyPath = null;
+                PersistExportedSourcesForInspection(sources, projectRoot, outputDirectory);
             }
         }
 
         if (mode == SourceGeneratorRunMode.Emit && outputAssemblyPath != null)
         {
-            diagnostics.AddRange(EmitCompilation(updatedCompilation, outputAssemblyPath, ErrorCode.GeneratedSourceInvalid, "NL922"));
+            var emitDiagnostics = EmitCompilation(updatedCompilation, outputAssemblyPath, ErrorCode.GeneratedSourceInvalid, "NL922");
+            diagnostics.AddRange(emitDiagnostics);
+            if (emitDiagnostics.Any(diagnostic => diagnostic.Severity == ErrorSeverity.Error))
+            {
+                PersistExportedSourcesForInspection(sources, projectRoot, outputDirectory);
+            }
         }
 
         return new SourceGeneratorRunResult(
@@ -346,28 +352,18 @@ public static class SourceGeneratorPipeline
 
     private static string? CreateAssemblyInfoSource(ProjectConfig config)
     {
-        if (string.IsNullOrWhiteSpace(config.Version)
-            || !Version.TryParse(config.Version, out var configuredVersion))
+        if (!AssemblyVersionUtilities.TryGetAssemblyVersion(config.Version, out var configuredVersion))
         {
             return null;
         }
 
-        var assemblyVersion = NormalizeAssemblyVersion(configuredVersion).ToString();
-        var informationalVersion = EscapeStringLiteral(config.Version);
+        var assemblyVersion = configuredVersion.ToString();
+        var informationalVersion = EscapeStringLiteral(config.Version!);
         return $$"""
 [assembly: System.Reflection.AssemblyVersion("{{assemblyVersion}}")]
 [assembly: System.Reflection.AssemblyFileVersion("{{assemblyVersion}}")]
 [assembly: System.Reflection.AssemblyInformationalVersion("{{informationalVersion}}")]
 """;
-    }
-
-    private static Version NormalizeAssemblyVersion(Version version)
-    {
-        return new Version(
-            version.Major >= 0 ? version.Major : 1,
-            version.Minor >= 0 ? version.Minor : 0,
-            version.Build >= 0 ? version.Build : 0,
-            version.Revision >= 0 ? version.Revision : 0);
     }
 
     private static string EscapeStringLiteral(string value)
@@ -478,8 +474,13 @@ public static class SourceGeneratorPipeline
         var severity = diagnostic.Severity == RoslynDiagnosticSeverity.Error
             ? ErrorSeverity.Error
             : ErrorSeverity.Warning;
+        // Exported C# trees are keyed by their .nl source path, so the raw (unmapped) span
+        // would report generated-C# line numbers as if they were .nl positions. The mapped
+        // span honors the transpiler's #line directives and lands on the real .nl line;
+        // diagnostics in true generated code (no #line mapping) keep their generated-file
+        // attribution unchanged.
         var lineSpan = diagnostic.Location.IsInSource
-            ? diagnostic.Location.GetLineSpan()
+            ? diagnostic.Location.GetMappedLineSpan()
             : default;
         var line = diagnostic.Location.IsInSource ? lineSpan.StartLinePosition.Line + 1 : 0;
         var column = diagnostic.Location.IsInSource ? lineSpan.StartLinePosition.Character + 1 : 0;
@@ -524,6 +525,23 @@ public static class SourceGeneratorPipeline
 
         try
         {
+            // A #line-mapped diagnostic points at the original .nl source, so the snippet must
+            // come from that file — the syntax tree only holds the generated C#.
+            var mappedSpan = diagnostic.Location.GetMappedLineSpan();
+            if (mappedSpan.HasMappedPath)
+            {
+                if (!File.Exists(mappedSpan.Path))
+                {
+                    return null;
+                }
+
+                var mappedLine = mappedSpan.StartLinePosition.Line;
+                var sourceLines = File.ReadAllLines(mappedSpan.Path);
+                return mappedLine >= 0 && mappedLine < sourceLines.Length
+                    ? sourceLines[mappedLine]
+                    : null;
+            }
+
             var text = diagnostic.Location.SourceTree.GetText();
             var line = diagnostic.Location.GetLineSpan().StartLinePosition.Line;
             return line >= 0 && line < text.Lines.Count
@@ -533,6 +551,39 @@ public static class SourceGeneratorPipeline
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Persist the transpiled C# that failed Roslyn compilation under the run's generated-source
+    /// directory (<c>obj/nsharp/generated/&lt;assembly&gt;/&lt;analysis|emit&gt;/exported/</c>) so
+    /// NL922 failures can be inspected — the exported trees are keyed by their .nl paths and
+    /// otherwise never hit disk. Best effort: inspection output must never mask the compile error.
+    /// </summary>
+    private static void PersistExportedSourcesForInspection(
+        IReadOnlyDictionary<string, string> sources,
+        string projectRoot,
+        string outputDirectory)
+    {
+        try
+        {
+            var exportDirectory = Path.Combine(outputDirectory, "exported");
+            Directory.CreateDirectory(exportDirectory);
+            foreach (var source in sources)
+            {
+                var relativePath = Path.GetRelativePath(projectRoot, source.Key);
+                var fileName = relativePath.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relativePath)
+                    ? Path.GetFileName(source.Key)
+                    : relativePath;
+                File.WriteAllText(
+                    Path.Combine(exportDirectory, $"{SanitizeHintName(fileName)}.cs"),
+                    source.Value,
+                    Encoding.UTF8);
+            }
+        }
+        catch
+        {
+            // Inspection output only — never fail the build over it.
         }
     }
 

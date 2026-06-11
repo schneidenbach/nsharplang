@@ -691,4 +691,4 @@ city := if person != null and person.Address != null {
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
 - [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
-- [Pattern Matching Examples](/examples/04-pattern-matching/)
+- [Pattern Matching Examples](https://github.com/schneidenbach/nsharplang/tree/main/examples/04-pattern-matching)

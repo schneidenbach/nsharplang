@@ -695,6 +695,64 @@ func Main() {
     }
 
     [Fact]
+    public void NewCommand_CustomInstallRootEnvironment_WritesInstallRootFeed()
+    {
+        var parentDir = CreateTempDir();
+        var installRoot = Path.Combine(parentDir, "custom install");
+        var originalDirectory = Directory.GetCurrentDirectory();
+        var originalInstallDir = Environment.GetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable);
+
+        try
+        {
+            Directory.SetCurrentDirectory(parentDir);
+            Environment.SetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable, installRoot);
+
+            var (exitCode, _, stderr) = CaptureConsole(() =>
+                ExecuteProgram("new", "CustomFeedApp"));
+
+            Assert.Equal(0, exitCode);
+            Assert.True(string.IsNullOrWhiteSpace(stderr));
+
+            var nugetConfig = File.ReadAllText(Path.Combine(parentDir, "CustomFeedApp", "NuGet.config"));
+            Assert.Contains(NSharpInstallRoot.InstallRootFeedValue, nugetConfig);
+            Assert.DoesNotContain(NSharpInstallRoot.DefaultFeedValue, nugetConfig);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(NSharpInstallRoot.InstallDirEnvironmentVariable, originalInstallDir);
+            Directory.SetCurrentDirectory(originalDirectory);
+            Directory.Delete(parentDir, true);
+        }
+    }
+
+    [Fact]
+    public void NewCommand_CustomInstallLayoutWithoutEnvironment_WritesDetectedFeed()
+    {
+        var root = CreateTempDir();
+        var defaultRoot = Path.Combine(root, "default");
+        var customRoot = Path.Combine(root, "toolset root");
+        var cliBaseDirectory = Path.Combine(customRoot, "lib", "nlc");
+
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(customRoot, "bin"));
+            Directory.CreateDirectory(Path.Combine(customRoot, "packages"));
+            Directory.CreateDirectory(cliBaseDirectory);
+
+            var feed = NSharpInstallRoot.ProjectFeedValue(
+                cliBaseDirectory,
+                installDirOverride: null,
+                defaultInstallRoot: defaultRoot);
+
+            Assert.Equal(Path.Combine(customRoot, "packages"), feed);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    [Fact]
     public void NewCommand_AcceptsProjectNameAfterTemplateOption()
     {
         var parentDir = CreateTempDir();

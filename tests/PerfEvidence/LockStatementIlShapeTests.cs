@@ -132,4 +132,66 @@ class Counter {
             return 0;
         });
     }
+
+    // A reference-typed lockee is already a reference on the stack — EmitLock must NOT box it.
+    // Pins that the NL320 defensive-box site leaves the established reference shape byte-identical.
+    [Fact]
+    public void ReferenceLock_DoesNotBoxTheLockee()
+    {
+        ILShapeInspector.Compile(ReturningLockSource, assembly =>
+        {
+            var counterType = assembly.GetType("Counter");
+            var getValue = counterType!.GetMethod(
+                "GetValue",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            var instructions = ILShapeInspector.Decode(getValue!);
+            Assert.DoesNotContain(instructions, i => i.OpCode == OpCodes.Box);
+            return 0;
+        });
+    }
+
+    // A class-constrained generic lockee is the one shape that legally reaches EmitLock without a
+    // concrete reference type on the stack: storing `!!T` into the `object` lock local requires the
+    // `box !!T` lowering (Roslyn's; a runtime no-op for reference instantiations) or the IL is
+    // unverifiable (StackUnexpected: value 'T' where ref 'object' expected — the defect-#21 family).
+    // Value-typed lockees themselves never get here: the analyzer rejects them with NL320.
+    [Fact]
+    public void GenericClassConstrainedLock_BoxesTheLockeeIntoTheObjectLocal()
+    {
+        const string source = @"
+func LockIt<T>(x: T): int where T: class {
+    r := 0
+    lock x {
+        r = 1
+    }
+    return r
+}
+";
+        ILShapeInspector.Compile(source, assembly =>
+        {
+            var programType = assembly.GetType("Program");
+            Assert.NotNull(programType);
+
+            var lockIt = programType!.GetMethod(
+                "LockIt",
+                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(lockIt);
+
+            var body = lockIt!.GetMethodBody();
+            var clauses = body!.ExceptionHandlingClauses;
+            Assert.Single(clauses);
+            Assert.Equal(ExceptionHandlingClauseOptions.Finally, clauses[0].Flags);
+
+            var instructions = ILShapeInspector.Decode(lockIt);
+            Assert.Contains(instructions, i => i.OpCode == OpCodes.Box);
+
+            Assert.Equal(1, ILShapeInspector.CountCallsTo(lockIt, typeof(System.Threading.Monitor), "Enter"));
+            Assert.Equal(1, ILShapeInspector.CountCallsTo(lockIt, typeof(System.Threading.Monitor), "Exit"));
+
+            // Behavioural sanity: the boxed lock still provides a working region for a reference T.
+            var closed = lockIt.MakeGenericMethod(typeof(string));
+            Assert.Equal(1, closed.Invoke(null, new object[] { "abc" }));
+            return 0;
+        });
+    }
 }

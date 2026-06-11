@@ -753,7 +753,10 @@ public class MultiFileCompiler
 
     private void AnalyzeSystemsPolicy()
     {
-        _systemsReport = new SystemsAnalyzer(_projectRoot, _config).Analyze(_compilationUnits, _performanceFacts);
+        // The semantic models from the Analyzer pass drive call-site resolution: systems
+        // callee facts bind to the declaration each call resolved to, never to a name match.
+        // Files whose analysis failed have no model; their calls are conservatively unknown.
+        _systemsReport = new SystemsAnalyzer(_projectRoot, _config).Analyze(_compilationUnits, _performanceFacts, _semanticModels);
         foreach (var finding in _systemsReport.Findings)
         {
             _allErrors.Add(finding.ToCompilerError());

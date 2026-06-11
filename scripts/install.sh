@@ -295,7 +295,8 @@ write_env_file() {
   mkdir -p "$(dirname "$ENV_FILE")"
   cat > "$ENV_FILE" <<EOF
 # Added by N# installer.
-export PATH="$INSTALL_DIR/bin:\$PATH"
+export NSHARP_INSTALL_DIR="$INSTALL_DIR"
+export PATH="\$NSHARP_INSTALL_DIR/bin:\$PATH"
 EOF
   if [[ -n "$dotnet_root" ]]; then
     {
@@ -499,6 +500,7 @@ uninstall_nsharp() {
 }
 
 require_safe_install_dir
+export NSHARP_INSTALL_DIR="$INSTALL_DIR"
 
 if [[ "$UNINSTALL" -eq 1 ]]; then
   uninstall_nsharp

@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Security;
 using NSharpLang.Compiler;
 using NSharpLang.Cli.Commands;
 
@@ -870,7 +871,7 @@ Exit codes:
     static void WriteSdkSupportFiles(string projectDir)
     {
         File.WriteAllText(Path.Combine(projectDir, "global.json"), GlobalJsonContent);
-        File.WriteAllText(Path.Combine(projectDir, "NuGet.config"), NuGetConfigContent);
+        File.WriteAllText(Path.Combine(projectDir, "NuGet.config"), BuildNuGetConfigContent());
     }
 
     static string GenerateProjectYaml(string projectName, string template)
@@ -946,12 +947,15 @@ language:
 }
 ";
 
-    const string NuGetConfigContent = @"<?xml version=""1.0"" encoding=""utf-8""?>
+    // The nsharp-local feed is resolved from the running CLI's install root so
+    // projects created from a custom NSHARP_INSTALL_DIR install restore without
+    // manual edits; default development builds keep the portable %HOME% literal.
+    static string BuildNuGetConfigContent() => $@"<?xml version=""1.0"" encoding=""utf-8""?>
 <configuration>
   <packageSources>
     <clear />
     <add key=""nuget.org"" value=""https://api.nuget.org/v3/index.json"" />
-    <add key=""nsharp-local"" value=""%HOME%/.nsharp/packages"" />
+    <add key=""nsharp-local"" value=""{SecurityElement.Escape(NSharpInstallRoot.ProjectFeedValue())}"" />
   </packageSources>
 </configuration>
 ";

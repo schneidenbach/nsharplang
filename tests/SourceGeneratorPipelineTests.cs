@@ -8,6 +8,7 @@ using System.Runtime.Loader;
 using System.Text.Json;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.Ast;
 using NSharpLang.Compiler.CodeIntelligence;
 using NSharpLang.Compiler.SourceGenerators;
 using Xunit;
@@ -103,6 +104,61 @@ func Run(): int {
 
         Assert.Contains(allItems, item => item.Name == "Answer");
         Assert.Contains(allItems, item => item.Name == "Label");
+        Assert.DoesNotContain(allItems, item => item.Name == "Caption");
+    }
+
+    [Fact]
+    public void GeneratedPartialMemberCompletions_RespectReceiverAccessKind()
+    {
+        using var project = CreateProject(("Program.nl", """
+namespace Demo
+
+partial class Widget {
+}
+
+func CompleteStatic(): int {
+    return Widget.Answer
+}
+
+func CompleteInstance(): string {
+    widget := new Widget {}
+    return widget.Caption
+}
+"""));
+
+        var config = CreateLibraryConfig("GeneratedPartialCompletionAccess");
+        AddDirectGenerator(config);
+
+        var service = new CodeIntelligenceService();
+        var snapshot = service.LoadProject(project.Root, config);
+
+        Assert.DoesNotContain(snapshot.AllErrors, error => error.DiagnosticId == "NL303");
+
+        var staticLine = FindLine(project.File("Program.nl"), "Widget.Answer");
+        var staticCol = FindColumn(project.File("Program.nl"), staticLine, "Widget.") + "Widget.".Length - 1;
+        var staticItems = new CompletionEngine()
+            .GetCompletions(snapshot, "Program.nl", staticLine, staticCol)
+            .Completions
+            .Values
+            .SelectMany(items => items)
+            .ToArray();
+
+        Assert.Contains(staticItems, item => item.Name == "Answer" && item.IsStatic);
+        Assert.Contains(staticItems, item => item.Name == "Label" && item.IsStatic);
+        Assert.DoesNotContain(staticItems, item => item.Name == "Caption");
+
+        var instanceLine = FindLine(project.File("Program.nl"), "widget.Caption");
+        var instanceCol = FindColumn(project.File("Program.nl"), instanceLine, "widget.") + "widget.".Length - 1;
+        var instanceItems = new CompletionEngine()
+            .GetCompletions(snapshot, "Program.nl", instanceLine, instanceCol)
+            .Completions
+            .Values
+            .SelectMany(items => items)
+            .ToArray();
+
+        Assert.Contains(instanceItems, item => item.Name == "Caption" && !item.IsStatic);
+        Assert.DoesNotContain(instanceItems, item => item.Name == "Answer");
+        Assert.DoesNotContain(instanceItems, item => item.Name == "Label");
     }
 
     [Fact]
@@ -182,6 +238,240 @@ func Run(): string {
             path => path.Contains(Path.Combine("obj", "nsharp", "generated"), StringComparison.Ordinal));
         Assert.Empty(Directory.GetFiles(project.Root, "*.cs", SearchOption.AllDirectories)
             .Where(path => File.ReadAllText(path).Contains("__NSharpJson", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public void SystemTextJsonGenerator_WithInferredStackalloc_EmitsAndRuns()
+    {
+        // F1: an active generator routes the WHOLE build through Roslyn over exported C#, so the
+        // inferred-stackalloc declaration must compile there too. Previously the transpiler
+        // emitted `var scratch = stackalloc byte[4];` (CS0214 wrapped as NL922) even though the
+        // same program built and ran on the IL backend without the generator.
+        using var project = CreateProject(("Program.nl", """
+import System.Text.Json
+import System.Text.Json.Serialization
+
+record Payload {
+    Code: int
+}
+
+[JsonSerializable(typeof(Payload))]
+partial class PayloadJsonContext : JsonSerializerContext {
+}
+
+func Run(): string {
+    scratch := stackalloc byte[4]
+    scratch[0] = 40
+    scratch[1] = 2
+    total := 0
+    for i := 0; i < scratch.Length; i++ {
+        total = total + scratch[i]
+    }
+    payload := new Payload { Code: total }
+    return JsonSerializer.Serialize(payload, PayloadJsonContext.Default.Payload)
+}
+"""));
+
+        var config = CreateLibraryConfig("JsonGeneratorStackalloc");
+        var result = CompileAndInvoke(project.Root, config, "Run");
+
+        Assert.Equal("""{"Code":42}""", result);
+    }
+
+    public static TheoryData<string, string> ExportParityPrograms => new()
+    {
+        {
+            "inferred-stackalloc",
+            """
+func Run(): int {
+    scratch := stackalloc byte[4]
+    scratch[0] = 40
+    scratch[1] = 2
+    total := 0
+    for i := 0; i < scratch.Length; i++ {
+        total = total + scratch[i]
+    }
+    return total
+}
+"""
+        },
+        {
+            "explicit-span-stackalloc",
+            """
+import System
+
+func Run(): int {
+    scratch: Span<byte> = stackalloc byte[42]
+    return scratch.Length
+}
+"""
+        },
+        {
+            "array-to-readonly-span",
+            """
+import System
+
+func Sum(values: ReadOnlySpan<int>): int {
+    total := 0
+    for i := 0; i < values.Length; i++ {
+        total = total + values[i]
+    }
+    return total
+}
+
+func Run(): int {
+    values := [20, 22]
+    return Sum(values)
+}
+"""
+        },
+        {
+            "try-catch-finally",
+            """
+import System
+
+func Run(): int {
+    total := 0
+    try {
+        total = total + 40
+        throw new InvalidOperationException("boom")
+    } catch (Exception) {
+        total = total + 1
+    } finally {
+        total = total + 1
+    }
+    return total
+}
+"""
+        },
+        {
+            "union-match",
+            """
+union Outcome {
+    Success { value: int }
+    Failure { error: string }
+}
+
+func Make(ok: bool): Outcome {
+    if ok {
+        return new Outcome.Success { value: 42 }
+    }
+    return new Outcome.Failure { error: "nope" }
+}
+
+func Run(): int {
+    return match Make(true) {
+        Outcome.Success { value } => value,
+        Outcome.Failure { error } => 0
+    }
+}
+"""
+        },
+        {
+            "foreach-array",
+            """
+func Run(): int {
+    values := [40, 2]
+    total := 0
+    foreach value in values {
+        total = total + value
+    }
+    return total
+}
+"""
+        }
+    };
+
+    [Theory]
+    [MemberData(nameof(ExportParityPrograms))]
+    public void GeneratorActiveBuild_CompilesAndRunsIlBackendConstructs(string name, string source)
+    {
+        // F1 guardrail: ANY active generator silently reroutes emission from the IL backend to
+        // Roslyn over exported C# (by design — generated partial classes must merge with
+        // N#-declared types), which makes the transpiler a hidden correctness gate for the whole
+        // language surface. Representative IL-backend constructs must emit AND run on that route.
+        using var project = CreateProject(("Program.nl", source));
+
+        var config = CreateLibraryConfig($"ExportParity_{name.Replace('-', '_')}");
+        AddDirectGenerator(config);
+
+        var result = CompileAndInvoke(project.Root, config, "Run");
+
+        Assert.Equal(42, result);
+    }
+
+    [Fact]
+    public void GeneratedSourceInvalid_DiagnosticsMapToNSharpSourceLines()
+    {
+        // Exported C# trees are keyed by the .nl path and carry the transpiler's #line
+        // directives; a Roslyn error on a mapped line must surface at the .nl position
+        // (file, line, snippet), not at raw generated-C# coordinates (previously NL922
+        // reported e.g. Program.nl:29 in a 23-line file, with C# snippets).
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return 1
+}
+"""));
+
+        var programPath = project.File("Program.nl");
+        var exported = $$"""
+using System;
+#line 2 "{{programPath}}"
+public static class Broken { public static int Value = "not an int"; }
+""";
+
+        var config = CreateLibraryConfig("MappedGeneratorDiagnostics");
+        AddDirectGenerator(config);
+
+        var result = SourceGeneratorPipeline.EmitFinalAssembly(
+            config,
+            project.Root,
+            "MappedGeneratorDiagnostics",
+            new Dictionary<string, string> { [programPath] = exported },
+            Array.Empty<CompilationUnit>(),
+            project.OutputPath("MappedGeneratorDiagnostics"));
+
+        var error = Assert.Single(result.Diagnostics, diagnostic => diagnostic.Severity == ErrorSeverity.Error);
+        Assert.Equal("NL922", error.DiagnosticId);
+        Assert.Equal(programPath, error.FileName);
+        Assert.Equal(2, error.Line);
+        Assert.Equal("    return 1", error.SourceSnippet);
+    }
+
+    [Fact]
+    public void FailingEmit_PersistsExportedCSharpForInspection()
+    {
+        // The exported C# only exists in memory; when Roslyn rejects it the failing sources
+        // must be written under obj/nsharp/generated/<assembly>/emit/exported/ so NL922
+        // failures can be inspected.
+        using var project = CreateProject(("Program.nl", """
+func Run(): int {
+    return 1
+}
+"""));
+
+        var programPath = project.File("Program.nl");
+        var exported = """
+public static class Broken { public static int Value = "not an int"; }
+""";
+
+        var config = CreateLibraryConfig("PersistedExportedSources");
+        AddDirectGenerator(config);
+
+        var result = SourceGeneratorPipeline.EmitFinalAssembly(
+            config,
+            project.Root,
+            "PersistedExportedSources",
+            new Dictionary<string, string> { [programPath] = exported },
+            Array.Empty<CompilationUnit>(),
+            project.OutputPath("PersistedExportedSources"));
+
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Severity == ErrorSeverity.Error);
+
+        var persistedPath = Path.Combine(
+            project.Root, "obj", "nsharp", "generated", "PersistedExportedSources", "emit", "exported", "Program.nl.cs");
+        Assert.True(File.Exists(persistedPath), $"Expected persisted exported C# at {persistedPath}");
+        Assert.Equal(exported, File.ReadAllText(persistedPath));
     }
 
     [Fact]
@@ -758,6 +1048,7 @@ namespace Demo
     {
         public static int Answer => 42;
         public static string Label => "generated";
+        public string Caption => "instance-generated";
     }
 }
 """);

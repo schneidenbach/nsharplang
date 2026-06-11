@@ -16,7 +16,7 @@ Public users should install NSharpLang through the canonical installer, which in
 curl -fsSL https://raw.githubusercontent.com/schneidenbach/nsharplang/main/scripts/install.sh | bash
 ```
 
-Maintainers can still install this template package directly from a local feed while validating release artifacts, but that is not the public first-run path.
+Generated projects restore N# packages from `$NSHARP_INSTALL_DIR/packages`; the installer writes that environment variable to the N# env file it asks users to source. Maintainers can still install this template package directly from a local feed while validating release artifacts, but they must set `NSHARP_INSTALL_DIR` to the toolset root before creating or restoring projects. Direct package installation is not the public first-run path.
 
 ## Available Templates
 

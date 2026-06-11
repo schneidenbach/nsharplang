@@ -368,120 +368,39 @@ public sealed class AotBlockerAnalyzer
 
             case CallExpression call:
                 InspectCall(call, context);
-                WalkExpression(call.Callee, context);
-                foreach (var arg in call.Arguments)
-                {
-                    WalkExpression(arg.Value, context);
-                }
-                break;
-
-            case MemberAccessExpression member:
-                WalkExpression(member.Object, context);
+                WalkChildExpressions(call, context);
                 break;
 
             case NewExpression newExpr:
                 InspectNew(newExpr, context);
-                foreach (var arg in newExpr.ConstructorArguments)
-                {
-                    WalkExpression(arg.Value, context);
-                }
-                if (newExpr.Initializer != null)
-                {
-                    foreach (var prop in newExpr.Initializer.Properties)
-                    {
-                        WalkExpression(prop.Value, context);
-                    }
-                }
+                WalkChildExpressions(newExpr, context);
                 break;
 
-            case BinaryExpression binary:
-                WalkExpression(binary.Left, context);
-                WalkExpression(binary.Right, context);
-                break;
-            case UnaryExpression unary:
-                WalkExpression(unary.Operand, context);
-                break;
-            case AssignmentExpression assign:
-                WalkExpression(assign.Target, context);
-                WalkExpression(assign.Value, context);
-                break;
-            case TernaryExpression ternary:
-                WalkExpression(ternary.Condition, context);
-                WalkExpression(ternary.ThenExpression, context);
-                WalkExpression(ternary.ElseExpression, context);
-                break;
             case LambdaExpression lambda:
                 WalkExpression(lambda.ExpressionBody, context);
                 WalkStatement(lambda.BlockBody, context);
                 break;
-            case IndexAccessExpression index:
-                WalkExpression(index.Object, context);
-                WalkExpression(index.Index, context);
+
+            case NameofExpression:
+                // nameof operands never execute (they lower to a string literal), so a call or
+                // construction referenced only inside nameof is not an AOT blocker.
                 break;
-            case CastExpression cast:
-                WalkExpression(cast.Expression, context);
+
+            default:
+                // Everything else is purely structural: a blocker anywhere in a child expression
+                // belongs to this declaration. Routing through AstChildren (instead of per-node
+                // child lists) keeps this fail-safe — a node or child slot missing here used to
+                // hide blockers placed in that subtree.
+                WalkChildExpressions(expression, context);
                 break;
-            case IsExpression isExpr:
-                WalkExpression(isExpr.Expression, context);
-                break;
-            case MatchExpression match:
-                WalkExpression(match.Value, context);
-                foreach (var matchCase in match.Cases)
-                {
-                    if (matchCase.Guard != null) WalkExpression(matchCase.Guard, context);
-                    WalkExpression(matchCase.Expression, context);
-                }
-                break;
-            case AwaitExpression await:
-                WalkExpression(await.Expression, context);
-                break;
-            case ThrowExpression throwExpr:
-                WalkExpression(throwExpr.Expression, context);
-                break;
-            case MustExpression must:
-                WalkExpression(must.Expression, context);
-                break;
-            case ParenthesizedExpression paren:
-                WalkExpression(paren.Inner, context);
-                break;
-            case WithExpression with:
-                WalkExpression(with.Target, context);
-                foreach (var prop in with.Properties)
-                {
-                    WalkExpression(prop.Value, context);
-                }
-                break;
-            case ArrayLiteralExpression array:
-                foreach (var element in array.Elements)
-                {
-                    WalkExpression(element, context);
-                }
-                break;
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    WalkExpression(element.Value, context);
-                }
-                break;
-            case SpreadExpression spread:
-                WalkExpression(spread.Expression, context);
-                break;
-            case RangeExpression range:
-                WalkExpression(range.Start, context);
-                WalkExpression(range.End, context);
-                break;
-            case InterpolatedStringExpression interp:
-                foreach (var part in interp.Parts.OfType<InterpolatedStringHole>())
-                {
-                    WalkExpression(part.Expression, context);
-                }
-                break;
-            case CheckedExpression chk:
-                WalkExpression(chk.Expression, context);
-                break;
-            case UncheckedExpression unchk:
-                WalkExpression(unchk.Expression, context);
-                break;
+        }
+    }
+
+    private void WalkChildExpressions(Expression expression, DeclarationContext context)
+    {
+        foreach (var child in AstChildren.Of(expression))
+        {
+            WalkExpression(child, context);
         }
     }
 

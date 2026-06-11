@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using Xunit;
 
 public class SetupLocalScriptTests
@@ -185,6 +186,83 @@ public class SetupLocalScriptTests
         {
             try { Directory.Delete(home, recursive: true); }
             catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Fact]
+    public void PublicInstallCustomInstallDirWritesTemplateRestoreEnvironment()
+    {
+        var repoRoot = FindRepoRoot();
+        var home = Path.Combine(Path.GetTempPath(), "nsharp-install-custom-root-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(home);
+
+        try
+        {
+            var result = RunBash(repoRoot, home, """
+set -euo pipefail
+mkdir -p "$HOME/fake-bin/shared/Microsoft.NETCore.App/10.0.0"
+mkdir -p "$HOME/toolset/bin" "$HOME/toolset/lib" "$HOME/toolset/packages"
+
+cat > "$HOME/fake-bin/dotnet" <<'DOTNET'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HOME/dotnet.args"
+if [[ "${1:-}" == "--list-runtimes" ]]; then
+  echo "Microsoft.NETCore.App 10.0.0 [$HOME/fake-bin/shared/Microsoft.NETCore.App]"
+fi
+exit 0
+DOTNET
+chmod +x "$HOME/fake-bin/dotnet"
+
+cat > "$HOME/toolset/bin/nlc" <<'NLC'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$HOME/nlc.args"
+exit 0
+NLC
+chmod +x "$HOME/toolset/bin/nlc"
+
+touch "$HOME/toolset/packages/NSharpLang.Templates.1.0.0.nupkg"
+PATH="$HOME/fake-bin:$PATH" scripts/install.sh --source "$HOME/toolset" --install-dir "$HOME/custom root" --skip-vscode --no-path-update
+""");
+
+            Assert.True(
+                result.ExitCode == 0,
+                $"install with custom root failed with exit code {result.ExitCode}\n" +
+                $"--- stdout ---\n{result.Stdout}\n" +
+                $"--- stderr ---\n{result.Stderr}");
+
+            var installRoot = Path.Combine(home, "custom root");
+            var envFile = File.ReadAllText(Path.Combine(installRoot, "env"));
+            Assert.Contains($"export NSHARP_INSTALL_DIR=\"{installRoot}\"", envFile);
+            Assert.Contains("export PATH=\"$NSHARP_INSTALL_DIR/bin:$PATH\"", envFile);
+
+            var sharedConfig = File.ReadAllText(Path.Combine(installRoot, "NuGet.config"));
+            Assert.Contains(Path.Combine(installRoot, "packages"), sharedConfig);
+
+            var dotnetInvocations = File.ReadAllText(Path.Combine(home, "dotnet.args"));
+            Assert.Contains(Path.Combine(installRoot, "packages", "NSharpLang.Templates.1.0.0.nupkg"), dotnetInvocations);
+        }
+        finally
+        {
+            try { Directory.Delete(home, recursive: true); }
+            catch { /* best-effort cleanup */ }
+        }
+    }
+
+    [Fact]
+    public void DotnetTemplateNuGetConfigsUseInstallRootEnvironmentFeed()
+    {
+        var repoRoot = FindRepoRoot();
+        var templateConfigs = Directory
+            .GetFiles(Path.Combine(repoRoot, "templates"), "NuGet.config", SearchOption.AllDirectories)
+            .Where(path => Path.GetFileName(Path.GetDirectoryName(path)!)!.StartsWith("nsharp-", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.NotEmpty(templateConfigs);
+        foreach (var config in templateConfigs)
+        {
+            var text = File.ReadAllText(config);
+            Assert.Contains("%NSHARP_INSTALL_DIR%/packages", text);
+            Assert.DoesNotContain("%HOME%/.nsharp/packages", text);
         }
     }
 

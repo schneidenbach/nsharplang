@@ -52,10 +52,11 @@ public sealed class ColumnarDiagnosticsPass
     /// Structural diagnostics for one function body, given its canonical return type ("void" when the
     /// declaration omits a return type, matching the stage-1 symbol model). Descriptors are emitted in a
     /// deterministic order: first unreachable-after-terminal (<c>unreachable@&lt;line&gt;:&lt;col&gt;</c>) in
-    /// traversal order, then definite-return (<c>missing-return:&lt;canonicalReturnType&gt;</c>) when a non-void
-    /// function does not return on all paths. Async/generator functions carry NL305 exemptions (isAsyncUnitTask /
-    /// isIterator) that need BCL task-type knowledge; the adapter declines those sources to the C# analyzer
-    /// before this pass runs.
+    /// traversal order, then control-transfer-out-of-finally (<c>finally-transfer@&lt;line&gt;:&lt;col&gt;</c>,
+    /// NL319) in traversal order, then definite-return (<c>missing-return:&lt;canonicalReturnType&gt;</c>) when
+    /// a non-void function does not return on all paths. Async/generator functions carry NL305 exemptions
+    /// (isAsyncUnitTask / isIterator) that need BCL task-type knowledge; the adapter declines those sources to
+    /// the C# analyzer before this pass runs.
     /// </summary>
     public List<string> Analyze(int bodyBlockIdx, string returnTypeCanonical)
     {
@@ -63,6 +64,10 @@ public sealed class ColumnarDiagnosticsPass
 
         // NL312 — code after a statement that always exits is unreachable (mirrors Analyzer.AnalyzeStatements).
         CollectUnreachable(bodyBlockIdx, diagnostics);
+
+        // NL319 — a return, or a break/continue whose target loop was entered outside the finally, cannot
+        // leave a finally handler (mirrors Analyzer.ReportControlTransferOutOfFinally's call sites).
+        CollectFinallyTransfers(bodyBlockIdx, finallyDepth: 0, breakTargetDepth: 0, continueTargetDepth: 0, diagnostics);
 
         // NL305 — a non-void function must return a value on every code path. Mirrors Analyzer.cs:644.
         if (returnTypeCanonical != "void" && !StatementAlwaysReturns(bodyBlockIdx))
@@ -133,6 +138,89 @@ public sealed class ColumnarDiagnosticsPass
             // 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement, 24 VariableDeclaration,
             // 48 Throw: no nested statement lists.
         }
+    }
+
+    /// <summary>
+    /// Control-transfer-out-of-finally (NL319), the columnar mirror of the analyzer's finally-depth rule: a
+    /// Return at finally depth &gt; 0, or a Break/Continue whose innermost target loop was entered at a
+    /// SHALLOWER finally depth than the statement, would exit the finally handler — which ECMA-335 forbids
+    /// (a finally completes only via endfinally). Loops opened INSIDE the finally record the current depth at
+    /// entry, so their own break/continue stay legal — exactly the analyzer's loop-entry bookkeeping. Local
+    /// functions (kind 41) need no boundary reset here: the kernel records them with zero children (their
+    /// bodies live in separate node tables), and lambdas (kind 39) are expression-bodied, so no nested-body
+    /// statement can appear in this walk. Reported at the transferring statement's start (line:col).
+    /// </summary>
+    private void CollectFinallyTransfers(int idx, int finallyDepth, int breakTargetDepth, int continueTargetDepth, List<string> diagnostics)
+    {
+        switch (_kinds[idx])
+        {
+            case 20: // Return — illegal anywhere inside a finally (depth, not immediate-parent: a return
+                     // inside a try/lock nested in the finally still leaves it).
+                if (finallyDepth > 0)
+                    AddFinallyTransfer(idx, diagnostics);
+                break;
+
+            case 21: // Break — illegal when its target loop was entered at a shallower finally depth.
+                if (finallyDepth > breakTargetDepth)
+                    AddFinallyTransfer(idx, diagnostics);
+                break;
+
+            case 22: // Continue — same rule as break.
+                if (finallyDepth > continueTargetDepth)
+                    AddFinallyTransfer(idx, diagnostics);
+                break;
+
+            case 25: // Block — recurse the statement list.
+                for (var n = 0; n < _childCount[idx]; n++)
+                    CollectFinallyTransfers(Child(idx, n), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
+                break;
+
+            case 26: // While [condition, body] — the body's break/continue target THIS loop.
+                CollectFinallyTransfers(Child(idx, 1), finallyDepth, finallyDepth, finallyDepth, diagnostics);
+                break;
+
+            case 51: // Lock [lockee, body] — no loop entry; the body keeps the current targets
+                     // (the lock's synthetic finally holds no user statements).
+                CollectFinallyTransfers(Child(idx, 1), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
+                break;
+
+            case 27: // If [condition, then, else?] — recurse both branches.
+                CollectFinallyTransfers(Child(idx, 1), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
+                if (_childCount[idx] > 2)
+                    CollectFinallyTransfers(Child(idx, 2), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
+                break;
+
+            case 28: // For [init, cond, incr, body] — only the body holds statements that can transfer.
+                CollectFinallyTransfers(Child(idx, 3), finallyDepth, finallyDepth, finallyDepth, diagnostics);
+                break;
+
+            case 29: // Foreach [collection, body].
+                CollectFinallyTransfers(Child(idx, 1), finallyDepth, finallyDepth, finallyDepth, diagnostics);
+                break;
+
+            case 49: // Try [tryBlock, catch1..catchN, finally?] — the trailing kind-25 child is the finally:
+                // its statements walk at depth + 1; the try block and catch blocks keep the current depth.
+                CollectFinallyTransfers(Child(idx, 0), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
+                for (var n = 1; n < _childCount[idx]; n++)
+                {
+                    var clause = Child(idx, n);
+                    if (_kinds[clause] == 25)
+                        CollectFinallyTransfers(clause, finallyDepth + 1, breakTargetDepth, continueTargetDepth, diagnostics);
+                    else
+                        CollectFinallyTransfers(Child(clause, _childCount[clause] - 1), finallyDepth, breakTargetDepth, continueTargetDepth, diagnostics);
+                }
+
+                break;
+
+            // 23 ExpressionStatement, 24 VariableDeclaration, 30 Deconstruction, 40 TypedLocal,
+            // 41 LocalFunction (zero children), 48 Throw (always legal in a finally): no nested statements.
+        }
+    }
+
+    private void AddFinallyTransfer(int idx, List<string> diagnostics)
+    {
+        var (line, column) = _positionOf(_spanStarts[idx]);
+        diagnostics.Add("finally-transfer@" + line + ":" + column);
     }
 
     /// <summary>

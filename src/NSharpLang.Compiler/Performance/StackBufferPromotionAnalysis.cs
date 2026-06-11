@@ -622,6 +622,7 @@ public static class StackBufferPromotionAnalysis
                     {
                         VisitExpressionAsEscape(argument.Value);
                     }
+                    VisitExpressionAsEscape(newExpression.ArrayLengthExpression);
                     VisitExpression(newExpression.Initializer);
                     break;
 

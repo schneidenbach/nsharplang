@@ -40,7 +40,7 @@ The executable toolchain is now IL-only:
 | `nlc check` | Fast type-check + backend verification (JSON by default) | `nlc check` |
 | `nlc check --backend il` | Verify semantic analysis plus direct IL emission | `nlc check --backend il` |
 | `nlc check --aot` | Type-check plus Native AOT safety gate (AOT blockers become errors) | `nlc check --aot` |
-| `nlc check --systems-report` | Emit the versioned Systems N# policy/effect report | `nlc check --systems-report` |
+| `nlc check --systems-report` | Emit the versioned Systems N# policy/effect report. Callee findings are semantically resolved: each call binds to the declaration the Analyzer resolved at that call site (overload-, receiver-, and file-aware); a hot-path call that resolves to no declaration and no BCL/HotSummary fact reports NSYS050, never silence | `nlc check --systems-report` |
 | `nlc fix` | Auto-apply compiler suggestions (JSON by default) | `nlc fix` |
 
 ### Code Intelligence (`nlc query`)
@@ -169,7 +169,9 @@ Current status:
 - `project.yml` backend selection is respected by both the CLI and the MSBuild SDK.
 - `nlc check/build/run/test/publish/pack` all support `backend: il` through the native project.yml path.
 - `dotnet build`, `dotnet run`, and `dotnet test` work for IL-backed SDK projects.
-- Generated-C# export no longer exists as a backend or build path.
+- Generated-C# export no longer exists as a selectable backend or build path
+  (generator-active builds are the one designed exception — see Source
+  Generators below).
 - `nlc export csharp` is the only supported product surface for C# generation.
 
 ### Source Generators
@@ -182,10 +184,39 @@ model for the N# project; generated C# is written under
 assembly when generators produce source, and loaded into semantic analysis so
 generated members are visible to `nlc query` and code-intelligence responses.
 
+**Generator-active builds emit via Roslyn over exported C#.** When any
+generator is active (including auto-discovered ones such as `System.Text.Json`
+via a bare `[JsonSerializable]` context), `nlc build`/`check` bypass the IL
+backend entirely: the whole program is transpiled to C# and compiled by Roslyn
+together with the generated sources. This is by design — generated partial
+classes must merge with N#-declared context types — but it makes the C#
+transpiler a correctness gate for the full language surface whenever a
+generator is present. Consequences:
+- The transpiler must emit valid C# for every IL-backend-supported construct.
+  Type-inferred declarations whose initializer C# types differently than N#
+  get an explicit type instead of `var` (stackalloc → `Span<T>`, since
+  `var x = stackalloc T[n];` is CS0214; union case construction → the union
+  type, since `var` infers the case record type and breaks union matches).
+  Union case construction lowers to named positional-record constructor
+  arguments (`new Outcome.Success(value: 42)`). The export-parity test matrix
+  in `tests/SourceGeneratorPipelineTests.cs`
+  (`GeneratorActiveBuild_CompilesAndRunsIlBackendConstructs`) pins
+  representative constructs to emit AND run with a generator active.
+- NL922 diagnostics from Roslyn honor the transpiler's `#line` directives
+  (mapped line spans), so they point at real `.nl` lines with `.nl` source
+  snippets; diagnostics in true generated code keep their generated-file
+  attribution.
+- When Roslyn rejects the exported C#, the failing transpiled sources are
+  persisted under `obj/nsharp/generated/<assembly>/<analysis|emit>/exported/`
+  for inspection (they otherwise exist only in memory).
+
 Discovery currently covers:
 - NuGet/package references in `project.yml` with `analyzers/dotnet/cs/*.dll`
   assets.
-- C# project references in `project.yml` that build to analyzer assemblies.
+- C# project references in `project.yml` that declare
+  `<IsRoslynComponent>true</IsRoslynComponent>` and build to analyzer/source
+  generator assemblies. Ordinary C# project references are built and referenced
+  as libraries only; they are not loaded through Roslyn `AnalyzerFileReference`.
 - `System.Text.Json` source generation when N# source declares
   `[JsonSerializable]` `JsonSerializerContext` types.
 
@@ -813,7 +844,7 @@ Use [install-local.sh](/Users/spencer/repos/nsharplang/install-local.sh) as the 
 
 The script:
 - refreshes packages and toolset apps through the shared `scripts/lib/toolset.sh` helpers
-- refreshes the local `~/.nsharp/packages` package cache used by generated projects
+- refreshes the local install-root package cache used by generated projects (`$NSHARP_INSTALL_DIR/packages`, defaulting to `~/.nsharp/packages`)
 - packages and reinstalls the local VS Code extension by default from `./install-local.sh`
 - verifies `nlc doctor --require-vscode` when the VS Code reinstall path runs
 

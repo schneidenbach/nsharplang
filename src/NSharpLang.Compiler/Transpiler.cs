@@ -24,6 +24,7 @@ public class Transpiler
     private bool _suppressLineDirectives; // Suppress #line directives inside lambda block bodies (they'd be syntax errors in expression context)
     private readonly HashSet<string>? _autoResolvedNamespaces; // Namespaces auto-resolved from project symbols
     private readonly HashSet<string> _newtypeNames = new(); // Track newtype names for constructor call transpilation
+    private readonly HashSet<string> _unionNames = new(); // Unions declared in this file: case construction lowers to positional-record constructor arguments
     private readonly HashSet<string> _genericUnionNames = new(); // Generic unions: case construction reorders type args onto the union (new Result<int>.Success)
     private readonly HashSet<string> _stringEnumNames = new(); // Track string enum names for pattern matching transpilation
     private readonly Stack<Dictionary<string, string>> _patternBindingAliases = new();
@@ -134,11 +135,15 @@ public class Transpiler
         // Collect newtype names for constructor call transpilation
         foreach (var nt in _compilationUnit.Declarations.OfType<NewtypeDeclaration>())
             _newtypeNames.Add(nt.Name);
-        // Collect generic union names: case constructions written `new Result.Success<int>`
-        // in N# must transpile with the arguments on the union (`new Result<int>.Success`).
-        foreach (var genericUnion in _compilationUnit.Declarations.OfType<UnionDeclaration>()
-            .Where(u => u.TypeParameters is { Count: > 0 }))
-            _genericUnionNames.Add(genericUnion.Name);
+        // Collect union names: case construction (new Result.Success { value: 42 }) lowers to
+        // positional-record constructor arguments. Generic unions additionally reorder the type
+        // arguments onto the union (`new Result.Success<int>` becomes `new Result<int>.Success`).
+        foreach (var union in _compilationUnit.Declarations.OfType<UnionDeclaration>())
+        {
+            _unionNames.Add(union.Name);
+            if (union.TypeParameters is { Count: > 0 })
+                _genericUnionNames.Add(union.Name);
+        }
         // Collect string enum names for pattern matching transpilation
         foreach (var enm in _compilationUnit.Declarations.OfType<EnumDeclaration>()
             .Where(e => e.Type == EnumType.String))
@@ -2436,6 +2441,14 @@ public class Transpiler
 
         if (varDecl.Initializer != null)
         {
+            // `var` is not always faithful to the type the analyzer resolved for the
+            // declaration (stackalloc, union case construction); spell the type out where
+            // C# would infer something else.
+            if (varDecl.Type == null && ResolveInferredDeclarationType(varDecl.Initializer) is { } inferredType)
+            {
+                type = inferredType;
+            }
+
             // Set flag to indicate we need explicit array types for var declarations
             // C# collection expressions [1, 2, 3] don't work with var, need new int[] { 1, 2, 3 }
             var previousFlag = _needsExplicitArrayType;
@@ -3160,6 +3173,16 @@ public class Transpiler
                     type = $"{segments[0]}<{caseTypeArguments}>.{segments[1]}";
                 }
             }
+
+            // Union case construction: N# writes property-style braces
+            // (new Outcome.Success { value: 42 }), but union cases lower to positional C#
+            // records (record Success(int value)), so the brace entries must become named
+            // constructor arguments (new Outcome.Success(value: 42)).
+            if (TranspileUnionCaseConstruction(newExpr, type) is { } unionCaseConstruction)
+            {
+                return unionCaseConstruction;
+            }
+
             var args = string.Join(", ", newExpr.ConstructorArguments.Select(arg =>
             {
                 var prefix = "";
@@ -3175,7 +3198,12 @@ public class Transpiler
 
             // For array types with initializers (new int[] { 1, 2, 3 }), omit parens
             if (newExpr.ArrayLengthExpression != null)
+            {
+                if (newExpr.ConstructorArguments.Count != 0)
+                    throw new InvalidOperationException("Sized array construction cannot also have constructor arguments; run semantic analysis before C# export.");
+
                 result = $"new {type}[{TranspileExpression(newExpr.ArrayLengthExpression)}]";
+            }
             else if (newExpr.Type is ArrayTypeReference && newExpr.Initializer != null && args.Length == 0)
                 result = $"new {type}";
             else
@@ -3206,6 +3234,58 @@ public class Transpiler
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Lowers a union case construction (<c>new Outcome.Success { value: 42 }</c>) to the
+    /// positional-record constructor call its C# emission requires
+    /// (<c>new Outcome.Success(value: 42)</c>, named so declaration order is irrelevant).
+    /// Detects the union via the file's declared unions, falling back to the analyzer's
+    /// resolved expression type for unions declared in other files. Returns null when the
+    /// expression is not a union case construction.
+    /// </summary>
+    private string? TranspileUnionCaseConstruction(NewExpression newExpr, string transpiledType)
+    {
+        if (newExpr.Initializer == null || newExpr.ConstructorArguments.Count > 0)
+            return null;
+
+        var qualifiedCaseName = newExpr.Type switch
+        {
+            SimpleTypeReference simple when simple.Name.Contains('.') => simple.Name,
+            GenericTypeReference generic when generic.Name.Contains('.') => generic.Name,
+            _ => null
+        };
+        if (qualifiedCaseName == null)
+            return null;
+
+        var segments = qualifiedCaseName.Split('.');
+        if (segments.Length != 2 || !IsUnionName(newExpr, segments[0]))
+            return null;
+
+        // Union construction braces only carry `name: value` entries; anything else is not
+        // the union case form and keeps the regular object-initializer emission.
+        if (newExpr.Initializer.Properties.Any(p => p.Name == null || p.IsIndexerInitializer))
+            return null;
+
+        var caseArguments = string.Join(", ", newExpr.Initializer.Properties
+            .Select(p => $"{p.Name}: {TranspileExpression(p.Value)}"));
+        return $"new {transpiledType}({caseArguments})";
+    }
+
+    private bool IsUnionName(NewExpression newExpr, string unionName)
+    {
+        if (_unionNames.Contains(unionName))
+            return true;
+
+        // A union case construction is typed as the UNION (the value has the union type),
+        // so a `new U.C` expression the analyzer resolved to U identifies U as a union even
+        // when it is declared in another file.
+        return GetRecordedExpressionType(newExpr) switch
+        {
+            UnionTypeInfo { IsAnonymous: false } union => union.Declaration!.Name == unionName,
+            GenericTypeInfo generic => generic.Name == unionName,
+            _ => false
+        };
     }
 
     private string TranspileLambdaExpression(LambdaExpression lambda)
@@ -4104,6 +4184,101 @@ public class Transpiler
             typeName += "?";
 
         return (typeName, initialValue);
+    }
+
+    /// <summary>
+    /// Resolves the explicit C# declaration type for a type-inferred local whose initializer C#
+    /// would type differently than N#:
+    /// <list type="bullet">
+    /// <item>stackalloc — <c>var x = stackalloc T[n];</c> is T* and demands an unsafe context
+    /// (CS0214); N# types it Span&lt;T&gt;.</item>
+    /// <item>union case construction — <c>var</c> infers the CASE record type, so a later
+    /// union-typed use (e.g. a match arm over another case) fails (CS8121); N# types the value
+    /// as the UNION.</item>
+    /// </list>
+    /// Prefers the analyzer's resolved type from the semantic model and falls back to the
+    /// syntactic shape when no model is available. Returns null when <c>var</c> is faithful.
+    /// </summary>
+    private string? ResolveInferredDeclarationType(Expression initializer)
+    {
+        if (InferStackAllocSpanType(initializer) is { } spanType)
+        {
+            return ResolveRecordedCSharpType(initializer) ?? spanType;
+        }
+
+        if (initializer is NewExpression newExpr)
+        {
+            return TryGetUnionCaseConstructionUnionType(newExpr);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the C# name of the analyzer's recorded type for an expression, or null when no
+    /// semantic model is available or the type cannot be expressed.
+    /// </summary>
+    private string? ResolveRecordedCSharpType(Expression expression)
+    {
+        return GetRecordedExpressionType(expression) is { } recorded
+            && recorded is not UnknownTypeInfo
+            && TypeInfoToCSharpName(recorded) is { } resolved
+                ? resolved
+                : null;
+    }
+
+    /// <summary>
+    /// Returns the UNION type a union case construction produces in N#
+    /// (<c>new Verdict.Pass { ... }</c> has type Verdict; <c>new Result.Success&lt;int&gt;</c>
+    /// has type Result&lt;int&gt;), or null when the expression is not a union case construction
+    /// or the closed union type cannot be determined.
+    /// </summary>
+    private string? TryGetUnionCaseConstructionUnionType(NewExpression newExpr)
+    {
+        var qualifiedCaseName = newExpr.Type switch
+        {
+            SimpleTypeReference simple when simple.Name.Contains('.') => simple.Name,
+            GenericTypeReference generic when generic.Name.Contains('.') => generic.Name,
+            _ => null
+        };
+        if (qualifiedCaseName == null)
+            return null;
+
+        var segments = qualifiedCaseName.Split('.');
+        if (segments.Length != 2 || !IsUnionName(newExpr, segments[0]))
+            return null;
+
+        // The analyzer's resolved type is the closed union type even when generic arguments
+        // are inferred from the expected type (new Option.None on an Option<User> return).
+        if (ResolveRecordedCSharpType(newExpr) is { } resolved)
+            return resolved;
+
+        if (newExpr.Type is GenericTypeReference genericCase && genericCase.TypeArguments.Count > 0)
+        {
+            var typeArguments = string.Join(", ", genericCase.TypeArguments.Select(TranspileTypeReference));
+            return $"{segments[0]}<{typeArguments}>";
+        }
+
+        // A generic union without explicit type arguments needs the analyzer's type;
+        // without it, keep `var` rather than emit an open generic type.
+        return _genericUnionNames.Contains(segments[0]) ? null : segments[0];
+    }
+
+    /// <summary>
+    /// Returns the Span&lt;T&gt; type for an initializer that is a stackalloc expression, looking
+    /// through parentheses, alloc wrappers, and conditional arms; null otherwise.
+    /// </summary>
+    private string? InferStackAllocSpanType(Expression expression)
+    {
+        return expression switch
+        {
+            StackAllocExpression stackAlloc => $"Span<{TranspileTypeReference(stackAlloc.ElementType)}>",
+            ParenthesizedExpression paren => InferStackAllocSpanType(paren.Inner),
+            AllocExpression alloc => InferStackAllocSpanType(alloc.Expression),
+            TernaryExpression ternary => InferStackAllocSpanType(ternary.ThenExpression)
+                ?? InferStackAllocSpanType(ternary.ElseExpression),
+            _ => null
+        };
     }
 
     /// <summary>

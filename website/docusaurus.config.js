@@ -17,10 +17,14 @@ const config = {
   organizationName: 'schneidenbach',
   projectName: 'nsharplang',
 
-  onBrokenLinks: 'warn',
+  onBrokenLinks: 'throw',
+  onBrokenAnchors: 'throw',
 
   markdown: {
     format: 'md',
+    hooks: {
+      onBrokenMarkdownLinks: 'throw',
+    },
   },
 
   i18n: {

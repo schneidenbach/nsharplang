@@ -39,6 +39,8 @@
       <Output TaskParameter="OutputType" PropertyName="OutputType" />
       <Output TaskParameter="AssemblyName" PropertyName="AssemblyName" />
       <Output TaskParameter="Version" PropertyName="_NSharpProjectVersion" />
+      <Output TaskParameter="AssemblyVersion" PropertyName="_NSharpProjectAssemblyVersion" />
+      <Output TaskParameter="FileVersion" PropertyName="_NSharpProjectFileVersion" />
       <Output TaskParameter="Sdk" PropertyName="_NSharpBaseSdk" />
       <Output TaskParameter="TestFramework" PropertyName="NSharpTestFramework" />
     </LoadProjectConfig>
@@ -60,8 +62,8 @@
     <PropertyGroup Condition="'$(_NSharpProjectVersion)' != ''">
       <Version Condition="'$(Version)' == '' Or '$(Version)' == '1.0.0'">$(_NSharpProjectVersion)</Version>
       <PackageVersion Condition="'$(PackageVersion)' == '' Or '$(PackageVersion)' == '1.0.0'">$(_NSharpProjectVersion)</PackageVersion>
-      <AssemblyVersion Condition="'$(AssemblyVersion)' == '' Or '$(AssemblyVersion)' == '1.0.0.0'">$(_NSharpProjectVersion)</AssemblyVersion>
-      <FileVersion Condition="'$(FileVersion)' == '' Or '$(FileVersion)' == '1.0.0.0'">$(_NSharpProjectVersion)</FileVersion>
+      <AssemblyVersion Condition="'$(_NSharpProjectAssemblyVersion)' != '' And ('$(AssemblyVersion)' == '' Or '$(AssemblyVersion)' == '1.0.0.0')">$(_NSharpProjectAssemblyVersion)</AssemblyVersion>
+      <FileVersion Condition="'$(_NSharpProjectFileVersion)' != '' And ('$(FileVersion)' == '' Or '$(FileVersion)' == '1.0.0.0')">$(_NSharpProjectFileVersion)</FileVersion>
     </PropertyGroup>
 
     <ItemGroup Condition="'$(AssemblyName)' != ''">

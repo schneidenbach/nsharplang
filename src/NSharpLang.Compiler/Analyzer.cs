@@ -131,6 +131,17 @@ public class Analyzer : IDisposable
     private bool _currentFunctionReturnTypeWasOmitted;
     private bool _currentFunctionIsAsync;
     private bool _inLoop;
+    // NL319: nesting depth of `finally` blocks currently being analyzed (finallys nest), plus the depth
+    // recorded when the innermost break/continue target was entered. A `return` at depth > 0 — or a
+    // `break`/`continue` whose target loop/switch was entered at a SHALLOWER depth — would have to exit
+    // the finally handler, which ECMA-335 forbids (a finally may only complete via its own end; the
+    // emitted `leave` is invalid IL and crashes with InvalidProgramException on every call). All three
+    // reset at nested-body boundaries (lambdas, local functions): a return there exits the nested body,
+    // not the finally, which is legal. The loop context resets there too; break/continue cannot target
+    // an enclosing method's loop from a nested method body.
+    private int _finallyDepth;
+    private int _breakTargetFinallyDepth;
+    private int _continueTargetFinallyDepth;
     private bool _inConstructor;
     private ClassDeclaration? _currentClass;
     private string? _currentTypeName;
@@ -282,6 +293,9 @@ public class Analyzer : IDisposable
         _currentFunctionReturnTypeWasOmitted = false;
         _currentFunctionIsAsync = false;
         _inLoop = false;
+        _finallyDepth = 0;
+        _breakTargetFinallyDepth = 0;
+        _continueTargetFinallyDepth = 0;
         _inConstructor = false;
         _currentFilePath = currentFilePath;
         _projectRoot = projectRoot;
@@ -2048,6 +2062,7 @@ public class Analyzer : IDisposable
             case NewExpression newExpr:
                 foreach (var argument in newExpr.ConstructorArguments)
                     AnalyzeDefiniteAssignmentExpression(argument.Value, state);
+                AnalyzeDefiniteAssignmentExpression(newExpr.ArrayLengthExpression, state);
                 if (newExpr.Initializer != null)
                 {
                     foreach (var property in newExpr.Initializer.Properties)
@@ -2172,7 +2187,11 @@ public class Analyzer : IDisposable
                     ReportBooleanConditionTypeMismatch(whileStmt.Condition, "a 'while' loop", condType);
                 }
                 var wasInLoop = _inLoop;
+                var whileBreakDepth = _breakTargetFinallyDepth;
+                var whileContinueDepth = _continueTargetFinallyDepth;
                 _inLoop = true;
+                _breakTargetFinallyDepth = _finallyDepth;
+                _continueTargetFinallyDepth = _finallyDepth;
                 if (whileThenNarrowings.Count > 0)
                 {
                     PushScope(new Scope(ScopeKind.Block), whileStmt.Body.Line, whileStmt.Body.Column);
@@ -2185,6 +2204,8 @@ public class Analyzer : IDisposable
                     AnalyzeStatement(whileStmt.Body);
                 }
                 _inLoop = wasInLoop;
+                _breakTargetFinallyDepth = whileBreakDepth;
+                _continueTargetFinallyDepth = whileContinueDepth;
                 break;
             case ReturnStatement returnStmt:
                 AnalyzeReturnStatement(returnStmt);
@@ -2200,6 +2221,10 @@ public class Analyzer : IDisposable
                         "Move this `break` inside a loop, or remove it if there is no loop to exit.",
                         "break".Length);
                 }
+                else if (_finallyDepth > _breakTargetFinallyDepth)
+                {
+                    ReportControlTransferOutOfFinally("break", stmt.Line, stmt.Column);
+                }
                 break;
             case ContinueStatement:
                 if (!_inLoop)
@@ -2211,6 +2236,10 @@ public class Analyzer : IDisposable
                         stmt.Column,
                         "Move this `continue` inside a loop, or remove it if there is no loop to continue.",
                         "continue".Length);
+                }
+                else if (_finallyDepth > _continueTargetFinallyDepth)
+                {
+                    ReportControlTransferOutOfFinally("continue", stmt.Line, stmt.Column);
                 }
                 break;
             case ThrowStatement throwStmt:
@@ -2416,7 +2445,8 @@ public class Analyzer : IDisposable
             ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
             TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
             NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
-                                  (@new.Initializer != null && ContainsParserErrorPlaceholder(@new.Initializer)),
+                                  (@new.Initializer != null && ContainsParserErrorPlaceholder(@new.Initializer)) ||
+                                  (@new.ArrayLengthExpression != null && ContainsParserErrorPlaceholder(@new.ArrayLengthExpression)),
             ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
                 (property.IndexExpression != null && ContainsParserErrorPlaceholder(property.IndexExpression)) ||
                 ContainsParserErrorPlaceholder(property.Value)),
@@ -2935,11 +2965,23 @@ public class Analyzer : IDisposable
         var previousFunction = _currentFunction;
         var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
         var previousFunctionIsAsync = _currentFunctionIsAsync;
+        var previousInLoop = _inLoop;
+        var previousFinallyDepth = _finallyDepth;
+        var previousBreakTargetFinallyDepth = _breakTargetFinallyDepth;
+        var previousContinueTargetFinallyDepth = _continueTargetFinallyDepth;
         TypeInfo? returnType = func.ReturnType != null ? ResolveType(func.ReturnType) : BuiltInTypes.Void;
         _currentReturnType = returnType;
         _currentFunction = func;
         _currentFunctionReturnTypeWasOmitted = func.ReturnType == null;
         _currentFunctionIsAsync = func.Modifiers.HasFlag(Modifiers.Async);
+        // NL319 context resets at the nested-body boundary: a return here exits the local
+        // function, not any finally the declaration happens to sit inside — that is legal.
+        // Break/continue targets reset for the same reason: they cannot branch to loops in the
+        // enclosing method body.
+        _inLoop = false;
+        _finallyDepth = 0;
+        _breakTargetFinallyDepth = 0;
+        _continueTargetFinallyDepth = 0;
 
         // Analyze body
         if (func.Body != null)
@@ -2964,6 +3006,10 @@ public class Analyzer : IDisposable
         _currentFunction = previousFunction;
         _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
         _currentFunctionIsAsync = previousFunctionIsAsync;
+        _inLoop = previousInLoop;
+        _finallyDepth = previousFinallyDepth;
+        _breakTargetFinallyDepth = previousBreakTargetFinallyDepth;
+        _continueTargetFinallyDepth = previousContinueTargetFinallyDepth;
 
         PopScope();
     }
@@ -3135,7 +3181,7 @@ public class Analyzer : IDisposable
         // Extract flow-sensitive type narrowings from the condition (null checks, is-patterns, && chains)
         var (thenNarrowings, elseNarrowings) = ExtractFlowNarrowings(ifStmt.Condition);
 
-        if (!IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType))
+        if (!IsBoolType(condType) && !BuiltInTypes.IsUnknown(condType) && !ContainsParserErrorPlaceholder(ifStmt.Condition))
         {
             // Use ErrorMessageBuilder for better error message
             var (diagnosticLine, diagnosticColumn, diagnosticLength) = GetExpressionDiagnosticSpan(ifStmt.Condition);
@@ -3416,7 +3462,11 @@ public class Analyzer : IDisposable
             AnalyzeExpression(forStmt.Iterator);
 
         var wasInLoop = _inLoop;
+        var savedBreakDepth = _breakTargetFinallyDepth;
+        var savedContinueDepth = _continueTargetFinallyDepth;
         _inLoop = true;
+        _breakTargetFinallyDepth = _finallyDepth;
+        _continueTargetFinallyDepth = _finallyDepth;
         if (forStmt.Condition != null)
         {
             var (bodyNarrowings, _) = ExtractFlowNarrowings(forStmt.Condition);
@@ -3437,6 +3487,8 @@ public class Analyzer : IDisposable
             AnalyzeStatement(forStmt.Body);
         }
         _inLoop = wasInLoop;
+        _breakTargetFinallyDepth = savedBreakDepth;
+        _continueTargetFinallyDepth = savedContinueDepth;
 
         PopScope();
     }
@@ -3460,9 +3512,15 @@ public class Analyzer : IDisposable
         RecordVariableInCurrentScope(foreachStmt.VariableName, elementType);
 
         var wasInLoop = _inLoop;
+        var savedBreakDepth = _breakTargetFinallyDepth;
+        var savedContinueDepth = _continueTargetFinallyDepth;
         _inLoop = true;
+        _breakTargetFinallyDepth = _finallyDepth;
+        _continueTargetFinallyDepth = _finallyDepth;
         AnalyzeStatement(foreachStmt.Body);
         _inLoop = wasInLoop;
+        _breakTargetFinallyDepth = savedBreakDepth;
+        _continueTargetFinallyDepth = savedContinueDepth;
 
         PopScope();
     }
@@ -3486,9 +3544,15 @@ public class Analyzer : IDisposable
         RecordVariableInCurrentScope(awaitForeachStmt.VariableName, elementType);
 
         var wasInLoop = _inLoop;
+        var savedBreakDepth = _breakTargetFinallyDepth;
+        var savedContinueDepth = _continueTargetFinallyDepth;
         _inLoop = true;
+        _breakTargetFinallyDepth = _finallyDepth;
+        _continueTargetFinallyDepth = _finallyDepth;
         AnalyzeStatement(awaitForeachStmt.Body);
         _inLoop = wasInLoop;
+        _breakTargetFinallyDepth = savedBreakDepth;
+        _continueTargetFinallyDepth = savedContinueDepth;
 
         PopScope();
     }
@@ -3553,6 +3617,14 @@ public class Analyzer : IDisposable
                 "Move this `return` inside a function, or remove it if there is no function to return from.",
                 "return".Length);
             return;
+        }
+
+        // NL319: a return anywhere inside a finally block exits the handler — illegal IL. Depth, not
+        // immediate-parent: a return inside a try/lock/using nested in the finally still leaves it.
+        // (_finallyDepth resets at lambda/local-function boundaries, where a return is legal.)
+        if (_finallyDepth > 0)
+        {
+            ReportControlTransferOutOfFinally("return", returnStmt.Line, returnStmt.Column);
         }
 
         if (returnStmt.Value != null)
@@ -3738,7 +3810,31 @@ public class Analyzer : IDisposable
 
         if (tryStmt.FinallyBlock != null)
         {
+            // NL319 context: any return — or break/continue targeting a loop/switch entered at a
+            // shallower depth — inside this block would leave the finally handler (illegal IL).
+            _finallyDepth++;
             AnalyzeStatement(tryStmt.FinallyBlock);
+            _finallyDepth--;
+        }
+    }
+
+    private void ReportControlTransferOutOfFinally(string keyword, int line, int column)
+    {
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.ControlTransferOutOfFinally(
+                _currentFilePath, line, column, sourceSnippet, keyword.Length, keyword));
+        }
+        else
+        {
+            Error(
+                ErrorCode.ControlTransferOutOfFinally,
+                $"Control cannot leave a 'finally' block with '{keyword}'",
+                line,
+                column,
+                $"Move the `{keyword}` outside the `finally` block.",
+                keyword.Length);
         }
     }
 
@@ -3767,8 +3863,25 @@ public class Analyzer : IDisposable
 
     private void AnalyzeLockStatement(LockStatement lockStmt)
     {
-        // Analyze the lock object expression
-        AnalyzeExpression(lockStmt.LockObject);
+        // NL320 (the CS0185 analog): the lockee must be a reference type. Monitor locks on object
+        // IDENTITY — a value-typed lockee has none (it would be boxed into a fresh object per lock,
+        // guarding nothing), and the IL emitter's `stloc` of a raw value into an object local is
+        // unverifiable IL that segfaults the process inside Monitor.Enter.
+        var lockeeType = ResolveTypeAlias(AnalyzeExpression(lockStmt.LockObject));
+
+        if (lockeeType is SimpleTypeInfo named && TryGetEnclosingTypeParameter(named.Name, out var isReferenceConstrained))
+        {
+            // Stricter than C# by design: Roslyn boxes an unconstrained T (a lock that can never
+            // provide mutual exclusion); N# requires the type parameter to be provably a reference.
+            if (!isReferenceConstrained)
+            {
+                ReportLockRequiresReferenceType(lockStmt.LockObject, named.Name, isTypeParameter: true);
+            }
+        }
+        else if (IsKnownValueTypeLockee(lockeeType))
+        {
+            ReportLockRequiresReferenceType(lockStmt.LockObject, lockeeType.ToString(), isTypeParameter: false);
+        }
 
         // Analyze the body with a new scope
         PushScope(new Scope(ScopeKind.Block), lockStmt.Line, lockStmt.Column);
@@ -3776,9 +3889,129 @@ public class Analyzer : IDisposable
         PopScope();
     }
 
+    private void ReportLockRequiresReferenceType(Expression lockee, string typeName, bool isTypeParameter)
+    {
+        var (line, column, length) = GetExpressionDiagnosticSpan(lockee);
+        var sourceSnippet = GetSourceSnippet(line);
+        if (sourceSnippet != null && _currentFilePath != null)
+        {
+            _errors.Add(ErrorMessageBuilder.LockRequiresReferenceType(
+                _currentFilePath, line, column, sourceSnippet, length, typeName, isTypeParameter));
+        }
+        else
+        {
+            Error(
+                ErrorCode.LockRequiresReferenceType,
+                $"'{typeName}' is not a reference type as required by the lock statement",
+                line,
+                column,
+                isTypeParameter
+                    ? $"Constrain `{typeName}` to a reference type (`where {typeName}: class`), or lock on a dedicated `object` field instead: `sync: object = new object()`"
+                    : "Lock on a dedicated `object` field instead: `sync: object = new object()`",
+                length);
+        }
+    }
+
+    /// <summary>
+    /// Whether <paramref name="name"/> is a generic type parameter of the enclosing function or type,
+    /// and if so whether its constraints prove it is a reference type (`where T: class`, or a base
+    /// CLASS constraint — interface constraints prove nothing, since structs implement interfaces).
+    /// </summary>
+    private bool TryGetEnclosingTypeParameter(string name, out bool isReferenceConstrained)
+    {
+        isReferenceConstrained = false;
+
+        var declaredOnFunction = _currentFunction?.TypeParameters?.Any(tp => tp.Name == name) == true;
+        var declaredOnType = _currentClass?.TypeParameters?.Any(tp => tp.Name == name) == true;
+        if (!declaredOnFunction && !declaredOnType)
+            return false;
+
+        var constraint = declaredOnFunction
+            ? _currentFunction?.Constraints?.FirstOrDefault(c => c.TypeParameter == name)
+            : null;
+        if (constraint != null)
+        {
+            if (constraint.SpecialConstraints.HasFlag(SpecialConstraintKind.Class))
+            {
+                isReferenceConstrained = true;
+                return true;
+            }
+
+            foreach (var constraintTypeRef in constraint.Constraints)
+            {
+                var constraintType = ResolveTypeAlias(ResolveType(constraintTypeRef));
+                var isClassConstraint = constraintType switch
+                {
+                    ClassTypeInfo => true,
+                    RecordTypeInfo record => !record.Declaration.IsStruct,
+                    ReflectionTypeInfo refl => refl.Type.IsClass,
+                    _ => false
+                };
+                if (isClassConstraint)
+                {
+                    isReferenceConstrained = true;
+                    return true;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Whether the type is a KNOWN value type for the NL320 lockee check. Deliberately conservative —
+    /// the inverse of <see cref="IsReferenceType"/> would false-positive: that predicate answers
+    /// "can this be assigned null" and returns false for Unknown/External/GenericTypeInfo, which must
+    /// stay SILENT here (rejecting a type the analyzer cannot classify would break locks on external
+    /// .NET reference types).
+    /// </summary>
+    private bool IsKnownValueTypeLockee(TypeInfo type)
+    {
+        switch (type)
+        {
+            case SimpleTypeInfo simple:
+                if (simple.Name is "int" or "long" or "float" or "double" or "decimal"
+                    or "byte" or "sbyte" or "short" or "ushort"
+                    or "uint" or "ulong" or "char" or "bool" or "void")
+                {
+                    return true;
+                }
+                // A bare name can reach here for a user struct/enum the expression analysis did not
+                // materialize into its declaration-backed TypeInfo — resolve it and re-classify.
+                var resolved = LookupType(simple.Name);
+                return resolved != null && resolved is not SimpleTypeInfo && IsKnownValueTypeLockee(resolved);
+            case StructTypeInfo:
+            case EnumTypeInfo:
+            case TupleTypeInfo: // ValueTuple
+                return true;
+            case RecordTypeInfo record:
+                return record.Declaration.IsStruct;
+            case NullableTypeInfo nullable:
+                // `T?` over a value type is Nullable<T> — itself a struct. Over a reference type it
+                // is only a nullability annotation.
+                return IsKnownValueTypeLockee(nullable.InnerType);
+            case ObliviousTypeInfo oblivious:
+                return IsKnownValueTypeLockee(oblivious.InnerType);
+            case ByRefTypeInfo byRef:
+                // The byref loads the referenced value when used as an expression.
+                return IsKnownValueTypeLockee(byRef.InnerType);
+            case ReflectionTypeInfo refl:
+                return refl.Type.IsValueType;
+            default:
+                // Unknown / External / GenericTypeInfo / class-like: stay silent.
+                return false;
+        }
+    }
+
     private void AnalyzeSwitchStatement(SwitchStatement switchStmt)
     {
         var valueType = AnalyzeExpression(switchStmt.Value);
+
+        // A `break` in a case body targets the switch itself (the emitter pushes a break label per
+        // switch), so for NL319 the break target's finally depth is the switch's entry depth.
+        // `continue` still targets the enclosing loop, so its depth is untouched.
+        var savedBreakDepth = _breakTargetFinallyDepth;
+        _breakTargetFinallyDepth = _finallyDepth;
 
         foreach (var switchCase in switchStmt.Cases)
         {
@@ -3794,6 +4027,8 @@ public class Analyzer : IDisposable
 
             PopScope();
         }
+
+        _breakTargetFinallyDepth = savedBreakDepth;
     }
 
     private void AnalyzePattern(Pattern pattern, TypeInfo valueType)
@@ -4137,7 +4372,7 @@ public class Analyzer : IDisposable
             ArrayLiteralExpression array => AnalyzeArrayLiteral(array),
             NewExpression newExpr => AnalyzeNewExpression(newExpr),
             AllocExpression alloc => AnalyzeExpression(alloc.Expression),
-            StackAllocExpression stackAlloc => new GenericTypeInfo("Span", new List<TypeInfo> { ResolveType(stackAlloc.ElementType) }),
+            StackAllocExpression stackAlloc => AnalyzeStackAllocExpression(stackAlloc),
             CastExpression cast => ResolveType(cast.TargetType),
             IsExpression isExpr => AnalyzeIsExpression(isExpr),
             AwaitExpression await => AnalyzeAwaitExpression(await),
@@ -10143,10 +10378,21 @@ public class Analyzer : IDisposable
             var previousFunction = _currentFunction;
             var previousFunctionReturnTypeWasOmitted = _currentFunctionReturnTypeWasOmitted;
             var previousFunctionIsAsync = _currentFunctionIsAsync;
+            var previousInLoop = _inLoop;
+            var previousFinallyDepth = _finallyDepth;
+            var previousBreakTargetFinallyDepth = _breakTargetFinallyDepth;
+            var previousContinueTargetFinallyDepth = _continueTargetFinallyDepth;
             _currentReturnType = expectedSignature?.ReturnType ?? BuiltInTypes.Unknown;
             _currentFunction = null;
             _currentFunctionReturnTypeWasOmitted = false;
             _currentFunctionIsAsync = false;
+            // NL319 context resets at the nested-body boundary: a return here exits the lambda,
+            // not any finally the lambda happens to sit inside — that is legal. Branch targets
+            // reset too; break/continue cannot target loops in the enclosing method.
+            _inLoop = false;
+            _finallyDepth = 0;
+            _breakTargetFinallyDepth = 0;
+            _continueTargetFinallyDepth = 0;
             try
             {
                 AnalyzeStatement(lambda.BlockBody);
@@ -10157,6 +10403,10 @@ public class Analyzer : IDisposable
                 _currentFunction = previousFunction;
                 _currentFunctionReturnTypeWasOmitted = previousFunctionReturnTypeWasOmitted;
                 _currentFunctionIsAsync = previousFunctionIsAsync;
+                _inLoop = previousInLoop;
+                _finallyDepth = previousFinallyDepth;
+                _breakTargetFinallyDepth = previousBreakTargetFinallyDepth;
+                _continueTargetFinallyDepth = previousContinueTargetFinallyDepth;
             }
             returnType = expectedSignature?.ReturnType ?? BuiltInTypes.Unknown;
         }
@@ -10305,6 +10555,17 @@ public class Analyzer : IDisposable
 
         if (newExpr.ArrayLengthExpression != null)
         {
+            if (newExpr.ConstructorArguments.Count != 0)
+            {
+                Error(
+                    ErrorCode.InvalidSizedArrayConstructorArguments,
+                    "Sized array allocation cannot also pass constructor arguments",
+                    newExpr.Line,
+                    newExpr.Column,
+                    "Use 'new T[n]' for a zero-initialized array, or use 'new T[] { ... }' to provide element values.",
+                    "new".Length);
+            }
+
             var lengthType = AnalyzeExpression(newExpr.ArrayLengthExpression);
             if (lengthType != BuiltInTypes.Int)
             {
@@ -10332,6 +10593,61 @@ public class Analyzer : IDisposable
         }
 
         return type;
+    }
+
+    /// <summary>
+    /// Analyzes a stackalloc expression. The length subtree gets full semantic analysis (name
+    /// resolution, type recording) like any other expression — the systems policy gate (NSYS080)
+    /// layers on top of these semantic checks and can be downgraded to a warning inside
+    /// [boundary]/audit code, so undefined names and non-int lengths must be rejected here
+    /// before either backend can see them.
+    /// </summary>
+    private TypeInfo AnalyzeStackAllocExpression(StackAllocExpression stackAlloc)
+    {
+        var lengthType = AnalyzeExpression(stackAlloc.LengthExpression);
+        if (!BuiltInTypes.IsUnknown(lengthType) && !IsImplicitlyIntStackAllocLength(lengthType))
+        {
+            Error(ErrorCode.TypeMismatch,
+                $"stackalloc length must be an int, but this is a '{lengthType}'",
+                stackAlloc.LengthExpression.Line,
+                stackAlloc.LengthExpression.Column,
+                "Use an int-typed length, or cast explicitly with '(int)' if the value is known to fit.");
+        }
+        else if (IsConstantNegative(stackAlloc.LengthExpression))
+        {
+            Error(ErrorCode.TypeMismatch,
+                "stackalloc length must not be negative",
+                stackAlloc.LengthExpression.Line,
+                stackAlloc.LengthExpression.Column,
+                "Use a length of zero or more.");
+        }
+
+        return new GenericTypeInfo("Span", new List<TypeInfo> { ResolveType(stackAlloc.ElementType) });
+    }
+
+    /// <summary>
+    /// A stackalloc length must implicitly widen to int (matching C#'s element-count rule):
+    /// int itself plus the smaller integer types. long/uint/ulong, floating point, and
+    /// non-numeric types require an explicit conversion.
+    /// </summary>
+    private static bool IsImplicitlyIntStackAllocLength(TypeInfo type)
+        => type == BuiltInTypes.Int
+           || type == BuiltInTypes.Short
+           || type == BuiltInTypes.SByte
+           || type == BuiltInTypes.Byte
+           || type == BuiltInTypes.UShort
+           || type == BuiltInTypes.Char;
+
+    private static bool IsConstantNegative(Expression expression)
+    {
+        while (expression is ParenthesizedExpression paren)
+            expression = paren.Inner;
+
+        return expression is UnaryExpression
+        {
+            Operator: UnaryOperator.Negate,
+            Operand: IntLiteralExpression literal
+        } && literal.Value != "0";
     }
 
     /// <summary>

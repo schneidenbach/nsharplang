@@ -2428,6 +2428,102 @@ func main(): int {
     }
 
     [Fact]
+    public void Lambda_CapturesLocalUsedOnlyAsArrayLength_EmitsAndRuns()
+    {
+        // The capture scan skipped NewExpression.ArrayLengthExpression, so a local read only as
+        // an array length never became a closure field and emit failed with NL103
+        // "Undefined variable or parameter".
+        var source = @"
+import System
+
+func main(): int {
+    n := 7
+    f: Func<int> = () => new int[n].Length
+    return f()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(7, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void Lambda_CapturesTwoLocalsUsedOnlyAsArrayLength_EmitsAndRuns()
+    {
+        var source = @"
+import System
+
+func main(): int {
+    n := 3
+    m := 4
+    f: Func<int> = () => new int[n + m].Length
+    return f()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(7, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void Lambda_CapturesLocalUsedOnlyInMustExpression_EmitsAndRuns()
+    {
+        // MustExpression was another missing capture-scan case.
+        var source = @"
+import System
+
+func main(): int {
+    value: int? = 5
+    f: Func<int> = () => must value
+    return f()
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(5, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void LocalFunction_CapturesLocalUsedOnlyAsArrayLength_EmitsAndRuns()
+    {
+        // Local functions share the lambda capture scan, so the skipped array-length subtree
+        // broke them the same way.
+        var source = @"
+func main(): int {
+    n := 7
+    func make(): int[] {
+        return new int[n]
+    }
+    return make().Length
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(7, Assert.IsType<int>(result));
+    }
+
+    [Fact]
+    public void LocalFunction_EscapesViaReferenceInsideArrayLength_EmitsAndRuns()
+    {
+        // The escape scan skipped array-length subtrees too: a local function passed as a value
+        // inside `new int[...]` must be detected as escaping (it needs a real delegate, not a
+        // direct call).
+        var source = @"
+import System
+
+func apply(f: Func<int>): int {
+    return f()
+}
+
+func main(): int {
+    func seven(): int {
+        return 7
+    }
+    arr := new int[apply(seven)]
+    return arr.Length
+}";
+
+        var result = CompileAndInvoke(source);
+        Assert.Equal(7, Assert.IsType<int>(result));
+    }
+
+    [Fact]
     public void ILCompiler_CapturedStructFieldAssignment_IsObservedAcrossCallBoundary()
     {
         // A local function captures a struct local and writes one of its fields. Because a field
@@ -8248,6 +8344,37 @@ func main(): int {
     return a + b
 }";
         Assert.Equal(42, Assert.IsType<int>(CompileAndInvoke(source)));
+    }
+
+    [Fact]
+    public void ILCompiler_GenericMethodConstraint_CanReferenceDeclaringTypeParameter()
+    {
+        var source = @"
+class Box<T> {
+    func Echo<U>(value: U): U where U : T {
+        return value
+    }
+}";
+
+        CompileAndInspect(source, assembly =>
+        {
+            var boxType = assembly.GetTypes().Single(type => type.Name.StartsWith("Box", StringComparison.Ordinal));
+            Assert.True(boxType.IsGenericTypeDefinition);
+
+            var declaringTypeParameter = Assert.Single(boxType.GetGenericArguments());
+            var echo = boxType.GetMethod("Echo", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+            Assert.NotNull(echo);
+            Assert.True(echo!.IsGenericMethodDefinition);
+
+            var methodTypeParameter = Assert.Single(echo.GetGenericArguments());
+            var constraint = Assert.Single(methodTypeParameter.GetGenericParameterConstraints());
+            Assert.True(constraint.IsGenericParameter);
+            Assert.Equal(declaringTypeParameter.Name, constraint.Name);
+            Assert.Equal(declaringTypeParameter.GenericParameterPosition, constraint.GenericParameterPosition);
+            Assert.Equal(boxType, constraint.DeclaringType);
+
+            return true;
+        });
     }
 
     [Fact]

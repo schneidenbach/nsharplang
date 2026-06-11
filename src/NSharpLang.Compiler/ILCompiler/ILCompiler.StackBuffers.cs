@@ -400,8 +400,8 @@ public partial class ILCompiler
             _currentIL.Emit(OpCodes.Stloc, loopVar);
         }
 
-        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth));
-        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth));
+        _breakLabels.Push(new BranchTarget(loopEnd, _exceptionBlockDepth, _finallyHandlerDepth));
+        _continueLabels.Push(new BranchTarget(continueLabel, _exceptionBlockDepth, _finallyHandlerDepth));
         try
         {
             EmitStatement(foreachStmt.Body);

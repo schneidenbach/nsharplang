@@ -196,7 +196,12 @@ scratch := stackalloc byte[64]
 ```
 
 `stackalloc` length is bounded by `language.systems.stackBudgetBytes` (default 4096); going
-over budget is `NSYS080`. A stack span has `local` lifetime and cannot escape its frame —
+over budget is `NSYS080`. The length itself must be an `int` (smaller integer types like
+`byte`, `short`, or `char` widen implicitly; `long`, `string`, and friends are an `NL202`
+type error — cast explicitly with `(int)` if the value is known to fit), and a constant
+negative length is rejected. These are ordinary semantic checks, so they apply in every
+policy — including `[boundary]` functions and audit mode, where `NSYS080` downgrades to a
+warning. A stack span has `local` lifetime and cannot escape its frame —
 returning one is a compile error, not a dangling pointer.
 
 ---
@@ -328,7 +333,7 @@ func ReadAndParse(path: string): int {
 
 This is the part that makes systems N# *fast*, not just *checked*. RyuJIT does not
 auto-vectorize counted reduction loops (LLVM does — that was the entire Rust/C gap on those
-kernels). So the N# IL backend recognizes two canonical hot-loop shapes and emits unrolled
+kernels). So the N# IL backend recognizes four canonical hot-loop shapes and emits unrolled
 `System.Numerics.Vector<T>` code directly.
 
 **1. Counted reductions** — `for i < len { acc = acc + a[i] }`:
@@ -361,23 +366,36 @@ func countAscii(values: int[]): int {
 }
 ```
 
-Both rewrites are **on by default**; set `NSHARP_VECTORIZE_REDUCTIONS=0` to opt out. They
+**3. Min/max reductions** — `for i < len { if a[i] < min { min = a[i] }; if a[i] > max { max = a[i] } }`
+lowers to a **fused single pass** of lane-wise `Vector.Min`/`Vector.Max`: each vector is
+loaded once and fed to both the min and the max accumulators.
+
+**4. Adjacent-transition counts** — `for i < len { if a[i] != a[i-1] { count++ } }` looks
+serial but only reads adjacent *inputs*, so it lowers to a **seeded shifted compare**:
+packed compare-not-equal of the array against itself shifted by one element, with a masked
+accumulate.
+
+All four rewrites are **on by default**; set `NSHARP_VECTORIZE_REDUCTIONS=0` to opt out. They
 only fire under conservative guards: an unchecked context, an exact element-type match,
 distinct accumulator/array/index names (no aliasing), and a side-effect-free loop bound
 (`array.Length` lowers to a pure `ldlen`).
 
-**Measured (Apple M4, .NET 10, BenchmarkDotNet vs the C# scalar baseline, 2026-06-07):**
+**Measured (Apple M4, .NET 10, BenchmarkDotNet vs the C# scalar baseline, re-run 2026-06-07):**
 
 | Kernel | Size | C# ns | N# ns | N# / C# |
 |--------|------|-------|-------|---------|
-| checksum (reduction) | 4096 | 994.7 | **222.5** | **0.22× — 4.5× faster** |
-| count-ascii (range count) | 4096 | 1172.9 | **296.4** | **0.25× — 4.0× faster** |
+| checksum (reduction) | 4096 | 982.916 | **222.625** | **0.23× — 4.4× faster** |
+| count-ascii (range count) | 4096 | 1174.088 | **298.051** | **0.25× — 3.9× faster** |
+| min-max-delta (fused min/max) | 4096 | 1496.034 | **253.578** | **0.17× — 5.9× faster** |
+| count-transitions (shifted compare) | 4096 | 1069.094 | **477.331** | **0.45× — 2.2× faster** |
 
-This closes the worst-case gap behind native (Rust/C) on these kernels from ~8.8× to ~2×.
+This closes the worst-case gap behind native (Rust/C) from ~10.5× to within 2.02× at 4096
+(worst small-input cell anywhere: 2.49×, min-max-delta at 64 elements).
 
 > **Honest scope.** Vectorization is narrow on purpose, with a single uniform-stride index
-> and exactly the two shapes above. Counted **reductions** cover `int`/`long`/`uint`/`ulong`
-> arrays; **range-predicate counts** currently cover `int[]` only. Floating-point reductions
+> and exactly the four shapes above. Counted **reductions** cover `int`/`long`/`uint`/`ulong`
+> arrays; **range-predicate counts**, **min/max reductions**, and **adjacent-transition
+> counts** currently cover `int[]` only. Floating-point reductions
 > are deliberately excluded (FP addition isn't associative).
 > Loops that don't match — and non-vectorizable kernels generally — correctly stay scalar
 > and tie C#. Broader auto-vectorization (more loop shapes and element types) and a structural
@@ -423,7 +441,7 @@ nativeaot`, the analyzer reports per-symbol `aotSafe`/`trimSafe` facts and flags
 | `ref struct`, `&T`, `scoped`, `returns 'a` lifetime checks | **Shipped** (v1 escape shapes; not a borrow checker) |
 | `unsafe` + `[trusted]` governance + `nlc query trusted` | **Shipped** (narrow: no arbitrary pointer arithmetic) |
 | Pool rent/return balance | **Shipped** (lexical/conservative) |
-| SIMD auto-vectorization (reductions, range counts) | **Shipped + measured** (narrow shapes) |
+| SIMD auto-vectorization (reductions, range counts, min/max, transition counts) | **Shipped + measured** (narrow shapes) |
 | AOT/trim facts | **Analysis-only** (no native image emission) |
 | Atomics via Hot Pack | **Shipped** (fail-closed, no race proof) |
 | General `value union`, ownership/move model, `defer`, effect lockfiles | **Deferred** |

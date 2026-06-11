@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NSharpLang.Compiler.Ast;
 
@@ -131,6 +132,10 @@ public static class SystemsFindingExtensions
 /// <summary>
 /// Systems N# policy/effect analyzer. This is deliberately conservative and source based:
 /// it gives the check/build/query surfaces deterministic facts without changing emitted IL.
+/// Calls to user-declared functions are resolved through the Analyzer's semantic models
+/// (the declaration bound at each call-site position), never by name matching; a hot-path
+/// call that does not resolve semantically and matches no BCL/HotSummary fact is reported
+/// as an unknown external call instead of being assumed clean.
 /// </summary>
 public sealed class SystemsAnalyzer
 {
@@ -139,17 +144,22 @@ public sealed class SystemsAnalyzer
     private readonly List<SystemsFinding> _findings = new();
     private readonly List<SystemsFunctionSummary> _functions = new();
     private readonly List<SystemsTrustedSite> _trustedSites = new();
-    private readonly Dictionary<string, FunctionDeclaration> _declaredFunctions = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, FunctionEntry> _functionEntries = new(StringComparer.Ordinal);
+    private readonly Dictionary<FunctionDeclaration, FunctionEntry> _functionEntries = new(ReferenceEqualityComparer.Instance);
+    private readonly Dictionary<DeclarationSite, List<FunctionEntry>> _functionEntriesBySite = new();
+    private readonly Dictionary<string, HashSet<string>> _visibleDeclarationFilesByFile = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<FunctionEntry> _orderedFunctionEntries = new();
-    private readonly Dictionary<string, MutableFunctionSummary> _summaryCache = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _visitingFunctions = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _emittedFunctions = new(StringComparer.Ordinal);
+    private readonly Dictionary<FunctionDeclaration, MutableFunctionSummary> _summaryCache = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<FunctionDeclaration> _visitingFunctions = new(ReferenceEqualityComparer.Instance);
+    private readonly HashSet<FunctionDeclaration> _emittedFunctions = new(ReferenceEqualityComparer.Instance);
     private readonly HashSet<string> _structTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _refStructTypes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _enumTypes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _memberTypeNames = new(StringComparer.Ordinal);
+    private IReadOnlyDictionary<string, SemanticModel> _semanticModels = EmptySemanticModels;
     private HotSummaryCatalog _hotSummaries;
+
+    private static readonly IReadOnlyDictionary<string, SemanticModel> EmptySemanticModels =
+        new Dictionary<string, SemanticModel>();
 
     public SystemsAnalyzer(string projectRoot, ProjectConfig? config)
     {
@@ -160,13 +170,15 @@ public sealed class SystemsAnalyzer
 
     public SystemsReport Analyze(
         IReadOnlyDictionary<string, CompilationUnit> compilationUnits,
-        PerformanceFactStore? performanceFacts = null)
+        PerformanceFactStore? performanceFacts = null,
+        IReadOnlyDictionary<string, SemanticModel>? semanticModels = null)
     {
         _findings.Clear();
         _functions.Clear();
         _trustedSites.Clear();
-        _declaredFunctions.Clear();
         _functionEntries.Clear();
+        _functionEntriesBySite.Clear();
+        _visibleDeclarationFilesByFile.Clear();
         _orderedFunctionEntries.Clear();
         _summaryCache.Clear();
         _visitingFunctions.Clear();
@@ -175,7 +187,9 @@ public sealed class SystemsAnalyzer
         _refStructTypes.Clear();
         _enumTypes.Clear();
         _memberTypeNames.Clear();
+        _semanticModels = semanticModels ?? EmptySemanticModels;
         _hotSummaries = HotSummaryCatalog.Load(_projectRoot, _config);
+        BuildVisibleDeclarationFiles(compilationUnits);
 
         foreach (var (file, unit) in compilationUnits.OrderBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase))
         {
@@ -269,47 +283,25 @@ public sealed class SystemsAnalyzer
     {
         var qualified = containingType == null ? function.Name : $"{containingType}.{function.Name}";
         var entry = new FunctionEntry(file, containingType, qualified, function);
-        _declaredFunctions[function.Name] = function;
-        _declaredFunctions[qualified] = function;
-        _functionEntries[function.Name] = entry;
-        _functionEntries[qualified] = entry;
-        _orderedFunctionEntries.Add(entry);
-    }
+        _functionEntries[function] = entry;
 
-    private void AnalyzeDeclarations(
-        string file,
-        IEnumerable<Declaration> declarations,
-        string? containingType,
-        PerformanceFactStore? performanceFacts)
-    {
-        foreach (var declaration in declarations)
+        // Secondary identity for declarations the Analyzer re-parsed (file imports produce a
+        // fresh AST per importer): a declaration is also identified by its source site. The
+        // site must match EXACTLY ONE registered entry to resolve — ambiguity is conservative.
+        var site = DeclarationSite.For(function);
+        if (!_functionEntriesBySite.TryGetValue(site, out var siteEntries))
         {
-            switch (declaration)
-            {
-                case FunctionDeclaration function:
-                    var qualified = containingType == null ? function.Name : $"{containingType}.{function.Name}";
-                    if (_functionEntries.TryGetValue(qualified, out var entry))
-                        AnalyzeFunction(entry, performanceFacts);
-                    break;
-                case ClassDeclaration cls:
-                    AnalyzeDeclarations(file, cls.Members, cls.Name, performanceFacts);
-                    break;
-                case StructDeclaration st:
-                    AnalyzeDeclarations(file, st.Members, st.Name, performanceFacts);
-                    break;
-                case RecordDeclaration rec:
-                    AnalyzeDeclarations(file, rec.Members, rec.Name, performanceFacts);
-                    break;
-                case InterfaceDeclaration iface:
-                    AnalyzeDeclarations(file, iface.Members, iface.Name, performanceFacts);
-                    break;
-            }
+            siteEntries = new List<FunctionEntry>();
+            _functionEntriesBySite[site] = siteEntries;
         }
+        siteEntries.Add(entry);
+
+        _orderedFunctionEntries.Add(entry);
     }
 
     private MutableFunctionSummary AnalyzeFunction(FunctionEntry entry, PerformanceFactStore? performanceFacts)
     {
-        if (_summaryCache.TryGetValue(entry.QualifiedName, out var cached))
+        if (_summaryCache.TryGetValue(entry.Function, out var cached))
             return cached;
 
         var file = entry.File;
@@ -326,9 +318,9 @@ public sealed class SystemsAnalyzer
             FunctionAllows = attributes.AllowEffects(),
         };
 
-        var context = new WalkContext(summary);
-        _summaryCache[name] = summary;
-        if (!_visitingFunctions.Add(name))
+        var context = new WalkContext(entry, summary);
+        _summaryCache[function] = summary;
+        if (!_visitingFunctions.Add(function))
             return summary;
 
         ValidateFunctionLevelAllows(attributes, function, summary);
@@ -352,11 +344,11 @@ public sealed class SystemsAnalyzer
             AddFinding("NSYS010", "allocation", "[hot] iterator functions allocate state machines in Systems N# v1", function.Line, function.Column, Math.Max(1, function.Name.Length), summary, ErrorSeverity.Error, "Use a caller-provided buffer or direct loop instead of yield.");
         }
 
-        MergeDeclaredCalleeSummaries(summary, context, performanceFacts);
+        MergeDeclaredCalleeSummaries(summary, performanceFacts);
         CheckPoolBalance(summary);
         CheckResourceBalance(summary);
         CheckFunctionSurface(function, summary);
-        _visitingFunctions.Remove(name);
+        _visitingFunctions.Remove(function);
 
         var facts = new SystemsEffectFacts(
             summary.Allocates,
@@ -386,7 +378,7 @@ public sealed class SystemsAnalyzer
             summary.IsHot ? "explicitHot" : "sourceInferred",
             facts,
             summary.Calls.Distinct(StringComparer.Ordinal).OrderBy(c => c, StringComparer.Ordinal).ToArray());
-        if (_emittedFunctions.Add(name))
+        if (_emittedFunctions.Add(function))
             _functions.Add(functionSummary);
 
         performanceFacts?.Record(file, function.Line, function.Column, PerformanceFacts.Default with
@@ -577,8 +569,7 @@ public sealed class SystemsAnalyzer
         if (expression is not CallExpression call)
             return;
 
-        var target = GetCallTarget(call.Callee);
-        if (target == null || !TryGetFunctionEntry(target, out var entry))
+        if (!TryResolveDeclaredCallee(call, context, out var entry))
             return;
 
         if (entry.Function.ReturnType == null || !IsResultType(entry.Function.ReturnType))
@@ -590,7 +581,7 @@ public sealed class SystemsAnalyzer
             $"Result returned by '{entry.QualifiedName}' is ignored",
             call.Line,
             call.Column,
-            Math.Max(1, SimpleName(target).Length),
+            Math.Max(1, entry.Function.Name.Length),
             context,
             context.Summary.IsHot || IsSystemsProfile ? ErrorSeverity.Error : ErrorSeverity.Warning,
             "Bind the Result, return it, or explicitly inspect IsOk/IsErr so the error path is handled.");
@@ -848,15 +839,11 @@ public sealed class SystemsAnalyzer
 
     private void MergeDeclaredCalleeSummaries(
         MutableFunctionSummary caller,
-        WalkContext callerContext,
         PerformanceFactStore? performanceFacts)
     {
         foreach (var callSite in caller.CallSites)
         {
-            if (!TryGetFunctionEntry(callSite.Target, out var calleeEntry))
-                continue;
-
-            var callee = AnalyzeFunction(calleeEntry, performanceFacts);
+            var callee = AnalyzeFunction(callSite.Callee, performanceFacts);
             caller.MergeEffectsFrom(callee);
 
             if (caller.IsHot || caller.AllocNone)
@@ -866,12 +853,168 @@ public sealed class SystemsAnalyzer
         }
     }
 
-    private bool TryGetFunctionEntry(string target, out FunctionEntry entry)
+    /// <summary>
+    /// Resolves a call to the user-declared function it semantically binds to. The Analyzer
+    /// records the resolved declaration (including the overload selected for the call) at the
+    /// callee's source position; that declaration maps back to its registered entry by AST
+    /// reference, or — for declarations the Analyzer re-parsed via file imports — by its unique
+    /// declaration site. Returns false when the call does not bind to exactly one project
+    /// declaration; callers must treat that as unknown, never as clean.
+    /// </summary>
+    private bool TryResolveDeclaredCallee(CallExpression call, WalkContext context, out FunctionEntry entry)
     {
-        if (_functionEntries.TryGetValue(target, out entry!))
+        entry = null!;
+        if (!_semanticModels.TryGetValue(context.Summary.File, out var semanticModel))
+            return false;
+
+        if (!semanticModel.ExpressionTypes.TryGetValue((call.Callee.Line, call.Callee.Column), out var calleeType))
+            return false;
+
+        var declaration = calleeType switch
+        {
+            FunctionTypeInfo { Declaration: { } resolved } => resolved,
+            NSharpMethodGroupInfo { Declarations: [{ } single] } => single,
+            _ => null
+        };
+
+        if (declaration == null)
+        {
+            return call.Callee is MemberAccessExpression member
+                && TryResolveConstrainedInterfaceCallee(member, context, semanticModel, out entry);
+        }
+
+        return TryGetEntryForDeclaration(declaration, context, out entry);
+    }
+
+    private bool TryGetEntryForDeclaration(FunctionDeclaration declaration, WalkContext context, out FunctionEntry entry)
+    {
+        if (_functionEntries.TryGetValue(declaration, out entry!))
             return true;
 
-        return _functionEntries.TryGetValue(SimpleName(target), out entry!);
+        if (_functionEntriesBySite.TryGetValue(DeclarationSite.For(declaration), out var siteEntries)
+            && siteEntries.Count == 1)
+        {
+            entry = siteEntries[0];
+            return true;
+        }
+
+        if (siteEntries != null
+            && _visibleDeclarationFilesByFile.TryGetValue(context.Summary.File, out var visibleFiles))
+        {
+            var visibleEntries = siteEntries
+                .Where(candidate => visibleFiles.Contains(candidate.File))
+                .ToList();
+            if (visibleEntries.Count == 1)
+            {
+                entry = visibleEntries[0];
+                return true;
+            }
+        }
+
+        entry = null!;
+        return false;
+    }
+
+    private void BuildVisibleDeclarationFiles(IReadOnlyDictionary<string, CompilationUnit> compilationUnits)
+    {
+        var sourceFileByFullPath = compilationUnits.Keys.ToDictionary(
+            Path.GetFullPath,
+            path => path,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var (sourceFile, unit) in compilationUnits)
+        {
+            var visibleFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                sourceFile
+            };
+
+            var resolver = new FileResolver(_projectRoot, sourceFile);
+            foreach (var fileImport in unit.FileImports.OfType<FileImport>())
+            {
+                var resolvedPath = Path.GetFullPath(resolver.ResolveFilePath(fileImport.Path));
+                if (sourceFileByFullPath.TryGetValue(resolvedPath, out var targetFile))
+                    visibleFiles.Add(targetFile);
+            }
+
+            _visibleDeclarationFilesByFile[sourceFile] = visibleFiles;
+        }
+    }
+
+    /// <summary>
+    /// Resolves a member call on a generic type parameter of the current function through its
+    /// constraint clause: `where T : Sortable&lt;T&gt;` makes `value.LessThan(...)` bind to the
+    /// constraint interface's member declaration. Constrained calls are the blessed hot-path
+    /// dispatch shape (they emit `constrained.` IL), so they resolve to the interface member's
+    /// summary rather than being reported as unknown external calls.
+    /// </summary>
+    private bool TryResolveConstrainedInterfaceCallee(
+        MemberAccessExpression member,
+        WalkContext context,
+        SemanticModel semanticModel,
+        out FunctionEntry entry)
+    {
+        entry = null!;
+        if (!semanticModel.ExpressionTypes.TryGetValue((member.Object.Line, member.Object.Column), out var receiverType))
+            return false;
+
+        // Type parameters surface as bare SimpleTypeInfo; anything else has a real declaration
+        // and is resolved through the primary FunctionTypeInfo path above.
+        if (receiverType is not SimpleTypeInfo simple)
+            return false;
+
+        var function = context.Entry.Function;
+        if (function.TypeParameters == null
+            || function.TypeParameters.All(parameter => parameter.Name != simple.Name))
+        {
+            return false;
+        }
+
+        foreach (var constraint in function.Constraints ?? Enumerable.Empty<GenericConstraint>())
+        {
+            if (!string.Equals(constraint.TypeParameter, simple.Name, StringComparison.Ordinal))
+                continue;
+
+            foreach (var constraintReference in constraint.Constraints)
+            {
+                if (!TryLookupTypeReference(semanticModel, constraintReference, out var constraintType))
+                    continue;
+
+                // Generic interface constraints (`Sortable<T>`) resolve to a GenericTypeInfo
+                // instantiation; the declaring interface lives in the model's type table.
+                if (constraintType is GenericTypeInfo generic
+                    && semanticModel.Types.TryGetValue(generic.Name, out var openType))
+                {
+                    constraintType = openType;
+                }
+
+                if (constraintType is not InterfaceTypeInfo iface)
+                    continue;
+
+                var declared = iface.Declaration.Members
+                    .OfType<FunctionDeclaration>()
+                    .FirstOrDefault(candidate => candidate.Name == member.MemberName);
+                if (declared != null && TryGetEntryForDeclaration(declared, context, out entry))
+                    return true;
+            }
+        }
+
+        entry = null!;
+        return false;
+    }
+
+    private static bool TryLookupTypeReference(SemanticModel semanticModel, TypeReference reference, out TypeInfo type)
+    {
+        type = null!;
+        var (line, column) = reference switch
+        {
+            { Span.IsValid: true } => (reference.Span.StartLine, reference.Span.StartColumn),
+            SimpleTypeReference simple => (simple.Line, simple.Column),
+            GenericTypeReference generic => (generic.Line, generic.Column),
+            _ => (0, 0)
+        };
+
+        return line > 0 && semanticModel.TypeReferenceTypes.TryGetValue((line, column), out type!);
     }
 
     private void ReportCalleePolicyViolations(MutableFunctionSummary caller, MutableFunctionSummary callee, CallSite site)
@@ -1101,12 +1244,18 @@ public sealed class SystemsAnalyzer
         foreach (var argument in call.Arguments)
             WalkExpression(argument.Value, context);
 
+        if (TryResolveDeclaredCallee(call, context, out var calleeEntry))
+        {
+            context.Summary.Calls.Add(calleeEntry.QualifiedName);
+            context.Summary.CallSites.Add(new CallSite(
+                calleeEntry, call.Line, call.Column, Math.Max(1, calleeEntry.Function.Name.Length)));
+            WalkExpression(call.Callee, context);
+            return;
+        }
+
         var target = GetCallTarget(call.Callee);
         if (target != null && target is not ("Ok" or "Err"))
-        {
             context.Summary.Calls.Add(target);
-            context.Summary.CallSites.Add(new CallSite(target, call.Line, call.Column, Math.Max(1, SimpleName(target).Length)));
-        }
 
         WalkExpression(call.Callee, context);
 
@@ -1192,9 +1341,6 @@ public sealed class SystemsAnalyzer
             AddFindingForPolicy("NSYS060", "aot", $"call to '{target}' blocks target-qualified AOT/trimming facts", call, context, "Move reflection/dynamic code behind a [boundary] or replace it with source generation.");
             return;
         }
-
-        if (_declaredFunctions.ContainsKey(target) || _declaredFunctions.ContainsKey(SimpleName(target)))
-            return;
 
         AddUnknownExternalCall(target, call.Line, call.Column, context);
     }
@@ -2201,7 +2347,19 @@ public sealed class SystemsAnalyzer
 
     private sealed record FunctionEntry(string File, string? ContainingType, string QualifiedName, FunctionDeclaration Function);
 
-    private sealed record CallSite(string Target, int Line, int Column, int Length);
+    /// <summary>
+    /// Source-site identity of a function declaration: name, position, and arity. File imports
+    /// re-parse the imported unit, so a semantically resolved declaration can be a different AST
+    /// object than the registered one — but it always shares the declaration site. The site is
+    /// only trusted when it identifies exactly one registered entry.
+    /// </summary>
+    private readonly record struct DeclarationSite(string Name, int Line, int Column, int ParameterCount)
+    {
+        public static DeclarationSite For(FunctionDeclaration function)
+            => new(function.Name, function.Line, function.Column, function.Parameters.Count);
+    }
+
+    private sealed record CallSite(FunctionEntry Callee, int Line, int Column, int Length);
 
     private sealed record PoolRent(string VariableName, int Line, int Column)
     {
@@ -2222,11 +2380,13 @@ public sealed class SystemsAnalyzer
         private int _allocZoneDepth;
         private int _unsafeBlockDepth;
 
-        public WalkContext(MutableFunctionSummary summary)
+        public WalkContext(FunctionEntry entry, MutableFunctionSummary summary)
         {
+            Entry = entry;
             Summary = summary;
         }
 
+        public FunctionEntry Entry { get; }
         public MutableFunctionSummary Summary { get; }
         public bool InAllocZone => _allocZoneDepth > 0;
         public bool InUnsafeBlock => _unsafeBlockDepth > 0;

@@ -1051,6 +1051,37 @@ func Main() {
     }
 
     [Fact]
+    public void SizedArrayAllocation_WithConstructorArguments_ReportsSemanticDiagnostic()
+    {
+        var result = Analyze(@"
+            func sideEffect(): int {
+                return 1
+            }
+
+            func Main() {
+                values := new int[4](sideEffect())
+            }
+        ");
+
+        var error = Assert.Single(result.Errors, e => e.Code == ErrorCode.InvalidSizedArrayConstructorArguments);
+        Assert.Contains("Sized array allocation cannot also pass constructor arguments", error.Message);
+        Assert.Contains("new T[n]", error.Suggestion ?? string.Empty);
+    }
+
+    [Fact]
+    public void SizedArrayAllocation_WithConstructorArguments_StillAnalyzesArgumentExpressions()
+    {
+        var result = Analyze(@"
+            func Main() {
+                values := new int[4](missing)
+            }
+        ");
+
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.InvalidSizedArrayConstructorArguments);
+        Assert.Contains(result.Errors, e => e.Code == ErrorCode.UndefinedVariable && e.Message.Contains("missing"));
+    }
+
+    [Fact]
     public void ArrayRangeIndexAccess_ReturnsArrayType()
     {
         AssertNoErrors(@"
@@ -9183,6 +9214,198 @@ func Main() {
 }", ErrorCode.DefiniteAssignmentError);
     }
 
+    [Fact]
+    public void DefiniteAssignment_ArrayLengthUse_ReadBeforeAnyAssignment_IsError()
+    {
+        // `new int[n]` reads n; the array-length subtree must flow through definite assignment
+        // like any other read (it was a skipped child of NewExpression).
+        AssertHasErrorCode(@"
+func Main() {
+    let n: int
+    let arr = new int[n]
+    print arr.Length
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_ArrayLengthUse_ConditionallyAssigned_IsError()
+    {
+        AssertHasErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let n: int
+    if Cond() {
+        n = 5
+    }
+    let arr = new int[n]
+    print arr.Length
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void DefiniteAssignment_ArrayLengthUse_AssignedOnAllBranches_IsAllowed()
+    {
+        AssertNoErrorCode(@"
+func Cond(): bool {
+    return true
+}
+
+func Main() {
+    let n: int
+    if Cond() {
+        n = 5
+    } else {
+        n = 6
+    }
+    let arr = new int[n]
+    print arr.Length
+}", ErrorCode.DefiniteAssignmentError);
+    }
+
+    [Fact]
+    public void ParserErrorPlaceholder_InArrayLength_SuppressesConditionTypeFollowOn()
+    {
+        var condition = new NewExpression(
+            new ArrayTypeReference(new SimpleTypeReference("int")),
+            new List<Argument>(),
+            Initializer: null,
+            Line: 2,
+            Column: 8,
+            ArrayLengthExpression: new IdentifierExpression("<error>", 2, 16));
+        var unit = new CompilationUnit(
+            Namespace: null,
+            Imports: new List<ImportDirective>(),
+            FileImports: new List<Statement>(),
+            Package: null,
+            Declarations: new List<Declaration>
+            {
+                new FunctionDeclaration(
+                    "Main",
+                    new List<Parameter>(),
+                    ReturnType: null,
+                    Body: new BlockStatement(
+                        new List<Statement>
+                        {
+                            new IfStatement(
+                                condition,
+                                new BlockStatement(new List<Statement>(), 2, 24),
+                                ElseStatement: null,
+                                Line: 2,
+                                Column: 5)
+                        },
+                        1,
+                        13),
+                    ExpressionBody: null,
+                    TypeParameters: null,
+                    Constraints: null,
+                    Modifiers.None,
+                    new List<AttributeNode>(),
+                    IsOperatorOverload: false,
+                    OperatorSymbol: null,
+                    IsConversionOperator: false,
+                    IsImplicitConversion: false,
+                    Line: 1,
+                    Column: 1)
+            },
+            Line: 1,
+            Column: 1);
+
+        var analyzer = new Analyzer();
+        analyzer.LoadSystemAssemblies();
+        var result = analyzer.Analyze(unit);
+
+        Assert.DoesNotContain(result.Errors, e =>
+            e.Code == ErrorCode.TypeMismatch &&
+            e.Message.Contains("condition", StringComparison.OrdinalIgnoreCase) &&
+            e.Message.Contains("boolean", StringComparison.OrdinalIgnoreCase));
+    }
+
+    // ── stackalloc length: full semantic analysis (NL301/NL202) ────────────
+
+    [Fact]
+    public void StackAlloc_UndefinedLengthName_ReportsUndefinedVariable()
+    {
+        // The length subtree gets real name resolution; before, only the systems policy gate
+        // (NSYS080) saw it, which [boundary]/audit code downgrades to a warning.
+        var error = AssertHasErrorCode(@"
+func Scratch(): int {
+    scratch := stackalloc byte[undefinedName]
+    return scratch.Length
+}", ErrorCode.UndefinedVariable);
+        Assert.Equal(3, error.Line);
+        Assert.Contains("undefinedName", error.Message);
+    }
+
+    [Fact]
+    public void StackAlloc_StringLength_ReportsTypeMismatch()
+    {
+        var error = AssertHasErrorCode(@"
+func Scratch(name: string): int {
+    scratch := stackalloc byte[name]
+    return scratch.Length
+}", ErrorCode.TypeMismatch);
+        Assert.Contains("stackalloc length must be an int", error.Message);
+        Assert.Contains("'string'", error.Message);
+        Assert.Equal(3, error.Line);
+        Assert.Equal(32, error.Column);
+    }
+
+    [Fact]
+    public void StackAlloc_LongLength_ReportsTypeMismatch()
+    {
+        var error = AssertHasErrorCode(@"
+func Scratch(count: long): int {
+    scratch := stackalloc byte[count]
+    return scratch.Length
+}", ErrorCode.TypeMismatch);
+        Assert.Contains("stackalloc length must be an int", error.Message);
+        Assert.Contains("'long'", error.Message);
+    }
+
+    [Fact]
+    public void StackAlloc_SmallIntLengths_Accepted()
+    {
+        // byte/sbyte/short/ushort/char widen implicitly to int (C#'s element-count rule).
+        var result = Analyze(@"
+func Scratch(b: byte, s: short, c: char): int {
+    s1 := stackalloc byte[b]
+    s2 := stackalloc byte[s]
+    s3 := stackalloc byte[c]
+    return s1.Length + s2.Length + s3.Length
+}");
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.TypeMismatch);
+        Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.UndefinedVariable);
+    }
+
+    [Fact]
+    public void StackAlloc_NegativeConstantLength_Rejected()
+    {
+        var error = AssertHasErrorCode(@"
+func Scratch(): int {
+    scratch := stackalloc byte[-1]
+    return scratch.Length
+}", ErrorCode.TypeMismatch);
+        Assert.Contains("must not be negative", error.Message);
+    }
+
+    [Fact]
+    public void StackAlloc_LengthExpression_RecordedInSemanticModel()
+    {
+        // Tooling (hover, go-to-definition) needs the length subtree in the semantic model.
+        var result = Analyze(@"
+func Scratch(count: int): int {
+    scratch := stackalloc byte[count]
+    return scratch.Length
+}");
+        Assert.True(
+            result.SemanticModel.ExpressionTypes.TryGetValue((3, 32), out var lengthType),
+            "Expected the stackalloc length identifier's type to be recorded in the semantic model");
+        Assert.Equal("int", lengthType!.ToString());
+    }
+
     // ==================== Operator overloads on non-numeric operands (SIMD / Unit 13) ====================
 
     [Fact]
@@ -9446,5 +9669,523 @@ func bad(a: Vec2, b: Vec2): Vec2 {
 
         Assert.DoesNotContain(result.Errors, e => e.Code == ErrorCode.ReferenceLoadFailure);
         Assert.False(result.HasErrors);
+    }
+
+    // ── NL319: control cannot leave a finally block ────────────────────────
+    // The CS0157 analog. Without it, the IL backend emitted `leave` out of a finally handler —
+    // invalid IL (ilverify: LeaveOutOfFinally), InvalidProgramException on every call.
+
+    [Fact]
+    public void ReturnInsideFinally_Void_ReportsNL319()
+    {
+        var error = AssertHasErrorCode(@"
+func F(n: int) {
+    try {
+        n = n + 1
+    } finally {
+        return
+    }
+}", ErrorCode.ControlTransferOutOfFinally);
+        Assert.Equal("NL319", error.DiagnosticId);
+        Assert.Equal("return".Length, error.Length);
+    }
+
+    [Fact]
+    public void ReturnInsideFinally_Value_WithReturningCatch_ReportsNL319()
+    {
+        // The returning catch satisfies always-returns (NL305 ignores the finally and needs >=1
+        // catch), so without NL319 this shape sailed through to the emitter and crashed at runtime.
+        AssertHasErrorCode(@"
+func F(n: int): int {
+    try {
+        return 100 / n
+    } catch {
+        return 0 - 1
+    } finally {
+        return 7
+    }
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ReturnInsideFinally_Value_NoCatch_ReportsNL319()
+    {
+        // NL305 also fires for this shape (the always-returns rule ignores the finally); NL319 names
+        // the real problem and is reported first, at the return statement itself.
+        var result = Analyze(@"
+func F(n: int): int {
+    try {
+        return 100 / n
+    } finally {
+        return 2
+    }
+}");
+        var codes = result.Errors.Where(e => e.Severity == ErrorSeverity.Error).Select(e => e.Code).ToList();
+        Assert.Contains(ErrorCode.ControlTransferOutOfFinally, codes);
+        var nl319Index = codes.IndexOf(ErrorCode.ControlTransferOutOfFinally);
+        var nl305Index = codes.IndexOf(ErrorCode.MissingReturn);
+        Assert.True(nl305Index < 0 || nl319Index < nl305Index,
+            "NL319 (the real problem) must be reported before NL305");
+    }
+
+    [Fact]
+    public void BreakInsideFinally_LoopOutside_ReportsNL319()
+    {
+        var error = AssertHasErrorCode(@"
+func F(n: int): int {
+    total := 0
+    i := 0
+    while i < n {
+        i = i + 1
+        try {
+            total = total + 1
+        } finally {
+            if i == 2 {
+                break
+            }
+        }
+    }
+    return total
+}", ErrorCode.ControlTransferOutOfFinally);
+        Assert.Equal("break".Length, error.Length);
+    }
+
+    [Fact]
+    public void ContinueInsideFinally_LoopOutside_ReportsNL319()
+    {
+        AssertHasErrorCode(@"
+func F(n: int): int {
+    total := 0
+    i := 0
+    while i < n {
+        i = i + 1
+        try {
+            total = total + 1
+        } finally {
+            if i == 2 {
+                continue
+            }
+        }
+    }
+    return total
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void BreakAndContinueInsideLoopOpenedInsideFinally_NoDiagnostic()
+    {
+        // The loop is wholly inside the finally — its own break/continue never leave the handler.
+        AssertNoErrorCode(@"
+func F(n: int): int {
+    total := 0
+    try {
+        total = total + 1
+    } finally {
+        i := 0
+        while i < n {
+            if i == 3 {
+                break
+            }
+            if i == 1 {
+                i = i + 2
+                continue
+            }
+            total = total + 1
+            i = i + 1
+        }
+    }
+    return total
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ReturnInsideLambdaInsideFinally_NoDiagnostic()
+    {
+        // The return exits the lambda, not the finally — legal (the NL319 context resets at the
+        // nested-body boundary).
+        AssertNoErrorCode(@"
+func F(): int {
+    r := 0
+    try {
+        r = 1
+    } finally {
+        let f: Func<int, int> = x => {
+            return x + 1
+        }
+        r = f(r)
+    }
+    return r
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ReturnInsideLocalFunctionInsideFinally_NoDiagnostic()
+    {
+        AssertNoErrorCode(@"
+func F(): int {
+    r := 0
+    try {
+        r = 1
+    } finally {
+        func bump(x: int): int {
+            return x + 1
+        }
+        r = bump(r)
+    }
+    return r
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void BreakInsideLambdaInsideFinally_ReportsInvalidSyntaxNotNL319()
+    {
+        var result = Analyze(@"
+func F(): int {
+    i := 0
+    while i < 1 {
+        try {
+            i = i + 1
+        } finally {
+            let f: Func<int> = () => {
+                break
+                return 1
+            }
+            i = f()
+        }
+    }
+    return i
+}");
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == ErrorCode.InvalidSyntax
+            && error.Message.Contains("'break' can only be used inside a loop"));
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ContinueInsideLocalFunctionInsideFinally_ReportsInvalidSyntaxNotNL319()
+    {
+        var result = Analyze(@"
+func F(): int {
+    i := 0
+    while i < 1 {
+        try {
+            i = i + 1
+        } finally {
+            func bump(): int {
+                continue
+                return 1
+            }
+            i = bump()
+        }
+    }
+    return i
+}");
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == ErrorCode.InvalidSyntax
+            && error.Message.Contains("'continue' can only be used inside a loop"));
+        Assert.DoesNotContain(result.Errors, error => error.Code == ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ReturnInsideTryNestedInsideFinally_ReportsNL319()
+    {
+        // Depth comparison, not immediate-parent: the return still exits the outer finally.
+        AssertHasErrorCode(@"
+func F(n: int) {
+    try {
+        n = n + 1
+    } finally {
+        try {
+            return
+        } catch {
+            n = 0
+        }
+    }
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ReturnInsideLockNestedInsideFinally_ReportsNL319()
+    {
+        AssertHasErrorCode(@"
+func F(s: string) {
+    try {
+        print(s)
+    } finally {
+        lock s {
+            return
+        }
+    }
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ThrowInsideFinally_NoDiagnostic()
+    {
+        AssertNoErrorCode(@"
+func F(n: int): int {
+    r := 0
+    try {
+        r = 1
+    } finally {
+        if n == 0 {
+            throw new InvalidOperationException(""fin"")
+        }
+    }
+    return r
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void NestedFinallys_InnerReturnRejected()
+    {
+        AssertHasErrorCode(@"
+func F(n: int) {
+    try {
+        n = n + 1
+    } finally {
+        try {
+            n = n + 2
+        } finally {
+            return
+        }
+    }
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void ReturnAfterFinally_NoDiagnostic()
+    {
+        // The finally context must close when the block ends — a return after it is plain legal.
+        AssertNoErrorCode(@"
+func F(n: int): int {
+    try {
+        n = n + 1
+    } finally {
+        n = n + 2
+    }
+    return n
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    [Fact]
+    public void BreakInsideSwitchInsideFinally_NoDiagnostic()
+    {
+        // The break targets the switch, which was entered inside the finally — legal.
+        AssertNoErrorCode(@"
+func F(n: int): int {
+    total := 0
+    i := 0
+    while i < n {
+        i = i + 1
+        try {
+            total = total + 1
+        } finally {
+            switch i {
+                case 2:
+                    break
+                default:
+                    total = total + 1
+            }
+        }
+    }
+    return total
+}", ErrorCode.ControlTransferOutOfFinally);
+    }
+
+    // ── NL320: the lock statement requires a reference-typed lockee ────────
+    // The CS0185 analog. Without it, EmitLock stored the raw value into an object local —
+    // unverifiable IL whose fake reference segfaulted the whole process inside Monitor.Enter.
+
+    [Fact]
+    public void Lock_OnIntLocal_ReportsNL320()
+    {
+        var error = AssertHasErrorCode(@"
+func F() {
+    n := 5
+    lock n {
+        print(n)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+        Assert.Equal("NL320", error.DiagnosticId);
+        Assert.Contains("'int'", error.Message);
+    }
+
+    [Fact]
+    public void Lock_OnRecordStructInstance_ReportsNL320()
+    {
+        AssertHasErrorCode(@"
+record struct Point {
+    X: int
+    Y: int
+}
+
+func F() {
+    p := new Point { X: 1, Y: 2 }
+    lock p {
+        print(p.X)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnEnumValue_ReportsNL320()
+    {
+        AssertHasErrorCode(@"
+enum Color {
+    Red
+    Green
+}
+
+func F() {
+    c := Color.Red
+    lock c {
+        print(1)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnNullableInt_ReportsNL320()
+    {
+        // Nullable<int> is itself a struct — still a value lockee.
+        AssertHasErrorCode(@"
+func F() {
+    let n: int? = 5
+    lock n {
+        print(1)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnUnconstrainedTypeParameter_ReportsNL320()
+    {
+        // Stricter than C# by design: Roslyn boxes an unconstrained T into a fresh object per lock
+        // (mutual exclusion never happens); N# rejects the trap with a constraint-specific hint.
+        var error = AssertHasErrorCode(@"
+func LockIt<T>(x: T) {
+    lock x {
+        print(1)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+        Assert.Contains("where T: class", error.Suggestion);
+    }
+
+    [Fact]
+    public void Lock_OnStructConstrainedTypeParameter_ReportsNL320()
+    {
+        AssertHasErrorCode(@"
+func LockIt<T>(x: T) where T: struct {
+    lock x {
+        print(1)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnClassConstrainedTypeParameter_NoDiagnostic()
+    {
+        // `where T: class` proves the lockee is a reference; the emitter's `box !!T` lowering is a
+        // runtime no-op for reference instantiations.
+        AssertNoErrorCode(@"
+func LockIt<T>(x: T) where T: class {
+    lock x {
+        print(1)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnString_NoDiagnostic()
+    {
+        AssertNoErrorCode(@"
+func F(s: string) {
+    lock s {
+        print(s.Length)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnClassInstance_NoDiagnostic()
+    {
+        AssertNoErrorCode(@"
+class Box {
+    v: int
+}
+
+func F() {
+    b := new Box { v: 5 }
+    lock b {
+        print(b.v)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnObjectField_NoDiagnostic()
+    {
+        // The language-tour Counter shape — the recommended dedicated lock object.
+        AssertNoErrorCode(@"
+class Counter {
+    count: int = 0
+    syncLock: object = new object()
+
+    func Increment() {
+        lock syncLock {
+            count++
+        }
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnArray_NoDiagnostic()
+    {
+        AssertNoErrorCode(@"
+func F(items: int[]) {
+    lock items {
+        print(items.Length)
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnInterfaceTypedValue_NoDiagnostic()
+    {
+        AssertNoErrorCode(@"
+interface Greeter {
+    func Greet(): string
+}
+
+class Hello {
+    func Greet(): string {
+        return ""hi""
+    }
+}
+
+func F(g: Greeter) {
+    lock g {
+        print(g.Greet())
+    }
+}", ErrorCode.LockRequiresReferenceType);
+    }
+
+    [Fact]
+    public void Lock_OnExternalReflectionReferenceType_NoFalsePositive()
+    {
+        // A reflection-resolved BCL reference type must never trip the value-type check.
+        AssertNoErrorCode(@"
+import System.Text
+
+func F() {
+    sb := new StringBuilder()
+    lock sb {
+        print(1)
+    }
+}", ErrorCode.LockRequiresReferenceType);
     }
 }

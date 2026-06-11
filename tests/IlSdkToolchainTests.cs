@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Xml.Linq;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
@@ -192,6 +193,60 @@ Console.WriteLine($"{direct}|{returned}");
                 timeout: TimeSpan.FromMinutes(5));
             Assert.Equal(0, runResult.ExitCode);
             Assert.Contains("7|runtime", runResult.Stdout);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void DotnetBuild_ProjectSemVerPrereleaseKeepsPackageVersionAndUsesNumericClrVersions()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            CreateSdkProject(tempDir, "SdkSemVerBuild", """
+name: SdkSemVerBuild
+version: 1.2.0-beta.1+build.5
+backend: il
+outputType: library
+targetFramework: net10.0
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Library.nl"), """
+namespace SdkSemVerBuild
+
+class Api {
+    static func Answer(): int {
+        return 42
+    }
+}
+""");
+            File.WriteAllText(Path.Combine(tempDir, "Directory.Build.targets"), """
+<Project>
+  <Target Name="PrintNSharpVersionProperties" DependsOnTargets="_ApplyNSharpProjectConfigForCurrentBuild">
+    <Message Importance="High" Text="nsharp-version-props Version=$(Version);PackageVersion=$(PackageVersion);AssemblyVersion=$(AssemblyVersion);FileVersion=$(FileVersion)" />
+  </Target>
+</Project>
+""");
+
+            var projectPath = Path.Combine(tempDir, "SdkSemVerBuild.csproj");
+            var propertiesResult = DotnetRunner.Run(
+                $"msbuild \"{projectPath}\" -t:PrintNSharpVersionProperties -v m --disable-build-servers",
+                workingDirectory: tempDir,
+                timeout: TimeSpan.FromMinutes(3));
+            Assert.Equal(0, propertiesResult.ExitCode);
+            Assert.Contains(
+                "nsharp-version-props Version=1.2.0-beta.1+build.5;PackageVersion=1.2.0-beta.1+build.5;AssemblyVersion=1.2.0.0;FileVersion=1.2.0.0",
+                propertiesResult.Stdout);
+
+            Assert.Equal(0, TestSdkFeed.RunDotnetNoCapture(
+                tempDir,
+                $"build \"{projectPath}\" -v q --disable-build-servers",
+                timeout: TimeSpan.FromMinutes(5)));
+
+            var assemblyPath = Path.Combine(tempDir, "bin", "Debug", "net10.0", "SdkSemVerBuild.dll");
+            Assert.Equal(new Version(1, 2, 0, 0), AssemblyName.GetAssemblyName(assemblyPath).Version);
         }
         finally
         {

@@ -19,7 +19,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 
 - **`CompilerError`** — Record with rich context fields (`HumanExplanation`, `ActualType`, `ExpectedType`, `ContextualHint`, `Suggestions`, `DocsUrl`)
 - **`DiagnosticCatalog`** — Central policy for diagnostic metadata, default severities, categories, and build-blocking behavior across compiler, linter, CLI, MSBuild, and LSP surfaces.
-- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedFunction`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`
+- **`ErrorMessageBuilder`** — Static factory methods that create Elm-style errors: `TypeMismatch`, `ReturnValueRequiresReturnType`, `ReturnValueInVoidFunction`, `ReturnTypeMismatch`, `UndefinedVariable`, `UndefinedFunction`, `UndefinedType`, `NonExhaustiveMatch`, `WrongArgumentCount`, `WrongArgumentType`, `ImportNotFound`, `UnexpectedToken`, `MissingReturn`, `DuplicateDeclaration`, `UndefinedMember`, `ControlTransferOutOfFinally`, `LockRequiresReferenceType`
 - **`TypeConversionSuggester`** — Context-aware hints for type mismatches (string↔int, nullable, arrays)
 - **`SmartSuggester`** — Typo detection via Levenshtein distance with scoring
 - **`ErrorSuggestions`** — Fallback suggestions keyed by error code
@@ -48,6 +48,7 @@ Rich errors automatically get Elm-style formatting. Simple errors get Rust-style
 - Semantic diagnostics should mark the smallest useful token or expression: wrong argument type (`NL202`) underlines the offending argument expression, wrong argument count (`NL401`) underlines the callable name, and possible null access (`NL905`) underlines the nullable receiver path instead of punctuation such as `.` or `(`.
 - No matching overload diagnostics (`NL402`) underline the callable name for both CLR/reflection and N# overload groups, and should include available candidate signatures when the compiler has them.
 - General type mismatch diagnostics (`NL202`) should underline the value that has the wrong type, including local/field/assignment values, enum member initializer values, expression-bodied function/property values, non-boolean `if`/`while`/`for`/ternary conditions, mismatched array elements, mismatched match arm values, assigned void calls, and invalid returned values.
+- `stackalloc` lengths get full semantic analysis in every systems policy (including `[boundary]`/audit where `NSYS080` is only a warning): a non-int length (anything that doesn't widen implicitly from `byte`/`sbyte`/`short`/`ushort`/`char`) and a constant negative length are `NL202` at the length expression, and an undefined name inside the length is a normal `NL301`.
 - Operator type diagnostics (`NL202`) underline the single bad operand when only one side violates the operator contract, and underline the operator token when both sides make the operator itself the smallest useful location.
 - Operator declaration diagnostics underline the operator syntax, not the declaration fallback: missing `static` on an overload underlines the visible `operator` keyword, while unsupported operators and parameter-count errors underline the operator symbol/name such as `%` or `true`.
 - Missing required expressions after visible statement keywords (`if`, `while`, `assert`, `print`, `throw`, `yield`, `using`, `lock`, `switch`, and `in`) underline the owning keyword so VS Code shows a visible squiggle on the actionable keyword. Missing initializer or assignment values underline the owning variable or assignment target when available instead of a one-character `:=` or `=` token.
@@ -126,6 +127,10 @@ Targeted suppression is available via `// nlc:ignore <code>` and `.editorconfig`
 - `NL314`: UnverifiedErrorResult (error-tuple result used before the paired error is proven null)
 - `NL315`: DiscardedMustUseResult (bare call to a `[MustUse]`-annotated function/method whose result is silently discarded; use the value or discard explicitly with `_ = call()`). Span underlines the callee name.
 - `NL316`: ShadowedDeclaration — a local or parameter that shadows a local/parameter from an enclosing function/block scope is a hard, build-blocking error. This compiler check is authoritative: when it fires the file has a compiler error, which suppresses the linter's `NL020` for that file, so the user sees exactly one diagnostic. Shadowing a class member (field/property) is allowed, as are discards/underscore-prefixed names and sibling blocks that reuse a name without nesting.
+- `NL317`: EventRequiresOnOff — a .NET event used with `+=`/`-=`/`=` or as a bare value; events are used exclusively through `on`/`off`.
+- `NL318`: InvalidEventSubscription — `off` applied to something that is not a subscription returned by `on`.
+- `NL319`: ControlTransferOutOfFinally — the CS0157 analog. A `return` anywhere inside a `finally` block (depth-based: a return inside a try/lock/using nested in the finally still counts), or a `break`/`continue` whose target loop/switch was entered at a SHALLOWER finally depth, is an error — ECMA-335 forbids leaving a finally handler, and the emitted `leave` was invalid IL (InvalidProgramException on every call; closed oracle defect #20). Legal: `throw`, loops opened inside the finally, and returns inside lambdas/local functions declared in the finally (the analyzer's finally context resets at nested-body boundaries). The span underlines the full control keyword. Both IL emitters keep defense-in-depth guards (the C# ILCompiler throws "compiler bug" instead of emitting; columnar declines).
+- `NL320`: LockRequiresReferenceType — the CS0185 analog. A `lock` whose lockee is a KNOWN value type (numeric/bool/char builtins, struct, enum, record struct, tuple, `T?` over a value type, reflection `IsValueType`) is an error: Monitor locks on object identity, and the pre-fix emitter's raw `stloc` into the object local was unverifiable IL that segfaulted the process inside Monitor.Enter (closed oracle defect #21). STRICTER than C# for generic type parameters: an unconstrained/non-reference-constrained `T` lockee is also rejected with a constraint-specific hint (`where T: class`), because a boxed lock never provides mutual exclusion. The predicate is deliberately conservative — Unknown/External/`GenericTypeInfo` stay silent (never reuse `!IsReferenceType(...)` raw; it answers "can this be null" and would false-positive on external reference types). The span underlines the lockee expression. EmitLock now boxes value/generic lockees defensively (`box !!T` is also the correct lowering for a class-constrained `T`).
 
 ### Function/Method Errors (400-499)
 - `NL401`: WrongArgumentCount
@@ -173,6 +178,10 @@ N# is **near-zero-warnings** (full rationale in `docs/DESIGN.md` → Strictness)
 - **Definite-assignment hardening:** non-nullable fields and `out` parameters must be assigned on every path before use (`NL304`); gaps are errors.
 
 ### Docs sync — affected NL codes
+
+Per-error docs pages live in-repo at `website/docs/errors/<code>.md` (sidebar category "Error
+Reference" in `website/sidebars.js`); `NL319`/`NL320` established the layout — new rich diagnostics
+should ship a page there in the same slice.
 
 Keep the `docs.n-sharp.dev/errors/<code>` pages aligned with these changes:
 

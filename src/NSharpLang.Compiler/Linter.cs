@@ -1125,37 +1125,6 @@ internal class LintVisitor
                 HandleStringInterpolation(stringLiteral.Value);
                 break;
 
-            case InterpolatedStringExpression interpolated:
-                foreach (var part in interpolated.Parts)
-                {
-                    if (part is InterpolatedStringHole hole)
-                    {
-                        VisitExpression(hole.Expression);
-                    }
-                }
-                break;
-
-            case BinaryExpression binary:
-                VisitExpression(binary.Left);
-                VisitExpression(binary.Right);
-                break;
-
-            case UnaryExpression unary:
-                VisitExpression(unary.Operand);
-                break;
-
-            case MustExpression must:
-                VisitExpression(must.Expression);
-                break;
-
-            case CallExpression call:
-                VisitExpression(call.Callee);
-                foreach (var arg in call.Arguments)
-                {
-                    VisitExpression(arg.Value);
-                }
-                break;
-
             case NewExpression newExpr:
                 // Check if the type might need an import
                 if (newExpr.Type != null)
@@ -1166,39 +1135,18 @@ internal class LintVisitor
                     if (newTypeName != null)
                         _allCodeIdentifiers.Add(newTypeName);
                 }
-                foreach (var arg in newExpr.ConstructorArguments)
-                {
-                    VisitExpression(arg.Value);
-                }
-                if (newExpr.Initializer != null)
-                {
-                    foreach (var init in newExpr.Initializer.Properties)
-                    {
-                        VisitExpression(init.Value);
-                    }
-                }
+                VisitChildExpressions(newExpr);
                 break;
 
             case MemberAccessExpression member:
-                VisitExpression(member.Object);
                 // NL010: Track member names for extension method detection
                 _allMemberAccessNames.Add(member.MemberName);
+                VisitChildExpressions(member);
                 break;
 
-            case IndexAccessExpression index:
-                VisitExpression(index.Object);
-                VisitExpression(index.Index);
-                break;
-
-            case AssignmentExpression assignment:
-                VisitExpression(assignment.Target);
-                VisitExpression(assignment.Value);
-                break;
-
-            case TernaryExpression ternary:
-                VisitExpression(ternary.Condition);
-                VisitExpression(ternary.ThenExpression);
-                VisitExpression(ternary.ElseExpression);
+            case AwaitExpression awaitExpr:
+                _hasAwaitInFunction = true; // Track that we're using await
+                VisitChildExpressions(awaitExpr);
                 break;
 
             case LambdaExpression lambda:
@@ -1215,86 +1163,21 @@ internal class LintVisitor
                 PopScope();
                 break;
 
-            case CastExpression cast:
-                VisitExpression(cast.Expression);
-                break;
-
-            case IsExpression isExpr:
-                VisitExpression(isExpr.Expression);
-                break;
-
-            case AwaitExpression awaitExpr:
-                _hasAwaitInFunction = true; // Track that we're using await
-                VisitExpression(awaitExpr.Expression);
-                break;
-
-            case ArrayLiteralExpression array:
-                foreach (var element in array.Elements)
-                {
-                    VisitExpression(element);
-                }
-                break;
-
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                {
-                    VisitExpression(element.Value);
-                }
-                break;
-
-            case RangeExpression range:
-                if (range.Start != null)
-                    VisitExpression(range.Start);
-                if (range.End != null)
-                    VisitExpression(range.End);
-                break;
-
-            case MatchExpression match:
-                VisitExpression(match.Value);
-                foreach (var matchCase in match.Cases)
-                {
-                    if (matchCase.Guard != null)
-                        VisitExpression(matchCase.Guard);
-                    VisitExpression(matchCase.Expression);
-                }
-                break;
-
-            case WithExpression withExpr:
-                VisitExpression(withExpr.Target);
-                foreach (var prop in withExpr.Properties)
-                {
-                    VisitExpression(prop.Value);
-                }
-                break;
-
-            case SpreadExpression spread:
-                VisitExpression(spread.Expression);
-                break;
-
-            case ThrowExpression throwExpr:
-                VisitExpression(throwExpr.Expression);
-                break;
-
-            case NameofExpression nameof:
-                VisitExpression(nameof.Target);
-                break;
-
-            case CheckedExpression checkedExpr:
-                VisitExpression(checkedExpr.Expression);
-                break;
-
-            case UncheckedExpression uncheckedExpr:
-                VisitExpression(uncheckedExpr.Expression);
-                break;
-
-            case ParenthesizedExpression paren:
-                VisitExpression(paren.Inner);
-                break;
-
             default:
-                // Handle any unhandled expression types (literals, etc.)
-                // Most literals don't have child expressions to visit
+                // Everything else is purely structural: visit every child expression. Routing
+                // through AstChildren (instead of per-node child lists) keeps this fail-safe —
+                // a node or child slot missing here cannot silently skip a subtree and produce
+                // false NL001/NL010-class diagnostics.
+                VisitChildExpressions(expression);
                 break;
+        }
+    }
+
+    private void VisitChildExpressions(Expression expression)
+    {
+        foreach (var child in AstChildren.Of(expression))
+        {
+            VisitExpression(child);
         }
     }
 
@@ -1335,7 +1218,8 @@ internal class LintVisitor
             ArrayLiteralExpression array => array.Elements.Any(ContainsParserErrorPlaceholder),
             TupleExpression tuple => tuple.Elements.Any(element => ContainsParserErrorPlaceholder(element.Value)),
             NewExpression @new => @new.ConstructorArguments.Any(arg => ContainsParserErrorPlaceholder(arg.Value)) ||
-                                  ContainsParserErrorPlaceholder(@new.Initializer),
+                                  ContainsParserErrorPlaceholder(@new.Initializer) ||
+                                  ContainsParserErrorPlaceholder(@new.ArrayLengthExpression),
             ObjectInitializerExpression initializer => initializer.Properties.Any(property =>
                 ContainsParserErrorPlaceholder(property.IndexExpression) ||
                 ContainsParserErrorPlaceholder(property.Value)),

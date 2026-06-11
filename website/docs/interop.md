@@ -772,4 +772,4 @@ var message = result switch
 
 - [Project README](https://github.com/schneidenbach/nsharplang/blob/main/README.md)
 - [Language Design](https://github.com/schneidenbach/nsharplang/blob/main/docs/DESIGN.md)
-- [Minimal API Example](/examples/14-minimal-api/)
+- [Minimal API Example](https://github.com/schneidenbach/nsharplang/tree/main/examples/14-minimal-api)

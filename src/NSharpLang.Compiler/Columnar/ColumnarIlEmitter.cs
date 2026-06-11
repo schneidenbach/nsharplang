@@ -437,8 +437,10 @@ public sealed class ColumnarIlEmitter
     private bool _protectedDoneCreated;
     private bool _inProtectedRegion;
     // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
-    // break/continue to a loop outside it) are illegal IL — they decline (oracle defect #20 emits the
-    // invalid IL today). Loops OPENED inside the finally still break/continue freely.
+    // break/continue to a loop outside it) are illegal IL. The analyzer now rejects those shapes with
+    // NL319 (oracle defect #20 fixed front-door), so they cannot reach any emitter on the production
+    // path — the declines below remain as this emitter's own contract guards. Loops OPENED inside the
+    // finally still break/continue freely.
     private bool _inFinallyRegion;
     private readonly ILGenerator _il;
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
@@ -3553,16 +3555,16 @@ public sealed class ColumnarIlEmitter
 
             case 51: // LockStatement [lockee, body] — `Monitor.Enter(obj); try { body } finally
             {        // { Monitor.Exit(obj) }`, the oracle's EmitLock verbatim. The lockee must be a
-                     // REFERENCE value: the pipeline ACCEPTS value-type lockees and stores the unboxed
-                     // value into the object local — a fake reference that HARD-CRASHES the process in
-                     // Monitor.Enter (defect #21; C# rejects CS0185). One protected region per body
-                     // (nested forms decline), exactly as for try.
+                     // REFERENCE value: the analyzer rejects value-type lockees with NL320 (oracle
+                     // defect #21 fixed front-door; the CS0185 analog), so none can reach emit on the
+                     // production path — the decline below stays as this emitter's contract guard.
+                     // One protected region per body (nested forms decline), exactly as for try.
                 if (_childCount[idx] != 2 || _inProtectedRegion)
                     return false;
                 if (!EmitExpression(Child(idx, 0), out var lockeeType))
                     return false;
                 if (lockeeType.IsValueType || lockeeType == typeof(void))
-                    return false; // value lockees are defect-#21 territory — decline (CS0185 analog).
+                    return false; // value lockees are analyzer-rejected (NL320) — decline as a guard.
                 if (_protectedResult == null && _returnType != typeof(void))
                     _protectedResult = _il.DeclareLocal(_returnType);
                 if (!_protectedDoneCreated)
@@ -3608,8 +3610,8 @@ public sealed class ColumnarIlEmitter
                      // generic-union case construction with NO type args ADOPTS the return type's arguments here
                      // (`return new Opt.None` on `(): Opt<int>` — one of the two pipeline-accepted adoption sites).
                 if (_inFinallyRegion)
-                    return false; // a return cannot leave a finally handler (illegal IL; pipeline NL305-
-                                  // shields value functions and emits invalid IL for void — defect #20).
+                    return false; // a return cannot leave a finally handler (illegal IL) — analyzer-
+                                  // rejected with NL319 (defect #20 fixed); decline as a guard.
                 if (_returnType == typeof(void))
                 {
                     if (_childCount[idx] != 0)
@@ -4549,8 +4551,8 @@ public sealed class ColumnarIlEmitter
             case 21: // Break — branch to the innermost loop's end label. From inside a protected region
             {        // whose loop began OUTSIDE it, the branch crosses the boundary: `leave` (which also
                      // runs an intervening finally — probe-pinned against the fixed oracle). Out of a
-                     // FINALLY itself is illegal IL — decline (the pipeline emits invalid IL for that
-                     // today; oracle defect #20 — declining inherits neither wrongness).
+                     // FINALLY itself is illegal IL — analyzer-rejected with NL319 (defect #20 fixed);
+                     // the decline stays as this emitter's contract guard.
                 if (_loopLabels.Count == 0)
                     return false;
                 var breakTarget = _loopLabels.Peek();

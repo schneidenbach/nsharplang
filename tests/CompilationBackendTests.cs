@@ -8,6 +8,7 @@ using System.Text.Json;
 using NSharpLang.Cli;
 using NSharpLang.Cli.Commands;
 using NSharpLang.Compiler;
+using NSharpLang.Compiler.SourceGenerators;
 using Xunit;
 
 namespace NSharpLang.Tests;
@@ -436,6 +437,7 @@ async func main() {
         {
             File.WriteAllText(Path.Combine(tempDir, "project.yml"), """
 name: VersionedIlProject
+version: 1.2.0-beta.1
 backend: il
 outputType: library
 targetFramework: net10.0
@@ -459,7 +461,7 @@ class Greeter {
             var result = compiler.CompileToIlAssembly("VersionedIlProject", outputPath);
 
             Assert.True(result.Success);
-            Assert.Equal(new Version(1, 0, 0, 0), AssemblyName.GetAssemblyName(outputPath).Version);
+            Assert.Equal(new Version(1, 2, 0, 0), AssemblyName.GetAssemblyName(outputPath).Version);
         }
         finally
         {
@@ -1186,6 +1188,80 @@ class Greeter {
     }
 
     [Fact]
+    public void ReferenceResolver_CSharpProjectReference_IsLibraryReferenceOnly()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            CreateCSharpLibraryProject(tempDir, "PlainCSharpLibrary", isRoslynComponent: false);
+            var config = new ProjectConfig
+            {
+                Name = "App",
+                OutputType = "library",
+                TargetFramework = "net10.0"
+            };
+            config.Dependencies.Add(new Reference { Project = "PlainCSharpLibrary/PlainCSharpLibrary.csproj" });
+
+            var result = CompilationReferenceResolver.AddResolvedDllReferences(
+                tempDir,
+                config,
+                new ReferenceResolutionOptions(Quiet: true));
+
+            var outputAssembly = Path.Combine(tempDir, "PlainCSharpLibrary", "bin", "Debug", "net10.0", "PlainCSharpLibrary.dll");
+            Assert.True(File.Exists(outputAssembly));
+            Assert.Empty(config.SourceGenerators);
+            Assert.DoesNotContain(config.Dependencies, reference => reference.Type == ReferenceType.Project);
+            Assert.Contains(config.Dependencies, reference =>
+                reference.Type == ReferenceType.Dll
+                && string.Equals(Path.GetFullPath(reference.Dll!), outputAssembly, StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(result.RuntimeAssets, asset =>
+                string.Equals(asset, outputAssembly, StringComparison.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ReferenceResolver_RoslynComponentProjectReference_RemainsSourceGenerator()
+    {
+        var tempDir = CreateTempDir();
+        try
+        {
+            var generatorProject = CreateCSharpLibraryProject(tempDir, "MarkedGenerator", isRoslynComponent: true);
+            var config = new ProjectConfig
+            {
+                Name = "App",
+                OutputType = "library",
+                TargetFramework = "net10.0"
+            };
+            config.Dependencies.Add(new Reference { Project = "MarkedGenerator/MarkedGenerator.csproj" });
+
+            CompilationReferenceResolver.AddResolvedDllReferences(
+                tempDir,
+                config,
+                new ReferenceResolutionOptions(Quiet: true));
+
+            var sourceGenerator = Assert.Single(config.SourceGenerators);
+            Assert.Equal(SourceGeneratorReferenceKind.Project, sourceGenerator.Kind);
+            Assert.Equal("MarkedGenerator/MarkedGenerator.csproj", sourceGenerator.Origin);
+            Assert.Equal(
+                Path.Combine(tempDir, "MarkedGenerator", "bin", "Debug", "net10.0", "MarkedGenerator.dll"),
+                sourceGenerator.Path);
+            Assert.DoesNotContain(config.Dependencies, reference => reference.Type == ReferenceType.Project);
+            Assert.Contains(config.Dependencies, reference =>
+                reference.Type == ReferenceType.Dll
+                && string.Equals(reference.Dll, sourceGenerator.Path, StringComparison.OrdinalIgnoreCase));
+            Assert.True(SourceGeneratorReferenceResolver.IsRoslynComponentProject(generatorProject));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void PublishCommand_BackendOverrideToIl_UsesSdkProjectReferencesAndRuntimeAssets()
     {
         var tempDir = CreateTempDir();
@@ -1725,6 +1801,36 @@ func main(): void {
         var current = RuntimeInformation.RuntimeIdentifier;
         var candidates = new[] { "linux-x64", "osx-arm64", "win-x64" };
         return candidates.First(candidate => !string.Equals(candidate, current, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string CreateCSharpLibraryProject(string root, string name, bool isRoslynComponent)
+    {
+        var projectDirectory = Path.Combine(root, name);
+        Directory.CreateDirectory(projectDirectory);
+
+        var roslynComponentProperty = isRoslynComponent
+            ? "    <IsRoslynComponent>true</IsRoslynComponent>"
+            : string.Empty;
+        var projectPath = Path.Combine(projectDirectory, $"{name}.csproj");
+        File.WriteAllText(projectPath, $$"""
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>{{name}}</AssemblyName>
+{{roslynComponentProperty}}
+  </PropertyGroup>
+</Project>
+""");
+        File.WriteAllText(Path.Combine(projectDirectory, "Marker.cs"), $$"""
+namespace {{name}};
+
+public static class Marker
+{
+    public static int Value => 42;
+}
+""");
+
+        return projectPath;
     }
 
     private static void CreateProjectReferenceFixture(string projectRoot)

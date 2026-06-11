@@ -917,8 +917,8 @@ The project is **deliberately outside** the default `dotnet test` path and is **
 `NSharpLang.sln`. The original six-pattern corpus produces manual, wall-clock before/after numbers
 for a PR. Since 2026-06-01 the project ALSO hosts `SystemsFastGateBenchmarks`, which IS a blocking
 product gate: `scripts/test-all.sh` Step 3a runs `scripts/benchmark-systems.sh` (BDN gate mode, 6
-matched N#-vs-C# scenarios, ratio limit 1.05 — ratios are load-robust even though absolute
-wall-clock is not). Run the corpus manually:
+matched N#-vs-C# scenarios, median-ratio limit 1.05 — each N# median ≤ 1.05× its C# baseline
+median; ratios are load-robust even though absolute wall-clock is not). Run the corpus manually:
 
 ```bash
 # whole corpus (Release is mandatory for real numbers)

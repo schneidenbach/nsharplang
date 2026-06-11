@@ -73,11 +73,11 @@ public partial class ILCompiler
     }
 
     /// <summary>
-    /// Snapshot of the per-method return-flow context that must be isolated while a nested method
+    /// Snapshot of the per-method control-flow context that must be isolated while a nested method
     /// body (lambda / local function) is emitted into its own IL generator. These fields reference
-    /// the enclosing method's IL generator (labels, locals) and its protected-region depth, so they
-    /// must be reset for the nested body and restored afterward — otherwise the nested body would
-    /// emit returns against the wrong generator.
+    /// the enclosing method's IL generator (labels, locals) and protected-region depth, so they must
+    /// be reset for the nested body and restored afterward — otherwise the nested body would emit
+    /// returns or break/continue branches against the wrong generator.
     /// </summary>
     private readonly record struct NestedMethodReturnContext(
         Label? ReturnLabel,
@@ -85,6 +85,9 @@ public partial class ILCompiler
         bool UsesStructuredReturn,
         bool EmittedExceptionBlockInBody,
         int ExceptionBlockDepth,
+        int FinallyHandlerDepth,
+        BranchTarget[] BreakLabels,
+        BranchTarget[] ContinueLabels,
         bool AsyncFaultGuardCompletionEmitted);
 
     /// <summary>
@@ -99,6 +102,9 @@ public partial class ILCompiler
             _usesStructuredReturn,
             _emittedExceptionBlockInBody,
             _exceptionBlockDepth,
+            _finallyHandlerDepth,
+            _breakLabels.ToArray(),
+            _continueLabels.ToArray(),
             _asyncFaultGuardCompletionEmitted);
 
         _currentReturnLabel = null;
@@ -106,11 +112,14 @@ public partial class ILCompiler
         _usesStructuredReturn = false;
         _emittedExceptionBlockInBody = false;
         _exceptionBlockDepth = 0;
+        _finallyHandlerDepth = 0;
+        _breakLabels.Clear();
+        _continueLabels.Clear();
         _asyncFaultGuardCompletionEmitted = false;
         return saved;
     }
 
-    /// <summary>Restores the return-flow context captured by <see cref="SaveAndResetNestedMethodReturnContext"/>.</summary>
+    /// <summary>Restores the control-flow context captured by <see cref="SaveAndResetNestedMethodReturnContext"/>.</summary>
     private void RestoreNestedMethodReturnContext(NestedMethodReturnContext saved)
     {
         _currentReturnLabel = saved.ReturnLabel;
@@ -118,6 +127,17 @@ public partial class ILCompiler
         _usesStructuredReturn = saved.UsesStructuredReturn;
         _emittedExceptionBlockInBody = saved.EmittedExceptionBlockInBody;
         _exceptionBlockDepth = saved.ExceptionBlockDepth;
+        _finallyHandlerDepth = saved.FinallyHandlerDepth;
+        _breakLabels.Clear();
+        for (var i = saved.BreakLabels.Length - 1; i >= 0; i--)
+        {
+            _breakLabels.Push(saved.BreakLabels[i]);
+        }
+        _continueLabels.Clear();
+        for (var i = saved.ContinueLabels.Length - 1; i >= 0; i--)
+        {
+            _continueLabels.Push(saved.ContinueLabels[i]);
+        }
         _asyncFaultGuardCompletionEmitted = saved.AsyncFaultGuardCompletionEmitted;
     }
 

@@ -1741,6 +1741,43 @@ class B
         }
     }
 
+    // COLUMNAR PIPELINE stage 3b: control-transfer-out-of-finally (NL319, the CS0157 analog — the analyzer
+    // rule that closed oracle defect #20). The columnar pass mirrors the analyzer's finally-depth rule: a
+    // return at finally depth > 0, or a break/continue whose target loop was entered at a SHALLOWER finally
+    // depth, reports; loops opened INSIDE the finally keep their own break/continue legal. Verified equal to
+    // the C#-AST-walk mirror on hand-built cases plus a non-vacuous descriptor count; the corpus test above
+    // already pins zero finally-transfers over all dogfood files (the corpus compiles under NL319).
+    [Fact]
+    public void ColumnarDiagnostics_FinallyTransfers_MatchesAstWalk()
+    {
+        var cases = new (string Src, int Transfers)[]
+        {
+            // return inside a finally (void function — previously the un-shielded invalid-IL shape).
+            ("func f(n: int) {\n    try {\n        n = n + 1\n    } finally {\n        if n == 0 {\n            return\n        }\n        n = n + 2\n    }\n}\n", 1),
+            // return inside a finally in a VALUE function (NL305 also fires; both descriptors must mirror).
+            ("func g(n: int): int {\n    try {\n        return 100 / n\n    } finally {\n        return 2\n    }\n}\n", 1),
+            // break inside a finally whose loop is OUTSIDE it.
+            ("func h(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            if i == 2 {\n                break\n            }\n        }\n    }\n    return total\n}\n", 1),
+            // continue inside a finally whose loop is outside it.
+            ("func k(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            if i == 2 {\n                continue\n            }\n        }\n    }\n    return total\n}\n", 1),
+            // a loop wholly INSIDE the finally — its own break is legal (zero transfers).
+            ("func legal(n: int): int {\n    total := 0\n    try {\n        total = total + 1\n    } finally {\n        i := 0\n        while i < n {\n            if i == 3 {\n                break\n            }\n            total = total + 1\n            i = i + 1\n        }\n    }\n    return total\n}\n", 0),
+            // a return in the TRY and the CATCH stays legal; throw in the finally is legal too.
+            ("func ok(n: int): int {\n    try {\n        return 100 / n\n    } catch {\n        return 0 - 1\n    } finally {\n        if n == 5 {\n            throw new Exception(\"fin\")\n        }\n    }\n}\n", 0),
+        };
+
+        foreach (var (src, transfers) in cases)
+        {
+            var (ok, diags) = RouteFunctionDiagnostics(src);
+            Assert.True(ok, $"Columnar diagnostics declined a supported finally-transfer corpus:\n{src}");
+            Assert.NotNull(diags);
+            // Exact parity with the AST walk: same descriptors, same order, same reported line:col.
+            Assert.Equal(CSharpCollectFunctionDiagnostics(src, "corpus.nl"), diags);
+            var flat = diags!.SelectMany(d => d).ToList();
+            Assert.Equal(transfers, flat.Count(d => d.StartsWith("finally-transfer@", StringComparison.Ordinal)));
+        }
+    }
+
     private static (bool Ok, List<List<string>>? Diags) RouteFunctionDiagnostics(string source)
     {
         var adapterType = typeof(Parser).Assembly.GetType("NSharpLang.Compiler.NSharpCompilerDogfoodAdapter")
@@ -1752,10 +1789,23 @@ class B
         return (ok, (List<List<string>>?)args[1]);
     }
 
+    // The production pipeline's verdict for a single-file program: analyzer diagnostics by DiagnosticId.
+    // Used by the decline pins below to assert pipeline-verdict parity — a columnar routing decline whose
+    // program the analyzer now REJECTS front-door must pin the analyzer verdict, not just the decline.
+    private static void AssertPipelineRejects(string source, string diagnosticId)
+    {
+        var parsed = new Parser(new Lexer(source, "verdict.nl").Tokenize(), "verdict.nl", source).ParseCompilationUnit();
+        using var analyzer = new Analyzer();
+        analyzer.LoadSystemAssemblies();
+        var result = analyzer.Analyze(parsed.CompilationUnit!);
+        Assert.Contains(result.Errors, e => e.DiagnosticId == diagnosticId);
+    }
+
     // The C# AST mirror of ColumnarDiagnosticsPass — the SAME control-flow logic walked on the object-graph
     // AST, so the columnar diagnostics are verified identical to walking the AST. Per function, in the same
     // deterministic order the pass emits: first unreachable-after-terminal (NL312, mirroring
-    // Analyzer.AnalyzeStatements), then NL305 ("missing-return:<canonicalReturnType>") iff the return type is
+    // Analyzer.AnalyzeStatements), then control-transfer-out-of-finally (NL319, mirroring the analyzer's
+    // finally-depth rule), then NL305 ("missing-return:<canonicalReturnType>") iff the return type is
     // non-void and the body does not return on all paths.
     private static List<List<string>> CSharpCollectFunctionDiagnostics(string source, string filePath)
     {
@@ -1766,7 +1816,10 @@ class B
         {
             var diags = new List<string>();
             if (fn.Body != null)
+            {
                 MirrorCollectUnreachable(fn.Body, diags);
+                MirrorCollectFinallyTransfers(fn.Body, 0, 0, 0, diags);
+            }
             var ret = fn.ReturnType != null ? ColumnarFunctionSymbol.CanonicalType(fn.ReturnType) : "void";
             if (ret != "void" && fn.Body != null && !MirrorAlwaysReturns(fn.Body))
                 diags.Add("missing-return:" + ret);
@@ -1778,7 +1831,8 @@ class B
 
     // Mirrors Analyzer.AnalyzeStatements (2017): in each statement list, once a statement always exits, the
     // immediately-following statement is unreachable (reported once, then the list is skipped). Recurses into
-    // nested blocks / if branches / while bodies exactly as Analyzer.AnalyzeStatement does.
+    // nested blocks / if branches / while bodies / try clauses / lock bodies exactly as
+    // ColumnarDiagnosticsPass.CollectUnreachable does.
     private static void MirrorCollectUnreachable(Statement s, List<string> diags)
     {
         switch (s)
@@ -1811,6 +1865,18 @@ class B
                 if (i.ElseStatement != null)
                     MirrorCollectUnreachable(i.ElseStatement, diags);
                 break;
+
+            case LockStatement l:
+                MirrorCollectUnreachable(l.Body, diags);
+                break;
+
+            case TryStatement t:
+                MirrorCollectUnreachable(t.TryBlock, diags);
+                foreach (var clause in t.CatchClauses)
+                    MirrorCollectUnreachable(clause.Block, diags);
+                if (t.FinallyBlock != null)
+                    MirrorCollectUnreachable(t.FinallyBlock, diags);
+                break;
         }
     }
 
@@ -1819,6 +1885,7 @@ class B
         switch (s)
         {
             case ReturnStatement:
+            case ThrowStatement: // always exits, exactly like the analyzer's StatementAlwaysReturns throw arm.
                 return true;
             case BlockStatement b:
                 foreach (var st in b.Statements)
@@ -1832,8 +1899,72 @@ class B
                 return i.ElseStatement != null
                     && MirrorAlwaysReturns(i.ThenStatement)
                     && MirrorAlwaysReturns(i.ElseStatement);
+            case LockStatement l: // exits iff the body exits (probe-pinned in the E5 mirrors).
+                return MirrorAlwaysReturns(l.Body);
+            case TryStatement t:
+            {
+                // The analyzer's quirk VERBATIM (probe-pinned in the E4 mirrors): exits iff the try block
+                // exits AND there is at least ONE catch AND every catch clause's block exits — the finally
+                // is IGNORED.
+                if (!MirrorAlwaysReturns(t.TryBlock))
+                    return false;
+                if (t.CatchClauses.Count == 0)
+                    return false;
+                foreach (var clause in t.CatchClauses)
+                {
+                    if (!MirrorAlwaysReturns(clause.Block))
+                        return false;
+                }
+
+                return true;
+            }
             default:
                 return false;
+        }
+    }
+
+    // Mirrors ColumnarDiagnosticsPass.CollectFinallyTransfers (NL319) on the object-graph AST: a return at
+    // finally depth > 0, or a break/continue whose innermost target loop was entered at a SHALLOWER finally
+    // depth, would exit the finally handler — illegal IL. Loops record the entry depth, so loops opened
+    // inside the finally keep their own break/continue legal.
+    private static void MirrorCollectFinallyTransfers(
+        Statement s, int finallyDepth, int breakTargetDepth, int continueTargetDepth, List<string> diags)
+    {
+        switch (s)
+        {
+            case ReturnStatement when finallyDepth > 0:
+            case BreakStatement when finallyDepth > breakTargetDepth:
+            case ContinueStatement when finallyDepth > continueTargetDepth:
+                diags.Add("finally-transfer@" + s.Line + ":" + s.Column);
+                break;
+            case BlockStatement b:
+                foreach (var st in b.Statements)
+                    MirrorCollectFinallyTransfers(st, finallyDepth, breakTargetDepth, continueTargetDepth, diags);
+                break;
+            case WhileStatement w:
+                MirrorCollectFinallyTransfers(w.Body, finallyDepth, finallyDepth, finallyDepth, diags);
+                break;
+            case ForStatement f:
+                MirrorCollectFinallyTransfers(f.Body, finallyDepth, finallyDepth, finallyDepth, diags);
+                break;
+            case ForeachStatement fe:
+                MirrorCollectFinallyTransfers(fe.Body, finallyDepth, finallyDepth, finallyDepth, diags);
+                break;
+            case IfStatement i:
+                MirrorCollectFinallyTransfers(i.ThenStatement, finallyDepth, breakTargetDepth, continueTargetDepth, diags);
+                if (i.ElseStatement != null)
+                    MirrorCollectFinallyTransfers(i.ElseStatement, finallyDepth, breakTargetDepth, continueTargetDepth, diags);
+                break;
+            case LockStatement l:
+                MirrorCollectFinallyTransfers(l.Body, finallyDepth, breakTargetDepth, continueTargetDepth, diags);
+                break;
+            case TryStatement t:
+                MirrorCollectFinallyTransfers(t.TryBlock, finallyDepth, breakTargetDepth, continueTargetDepth, diags);
+                foreach (var clause in t.CatchClauses)
+                    MirrorCollectFinallyTransfers(clause.Block, finallyDepth, breakTargetDepth, continueTargetDepth, diags);
+                if (t.FinallyBlock != null)
+                    MirrorCollectFinallyTransfers(t.FinallyBlock, finallyDepth + 1, breakTargetDepth, continueTargetDepth, diags);
+                break;
         }
     }
 
@@ -4043,10 +4174,10 @@ class B
     // try { body } finally { Monitor.Exit(obj) } — so locks ride the whole E2-E4 protected-region
     // machinery (structured returns, loop-crossing leaves, the body-level tail). Always-returns
     // propagates the BODY (probe-pinned: `lock s { return 1 }` needs no trailing return) — both mirrors.
-    // The lockee must be a REFERENCE value: the pipeline accepts value-type lockees and emits IL that
-    // HARD-CRASHES the process in Monitor.Enter (defect #21, queued; C# rejects CS0185) — columnar
-    // declines them (the decline pin below must NEVER invoke the oracle side). `using` stays deferred:
-    // the columnar type surface has no IDisposable values to model.
+    // The lockee must be a REFERENCE value: the analyzer rejects value-type lockees with NL320
+    // (oracle defect #21 FIXED — the CS0185 analog; pre-fix the emitted IL hard-crashed the process
+    // in Monitor.Enter) — columnar still declines them as its emitter-contract guard. `using` stays
+    // deferred: the columnar type surface has no IDisposable values to model.
     [Fact]
     public void ColumnarCodegen_Parity_LockStatement()
     {
@@ -4068,9 +4199,12 @@ class B
             ("breakLock", new object[] { "k", 5 }));
 
         // DECLINES:
-        // a VALUE-TYPE lockee — pipeline-ACCEPTED but the emitted IL hard-crashes the PROCESS in
-        // Monitor.Enter (defect #21) — route-decline ONLY; never invoke this through the oracle.
+        // a VALUE-TYPE lockee — the analyzer now REJECTS it with NL320 (oracle defect #21 fixed
+        // front-door; pre-fix the pipeline accepted it and the emitted IL hard-crashed the process in
+        // Monitor.Enter). The columnar decline stays as the emitter's contract guard (routing sits
+        // below the analyzer), and the pipeline verdict is pinned alongside it.
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    lock n {\n        return n + 1\n    }\n}\n").Ok);
+        AssertPipelineRejects("func f(n: int): int {\n    lock n {\n        return n + 1\n    }\n}\n", "NL320");
         // a lock NESTED inside a try (one protected region per body this rung).
         Assert.False(RouteColumnarProgram("func f(s: string): int {\n    try {\n        lock s {\n            return 1\n        }\n    } catch {\n        return 2\n    }\n}\n").Ok);
         // a USING statement (no IDisposable surface modelled — kernel-refused).
@@ -4087,8 +4221,8 @@ class B
     // LOOP REVISIT: break/continue from inside a region whose loop began OUTSIDE it emit `leave` (running
     // an intervening finally); the oracle emitted `br` there — InvalidProgramException on every call
     // (defect #19, FIXED oracle-side in this slice: BranchTarget records the region depth at loop entry).
-    // Control transfers OUT of a finally are illegal IL — columnar declines them (the pipeline still
-    // emits invalid IL for void-return/break in finally — defect #20, queued).
+    // Control transfers OUT of a finally are illegal IL — the analyzer rejects them with NL319 (defect
+    // #20 FIXED front-door); columnar still declines them as its emitter-contract guard.
     [Fact]
     public void ColumnarCodegen_Parity_FinallyAndLoopCrossing()
     {
@@ -4144,12 +4278,17 @@ class B
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } finally {\n        n = n + 1\n    }\n}\n").Ok);
         // unreachable code after a try whose try+catches all return (NL312 — the finally is ignored).
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 1\n    } catch {\n        return 2\n    } finally {\n        n = n + 1\n    }\n    return 3\n}\n").Ok);
-        // a RETURN inside a finally (illegal IL; the pipeline NL305-rejects the value form and emits
-        // invalid IL for the void form — defect #20).
+        // a RETURN inside a finally — the analyzer now rejects BOTH forms with NL319 (defect #20
+        // FIXED front-door; pre-fix the pipeline NL305-rejected only the value form and emitted
+        // invalid IL for the void form). The columnar declines stay as emitter-contract guards
+        // (routing sits below the analyzer); the pipeline verdicts are pinned alongside them.
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 1\n    } finally {\n        return 2\n    }\n}\n").Ok);
+        AssertPipelineRejects("func f(n: int): int {\n    try {\n        return 1\n    } finally {\n        return 2\n    }\n}\n", "NL319");
         Assert.False(RouteColumnarProgram("func f(n: int) {\n    try {\n        n = n + 1\n    } finally {\n        if n == 0 {\n            return\n        }\n        n = n + 2\n    }\n}\n").Ok);
-        // a BREAK inside a finally whose loop is outside it (defect #20's break form).
+        AssertPipelineRejects("func f(n: int) {\n    try {\n        n = n + 1\n    } finally {\n        if n == 0 {\n            return\n        }\n        n = n + 2\n    }\n}\n", "NL319");
+        // a BREAK inside a finally whose loop is outside it (NL319's break form).
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            if i == 2 {\n                break\n            }\n        }\n    }\n    return total\n}\n").Ok);
+        AssertPipelineRejects("func f(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            if i == 2 {\n                break\n            }\n        }\n    }\n    return total\n}\n", "NL319");
         // a try with NEITHER catch nor finally.
         Assert.False(RouteColumnarProgram("func f(): int {\n    try {\n        return 1\n    }\n    return 2\n}\n").Ok);
     }

@@ -96,6 +96,51 @@ clone, value-Equals, hash agreement, record + class reference-`==`) + 4 decline 
 
 ---
 
+## 2026-06-11 — Oracle defects #20 and #21 FIXED: NL319 (control transfer out of finally) + NL320 (lock requires reference type)
+
+Both queued exceptions-arc oracle defects closed with FRONT-DOOR analyzer rules shared by every
+backend (IL, columnar routing, C# export), plus emitter defense-in-depth.
+
+**Defect #20 → NL319 (`ControlTransferOutOfFinally`, the CS0157 analog).** A `return` anywhere
+inside a `finally` (depth-based — a return inside a try/lock nested in the finally still leaves it),
+or a `break`/`continue` whose target loop/switch was entered at a SHALLOWER finally depth, is now a
+compile error. Pre-fix, the void-return/break/continue forms BUILT clean and threw
+InvalidProgramException on every call (ilverify: LeaveOutOfFinally), and the "NL305 shields value
+functions" assumption was WRONG for the returning-catch shape (try+catch satisfy always-returns, the
+finally is ignored — probe-proven invalid IL). The C# export leaked raw CS0157; it now fails at
+analysis with NL319. Legal and probe-kept: `throw` in a finally, loops opened INSIDE the finally,
+returns in lambdas/local functions declared in the finally (analyzer context resets at nested-body
+boundaries). Emitter guards: ILCompiler `_finallyHandlerDepth` (BranchTarget now also records the
+finally depth at loop entry) throws "compiler bug … NL319" from EmitReturn/EmitBreak/EmitContinue
+rather than ever emitting `leave` out of a handler; the columnar declines remain as emitter-contract
+guards. Columnar mirror: `ColumnarDiagnosticsPass.CollectFinallyTransfers`
+(`finally-transfer@line:col`), AST-walk parity-pinned; the E4 decline pins now also pin the NL319
+pipeline verdict.
+
+**Defect #21 → NL320 (`LockRequiresReferenceType`, the CS0185 analog).** A `lock` on a KNOWN value
+type (builtins, struct, enum, record struct, tuple, `T?` over a value type, reflection IsValueType)
+is now a compile error — pre-fix it built clean and SEGFAULTED the process (no managed exception) in
+Monitor.Enter via the raw `stloc` of an unboxed value into the object lock local. STRICTER than C#
+on generics by decision: an unconstrained/non-reference-constrained `T` lockee is NL320 with a
+constraint hint (`where T: class`) — Roslyn boxes it into a lock that can never provide mutual
+exclusion. The predicate is conservative: Unknown/External/GenericTypeInfo stay silent (no false
+positives on unclassifiable external reference types). EmitLock now emits the defensive
+`box` for value/generic-parameter lockees — the required Roslyn lowering for the legal
+class-constrained `T`, ilverify-clean. The columnar value-lockee decline remains as the emitter's
+contract guard; the E5 decline pin now also pins the NL320 pipeline verdict.
+
+Coverage: 30 analyzer facts (AnalyzerTests NL319/NL320 regions), emitter-guard fact
+(ILCompiler_ControlTransferOutOfFinally_NeverReachesEmit), lock IL-shape box pins
+(LockStatementIlShapeTests), CheckCommand JSON span pins, export-fails-with-NL319 pin, columnar
+finally-transfer parity (ColumnarDiagnostics_FinallyTransfers_MatchesAstWalk; the in-test AST mirror
+gained the E4/E5 throw/try/lock arms it had lagged). Docs: language-tour lock section + the first
+in-repo error pages (website/docs/errors/NL319.md, NL320.md). Codes NL317/NL318 were events; 319/320
+are the next slots. NOT touched (still queued): oracle defects #16/#17 (unknown catch types become
+catch-alls / non-exception catch types accepted) and the `using` IDisposable TODO (explicitly
+deferred).
+
+---
+
 ## 2026-06-11 — EXCEPTIONS E5: the lock statement — THE EXCEPTIONS ARC's MAIN LADDER CLOSES
 
 `lock <expr> { }` (Lock token **80** — empirically verified) parses as **kind 51** [lockee, body]

@@ -111,7 +111,7 @@ public static class SourceGeneratorReferenceResolver
     /// True when the project declares <c>&lt;IsRoslynComponent&gt;true&lt;/IsRoslynComponent&gt;</c>,
     /// the standard MSBuild marker for source-generator / analyzer projects.
     /// </summary>
-    private static bool IsRoslynComponentProject(string projectPath)
+    public static bool IsRoslynComponentProject(string projectPath)
     {
         try
         {
@@ -124,6 +124,15 @@ public static class SourceGeneratorReferenceResolver
         {
             return false;
         }
+    }
+
+    public static void AddProjectReference(ProjectConfig config, string assemblyPath, string origin)
+    {
+        AddReferenceIfMissing(
+            config,
+            assemblyPath,
+            SourceGeneratorReferenceKind.Project,
+            origin);
     }
 
     private static string BuildGeneratorProjectCached(string projectPath)

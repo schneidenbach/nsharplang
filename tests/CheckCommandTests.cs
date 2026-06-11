@@ -199,6 +199,84 @@ func Main() {
         }
     }
 
+    [Fact]
+    public void CheckCommand_LockOnValueType_ReportsNL320WithLockeeSpan()
+    {
+        // NL320 (the CS0185 analog): a value-typed lockee is a check-time error — before this rule
+        // the program built clean and segfaulted the whole process inside Monitor.Enter.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    n := 5
+    lock n {
+        print(n)
+    }
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+
+            var doc = JsonDocument.Parse(stdout);
+            var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
+                .Single(result => result.GetProperty("code").GetString() == "NL320");
+
+            // The diagnostic underlines the lockee expression itself.
+            Assert.Equal(3, diagnostic.GetProperty("line").GetInt32());
+            Assert.Equal(10, diagnostic.GetProperty("column").GetInt32());
+            Assert.Equal(1, diagnostic.GetProperty("length").GetInt32());
+            Assert.Contains("'int'", diagnostic.GetProperty("message").GetString());
+            Assert.Equal("https://docs.n-sharp.dev/errors/NL320", diagnostic.GetProperty("docsUrl").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void CheckCommand_ReturnInsideFinally_ReportsNL319OnTheKeyword()
+    {
+        // NL319 (the CS0157 analog): control may not leave a finally — before this rule the program
+        // built clean and threw InvalidProgramException on every call.
+        var tempDir = CreateTempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "Program.nl"), """
+func Main() {
+    n := 0
+    try {
+        n = n + 1
+    } finally {
+        return
+    }
+}
+""");
+
+            var (exitCode, stdout, _) = CaptureConsole(() =>
+                CheckCommand.Execute(new[] { "--project", tempDir }));
+
+            Assert.Equal(1, exitCode);
+
+            var doc = JsonDocument.Parse(stdout);
+            var diagnostic = doc.RootElement.GetProperty("results").EnumerateArray()
+                .Single(result => result.GetProperty("code").GetString() == "NL319");
+
+            // The diagnostic underlines the full `return` keyword.
+            Assert.Equal(6, diagnostic.GetProperty("line").GetInt32());
+            Assert.Equal("return".Length, diagnostic.GetProperty("length").GetInt32());
+            Assert.Equal("https://docs.n-sharp.dev/errors/NL319", diagnostic.GetProperty("docsUrl").GetString());
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
     // ── Text output mode ───────────────────────────────────────────────
 
     [Fact]

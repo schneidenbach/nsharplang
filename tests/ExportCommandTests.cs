@@ -38,6 +38,40 @@ func main() {
     }
 
     [Fact]
+    public void ExportCommand_ReturnInsideFinally_FailsAtAnalysisWithNL319()
+    {
+        // The export backend shares the analyzer, so this must fail with the N# diagnostic at export
+        // time — before NL319 the export emitted the return-in-finally verbatim and `dotnet build`
+        // of the bundle leaked Roslyn's raw CS0157 instead of an N# error.
+        var tempDir = CreateTempDir();
+        try
+        {
+            var sourceFile = Path.Combine(tempDir, "Program.nl");
+            File.WriteAllText(sourceFile, """
+func main() {
+    n := 0
+    try {
+        n = n + 1
+    } finally {
+        return
+    }
+}
+""");
+
+            var result = RunCliCommand($"\"{GetCliAssemblyPath()}\" export csharp \"{sourceFile}\"");
+
+            Assert.NotEqual(0, result.ExitCode);
+            var combined = result.Stdout + result.Stderr;
+            Assert.Contains("NL319", combined);
+            Assert.DoesNotContain("CS0157", combined);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
     public void ExportCommand_ProjectBundle_BuildsRunsAndTestsAsCSharp()
     {
         var tempDir = CreateTempDir();
@@ -56,12 +90,34 @@ name: SharedGreeter
 outputType: library
 targetFramework: net10.0
 """);
+            // ScratchLength and Score pin export-compile parity for IL-backend constructs that
+            // previously transpiled to invalid C# (F1): an inferred stackalloc declaration
+            // (`var x = stackalloc ...` is CS0214) and union case construction (object
+            // initializer on a positional record is CS7036).
             File.WriteAllText(Path.Combine(sharedDir, "Greeter.nl"), """
 namespace SharedGreeter
+
+union Verdict {
+    Pass { score: int }
+    Fail { reason: string }
+}
 
 class Greeter {
     static func Message(): string {
         return "hello export"
+    }
+
+    static func ScratchLength(): int {
+        scratch := stackalloc byte[4]
+        return scratch.Length
+    }
+
+    static func Score(): int {
+        verdict := new Verdict.Pass { score: 42 }
+        return match verdict {
+            Verdict.Pass { score } => score,
+            Verdict.Fail { reason } => 0
+        }
     }
 }
 """);
@@ -85,6 +141,14 @@ import SharedGreeter
 
 test "shared greeter exports cleanly" {
     assert Greeter.Message() == "hello export"
+}
+
+test "inferred stackalloc exports cleanly" {
+    assert Greeter.ScratchLength() == 4
+}
+
+test "union case construction exports cleanly" {
+    assert Greeter.Score() == 42
 }
 """);
 

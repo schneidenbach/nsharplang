@@ -8,7 +8,7 @@ rigorous single-machine re-run in [`systems-vs-native.md`](systems-vs-native.md)
 
 **Do NOT build a structural LLVM/transpile codegen backend now.** The throughput motivation that justified it
 has been captured by per-pattern `Vector<T>` IL emission (Phase P): on the vectorizable kernels N# is now
-**≤2.0× behind best-native (Rust/C), measured** — down from up to 10.5×. The residual ~1.6–2× is latency-bound,
+**≤2.02× behind best-native (Rust/C), measured at 4096** — down from up to 10.5×. The residual ~1.6–2× is latency-bound,
 small-input, and scalar-scheduling tax that a backend swap does **not** cheaply remove. The eng cost
 (multi-quarter, correctness-critical, a native-toolchain build dependency in the CLI) is now grossly out of
 proportion to a ~2× → maybe ~1.3× residual on a narrow i32-kernel class.
@@ -66,7 +66,7 @@ than LLVM. A new backend would chase that residual, not an order-of-magnitude wi
 
 ### A. Stay on RyuJIT + per-pattern `Vector<T>` emission — *status quo (Phase P)*
 - **What it gives:** SIMD on the matched shapes, on the existing runtime, with zero new toolchain. Already at
-  ≤2.0× native on every vectorizable kernel.
+  ≤2.02× native at 4096 on every vectorizable kernel.
 - **Ceiling:** RyuJIT's `Vector<T>` lowering (unroll factor, scheduling, horizontal-reduce) and the
   no-loop-auto-vectorizer policy. Extending to new shapes is incremental and low-risk but only matters where a
   *measured* kernel needs it.
@@ -112,7 +112,7 @@ than LLVM. A new backend would chase that residual, not an order-of-magnitude wi
 
 | Option | Throughput win vs today | Effort | Risk | New runtime dep | Recommend |
 |---|---|---|---|---|---|
-| A. RyuJIT + `Vector<T>` (status quo) | baseline (≤2.0× native) | — | — | none | **Yes — keep, extend only on measured need** |
+| A. RyuJIT + `Vector<T>` (status quo) | baseline (≤2.02× native at 4096) | — | — | none | **Yes — keep, extend only on measured need** |
 | B. NativeAOT image emission | none (startup/size only) | moderate | low–moderate | none (RyuJIT) | **Yes — separate startup/size track** |
 | C. NativeAOT-LLVM | n/a (WASM, experimental) | — | very high | experimental | No |
 | D. Custom LLVM IR backend | ~2× → ~1.3× residual only | very high | very high | LLVM toolchain | **No (defer; evidence-gated)** |

@@ -328,59 +328,6 @@ public partial class ILCompiler
                 }
                 break;
 
-            case BinaryExpression binary:
-                FindCapturedVariablesInExpression(binary.Left, parameterNames, captured);
-                FindCapturedVariablesInExpression(binary.Right, parameterNames, captured);
-                break;
-
-            case UnaryExpression unary:
-                // Covers logical/arithmetic unaries and ++/-- — e.g. `!flag`, `-x`, `s.field++`.
-                // Without this a variable referenced only inside a unary would be missed and left
-                // unresolved when the nested function body is emitted.
-                FindCapturedVariablesInExpression(unary.Operand, parameterNames, captured);
-                break;
-
-            case CallExpression call:
-                FindCapturedVariablesInExpression(call.Callee, parameterNames, captured);
-                foreach (var arg in call.Arguments)
-                    FindCapturedVariablesInExpression(arg.Value, parameterNames, captured);
-                break;
-
-            case MemberAccessExpression member:
-                FindCapturedVariablesInExpression(member.Object, parameterNames, captured);
-                break;
-
-            case IndexAccessExpression indexAccess:
-                FindCapturedVariablesInExpression(indexAccess.Object, parameterNames, captured);
-                FindCapturedVariablesInExpression(indexAccess.Index, parameterNames, captured);
-                break;
-
-            case AssignmentExpression assignment:
-                FindCapturedVariablesInExpression(assignment.Target, parameterNames, captured);
-                FindCapturedVariablesInExpression(assignment.Value, parameterNames, captured);
-                break;
-
-            case NewExpression newExpr:
-                foreach (var arg in newExpr.ConstructorArguments)
-                    FindCapturedVariablesInExpression(arg.Value, parameterNames, captured);
-                if (newExpr.Initializer != null)
-                {
-                    foreach (var property in newExpr.Initializer.Properties)
-                    {
-                        if (property.IndexExpression != null)
-                            FindCapturedVariablesInExpression(property.IndexExpression, parameterNames, captured);
-                        FindCapturedVariablesInExpression(property.Value, parameterNames, captured);
-                    }
-                }
-                break;
-
-            case OnSubscriptionExpression onSubscription:
-                // The event target lives in the current scope; the handler lambda re-enters the
-                // nested-lambda case below, which applies its own parameter shadowing.
-                FindCapturedVariablesInExpression(onSubscription.Target, parameterNames, captured);
-                FindCapturedVariablesInExpression(onSubscription.Handler, parameterNames, captured);
-                break;
-
             case LambdaExpression nestedLambda:
                 // Nested lambdas - parameters shadow outer scope
                 var nestedParams = new HashSet<string>(parameterNames);
@@ -392,84 +339,19 @@ public partial class ILCompiler
                     FindCapturedVariablesInStatement(nestedLambda.BlockBody, nestedParams, captured);
                 break;
 
-            case ParenthesizedExpression paren:
-                FindCapturedVariablesInExpression(paren.Inner, parameterNames, captured);
+            case NameofExpression:
+                // nameof never reads its operand at runtime (it emits a string literal), so a
+                // variable referenced only by name must not grow a closure field.
                 break;
 
-            case TernaryExpression ternary:
-                FindCapturedVariablesInExpression(ternary.Condition, parameterNames, captured);
-                FindCapturedVariablesInExpression(ternary.ThenExpression, parameterNames, captured);
-                FindCapturedVariablesInExpression(ternary.ElseExpression, parameterNames, captured);
-                break;
-
-            case ArrayLiteralExpression arrayLiteral:
-                foreach (var element in arrayLiteral.Elements)
-                    FindCapturedVariablesInExpression(element, parameterNames, captured);
-                break;
-
-            case SpreadExpression spread:
-                FindCapturedVariablesInExpression(spread.Expression, parameterNames, captured);
-                break;
-
-            case TupleExpression tuple:
-                foreach (var element in tuple.Elements)
-                    FindCapturedVariablesInExpression(element.Value, parameterNames, captured);
-                break;
-
-            case InterpolatedStringExpression interpolatedString:
-                foreach (var hole in interpolatedString.Parts.OfType<InterpolatedStringHole>())
-                    FindCapturedVariablesInExpression(hole.Expression, parameterNames, captured);
-                break;
-
-            case RangeExpression range:
-                if (range.Start != null)
-                    FindCapturedVariablesInExpression(range.Start, parameterNames, captured);
-                if (range.End != null)
-                    FindCapturedVariablesInExpression(range.End, parameterNames, captured);
-                break;
-
-            case IsExpression isExpression:
-                FindCapturedVariablesInExpression(isExpression.Expression, parameterNames, captured);
-                break;
-
-            case WithExpression withExpression:
-                FindCapturedVariablesInExpression(withExpression.Target, parameterNames, captured);
-                foreach (var property in withExpression.Properties)
-                {
-                    if (property.IndexExpression != null)
-                        FindCapturedVariablesInExpression(property.IndexExpression, parameterNames, captured);
-                    FindCapturedVariablesInExpression(property.Value, parameterNames, captured);
-                }
-                break;
-
-            case AwaitExpression awaitExpression:
-                FindCapturedVariablesInExpression(awaitExpression.Expression, parameterNames, captured);
-                break;
-
-            case ThrowExpression throwExpression:
-                FindCapturedVariablesInExpression(throwExpression.Expression, parameterNames, captured);
-                break;
-
-            case CastExpression castExpression:
-                FindCapturedVariablesInExpression(castExpression.Expression, parameterNames, captured);
-                break;
-
-            case CheckedExpression checkedExpression:
-                FindCapturedVariablesInExpression(checkedExpression.Expression, parameterNames, captured);
-                break;
-
-            case UncheckedExpression uncheckedExpression:
-                FindCapturedVariablesInExpression(uncheckedExpression.Expression, parameterNames, captured);
-                break;
-
-            case MatchExpression matchExpression:
-                FindCapturedVariablesInExpression(matchExpression.Value, parameterNames, captured);
-                foreach (var matchCase in matchExpression.Cases)
-                {
-                    if (matchCase.Guard != null)
-                        FindCapturedVariablesInExpression(matchCase.Guard, parameterNames, captured);
-                    FindCapturedVariablesInExpression(matchCase.Expression, parameterNames, captured);
-                }
+            default:
+                // Everything else is purely structural: a variable read anywhere in a child
+                // expression is a capture. Routing through AstChildren (instead of per-node
+                // child lists) keeps this fail-safe — a node or child slot missing here used to
+                // skip the subtree and emit "Undefined variable or parameter" (NL103) when the
+                // nested body referenced an outer local only in that slot.
+                foreach (var child in AstChildren.Of(expr))
+                    FindCapturedVariablesInExpression(child, parameterNames, captured);
                 break;
         }
     }

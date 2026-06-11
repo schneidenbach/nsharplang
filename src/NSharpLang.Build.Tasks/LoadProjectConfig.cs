@@ -43,6 +43,18 @@ public class LoadProjectConfig : Task
     public string Version { get; set; } = string.Empty;
 
     /// <summary>
+    /// Output: CLR-compatible AssemblyVersion derived from Version.
+    /// </summary>
+    [Output]
+    public string AssemblyVersion { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Output: CLR-compatible FileVersion derived from Version.
+    /// </summary>
+    [Output]
+    public string FileVersion { get; set; } = string.Empty;
+
+    /// <summary>
     /// Output: SDK type (e.g., "Microsoft.NET.Sdk", "Microsoft.NET.Sdk.Web")
     /// </summary>
     [Output]
@@ -104,6 +116,7 @@ public class LoadProjectConfig : Task
 
             AssemblyName = config.Name ?? Path.GetFileName(ProjectDirectory);
             Version = config.Version ?? string.Empty;
+            SetClrVersionOutputs(Version);
             Sdk = config.Sdk;
             TestFramework = config.TestFramework;
 
@@ -166,9 +179,25 @@ public class LoadProjectConfig : Task
         OutputType = "Exe";
         AssemblyName = Path.GetFileName(ProjectDirectory);
         Version = string.Empty;
+        AssemblyVersion = string.Empty;
+        FileVersion = string.Empty;
         Sdk = "Microsoft.NET.Sdk";
         PackageReferences = Array.Empty<ITaskItem>();
         ProjectReferences = Array.Empty<ITaskItem>();
         FrameworkReferences = Array.Empty<ITaskItem>();
+    }
+
+    private void SetClrVersionOutputs(string? packageVersion)
+    {
+        if (string.IsNullOrWhiteSpace(packageVersion))
+        {
+            AssemblyVersion = string.Empty;
+            FileVersion = string.Empty;
+            return;
+        }
+
+        var clrVersion = AssemblyVersionUtilities.GetAssemblyVersionOrDefault(packageVersion).ToString();
+        AssemblyVersion = clrVersion;
+        FileVersion = clrVersion;
     }
 }

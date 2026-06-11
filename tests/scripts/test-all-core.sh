@@ -187,7 +187,7 @@ INTEROP_INPUTS_HASH=""
 EXAMPLES_INPUTS_HASH=""
 if step_cache_enabled; then
     STEP_HASH_OUTPUT="$(python3 - "$REPO_ROOT" <<'PY'
-import hashlib, json, os, platform, subprocess, sys
+import hashlib, json, os, platform, shutil, subprocess, sys
 
 root = os.path.realpath(sys.argv[1])
 SKIP_DIRS = {".git", "bin", "obj", "node_modules", ".vscode-test", ".context",
@@ -195,17 +195,28 @@ SKIP_DIRS = {".git", "bin", "obj", "node_modules", ".vscode-test", ".context",
 
 # Path prefixes per input set ('/'-normalized, relative to repo root). Sets are
 # deliberately over-inclusive: the gate scripts and shared build files are in
-# every set, and src/ (the compiler itself) invalidates everything.
+# every set, and src/ (the compiler itself) invalidates everything. UNIT must
+# cover docs/ and website/docs/ wholesale because unit tests golden-compare and
+# parity-check repo documentation (cli-reference.md, diagnostic-clusters
+# sample, systems audit, ...); GateStepInputSetGuardTests enforces this.
 COMMON = ("scripts/", "tests/scripts/", "global.json", "Directory.Build.props",
           "Directory.Build.targets", "NuGet.config", "NSharpLang.sln")
 SETS = {
     "UNIT": COMMON + ("src/", "tests/", "examples/", "templates/",
-                       "benchmarks/", "docs/design/systems-samples/"),
+                       "benchmarks/", "docs/", "website/docs/",
+                       "editors/vscode/test/suite/"),
     "BENCH": COMMON + ("src/", "benchmarks/"),
     "INTEROP": COMMON + ("src/", "tests/NSharpLang.CSharpInteropTests/"),
     "EXAMPLES": COMMON + ("src/", "examples/", "templates/", "tests/fixtures/",
                            "tests/scripts/"),
 }
+
+# Behavior-changing environment must be part of every step key, mirroring
+# env_names in the whole-gate signature in tests/scripts/test-all.sh (keep the
+# two lists in sync; GateStepInputSetGuardTests enforces it). A marker stored
+# under one environment must never satisfy a run under another.
+ENV_NAMES = ("VSCODE_TESTS", "TEST_SUITE", "TEST_GREP", "TEST_ALL_JOBS",
+             "NLC_MSBUILD_SINGLE_NODE", "DOTNET_ROOT", "NSHARP_COLUMNAR_BACKEND")
 
 def run_text(command):
     try:
@@ -214,6 +225,28 @@ def run_text(command):
     except FileNotFoundError:
         return None
     return completed.stdout.strip() if completed.returncode == 0 else None
+
+def ilverify_versions():
+    # The templates-examples-ilverify step promises a same-toolchain skip, so
+    # the installed dotnet-ilverify tool version salts every step key. Resolve
+    # the apphost shim like scripts/ilverify.sh does (PATH first, then the
+    # default tool dir) and read the version directory names from the adjacent
+    # global tool store; invoking ilverify --version needs DOTNET_ROOT wiring
+    # the hash step should not depend on.
+    exe = shutil.which("ilverify")
+    if exe is None:
+        fallback = os.path.expanduser("~/.dotnet/tools/ilverify")
+        exe = fallback if os.access(fallback, os.X_OK) else None
+    if exe is None:
+        return None
+    store = os.path.join(os.path.dirname(os.path.realpath(exe)),
+                         ".store", "dotnet-ilverify")
+    try:
+        versions = sorted(entry for entry in os.listdir(store)
+                          if os.path.isdir(os.path.join(store, entry)))
+    except OSError:
+        return None
+    return versions or None
 
 hashes = {name: hashlib.sha256() for name in SETS}
 for current, dirs, files in os.walk(root):
@@ -237,8 +270,11 @@ for current, dirs, files in os.walk(root):
             hashes[s].update(b"\0")
 
 salt = json.dumps({
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "dotnet": run_text(["dotnet", "--version"]),
+    "ilverify": ilverify_versions(),
+    "environment": {name: os.environ.get(name) for name in ENV_NAMES
+                    if os.environ.get(name) is not None},
     "platform": [platform.system(), platform.machine()],
 }, sort_keys=True)
 for name, digest in hashes.items():

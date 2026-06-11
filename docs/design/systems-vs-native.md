@@ -1,6 +1,6 @@
 # Systems N# vs Rust vs C — head-to-head
 
-> ## 2026-06-07 — RIGOROUS single-machine re-run: every vectorizable kernel is now MEASURED ≤2.0× behind native at 4096 (worst small-input cell 2.49×; was up to 10.5×)
+> ## 2026-06-07 — RIGOROUS single-machine re-run: every vectorizable kernel is now MEASURED ≤2.02× behind native at 4096 (worst small-input cell 2.49×; was up to 10.5×)
 >
 > The table in **[Numbers](#numbers--rigorous-single-machine-re-run-2026-06-07-vectorized-n)** below is the
 > authoritative one. It supersedes the 2026-06-06 pre-vectorization run: N#, C#, Rust, and C were **all

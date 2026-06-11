@@ -45,6 +45,15 @@ const sidebars = {
         'interop',
       ],
     },
+    {
+      type: 'category',
+      label: 'Error Reference',
+      collapsed: true,
+      items: [
+        'errors/NL319',
+        'errors/NL320',
+      ],
+    },
   ],
 };
 

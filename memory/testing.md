@@ -120,14 +120,25 @@ and per-call work belongs in the invoke path, not the compile path. Only bytes a
 invoke still loads through a fresh `CollectibleAssemblyScope`, so nothing stays pinned.
 
 ### 6. The Product Gate Skips Steps With Unchanged Inputs
-Within a fresh isolated `./scripts/test-all.sh` run (including `--commit`), a gate step is skipped
-when its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same
-toolchain (validated per-step cache in `tests/scripts/test-all-core.sh`; markers written only on
-success). Input sets are over-inclusive — `src/**` and the gate scripts invalidate everything.
-Practical effect: docs-only commits skip unit tests, benchmarks, interop, and the example chain;
-tests-only commits skip benchmarks and the example chain. `--release`, `--fresh`, `--no-cache`, and
-`--clean` disable skipping and run every step. When adding a gate step or pointing one at new input
-paths, update the input-set prefixes next to the step wrappers in test-all-core.sh.
+Within a plain fresh isolated `./scripts/test-all.sh` development run, a gate step is skipped when
+its ENTIRE input set is byte-identical to inputs that previously PASSED that step on the same
+toolchain and environment (validated per-step cache in `tests/scripts/test-all-core.sh`; markers
+written only on success). Input sets are over-inclusive — `src/**` and the gate scripts invalidate
+everything, and UNIT includes `docs/` and `website/docs/` wholesale because unit tests
+golden-compare and parity-check repo documentation (cli-reference.md, the diagnostic-clusters
+sample, the systems audit). Step keys are also salted with the behavior-changing environment (the
+same env_names as the whole-gate signature, including `NSHARP_COLUMNAR_BACKEND`) and the installed
+dotnet-ilverify tool version. Practical effect for local development: docs-only changes re-run unit
+tests (~1m36s) but still skip benchmarks, interop, and the example chain; tests-only changes skip
+benchmarks and the example chain. Do NOT "optimize" docs changes back out of UNIT — that exact gap
+let a red docs-parity test pass the step cache during finding F9. `--commit`, `--release`,
+`--fresh`, `--no-cache`, and `--clean` disable skipping and run every step. The isolated run always unsets
+`NSHARP_UPDATE_DIAGNOSTIC_GOLDENS` (golden regeneration inside the discarded copy is
+self-satisfying); regenerate goldens with plain `dotnet test` in the working tree. When adding a
+gate step, pointing one at new input paths, or making a test read a new repo file, update the
+input-set prefixes next to the step wrappers in test-all-core.sh —
+`tests/GateStepInputSetGuardTests.cs` enforces coverage of repo files tests read, the env-list
+sync between the two scripts, and the hash-step behavior itself.
 
 ## Test Categories
 

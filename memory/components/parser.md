@@ -62,6 +62,14 @@ From highest to lowest:
 
 See `src/NSharpLang.Compiler/Ast/` folder:
 
+**Adding an expression node or a new Expression-typed child?** Update
+`AstChildren.Of` (`Ast/AstChildren.cs`) — the shared exhaustive child enumeration that the
+linter, definite assignment, capture/escape scans, and performance analyzers recurse
+through. `AstChildrenTests` fails until every Expression-typed slot (including slots inside
+`Argument`/`PropertyInitializer`/`TupleElement`/`MatchCase`/`InterpolatedStringHole`) is
+yielded; this exists because late-added children (`NewExpression.ArrayLengthExpression`,
+`StackAllocExpression.LengthExpression`) twice shipped invisible to every hand-rolled walker.
+
 ### Expressions (`Expressions.cs`)
 - **BinaryExpression**: `a + b`, `a && b`
 - **UnaryExpression**: `!x`, `-n`, `^index`

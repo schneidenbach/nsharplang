@@ -397,4 +397,41 @@ public class AotBlockerAnalyzerTests
 
         Assert.True(requirements.IsEmpty);
     }
+
+    [Fact]
+    public void Blocker_InsideArrayLengthExpression_IsDetected()
+    {
+        // NewExpression.ArrayLengthExpression was a skipped walker subtree; a blocker placed
+        // there must still be attributed to the enclosing declaration.
+        var blockers = Analyze("""
+            func Size(value: object): int {
+                let buf = new byte[value.GetType().ToString().Length]
+                return buf.Length
+            }
+            """);
+
+        var blocker = Assert.Single(blockers);
+        Assert.Equal("GetType", blocker.Construct);
+        Assert.Equal("Size", blocker.EnclosingDeclaration);
+    }
+
+    [Fact]
+    public void Blocker_InsideIndexerInitializerKey_IsDetected()
+    {
+        // PropertyInitializer.IndexExpression was skipped alongside the array length.
+        var blockers = Analyze("""
+            import System.Collections.Generic
+
+            func Build(value: object): int {
+                let map = new Dictionary<string, int> {
+                    [value.GetType().ToString()] = 1
+                }
+                return map.Count
+            }
+            """);
+
+        var blocker = Assert.Single(blockers);
+        Assert.Equal("GetType", blocker.Construct);
+        Assert.Equal("Build", blocker.EnclosingDeclaration);
+    }
 }

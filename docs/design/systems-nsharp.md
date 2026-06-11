@@ -241,6 +241,16 @@ Hot-callable functions require a known effect summary from one of:
 
 Unknown summaries fail in `[hot]`.
 
+Callee policy checks are semantically resolved. Calls to user-declared
+functions bind to the declaration the semantic analyzer resolved for that
+exact call site — including the overload selected by arity, the receiver's
+declared type for instance calls, the importing file's view for file-private
+(camelCase) functions, and the constraint interface for constrained generic
+calls. Same-named functions in other types or files can never satisfy or
+suppress a hot-path check. A hot-path call that does not resolve to a project
+declaration and matches no compiler/BCL/HotSummary fact is reported as
+`NSYS050` (unknown external call): unknown means flagged, never clean.
+
 Effects are not a single "systems-safe" bit. Each dimension is separately
 reported because the fix for "allocates an array" is different from the fix for
 "calls a virtual interface method" or "has an unproven bounds check."
@@ -726,6 +736,13 @@ Rules:
 
 - `stackalloc` is legal without `unsafe` when assigned to `Span<T>` or
   `ReadOnlySpan<T>` and `T` is unmanaged.
+- The length expression receives full semantic analysis like any other
+  expression: undefined names are NL301, the type must be `int` (or a smaller
+  integer type that widens implicitly: `byte`, `sbyte`, `short`, `ushort`,
+  `char` — `long`/`uint`/floating point/non-numeric types are NL202 and need
+  an explicit `(int)` cast), and a constant negative length is rejected.
+  These checks hold in every policy, including `[boundary]` functions and
+  audit mode where the NSYS080 budget gate downgrades to a warning.
 - The length must be statically bounded by a project-configurable stack budget
   or guarded by a compiler-recognized maximum.
 - The initial implementation reads that budget from
