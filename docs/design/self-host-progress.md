@@ -42,12 +42,15 @@ generalizes to Dictionary with element = KeyValuePair&lt;K,V&gt; (the same shape
 included), plus case-8 `kvp.Key`/`kvp.Value` arms (a VALUE-type receiver: spill + ldloca + call the
 non-virtual getter) and IsSupportedKeyValuePairType for the loop-var local.
 
-Parity: `ColumnarCodegen_Parity_Collections` — 14 value functions + 3 exception-parity pins
-(ArgumentOutOfRangeException / KeyNotFoundException / mutation InvalidOperationException) + 5
-decline pins (compound indexer, List-of-user-type, List&lt;T&gt;-in-generic-func, HashSet,
-Dictionary.Add — every one oracle-ACCEPTED, flips when its rung lands). 307/307; gate (see commit).
-NEXT: the remaining pinned collection rungs (builder-element rebind, compound indexers) or the
-queue's async/interfaces.
+**Rung 3 (same day): COMPOUND INDEXERS flipped** — `d[k] += v` / `lst[i] += 1` in the
+compound-assignment arm: receiver and index evaluate ONCE into temps (C#'s single-evaluation
+semantics), get_Item, the scalar/string op selection (the bare-local compound discipline), set_Item.
+
+Parity: `ColumnarCodegen_Parity_Collections` — 15 value functions + 3 exception-parity pins
+(ArgumentOutOfRangeException / KeyNotFoundException / mutation InvalidOperationException) + 4
+decline pins (List-of-user-type, List&lt;T&gt;-in-generic-func, HashSet, Dictionary.Add — every one
+oracle-ACCEPTED, flips when its rung lands). 307/307; gate (see commit). NEXT: the builder-element
+rebind rung or the queue's async/interfaces.
 
 ---
 

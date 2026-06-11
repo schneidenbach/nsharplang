@@ -3895,6 +3895,60 @@ public sealed class ColumnarIlEmitter
                 if (assignOp is "+=" or "-=" or "*=" or "/=")
                 {
                     var compoundTarget = Child(expr, 0);
+                    // A COLLECTION indexer compound target (`d[k] += v` / `lst[i] += 1` — probe-pinned
+                    // working oracle-side): receiver and index evaluate ONCE into temps (C#'s
+                    // single-evaluation semantics), then get_Item, the op, set_Item.
+                    if (_kinds[compoundTarget] == 10)
+                    {
+                        if (!EmitExpression(Child(compoundTarget, 0), out var idxRecvType)
+                            || !IsSupportedCollectionType(idxRecvType))
+                            return false;
+                        var idxRecvDef = idxRecvType.GetGenericTypeDefinition();
+                        var idxKeyType = idxRecvDef == typeof(List<>) ? typeof(int) : idxRecvType.GetGenericArguments()[0];
+                        var idxElemType = idxRecvDef == typeof(List<>) ? idxRecvType.GetGenericArguments()[0] : idxRecvType.GetGenericArguments()[1];
+                        var idxRecvTemp = _il.DeclareLocal(idxRecvType);
+                        _il.Emit(OpCodes.Stloc, idxRecvTemp);
+                        if (!EmitArg(compoundTarget, 1, idxKeyType))
+                            return false;
+                        var idxKeyTemp = _il.DeclareLocal(idxKeyType);
+                        _il.Emit(OpCodes.Stloc, idxKeyTemp);
+                        _il.Emit(OpCodes.Ldloc, idxRecvTemp);
+                        _il.Emit(OpCodes.Ldloc, idxKeyTemp);
+                        _il.Emit(OpCodes.Ldloc, idxRecvTemp);
+                        _il.Emit(OpCodes.Ldloc, idxKeyTemp);
+                        _il.Emit(OpCodes.Callvirt, idxRecvType.GetMethod("get_Item", new[] { idxKeyType })!);
+                        if (TryEmitIntLiteralAsType(Child(expr, 1), idxElemType, out var idxRhsType))
+                        {
+                            // constant adoption (`lst[0] += 1` on a small-int element).
+                        }
+                        else if (!EmitExpression(Child(expr, 1), out idxRhsType))
+                        {
+                            return false;
+                        }
+                        if (!TypesEquivalent(idxRhsType, idxElemType))
+                            return false;
+                        if (idxElemType == typeof(string))
+                        {
+                            if (assignOp != "+=")
+                                return false;
+                            _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
+                        }
+                        else if (idxElemType == typeof(int) || idxElemType == typeof(long) || idxElemType == typeof(ulong)
+                            || idxElemType == typeof(double) || idxElemType == typeof(float))
+                        {
+                            _il.Emit(
+                                assignOp == "+=" ? OpCodes.Add :
+                                assignOp == "-=" ? OpCodes.Sub :
+                                assignOp == "*=" ? OpCodes.Mul :
+                                idxElemType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div);
+                        }
+                        else
+                        {
+                            return false;
+                        }
+                        _il.Emit(OpCodes.Callvirt, idxRecvType.GetMethod("set_Item", new[] { idxKeyType, idxElemType })!);
+                        return true;
+                    }
                     if (_kinds[compoundTarget] != 6)
                         return false;
                     var compoundName = Text(compoundTarget);

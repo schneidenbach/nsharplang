@@ -4275,7 +4275,9 @@ class B
             "func nestedList(): int {\n    m := new List<List<int>>()\n    inner := new List<int>()\n    inner.Add(7)\n    m.Add(inner)\n    return m[0].Count + m[0][0]\n}\n\n" +
             // foreach over a DICTIONARY — KeyValuePair binding, .Key and .Value (probed: 3; the same
             // boxed-interface enumerator shape, element = KeyValuePair<K,V>).
-            "func dictForeach(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"bb\"] = 2\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value + kvp.Key.Length * 10\n    }\n    return s\n}\n";
+            "func dictForeach(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"bb\"] = 2\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value + kvp.Key.Length * 10\n    }\n    return s\n}\n\n" +
+            // COMPOUND indexer assignment on both collection kinds (probed: 36).
+            "func compoundIdx(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] += 2\n    lst := new List<int>()\n    lst.Add(5)\n    lst[0] += 1\n    return d[\"k\"] * 10 + lst[0]\n}\n";
         AssertColumnarProgramMatchesCSharp(prog,
             ("listCore", System.Array.Empty<object>()),
             ("listStr", System.Array.Empty<object>()),
@@ -4290,7 +4292,8 @@ class B
             ("capacity", System.Array.Empty<object>()),
             ("nestedDict", System.Array.Empty<object>()),
             ("nestedList", System.Array.Empty<object>()),
-            ("dictForeach", System.Array.Empty<object>()));
+            ("dictForeach", System.Array.Empty<object>()),
+            ("compoundIdx", System.Array.Empty<object>()));
 
         // EXCEPTION parity (route-only; exact types — all probe-pinned against the oracle).
         {
@@ -4314,8 +4317,7 @@ class B
         }
 
         // DECLINES (every shape oracle-ACCEPTED in the probe sweep — pins flip as later rungs land):
-        // compound indexer assignment (d[k] += v / lst[i] += v — probed working oracle-side, 36).
-        Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] += 2\n    return d[\"k\"]\n}\n").Ok);
+        // (compound indexer assignment FLIPPED — the compoundIdx parity case above covers it.)
         // a List over a USER type (builder-typed element — the TypeBuilderInstantiation rebind rung).
         Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 9 })\n    return l[0].X + l.Count\n}\n").Ok);
         // List<T> inside a GENERIC function (open type param element).
