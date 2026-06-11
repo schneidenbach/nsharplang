@@ -627,6 +627,14 @@ public class Formatter
 
         sb.Append("union ");
         sb.Append(union.Name);
+
+        if (union.TypeParameters != null && union.TypeParameters.Count > 0)
+        {
+            sb.Append("<");
+            sb.Append(string.Join(", ", union.TypeParameters.Select(tp => tp.Name)));
+            sb.Append(">");
+        }
+
         sb.AppendLine(" {");
 
         _indent++;

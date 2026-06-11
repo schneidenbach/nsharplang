@@ -10,7 +10,7 @@ union Result<T> {
 
 union Option<T> {
     Some { value: T }
-    None { }
+    None
 }
 
 // Type arguments go after the case name at construction time...
@@ -18,6 +18,7 @@ func ParsePositive(input: int): Result<int> {
     if input > 0 {
         return new Result.Success<int> { value: input }
     }
+
     return new Result.Failure<int> { error: $"{input} is not positive" }
 }
 
@@ -28,7 +29,8 @@ func FirstAbove(items: int[], threshold: int): Option<int> {
             return new Option.Some<int> { value: item }
         }
     }
-    return new Option.None
+
+    return new Option.None()
 }
 
 // Patterns never repeat the type arguments — they come from the scrutinee.
@@ -50,12 +52,14 @@ func Main() {
         Option.Some { value } => $"First above 8: {value}",
         Option.None => "Nothing above 8"
     }
+
     print found
 
     missing := match FirstAbove(items, 100) {
         Option.Some { value } => $"First above 100: {value}",
         Option.None => "Nothing above 100"
     }
+
     print missing
 
     // Each instantiation is its own closed type: Result<string> alongside Result<int>.
@@ -64,5 +68,6 @@ func Main() {
         Result.Success { value } => value + "!",
         Result.Failure { error } => error
     }
+
     print message
 }

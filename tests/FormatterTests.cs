@@ -910,6 +910,40 @@ Value: T
     }
 
     [Fact]
+    public void Format_GenericUnion_PreservesTypeParameters()
+    {
+        // Regression: the formatter dropped <T> from union declarations, silently
+        // rewriting `union Result<T>` to `union Result` and corrupting generic-union source.
+        var input = @"union Result<T> {
+Success { value: T }
+Failure { error: string }
+}";
+        var expected = @"union Result<T> {
+    Success { value: T }
+    Failure { error: string }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
+    public void Format_GenericUnion_MultipleTypeParameters()
+    {
+        var input = @"union Either<L, R> {
+Left { value: L }
+Right { value: R }
+}";
+        var expected = @"union Either<L, R> {
+    Left { value: L }
+    Right { value: R }
+}";
+
+        var result = Format(input).Trim();
+        Assert.Equal(expected, result);
+    }
+
+    [Fact]
     public void Format_Record()
     {
         var input = @"record Person {
