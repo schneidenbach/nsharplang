@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-10 — Match POSITIONS complete + oracle expected-type-leak fix (`acc338b5`, `8c16c46d`)
+
+Phase D resumes with the retirement-map queue's match slice, resolved in two commits.
+
+**ORACLE FIX (`acc338b5`):** `GetMatchExpressionType` returned `_expectedExpressionType` unconditionally —
+but a match used as a postfix RECEIVER inherits the OUTER expression's expected type, and a match used as
+another match's SCRUTINEE inherits the outer match's result type. Probe-proven consequences: `match {…}.Length`
+under an int target → NL103 "Member Length not found on type Int32"; `[0]` → "does not support index access";
+`.ToString()` under a string target → broken IL accepted, runtime InvalidCastException; match-as-scrutinee →
+InvalidProgramException (parenthesized or not). Fix: the expected type wins only when EVERY arm can produce it
+(null arms fit any null-assignable target via CanAssignNullToType); scrutinee typing+emission run with the
+expected-type context CLEARED. Target-typed arms preserved (null under string, int under long/double —
+probe-confirmed). 5 ILCompiler regression tests.
+
+**COLUMNAR POSITIONS (`8c16c46d`):** probes showed the emitter's kind-18 case is ALREADY position-general
+(it lives in the main EmitExpression switch; the kernel parses `match` as a PRIMARY) — every position emits
+oracle-exact results with NO emitter change. The slice is parity COVERAGE:
+`ColumnarCodegen_Parity_MatchExpressionPositions` (22 functions, 38 both-pipeline invocations): `:=`/typed-local
+inits, call args, binary operands both sides (incl. precedence and comparisons), parenthesized arithmetic,
+if/while conditions, reassignment, nested arms, complex scrutinees, index positions, postfix receivers
+(member + whitelisted call — both pin the oracle fix), match-as-scrutinee (paren + unparen), non-capturing
+lambda bodies, foreach iterables, unary `!`. Pins: bare match STATEMENT = NL313 (N# has NO match statement —
+match is expression-only), wrong-typed local = NL202, mixed arm types, and ROUTE-ONLY parameterless
+int.ToString() on a match (a BCL instance-call whitelist gap, NOT a position failure — the scalar/strings
+slice flips it). Bisection lesson: a combined-program decline that individual probes miss can be a
+BCL-whitelist boundary; bisect cumulative programs before suspecting new code. 3987/3987; gate 1m35s.
+
+NEXT: columnar GENERIC UNIONS (model the oracle's `d1c41b6e` machinery: case redeclares the union's params,
+closes over scrutinee args, IsClosedGeneratedTypeAssignableToBase), then generic records via backing-field
+lowering (`14faa92c`), named tuples, scalar completeness — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-10 — Lambdas arc L4-i: LOCAL FUNCTIONS, non-capturing (`1118b3d4`)
 
 `func name(...) { ... }` statements emit columnar: kernel kind 41 (byte-span anchor + balanced skip),
