@@ -4020,6 +4020,40 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // NULL & NULLABLE N4 (Phase D) — `is` / `as` TYPE TESTS (Is 47 / As 48 — empirically verified;
+    // kernel kinds 46/47, children [value, typeRoot] with the TYPE subtree in child 1 — every name scan
+    // walks the VALUE child only). `is` emits isinst/ldnull/cgt.un -> bool; `as` keeps the target type
+    // (null on mismatch). Targets: union CASES (closed over a generic scrutinee via the match machinery)
+    // and registered REFERENCE types; value-type targets decline (pipeline-rejected).
+    [Fact]
+    public void ColumnarCodegen_Parity_IsAsTypeTests()
+    {
+        var prog =
+            "union Shape {\n    Circle { r: int }\n    Square { s: int }\n}\n\n" +
+            "func isCircle(sh: Shape): bool {\n    return sh is Shape.Circle\n}\n\n" +
+            "func viaIs(r: int): int {\n    c := new Shape.Circle { r: r }\n    sq := new Shape.Square { s: 1 }\n    a := isCircle(c) ? 1 : 0\n    b := isCircle(sq) ? 10 : 0\n    return a + b\n}\n\n" +
+            // `is` on a CLOSED GENERIC union scrutinee (the match machinery's closing).
+            "union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\n" +
+            "func genericIs(o: Opt<int>): bool {\n    return o is Opt.Some\n}\n\n" +
+            "func viaGenericIs(v: int): bool {\n    return genericIs(new Opt.Some<int> { value: v })\n}\n\n" +
+            // `as` on string? — null propagates; the result re-checks against null.
+            "func asLen(o: string?): int {\n    t := o as string\n    return t == null ? 0 - 1 : t.Length\n}\n\n" +
+            // `is` inside an if condition (the probed shape).
+            "func branchy(sh: Shape): int {\n    if sh is Shape.Square {\n        return 2\n    }\n    return 3\n}\n\n" +
+            "func viaBranchy(square: bool): int {\n    if square {\n        return branchy(new Shape.Square { s: 1 })\n    }\n    return branchy(new Shape.Circle { r: 1 })\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("viaIs", new object[] { 5 }),
+            ("viaGenericIs", new object[] { 9 }),
+            ("asLen", new object?[] { null }), ("asLen", new object[] { "abcd" }),
+            ("viaBranchy", new object[] { true }), ("viaBranchy", new object[] { false }));
+
+        // DECLINES:
+        // `as` with a VALUE-type target (pipeline-rejected — `as` needs a nullable-capable target).
+        Assert.False(RouteColumnarProgram("func f(o: string): int {\n    n := o as int\n    return 1\n}\n").Ok);
+        // an `is` against a case of a DIFFERENT union than the scrutinee's (pipeline-rejected).
+        Assert.False(RouteColumnarProgram("union A {\n    X { v: int }\n    Y { }\n}\n\nunion B {\n    Z { w: int }\n    Q { }\n}\n\nfunc f(a: A): bool {\n    return a is B.Z\n}\n").Ok);
+    }
+
     // NULL & NULLABLE N3 (Phase D) — the `must` PREFIX null-assert (Must token 20, kernel kind 45,
     // ONE child recursing at the unary level so `must must x` chains). The emit mirrors the oracle's
     // EmitMustExpression exactly: Nullable<T> unwraps HasValue/get_Value (throwing

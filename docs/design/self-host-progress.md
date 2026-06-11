@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — NULL & NULLABLE N4: `is`/`as` type tests — the null arc's main ladder closes
+
+`is` (token **47**) / `as` (**48**) parse as kernel kinds **46/47** (children [value, typeRoot] — the
+TYPE subtree in child 1, so every name scan walks the VALUE child only; a single non-chaining wrap after
+the unary operand, binding at the production's relational tier; 48 next free). `is` emits
+`isinst; ldnull; cgt.un` → bool; `as` keeps the target type (null on mismatch). Targets resolve to UNION
+CASES — including cases CLOSED over a generic scrutinee via the match machinery (`o is Opt.Some` on
+Opt&lt;int&gt;) — or registered REFERENCE types; value-type `as` targets and cross-union `is` tests decline
+(pipeline-rejected, pinned).
+
+Parity: `ColumnarCodegen_Parity_IsAsTypeTests` (8 functions incl. closed-generic-union `is`, `as`-null
+propagation, `is` in if-conditions) + 2 decline pins. 297/297; gate (see commit).
+
+**THE NULL ARC's MAIN LADDER IS CLOSED** (N1 references `50859b68`, N2 Nullable&lt;T&gt; `de4d453f`, N3 must
+`ebda73d3`, N4 is/as — four gated commits). Remaining minor rung: lifted Nullable arithmetic
+(probe-first, queued). NEXT (retirement-map queue): exceptions/using/lock, records completion,
+collections — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-11 — NULL & NULLABLE N3: the `must` prefix null-assert
 
 `must <operand>` (Must token **20** — empirically verified, NOT the 51 a source-line count suggested;

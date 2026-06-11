@@ -77,7 +77,11 @@
 //                                         kind-44 like a kind-14 assignment to its target. )
 //   MustExpression          -> kind 45  ( `must <operand>` (Must 20) -- the prefix null-assert, ONE child;
 //                                         unwraps a Nullable<T> to T or null-checks a reference, throwing
-//                                         InvalidOperationException when null. 46 is the next free kind. )
+//                                         InvalidOperationException when null. )
+//   IsExpression            -> kind 46  ( `value is Type` (Is 47) -- children [value, typeRoot]; the
+//                                         typeRoot is a TYPE subtree (scans walk child 0 only). )
+//   AsExpression            -> kind 47  ( `value as Type` (As 48) -- the null-propagating cast twin of
+//                                         kind 46; same child shape. 48 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`; every other unlisted primary (this/base/default/alloc/array-literal/
@@ -1041,6 +1045,30 @@ func ParseBinaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValue
     left := ParseUnaryExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
     if left < 0 {
         return -1
+    }
+
+    // `is` (47) / `as` (48) TYPE tests -- a single wrap binding tighter than the comparison tier (the
+    // production's relational-level is/as): children [value, typeRoot] where the typeRoot is a
+    // TYPE-kernel subtree (name scans walk child 0 ONLY -- type kinds collide with expression kinds).
+    // IsExpression -> kind 46, AsExpression -> kind 47. Non-chaining (a second is/as after refuses
+    // naturally: the bool/result re-enters the climber and 47/48 have no precedence).
+    if st[0] < count && (tokenKinds[st[0]] == 47 || tokenKinds[st[0]] == 48) {
+        isAsKind := 46
+        if tokenKinds[st[0]] == 48 {
+            isAsKind = 47
+        }
+        st[0] = st[0] + 1
+        st[4] = 0
+        isAsType := ParseUnionTypeReferenceNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        if isAsType < 0 {
+            return -1
+        }
+        isAsSpanStart := outSpanStarts[left]
+        isAsSpanEnd := outSpanStarts[isAsType] + outSpanLengths[isAsType]
+        isAsChildRun := st[2]
+        AppendExpressionChild(st, outChildIndices, left)
+        AppendExpressionChild(st, outChildIndices, isAsType)
+        left = EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, isAsKind, -1, 0, isAsChildRun, 2, isAsSpanStart, isAsSpanEnd - isAsSpanStart)
     }
 
     keepGoing := true

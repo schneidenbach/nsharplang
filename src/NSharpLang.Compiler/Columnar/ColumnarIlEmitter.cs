@@ -1059,6 +1059,11 @@ public sealed class ColumnarIlEmitter
                 && (_locals.ContainsKey(name) || _paramOrdinals.ContainsKey(name) || _liftedLocals.ContainsKey(name)))
                 captures.Add(name);
         }
+        if (kind == 46 || kind == 47) // is/as: child[1] is the TYPE subtree — walk the VALUE child only.
+        {
+            CollectLambdaCaptures(Child(node, 0), bound, captures);
+            return;
+        }
         var first = (kind == 15 || kind == 16) ? 1 : 0; // child[0] of new/cast is the TYPE subtree.
         for (var c = first; c < _childCount[node]; c++)
             CollectLambdaCaptures(Child(node, c), bound, captures);
@@ -1090,6 +1095,8 @@ public sealed class ColumnarIlEmitter
                     || TryFindStaticPropertyOnChain(_currentStruct, name, out _)))
                 return true;
         }
+        if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
+            return BodyReferencesEnclosingChain(Child(node, 0), bound);
         var first = (kind == 15 || kind == 16) ? 1 : 0;
         for (var c = first; c < _childCount[node]; c++)
         {
@@ -1139,6 +1146,8 @@ public sealed class ColumnarIlEmitter
             CollectUnboundNames(Child(node, _childCount[node] - 1), BoundParamsOf(node), names);
             return;
         }
+        if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
+            { CollectNamesInsideLambdas(Child(node, 0), names); return; }
         var first = (kind == 15 || kind == 16) ? 1 : 0;
         for (var c = first; c < _childCount[node]; c++)
             CollectNamesInsideLambdas(Child(node, c), names);
@@ -1173,6 +1182,8 @@ public sealed class ColumnarIlEmitter
             if (!bound.Contains(name))
                 names.Add(name);
         }
+        if (kind == 46 || kind == 47) // is/as: walk the VALUE child only (child 1 is a TYPE subtree).
+            { CollectUnboundNames(Child(node, 0), bound, names); return; }
         var first = (kind == 15 || kind == 16) ? 1 : 0;
         for (var c = first; c < _childCount[node]; c++)
             CollectUnboundNames(Child(node, c), bound, names);
@@ -5449,6 +5460,45 @@ public sealed class ColumnarIlEmitter
                      // so it never diverges). Lifted/boxed targets decline (capture rung).
                 if (!TryEmitPostfixUnary(idx, keepValue: true, out type))
                     return false;
+                return true;
+            }
+
+            case 46: // IsExpression [value, typeRoot] — `value is Type`: `isinst <T>; ldnull; cgt.un` ->
+            case 47: // bool; AsExpression [value, typeRoot] — `value as Type`: `isinst <T>` keeping the
+            {        // target type (null on mismatch). The typeRoot resolves a UNION CASE (closed over a
+                     // generic scrutinee via the match machinery) or a registered REFERENCE type; value
+                     // types and unresolvable targets decline (`as` with a value type is pipeline-rejected).
+                if (_childCount[idx] != 2 || !EmitExpression(Child(idx, 0), out var testedType))
+                    return false;
+                var isAsTypeRoot = Child(idx, 1);
+                Type? targetTestType = null;
+                if (_kinds[isAsTypeRoot] == 0)
+                {
+                    var isAsName = Text(isAsTypeRoot);
+                    if (_unionCaseRegistry.ContainsKey(isAsName))
+                    {
+                        if (!TryGetCaseTestType(isAsName, testedType, out _, out targetTestType, out _))
+                            return false; // not a case of the scrutinee's union — the pipeline rejects.
+                    }
+                    else if (TryResolveType(isAsName, _enumRegistry, _structRegistry, _unionRegistry, out var plainTarget)
+                        && !plainTarget.IsValueType)
+                    {
+                        targetTestType = plainTarget;
+                    }
+                }
+                if (targetTestType == null)
+                    return false;
+                _il.Emit(OpCodes.Isinst, targetTestType);
+                if (_kinds[idx] == 46)
+                {
+                    _il.Emit(OpCodes.Ldnull);
+                    _il.Emit(OpCodes.Cgt_Un);
+                    type = typeof(bool);
+                }
+                else
+                {
+                    type = targetTestType;
+                }
                 return true;
             }
 
