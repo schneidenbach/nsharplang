@@ -243,18 +243,23 @@ public sealed class ColumnarStructInput
 /// </summary>
 public sealed class ColumnarUnionInput
 {
-    public ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals)
+    public ColumnarUnionInput(string name, string[] caseNames, string[][] caseFieldNames, string[][] caseFieldTypeCanonicals, string[]? typeParamNames = null)
     {
         Name = name;
         CaseNames = caseNames;
         CaseFieldNames = caseFieldNames;
         CaseFieldTypeCanonicals = caseFieldTypeCanonicals;
+        TypeParamNames = typeParamNames ?? System.Array.Empty<string>();
     }
 
     public string Name { get; }
     public string[] CaseNames { get; }
     public string[][] CaseFieldNames { get; }
     public string[][] CaseFieldTypeCanonicals { get; }
+    // Generic type parameters declared on the union (`union Result<T>` → ["T"]); empty for a non-generic
+    // union. The base declares them; every nested case REDECLARES them (CLR metadata does not inherit
+    // generic parameters into nested types) and derives from the base closed over its own copies.
+    public string[] TypeParamNames { get; }
 }
 
 /// <summary>
@@ -331,14 +336,21 @@ internal sealed class ColumnarStructDef
 /// </summary>
 internal sealed class ColumnarUnionDef
 {
-    public ColumnarUnionDef(TypeBuilder baseBuilder)
+    public ColumnarUnionDef(TypeBuilder baseBuilder, int typeParamCount = 0)
     {
         Base = baseBuilder;
+        TypeParamCount = typeParamCount;
     }
 
     public TypeBuilder Base { get; }
     // Qualified "Union.Case" -> case. Enumerated for match exhaustiveness; keyed for construction/pattern lookup.
     public Dictionary<string, ColumnarUnionCaseDef> Cases { get; } = new(StringComparer.Ordinal);
+    // Number of generic type parameters on the union (`union Result<T>` → 1); 0 for a non-generic union.
+    // A generic union's static surface is always a CLOSED instantiation (Result<int>) — the open base never
+    // types a value; closed work rebinds case members via TypeBuilder.GetConstructor/GetField (the cases
+    // REDECLARE the base's parameters positionally, so a closed BASE's arguments apply to its cases 1:1).
+    public int TypeParamCount { get; }
+    public bool IsGeneric => TypeParamCount > 0;
 }
 
 /// <summary>
@@ -607,7 +619,11 @@ public sealed class ColumnarIlEmitter
             // NotSupportedException at emit), so enum-in-tuple / struct-in-tuple must DECLINE here (→ C# fallback) —
             // consistent with the array-element decline. Enums and structs are modelled as scalars/locals only.
             // Delegates are likewise excluded from tuple elements (the L1a delegate surface is params/locals only).
-            if (arg is EnumBuilder || arg is TypeBuilder || IsSupportedDelegateType(arg) || !IsSupportedType(arg))
+            // CLOSED user-generic instantiations (Box<int>, Opt<int> — TypeBuilderInstantiation, not TypeBuilder)
+            // have the identical reflection-throw behavior, so they are excluded by the same rule (adversarial-
+            // review hardening — an uncaught NotSupportedException is a compiler crash, not a clean decline).
+            if (arg is EnumBuilder || arg is TypeBuilder || IsClosedUserGenericInstantiation(arg)
+                || IsSupportedDelegateType(arg) || !IsSupportedType(arg))
                 return false;
         }
 
@@ -988,8 +1004,8 @@ public sealed class ColumnarIlEmitter
     private void CollectLambdaCaptures(int node, HashSet<string> bound, SortedSet<string> captures)
     {
         var kind = _kinds[node];
-        if (kind == 38)
-            return; // children are TYPE subtrees only; the callee name lives in the value span.
+        if (kind == 38 || kind == 42)
+            return; // children are TYPE subtrees only (38: callee name lives in the value span; 42: bare-new).
         if (kind == 39)
         {
             var nestedBound = new HashSet<string>(bound, StringComparer.Ordinal);
@@ -1023,7 +1039,7 @@ public sealed class ColumnarIlEmitter
     private bool BodyReferencesEnclosingChain(int node, HashSet<string> bound)
     {
         var kind = _kinds[node];
-        if (kind == 38)
+        if (kind == 38 || kind == 42)
             return false;
         if (kind == 39)
         {
@@ -1084,7 +1100,7 @@ public sealed class ColumnarIlEmitter
     private void CollectNamesInsideLambdas(int node, SortedSet<string> names)
     {
         var kind = _kinds[node];
-        if (kind == 38)
+        if (kind == 38 || kind == 42)
             return;
         if (kind == 39)
         {
@@ -1110,7 +1126,7 @@ public sealed class ColumnarIlEmitter
     private void CollectUnboundNames(int node, HashSet<string> bound, SortedSet<string> names)
     {
         var kind = _kinds[node];
-        if (kind == 38)
+        if (kind == 38 || kind == 42)
             return;
         if (kind == 39)
         {
@@ -1504,6 +1520,37 @@ public sealed class ColumnarIlEmitter
             }
             return false;
         }
+        // A CLOSED-USER-GENERIC return (`func makeNone<T>(x: T): Opt<T>`) carries the CALLEE's generic
+        // parameters inside its instantiation arguments — substitute each by the call's binding and re-close.
+        // Letting the raw Opt<!!T> escape into a (possibly non-generic) caller bakes out-of-context MVAR
+        // references into its locals/isinst targets — BadImageFormatException at runtime (adversarial-review
+        // finding, probe-confirmed: the oracle runs the same program correctly). Any argument that cannot
+        // fully substitute declines.
+        if (IsClosedUserGenericInstantiation(declaredReturn))
+        {
+            var declaredArgs = declaredReturn.GetGenericArguments();
+            var substitutedArgs = new Type[declaredArgs.Length];
+            for (var a = 0; a < declaredArgs.Length; a++)
+            {
+                if (!TrySubstituteReturnType(typeParams, binding, declaredArgs[a], out substitutedArgs[a]))
+                    return false;
+            }
+            substituted = declaredReturn.GetGenericTypeDefinition().MakeGenericType(substitutedArgs);
+            return true;
+        }
+        // Defensively refuse any OTHER shape still containing a generic parameter (the fallthrough below
+        // must only pass fully-concrete declared returns into the caller's context).
+        bool stillOpen;
+        try
+        {
+            stillOpen = declaredReturn.ContainsGenericParameters;
+        }
+        catch (NotSupportedException)
+        {
+            stillOpen = true;
+        }
+        if (stillOpen && declaredReturn is not TypeBuilder && declaredReturn is not EnumBuilder)
+            return false;
         substituted = declaredReturn;
         return true;
     }
@@ -1521,7 +1568,7 @@ public sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Ldarg_0);
         for (var a = 1; a <= argCount; a++)
         {
-            if (!EmitExpression(Child(callIdx, a), out var argType) || argType != method.ParamTypes[a - 1])
+            if (!EmitExpression(Child(callIdx, a), out var argType) || !TypesEquivalent(argType, method.ParamTypes[a - 1]))
                 return false;
         }
         _il.Emit(_currentStruct!.IsReference ? OpCodes.Callvirt : OpCodes.Call, method.Builder);
@@ -1689,14 +1736,27 @@ public sealed class ColumnarIlEmitter
     {
         type = null!;
         var headName = canonical.Substring(0, genericOpen);
-        if (structRegistry == null || !structRegistry.TryGetValue(headName, out var openDef)
-            || !openDef.Builder.IsGenericTypeDefinition)
+        // The generic head: a user generic STRUCT/CLASS (`Box<int>`) or a user generic UNION's base
+        // (`Opt<int>` — the abstract base closed over the arguments; case heads like `Opt.Some` are NOT
+        // annotation types and resolve only inside the construction paths).
+        TypeBuilder? openBuilder = null;
+        if (structRegistry != null && structRegistry.TryGetValue(headName, out var openDef)
+            && openDef.Builder.IsGenericTypeDefinition)
+        {
+            openBuilder = openDef.Builder;
+        }
+        else if (unionRegistry != null && unionRegistry.TryGetValue(headName, out var openUnionDef)
+            && openUnionDef.Base.IsGenericTypeDefinition)
+        {
+            openBuilder = openUnionDef.Base;
+        }
+        if (openBuilder == null)
         {
             return false;
         }
 
         var argCanons = SplitTopLevelCommas(canonical.Substring(genericOpen + 1, canonical.Length - genericOpen - 2));
-        if (argCanons.Count != openDef.Builder.GetGenericArguments().Length)
+        if (argCanons.Count != openBuilder.GetGenericArguments().Length)
         {
             return false;
         }
@@ -1713,7 +1773,7 @@ public sealed class ColumnarIlEmitter
             }
         }
 
-        type = openDef.Builder.MakeGenericType(argTypes);
+        type = openBuilder.MakeGenericType(argTypes);
         return true;
     }
 
@@ -1830,8 +1890,16 @@ public sealed class ColumnarIlEmitter
         }
         // A bare name matching a user-defined union resolves to its abstract BASE TypeBuilder — the static type a
         // `Union`-typed param/return/local holds (a concrete case constructed elsewhere is an instance of it).
+        // A GENERIC union's bare name is an ARITY ERROR (the pipeline reports NL207: `Opt` requires its type
+        // arguments) — fail so the program declines; the closed form (`Opt<int>`) resolves via the
+        // closed-user-generic path.
         if (unionRegistry != null && unionRegistry.TryGetValue(canonical, out var unionDef))
         {
+            if (unionDef.Base.IsGenericTypeDefinition)
+            {
+                type = null!;
+                return false;
+            }
             type = unionDef.Base;
             return true;
         }
@@ -2493,7 +2561,7 @@ public sealed class ColumnarIlEmitter
                     var sameSignature = true;
                     for (var i = 0; i < cParamTypes.Length; i++)
                     {
-                        if (existingParamTypes[i] != cParamTypes[i]) { sameSignature = false; break; }
+                        if (!TypesEquivalent(existingParamTypes[i], cParamTypes[i])) { sameSignature = false; break; }
                     }
                     if (sameSignature)
                         return false;
@@ -2546,17 +2614,36 @@ public sealed class ColumnarIlEmitter
         // the de-risking spike proved. Case fields resolve via TryResolveType (enums/structs/earlier-unions in scope).
         // Defined after structs so a case field may be an enum or struct; nested case types are finalized BEFORE their
         // base (deepest-first — see the finalization block below).
+        //
+        // A GENERIC union (`union Opt<T>`) mirrors the oracle's d1c41b6e machinery exactly (spike-proven): the base
+        // declares the parameters; every nested case REDECLARES them by the same names (CLR metadata does not
+        // inherit generic parameters into nested types) and SetParent()s to the base CLOSED over its own copies
+        // (Some<T> : Opt<T>); the case ctor's base-ctor call is REBOUND onto that instantiation via
+        // TypeBuilder.GetConstructor. Case fields may name the union's type parameters (`value: T` — the CASE's
+        // redeclared parameter, positionally identical to the base's).
         for (var u = 0; u < unions.Count; u++)
         {
             var un = unions[u];
+            var isGenericUnion = un.TypeParamNames.Length > 0;
             var baseTb = module.DefineType(un.Name, TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.Abstract, typeof(object));
+            if (isGenericUnion)
+            {
+                // Duplicate parameter names are malformed — validate before DefineGenericParameters (which throws).
+                var seenParams = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var tp in un.TypeParamNames)
+                {
+                    if (!seenParams.Add(tp))
+                        return false;
+                }
+                baseTb.DefineGenericParameters(un.TypeParamNames);
+            }
             var baseCtor = baseTb.DefineConstructor(MethodAttributes.Family, CallingConventions.Standard, Type.EmptyTypes);
             var bcil = baseCtor.GetILGenerator();
             bcil.Emit(OpCodes.Ldarg_0);
             bcil.Emit(OpCodes.Call, typeof(object).GetConstructor(Type.EmptyTypes)!);
             bcil.Emit(OpCodes.Ret);
 
-            var unionDef = new ColumnarUnionDef(baseTb);
+            var unionDef = new ColumnarUnionDef(baseTb, un.TypeParamNames.Length);
             unionBaseBuilders.Add(baseTb);
             if (!unionRegistry.TryAdd(un.Name, unionDef))
                 return false; // a duplicate union name is an ambiguous type.
@@ -2564,13 +2651,35 @@ public sealed class ColumnarIlEmitter
             for (var c = 0; c < un.CaseNames.Length; c++)
             {
                 var caseName = un.CaseNames[c];
-                var caseTb = baseTb.DefineNestedType(caseName, TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed, baseTb);
+                TypeBuilder caseTb;
+                Dictionary<string, Type>? caseParamMap = null;
+                if (isGenericUnion)
+                {
+                    // Define with NO parent, redeclare the parameters, THEN parent to the closed base —
+                    // the oracle's DeclareUnion order (the parent type references the case's own parameters,
+                    // which must exist first).
+                    caseTb = baseTb.DefineNestedType(caseName, TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed);
+                    var caseParams = caseTb.DefineGenericParameters(un.TypeParamNames);
+                    caseTb.SetParent(baseTb.MakeGenericType(caseParams));
+                    caseParamMap = new Dictionary<string, Type>(StringComparer.Ordinal);
+                    for (var g = 0; g < caseParams.Length; g++)
+                        caseParamMap[un.TypeParamNames[g]] = caseParams[g];
+                }
+                else
+                {
+                    caseTb = baseTb.DefineNestedType(caseName, TypeAttributes.NestedPublic | TypeAttributes.Class | TypeAttributes.Sealed, baseTb);
+                }
                 var caseFieldNames = un.CaseFieldNames[c];
                 var caseFieldTypes = un.CaseFieldTypeCanonicals[c];
                 var caseFields = new Dictionary<string, FieldBuilder>(StringComparer.Ordinal);
                 for (var fi = 0; fi < caseFieldNames.Length; fi++)
                 {
-                    if (!TryResolveType(caseFieldTypes[fi], enumRegistry, structRegistry, unionRegistry, out var caseFieldType) || !IsSupportedType(caseFieldType))
+                    // The union's type parameters shadow same-named registered types within the case's
+                    // field signatures (the oracle scopes them the same way).
+                    var fieldResolved = caseParamMap != null
+                        ? TryResolveTypeWithTypeParams(caseFieldTypes[fi], caseParamMap, enumRegistry, structRegistry, unionRegistry, out var caseFieldType)
+                        : TryResolveType(caseFieldTypes[fi], enumRegistry, structRegistry, unionRegistry, out caseFieldType);
+                    if (!fieldResolved || !IsSupportedType(caseFieldType))
                         return false;
                     var cfb = caseTb.DefineField(caseFieldNames[fi], caseFieldType, FieldAttributes.Public);
                     if (!caseFields.TryAdd(caseFieldNames[fi], cfb))
@@ -2579,7 +2688,10 @@ public sealed class ColumnarIlEmitter
                 var caseCtor = caseTb.DefineConstructor(MethodAttributes.Public, CallingConventions.Standard, Type.EmptyTypes);
                 var ccil = caseCtor.GetILGenerator();
                 ccil.Emit(OpCodes.Ldarg_0);
-                ccil.Emit(OpCodes.Call, baseCtor); // chain to the abstract base's ctor.
+                if (isGenericUnion)
+                    ccil.Emit(OpCodes.Call, TypeBuilder.GetConstructor(baseTb.MakeGenericType(caseTb.GetGenericArguments()), baseCtor));
+                else
+                    ccil.Emit(OpCodes.Call, baseCtor); // chain to the abstract base's ctor.
                 ccil.Emit(OpCodes.Ret);
 
                 var caseDef = new ColumnarUnionCaseDef(caseTb, caseCtor, caseFieldNames, caseFields, baseTb);
@@ -3047,9 +3159,12 @@ public sealed class ColumnarIlEmitter
             }
 
             case 20: // Return [value?] — in a VOID function a value-less `return` emits a bare `ret`; in a VALUE
-                     // function a value is REQUIRED (a value-less `ret` with an empty stack is invalid IL) and its
-                     // type must match the declared return type. A value-bearing `return` in a void function, or a
-                     // value-less one in a value function, declines (mismatched arity).
+            {        // function a value is REQUIRED (a value-less `ret` with an empty stack is invalid IL) and its
+                     // type must match the declared return type (TypesEquivalent — two closed instantiations of one
+                     // user generic are distinct TypeBuilderInstantiation objects). A value-bearing `return` in a
+                     // void function, or a value-less one in a value function, declines (mismatched arity). A
+                     // generic-union case construction with NO type args ADOPTS the return type's arguments here
+                     // (`return new Opt.None` on `(): Opt<int>` — one of the two pipeline-accepted adoption sites).
                 if (_returnType == typeof(void))
                 {
                     if (_childCount[idx] != 0)
@@ -3057,10 +3172,24 @@ public sealed class ColumnarIlEmitter
                     _il.Emit(OpCodes.Ret);
                     return true;
                 }
-                if (_childCount[idx] == 0 || !EmitExpression(Child(idx, 0), out var retType) || retType != _returnType)
+                if (_childCount[idx] == 0)
+                    return false;
+                var retNode = Child(idx, 0);
+                Type retType;
+                if (IsAdoptableUnionConstruction(retNode, _returnType))
+                {
+                    if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType))
+                        return false;
+                }
+                else if (!EmitExpression(retNode, out retType))
+                {
+                    return false;
+                }
+                if (!TypesEquivalent(retType, _returnType))
                     return false;
                 _il.Emit(OpCodes.Ret);
                 return true;
+            }
 
             case 24: // VariableDeclaration (`:=`): emit the initializer, declare a local of the initializer's
             {        // type (inferred), store into it.
@@ -3133,7 +3262,15 @@ public sealed class ColumnarIlEmitter
                     if (!TryEmitLambdaLiteral(declaredInit, declaredType))
                         return false;
                 }
-                else if (!EmitExpression(declaredInit, out var declaredInitType) || declaredInitType != declaredType)
+                // A generic-union case construction with NO type args ADOPTS the declared type's arguments
+                // (`n: Opt<int> = new Opt.Some { value: 5 }` — the second pipeline-accepted adoption site).
+                else if (IsAdoptableUnionConstruction(declaredInit, declaredType))
+                {
+                    if (!EmitAdoptedUnionConstruction(declaredInit, declaredType, out var adoptedType)
+                        || !TypesEquivalent(adoptedType, declaredType))
+                        return false;
+                }
+                else if (!EmitExpression(declaredInit, out var declaredInitType) || !TypesEquivalent(declaredInitType, declaredType))
                 {
                     return false;
                 }
@@ -3370,8 +3507,21 @@ public sealed class ColumnarIlEmitter
                 }
                 if (_locals.TryGetValue(targetName, out var assignTarget))
                 {
-                    // `local = expr` — store into the `:=` local (value type must match the local's type).
-                    if (!EmitExpression(Child(expr, 1), out var valueType) || valueType != assignTarget.LocalType)
+                    // `local = expr` — store into the `:=` local (value type must match the local's type;
+                    // TypesEquivalent — closed user-generic instantiations are referentially distinct). A
+                    // generic-union case construction with no type args ADOPTS the local's declared type
+                    // (`o = new Opt.None` on an Opt<int> local — probe-pinned).
+                    Type valueType;
+                    if (IsAdoptableUnionConstruction(Child(expr, 1), assignTarget.LocalType))
+                    {
+                        if (!EmitAdoptedUnionConstruction(Child(expr, 1), assignTarget.LocalType, out valueType))
+                            return false;
+                    }
+                    else if (!EmitExpression(Child(expr, 1), out valueType))
+                    {
+                        return false;
+                    }
+                    if (!TypesEquivalent(valueType, assignTarget.LocalType))
                         return false;
                     _il.Emit(OpCodes.Stloc, assignTarget);
                     return true;
@@ -3380,8 +3530,18 @@ public sealed class ColumnarIlEmitter
                 {
                     // `param = expr` — store into the argument slot (`starg`). N# permits mutating a parameter
                     // (value params have value semantics, so the mutation is method-local, matching the C# path).
-                    // The value's type must match the parameter's declared type.
-                    if (!EmitExpression(Child(expr, 1), out var paramValueType) || paramValueType != _paramTypes[targetName])
+                    // The value's type must match the parameter's declared type; adoption applies as for locals.
+                    Type paramValueType;
+                    if (IsAdoptableUnionConstruction(Child(expr, 1), _paramTypes[targetName]))
+                    {
+                        if (!EmitAdoptedUnionConstruction(Child(expr, 1), _paramTypes[targetName], out paramValueType))
+                            return false;
+                    }
+                    else if (!EmitExpression(Child(expr, 1), out paramValueType))
+                    {
+                        return false;
+                    }
+                    if (!TypesEquivalent(paramValueType, _paramTypes[targetName]))
                         return false;
                     EmitStoreArgument(paramOrdinal);
                     return true;
@@ -4182,7 +4342,7 @@ public sealed class ColumnarIlEmitter
                             // local-function lambda binding is fixed (recorded for an oracle bundle).
                             if (_kinds[localArgNode] == 39)
                                 return false;
-                            if (!EmitExpression(localArgNode, out var localArgType) || localArgType != localTarget.ParamTypes[a - 1])
+                            if (!EmitExpression(localArgNode, out var localArgType) || !TypesEquivalent(localArgType, localTarget.ParamTypes[a - 1]))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, localTarget.Method);
@@ -4216,7 +4376,7 @@ public sealed class ColumnarIlEmitter
                                     return false;
                                 continue;
                             }
-                            if (!EmitExpression(argNode, out var argType) || argType != target.ParamTypes[a - 1])
+                            if (!EmitExpression(argNode, out var argType) || !TypesEquivalent(argType, target.ParamTypes[a - 1]))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, target.Method);
@@ -4231,7 +4391,7 @@ public sealed class ColumnarIlEmitter
                         var staticArgCount = _childCount[idx] - 1;
                         for (var a = 1; a <= staticArgCount; a++)
                         {
-                            if (!EmitExpression(Child(idx, a), out var sArgType) || sArgType != ownStatic.ParamTypes[a - 1])
+                            if (!EmitExpression(Child(idx, a), out var sArgType) || !TypesEquivalent(sArgType, ownStatic.ParamTypes[a - 1]))
                                 return false;
                         }
                         _il.Emit(OpCodes.Call, ownStatic.Builder);
@@ -4682,43 +4842,68 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 42: // BareNew [typeRoot] — `new <type>` with neither `( args )` nor `{ inits }`. Modelled ONLY for
+            {        // UNION CASES (the pipeline's brace-less construction form — fields stay CLR-default, probe-
+                     // pinned): `new Color.Red` (Simple root) and `new Opt.None<int>` (Generic root with explicit
+                     // args). A generic case with NO args is the adoption shape — handled at the return/typed-local
+                     // statement sites; reaching here declines (`:=` is NL207). Every non-union-case type root
+                     // (struct/BCL/array) declines — those bare-new forms are not modelled.
+                var bareRoot = Child(idx, 0);
+                if (_kinds[bareRoot] == 0 && _unionCaseRegistry.TryGetValue(Text(bareRoot), out var bareCaseDef))
+                {
+                    if (bareCaseDef.UnionBase.IsGenericTypeDefinition)
+                        return false;
+                    return TryEmitUnionCaseConstruction(bareCaseDef, Type.EmptyTypes, idx, 0, out type);
+                }
+                if (_kinds[bareRoot] == 1 && _unionCaseRegistry.TryGetValue(Text(bareRoot), out var bareGenericCaseDef)
+                    && bareGenericCaseDef.UnionBase.IsGenericTypeDefinition
+                    && TryResolveUnionCaseTypeArgs(bareRoot, bareGenericCaseDef, out var bareArgs))
+                {
+                    return TryEmitUnionCaseConstruction(bareGenericCaseDef, bareArgs, idx, 0, out type);
+                }
+                return false;
+            }
+
             case 36: // ObjectInitializer [typeRoot, name0, value0, ...] — `new Struct { Field: value, ... }`. Build a
             {        // user-struct value: a temp local, `ldloca; initobj` (zero all fields), then per named field
                      // `ldloca; <value>; stfld <FieldBuilder>`, then `ldloc` the temp. Mirrors the C# struct
                      // object-initializer (default + per-field assignment). Only a registered struct type is modelled.
                      // A `new Union.Case { f: v }` object-init (a reference type like a record) is handled first.
                 var typeRootNode = Child(idx, 0);
-                if (_kinds[typeRootNode] != 0)
-                    return false; // not a Simple type-ref.
                 var initChildCount = _childCount[idx];
                 if ((initChildCount % 2) != 1) // typeRoot + (name, value) pairs.
                     return false;
                 var pairCount = (initChildCount - 1) / 2;
+
+                // CLOSED GENERIC UNION CASE: `new Union.Case<args> { field: value, ... }` — a Generic type root
+                // (kind 1) whose dotted head names a registered union case of a GENERIC union. The explicit
+                // arguments (after the CASE name — the pinned N# surface) close the case and the result's static
+                // type is the BASE closed over the same arguments.
+                if (_kinds[typeRootNode] == 1 && _unionCaseRegistry.TryGetValue(Text(typeRootNode), out var genericInitCaseDef))
+                {
+                    if (!genericInitCaseDef.UnionBase.IsGenericTypeDefinition
+                        || !TryResolveUnionCaseTypeArgs(typeRootNode, genericInitCaseDef, out var explicitArgs))
+                        return false;
+                    return TryEmitUnionCaseConstruction(genericInitCaseDef, explicitArgs, idx, pairCount, out type);
+                }
+
+                if (_kinds[typeRootNode] != 0)
+                    return false; // not a Simple type-ref.
                 var assigned = new HashSet<string>(StringComparer.Ordinal);
 
                 // UNION CASE: `new Union.Case { field: value, ... }` — the dotted type name resolves to a registered
                 // union case (a sealed reference type). `newobj <case ctor>` then per named field `dup; <value>;
                 // stfld`. The expression's STATIC type is the union BASE (an upcast — the runtime object is the
                 // concrete case), so the result flows wherever a `Union` is expected and a later match recovers it.
+                // A GENERIC union's case with NO explicit arguments is the expected-type ADOPTION shape, modelled
+                // ONLY at the return/typed-local statement sites (which pre-handle it before EmitExpression) — the
+                // pipeline rejects every other argument-less position (`:=` is NL207, call-argument adoption NL103),
+                // so reaching here with a generic case declines.
                 if (_unionCaseRegistry.TryGetValue(Text(typeRootNode), out var initCaseDef))
                 {
-                    _il.Emit(OpCodes.Newobj, initCaseDef.Ctor);
-                    for (var p = 0; p < pairCount; p++)
-                    {
-                        var nameNode = Child(idx, 1 + (2 * p));
-                        var valueNode = Child(idx, 2 + (2 * p));
-                        if (_kinds[nameNode] != 6)
-                            return false;
-                        var fieldName = Text(nameNode);
-                        if (!initCaseDef.Fields.TryGetValue(fieldName, out var caseInitField) || !assigned.Add(fieldName))
-                            return false; // unknown or duplicately-assigned field -> decline.
-                        _il.Emit(OpCodes.Dup);
-                        if (!EmitExpression(valueNode, out var caseInitValueType) || caseInitValueType != caseInitField.FieldType)
-                            return false;
-                        _il.Emit(OpCodes.Stfld, caseInitField);
-                    }
-                    type = initCaseDef.UnionBase; // upcast to the union base.
-                    return true;
+                    if (initCaseDef.UnionBase.IsGenericTypeDefinition)
+                        return false;
+                    return TryEmitUnionCaseConstruction(initCaseDef, Type.EmptyTypes, idx, pairCount, out type);
                 }
 
                 if (!_structRegistry.TryGetValue(Text(typeRootNode), out var initStructDef))
@@ -4831,11 +5016,12 @@ public sealed class ColumnarIlEmitter
                 // cases — accepting a program C# rejects — so decline it to the analyzer-backed C# path. Coverage
                 // counts only TOP-LEVEL UNGUARDED arms: an unguarded `_`/binding (kind 6) is a catch-all; an
                 // unguarded union-case pattern (kind 37 over `Union.Case`) covers that case.
+                // A non-generic union's scrutinee is its open base TypeBuilder; a GENERIC union's is a CLOSED
+                // instantiation of the base (`Opt<int>`) — the helper resolves both (and the closed form's
+                // arguments drive the per-case isinst/field closing in the pattern emitters).
                 ColumnarUnionDef? matchUnionDef = null;
-                foreach (var def in _unionRegistry.Values)
-                {
-                    if (def.Base == matchValueType) { matchUnionDef = def; break; }
-                }
+                if (TryGetUnionDefForMatchValue(matchValueType, out var foundUnionDef, out _))
+                    matchUnionDef = foundUnionDef;
                 if (matchUnionDef != null)
                 {
                     var coveredCases = new HashSet<string>(StringComparer.Ordinal);
@@ -4955,7 +5141,7 @@ public sealed class ColumnarIlEmitter
                         return false;
                     if (matchResultType == null)
                         matchResultType = armResultType;
-                    else if (armResultType != matchResultType) // every arm's result must share the match's type.
+                    else if (!TypesEquivalent(armResultType, matchResultType)) // every arm's result must share the match's type.
                         return false;
                     _il.Emit(OpCodes.Br, matchEnd);
 
@@ -5067,13 +5253,15 @@ public sealed class ColumnarIlEmitter
                 // matching WITHOUT binding any field — the idiomatic way to match a payload-free case (where `Case {}`
                 // is NL503), and to match a payload case by type alone. Binds nothing, so it is SAFE inside `and`/`or`/
                 // `not` combinators (unlike the binding property pattern, which is top-level only). The match value
-                // must be THIS union's base. No `dup`/`pop` needed: the isinst result is consumed by the branch.
+                // must be THIS union's base (a CLOSED instantiation of it when generic — the isinst target then
+                // closes the case over the scrutinee's arguments). No `dup`/`pop` needed: the isinst result is
+                // consumed by the branch.
                 var qualifiedCase = recvName + "." + Text(patternNode);
-                if (_unionCaseRegistry.TryGetValue(qualifiedCase, out var bareCaseDef) && matchValueType == bareCaseDef.UnionBase
+                if (TryGetCaseTestType(qualifiedCase, matchValueType, out _, out var bareCaseTestType, out _)
                     && !_locals.ContainsKey(recvName) && !_liftedLocals.ContainsKey(recvName) && !_paramOrdinals.ContainsKey(recvName) && !_siblings.ContainsKey(recvName))
                 {
                     _il.Emit(OpCodes.Ldloc, matchLocal);
-                    _il.Emit(OpCodes.Isinst, bareCaseDef.CaseType);
+                    _il.Emit(OpCodes.Isinst, bareCaseTestType);
                     _il.Emit(OpCodes.Brtrue, successLabel);
                     _il.Emit(OpCodes.Br, failLabel);
                     return true;
@@ -5098,6 +5286,126 @@ public sealed class ColumnarIlEmitter
         }
     }
 
+    // Resolves the explicit type-argument subtrees of a kind-1 (Generic) type root naming a union case
+    // (`Opt.Some<int>` → [int]) — each argument canonicalized (TryBuildTypeNodeCanonical handles nested
+    // generics/arrays) and resolved against the registries; arity-checked against the union BASE's declared
+    // parameters (cases redeclare them positionally, so one arity governs both).
+    private bool TryResolveUnionCaseTypeArgs(int typeRootNode, ColumnarUnionCaseDef caseDef, out Type[] args)
+    {
+        args = Type.EmptyTypes;
+        var arity = caseDef.UnionBase.GetGenericArguments().Length;
+        if (_childCount[typeRootNode] != arity)
+            return false;
+        var resolved = new Type[arity];
+        for (var i = 0; i < arity; i++)
+        {
+            if (!TryBuildTypeNodeCanonical(Child(typeRootNode, i), out var argCanonical)
+                || !TryResolveType(argCanonical, _enumRegistry, _structRegistry, _unionRegistry, out resolved[i])
+                || !IsSupportedType(resolved[i]))
+                return false;
+        }
+        args = resolved;
+        return true;
+    }
+
+    // Emits a union-case CONSTRUCTION: `newobj <case ctor>` then per named object-init field `dup; <value>;
+    // stfld`. `typeArgs` empty = a non-generic case (the original D-10 path: open builders directly);
+    // non-empty = a GENERIC case closed over the arguments — the ctor and every field handle are REBOUND
+    // onto the closed instantiation via TypeBuilder.GetConstructor/GetField (reflection member queries throw
+    // on TypeBuilderInstantiation — the oracle's machinery, spike-proven), and each field's expected value
+    // type substitutes the arguments positionally (`value: T` on Opt<int> expects int). `pairCount` 0 emits
+    // the bare/payload-default form (`new Color.Red {}`, brace-less `new Opt.None<int>` — fields stay
+    // CLR-default, the pipeline's probed semantics). The result's static type is the union BASE (closed over
+    // the same arguments when generic) — an upcast; a later match recovers the case.
+    private bool TryEmitUnionCaseConstruction(ColumnarUnionCaseDef caseDef, Type[] typeArgs, int initIdx, int pairCount, out Type type)
+    {
+        type = null!;
+        Type resultType;
+        ConstructorInfo ctor;
+        Type? closedCase = null;
+        if (typeArgs.Length == 0)
+        {
+            if (caseDef.UnionBase.IsGenericTypeDefinition)
+                return false; // a generic case never constructs open.
+            ctor = caseDef.Ctor;
+            resultType = caseDef.UnionBase;
+        }
+        else
+        {
+            if (caseDef.UnionBase.GetGenericArguments().Length != typeArgs.Length)
+                return false;
+            closedCase = caseDef.CaseType.MakeGenericType(typeArgs);
+            ctor = TypeBuilder.GetConstructor(closedCase, caseDef.Ctor);
+            resultType = caseDef.UnionBase.MakeGenericType(typeArgs);
+        }
+
+        _il.Emit(OpCodes.Newobj, ctor);
+        var assignedFields = new HashSet<string>(StringComparer.Ordinal);
+        for (var p = 0; p < pairCount; p++)
+        {
+            var nameNode = Child(initIdx, 1 + (2 * p));
+            var valueNode = Child(initIdx, 2 + (2 * p));
+            if (_kinds[nameNode] != 6)
+                return false;
+            var fieldName = Text(nameNode);
+            if (!caseDef.Fields.TryGetValue(fieldName, out var openField) || !assignedFields.Add(fieldName))
+                return false; // unknown or duplicately-assigned field -> decline.
+            var expectedFieldType = closedCase == null ? openField.FieldType : SubstituteClosedTypeArguments(openField.FieldType, typeArgs);
+            _il.Emit(OpCodes.Dup);
+            // A FIELD VALUE adopts the substituted field type's arguments (probe-pinned:
+            // `new Opt.Some<Opt<int>> { value: new Opt.None }` adopts Opt<int> from `value: T`).
+            Type valueType;
+            if (IsAdoptableUnionConstruction(valueNode, expectedFieldType))
+            {
+                if (!EmitAdoptedUnionConstruction(valueNode, expectedFieldType, out valueType))
+                    return false;
+            }
+            else if (!EmitExpression(valueNode, out valueType))
+            {
+                return false;
+            }
+            if (!TypesEquivalent(valueType, expectedFieldType))
+                return false;
+            _il.Emit(OpCodes.Stfld, closedCase == null ? openField : TypeBuilder.GetField(closedCase, openField));
+        }
+        type = resultType; // upcast to the union base.
+        return true;
+    }
+
+    // True when `exprNode` is the expected-type ADOPTION shape for a GENERIC union case: a `new Union.Case
+    // { ... }` object-init (kind 36) or brace-less `new Union.Case` (kind 42) whose Simple type root names a
+    // registered case of a GENERIC union, with the expected type a CLOSED instantiation of THAT union's base
+    // (`return new Opt.None` on `(): Opt<int>`; `n: Opt<int> = new Opt.Some { value: 5 }`). The pipeline
+    // adopts the expected type's arguments at FIVE probe-pinned positions, each with an exact expected type:
+    // return statements, typed-local inits, union-case object-init FIELD VALUES, and local/param
+    // REASSIGNMENT — exactly the emitters that consult this before their normal EmitExpression call. It
+    // REJECTS call-argument adoption (NL103 — queued oracle defect) and `:=` (NL207, no expected type), so
+    // kind-36/42 nodes reaching plain EmitExpression with a generic case decline there.
+    private bool IsAdoptableUnionConstruction(int exprNode, Type expectedType)
+    {
+        if (_kinds[exprNode] != 36 && _kinds[exprNode] != 42)
+            return false;
+        if (_kinds[exprNode] == 36 && (_childCount[exprNode] % 2) != 1)
+            return false;
+        var root = Child(exprNode, 0);
+        if (_kinds[root] != 0)
+            return false;
+        if (!_unionCaseRegistry.TryGetValue(Text(root), out var caseDef) || !caseDef.UnionBase.IsGenericTypeDefinition)
+            return false;
+        return IsClosedUserGenericInstantiation(expectedType)
+            && ReferenceEquals(expectedType.GetGenericTypeDefinition(), caseDef.UnionBase);
+    }
+
+    // Emits an adoption-shape construction (see IsAdoptableUnionConstruction) closed over the EXPECTED
+    // type's arguments. The caller has already established applicability.
+    private bool EmitAdoptedUnionConstruction(int exprNode, Type expectedType, out Type type)
+    {
+        type = null!;
+        var caseDef = _unionCaseRegistry[Text(Child(exprNode, 0))];
+        var pairCount = _kinds[exprNode] == 36 ? (_childCount[exprNode] - 1) / 2 : 0;
+        return TryEmitUnionCaseConstruction(caseDef, expectedType.GetGenericArguments(), exprNode, pairCount, out type);
+    }
+
     // A union-case pattern `Union.Case { f0, f1 }` (kind 37, children [memberAccess, bind0, ...]): an `isinst` type
     // test against the case's concrete type, and on match a field-binding of each named field to a fresh local. This
     // is handled ONLY at the TOP LEVEL of a match arm (not inside `and`/`or`/`not` — bindings in a negated/disjoined
@@ -5113,7 +5421,9 @@ public sealed class ColumnarIlEmitter
         if (_kinds[caseRecv] != 6)
             return false; // the head must be a bare `Union` identifier (a qualified `Union.Case`).
         var qualifiedCase = Text(caseRecv) + "." + Text(memberNode);
-        if (!_unionCaseRegistry.TryGetValue(qualifiedCase, out var caseDef) || matchValueType != caseDef.UnionBase)
+        // The scrutinee must be THIS union (the open base, or a CLOSED instantiation of it when generic —
+        // the case is then isinst-tested CLOSED over the scrutinee's arguments, the oracle's machinery).
+        if (!TryGetCaseTestType(qualifiedCase, matchValueType, out var caseDef, out var caseTestType, out var caseArgs))
             return false; // not a registered case of THIS union -> decline.
         // A `{ }` PROPERTY pattern on a PAYLOAD-FREE case is rejected by C# (NL503 — "doesn't carry any data — you
         // can't destructure it with property patterns"); a zero-field case is matched as a BARE type pattern instead
@@ -5124,10 +5434,10 @@ public sealed class ColumnarIlEmitter
         // `ldloc value; isinst Case; dup; brtrue ok; pop; br fail; ok: stloc caseLocal`. The dup keeps a copy so the
         // success path stores the (non-null) case ref; the fail path pops the null before branching — leaving the
         // stack empty at BOTH labels (matching every other pattern's stack discipline).
-        var caseLocal = _il.DeclareLocal(caseDef.CaseType);
+        var caseLocal = _il.DeclareLocal(caseTestType);
         var caseOk = _il.DefineLabel();
         _il.Emit(OpCodes.Ldloc, matchLocal);
-        _il.Emit(OpCodes.Isinst, caseDef.CaseType);
+        _il.Emit(OpCodes.Isinst, caseTestType);
         _il.Emit(OpCodes.Dup);
         _il.Emit(OpCodes.Brtrue, caseOk);
         _il.Emit(OpCodes.Pop);
@@ -5137,6 +5447,8 @@ public sealed class ColumnarIlEmitter
 
         // Bind each listed field to a local of the field's type (`ldloc caseLocal; ldfld f; stloc bind`). A `_`
         // binding is a discard (skip). A binding must name a case field and must not shadow a local/param.
+        // On a CLOSED case the field handle is REBOUND via TypeBuilder.GetField and the binding's local type
+        // substitutes the scrutinee's arguments positionally (`value: T` on Opt<int> binds an int local).
         var bindCount = _childCount[patternNode] - 1;
         for (var b = 0; b < bindCount; b++)
         {
@@ -5152,9 +5464,12 @@ public sealed class ColumnarIlEmitter
                 || _liftedLocals.ContainsKey(bindName)
                 || (_boxedCaptures != null && _boxedCaptures.ContainsKey(bindName)))
                 return false; // a binding that shadows a local/param is not modelled.
-            var bindLocal = _il.DeclareLocal(bindField.FieldType);
+            var bindFieldType = caseArgs.Length == 0 ? bindField.FieldType : SubstituteClosedTypeArguments(bindField.FieldType, caseArgs);
+            if (!IsSupportedType(bindFieldType))
+                return false; // a substituted binding type outside the modelled set declines.
+            var bindLocal = _il.DeclareLocal(bindFieldType);
             _il.Emit(OpCodes.Ldloc, caseLocal);
-            _il.Emit(OpCodes.Ldfld, bindField);
+            _il.Emit(OpCodes.Ldfld, caseArgs.Length == 0 ? bindField : TypeBuilder.GetField(caseTestType, bindField));
             _il.Emit(OpCodes.Stloc, bindLocal);
             _locals[bindName] = bindLocal;
         }
@@ -5182,15 +5497,65 @@ public sealed class ColumnarIlEmitter
         t == typeof(int) || t == typeof(long) || t == typeof(ulong) || t == typeof(char)
         || t == typeof(bool) || t == typeof(double) || t == typeof(float) || t == typeof(string)
         || t is EnumBuilder
-        || (t is TypeBuilder && IsUnionBase(t));
+        || TryGetUnionDefForMatchValue(t, out _, out _);
 
-    // True iff `t` is the abstract base of one of this program's user-defined unions.
-    private bool IsUnionBase(Type t)
+    // Resolves a match VALUE type to its union def: the OPEN base TypeBuilder (a non-generic union's
+    // scrutinee) or a CLOSED instantiation of a generic union's base (`Opt<int>`), yielding the
+    // instantiation's type arguments (empty when non-generic) for closing case types and field bindings.
+    // A generic union's OPEN base never types a value — bare generic-union annotations decline at
+    // resolution — so a raw generic-definition TypeBuilder returns false.
+    private bool TryGetUnionDefForMatchValue(Type matchValueType, out ColumnarUnionDef unionDef, out Type[] scrutineeArgs)
     {
-        foreach (var u in _unionRegistry.Values)
+        unionDef = null!;
+        scrutineeArgs = Type.EmptyTypes;
+        if (matchValueType is TypeBuilder && !matchValueType.IsGenericTypeDefinition)
         {
-            if (u.Base == t)
-                return true;
+            foreach (var u in _unionRegistry.Values)
+            {
+                if (u.Base == matchValueType)
+                {
+                    unionDef = u;
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (IsClosedUserGenericInstantiation(matchValueType))
+        {
+            var definition = matchValueType.GetGenericTypeDefinition();
+            foreach (var u in _unionRegistry.Values)
+            {
+                if (ReferenceEquals(u.Base, definition))
+                {
+                    unionDef = u;
+                    scrutineeArgs = matchValueType.GetGenericArguments();
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Maps a match value type + qualified case name to the case def, the CONCRETE type to isinst against
+    // (the case CLOSED over the scrutinee's arguments when generic), and those arguments (empty when
+    // non-generic). False when the case is not a registered case of the scrutinee's union.
+    private bool TryGetCaseTestType(string qualifiedCase, Type matchValueType, out ColumnarUnionCaseDef caseDef, out Type caseTestType, out Type[] caseArgs)
+    {
+        caseTestType = null!;
+        caseArgs = Type.EmptyTypes;
+        if (!_unionCaseRegistry.TryGetValue(qualifiedCase, out caseDef!))
+            return false;
+        if (matchValueType == caseDef.UnionBase)
+        {
+            caseTestType = caseDef.CaseType;
+            return true;
+        }
+        if (IsClosedUserGenericInstantiation(matchValueType)
+            && ReferenceEquals(matchValueType.GetGenericTypeDefinition(), caseDef.UnionBase))
+        {
+            caseArgs = matchValueType.GetGenericArguments();
+            caseTestType = caseDef.CaseType.MakeGenericType(caseArgs);
+            return true;
         }
         return false;
     }
@@ -5277,7 +5642,7 @@ public sealed class ColumnarIlEmitter
                 return false;
             for (var a = 1; a <= argCount; a++)
             {
-                if (!EmitExpression(Child(callIdx, a), out var argType) || argType != userStatic.ParamTypes[a - 1])
+                if (!EmitExpression(Child(callIdx, a), out var argType) || !TypesEquivalent(argType, userStatic.ParamTypes[a - 1]))
                     return false;
             }
             _il.Emit(OpCodes.Call, userStatic.Builder);
@@ -5519,7 +5884,7 @@ public sealed class ColumnarIlEmitter
                     _il.Emit(d.IsReference ? OpCodes.Ldloc : OpCodes.Ldloca, receiverTemp);
                     for (var a = 0; a < argCount; a++)
                     {
-                        if (!EmitExpression(Child(callIdx, 1 + a), out var argType) || argType != structMethod.ParamTypes[a])
+                        if (!EmitExpression(Child(callIdx, 1 + a), out var argType) || !TypesEquivalent(argType, structMethod.ParamTypes[a]))
                             return false;
                     }
                     _il.Emit(d.IsReference ? OpCodes.Callvirt : OpCodes.Call, structMethod.Builder);

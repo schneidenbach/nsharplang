@@ -3752,8 +3752,9 @@ class B
         Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A { x: y } => y,\n        U.B { y } => y\n    }\n}\n").Ok);
         // a binding naming a NON-field of the case (`U.A { nope }`).
         Assert.False(RouteColumnarProgram("union U {\n    A { x: int }\n    B { y: int }\n}\n\nfunc f(u: U): int {\n    return match u {\n        U.A { nope } => 1,\n        U.B { y } => y\n    }\n}\n").Ok);
-        // a GENERIC union (the case-decl kernel stops at the union name's `<`).
-        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: int }\n    None { tag: int }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // GENERIC unions (the former D-10 decline pin) are now ACCEPTED with full parity — see
+        // ColumnarCodegen_Parity_GenericUnions (incl. the exact former pin shape: a generic union whose
+        // case fields are all concrete-typed).
     }
 
     // UNION + `when` GUARDS — a union-case pattern that binds a field, then a `when` guard over that binding gates the
@@ -3858,6 +3859,155 @@ class B
         // bare/property/`_` — exactly like the C# analyzer, which also ignores combinator coverage. Counting `or`
         // coverage here would ACCEPT a program C# rejects.)
         Assert.False(RouteColumnarProgram("union Color {\n    Red {}\n    Green {}\n    Blue {}\n}\n\nfunc f(c: Color): int {\n    return match c {\n        Color.Red or Color.Green => 1,\n        Color.Blue => 2\n    }\n}\n").Ok);
+    }
+
+    // GENERIC UNIONS (Phase D) — `union Opt<T>` mirrors the oracle's d1c41b6e machinery: the abstract base
+    // declares the type parameters; each sealed nested case REDECLARES them (CLR metadata does not inherit
+    // generic parameters into nested types) and derives from the base CLOSED over its own copies
+    // (Some<T> : Opt<T>); the case ctor rebinds the base ctor onto that instantiation. Construction takes
+    // explicit type args AFTER the case name (`new Opt.Some<int> { value: v }` — the pinned N# surface) or
+    // ADOPTS the expected type's args at the two pipeline-accepted positions (return statements and
+    // typed-local inits); patterns never repeat args — the scrutinee's CLOSED type drives the per-case
+    // isinst and the positional substitution of `value: T` bindings. Value-matched (scalar in/out — closed
+    // union types never cross the assembly boundary). The brace-less `new Union.Case` construction form
+    // (kernel kind 42 BareNew) lands with this slice for union cases generally (probe-pinned: fields stay
+    // CLR-default).
+    [Fact]
+    public void ColumnarCodegen_Parity_GenericUnions()
+    {
+        var prog =
+            // The canonical Result-like shape: a T payload case + a payload-free case.
+            "union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\n" +
+            // Explicit args after the case name; closed base as param/return; match destructures with the
+            // SUBSTITUTED binding type (value: T binds int on Opt<int>).
+            "func mkSome(v: int): Opt<int> {\n    return new Opt.Some<int> { value: v }\n}\n\n" +
+            "func unwrap(o: Opt<int>): int {\n    return match o {\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n\n" +
+            "func roundTrip(v: int): int {\n    return unwrap(mkSome(v))\n}\n\n" +
+            // ADOPTION at the return position: payload-free brace-less AND a payload case with no args.
+            "func mkNone(): Opt<int> {\n    return new Opt.None\n}\n\n" +
+            "func noneVal(): int {\n    return unwrap(mkNone())\n}\n\n" +
+            "func mkAdopted(v: int): Opt<int> {\n    return new Opt.Some { value: v }\n}\n\n" +
+            "func adoptedVal(v: int): int {\n    return unwrap(mkAdopted(v))\n}\n\n" +
+            // ADOPTION at a typed-local init + brace-less explicit args (`new Opt.None<int>`).
+            "func typedLocalAdopt(v: int): int {\n    o: Opt<int> = new Opt.Some { value: v }\n    return unwrap(o)\n}\n\n" +
+            "func bareExplicit(): int {\n    n := new Opt.None<int>\n    return unwrap(n)\n}\n\n" +
+            // A SECOND instantiation in the same program (Opt<string>) — member access on the substituted
+            // binding; guards over a T binding.
+            "func strLen(s: string): int {\n    o := new Opt.Some<string> { value: s }\n    return match o {\n        Opt.Some { value } => value.Length,\n        Opt.None => -1\n    }\n}\n\n" +
+            "func guarded(v: int): int {\n    return match mkSome(v) {\n        Opt.Some { value } when value > 5 => value * 2,\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n\n" +
+            // Catch-all `_` and a BARE type pattern on a payload case of a closed union.
+            "func someOrZero(v: int): int {\n    return match mkSome(v) {\n        Opt.Some { value } => value,\n        _ => 0\n    }\n}\n\n" +
+            "func isSome(v: int): int {\n    return match mkSome(v) {\n        Opt.Some => 1,\n        Opt.None => 0\n    }\n}\n\n" +
+            // TWO type parameters mixing both in one union; concrete + T-typed fields coexist.
+            "union Either<L, R> {\n    Left { v: L }\n    Right { v: R }\n}\n\n" +
+            "func pick(e: Either<int, string>): int {\n    return match e {\n        Either.Left { v } => v,\n        Either.Right { v } => v.Length\n    }\n}\n\n" +
+            "func pickLeft(x: int): int {\n    return pick(new Either.Left<int, string> { v: x })\n}\n\n" +
+            "func pickRight(s: string): int {\n    return pick(new Either.Right<int, string> { v: s })\n}\n\n" +
+            // NESTED generic argument: Opt<Opt<int>> — the inner binding is itself a closed union value,
+            // passed on as a closed-union ARGUMENT (re-binding `value` in a nested match is a pre-existing
+            // shadowing decline, so the inner value unwraps through the helper). `nestedNone` exercises
+            // FIELD-VALUE adoption (`value: new Opt.None` adopts Opt<int> from the substituted field type).
+            "func depth(o: Opt<Opt<int>>): int {\n    return match o {\n        Opt.Some { value } => unwrap(value),\n        Opt.None => -1\n    }\n}\n\n" +
+            "func nested(v: int): int {\n    inner: Opt<int> = new Opt.Some { value: v }\n    return depth(new Opt.Some<Opt<int>> { value: inner })\n}\n\n" +
+            "func nestedNone(): int {\n    return depth(new Opt.Some<Opt<int>> { value: new Opt.None })\n}\n\n" +
+            // REASSIGNMENT adoption: `o = new Opt.None` re-stores an Opt<int> local AND a param (probe-pinned).
+            "func reassigned(v: int): int {\n    o: Opt<int> = new Opt.Some { value: v }\n    o = new Opt.None\n    return unwrap(o)\n}\n\n" +
+            "func paramReassigned(o: Opt<int>): int {\n    o = new Opt.None\n    return unwrap(o)\n}\n\n" +
+            "func paramReassignedVal(v: int): int {\n    return paramReassigned(mkSome(v))\n}\n\n" +
+            // BRACE-LESS ADOPTED PAYLOAD case: `return new Opt.Some` on Opt<int> — the payload stays
+            // CLR-default (probe-pinned: the pipeline accepts and yields 0).
+            "func adoptedBare(): Opt<int> {\n    return new Opt.Some\n}\n\n" +
+            "func adoptedBareVal(): int {\n    return unwrap(adoptedBare())\n}\n\n" +
+            // A LOCAL FUNCTION taking a closed union (the arg check is TypesEquivalent — two Opt<int>
+            // instantiations are referentially distinct; adversarial-review finding).
+            "func viaLocal(v: int): int {\n    func unwrapLocal(o: Opt<int>): int {\n        return match o {\n            Opt.Some { value } => value,\n            Opt.None => -1\n        }\n    }\n    return unwrapLocal(new Opt.Some<int> { value: v })\n}\n\n" +
+            // A GENERIC sibling returning Opt<T>: the call's return type substitutes the binding and
+            // RE-CLOSES (adversarial-review HIGH finding — the raw Opt<!!T> escaping into a non-generic
+            // caller emitted a BadImageFormatException assembly; the oracle runs this program).
+            "func makeNone<T>(_x: T): Opt<T> {\n    return new Opt.None\n}\n\n" +
+            "func genericReturn(): int {\n    o := makeNone(5)\n    return match o {\n        Opt.Some => 1,\n        Opt.None => 0\n    }\n}\n\n" +
+            // A USER STRUCT as the type argument; the substituted binding is the struct value.
+            "struct Point {\n    x: int\n    y: int\n}\n\n" +
+            "func structArg(a: int, b: int): int {\n    p := new Point { x: a, y: b }\n    o := new Opt.Some<Point> { value: p }\n    return match o {\n        Opt.Some { value } => value.x + value.y,\n        Opt.None => -1\n    }\n}\n\n" +
+            // A generic union whose case fields are ALL concrete-typed (T declared but unused in fields) —
+            // the former D-10 decline-pin program shape, now accepted with full parity.
+            "union Tag<T> {\n    A { x: int }\n    B { y: int }\n}\n\n" +
+            "func tagged(v: int): int {\n    t: Tag<string> = new Tag.A { x: v }\n    return match t {\n        Tag.A { x } => x,\n        Tag.B { y } => y\n    }\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("roundTrip", new object[] { 42 }), ("roundTrip", new object[] { 0 }), ("roundTrip", new object[] { -7 }),
+            ("noneVal", System.Array.Empty<object>()),
+            ("adoptedVal", new object[] { 9 }),
+            ("typedLocalAdopt", new object[] { 11 }),
+            ("bareExplicit", System.Array.Empty<object>()),
+            ("strLen", new object[] { "hello" }), ("strLen", new object[] { "" }),
+            ("guarded", new object[] { 10 }), ("guarded", new object[] { 3 }),
+            ("someOrZero", new object[] { 5 }),
+            ("isSome", new object[] { 1 }),
+            ("pickLeft", new object[] { 7 }), ("pickRight", new object[] { "hello" }),
+            ("nested", new object[] { 8 }), ("nestedNone", System.Array.Empty<object>()),
+            ("reassigned", new object[] { 6 }),
+            ("paramReassignedVal", new object[] { 13 }),
+            ("adoptedBareVal", System.Array.Empty<object>()),
+            ("viaLocal", new object[] { 17 }),
+            ("genericReturn", System.Array.Empty<object>()),
+            ("structArg", new object[] { 3, 4 }),
+            ("tagged", new object[] { 21 }));
+
+        // Metadata: the emitted Opt is an ABSTRACT GENERIC type definition; Some is a sealed nested generic
+        // case whose BaseType is Opt closed over Some's OWN redeclared parameter; `value` is that parameter.
+        var (ok, asm, _, _) = RouteColumnarProgram(prog);
+        Assert.True(ok, "columnar must emit the generic-union program");
+        using var loadScope = CollectibleAssemblyScope.Load(asm!);
+        var loaded = loadScope.Assembly;
+        var optType = loaded.GetType("Opt")!;
+        Assert.True(optType.IsAbstract);
+        Assert.True(optType.IsGenericTypeDefinition);
+        Assert.Equal(1, optType.GetGenericArguments().Length);
+        var someType = optType.GetNestedType("Some")!;
+        Assert.True(someType.IsSealed);
+        Assert.True(someType.IsGenericTypeDefinition);
+        var someBase = someType.BaseType!;
+        Assert.True(someBase.IsGenericType);
+        Assert.Equal(optType, someBase.GetGenericTypeDefinition());
+        Assert.Equal(someType.GetGenericArguments()[0], someBase.GetGenericArguments()[0]);
+        var genericValueField = someType.GetField("value", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)!;
+        Assert.True(genericValueField.FieldType.IsGenericParameter);
+
+        // DECLINES (slice scope / forms the pipeline rejects):
+        // a BARE generic-union name as an annotation (NL207 — `Opt` requires its type argument).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(o: Opt): int {\n    return 1\n}\n\nfunc g(): int { return 1 }\n").Ok);
+        // a WRONG-ARITY annotation (NL207).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(o: Opt<int, string>): int {\n    return 1\n}\n\nfunc g(): int { return 1 }\n").Ok);
+        // wrong-arity EXPLICIT construction args (NL207).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int {\n    s := new Opt.Some<int, string> { value: 5 }\n    return match s {\n        Opt.Some { value } => 1,\n        Opt.None => 0\n    }\n}\n").Ok);
+        // `:=` with NO type args and no expected type (the pipeline reports NL207 — adoption never applies).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int {\n    s := new Opt.Some { value: 5 }\n    return match s {\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n").Ok);
+        // ARG-POSITION adoption — the pipeline rejects it (NL103, an accept/emit divergence queued in the
+        // oracle defect bundle); columnar must decline so the C# path reports it.
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc take(o: Opt<int>): int {\n    return match o {\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n\nfunc f(): int {\n    return take(new Opt.None)\n}\n").Ok);
+        // type args on the UNION head (`new Opt<int>.Some` — pipeline-rejected; args bind to the CASE name).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int {\n    s := new Opt<int>.Some { value: 5 }\n    return match s {\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n").Ok);
+        // a `where` constraint clause on a union (pipeline-rejected — unions take no constraints).
+        Assert.False(RouteColumnarProgram("union Opt<T> where T: class {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        // a field-initializer TYPE MISMATCH under substitution (`value: T` with T=int given a string):
+        // columnar declines; the oracle ACCEPTS and emits IL that throws InvalidCastException at runtime —
+        // union case initializers are never type-checked (queued in the oracle defect bundle, generic and
+        // non-generic alike). ROUTE-ONLY pin until the oracle gains the NL202 check.
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int {\n    s := new Opt.Some<int> { value: \"str\" }\n    return match s {\n        Opt.Some { value } => value,\n        Opt.None => -1\n    }\n}\n").Ok);
+        // a NON-EXHAUSTIVE generic-union match (NL501).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(o: Opt<int>): int {\n    return match o {\n        Opt.Some { value } => value\n    }\n}\n").Ok);
+        // a `{ }` property pattern on a PAYLOAD-FREE generic case (NL503 in C#).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(o: Opt<int>): int {\n    return match o {\n        Opt.Some { value } => value,\n        Opt.None {} => -1\n    }\n}\n").Ok);
+        // a TRAILING COMMA in a type-parameter list — the production parser errors (NL102 "Expected type
+        // parameter name"); the kernels must return -1 rather than silently accept (adversarial-review
+        // finding, probe-confirmed over-accept) — pinned for all THREE declaration kernels.
+        Assert.False(RouteColumnarProgram("union Opt<T,> {\n    Some { value: T }\n    None { }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("struct Box<T,> {\n    item: T\n}\n\nfunc f(): int { return 1 }\n").Ok);
+        Assert.False(RouteColumnarProgram("func id<T,>(x: T): T {\n    return x\n}\n\nfunc f(): int { return id<int>(1) }\n").Ok);
+        // DUPLICATE constructors whose params are the SAME closed union instantiation — the pipeline rejects
+        // duplicates; the signature guard compares via TypesEquivalent (two Opt<int> instantiations are
+        // referentially distinct — adversarial-review finding: raw != would emit BOTH ctor rows).
+        Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
     // CLASS (slice 1a) — the FIFTH user-defined type. A `class` (token 8) reuses the record infrastructure: it is a

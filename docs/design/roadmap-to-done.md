@@ -409,18 +409,25 @@ and generic-record init members now emit via backing-field lowering (rebound Fie
 lose; setters keep their modreq for C# `init` interop), with `with`/Equals/Clone on generic records fixed
 and block-form record value semantics made real (see the self-host progress log); columnar still declines
 generic records pending that lowering. The ORACLE also gained GENERIC UNIONS (`d1c41b6e` — `union Result<T>`
-parse→analyze→emit→export, the README flagship; columnar still declines generic unions to the C# path per
-the D-10 pin, so columnar generic-union emit is a future Phase D coverage slice alongside the other union
-follow-ups). D-17a columnar VALUE-STRUCT user constructors landed (`e2f4a553` — generic structs included;
+parse→analyze→emit→export, the README flagship); columnar GENERIC UNIONS then landed (the D-10 pin FLIPPED:
+kernel `<T,U>` union-decl parse + brace-less BareNew kind 42, PASS-0 base-declares/case-redeclares/SetParent-
+closed mirror of the oracle machinery, closed construction with explicit args after the CASE name, the
+five-position adoption surface (return/typed-local/field-value/local- and param-reassignment — probe-pinned),
+match closing cases over the scrutinee's arguments, TypesEquivalent flow relaxation; the adversarial review's
+two probe-confirmed breaks — trailing-comma `<T,>` kernel over-accept in all THREE declaration kernels and
+the generic-sibling `Opt<T>` return escaping unsubstituted into callers (BadImageFormatException) — fixed and
+pinned). D-17a columnar VALUE-STRUCT user constructors landed (`e2f4a553` — generic structs included;
 ctor bodies accept partial assignment matching the oracle; the `new S()`-bypasses-parameterless-ctor oracle
 defect is recorded). D-17b columnar generic-function `where` CONSTRAINTS landed (kernel clause parse → flat
 rows; definition-time application + call-site enforce-or-decline at the MakeGenericMethod chokepoint; the
 five top-level scanners learned to not see `where ... class/struct` as declarations) plus an ORACLE fix:
 circular constraints (`where T: T`) used to HANG the compiler at declaration time — the analyzer now rejects
 them with NL208 (F-bounded stays legal); the interface-constraint member-dispatch NL103 emit crash is
-recorded for a future oracle bundle. **Next: the lambdas/closures arc** (the `project_csharp_retirement_map`
-slice order), then Stage 6 (route-all → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on
-columnar).
+recorded for a future oracle bundle. The LAMBDAS ARC then closed its main ladder (nine rungs — see the
+progress log), MATCH POSITIONS parity-proved match expressions in every position, and columnar GENERIC
+UNIONS landed (above). **Next: columnar GENERIC RECORDS via backing-field lowering** (mirror `14faa92c`),
+then named tuples and scalar completeness (the `project_csharp_retirement_map` slice order), then Stage 6
+(route-all → delete `ILCompiler/` + `Analyzer.cs`) and Phase T (CLI/LSP on columnar).
 
 The `systems-language-perf` worktree (P-minmax(c) + P3/P-ctrans) has been merged into `systems-language`
 (commit `d2a447f3`).

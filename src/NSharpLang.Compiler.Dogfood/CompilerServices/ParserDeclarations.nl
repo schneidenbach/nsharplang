@@ -488,6 +488,12 @@ func ParseStructDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                     return -1
                 }
                 pos = pos + 1
+                // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
+                // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
+                // `!= 102` condition would otherwise exit cleanly and ACCEPT what the pipeline rejects).
+                if pos >= count || tokenKinds[pos] != 0 {
+                    return -1
+                }
             }
         }
         if pos >= count || tokenKinds[pos] != 102 || typeParamCount == 0 {
@@ -793,20 +799,23 @@ func ParseConstructorChainInfoInto(tokenKinds: int[], tokenStarts: int[], tokenV
     return argCount
 }
 
-// Parser slice (union bodies): parse ONE `union Name { Case { f: T, ... }  Case { ... } }` declaration into flat
-// parallel arrays. `unionIndex` is the compacted token index of the `union` keyword (token 12). Reads the union NAME
-// (the Identifier after `union`) into outResult[0]=nameStart / outResult[1]=nameLength, then `{` (129), then a
-// sequence of CASES until the union close `}` (130). Each case is `CaseName { field : Type, ... }`: the case name
-// (Identifier) into outCaseNameStarts/Lengths[case], its `{` (129), then a sequence of FIELDS — `Identifier : Type`
-// where the type is a SINGLE Identifier token (a builtin like int/string, or a bare user-type name) — each delimited
-// by an optional `,` (134), closed by the case `}` (130). Fields flatten ACROSS all cases into
+// Parser slice (union bodies): parse ONE `union Name[<T, U>] { Case { f: T, ... }  Case { ... } }` declaration into
+// flat parallel arrays. `unionIndex` is the compacted token index of the `union` keyword (token 12). Reads the union
+// NAME (the Identifier after `union`) into outResult[0]=nameStart / outResult[1]=nameLength, an OPTIONAL generic
+// type-parameter list `<T, U>` (Less 100 / Identifier 0 / Comma 134 / Greater 102 — the same bare-identifier shape
+// as the struct/class kernel; spans to outTypeParamStarts/Lengths, count to outResult[2], 0 with no `<`; an inline
+// constraint or empty list returns -1), then `{` (129), then a sequence of CASES until the union close `}` (130).
+// Each case is `CaseName { field : Type, ... }`: the case name (Identifier) into outCaseNameStarts/Lengths[case],
+// its `{` (129), then a sequence of FIELDS — `Identifier : Type` where the type is a SINGLE Identifier token (a
+// builtin like int/string, a bare user-type name, or one of the union's type parameters) — each delimited by an
+// optional `,` (134), closed by the case `}` (130). Fields flatten ACROSS all cases into
 // outFieldNameStarts/Lengths + outFieldTypeStarts/Lengths in case-then-field order; outCaseFieldCounts[case] records
 // how many fields that case contributed (so the host re-segments the flat field arrays per case). Returns the case
 // count, or -1 on any unexpected token — a bare case with no `{` body, a primary-ctor `(`, a composed/array/generic
 // field type (a non-Identifier after `:`), a field initializer, a missing name/colon/brace, or an empty union — so
-// the host declines the whole program to the C# path. Slice scope: non-generic unions whose case fields are single
-// builtin/bare-name-typed (the emitter further gates each field type to a supported CLR type).
-func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outResult: int[]): int {
+// the host declines the whole program to the C# path. Slice scope: unions whose case fields are single
+// builtin/bare-name/type-param-typed (the emitter further gates each field type to a supported CLR type).
+func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValueLengths: int[], count: int, unionIndex: int, outCaseNameStarts: int[], outCaseNameLengths: int[], outCaseFieldCounts: int[], outFieldNameStarts: int[], outFieldNameLengths: int[], outFieldTypeStarts: int[], outFieldTypeLengths: int[], outTypeParamStarts: int[], outTypeParamLengths: int[], outResult: int[]): int {
     pos := unionIndex
     if pos >= count || tokenKinds[pos] != 12 {
         return -1
@@ -819,6 +828,41 @@ func ParseUnionDeclarationInto(tokenKinds: int[], tokenStarts: int[], tokenValue
     outResult[0] = tokenStarts[pos]
     outResult[1] = tokenValueLengths[pos]
     pos = pos + 1
+
+    // Optional generic TYPE-PARAMETER list `<T, U>` after the union name — bare comma-separated
+    // Identifiers only, the same shape as the struct/class declaration kernel. A declaration's list
+    // cannot nest, so no `>>` splitting is needed.
+    typeParamCount := 0
+    if pos < count && tokenKinds[pos] == 100 {
+        pos = pos + 1
+        while pos < count && tokenKinds[pos] != 102 {
+            if tokenKinds[pos] != 0 {
+                return -1
+            }
+            outTypeParamStarts[typeParamCount] = tokenStarts[pos]
+            outTypeParamLengths[typeParamCount] = tokenValueLengths[pos]
+            typeParamCount = typeParamCount + 1
+            pos = pos + 1
+
+            if pos < count && tokenKinds[pos] != 102 {
+                if tokenKinds[pos] != 134 {
+                    return -1
+                }
+                pos = pos + 1
+                // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
+                // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
+                // `!= 102` condition would otherwise exit cleanly and ACCEPT what the pipeline rejects).
+                if pos >= count || tokenKinds[pos] != 0 {
+                    return -1
+                }
+            }
+        }
+        if pos >= count || tokenKinds[pos] != 102 || typeParamCount == 0 {
+            return -1
+        }
+        pos = pos + 1
+    }
+    outResult[2] = typeParamCount
 
     if pos >= count || tokenKinds[pos] != 129 {
         return -1

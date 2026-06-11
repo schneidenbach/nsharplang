@@ -1079,13 +1079,14 @@ internal static class NSharpCompilerDogfoodAdapter
         }
     }
 
-    // Collect every top-level `union` declaration into a ColumnarUnionInput (name + per-case name + per-case field
-    // names + per-case field TYPE canonical strings). Tokenizes + compacts exactly like the struct collector, finds
-    // each union keyword (TopLevelUnionIndices), and parses its body via the ParseUnionDeclaration kernel — which
-    // flattens fields across cases, with outCaseFieldCounts re-segmenting them per case. Returns true (possibly an
-    // empty list) for a program with no unions. Returns FALSE — declining the whole program to C# — on any parse
-    // failure (a bare case without a `{ }` body, a composed field type, an empty union). The emitter further gates
-    // each field type to a supported CLR type and models the slice scope (non-generic unions, reference-type cases).
+    // Collect every top-level `union` declaration into a ColumnarUnionInput (name + optional generic type-parameter
+    // names + per-case name + per-case field names + per-case field TYPE canonical strings). Tokenizes + compacts
+    // exactly like the struct collector, finds each union keyword (TopLevelUnionIndices), and parses its body via the
+    // ParseUnionDeclaration kernel — which flattens fields across cases, with outCaseFieldCounts re-segmenting them
+    // per case. Returns true (possibly an empty list) for a program with no unions. Returns FALSE — declining the
+    // whole program to C# — on any parse failure (a bare case without a `{ }` body, a composed field type, an empty
+    // union). The emitter further gates each field type to a supported CLR type (or one of the union's own type
+    // parameters) and models the slice scope (reference-type cases).
     private static bool TryGetColumnarUnionInputs(string source, out System.Collections.Generic.List<Columnar.ColumnarUnionInput> unions)
     {
         unions = new System.Collections.Generic.List<Columnar.ColumnarUnionInput>();
@@ -1130,14 +1131,26 @@ internal static class NSharpCompilerDogfoodAdapter
                 var outFieldNameLengths = new int[cap];
                 var outFieldTypeStarts = new int[cap];
                 var outFieldTypeLengths = new int[cap];
-                var outResult = new int[2];
+                var outTypeParamStarts = new int[cap];
+                var outTypeParamLengths = new int[cap];
+                var outResult = new int[4];
                 var caseCount = bindings.ParseUnionDeclaration(
                     ck, cs, cv, n, unionIndex, outCaseNameStarts, outCaseNameLengths, outCaseFieldCounts,
-                    outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts, outFieldTypeLengths, outResult);
+                    outFieldNameStarts, outFieldNameLengths, outFieldTypeStarts, outFieldTypeLengths,
+                    outTypeParamStarts, outTypeParamLengths, outResult);
                 if (caseCount <= 0 || outResult[1] <= 0)
                     return false;
 
                 var unionName = source.Substring(outResult[0], outResult[1]);
+                // Optional generic type parameters `<T, U>` after the union name (outResult[2] = count).
+                var typeParamCount = outResult[2];
+                string[]? typeParamNames = null;
+                if (typeParamCount > 0)
+                {
+                    typeParamNames = new string[typeParamCount];
+                    for (var tp = 0; tp < typeParamCount; tp++)
+                        typeParamNames[tp] = source.Substring(outTypeParamStarts[tp], outTypeParamLengths[tp]);
+                }
                 var caseNames = new string[caseCount];
                 var caseFieldNames = new string[caseCount][];
                 var caseFieldTypes = new string[caseCount][];
@@ -1158,7 +1171,7 @@ internal static class NSharpCompilerDogfoodAdapter
                     caseFieldTypes[c] = types;
                 }
 
-                unions.Add(new Columnar.ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes));
+                unions.Add(new Columnar.ColumnarUnionInput(unionName, caseNames, caseFieldNames, caseFieldTypes, typeParamNames));
             }
             return true;
         }
@@ -2924,7 +2937,7 @@ internal static class NSharpCompilerDogfoodAdapter
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int unionIndex,
         int[] outCaseNameStarts, int[] outCaseNameLengths, int[] outCaseFieldCounts,
         int[] outFieldNameStarts, int[] outFieldNameLengths, int[] outFieldTypeStarts, int[] outFieldTypeLengths,
-        int[] outResult);
+        int[] outTypeParamStarts, int[] outTypeParamLengths, int[] outResult);
     private delegate int ParseConstructorChainInfoInto(
         int[] tokenKinds, int[] tokenStarts, int[] tokenValueLengths, int count, int ctorIndex,
         int[] outArgKinds, int[] outArgStarts, int[] outArgLengths, int[] outResult);

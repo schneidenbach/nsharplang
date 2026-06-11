@@ -46,7 +46,7 @@ match result {
 ```n#
 union Option<T> {
     Some { value: T }
-    None
+    None { }
 }
 ```
 
@@ -60,16 +60,17 @@ union Result<T> {
 
 func Divide(a: int, b: int): Result<double> {
     if b == 0 {
-        return Result<double>.Error("Cannot divide by zero")
+        return new Result.Error<double> { message: "Cannot divide by zero" }
     }
-    return Result<double>.Success(a / (double)b)
+    return new Result.Success<double> { value: a / (double)b }
 }
 
 result := Divide(10, 2)
-match result {
-    Success { value } => Console.WriteLine($"Result: {value}"),
-    Error { message } => Console.WriteLine($"Error: {message}")
+message := match result {
+    Result.Success { value } => $"Result: {value}",
+    Result.Error { message } => $"Error: {message}"
 }
+print message
 ```
 
 ### Exhaustiveness Checking

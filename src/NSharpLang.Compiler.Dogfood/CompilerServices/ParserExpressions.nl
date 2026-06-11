@@ -58,7 +58,13 @@
 //                                         the other direction from statements-call-expressions). Parsed at the
 //                                         full-expression entry and in call ARGUMENTS (the production's
 //                                         ParseExpression positions modeled so far). Kind 40 is
-//                                         TypedLocalDeclaration in ParserStatements -- 41 is the next free kind. )
+//                                         TypedLocalDeclaration and 41 LocalFunctionDeclaration in
+//                                         ParserStatements. )
+//   BareNew                 -> kind 42  ( `new <type>` with neither `( args )` nor `{ inits }` -- children
+//                                         [typeRoot (a TYPE-kernel subtree -- name scans must skip the whole
+//                                         node, like kind 38)]. The brace-less union-case construction form
+//                                         (`new Color.Red`, `new Opt.None<int>`); the emitter declines every
+//                                         non-union-case type root. 43 is the next free kind. )
 // Deferred (refused with -1, or the chain simply STOPS at them): `?.`/`?[` null-conditional access, generic
 //   method calls (callee<T>(...)), named (`name:`) and ref/out call arguments, postfix `++`/`--`, `with`,
 //   `is`/`as` type tests, range `..`, block-bodied lambdas; every other primary (this/base/
@@ -530,7 +536,15 @@ func ParsePrimaryExpressionNode(tokenKinds: int[], tokenStarts: int[], tokenValu
         }
 
         if st[0] >= count || tokenKinds[st[0]] != 127 {
-            return -1
+            // `new <type>` with NEITHER `{ inits }` NOR `( args )` -- a BARE-NEW expression (kind 42,
+            // children [typeRoot]): the brace-less construction form the pipeline accepts for union cases
+            // (`new Color.Red`, `new Opt.None<int>`, `new Opt.None` adopting an expected type) -- fields
+            // default. The emitter models ONLY union-case type roots for this node; every other bare-new
+            // type (struct/BCL/array) declines there, so previously-unparseable programs stay declined.
+            bareNewChildRun := st[2]
+            AppendExpressionChild(st, outChildIndices, typeRoot)
+            bareNewEnd := outSpanStarts[typeRoot] + outSpanLengths[typeRoot]
+            return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 42, -1, 0, bareNewChildRun, 1, newStart, bareNewEnd - newStart)
         }
         st[0] = st[0] + 1
 

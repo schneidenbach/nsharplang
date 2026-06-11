@@ -11,6 +11,81 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — Columnar GENERIC UNIONS: the D-10 pin flips (`union Result<T>` emits columnar)
+
+The retirement-map queue's generic-unions slice lands; the columnar pipeline now emits the README's
+flagship shape end-to-end, mirroring the oracle's `d1c41b6e` machinery exactly (spike-proven first):
+the abstract base declares the type parameters, every sealed nested case REDECLARES them (CLR metadata
+does not inherit generic parameters into nested types), `DefineNestedType` with NO parent then
+`SetParent(base.MakeGenericType(caseOwnParams))` (Some<T> : Opt<T>), and the case ctor rebinds the base
+ctor via `TypeBuilder.GetConstructor`. Closed work rebinds member handles via
+`TypeBuilder.GetField/GetConstructor` with positional substitution (`value: T` on `Opt<int>` is an int).
+
+**Kernel:** `ParseUnionDeclarationInto` gained the optional `<T, U>` list (same bare-identifier shape as
+the struct/class kernel; spans out via two new arrays, count in outResult[2]); a new expression node kind
+**42 BareNew** (`new <type>` with neither `(args)` nor `{inits}` — children [typeRoot], a TYPE subtree all
+name scans skip like kind 38) carries the brace-less construction form (`new Color.Red`,
+`new Opt.None<int>`, adoption shapes) — the emitter declines every non-union-case BareNew root, so
+previously-unparseable programs stay declined. 43 is the next free kind.
+
+**Surface (VERIFY-FIRST probed, ~25 probes):** explicit type args go AFTER the case name
+(`new Opt.Some<int> { value: v }` — `new Opt<int>.Some` is pipeline-rejected); adoption of the expected
+type's arguments happens at FIVE exact-expected-type positions — return statements, typed-local inits,
+union-case object-init FIELD VALUES (`new Opt.Some<Opt<int>> { value: new Opt.None }`), and local/param
+REASSIGNMENT — and is REJECTED at call arguments (NL103, an oracle accept/emit divergence) and `:=`
+(NL207, no inference from field initializers); patterns never repeat args (the scrutinee's closed type
+drives per-case isinst + binding substitution); brace-less construction of PAYLOAD cases is legal with
+CLR-default fields. Adoption is implemented by PEEKING at the construction node at those statement sites —
+NOT via an expected-type field (the oracle's expected-type leak bug this week is the cautionary tale).
+
+**Emitter:** PASS 0 generic branch; `TryResolveClosedUserGeneric` accepts union-base heads (`Opt<int>`
+annotations, incl. nested `Opt<Opt<int>>`); a BARE generic-union name FAILS resolution (NL207 parity —
+this also fixed a working-tree over-accept where the in-progress kernel parse + ignoring TypeParamNames
+emitted a NON-generic hierarchy for the D-10 pin program); match discovery/`IsSupportedMatchValueType`
+admit closed instantiations via `TryGetUnionDefForMatchValue`/`TryGetCaseTestType`; **TypesEquivalent
+replaces raw `!=` at the value-flow sites** (return, match-arm unification, typed-local init, local/param
+reassignment, sibling/local-function/implicit-this/static/struct-method call args, duplicate-ctor
+signature guard) — two closed instantiations of one user generic are referentially distinct.
+
+**ADVERSARIAL REVIEW found two probe-confirmed REAL breaks (fixed + pinned):** (1) trailing-comma
+type-parameter lists (`union Opt<T,>`, `struct Box<T,>`, `func id<T,>`) parsed cleanly in all THREE
+declaration kernels while the production parser errors NL102 — cardinal-rule over-accept, the struct one
+shipped pre-slice; the comma branch now requires a following parameter name. (2) A generic sibling's
+`Opt<T>` RETURN escaped unsubstituted into callers — `o := makeNone(5)` baked `Opt<!!T>` MVAR references
+into a non-generic method's locals/isinst → **BadImageFormatException** on a program the oracle runs;
+`TrySubstituteReturnType` now recursively substitutes closed-user-generic instantiation arguments and
+re-closes (plus a defensive refuse-any-open-shape fallthrough). Hardening: `IsSupportedValueTuple`
+excludes closed instantiations (same reflection-throw as builders — future-tuple-slice crash prevented);
+`ColumnarDiagnosticsPass.WalkUnused` gained the kind-38/42 skip + value-less kind-6 guard (a type-tuple
+node crashed Text()). Review-noted deferrals: columnar's union metadata surface (public fields, no payload
+ctor) diverges from the oracle's (nonpublic + payload ctor) — pre-existing from D-10, acceptable for
+single-assembly dogfood scope, backlogged for the interop story; the pre-existing
+type-param-vs-registered-type SCOPING divergence (columnar: param shadows type, mirroring C#; oracle:
+registered type wins, rejecting `func f<T>(a: T)` + `struct T` programs columnar accepts) joins the
+ORACLE DEFECT BUNDLE as item 6 — direction likely fix-the-oracle (C# precedent: method type params shadow).
+
+**ORACLE DEFECT BUNDLE grows to 6:** (4) union case construction field initializers are NEVER type-checked
+(generic AND non-generic — `new U.A { x: "str" }` emits and throws InvalidCastException at runtime; NL202
+missing); (5) generic-union expected-type adoption in CALL-ARGUMENT position passes the analyzer but fails
+ILCompiler overload binding (NL103); (6) the scoping divergence above. Known composition gap (safe
+declines, queued): generic functions with `Opt<T>`/`Opt<int>` params decline at the generic-call unify
+loop (the MVAR-closed BODIES emit soundly — probe-proven via MakeGenericMethod invocation); recursive
+unions (`tail: L<T>`) decline at the kernel's single-token field-type gate; struct fields of closed-union
+type decline likewise.
+
+Parity: `ColumnarCodegen_Parity_GenericUnions` — 24 functions, 26 both-pipeline invocations (explicit
+args, all five adoption positions, two instantiations in one program, two type params, nested generic
+args, user-struct args, guards, catch-all, bare patterns, local functions, the generic-sibling-return
+shape, the former pin program), metadata pins (generic abstract base, sealed generic case parented to the
+closed base, generic-param field), 14 decline pins. The old D-10 pin line is REPLACED with a pointer.
+`examples/05-unions/README.md`'s stale call-style construction blocks normalized to the implemented
+surface. 146/146 dogfood; full gate green (see commit).
+
+NEXT (retirement-map queue): columnar GENERIC RECORDS via backing-field lowering (mirror `14faa92c`),
+then named tuples, scalar completeness — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-10 — Match POSITIONS complete + oracle expected-type-leak fix (`acc338b5`, `8c16c46d`)
 
 Phase D resumes with the retirement-map queue's match slice, resolved in two commits.

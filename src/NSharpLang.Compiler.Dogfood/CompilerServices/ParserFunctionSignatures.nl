@@ -74,6 +74,12 @@ func ParseFunctionSignatureInto(tokenKinds: int[], tokenStarts: int[], tokenValu
                     return -1
                 }
                 i = i + 1
+                // A consumed comma must be FOLLOWED by another parameter name — a trailing comma
+                // (`<T,>`) is a production-parser error (adversarial-review finding: the loop's
+                // `!= 102` condition would otherwise exit cleanly and ACCEPT what the pipeline rejects).
+                if i >= count || tokenKinds[i] != 0 {
+                    return -1
+                }
             }
         }
         if i >= count || tokenKinds[i] != 102 || typeParamCount == 0 {

@@ -171,8 +171,16 @@ public sealed class ColumnarDiagnosticsPass
     {
         switch (_kinds[idx])
         {
-            case 6: // Identifier expression — a use of its name, recorded in traversal order.
-                usedNames.Add(Text(idx));
+            case 6: // Identifier expression — a use of its name, recorded in traversal order. A value-less
+                // node (nameStart -1) is a TYPE-kernel tuple node masquerading as kind 6 — never a name use
+                // (and Text() on it would throw; type subtrees are also skipped wholesale below).
+                if (_valueStarts[idx] >= 0)
+                    usedNames.Add(Text(idx));
+                return;
+
+            case 38: // GenericCallee / BareNew — children are TYPE-kernel subtrees ONLY (their node kinds
+            case 42: // collide with expression kinds); the callee name lives in the value span. Skip them,
+                     // mirroring the emitter's capture-scan discipline.
                 return;
 
             case 25: // Block — its own scope: collect its direct `:=` locals, then check them at block exit.
