@@ -28,7 +28,8 @@
 //                                             re-locates the keyword by byte offset and parses the signature +
 //                                             body through the existing kernels. )
 //   ThrowStatement               -> kind 48  ( throw <expr>; 1 child = the exception expression )
-//   TryStatement                 -> kind 49  ( try {} catch... ; children [tryBlock, catch1..catchN] )
+//   TryStatement                 -> kind 49  ( try/catch.../finally?; children [tryBlock, catch1..catchN,
+//                                             finallyBlock? (a trailing kind-25 block)] )
 //   CatchClause                  -> kind 50  ( one catch; value span = the exception TYPE name token, -1 for
 //                                             a bare catch; children [nameIdent (kind 6)?, block]. 51 is the
 //                                             next free kind. )
@@ -37,7 +38,7 @@
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, finally/using/lock/switch/yield/
+// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/lock/switch/yield/
 // print/assert, and statements whose expression parts use a not-yet-supported form (e.g. `alloc`). Block
 // statement-list gathers child node ids on the LIFO `argStack` (recursion is LIFO) and appends the
 // contiguous child run after `}`, exactly as calls/generics do.
@@ -103,15 +104,16 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         return ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
     }
 
-    // `try { } catch ... { } [catch ... { }]*` (Try 38 / Catch 39) -- TryStatement kind 49, children
-    // [tryBlock, catch1, ..., catchN] (variable arity -> LIFO arg-stack, like blocks). Each catch is a
-    // kind-50 CatchClause node: value span = the exception TYPE name token (-1 for a bare catch),
-    // children [nameIdent?, block] -- the bound variable as a 0-child kind-6 identifier, so the name
-    // reads as a USE in every name scan (the linter treats catch variables as always used). E3 models
-    // all FOUR production catch forms (Parser.cs:3016-3051): bare `catch {`, parenthesized
-    // `catch (e: T) {` / `catch (T) {` / `catch (T e) {`, and paren-less `catch e: T {`. The TYPE must
-    // be a single Identifier token (the emitter's BCL exception whitelist needs no more); a `finally`
-    // (40, E4) refuses (-1). All bodies must be `{ }` BLOCKS.
+    // `try { } [catch ... { }]* [finally { }]` (Try 38 / Catch 39 / Finally 40) -- TryStatement kind 49,
+    // children [tryBlock, catch1..catchN, finallyBlock?] (variable arity -> LIFO arg-stack, like blocks;
+    // the finally is a trailing kind-25 BLOCK child, distinguishable from the kind-50 catches by kind).
+    // Each catch is a kind-50 CatchClause node: value span = the exception TYPE name token (-1 for a bare
+    // catch), children [nameIdent?, block] -- the bound variable as a 0-child kind-6 identifier, so the
+    // name reads as a USE in every name scan (the linter treats catch variables as always used). All FOUR
+    // production catch forms (Parser.cs:3016-3051): bare `catch {`, parenthesized `catch (e: T) {` /
+    // `catch (T) {` / `catch (T e) {`, and paren-less `catch e: T {`. The TYPE must be a single Identifier
+    // token (the emitter's BCL exception whitelist needs no more). Zero catches are valid WITH a finally
+    // (`try {} finally {}`); a try with neither refuses. All bodies must be `{ }` BLOCKS.
     if kind == 38 {
         tryStart := tokenStarts[start]
         st[0] = start + 1
@@ -203,12 +205,22 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
             argStack[st[3]] = clause
             st[3] = st[3] + 1
         }
+        if st[0] < count && tokenKinds[st[0]] == 40 {
+            st[0] = st[0] + 1
+            if st[0] >= count || tokenKinds[st[0]] != 129 {
+                st[3] = tryArgBase
+                return -1
+            }
+            finallyBlock := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+            if finallyBlock < 0 {
+                st[3] = tryArgBase
+                return -1
+            }
+            argStack[st[3]] = finallyBlock
+            st[3] = st[3] + 1
+        }
         childTotal := st[3] - tryArgBase
         if childTotal < 2 {
-            st[3] = tryArgBase
-            return -1
-        }
-        if st[0] < count && tokenKinds[st[0]] == 40 {
             st[3] = tryArgBase
             return -1
         }

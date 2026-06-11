@@ -428,6 +428,10 @@ public sealed class ColumnarIlEmitter
     private Label _protectedDone;
     private bool _protectedDoneCreated;
     private bool _inProtectedRegion;
+    // Set while a FINALLY handler's statements emit: control transfers OUT of a finally (return, or
+    // break/continue to a loop outside it) are illegal IL — they decline (oracle defect #20 emits the
+    // invalid IL today). Loops OPENED inside the finally still break/continue freely.
+    private bool _inFinallyRegion;
     private readonly ILGenerator _il;
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
     // type). All are declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to
@@ -462,7 +466,12 @@ public sealed class ColumnarIlEmitter
     private readonly Dictionary<string, LocalBuilder> _locals = new(StringComparer.Ordinal);
     // Enclosing loops' break/continue targets (innermost on top). `break` branches to the loop's end label,
     // `continue` to its condition-check label. A break/continue outside any loop declines.
-    private readonly Stack<(Label Break, Label Continue)> _loopLabels = new();
+    // Loop branch targets, plus WHERE the loop was entered relative to exception regions: a break/continue
+    // from INSIDE a protected region whose loop began OUTSIDE it crosses the region boundary — `br` is
+    // invalid IL there; it must `leave` (which also runs an intervening finally). A loop wholly inside the
+    // region branches with a plain `br` (probe-pinned both ways against the fixed oracle). A branch out of
+    // a FINALLY is illegal IL entirely — those decline.
+    private readonly Stack<(Label Break, Label Continue, bool InProtectedRegion, bool InFinallyRegion)> _loopLabels = new();
 
     // True when this emitter is producing a CONSTRUCTOR body. In a VALUE-TYPE ctor, `this` (arg 0)
     // is the managed pointer to the caller's storage (newobj passes the new value's address), so
@@ -3369,12 +3378,11 @@ public sealed class ColumnarIlEmitter
                      // NL316) or Pop when unbound. Unknown/non-whitelist exception types decline (the
                      // pipeline silently resolves unknown names to a CATCH-ALL — oracle defect #16 — and
                      // accepts non-exception types as dead clauses — #17; declining inherits neither).
-                     // Returns inside any region go through the body's leave tail. NESTED try declines (one
-                     // level this rung); a try inside a LOOP declines via the loop-label check (break/
-                     // continue would branch OUT of the region — E4 revisits).
+                     // Returns inside any region go through the body's leave tail. An optional trailing
+                     // kind-25 child is the FINALLY block (E4); break/continue inside the regions emit
+                     // `leave` when they cross the boundary (the case 21/22 rules), so try-inside-loop
+                     // emits. NESTED try declines (one level this rung).
                 if (_childCount[idx] < 2 || _inProtectedRegion)
-                    return false;
-                if (_loopLabels.Count > 0)
                     return false;
                 if (_protectedResult == null && _returnType != typeof(void))
                     _protectedResult = _il.DeclareLocal(_returnType);
@@ -3390,6 +3398,20 @@ public sealed class ColumnarIlEmitter
                 for (var c = 1; c < _childCount[idx]; c++)
                 {
                     var clause = Child(idx, c);
+                    if (_kinds[clause] == 25)
+                    {
+                        // The FINALLY block (E4) — always the LAST child. BeginFinallyBlock implicitly
+                        // ends the prior region; EndExceptionBlock implicitly ends the handler.
+                        if (c != _childCount[idx] - 1)
+                            return false;
+                        _il.BeginFinallyBlock();
+                        _inFinallyRegion = true;
+                        var finallyOk = EmitStatement(clause);
+                        _inFinallyRegion = false;
+                        if (!finallyOk)
+                            return false;
+                        break;
+                    }
                     if (_kinds[clause] != 50)
                         return false;
                     Type catchType;
@@ -3450,6 +3472,9 @@ public sealed class ColumnarIlEmitter
                      // void function, or a value-less one in a value function, declines (mismatched arity). A
                      // generic-union case construction with NO type args ADOPTS the return type's arguments here
                      // (`return new Opt.None` on `(): Opt<int>` — one of the two pipeline-accepted adoption sites).
+                if (_inFinallyRegion)
+                    return false; // a return cannot leave a finally handler (illegal IL; pipeline NL305-
+                                  // shields value functions and emits invalid IL for void — defect #20).
                 if (_returnType == typeof(void))
                 {
                     if (_childCount[idx] != 0)
@@ -4045,7 +4070,7 @@ public sealed class ColumnarIlEmitter
                 var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
                 // `break` exits to endLabel, `continue` re-tests at checkLabel; both reach their target with an
                 // empty stack (the body up to the transfer is net-zero), so they are stack-consistent.
-                _loopLabels.Push((endLabel, checkLabel));
+                _loopLabels.Push((endLabel, checkLabel, _inProtectedRegion, _inFinallyRegion));
                 var bodyEmitted = EmitStatement(body);
                 _loopLabels.Pop();
                 if (!bodyEmitted)
@@ -4104,7 +4129,7 @@ public sealed class ColumnarIlEmitter
                     return false;
                 _il.Emit(OpCodes.Brfalse, endLabel);
 
-                _loopLabels.Push((endLabel, contLabel));
+                _loopLabels.Push((endLabel, contLabel, _inProtectedRegion, _inFinallyRegion));
                 var forBodyEmitted = EmitStatement(body);
                 _loopLabels.Pop();
                 if (!forBodyEmitted)
@@ -4183,7 +4208,7 @@ public sealed class ColumnarIlEmitter
                 _il.Emit(OpCodes.Stloc, loopVar);
                 _locals[varName] = loopVar;
 
-                _loopLabels.Push((endLabel, contLabel));
+                _loopLabels.Push((endLabel, contLabel, _inProtectedRegion, _inFinallyRegion));
                 var foreachBodyEmitted = EmitStatement(body);
                 _loopLabels.Pop();
                 if (!foreachBodyEmitted)
@@ -4253,17 +4278,30 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
-            case 21: // Break — branch to the innermost loop's end label.
+            case 21: // Break — branch to the innermost loop's end label. From inside a protected region
+            {        // whose loop began OUTSIDE it, the branch crosses the boundary: `leave` (which also
+                     // runs an intervening finally — probe-pinned against the fixed oracle). Out of a
+                     // FINALLY itself is illegal IL — decline (the pipeline emits invalid IL for that
+                     // today; oracle defect #20 — declining inherits neither wrongness).
                 if (_loopLabels.Count == 0)
                     return false;
-                _il.Emit(OpCodes.Br, _loopLabels.Peek().Break);
+                var breakTarget = _loopLabels.Peek();
+                if (_inFinallyRegion && !breakTarget.InFinallyRegion)
+                    return false;
+                _il.Emit(_inProtectedRegion && !breakTarget.InProtectedRegion ? OpCodes.Leave : OpCodes.Br, breakTarget.Break);
                 return true;
+            }
 
-            case 22: // Continue — branch to the innermost loop's condition-check label.
+            case 22: // Continue — branch to the innermost loop's condition-check label (same region rules
+            {        // as break).
                 if (_loopLabels.Count == 0)
                     return false;
-                _il.Emit(OpCodes.Br, _loopLabels.Peek().Continue);
+                var continueTarget = _loopLabels.Peek();
+                if (_inFinallyRegion && !continueTarget.InFinallyRegion)
+                    return false;
+                _il.Emit(_inProtectedRegion && !continueTarget.InProtectedRegion ? OpCodes.Leave : OpCodes.Br, continueTarget.Continue);
                 return true;
+            }
 
             default: // spike: Block / Return / `:=` / assignment / if-else / while / break / continue.
                 return false;
@@ -4293,18 +4331,24 @@ public sealed class ColumnarIlEmitter
             case 20: // Return
             case 48: // Throw — always exits (E1; mirrored in ColumnarDiagnosticsPass).
                 return true;
-            case 49: // Try — exits iff the TRY block AND every catch clause's block exit (the analyzer's
-            {        // TryStatement rule; children are [tryBlock, kind-50 clauses with block LAST]).
+            case 49: // Try — the analyzer's rule VERBATIM: exits iff the TRY block exits AND there is at
+            {        // least ONE catch AND every catch clause's block exits. The FINALLY (a trailing
+                     // kind-25 child) is IGNORED — probe-pinned: a zero-catch `try {return} finally {}`
+                     // NEVER satisfies always-returns (the pipeline demands a trailing return, NL305).
                 if (!AlwaysReturns(Child(idx, 0)))
                     return false;
+                var sawCatch = false;
                 for (var n = 1; n < _childCount[idx]; n++)
                 {
                     var clause = Child(idx, n);
+                    if (_kinds[clause] != 50)
+                        continue; // the finally block — ignored by the analyzer's rule.
+                    sawCatch = true;
                     if (!AlwaysReturns(Child(clause, _childCount[clause] - 1)))
                         return false;
                 }
 
-                return true;
+                return sawCatch;
             }
             case 25: // Block
                 for (var n = 0; n < _childCount[idx]; n++)

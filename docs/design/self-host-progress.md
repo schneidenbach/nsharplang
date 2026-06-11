@@ -11,6 +11,38 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — EXCEPTIONS E4: finally + the try-inside-loop revisit — and oracle defect #19
+
+The `finally` parses as a trailing kind-25 BLOCK child of kind 49 (distinguishable from kind-50
+catches by kind); zero catches are valid WITH a finally. Emit: BeginFinallyBlock + statements +
+EndExceptionBlock — leaves through the region run the handler natively.
+
+**Probe-found oracle defect #19, FIXED in-slice (fix-oracle-first):** break/continue from inside a
+try/catch/finally whose loop began OUTSIDE the region emitted a plain `br` — invalid IL,
+InvalidProgramException on EVERY call (while/for/foreach, fully general). The dormant
+BranchTarget.useLeave scaffolding (every push passed false) was replaced with the protected-region
+DEPTH recorded at loop entry; EmitBreak/EmitContinue emit `leave` exactly when the branch crosses
+outward (running an intervening finally — probed 32 on the break-through-finally shape), `br` when
+the loop is wholly inside one region (probed 3). The columnar twin: `_loopLabels` entries record
+(InProtectedRegion, InFinallyRegion) at push; cases 21/22 emit leave on crossing, and DECLINE a
+branch out of a FINALLY (illegal IL — the pipeline still emits invalid IL for break/void-return in
+finally, **defect #20, queued**; NL305 shields the value-return form).
+
+**The always-returns QUIRK, mirrored verbatim:** the analyzer's TryStatement arm requires ≥1 CATCH —
+the finally is ignored — so a zero-catch `try {return} finally {}` NEVER satisfies always-returns
+(NL305 demands a trailing return; probe-pinned). Both mirrors skip the kind-25 finally child and
+return false with zero catches. CollectUnreachable recurses the finally; NL312 fires after a
+try+all-catches-return regardless of the finally (probe-pinned).
+
+Parity: `ColumnarCodegen_Parity_FinallyAndLoopCrossing` — 9 value invocations (tcf both paths,
+zero-catch tf, return-in-try+trailing, break/continue-in-try-in-loop, break-through-finally,
+plain-try-in-loop, loop-wholly-in-try) + route-only propagation/throw-in-finally pins + 6 decline
+pins (NL305 quirk, NL312-after-tcf, return-in-finally ×2, break-in-finally, catchless-finallyless
+try). Oracle pin: ILCompiler_LoopBranchesCrossingExceptionRegions_EmitValidIl. E2's finally and
+try-inside-loop pins FLIPPED. 304/304; gate (see commit). NEXT: E5 using/lock.
+
+---
+
 ## 2026-06-11 — EXCEPTIONS E3: typed catches + exception binding
 
 Each catch is now a **kind-50 CatchClause** node (value span = the exception TYPE name token, -1 for

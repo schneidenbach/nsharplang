@@ -114,13 +114,17 @@ public sealed class ColumnarDiagnosticsPass
                     CollectUnreachable(Child(idx, 2), diagnostics);
                 break;
 
-            case 49: // Try [tryBlock, catch1..catchN] — recurse into the try and every clause's block
-                // (each clause is a kind-50 CatchClause whose block is its LAST child).
+            case 49: // Try [tryBlock, catch1..catchN, finally?] — recurse into the try, every clause's
+                // block (each clause is a kind-50 CatchClause whose block is its LAST child), and the
+                // optional trailing kind-25 finally block.
                 CollectUnreachable(Child(idx, 0), diagnostics);
                 for (var n = 1; n < _childCount[idx]; n++)
                 {
                     var clause = Child(idx, n);
-                    CollectUnreachable(Child(clause, _childCount[clause] - 1), diagnostics);
+                    if (_kinds[clause] == 25)
+                        CollectUnreachable(clause, diagnostics);
+                    else
+                        CollectUnreachable(Child(clause, _childCount[clause] - 1), diagnostics);
                 }
 
                 break;
@@ -145,18 +149,25 @@ public sealed class ColumnarDiagnosticsPass
             case 48: // Throw — always exits, exactly like the analyzer's StatementAlwaysReturns throw arm.
                 return true;
 
-            case 49: // Try [tryBlock, catch1..catchN] — exits iff the try AND every catch clause's block
-            {        // exit (the analyzer's TryStatement arm; clause blocks are kind-50 LAST children).
+            case 49: // Try [tryBlock, catch1..catchN, finally?] — the analyzer's rule VERBATIM: exits iff
+            {        // the try exits AND there is at least ONE catch AND every catch clause's block exits.
+                     // The FINALLY (a trailing kind-25 child) is IGNORED — probe-pinned: a zero-catch
+                     // `try {return} finally {}` never satisfies always-returns (NL305 demands a trailing
+                     // return).
                 if (!StatementAlwaysReturns(Child(idx, 0)))
                     return false;
+                var sawCatch = false;
                 for (var n = 1; n < _childCount[idx]; n++)
                 {
                     var clause = Child(idx, n);
+                    if (_kinds[clause] != 50)
+                        continue; // the finally block — ignored by the analyzer's rule.
+                    sawCatch = true;
                     if (!StatementAlwaysReturns(Child(clause, _childCount[clause] - 1)))
                         return false;
                 }
 
-                return true;
+                return sawCatch;
             }
 
             case 25: // Block — exits if any statement exits.

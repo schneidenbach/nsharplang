@@ -4038,6 +4038,83 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // EXCEPTIONS E4 (Phase D) — FINALLY + the try-inside-loop revisit. The finally parses as a trailing
+    // kind-25 BLOCK child of kind 49 (distinguishable from kind-50 catches by kind); zero catches are
+    // valid WITH a finally. Emit: BeginFinallyBlock + statements + EndExceptionBlock — leaves through the
+    // region run the handler natively (returns inside try, exception propagation after the finally).
+    // ALWAYS-RETURNS QUIRK (probe-pinned, mirrored VERBATIM in both AlwaysReturns mirrors): a try
+    // always-exits iff the try block exits AND there is at least ONE catch AND all catches exit — the
+    // finally is IGNORED, so a zero-catch `try {return} finally {}` NEEDS a trailing return (NL305).
+    // LOOP REVISIT: break/continue from inside a region whose loop began OUTSIDE it emit `leave` (running
+    // an intervening finally); the oracle emitted `br` there — InvalidProgramException on every call
+    // (defect #19, FIXED oracle-side in this slice: BranchTarget records the region depth at loop entry).
+    // Control transfers OUT of a finally are illegal IL — columnar declines them (the pipeline still
+    // emits invalid IL for void-return/break in finally — defect #20, queued).
+    [Fact]
+    public void ColumnarCodegen_Parity_FinallyAndLoopCrossing()
+    {
+        var prog =
+            // finally runs on BOTH the normal and the caught path (probed: 35 / 9).
+            "func tcf(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } catch {\n        r = 0 - 1\n    } finally {\n        r = r + 10\n    }\n    return r\n}\n\n" +
+            // zero-catch try/finally, normal path (probed: 35); the fault path propagates (route-only below).
+            "func tf(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } finally {\n        r = r + 10\n    }\n    return r\n}\n\n" +
+            // return inside try + finally + the REQUIRED trailing return (probed: 25 — the try's return wins).
+            "func retTry(n: int): int {\n    try {\n        return 100 / n\n    } finally {\n        n = n + 1\n    }\n    return 0 - 7\n}\n\n" +
+            // BREAK from inside a try/catch whose loop is outside — leave through the boundary (probed: 183).
+            "func breakInTry(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        try {\n            if i == 3 {\n                break\n            }\n            total = total + 100 / (i + 1)\n        } catch {\n            total = total + 1000\n        }\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            // CONTINUE from inside a try/catch in a loop (probed: 8).
+            "func contInTry(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            if i == 2 {\n                continue\n            }\n            total = total + i\n        } catch {\n            total = total + 1000\n        }\n    }\n    return total\n}\n\n" +
+            // BREAK through a FINALLY — the handler must run on the break path (probed: 32).
+            "func breakFin(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        try {\n            if i == 2 {\n                break\n            }\n            total = total + 1\n        } finally {\n            total = total + 10\n        }\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            // plain try/catch inside a loop, no crossing (probed: 184).\n
+            "func tryInLoop(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        try {\n            total = total + 100 / i\n        } catch {\n            total = total + 1\n        }\n        i = i + 1\n    }\n    return total\n}\n\n" +
+            // the whole LOOP inside a try — break does NOT cross; plain br (probed: 3).
+            "func loopInTry(n: int): int {\n    total := 0\n    try {\n        i := 0\n        while i < n {\n            if i == 3 {\n                break\n            }\n            total = total + 1\n            i = i + 1\n        }\n    } catch {\n        total = 0 - 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("tcf", new object[] { 4 }), ("tcf", new object[] { 0 }),
+            ("tf", new object[] { 4 }),
+            ("retTry", new object[] { 4 }),
+            ("breakInTry", new object[] { 10 }),
+            ("contInTry", new object[] { 4 }),
+            ("breakFin", new object[] { 5 }),
+            ("tryInLoop", new object[] { 4 }),
+            ("loopInTry", new object[] { 10 }));
+
+        // The PROPAGATION + throw-in-finally paths: route-only, exact exception parity.
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram(
+                // zero-catch finally on the FAULT path: the handler runs, then the exception propagates.
+                "func tf(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } finally {\n        r = r + 10\n    }\n    return r\n}\n\n" +
+                // a THROW inside the finally itself (probed: f(4)=1, f(0) throws).
+                "func throwFin(n: int): int {\n    r := 0\n    try {\n        r = 1\n    } finally {\n        if n == 0 {\n            throw new InvalidOperationException(\"fin\")\n        }\n    }\n    return r\n}\n");
+            Assert.True(ok, "columnar must emit the finally propagation program");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            var progType = scope.Assembly.GetType(typeName!)!;
+            var dbz = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("tf")!.Invoke(null, new object[] { 0 }));
+            Assert.IsType<DivideByZeroException>(dbz.InnerException);
+            Assert.Equal(1, progType.GetMethod("throwFin")!.Invoke(null, new object[] { 4 }));
+            var fin = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("throwFin")!.Invoke(null, new object[] { 0 }));
+            Assert.Equal("fin", Assert.IsType<InvalidOperationException>(fin.InnerException).Message);
+        }
+
+        // DECLINES (each pipeline-verdict probed verbatim):
+        // the zero-catch ALWAYS-RETURNS quirk: return-in-try + finally with NO trailing return is the
+        // pipeline's NL305 — the mirrors reproduce it, so this declines BEFORE emit.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } finally {\n        n = n + 1\n    }\n}\n").Ok);
+        // unreachable code after a try whose try+catches all return (NL312 — the finally is ignored).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 1\n    } catch {\n        return 2\n    } finally {\n        n = n + 1\n    }\n    return 3\n}\n").Ok);
+        // a RETURN inside a finally (illegal IL; the pipeline NL305-rejects the value form and emits
+        // invalid IL for the void form — defect #20).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 1\n    } finally {\n        return 2\n    }\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(n: int) {\n    try {\n        n = n + 1\n    } finally {\n        if n == 0 {\n            return\n        }\n        n = n + 2\n    }\n}\n").Ok);
+        // a BREAK inside a finally whose loop is outside it (defect #20's break form).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        i = i + 1\n        try {\n            total = total + 1\n        } finally {\n            if i == 2 {\n                break\n            }\n        }\n    }\n    return total\n}\n").Ok);
+        // a try with NEITHER catch nor finally.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    try {\n        return 1\n    }\n    return 2\n}\n").Ok);
+    }
+
     // EXCEPTIONS E3 (Phase D) — TYPED catches + exception BINDING. Each catch is a kind-50 CatchClause
     // (value span = the exception TYPE name token, -1 = bare; children [nameIdent (kind 6)?, block]) under
     // kind 49's [tryBlock, catch1..catchN]. All FOUR production catch forms parse (Parser.cs:3016-3051):
@@ -4219,16 +4296,10 @@ class B
             }
         }
 
-        // DECLINES (all pipeline-VALID programs — these pins flip to coverage as E4 lands). The E2-era
-        // typed-catch and multi-clause pins FLIPPED in E3 — covered by ColumnarCodegen_Parity_TypedCatches.
-        // a FINALLY after the catch (E4).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } catch {\n        r = 0 - 1\n    } finally {\n        r = r + 1\n    }\n    return r\n}\n").Ok);
-        // try with ONLY a finally — no catch at all (E4).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } finally {\n        r = r + 1\n    }\n    return r\n}\n").Ok);
-        // a NESTED try (one level this rung).
+        // DECLINES. The E2-era typed-catch/multi-clause pins FLIPPED in E3 (ColumnarCodegen_Parity_
+        // TypedCatches) and the finally pins FLIPPED in E4 (ColumnarCodegen_Parity_FinallyAndLoopCrossing).
+        // a NESTED try (one level this rung). Try-inside-loop FLIPPED in E4 (the loop-crossing rules).
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        try {\n            return 100 / n\n        } catch {\n            return 0 - 1\n        }\n    } catch {\n        return 0 - 2\n    }\n}\n").Ok);
-        // try inside a LOOP — a break/continue in the region would branch OUT of it (E4 revisits).
-        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        try {\n            total = total + 1\n        } catch {\n            total = total + 0\n        }\n        i = i + 1\n    }\n    return total\n}\n").Ok);
     }
 
     // EXCEPTIONS E1 (Phase D) — the THROW statement (Throw token 37, statement kind 48, one child).
