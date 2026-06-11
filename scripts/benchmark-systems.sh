@@ -70,17 +70,16 @@ if ! dotnet run --no-build -c Release --project "$REPO_ROOT/benchmarks/NSharpLan
     --iterationCount "$ITERATION_COUNT" \
     --iterationTime "$ITERATION_TIME" \
     --memory \
-    --exporters csv \
+    --exporters json csv \
     --artifacts "$ARTIFACTS" > "$LOG" 2>&1; then
     cat "$LOG"
     exit 1
 fi
 
 python3 - "$ARTIFACTS" "$MODE" <<'PY'
-import csv
 import glob
+import json
 import os
-import re
 import sys
 
 root = sys.argv[1]
@@ -112,101 +111,74 @@ expected_counts = gate_expected_counts if mode == "gate" else matrix_expected_co
 
 # Product gate: each Systems N#/runtime row must be within RATIO_TOLERANCE of its matched C#
 # baseline (the gated SystemsFastGateBenchmarks scenarios are apples-to-apples — both sides run the
-# same distinct per-workload functions, so this measures codegen parity, not loop fusion). A small
-# tolerance band absorbs single-run measurement noise (a bare 1.00 limit is a coin-flip at parity
-# and flakes under machine load); a genuine codegen regression still trips it. Prefer the unrounded
-# mean-derived ratio because BenchmarkDotNet's Ratio column rounds.
+# same distinct per-workload functions, so this measures codegen parity, not loop fusion).
+#
+# We gate on the MEDIAN, not the arithmetic mean. A handful of thermally throttled iterations under
+# machine load inflate the mean (and only the mean) — that is precisely what made this gate flake
+# near parity, where N# sits a percent or two under C#. The median is robust to that upper tail, so a
+# genuine codegen regression (a whole-distribution shift) still trips the gate while heat-induced
+# noise does not. The tolerance band absorbs residual measurement noise. Statistics come from
+# BenchmarkDotNet's full JSON report; the CSV summary omits the Median column.
 RATIO_TOLERANCE = 1.05
 ratio_limits = {
     key: RATIO_TOLERANCE
     for key in expected_counts
     if key[1] in ("NSharp", "RuntimeResult")
 }
+baseline_methods = {
+    "NSharp": "CSharp",
+    "RuntimeResult": "CSharpTaggedStruct",
+}
 
-def class_name_from_path(path: str) -> str:
-    name = os.path.basename(path)
-    match = re.match(r"NSharpLang\.Benchmarks\.(?P<class>[^.]+)-report\.csv$", name)
-    return match.group("class") if match else name
+def fmt_time(ns):
+    if ns is None:
+        return "<missing>"
+    if ns >= 1e9:
+        return f"{ns / 1e9:.2f} s"
+    if ns >= 1e6:
+        return f"{ns / 1e6:.2f} ms"
+    if ns >= 1e3:
+        return f"{ns / 1e3:.2f} μs"
+    return f"{ns:.2f} ns"
 
-def allocated_bytes(value):
-    text = (value or "").strip()
-    if not text or text.upper() == "NA" or text == "-":
-        return None
-    parts = text.split()
-    if len(parts) != 2:
-        return None
-    try:
-        amount = float(parts[0].replace(",", ""))
-    except ValueError:
-        return None
-    unit = parts[1].upper()
-    scale = {
-        "B": 1,
-        "KB": 1024,
-        "MB": 1024 * 1024,
-        "GB": 1024 * 1024 * 1024,
-    }.get(unit)
-    if scale is None:
-        return None
-    return amount * scale
+def fmt_bytes(n):
+    if n is None:
+        return "<missing>"
+    if n == 0:
+        return "0 B"
+    for unit, scale in (("GB", 1024 ** 3), ("MB", 1024 ** 2), ("KB", 1024)):
+        if n >= scale:
+            return f"{n / scale:.2f} {unit}"
+    return f"{int(n)} B"
 
-def parse_ratio(value):
-    text = (value or "").strip()
-    if not text or text.upper() == "NA" or text == "-":
-        return None
-    match = re.search(r"\d+(?:\.\d+)?", text.replace(",", ""))
-    if not match:
-        return None
-    return float(match.group(0))
+def param_suffix(params):
+    return f" [{params}]" if params else ""
 
-def parse_mean_ns(value):
-    text = (value or "").strip()
-    if not text or text.upper() == "NA" or text == "-":
-        return None
-    match = re.match(r"(?P<amount>[\d,.]+)\s*(?P<unit>\S+)", text)
-    if not match:
-        return None
-    amount = float(match.group("amount").replace(",", ""))
-    unit = match.group("unit").lower()
-    scale = {
-        "ns": 1.0,
-        "μs": 1000.0,
-        "us": 1000.0,
-        "ms": 1000.0 * 1000.0,
-        "s": 1000.0 * 1000.0 * 1000.0,
-    }.get(unit)
-    if scale is None:
-        return None
-    return amount * scale
+# Each Systems benchmark class is exported to its own per-type JSON report (mirroring the per-type
+# CSV reports the gate used previously), so glob them all and flatten the Benchmarks arrays.
+reports = sorted(glob.glob(os.path.join(
+    root, "results",
+    "NSharpLang.Benchmarks.Systems*Benchmarks-report-full-compressed.json")))
 
-def parameter_suffix(row):
-    parts = []
-    for name in ("Scenario", "Workload", "Size"):
-        value = row.get(name)
-        if value:
-            parts.append(f"{name}={value}")
-    return f" [{', '.join(parts)}]" if parts else ""
-
+# row = (key=(class, method), params, mean_ns, median_ns, allocated_bytes)
 rows = []
-by_row = {}
-for path in glob.glob(os.path.join(root, "results", "NSharpLang.Benchmarks.Systems*Benchmarks-report.csv")):
-    benchmark_class = class_name_from_path(path)
-    with open(path, newline="", encoding="utf-8-sig") as handle:
-        reader = csv.DictReader(handle)
-        for row in reader:
-            method = row.get("Method", "")
-            key = (benchmark_class, method)
-            allocated = allocated_bytes(row.get("Allocated", ""))
-            rows.append((
-                key,
-                parameter_suffix(row),
-                row.get("Mean", "").strip(),
-                parse_mean_ns(row.get("Mean", "")),
-                row.get("Ratio", "").strip(),
-                parse_ratio(row.get("Ratio", "")),
-                row.get("Allocated", "").strip(),
-                allocated))
-            by_row[(benchmark_class, method, parameter_suffix(row))] = rows[-1]
+by_key = {}
+for path in reports:
+    with open(path, encoding="utf-8") as handle:
+        data = json.load(handle)
+    for bench in data.get("Benchmarks", []):
+        benchmark_class = bench.get("Type")
+        method = bench.get("Method")
+        params = bench.get("Parameters") or ""
+        stats = bench.get("Statistics") or {}
+        memory = bench.get("Memory") or {}
+        key = (benchmark_class, method)
+        # N# and its C# baseline share an identical (BenchmarkDotNet-truncated) parameter string, so
+        # keying on the raw Parameters value pairs them up without re-parsing the truncation.
+        row = (key, params, stats.get("Mean"), stats.get("Median"),
+               memory.get("BytesAllocatedPerOperation"))
+        rows.append(row)
+        by_key[(benchmark_class, method, params)] = row
 
 counts = {}
 for key, *_ in rows:
@@ -226,73 +198,69 @@ if missing:
     sys.exit(1)
 
 bad_allocations = [
-    (key, suffix, allocated_text)
-    for key, suffix, _mean, _mean_ns, _ratio_text, _ratio, allocated_text, allocated in rows
+    (key, params, allocated)
+    for key, params, _mean, _median, allocated in rows
     if allocated is None or allocated != 0
 ]
 if bad_allocations:
     print("Systems N# benchmark allocation gate failed:", file=sys.stderr)
-    for (benchmark_class, method), suffix, allocated_text in bad_allocations:
-        print(f"  - {benchmark_class}.{method}{suffix}: Allocated={allocated_text or '<missing>'}", file=sys.stderr)
+    for (benchmark_class, method), params, allocated in bad_allocations:
+        print(f"  - {benchmark_class}.{method}{param_suffix(params)}: Allocated={fmt_bytes(allocated)}", file=sys.stderr)
     sys.exit(1)
 
 bad_ratios = []
-baseline_methods = {
-    "NSharp": "CSharp",
-    "RuntimeResult": "CSharpTaggedStruct",
-}
-for key, suffix, mean, mean_ns, ratio_text, ratio, _allocated_text, _allocated in rows:
+for key, params, _mean, median_ns, _allocated in rows:
     limit = ratio_limits.get(key)
     if limit is None:
         continue
     benchmark_class, method = key
-    baseline_method = baseline_methods[method]
-    baseline = by_row.get((benchmark_class, baseline_method, suffix))
-    baseline_mean_ns = baseline[3] if baseline is not None else None
-    computed_ratio = None
-    if mean_ns is not None and baseline_mean_ns not in (None, 0):
-        computed_ratio = mean_ns / baseline_mean_ns
-
-    effective_ratio = computed_ratio if computed_ratio is not None else ratio
-    if effective_ratio is None or effective_ratio > limit:
-        ratio_display = ratio_text or "<missing>"
-        computed_display = f", ComputedMeanRatio={computed_ratio:.4f}" if computed_ratio is not None else ""
-        baseline_mean = baseline[2] if baseline is not None else "<missing>"
-        bad_ratios.append((key, suffix, ratio_display, limit, mean, baseline_mean, computed_display))
+    baseline = by_key.get((benchmark_class, baseline_methods[method], params))
+    baseline_median = baseline[3] if baseline is not None else None
+    ratio = None
+    if median_ns is not None and baseline_median not in (None, 0):
+        ratio = median_ns / baseline_median
+    if ratio is None or ratio > limit:
+        bad_ratios.append((key, params, ratio, limit, median_ns, baseline_median))
 
 if bad_ratios:
-    print("Systems N# benchmark throughput gate failed:", file=sys.stderr)
-    for (benchmark_class, method), suffix, ratio_text, limit, mean, baseline_mean, computed_display in bad_ratios:
-        print(f"  - {benchmark_class}.{method}{suffix}: Mean={mean}, BaselineMean={baseline_mean}, Ratio={ratio_text}{computed_display}, limit={limit:.2f}", file=sys.stderr)
+    print("Systems N# benchmark throughput gate failed (median):", file=sys.stderr)
+    for (benchmark_class, method), params, ratio, limit, median_ns, baseline_median in bad_ratios:
+        ratio_display = f"{ratio:.4f}" if ratio is not None else "<missing>"
+        print(f"  - {benchmark_class}.{method}{param_suffix(params)}: Median={fmt_time(median_ns)}, "
+              f"BaselineMedian={fmt_time(baseline_median)}, MedianRatio={ratio_display}, "
+              f"limit={limit:.2f}", file=sys.stderr)
     sys.exit(1)
 
 expected_total = sum(expected_counts.values())
-worst_ratios = [
-    (mean_ns / by_row[(key[0], baseline_methods[key[1]], suffix)][3], key, suffix, mean, ratio_text, allocated_text)
-    for key, suffix, mean, mean_ns, ratio_text, _ratio_value, allocated_text, _allocated in rows
-    if key in ratio_limits
-       and mean_ns is not None
-       and (key[0], baseline_methods[key[1]], suffix) in by_row
-       and by_row[(key[0], baseline_methods[key[1]], suffix)][3] not in (None, 0)
-]
+worst_ratios = []
+for key, params, _mean, median_ns, _allocated in rows:
+    if key not in ratio_limits or median_ns is None:
+        continue
+    benchmark_class, method = key
+    baseline = by_key.get((benchmark_class, baseline_methods[method], params))
+    baseline_median = baseline[3] if baseline is not None else None
+    if baseline_median in (None, 0):
+        continue
+    worst_ratios.append((median_ns / baseline_median, key, params, median_ns))
 worst_ratios.sort(reverse=True)
 
 print(f"Systems N# BenchmarkDotNet coverage: {len(rows)} rows; expected at least {expected_total}")
 print("Systems N# BenchmarkDotNet allocation gate: all rows allocated 0 B")
-print("Systems N# BenchmarkDotNet worst throughput ratios:")
-for ratio_value, (benchmark_class, method), suffix, mean, ratio_text, allocated_text in worst_ratios[:10]:
-    ratio_display = ratio_text or f"{ratio_value:.2f}"
-    print(f"  - {benchmark_class}.{method}{suffix}: Mean={mean}, Ratio={ratio_display}, Allocated={allocated_text}")
+print(f"Systems N# BenchmarkDotNet gating statistic: median (tolerance {RATIO_TOLERANCE:.2f})")
+print("Systems N# BenchmarkDotNet worst throughput ratios (median):")
+for ratio_value, (benchmark_class, method), params, median_ns in worst_ratios[:10]:
+    print(f"  - {benchmark_class}.{method}{param_suffix(params)}: Median={fmt_time(median_ns)}, MedianRatio={ratio_value:.4f}")
 
 print("Systems N# BenchmarkDotNet full row summary:")
-for key, suffix, mean, mean_ns, ratio, _ratio_value, allocated_text, _allocated in sorted(rows):
+for key, params, mean_ns, median_ns, allocated in sorted(rows, key=lambda r: (r[0], r[1])):
     benchmark_class, method = key
     computed = ""
     baseline_method = baseline_methods.get(method)
     if baseline_method is not None:
-        baseline = by_row.get((benchmark_class, baseline_method, suffix))
-        baseline_mean_ns = baseline[3] if baseline is not None else None
-        if mean_ns is not None and baseline_mean_ns not in (None, 0):
-            computed = f", ComputedRatio={mean_ns / baseline_mean_ns:.4f}"
-    print(f"  - {benchmark_class}.{method}{suffix}: Mean={mean}, Ratio={ratio or 'NA'}{computed}, Allocated={allocated_text}")
+        baseline = by_key.get((benchmark_class, baseline_method, params))
+        baseline_median = baseline[3] if baseline is not None else None
+        if median_ns is not None and baseline_median not in (None, 0):
+            computed = f", MedianRatio={median_ns / baseline_median:.4f}"
+    print(f"  - {benchmark_class}.{method}{param_suffix(params)}: Mean={fmt_time(mean_ns)}, "
+          f"Median={fmt_time(median_ns)}{computed}, Allocated={fmt_bytes(allocated)}")
 PY

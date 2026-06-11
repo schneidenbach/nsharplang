@@ -2625,7 +2625,7 @@ func Copy(): int {
         Assert.Contains("BenchmarkRun-*.log", script, StringComparison.Ordinal);
         Assert.Contains("Systems N# BenchmarkDotNet coverage:", script, StringComparison.Ordinal);
         Assert.Contains("Systems N# BenchmarkDotNet allocation gate: all rows allocated 0 B", script, StringComparison.Ordinal);
-        Assert.Contains("Systems N# BenchmarkDotNet worst throughput ratios:", script, StringComparison.Ordinal);
+        Assert.Contains("Systems N# BenchmarkDotNet worst throughput ratios (median):", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsFastGateBenchmarks\", \"NSharp\"): 6", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsHotPathBenchmarks\", \"NSharp\"): 16", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsSpanHandoffBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
@@ -2634,10 +2634,16 @@ func Copy(): int {
         Assert.Contains("(\"SystemsPooledBoundaryBenchmarks\", \"NSharp\"): 14", script, StringComparison.Ordinal);
         Assert.Contains("(\"SystemsCombinationBenchmarks\", \"NSharp\"): 20", script, StringComparison.Ordinal);
         Assert.Contains("key[1] in (\"NSharp\", \"RuntimeResult\")", script, StringComparison.Ordinal);
-        Assert.Contains("1.00", script, StringComparison.Ordinal);
+        Assert.Contains("RATIO_TOLERANCE = 1.05", script, StringComparison.Ordinal);
         Assert.Contains("allocated != 0", script, StringComparison.Ordinal);
-        Assert.Contains("effective_ratio = computed_ratio if computed_ratio is not None else ratio", script, StringComparison.Ordinal);
-        Assert.Contains("effective_ratio > limit", script, StringComparison.Ordinal);
+        // The throughput gate compares MEDIANs (robust to the thermal/load tail that only inflates the
+        // mean), sourced from BenchmarkDotNet's full JSON report. Pin the median wiring so the gate
+        // cannot silently regress back to a mean-based, load-flaky comparison.
+        Assert.Contains("--exporters json csv", script, StringComparison.Ordinal);
+        Assert.Contains("BytesAllocatedPerOperation", script, StringComparison.Ordinal);
+        Assert.Contains("gating statistic: median", script, StringComparison.Ordinal);
+        Assert.Contains("ratio = median_ns / baseline_median", script, StringComparison.Ordinal);
+        Assert.Contains("ratio > limit", script, StringComparison.Ordinal);
 
         var testAllCore = File.ReadAllText(Path.Combine(root, "tests", "scripts", "test-all-core.sh"));
         Assert.Contains("Step 3a: Systems BenchmarkDotNet Gate", testAllCore, StringComparison.Ordinal);
