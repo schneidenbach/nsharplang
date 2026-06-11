@@ -11,6 +11,39 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — SCALAR COMPLETENESS SC-4: small-int scalars + uint + constant conversion
+
+byte/sbyte/short/ushort/uint join the modelled scalar set. All are i4-slot types — loads sign/zero-extend
+by the storage type — so the SMALL INTS join char in the ECMA §12.4.7 **int-promotion set** (`IsIntPromotable`):
+ANY mix (`b + s`) promotes to int with NO conversion IL, and arithmetic/bitwise RESULTS are int (the
+existing char precedent, now generalized); comparisons run signed on the extended i4 values. **uint runs
+NATIVE u4 against itself**: unsigned div/rem (`Div_Un`) and unsigned ordering (`Clt_Un` — 4000000000 must
+order as large-positive), result uint.
+
+**Constant conversion** (`TryEmitIntLiteralAsType`): an UNSUFFIXED in-range int literal ADOPTS a
+small-int/uint/long/ulong target — C#'s implicit constant conversion — at typed-locals (`b: byte = 200`,
+`u: ulong = 10`), returns (`return 50` on byte), local/param reassignment, compound values (`u /= 3` —
+the SC-1 pin FLIPS), and binary RIGHT operands against a uint/long/ulong left (`l + 1`, `u / 2` — two
+old LongType pins flip; a literal LEFT operand still declines, pinned). Out-of-range = failed adoption →
+exact-type decline (the pipeline's NL202).
+
+**ORACLE DEFECT #12 (parity-harness-found, probe-confirmed):** uint locals initialized with literals
+ABOVE int.MaxValue mis-evaluate in the pipeline — `u: uint = 4000000000; u / 2` returned 4147483648 (the
+SIGNED-division bit pattern; columnar's unsigned 2000000000 is the correct value) and `print u / 2`
+dropped the line entirely. uint PARAMS carry large values correctly on both sides. Columnar caps uint
+literal adoption at int.MaxValue so it never diverges; queued for the oracle bundle.
+
+Parity: `ColumnarCodegen_Parity_SmallIntScalars` (13 functions, 15 invocations: promotion incl. mixed
+small-int pairs, byte locals/returns/reassignment, ushort unsigned-range compares, sbyte flows, uint
+native div/ordering with large params, ulong/long adoption) + 6 decline pins (out-of-range, negative
+literals — unary-minus shapes are the widening rung, non-literal narrowing, casts, int/uint mixing,
+the defect-#12 shape); three stale pins flipped. 287/287; gate green (see commit).
+
+REMAINING scalar rungs: SC-5 widening/implicit conversions (negative-literal adoption, int→long at flow
+sites, mixed ternary arms, literal LEFT operands, casts incl. small-int conv.u1/i2), SC-6 decimal.
+
+---
+
 ## 2026-06-11 — SCALAR COMPLETENESS SC-2: postfix `++`/`--`
 
 Kernel kind **44 PostfixUnary** (Increment 113 / Decrement 114 — verified by reflection; operator token

@@ -566,6 +566,9 @@ public sealed class ColumnarIlEmitter
     private static bool IsSupportedType(Type t) =>
         t == typeof(int) || t == typeof(bool) || t == typeof(long) || t == typeof(ulong)
         || t == typeof(string) || t == typeof(char) || t == typeof(double) || t == typeof(float)
+        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
+        || t == typeof(uint)                      // small ints + uint (SC-4): i4-slot scalars; arithmetic
+                                                  // promotes small ints to INT (ECMA §12.4.7), uint runs native u4
         || t == typeof(System.Text.StringBuilder)
         || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
         || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
@@ -3220,6 +3223,10 @@ public sealed class ColumnarIlEmitter
                     if (!EmitAdoptedUnionConstruction(retNode, _returnType, out retType))
                         return false;
                 }
+                else if (TryEmitIntLiteralAsType(retNode, _returnType, out retType))
+                {
+                    // `return 50` on a byte/uint/long/ulong function — the literal adopts the return type.
+                }
                 else if (!EmitExpression(retNode, out retType))
                 {
                     return false;
@@ -3316,6 +3323,10 @@ public sealed class ColumnarIlEmitter
                     if (!EmitAdoptedUnionConstruction(declaredInit, declaredType, out var adoptedType)
                         || !TypesEquivalent(adoptedType, declaredType))
                         return false;
+                }
+                else if (TryEmitIntLiteralAsType(declaredInit, declaredType, out _))
+                {
+                    // `b: byte = 200` / `u: ulong = 10` — the in-range literal adopts the declared type.
                 }
                 else if (!EmitExpression(declaredInit, out var declaredInitType) || !TypesEquivalent(declaredInitType, declaredType))
                 {
@@ -3474,7 +3485,9 @@ public sealed class ColumnarIlEmitter
                         _il.Emit(OpCodes.Ldloc, compoundLocal);
                     else
                         EmitLoadArgument(compoundParamOrdinal);
-                    if (!EmitExpression(Child(expr, 1), out var compoundValueType) || !TypesEquivalent(compoundValueType, compoundType))
+                    // `u /= 3` — an in-range int literal adopts the target's type (C# constant conversion).
+                    if (!TryEmitIntLiteralAsType(Child(expr, 1), compoundType, out var compoundValueType)
+                        && (!EmitExpression(Child(expr, 1), out compoundValueType) || !TypesEquivalent(compoundValueType, compoundType)))
                         return false;
 
                     if (compoundType == typeof(string))
@@ -3641,6 +3654,10 @@ public sealed class ColumnarIlEmitter
                         if (!EmitAdoptedUnionConstruction(Child(expr, 1), assignTarget.LocalType, out valueType))
                             return false;
                     }
+                    else if (TryEmitIntLiteralAsType(Child(expr, 1), assignTarget.LocalType, out valueType))
+                    {
+                        // `b = 5` on a byte/uint/long/ulong local — constant conversion.
+                    }
                     else if (!EmitExpression(Child(expr, 1), out valueType))
                     {
                         return false;
@@ -3660,6 +3677,10 @@ public sealed class ColumnarIlEmitter
                     {
                         if (!EmitAdoptedUnionConstruction(Child(expr, 1), _paramTypes[targetName], out paramValueType))
                             return false;
+                    }
+                    else if (TryEmitIntLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType))
+                    {
+                        // constant conversion onto the param's declared type.
                     }
                     else if (!EmitExpression(Child(expr, 1), out paramValueType))
                     {
@@ -4320,8 +4341,20 @@ public sealed class ColumnarIlEmitter
 
                 if (!EmitExpression(Child(idx, 0), out var leftType))
                     return false;
-                if (!EmitExpression(Child(idx, 1), out var rightType))
+                // The RIGHT operand: an unsuffixed int literal against a uint/long/ulong LEFT adopts the
+                // left's type (C#'s constant conversion — `u / 2`, `l + 5`); the left emits first, so this
+                // is well-ordered. A literal LEFT against a typed right cannot adopt (the left is already
+                // on the stack) — those mixes decline below, pinned for the widening slice.
+                Type rightType;
+                if ((leftType == typeof(uint) || leftType == typeof(long) || leftType == typeof(ulong))
+                    && TryEmitIntLiteralAsType(Child(idx, 1), leftType, out rightType))
+                {
+                    // adopted — rightType == leftType.
+                }
+                else if (!EmitExpression(Child(idx, 1), out rightType))
+                {
                     return false;
+                }
 
                 // Shifts are special: the value is int/long, the shift COUNT is always int (not necessarily the
                 // value's type), and the result is the value's type. Shr is the SIGNED (arithmetic) right shift,
@@ -4339,14 +4372,16 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                // NUMERIC PROMOTION (ECMA §12.4.7) for the modelled int-like types: int and char are BOTH i4 on
-                // the stack, so a char/int mix promotes both to int with NO conversion IL (e.g. `c * (i + 1)` is
-                // int). long/ulong/bool/string do NOT auto-promote (an int/long mix would need a conv) — they must
-                // match exactly. `opType` is the type the operation runs as.
+                // NUMERIC PROMOTION (ECMA §12.4.7) for the modelled int-like types: int, char, and the SMALL
+                // INTS (byte/sbyte/short/ushort) are ALL i4 on the stack (the load sign/zero-extends by the
+                // storage type), so ANY mix of them promotes to int with NO conversion IL (`b + s` is int,
+                // exactly C#). long/ulong/uint/bool/string do NOT auto-promote (int/long needs a conv; uint
+                // runs native u4 against itself only) — they must match exactly. `opType` is the type the
+                // operation runs as; a same-type small-int pair promotes its RESULT to int below.
                 Type opType;
                 if (leftType == rightType)
                     opType = leftType;
-                else if ((leftType == typeof(int) || leftType == typeof(char)) && (rightType == typeof(int) || rightType == typeof(char)))
+                else if (IsIntPromotable(leftType) && IsIntPromotable(rightType))
                     opType = typeof(int);
                 else
                     return false;
@@ -4369,30 +4404,35 @@ public sealed class ColumnarIlEmitter
                         // throw, matching the C# path), so double is NOT unsignedDivRem. Integer divide-by-zero /
                         // INT_MIN÷-1 still throw exactly as the C# path does. A CHAR result promotes to INT (a char
                         // never survives an arithmetic op — `c - 'A'` is int; matches Analyzer.cs:12820's GetWiderType).
-                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char) && opType != typeof(double) && opType != typeof(float)) return false;
-                        var unsignedDivRem = opType == typeof(ulong);
+                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
+                        var unsignedDivRem = opType == typeof(ulong) || opType == typeof(uint);
                         _il.Emit(
                             op == "+" ? OpCodes.Add :
                             op == "-" ? OpCodes.Sub :
                             op == "*" ? OpCodes.Mul :
                             op == "/" ? (unsignedDivRem ? OpCodes.Div_Un : OpCodes.Div) :
                             (unsignedDivRem ? OpCodes.Rem_Un : OpCodes.Rem));
-                        type = opType == typeof(char) ? typeof(int) : opType;
+                        // char and the small ints never survive an arithmetic op — the result is INT (C#'s
+                        // promoted result, matching Analyzer.cs GetWiderType); uint stays uint (u4 native).
+                        type = IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "&": case "|": case "^":
-                        // Bitwise on int/long/ulong (And/Or/Xor work on i4 and i8); result is `opType` (a char/int
-                        // mix is opType=int, so `c & mask` works; a pure char&char declines as i4-but-not-int).
-                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong)) return false;
+                        // Bitwise on the int-promotable set (result INT — C# promotes), long, ulong, or uint
+                        // (And/Or/Xor work on i4 and i8 alike).
+                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint)) return false;
                         _il.Emit(op == "&" ? OpCodes.And : op == "|" ? OpCodes.Or : OpCodes.Xor);
-                        type = opType;
+                        type = IsIntPromotable(opType) ? typeof(int) : opType;
                         return true;
                     case "<": case ">": case "<=": case ">=":
                         // Ordering on int, long, char (signed Clt/Cgt; a char is a non-negative i4 so signed is
                         // correct), ulong (UNSIGNED Clt_Un/Cgt_Un — a ulong > long.MaxValue must compare as a large
                         // positive, not a negative i8), or double (ORDERED Clt/Cgt for `<`/`>`; the UNORDERED
                         // complement for `<=`/`>=` so a NaN operand yields false — see EmitComparison's isFloat path).
-                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(char) && opType != typeof(double) && opType != typeof(float)) return false;
-                        EmitComparison(op, opType == typeof(ulong), opType == typeof(double) || opType == typeof(float));
+                        // The int-promotable set compares SIGNED on i4 (the load's sign/zero extension makes
+                        // every small-int value its true integer — ushort 60000 is a positive i4); uint joins
+                        // ulong on the UNSIGNED compares (4000000000 must order as large-positive).
+                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(double) && opType != typeof(float)) return false;
+                        EmitComparison(op, opType == typeof(ulong) || opType == typeof(uint), opType == typeof(double) || opType == typeof(float));
                         type = typeof(bool);
                         return true;
                     case "==": case "!=":
@@ -4408,7 +4448,7 @@ public sealed class ColumnarIlEmitter
                         // Equality on int, long, ulong, bool, char, double, or float (Ceq is bit-identical
                         // signed/unsigned; on double/float it is the IEEE ordered equal — NaN == NaN is false and
                         // NaN != NaN is true, which the `!=` negation of Ceq produces correctly).
-                        if (opType != typeof(int) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(bool) && opType != typeof(char) && opType != typeof(double) && opType != typeof(float)) return false;
+                        if (!IsIntPromotable(opType) && opType != typeof(long) && opType != typeof(ulong) && opType != typeof(uint) && opType != typeof(bool) && opType != typeof(double) && opType != typeof(float)) return false;
                         EmitComparison(op);
                         type = typeof(bool);
                         return true;
@@ -6021,6 +6061,61 @@ public sealed class ColumnarIlEmitter
             default:
                 return null;
         }
+    }
+
+    // The ECMA §12.4.7 int-promotion set: i4-slot scalars whose arithmetic/bitwise results are INT.
+    private static bool IsIntPromotable(Type t) =>
+        t == typeof(int) || t == typeof(char)
+        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort);
+
+    // An UNSUFFIXED int literal ADOPTS a small-int/uint/long/ulong target when its value fits — C#'s
+    // implicit constant conversion (`b: byte = 200`, `u: ulong = 10`, `return 50` on a byte function).
+    // Small ints + uint load as i4 (uint over int.MaxValue wraps the bit pattern, the standard emit);
+    // long/ulong load as i8. Suffixed literals, out-of-range values (the pipeline's NL202), and
+    // non-literal nodes return false — the caller falls through to its normal exact-type path.
+    private bool TryEmitIntLiteralAsType(int node, Type target, out Type type)
+    {
+        type = null!;
+        if (_kinds[node] != 0 || _valueStarts[node] < 0)
+            return false;
+        var text = Text(node);
+        if (text.Length == 0 || text[^1] is 'u' or 'U' or 'l' or 'L')
+            return false; // a suffixed literal has its own fixed type.
+        if (!ulong.TryParse(text, out var value))
+            return false;
+        if (target == typeof(byte) || target == typeof(sbyte) || target == typeof(short)
+            || target == typeof(ushort) || target == typeof(uint))
+        {
+            // uint caps at int.MaxValue, NOT uint.MaxValue: the PIPELINE mis-evaluates uint locals
+            // initialized with literals above int.MaxValue (`u: uint = 4000000000; u / 2` returned the
+            // signed-division bit pattern 4147483648, and `print u / 2` dropped the line entirely —
+            // oracle defect bundle #12, probe-confirmed); columnar declines those so it never diverges.
+            var max = target == typeof(byte) ? (ulong)byte.MaxValue
+                : target == typeof(sbyte) ? (ulong)sbyte.MaxValue
+                : target == typeof(short) ? (ulong)short.MaxValue
+                : target == typeof(ushort) ? (ulong)ushort.MaxValue
+                : (ulong)int.MaxValue;
+            if (value > max)
+                return false;
+            _il.Emit(OpCodes.Ldc_I4, unchecked((int)value));
+            type = target;
+            return true;
+        }
+        if (target == typeof(long))
+        {
+            if (value > long.MaxValue)
+                return false;
+            _il.Emit(OpCodes.Ldc_I8, (long)value);
+            type = target;
+            return true;
+        }
+        if (target == typeof(ulong))
+        {
+            _il.Emit(OpCodes.Ldc_I8, unchecked((long)value));
+            type = target;
+            return true;
+        }
+        return false;
     }
 
     // Postfix `++`/`--` (kind 44) on a bare LOCAL/PARAM of int/long/ulong: load, step by one, store —

@@ -2328,9 +2328,11 @@ class B
             ("twiceL", new object[] { big }),
             ("factL", new object[] { 1L }), ("factL", new object[] { 13L }), ("factL", new object[] { 20L }));
 
-        // DECLINES: mixed int/long (implicit widening not modelled) and unsigned ulong literal.
-        Assert.False(RouteColumnarProgram("func mix(a: long): long {\n    return a + 1\n}\n").Ok);
-        Assert.False(RouteColumnarProgram("func u(): ulong {\n    return 5\n}\n").Ok);
+        // (`a + 1` on a long and `return 5` on a ulong are now ACCEPTED via the SC-4 constant-conversion
+        // rule — an unsuffixed in-range int literal adopts uint/long/ulong targets at binary right
+        // operands, returns, typed-locals, reassignments, and compound values; see
+        // ColumnarCodegen_Parity_SmallIntScalars. A literal LEFT operand (`1 + a`) still declines.)
+        Assert.False(RouteColumnarProgram("func mixL(a: long): long {\n    return 1 + a\n}\n").Ok);
     }
 
     // Integer/long DIVISION and MODULO (signed Div/Rem). Negative operands exercise C#-matching truncation
@@ -4017,6 +4019,68 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // SCALAR COMPLETENESS SC-4 (Phase D) — SMALL-INT SCALARS (byte/sbyte/short/ushort) + uint. All are
+    // i4-slot types: loads sign/zero-extend by the storage type, so the small ints join char in the ECMA
+    // §12.4.7 INT-PROMOTION set (any mix — `b + s` — promotes to int with NO conversion IL; arithmetic,
+    // bitwise and comparison results follow C# exactly); uint runs NATIVE u4 against itself (unsigned
+    // div/rem/compares, result uint). UNSUFFIXED in-range int literals ADOPT small-int/uint/long/ulong
+    // targets (C#'s implicit constant conversion — `b: byte = 200`, `u: ulong = 10`, `return 50`) at
+    // typed-locals, returns, reassignments, and compound values; out-of-range literals are the pipeline's
+    // NL202 (columnar declines via the failed adoption + exact-type check).
+    [Fact]
+    public void ColumnarCodegen_Parity_SmallIntScalars()
+    {
+        var prog =
+            "func addBytes(a: byte, b: byte): int {\n    return a + b\n}\n\n" +
+            "func mixedPromotion(b: byte, s: short): int {\n    return b + s\n}\n\n" +
+            "func byteLocals(): int {\n    x: byte = 200\n    y: byte = 100\n    return x + y\n}\n\n" +
+            "func byteReturn(): byte {\n    return 50\n}\n\n" +
+            "func byteReassign(): int {\n    b: byte = 1\n    b = 5\n    return b + 0\n}\n\n" +
+            "func shortNegFlow(s: short): int {\n    return s + 1\n}\n\n" +
+            "func ushortCompare(a: ushort, b: ushort): bool {\n    return a < b\n}\n\n" +
+            "func sbyteFlow(v: sbyte): int {\n    return v + 100\n}\n\n" +
+            // uint NATIVE arithmetic: unsigned divide + unsigned ordering (4000000000 is large-positive).
+            "func uintDiv(u: uint, d: uint): uint {\n    return u / d\n}\n\n" +
+            "func uintOrder(a: uint, b: uint): bool {\n    return a < b\n}\n\n" +
+            "func uintLocal(): uint {\n    u: uint = 1000000\n    return u / 3\n}\n\n" +
+            // ulong/long literal adoption (typed-local + compound — the SC-1 pin flips).
+            "func ulongAdopt(): ulong {\n    u: ulong = 10\n    u /= 3\n    return u\n}\n\n" +
+            "func longAdopt(): long {\n    l: long = 5\n    l += 2\n    return l\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("addBytes", new object[] { (byte)200, (byte)100 }),
+            ("mixedPromotion", new object[] { (byte)5, (short)-300 }),
+            ("byteLocals", System.Array.Empty<object>()),
+            ("byteReturn", System.Array.Empty<object>()),
+            ("byteReassign", System.Array.Empty<object>()),
+            ("shortNegFlow", new object[] { (short)-300 }),
+            ("ushortCompare", new object[] { (ushort)60000, (ushort)1 }),
+            ("ushortCompare", new object[] { (ushort)1, (ushort)60000 }),
+            ("sbyteFlow", new object[] { (sbyte)-100 }),
+            ("uintDiv", new object[] { 4000000000U, 3U }),
+            ("uintOrder", new object[] { 4000000000U, 5U }),
+            ("uintOrder", new object[] { 5U, 4000000000U }),
+            ("uintLocal", System.Array.Empty<object>()),
+            ("ulongAdopt", System.Array.Empty<object>()),
+            ("longAdopt", System.Array.Empty<object>()));
+
+        // DECLINES:
+        // a uint literal ABOVE int.MaxValue (`u: uint = 4000000000`): the PIPELINE mis-evaluates the
+        // shape (signed-division bit patterns, dropped prints — oracle defect bundle #12, probe-confirmed);
+        // columnar declines so it never diverges. uint PARAMS carry large values correctly on both sides.
+        Assert.False(RouteColumnarProgram("func f(): uint {\n    u: uint = 4000000000\n    return u / 2\n}\n").Ok);
+        // an OUT-OF-RANGE literal (`b: byte = 300` is the pipeline's NL202).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    b: byte = 300\n    return b + 0\n}\n").Ok);
+        // a NEGATIVE literal initializer (`s: short = -300` — unary minus wraps the literal; the
+        // constant-conversion rule reads bare literals only — the widening slice).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    s: short = -300\n    return s + 0\n}\n").Ok);
+        // NARROWING a non-literal (`b = n` from an int — the pipeline requires an explicit cast, NL202).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    b: byte = 1\n    b = n\n    return b + 0\n}\n").Ok);
+        // explicit small-int CASTS (`(byte)n`) are not modelled yet (the casts rung).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    b := (byte)n\n    return b + 0\n}\n").Ok);
+        // int/uint MIXING needs a conversion (`i + u` is the pipeline's promoted-to-long in C#; unmodelled).
+        Assert.False(RouteColumnarProgram("func f(i: int, u: uint): bool {\n    return i < u\n}\n").Ok);
+    }
+
     // SCALAR COMPLETENESS SC-2 (Phase D) — POSTFIX `++`/`--` (kernel kind 44 PostfixUnary, single wrap
     // after the suffix chain). Statement position steps in place; expression position keeps the PRE-step
     // value (C# post-semantics, probe-pinned: `m := n++` reads the old n). int/long/ulong on bare
@@ -4090,9 +4154,8 @@ class B
         Assert.False(RouteColumnarProgram("func f(): int {\n    a := [1, 2, 3]\n    a[0] += 5\n    return a[0]\n}\n").Ok);
         // `??=` (the nullability slice).
         Assert.False(RouteColumnarProgram("func f(s: string): string {\n    s ??= \"d\"\n    return s\n}\n").Ok);
-        // an INT-LITERAL compound value on a ulong target (`u /= 3` — the pipeline implicitly types the
-        // literal; columnar literal-typing is the widening slice).
-        Assert.False(RouteColumnarProgram("func f(u: ulong): ulong {\n    u /= 3\n    return u\n}\n").Ok);
+        // (an INT-LITERAL compound value on a ulong target — `u /= 3` — is now ACCEPTED via the SC-4
+        // constant-conversion rule; see ColumnarCodegen_Parity_SmallIntScalars.)
         // a MISMATCHED compound value type (`int += double` is NL202-rejected by the pipeline).
         Assert.False(RouteColumnarProgram("func f(): int {\n    n := 5\n    n += 1.5\n    return n\n}\n").Ok);
     }
