@@ -1830,6 +1830,21 @@ public sealed class ColumnarIlEmitter
             type = null!;
             return false;
         }
+        // A `?` suffix on a REFERENCE type (`string?`, `Box?`) is annotation-only at runtime — the
+        // nullable tracking lives in the analyzer; the CLR type is the element itself. A VALUE-type `?`
+        // (int? = Nullable<T>) is a real different runtime type — that is the N2 rung; decline here.
+        if (canonical.EndsWith("?", StringComparison.Ordinal))
+        {
+            var nullableElement = canonical.Substring(0, canonical.Length - 1);
+            if (TryResolveType(nullableElement, enumRegistry, structRegistry, unionRegistry, out var elementResolved)
+                && !elementResolved.IsValueType)
+            {
+                type = elementResolved;
+                return true;
+            }
+            type = null!;
+            return false;
+        }
         // StringBuilder — the modelled mutable reference type — is a valid param/return/local type (a builder is
         // commonly passed IN to an append helper, e.g. AppendQuotedDiagnosticCommandArgument(builder, value)). It
         // is resolved here (param/return/local), NOT in TryResolveBuiltin, so `StringBuilder[]` stays unsupported
@@ -3236,6 +3251,10 @@ public sealed class ColumnarIlEmitter
                 {
                     // `return 50` on a byte/uint/long/ulong function — the literal adopts the return type.
                 }
+                else if (TryEmitNullLiteralAsType(retNode, _returnType, out retType))
+                {
+                    // `return null` on a reference-typed function.
+                }
                 else if (!EmitExpression(retNode, out retType))
                 {
                     return false;
@@ -3336,6 +3355,10 @@ public sealed class ColumnarIlEmitter
                 else if (TryEmitIntLiteralAsType(declaredInit, declaredType, out _))
                 {
                     // `b: byte = 200` / `u: ulong = 10` — the in-range literal adopts the declared type.
+                }
+                else if (TryEmitNullLiteralAsType(declaredInit, declaredType, out _))
+                {
+                    // `s: string? = null` (a `?`-annotated reference resolves to its element type).
                 }
                 else
                 {
@@ -3677,6 +3700,10 @@ public sealed class ColumnarIlEmitter
                     {
                         // `b = 5` on a byte/uint/long/ulong local — constant conversion.
                     }
+                    else if (TryEmitNullLiteralAsType(Child(expr, 1), assignTarget.LocalType, out valueType))
+                    {
+                        // `s = null` on a reference-typed local.
+                    }
                     else if (!EmitExpression(Child(expr, 1), out valueType))
                     {
                         return false;
@@ -3700,6 +3727,10 @@ public sealed class ColumnarIlEmitter
                     else if (TryEmitIntLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType))
                     {
                         // constant conversion onto the param's declared type.
+                    }
+                    else if (TryEmitNullLiteralAsType(Child(expr, 1), _paramTypes[targetName], out paramValueType))
+                    {
+                        // `s = null` on a reference-typed param.
                     }
                     else if (!EmitExpression(Child(expr, 1), out paramValueType))
                     {
@@ -4373,6 +4404,51 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
+                // NULL comparisons (`s == null` / `s != null`) and `??` COALESCING on REFERENCE types:
+                // handled BEFORE the operand pair (a bare null has no self-type to unify). The null
+                // literal as a LEFT operand (`null == s`) also works — both orders emit ldnull + ceq.
+                if ((op == "==" || op == "!=") && (_kinds[Child(idx, 0)] == 5 || _kinds[Child(idx, 1)] == 5))
+                {
+                    var valueNode = _kinds[Child(idx, 0)] == 5 ? Child(idx, 1) : Child(idx, 0);
+                    if (_kinds[valueNode] == 5)
+                    {
+                        // null == null is constant true (the pipeline folds the same way at runtime).
+                        _il.Emit(OpCodes.Ldc_I4, op == "==" ? 1 : 0);
+                        type = typeof(bool);
+                        return true;
+                    }
+                    if (!EmitExpression(valueNode, out var nullCmpType) || nullCmpType.IsValueType)
+                        return false; // value types never compare to null here (Nullable<T> is the N2 rung).
+                    _il.Emit(OpCodes.Ldnull);
+                    _il.Emit(OpCodes.Ceq);
+                    if (op == "!=")
+                    {
+                        _il.Emit(OpCodes.Ldc_I4_0);
+                        _il.Emit(OpCodes.Ceq);
+                    }
+                    type = typeof(bool);
+                    return true;
+                }
+                if (op == "??")
+                {
+                    // `a ?? b` on REFERENCE types: `<a>; dup; brtrue end; pop; <b>; end:` — the exact
+                    // C# lowering. Both sides must share one reference type (TypesEquivalent); a NULL
+                    // literal right (`a ?? null`) keeps the left's type. Nullable<T> lefts are N2.
+                    if (!EmitExpression(Child(idx, 0), out var coalesceLeft) || coalesceLeft.IsValueType)
+                        return false;
+                    var coalesceEnd = _il.DefineLabel();
+                    _il.Emit(OpCodes.Dup);
+                    _il.Emit(OpCodes.Brtrue, coalesceEnd);
+                    _il.Emit(OpCodes.Pop);
+                    if (_kinds[Child(idx, 1)] == 5)
+                        _il.Emit(OpCodes.Ldnull);
+                    else if (!EmitExpression(Child(idx, 1), out var coalesceRight) || !TypesEquivalent(coalesceRight, coalesceLeft))
+                        return false;
+                    _il.MarkLabel(coalesceEnd);
+                    type = coalesceLeft;
+                    return true;
+                }
+
                 if (!EmitExpression(Child(idx, 0), out var leftType))
                     return false;
                 // The RIGHT operand: an unsuffixed int literal against a uint/long/ulong LEFT adopts the
@@ -4593,7 +4669,12 @@ public sealed class ColumnarIlEmitter
                                     return false;
                                 continue;
                             }
-                            if (!EmitExpression(argNode, out var argType))
+                            Type argType;
+                            if (TryEmitNullLiteralAsType(argNode, target.ParamTypes[a - 1], out argType))
+                            {
+                                continue; // a NULL argument onto a reference-typed param.
+                            }
+                            if (!EmitExpression(argNode, out argType))
                                 return false;
                             if (!TypesEquivalent(argType, target.ParamTypes[a - 1]) && !TryEmitImplicitWidening(argType, target.ParamTypes[a - 1]))
                                 return false;
@@ -6209,6 +6290,19 @@ public sealed class ColumnarIlEmitter
         _il.Emit(OpCodes.Ldc_I4, (bits[3] >> 16) & 0xFF);
         _il.Emit(OpCodes.Newobj, typeof(decimal).GetConstructor(new[] { typeof(int), typeof(int), typeof(int), typeof(bool), typeof(byte) })!);
         type = typeof(decimal);
+        return true;
+    }
+
+    // A bare NULL literal (kind 5) adopts any REFERENCE-typed target (`return null` on a string
+    // function, `s = null`, a null argument) — C#'s null-assignability for the modelled set. Value-typed
+    // targets decline (Nullable<T> is the N2 rung).
+    private bool TryEmitNullLiteralAsType(int node, Type target, out Type type)
+    {
+        type = null!;
+        if (_kinds[node] != 5 || target.IsValueType)
+            return false;
+        _il.Emit(OpCodes.Ldnull);
+        type = target;
         return true;
     }
 

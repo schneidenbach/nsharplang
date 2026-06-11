@@ -2098,7 +2098,8 @@ class B
 
         // Declines (no assembly) on forms the spike does not support yet -> the C# path is unaffected.
         Assert.False(RouteColumnarEmit("func two(): int {\n    return 1\n}\n\nfunc other(): int {\n    return 2\n}\n").Ok);
-        Assert.False(RouteColumnarEmit("func arr(): string[] {\n    return null\n}\n").Ok);
+        // (`return null` on a reference-typed function — incl. arrays — is now ACCEPTED via the N1
+        // null-adoption rule; see ColumnarCodegen_Parity_NullAndCoalesce.)
         // MIXED int/long arithmetic (implicit widening) is not modelled -> decline (pure int/bool/long are now
         // supported; long single-function coverage lives in ColumnarCodegen_Parity_LongType).
         Assert.False(RouteColumnarEmit("func mix(a: int, b: long): long {\n    return a + b\n}\n").Ok);
@@ -4017,6 +4018,48 @@ class B
         // duplicates; the signature guard compares via TypesEquivalent (two Opt<int> instantiations are
         // referentially distinct — adversarial-review finding: raw != would emit BOTH ctor rows).
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
+    // NULL & NULLABLE N1 (Phase D) — null literals, REFERENCE-type nullability, and `??` coalescing.
+    // `string?` annotations resolve to their element type (annotation-only at runtime — the nullable
+    // tracking is the analyzer's); a bare NULL literal adopts any reference-typed target (returns,
+    // typed-locals, reassignment, param stores, call args); `s == null`/`!= null` emit ldnull+ceq (both
+    // operand orders); `a ?? b` lowers dup/brtrue/pop — the exact C# shapes. Nullable VALUE types
+    // (int? = Nullable<T>) are the N2 rung — declined, pinned.
+    [Fact]
+    public void ColumnarCodegen_Parity_NullAndCoalesce()
+    {
+        var prog =
+            "func pick(s: string?): string {\n    return s ?? \"default\"\n}\n\n" +
+            "func viaNull(): string {\n    return pick(null)\n}\n\n" +
+            "func viaReal(): string {\n    return pick(\"real\")\n}\n\n" +
+            "func isNull(s: string?): bool {\n    return s == null\n}\n\n" +
+            "func notNull(s: string?): bool {\n    return null != s\n}\n\n" +
+            "func mkNull(): string? {\n    return null\n}\n\n" +
+            "func chainNull(): bool {\n    s: string? = null\n    t := mkNull()\n    return isNull(s) && isNull(t)\n}\n\n" +
+            "func reassignNull(s: string): bool {\n    v: string? = s\n    v = null\n    return v == null\n}\n\n" +
+            "func coalesceChain(a: string?, b: string?): string {\n    return a ?? b ?? \"last\"\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("viaNull", System.Array.Empty<object>()),
+            ("viaReal", System.Array.Empty<object>()),
+            ("isNull", new object?[] { null }), ("isNull", new object[] { "x" }),
+            ("notNull", new object?[] { null }), ("notNull", new object[] { "x" }),
+            ("chainNull", System.Array.Empty<object>()),
+            ("reassignNull", new object[] { "y" }),
+            ("coalesceChain", new object?[] { null, null }),
+            ("coalesceChain", new object?[] { null, "b" }),
+            ("coalesceChain", new object[] { "a", "b" }));
+
+        // DECLINES:
+        // NULLABLE VALUE types (`int?` = Nullable<T> — a real different runtime type; the N2 rung).
+        Assert.False(RouteColumnarProgram("func f(n: int?): int {\n    return n ?? 0\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(): int {\n    n: int? = 5\n    return n ?? 0\n}\n").Ok);
+        // `??` with a VALUE-typed left (meaningless on non-nullables; the pipeline rejects).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    return n ?? 0\n}\n").Ok);
+        // `must` (the dedicated null-assertion operator — a later rung).
+        Assert.False(RouteColumnarProgram("func f(s: string?): string {\n    return s must\n}\n").Ok);
+        // a VALUE-type null comparison (`n == null` on int — the pipeline rejects).
+        Assert.False(RouteColumnarProgram("func f(n: int): bool {\n    return n == null\n}\n").Ok);
     }
 
     // STRINGS slice 3 (Phase D) — the INTERPOLATION DECLINE GUARD + static-init escape decode. An

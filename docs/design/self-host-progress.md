@@ -11,6 +11,26 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — NULL & NULLABLE N1: null literals, reference nullability, `??` coalescing
+
+The null arc opens. The kernel ALWAYS parsed the surface (null literal = kind 5; `??` = the precedence-1
+binary op) — N1 is emitter + type-resolution work. **`T?` on a REFERENCE type resolves to its element**
+(`string?` → string — annotation-only at runtime; the nullable TRACKING is the analyzer's side); a
+VALUE-type `?` (int? = Nullable<T>, a real different runtime type) declines — the N2 rung, pinned.
+**A bare NULL literal adopts any reference-typed target** (returns — incl. arrays, a flipped spike pin —
+typed-locals, reassignment, param stores, sibling-call args). **Null comparisons** (`s == null`,
+`null != s` — both operand orders) emit ldnull+ceq; `null == null` folds constant. **`??`** lowers
+`dup; brtrue; pop` — the exact C# shape — with TypesEquivalent-unified reference arms and chained
+right-associativity (`a ?? b ?? "last"`).
+
+Parity: `ColumnarCodegen_Parity_NullAndCoalesce` (9 functions, 11 invocations) + 5 decline pins
+(Nullable<T> shapes ×2, value-typed `??`, `must`, value-type null compares); one stale spike pin
+flipped. 294/294; gate green (see commit). REMAINING null rungs: N2 Nullable<T> value types
+(HasValue/GetValueOrDefault machinery, `int? = 5` lifting, `n ?? 0` lowering), `must`, is/as (kernel
+parse work).
+
+---
+
 ## 2026-06-11 — STRINGS slice 3: the interpolation DECLINE GUARD + interpolated-text escapes
 
 The interpolation machinery map (2-agent workflow) found **live soundness bugs, probe-verified**: an
