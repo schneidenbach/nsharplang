@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — SCALAR COMPLETENESS SC-6: decimal — THE SCALAR ARC CLOSES
+
+decimal joins the modelled set (builtin + IsSupportedType — a baked VALUE struct, not an IL primitive).
+**Literals** (`2.5m` kind-1, `5m` kind-0 — the kernel always lexed the suffix through) emit the
+bits-decomposed 5-arg Decimal ctor (lo/mid/hi/isNegative/scale — exact, never via double; 2.5m + 0.1m
+is 2.6 exactly). **Arithmetic/comparisons/negate** call System.Decimal's op_* statics (op_Addition …
+op_Inequality, op_UnaryNegation); **compound assignment** lowers through the same operators; **casts**
+route through op_Implicit (from int-family) / op_Explicit (from double/float, and decimal→anything) —
+the exact C# emit throughout.
+
+**ORACLE DEFECT #15 (probe-confirmed standalone):** the pipeline emits INVALID IL for compound decimal
+assignment — `d := 10m; d += 2.5m` is InvalidProgramException at JIT. Columnar's op_*-lowered emit is
+CORRECT (probed 5.0 through the four-op sequence) — per the don't-degrade-correct-columnar doctrine the
+compound case is pinned ROUTE-ONLY (columnar emit + direct invocation = 5.0m) until the oracle is fixed.
+
+Parity: `ColumnarCodegen_Parity_Decimal` (10 parity functions, 12 invocations + the route-only compound
+pin) + 3 decline pins (`d: decimal = 1.5` NL202, decimal `++`, mixed decimal/int-literal arithmetic);
+one stale pin updated (the multi-function ineligibility example now uses a 2-D array — decimal is no
+longer ineligible). 289/289; gate green (see commit).
+
+**THE SCALAR ARC IS COMPLETE** (SC-1+3 compound/ternary `bfd517c9`, SC-2 postfix `210dd072`, SC-4 small
+ints `b2145312`, SC-5 widening/casts `3cdf0504`, SC-6 decimal — five gated commits; FIVE oracle defects
+found by probes/parity along the way, the bundle now at 15). NEXT (retirement-map queue): STRINGS (full
+escapes, typed host boundary design slice), then null & nullable — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-11 — SCALAR COMPLETENESS SC-5: implicit widening + negative literals + the full cast grid
 
 **Implicit widening** (`TryEmitImplicitWidening` — C#'s implicit numeric conversions emitted on the

@@ -2225,9 +2225,9 @@ class B
         AssertColumnarProgramMatchesCSharp("func id(x: int): int {\n    return x\n}\n",
             ("id", new object[] { 42 }), ("id", new object[] { -7 }));
 
-        // The whole program declines (no assembly) if ANY function is ineligible (here, a `decimal` second func —
-        // decimal is method-based arithmetic, outside the modelled scalar set, so the whole program declines).
-        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: decimal): decimal {\n    return x\n}\n").Ok);
+        // The whole program declines (no assembly) if ANY function is ineligible (decimal is now MODELLED —
+        // SC-6 — so the ineligible second func uses an unsupported PARAM shape instead: a 2-D array).
+        Assert.False(RouteColumnarProgram("func ok(a: int): int {\n    return a\n}\n\nfunc bad(x: int[][]): int {\n    return 1\n}\n").Ok);
 
         // 4i SIBLING CALLS. A caller invoking a sibling, and a nested call (call result as an arg).
         var callHelper = "func add(a: int, b: int): int {\n    return a + b\n}\n\nfunc addThree(a: int, b: int, c: int): int {\n    return add(add(a, b), c)\n}\n";
@@ -4017,6 +4017,59 @@ class B
         // duplicates; the signature guard compares via TypesEquivalent (two Opt<int> instantiations are
         // referentially distinct — adversarial-review finding: raw != would emit BOTH ctor rows).
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
+    // SCALAR COMPLETENESS SC-6 (Phase D) — DECIMAL. Not an IL primitive: literals emit the
+    // bits-decomposed 5-arg Decimal ctor (exact — never via double), arithmetic/comparisons/negate call
+    // System.Decimal's op_* statics, compound assignment lowers through the same operators, and casts
+    // route through op_Implicit/op_Explicit (the exact C# emit). `d: decimal = 1.5` stays declined —
+    // the pipeline's NL202 (no implicit double->decimal), probe-pinned in the slice notes.
+    [Fact]
+    public void ColumnarCodegen_Parity_Decimal()
+    {
+        var prog =
+            "func addD(a: decimal, b: decimal): decimal {\n    return a + b\n}\n\n" +
+            "func exact(): decimal {\n    x := 2.5m\n    y := 0.1m\n    return addD(x, y)\n}\n\n" +
+            "func mulDiv(): decimal {\n    x := 2.5m\n    y := 0.1m\n    return x * y / 0.05m\n}\n\n" +
+            "func ordered(a: decimal, b: decimal): bool {\n    return a > b\n}\n\n" +
+            "func equalNeg(): bool {\n    x := 1.5m\n    return -x == 0m - 1.5m\n}\n\n" +
+
+            "func intLit(): decimal {\n    d: decimal = 5m\n    return d\n}\n\n" +
+            "func casts(n: int): decimal {\n    return (decimal)n\n}\n\n" +
+            "func fromDouble(d: double): decimal {\n    return (decimal)d\n}\n\n" +
+            "func toInt(): int {\n    x := 2.5m\n    return (int)x\n}\n\n" +
+            "func modD(): decimal {\n    x := 7.5m\n    return x % 2m\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("exact", System.Array.Empty<object>()),
+            ("mulDiv", System.Array.Empty<object>()),
+            ("ordered", new object[] { 2.5m, 0.1m }), ("ordered", new object[] { 0.1m, 2.5m }),
+            ("equalNeg", System.Array.Empty<object>()),
+            ("intLit", System.Array.Empty<object>()),
+            ("casts", new object[] { 7 }), ("casts", new object[] { -3 }),
+            ("fromDouble", new object[] { 1.5 }),
+            ("toInt", System.Array.Empty<object>()),
+            ("modD", System.Array.Empty<object>()));
+
+        // COMPOUND decimal assignment is ROUTE-ONLY: the PIPELINE emits INVALID IL for `d += 2.5m`
+        // (InvalidProgramException at JIT — oracle defect bundle #15, probe-confirmed standalone);
+        // columnar's op_*-lowered emit is CORRECT (probed 5.0) and pinned here by direct invocation.
+        var (compoundOk, compoundAsm, compoundTypeName, _) = RouteColumnarProgram(
+            "func compoundD(): decimal {\n    d := 10m\n    d += 2.5m\n    d *= 2m\n    d -= 5m\n    d /= 4m\n    return d\n}\n");
+        Assert.True(compoundOk, "columnar must emit the compound-decimal program");
+        using (var compoundScope = CollectibleAssemblyScope.Load(compoundAsm!))
+        {
+            var compoundType = compoundScope.Assembly.GetType(compoundTypeName!)!;
+            Assert.Equal(5.0m, compoundType.GetMethod("compoundD")!.Invoke(null, null));
+        }
+
+        // DECLINES:
+        // an UNSUFFIXED float literal on a decimal target (the pipeline's NL202 — no implicit double->decimal).
+        Assert.False(RouteColumnarProgram("func f(): decimal {\n    d: decimal = 1.5\n    return d\n}\n").Ok);
+        // decimal `++` (the pipeline's behavior on non-int targets is the defect-#11 family; columnar declines).
+        Assert.False(RouteColumnarProgram("func f(): decimal {\n    d := 1m\n    d++\n    return d\n}\n").Ok);
+        // mixed decimal/int arithmetic without a cast (`x + 1` on decimal — literal typing for decimal
+        // operands is unmodelled; the right-literal adoption covers uint/long/ulong only).
+        Assert.False(RouteColumnarProgram("func f(): decimal {\n    x := 2.5m\n    return x + 1\n}\n").Ok);
     }
 
     // SCALAR COMPLETENESS SC-5 (Phase D) — IMPLICIT WIDENING + NEGATIVE LITERALS + the FULL CAST GRID.

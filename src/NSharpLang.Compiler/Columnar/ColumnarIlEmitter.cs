@@ -569,6 +569,8 @@ public sealed class ColumnarIlEmitter
         || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort)
         || t == typeof(uint)                      // small ints + uint (SC-4): i4-slot scalars; arithmetic
                                                   // promotes small ints to INT (ECMA §12.4.7), uint runs native u4
+        || t == typeof(decimal)                   // decimal (SC-6): a baked VALUE struct — arithmetic and
+                                                  // comparisons call System.Decimal's op_* methods
         || t == typeof(System.Text.StringBuilder)
         || t is EnumBuilder                       // a user-defined enum — its own i4-underlying value type
         || t is TypeBuilder                       // a user-defined struct (value type) OR record (reference type);
@@ -2117,6 +2119,7 @@ public sealed class ColumnarIlEmitter
             "char" => typeof(char),
             "double" => typeof(double),
             "float" => typeof(float),
+            "decimal" => typeof(decimal),
             "string" => typeof(string),
             _ => null!,
         };
@@ -3501,6 +3504,13 @@ public sealed class ColumnarIlEmitter
                             return false;
                         _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
                     }
+                    else if (compoundType == typeof(decimal))
+                    {
+                        _il.Emit(OpCodes.Call, typeof(decimal).GetMethod(
+                            assignOp == "+=" ? "op_Addition" : assignOp == "-=" ? "op_Subtraction"
+                            : assignOp == "*=" ? "op_Multiply" : "op_Division",
+                            new[] { typeof(decimal), typeof(decimal) })!);
+                    }
                     else if (compoundType == typeof(int) || compoundType == typeof(long) || compoundType == typeof(ulong)
                         || compoundType == typeof(double) || compoundType == typeof(float))
                     {
@@ -4200,6 +4210,8 @@ public sealed class ColumnarIlEmitter
             {       // any order: UL/LU/ul/...). The lexer keeps the suffix in the token text. A BARE u/U (uint) is
                     // not in the supported set. Strip the trailing [uUlL] run and classify by which letters appear.
                 var text = Text(idx);
+                if (text.Length > 0 && text[^1] is 'm' or 'M')
+                    return TryEmitDecimalLiteral(text.Substring(0, text.Length - 1), out type); // `5m`
                 var end = text.Length;
                 var sawU = false;
                 var sawL = false;
@@ -4248,7 +4260,7 @@ public sealed class ColumnarIlEmitter
                 var raw = Text(idx);
                 var last = raw.Length > 0 ? raw[raw.Length - 1] : '\0';
                 if (last == 'm' || last == 'M')
-                    return false; // decimal — not modelled.
+                    return TryEmitDecimalLiteral(raw.Substring(0, raw.Length - 1), out type); // `2.5m`
                 var isFloatLiteral = last == 'f' || last == 'F';
                 var body = (isFloatLiteral || last == 'd' || last == 'D') ? raw.Substring(0, raw.Length - 1) : raw;
                 if (!TryParseFloatingLiteralBody(body, out var doubleValue))
@@ -4306,6 +4318,12 @@ public sealed class ColumnarIlEmitter
                     case "-": // negate — Neg works on i4/i8/r8/r4; result is the operand's numeric type. NOT valid on
                               // ulong (C# forbids unary minus on an unsigned type) — decline it. On double/float, Neg
                               // is the IEEE negate (-NaN stays NaN, -0.0 is distinct from 0.0), matching the C# path.
+                              // decimal negates via op_UnaryNegation (not an IL primitive).
+                        if (operandType == typeof(decimal))
+                        {
+                            _il.Emit(OpCodes.Call, typeof(decimal).GetMethod("op_UnaryNegation", new[] { typeof(decimal) })!);
+                            type = typeof(decimal); return true;
+                        }
                         if (operandType != typeof(int) && operandType != typeof(long) && operandType != typeof(double) && operandType != typeof(float)) return false;
                         _il.Emit(OpCodes.Neg); type = operandType; return true;
                     case "~": // bitwise not — Not works on i4 and i8 (and on ulong's u8 bit pattern).
@@ -4398,6 +4416,25 @@ public sealed class ColumnarIlEmitter
                 {
                     _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
                     type = typeof(string);
+                    return true;
+                }
+                // DECIMAL (SC-6): not an IL primitive — arithmetic/comparisons call System.Decimal's op_*
+                // statics on the two already-emitted operands (the exact C# emit; 0.1m stays exact).
+                if (opType == typeof(decimal))
+                {
+                    var decimalOpMethod = op switch
+                    {
+                        "+" => "op_Addition", "-" => "op_Subtraction", "*" => "op_Multiply",
+                        "/" => "op_Division", "%" => "op_Modulus",
+                        "<" => "op_LessThan", ">" => "op_GreaterThan",
+                        "<=" => "op_LessThanOrEqual", ">=" => "op_GreaterThanOrEqual",
+                        "==" => "op_Equality", "!=" => "op_Inequality",
+                        _ => null,
+                    };
+                    if (decimalOpMethod == null)
+                        return false;
+                    _il.Emit(OpCodes.Call, typeof(decimal).GetMethod(decimalOpMethod, new[] { typeof(decimal), typeof(decimal) })!);
+                    type = op is "+" or "-" or "*" or "/" or "%" ? typeof(decimal) : typeof(bool);
                     return true;
                 }
                 switch (op)
@@ -4974,6 +5011,37 @@ public sealed class ColumnarIlEmitter
                 // float/double->int truncates toward zero exactly as the C# path's conv.i4 does (same opcode).
                 if (sourceType != targetType)
                 {
+                    // DECIMAL casts route through System.Decimal's conversion operators (not conv opcodes):
+                    // TO decimal = op_Implicit(int/long/...)/op_Explicit(double/float); FROM decimal =
+                    // op_Explicit(decimal)->target — the exact C# emit.
+                    if (targetType == typeof(decimal) || sourceType == typeof(decimal))
+                    {
+                        var conversionName = targetType == typeof(decimal)
+                            && sourceType != typeof(double) && sourceType != typeof(float)
+                            ? "op_Implicit" : "op_Explicit";
+                        var fromType = targetType == typeof(decimal)
+                            ? (IsIntPromotable(sourceType) && sourceType != typeof(char) ? typeof(int) : sourceType)
+                            : typeof(decimal);
+                        // (small-int sources are already extended i4 — fromType above maps them to the
+                        // int operator; char keeps its own op_Implicit(char).)
+                        MethodInfo? decimalConversion = null;
+                        foreach (var m in typeof(decimal).GetMethods(BindingFlags.Public | BindingFlags.Static))
+                        {
+                            if (m.Name != conversionName)
+                                continue;
+                            var ps = m.GetParameters();
+                            if (ps.Length == 1 && ps[0].ParameterType == fromType && m.ReturnType == (targetType == typeof(decimal) ? typeof(decimal) : targetType))
+                            {
+                                decimalConversion = m;
+                                break;
+                            }
+                        }
+                        if (decimalConversion == null)
+                            return false;
+                        _il.Emit(OpCodes.Call, decimalConversion);
+                        type = targetType;
+                        return true;
+                    }
                     if (targetType == typeof(double)) _il.Emit(OpCodes.Conv_R8);      // any numeric -> double (widen)
                     else if (targetType == typeof(float)) _il.Emit(OpCodes.Conv_R4);  // any numeric -> float
                     else if (targetType == typeof(long)) _il.Emit(OpCodes.Conv_I8);   // i4-slot/double/float -> long (sign-extend)
@@ -5832,7 +5900,8 @@ public sealed class ColumnarIlEmitter
 
     // Scalars that participate in explicit numeric casts (int/long/char on the i4/i8 slots; double on r8, float on r4).
     private static bool IsCastableScalar(Type t) => t == typeof(int) || t == typeof(long) || t == typeof(char) || t == typeof(double) || t == typeof(float)
-        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort) || t == typeof(uint) || t == typeof(ulong);
+        || t == typeof(byte) || t == typeof(sbyte) || t == typeof(short) || t == typeof(ushort) || t == typeof(uint) || t == typeof(ulong)
+        || t == typeof(decimal);
 
     // The underlying int value of a System.StringComparison named constant (the enum's documented stable values).
     // An enum on the CLR stack is just its underlying int, so an enum constant emits `ldc.i4 <value>`.
@@ -6114,6 +6183,24 @@ public sealed class ColumnarIlEmitter
         return false;
     }
 
+    // A DECIMAL literal (`2.5m`, `5m` — suffix already stripped): the C# emit is the bits-decomposed
+    // 5-arg Decimal ctor (lo, mid, hi, isNegative, scale) — exact, never via double.
+    private bool TryEmitDecimalLiteral(string body, out Type type)
+    {
+        type = null!;
+        if (!decimal.TryParse(body.Replace("_", ""), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out var value))
+            return false;
+        var bits = decimal.GetBits(value);
+        _il.Emit(OpCodes.Ldc_I4, bits[0]);
+        _il.Emit(OpCodes.Ldc_I4, bits[1]);
+        _il.Emit(OpCodes.Ldc_I4, bits[2]);
+        _il.Emit(OpCodes.Ldc_I4, (bits[3] & unchecked((int)0x80000000)) != 0 ? 1 : 0);
+        _il.Emit(OpCodes.Ldc_I4, (bits[3] >> 16) & 0xFF);
+        _il.Emit(OpCodes.Newobj, typeof(decimal).GetConstructor(new[] { typeof(int), typeof(int), typeof(int), typeof(bool), typeof(byte) })!);
+        type = typeof(decimal);
+        return true;
+    }
+
     // An UNSUFFIXED int literal ADOPTS a small-int/uint/long/ulong target when its value fits — C#'s
     // implicit constant conversion (`b: byte = 200`, `u: ulong = 10`, `return 50` on a byte function).
     // Small ints + uint load as i4 (uint over int.MaxValue wraps the bit pattern, the standard emit);
@@ -6133,7 +6220,7 @@ public sealed class ColumnarIlEmitter
         if (_kinds[node] != 0 || _valueStarts[node] < 0)
             return false;
         var text = Text(node);
-        if (text.Length == 0 || text[^1] is 'u' or 'U' or 'l' or 'L')
+        if (text.Length == 0 || text[^1] is 'u' or 'U' or 'l' or 'L' or 'm' or 'M')
             return false; // a suffixed literal has its own fixed type.
         if (!ulong.TryParse(text, out var value))
             return false;
