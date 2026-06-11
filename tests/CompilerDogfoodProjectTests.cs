@@ -2112,8 +2112,8 @@ class B
         Assert.False(RouteColumnarEmit("func gt(a: int, b: int): int {\n    return a > b\n}\n").Ok);
         // unreachable code after a return (an NL312 diagnostic) must decline, not emit code after `ret`.
         Assert.False(RouteColumnarEmit("func unreach(a: int): int {\n    if a > 0 {\n        return 1\n        y := 2\n    } else {\n        return 0\n    }\n}\n").Ok);
-        // compound assignment (`+=`) is not lowered yet -> decline.
-        Assert.False(RouteColumnarEmit("func compound(a: int): int {\n    x := a\n    x += 1\n    return x\n}\n").Ok);
+        // compound assignment (`+=`) is now LOWERED (load/op/store) — see
+        // ColumnarCodegen_Parity_CompoundAssignmentAndTernary.
         // (parameter assignment `a = a + 1` -> `starg` IS now modelled; see ColumnarCodegen_Parity_ParamAssignment.)
         // an int body that does NOT return on all paths (NL305) would emit IL with no final `ret` -> decline.
         Assert.False(RouteColumnarEmit("func noRetAssign(a: int): int {\n    x := a\n    x = x + 1\n}\n").Ok);
@@ -4015,6 +4015,51 @@ class B
         // duplicates; the signature guard compares via TypesEquivalent (two Opt<int> instantiations are
         // referentially distinct — adversarial-review finding: raw != would emit BOTH ctor rows).
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
+    }
+
+    // SCALAR COMPLETENESS SC-1+3 (Phase D) — COMPOUND ASSIGNMENT (`+=` `-=` `*=` `/=`) and the TERNARY
+    // (`cond ? then : else`). Both were ALREADY PARSED (kind 14 carries the op text; ternary is kind 13)
+    // and only the emitter declined them. Compound lowers to load/op/store on a bare LOCAL/PARAM with the
+    // binary operator's exact opcode selection (ulong divides unsigned, string `+=` is Concat, both sides
+    // one type); ternary is a branch/merge whose arms must agree by TypesEquivalent (MIXED-type arms — the
+    // pipeline's implicit-conversion unification — decline to C#, a widening-slice concern).
+    [Fact]
+    public void ColumnarCodegen_Parity_CompoundAssignmentAndTernary()
+    {
+        var prog =
+            "func compoundInt(n: int): int {\n    a := n\n    a += 5\n    a -= 2\n    a *= 3\n    a /= 4\n    return a\n}\n\n" +
+            "func compoundParam(n: int): int {\n    n += 7\n    n *= 2\n    return n\n}\n\n" +
+            "func compoundUlong(u: ulong, d: ulong): ulong {\n    u /= d\n    return u\n}\n\n" +
+            "func compoundDouble(): double {\n    d := 1.5\n    d *= 2.0\n    d += 0.25\n    return d\n}\n\n" +
+            "func compoundString(): string {\n    s := \"ab\"\n    s += \"cd\"\n    return s\n}\n\n" +
+            "func ternInt(n: int): int {\n    return n > 5 ? 100 : 200\n}\n\n" +
+            "func ternString(flag: bool): string {\n    return flag ? \"yes\" : \"no\"\n}\n\n" +
+            // nested ternary (right-associative else) + ternary in ARG and `:=` positions.
+            "func ternNested(n: int): int {\n    return n > 10 ? 1 : n > 5 ? 2 : 3\n}\n\n" +
+            "func ternFlows(n: int): int {\n    t := n > 0 ? n : 0 - n\n    return compoundInt(t > 50 ? 50 : t)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("compoundInt", new object[] { 10 }), ("compoundInt", new object[] { 0 }), ("compoundInt", new object[] { -9 }),
+            ("compoundParam", new object[] { 3 }),
+            ("compoundUlong", new object[] { 10UL, 3UL }),
+            ("compoundDouble", System.Array.Empty<object>()),
+            ("compoundString", System.Array.Empty<object>()),
+            ("ternInt", new object[] { 6 }), ("ternInt", new object[] { 5 }),
+            ("ternString", new object[] { true }), ("ternString", new object[] { false }),
+            ("ternNested", new object[] { 11 }), ("ternNested", new object[] { 7 }), ("ternNested", new object[] { 1 }),
+            ("ternFlows", new object[] { -80 }), ("ternFlows", new object[] { 20 }));
+
+        // DECLINES (slice scope; pipeline-ACCEPTED shapes that decline safely to C#, except where noted):
+        // MIXED-type ternary arms (the pipeline unifies via implicit conversion — widening slice).
+        Assert.False(RouteColumnarProgram("func f(n: int): double {\n    return n > 5 ? 1 : 2.0\n}\n").Ok);
+        // compound on an ARRAY ELEMENT (a storage-addressing rung).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    a := [1, 2, 3]\n    a[0] += 5\n    return a[0]\n}\n").Ok);
+        // `??=` (the nullability slice).
+        Assert.False(RouteColumnarProgram("func f(s: string): string {\n    s ??= \"d\"\n    return s\n}\n").Ok);
+        // an INT-LITERAL compound value on a ulong target (`u /= 3` — the pipeline implicitly types the
+        // literal; columnar literal-typing is the widening slice).
+        Assert.False(RouteColumnarProgram("func f(u: ulong): ulong {\n    u /= 3\n    return u\n}\n").Ok);
+        // a MISMATCHED compound value type (`int += double` is NL202-rejected by the pipeline).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    n := 5\n    n += 1.5\n    return n\n}\n").Ok);
     }
 
     // NAMED TUPLES (Phase D) — `(x: int, y: int)` types and `(x: 1, y: 2)` literals with NAME-based member

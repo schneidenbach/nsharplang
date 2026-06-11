@@ -11,6 +11,31 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — SCALAR COMPLETENESS SC-1+3: compound assignment + ternary (emit-only)
+
+The scalar arc opens with its two EMIT-ONLY rungs — both shapes were ALREADY PARSED (the assignment
+kernel has always carried `+=` `-=` `*=` `/=` `??=` op text on kind 14; ternary is kind 13 with a full
+precedence level) and only the emitter declined them.
+
+**Compound assignment** (`+=` `-=` `*=` `/=`) lowers to load/op/store on a bare LOCAL or PARAM target
+with the binary operator's exact opcode selection (ulong divides Div_Un; string `+=` is Concat; both
+sides must share one type — `int += double` is the pipeline's NL202). Lifted/boxed captures, member and
+array-element targets, `%=` (unparsed) and `??=` (nullability slice) decline, pinned. **Ternary** is a
+branch/merge whose arms must agree by TypesEquivalent — MIXED-type arms (the pipeline unifies via
+implicit conversion) decline to C#, a widening-slice concern, pinned. Probed: `u /= 3` (int literal
+against a ulong target) is pipeline-accepted via implicit literal typing — columnar declines (pinned,
+the widening/literal-typing rung).
+
+Parity: `ColumnarCodegen_Parity_CompoundAssignmentAndTernary` (9 functions, 16 invocations: all four
+ops, params, ulong/double/string, nested right-associative ternary, ternary in `:=`/arg positions) + 5
+decline pins; one stale spike pin flipped. 285/285; gate green (see commit).
+
+REMAINING scalar rungs (queued): SC-2 postfix `++`/`--` (kernel work), SC-4 small-int scalars
+(byte/sbyte/short/ushort/uint with int-promoted arithmetic), SC-5 widening/implicit conversions +
+literal typing, SC-6 decimal (op_* host boundary).
+
+---
+
 ## 2026-06-11 — NAMED TUPLES: oracle member-access fix (`7e151c7c`) + columnar end-to-end
 
 The retirement-map queue's named-tuples slice, in two halves.

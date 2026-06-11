@@ -3411,7 +3411,8 @@ public sealed class ColumnarIlEmitter
 
             case 23: // ExpressionStatement — a SIMPLE `=` assignment (kind 14) to a `:=` local OR an array
             {        // element `a[i] = value`, OR a bare CALL statement (a void BCL call such as `Array.Fill(...)`,
-                     // or a sibling/BCL call whose non-void result is discarded). Compound ops (`+=`) decline.
+                     // or a sibling/BCL call whose non-void result is discarded), OR a COMPOUND assignment
+                     // (`+=` `-=` `*=` `/=` on a bare local/param — lowered to load/op/store below).
                 var expr = Child(idx, 0);
 
                 if (_kinds[expr] == 9) // a bare call statement.
@@ -3428,7 +3429,74 @@ public sealed class ColumnarIlEmitter
                     return true;
                 }
 
-                if (_kinds[expr] != 14 || Text(expr) != "=")
+                if (_kinds[expr] != 14)
+                    return false;
+                var assignOp = Text(expr);
+                // COMPOUND assignment `target op= value` (`+=` `-=` `*=` `/=`) on a bare LOCAL/PARAM target —
+                // lowered to load/op/store with the binary operator's exact opcode selection (ulong divides
+                // unsigned; string `+=` is Concat; both sides must share one type). Lifted/boxed captures,
+                // member/index targets, `%=` (unparsed) and `??=` (nullability slice) decline.
+                if (assignOp is "+=" or "-=" or "*=" or "/=")
+                {
+                    var compoundTarget = Child(expr, 0);
+                    if (_kinds[compoundTarget] != 6)
+                        return false;
+                    var compoundName = Text(compoundTarget);
+                    if (_liftedLocals.ContainsKey(compoundName)
+                        || (_boxedCaptures != null && _boxedCaptures.ContainsKey(compoundName)))
+                        return false;
+                    LocalBuilder? compoundLocal = null;
+                    var compoundParamOrdinal = -1;
+                    Type compoundType;
+                    if (_locals.TryGetValue(compoundName, out var compoundFound))
+                    {
+                        compoundLocal = compoundFound;
+                        compoundType = compoundFound.LocalType;
+                    }
+                    else if (_paramOrdinals.TryGetValue(compoundName, out var compoundOrdinal))
+                    {
+                        compoundParamOrdinal = compoundOrdinal;
+                        compoundType = _paramTypes[compoundName];
+                    }
+                    else
+                    {
+                        return false;
+                    }
+
+                    if (compoundLocal != null)
+                        _il.Emit(OpCodes.Ldloc, compoundLocal);
+                    else
+                        EmitLoadArgument(compoundParamOrdinal);
+                    if (!EmitExpression(Child(expr, 1), out var compoundValueType) || !TypesEquivalent(compoundValueType, compoundType))
+                        return false;
+
+                    if (compoundType == typeof(string))
+                    {
+                        if (assignOp != "+=")
+                            return false;
+                        _il.Emit(OpCodes.Call, typeof(string).GetMethod(nameof(string.Concat), new[] { typeof(string), typeof(string) })!);
+                    }
+                    else if (compoundType == typeof(int) || compoundType == typeof(long) || compoundType == typeof(ulong)
+                        || compoundType == typeof(double) || compoundType == typeof(float))
+                    {
+                        _il.Emit(
+                            assignOp == "+=" ? OpCodes.Add :
+                            assignOp == "-=" ? OpCodes.Sub :
+                            assignOp == "*=" ? OpCodes.Mul :
+                            compoundType == typeof(ulong) ? OpCodes.Div_Un : OpCodes.Div);
+                    }
+                    else
+                    {
+                        return false;
+                    }
+
+                    if (compoundLocal != null)
+                        _il.Emit(OpCodes.Stloc, compoundLocal);
+                    else
+                        EmitStoreArgument(compoundParamOrdinal);
+                    return true;
+                }
+                if (assignOp != "=")
                     return false;
                 var target = Child(expr, 0);
 
@@ -5062,6 +5130,28 @@ public sealed class ColumnarIlEmitter
                 }
                 _il.Emit(OpCodes.Ldloc, structValue);
                 type = initStructDef.Builder;
+                return true;
+            }
+
+            case 13: // Ternary [cond, then, else] — `cond ? then : else`, a branch/merge with ONE result on the
+            {        // stack. Both arms must produce the SAME type (TypesEquivalent — the match-arm unification
+                     // rule); MIXED-type arms decline to the C# path (its implicit-conversion unification is a
+                     // widening-slice concern). The condition emits through the shared bool gate.
+                if (_childCount[idx] != 3)
+                    return false;
+                if (!EmitCondition(Child(idx, 0)))
+                    return false;
+                var ternaryElse = _il.DefineLabel();
+                var ternaryEnd = _il.DefineLabel();
+                _il.Emit(OpCodes.Brfalse, ternaryElse);
+                if (!EmitExpression(Child(idx, 1), out var ternaryThenType))
+                    return false;
+                _il.Emit(OpCodes.Br, ternaryEnd);
+                _il.MarkLabel(ternaryElse);
+                if (!EmitExpression(Child(idx, 2), out var ternaryElseType) || !TypesEquivalent(ternaryThenType, ternaryElseType))
+                    return false;
+                _il.MarkLabel(ternaryEnd);
+                type = ternaryThenType;
                 return true;
             }
 
