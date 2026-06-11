@@ -677,7 +677,27 @@ public sealed class ColumnarIlEmitter
         || IsClosedUserGenericInstantiation(t)    // Box<int> over a user generic definition (TypeBuilderInstantiation)
         || (t.IsSZArray && IsSupportedElementType(t.GetElementType()!))
         || IsSupportedValueTuple(t)
-        || IsSupportedDelegateType(t);            // a closed System.Func/Action over baked runtime types (L1a)
+        || IsSupportedDelegateType(t)             // a closed System.Func/Action over baked runtime types (L1a)
+        || IsSupportedCollectionType(t);          // a closed List<T>/Dictionary<K,V> over baked runtime types
+
+    // A closed BCL List<T>/Dictionary<K,V> over BAKED runtime type arguments (TryResolveType's collection
+    // branch only produces these — builder-typed arguments decline at resolution, so the closed type's
+    // members reflect normally).
+    private static bool IsSupportedCollectionType(Type t)
+    {
+        if (t is TypeBuilder || t is EnumBuilder || !t.IsGenericType || t.IsGenericTypeDefinition)
+            return false;
+        Type def;
+        try
+        {
+            def = t.GetGenericTypeDefinition();
+        }
+        catch (NotSupportedException)
+        {
+            return false; // a TypeBuilderInstantiation — user generics route elsewhere.
+        }
+        return def == typeof(List<>) || def == typeof(Dictionary<,>);
+    }
 
     // A closed System.Func/Action delegate over BAKED runtime types (the L1a delegate surface), or the bare
     // System.Action — valid as a param/return/local so delegate-typed parameters can be received and invoked
@@ -2046,6 +2066,39 @@ public sealed class ColumnarIlEmitter
                 return TryResolveDelegateCanonical(
                     canonical.Substring(7, canonical.Length - 8), hasReturnSlot: false,
                     enumRegistry, structRegistry, unionRegistry, out type);
+            }
+            // BCL COLLECTIONS — `List<T>` / `Dictionary<K,V>` close over the runtime generics, resolved
+            // AFTER user generics (a user-declared List<T> wins, the Action precedent). Type arguments
+            // are restricted to BAKED runtime types this rung (scalars/string/nested collections —
+            // builder-typed elements would make every member binding a TypeBuilderInstantiation rebind;
+            // List<UserRecord> declines for now, probe-pinned as a working oracle shape for a later rung).
+            if (closedGenericOpen == 4 && canonical.StartsWith("List<", StringComparison.Ordinal))
+            {
+                var listArgCanons = SplitTopLevelCommas(canonical.Substring(5, canonical.Length - 6));
+                if (listArgCanons.Count == 1
+                    && TryResolveType(listArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var listElement)
+                    && listElement.Module is not System.Reflection.Emit.ModuleBuilder)
+                {
+                    type = typeof(List<>).MakeGenericType(listElement);
+                    return true;
+                }
+                type = null!;
+                return false;
+            }
+            if (closedGenericOpen == 10 && canonical.StartsWith("Dictionary<", StringComparison.Ordinal))
+            {
+                var dictArgCanons = SplitTopLevelCommas(canonical.Substring(11, canonical.Length - 12));
+                if (dictArgCanons.Count == 2
+                    && TryResolveType(dictArgCanons[0], enumRegistry, structRegistry, unionRegistry, out var dictKey)
+                    && TryResolveType(dictArgCanons[1], enumRegistry, structRegistry, unionRegistry, out var dictValue)
+                    && dictKey.Module is not System.Reflection.Emit.ModuleBuilder
+                    && dictValue.Module is not System.Reflection.Emit.ModuleBuilder)
+                {
+                    type = typeof(Dictionary<,>).MakeGenericType(dictKey, dictValue);
+                    return true;
+                }
+                type = null!;
+                return false;
             }
             type = null!;
             return false;
@@ -3908,9 +3961,28 @@ public sealed class ColumnarIlEmitter
 
                 if (_kinds[target] == 10) // array element write: a[i] = value
                 {
-                    // Stelem order is (array, index, value): emit the array ref, the int index, the value, store.
-                    if (!EmitExpression(Child(target, 0), out var arrayType) || !arrayType.IsSZArray)
+                    if (!EmitExpression(Child(target, 0), out var arrayType))
                         return false;
+                    // A closed List<T>/Dictionary<K,V> indexer WRITE — callvirt set_Item(int|K, T|V)
+                    // (the dominant Dictionary shape `d[k] = v`, probe-pinned incl. overwrite).
+                    if (IsSupportedCollectionType(arrayType))
+                    {
+                        var setIdxType = arrayType.GetGenericTypeDefinition() == typeof(List<>)
+                            ? typeof(int)
+                            : arrayType.GetGenericArguments()[0];
+                        var setValType = arrayType.GetGenericTypeDefinition() == typeof(List<>)
+                            ? arrayType.GetGenericArguments()[0]
+                            : arrayType.GetGenericArguments()[1];
+                        if (!EmitArg(target, 1, setIdxType))
+                            return false;
+                        if (!EmitExpression(Child(expr, 1), out var setValueType) || !TypesEquivalent(setValueType, setValType))
+                            return false;
+                        _il.Emit(OpCodes.Callvirt, arrayType.GetMethod("set_Item", new[] { setIdxType, setValType })!);
+                        return true;
+                    }
+                    if (!arrayType.IsSZArray)
+                        return false;
+                    // Stelem order is (array, index, value): emit the array ref, the int index, the value, store.
                     var elementType = arrayType.GetElementType()!;
                     if (!EmitExpression(Child(target, 1), out var indexType) || indexType != typeof(int))
                         return false;
@@ -4248,8 +4320,64 @@ public sealed class ColumnarIlEmitter
                 var outerLocals = new HashSet<string>(_locals.Keys, StringComparer.Ordinal);
                 var outerLifted = new HashSet<string>(_liftedLocals.Keys, StringComparer.Ordinal);
 
-                // Evaluate the collection; require a single-dim array of a supported element type.
-                if (!EmitExpression(collectionNode, out var collectionType) || !collectionType.IsSZArray)
+                // Evaluate the collection; a List<T> takes the enumerator branch, a single-dim array the
+                // index loop; everything else declines -> C# fallback.
+                if (!EmitExpression(collectionNode, out var collectionType))
+                    return false;
+                if (IsSupportedCollectionType(collectionType) && collectionType.GetGenericTypeDefinition() == typeof(List<>))
+                {
+                    // `foreach v in list` — the ORACLE's exact lowering (probe-pinned, incl. the
+                    // mutation-during-iteration InvalidOperationException, which an index loop would
+                    // silently miss): the enumerator is fetched via the IEnumerable<T> INTERFACE (the
+                    // List<T>.Enumerator struct is BOXED — the oracle resolves the interface first),
+                    // MoveNext/get_Current/Dispose all callvirt through the interfaces, and Dispose is
+                    // emitted at a dispose label AFTER the loop (NOT try/finally — `break` branches to
+                    // it; early returns/exceptions skip it, exactly as the oracle does; the boxed List
+                    // enumerator's Dispose is a no-op so value parity holds).
+                    var listElementType = collectionType.GetGenericArguments()[0];
+                    if (!IsSupportedType(listElementType))
+                        return false;
+                    var enumerableInterface = typeof(IEnumerable<>).MakeGenericType(listElementType);
+                    var enumeratorInterface = typeof(IEnumerator<>).MakeGenericType(listElementType);
+                    _il.Emit(OpCodes.Callvirt, enumerableInterface.GetMethod("GetEnumerator")!);
+                    var enumeratorLocal = _il.DeclareLocal(enumeratorInterface);
+                    _il.Emit(OpCodes.Stloc, enumeratorLocal);
+
+                    var listLoopStart = _il.DefineLabel();
+                    var disposeLabel = _il.DefineLabel();
+                    _il.MarkLabel(listLoopStart);
+                    _il.Emit(OpCodes.Ldloc, enumeratorLocal);
+                    _il.Emit(OpCodes.Callvirt, typeof(System.Collections.IEnumerator).GetMethod(nameof(System.Collections.IEnumerator.MoveNext))!);
+                    _il.Emit(OpCodes.Brfalse, disposeLabel);
+                    _il.Emit(OpCodes.Ldloc, enumeratorLocal);
+                    _il.Emit(OpCodes.Callvirt, enumeratorInterface.GetProperty("Current")!.GetGetMethod()!);
+                    var listLoopVar = _il.DeclareLocal(listElementType);
+                    _il.Emit(OpCodes.Stloc, listLoopVar);
+                    _locals[varName] = listLoopVar;
+
+                    _loopLabels.Push((disposeLabel, listLoopStart, _inProtectedRegion, _inFinallyRegion));
+                    var listBodyEmitted = EmitStatement(body);
+                    _loopLabels.Pop();
+                    if (!listBodyEmitted)
+                        return false;
+                    _il.Emit(OpCodes.Br, listLoopStart);
+                    _il.MarkLabel(disposeLabel);
+                    _il.Emit(OpCodes.Ldloc, enumeratorLocal);
+                    _il.Emit(OpCodes.Callvirt, typeof(IDisposable).GetMethod(nameof(IDisposable.Dispose))!);
+
+                    foreach (var name in new List<string>(_locals.Keys))
+                    {
+                        if (!outerLocals.Contains(name))
+                            _locals.Remove(name);
+                    }
+                    foreach (var name in new List<string>(_liftedLocals.Keys))
+                    {
+                        if (!outerLifted.Contains(name))
+                            _liftedLocals.Remove(name);
+                    }
+                    return true;
+                }
+                if (!collectionType.IsSZArray)
                     return false;
                 var elementType = collectionType.GetElementType()!;
                 if (!IsSupportedElementType(elementType))
@@ -5398,6 +5526,13 @@ public sealed class ColumnarIlEmitter
                         type = typeof(string);
                         return true;
                     }
+                    // `.Count` on a closed List<T>/Dictionary<K,V> — callvirt get_Count -> int.
+                    if (member == "Count" && IsSupportedCollectionType(structReceiverType))
+                    {
+                        _il.Emit(OpCodes.Callvirt, structReceiverType.GetProperty("Count")!.GetGetMethod()!);
+                        type = typeof(int);
+                        return true;
+                    }
                     ColumnarStructDef? fieldStruct = null;
                     foreach (var d in _structRegistry.Values)
                     {
@@ -5515,6 +5650,21 @@ public sealed class ColumnarIlEmitter
                         return false;
                     _il.Emit(OpCodes.Callvirt, typeof(string).GetMethod("get_Chars", new[] { typeof(int) })!);
                     type = typeof(char);
+                    return true;
+                }
+                // A closed List<T>/Dictionary<K,V> indexer READ — callvirt get_Item(int|K) -> T|V (the
+                // runtime throws ArgumentOutOfRangeException / KeyNotFoundException exactly as the
+                // pipeline's emit does — probe-pinned exception parity).
+                if (IsSupportedCollectionType(indexedType))
+                {
+                    var idxParamType = indexedType.GetGenericTypeDefinition() == typeof(List<>)
+                        ? typeof(int)
+                        : indexedType.GetGenericArguments()[0];
+                    if (!EmitArg(idx, 1, idxParamType))
+                        return false;
+                    var getItem = indexedType.GetMethod("get_Item", new[] { idxParamType })!;
+                    _il.Emit(OpCodes.Callvirt, getItem);
+                    type = getItem.ReturnType;
                     return true;
                 }
                 if (!indexedType.IsSZArray)
@@ -5642,8 +5792,32 @@ public sealed class ColumnarIlEmitter
                 if (_kinds[typeNode] == 1)
                 {
                     if (!TryBuildTypeNodeCanonical(typeNode, out var closedCanonical)
-                        || !TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType)
-                        || !IsClosedUserGenericInstantiation(closedType))
+                        || !TryResolveType(closedCanonical, _enumRegistry, _structRegistry, _unionRegistry, out var closedType))
+                        return false;
+                    // A closed BCL COLLECTION (`new List<int>()` / `new Dictionary<string,int>(10)`): the
+                    // runtime constructed type reflects normally — newobj the parameterless ctor, or the
+                    // int-capacity ctor (both probe-pinned oracle-working). Other overloads decline.
+                    if (IsSupportedCollectionType(closedType))
+                    {
+                        var collectionCtorArgs = _childCount[idx] - 1;
+                        if (collectionCtorArgs == 0)
+                        {
+                            _il.Emit(OpCodes.Newobj, closedType.GetConstructor(Type.EmptyTypes)!);
+                            type = closedType;
+                            return true;
+                        }
+                        if (collectionCtorArgs == 1 && EmitArg(idx, 1, typeof(int)))
+                        {
+                            var capacityCtor = closedType.GetConstructor(new[] { typeof(int) });
+                            if (capacityCtor == null)
+                                return false;
+                            _il.Emit(OpCodes.Newobj, capacityCtor);
+                            type = closedType;
+                            return true;
+                        }
+                        return false;
+                    }
+                    if (!IsClosedUserGenericInstantiation(closedType))
                         return false;
                     if (!_structRegistry.TryGetValue(Text(typeNode), out var openGenericDef)
                         || openGenericDef.Constructors.Count == 0)
@@ -7375,6 +7549,41 @@ public sealed class ColumnarIlEmitter
     private bool TryEmitInstanceCall(int callIdx, Type receiverType, string member, int argCount, out Type type)
     {
         type = null!;
+
+        // BCL COLLECTION instance methods on a closed List<T>/Dictionary<K,V> (the runtime constructed
+        // type reflects normally; the receiver is already on the stack). The modelled set is the
+        // probe-pinned examples surface: List.Add(T)/RemoveAt(int), Dictionary.ContainsKey(K).
+        // Everything else declines (Dictionary.Add included — unprobed in any example).
+        if (IsSupportedCollectionType(receiverType))
+        {
+            var collectionDef = receiverType.GetGenericTypeDefinition();
+            var collectionArgs = receiverType.GetGenericArguments();
+            if (collectionDef == typeof(List<>) && member == "Add" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, receiverType.GetMethod("Add", new[] { collectionArgs[0] })!);
+                type = typeof(void);
+                return true;
+            }
+            if (collectionDef == typeof(List<>) && member == "RemoveAt" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, typeof(int)))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, receiverType.GetMethod("RemoveAt", new[] { typeof(int) })!);
+                type = typeof(void);
+                return true;
+            }
+            if (collectionDef == typeof(Dictionary<,>) && member == "ContainsKey" && argCount == 1)
+            {
+                if (!EmitArg(callIdx, 1, collectionArgs[0]))
+                    return false;
+                _il.Emit(OpCodes.Callvirt, receiverType.GetMethod("ContainsKey", new[] { collectionArgs[0] })!);
+                type = typeof(bool);
+                return true;
+            }
+            return false;
+        }
 
         // A USER-TYPE INSTANCE method (`receiver.Method(args)`): the receiver VALUE/REF is already on the stack.
         // - VALUE type (struct): the instance method needs the receiver's ADDRESS, so spill to a temp and

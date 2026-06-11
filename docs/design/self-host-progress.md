@@ -11,6 +11,41 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — COLLECTIONS: List&lt;T&gt;/Dictionary&lt;K,V&gt; — construction, members, indexers, foreach
+
+A recon workflow mapped corpus/oracle/columnar in parallel first; the **20-probe oracle sweep came
+back ALL GREEN** (construction incl. capacity ctors, Add/RemoveAt/ContainsKey/Count, index
+read/write, foreach + break/continue, mutation-during-foreach throwing, nested
+List&lt;List&lt;int&gt;&gt;/Dictionary-of-Dictionary, user-record elements, List&lt;T&gt; in generic funcs, dict
+foreach with kvp). Notably the dogfood corpus itself uses ZERO collections — this slice serves the
+examples/route-all surface.
+
+**Landed (baked runtime type args only):** TryResolveType closes `List&lt;`/`Dictionary&lt;` AFTER user
+generics (the Action precedent; builder-typed args decline → List&lt;UserRecord&gt; and List&lt;T&gt;-in-
+generic-funcs are pinned for a later rebind rung); IsSupportedCollectionType joins IsSupportedType;
+kind-15 newobj (parameterless + int-capacity ctors); Add/RemoveAt/ContainsKey instance calls; Count
+in case 8's user-type branch (the Message precedent — all non-Length members route there); get_Item
+in case 10 and set_Item in the index-assignment arm (the dominant `d[k] = v` shape; nested chains
+compose for free — `d["db"]["host"] = v` is a get_Item receiver under a set_Item).
+
+**FOREACH-over-List mirrors the oracle's exact shape** (recon pre-read, ILCompiler.cs:13180-13325):
+the enumerator comes from the IEnumerable&lt;T&gt; INTERFACE — the List&lt;T&gt;.Enumerator struct is BOXED
+(the oracle resolves the interface first); MoveNext/get_Current/Dispose callvirt through the
+interfaces; Dispose sits at a DISPOSE LABEL after the loop, NOT in try/finally — `break` branches to
+it (the loop-label Break target IS the dispose label), early returns/exceptions skip it (the boxed
+List enumerator's Dispose is a no-op, so value parity holds — mirrored, not "fixed"). This is what
+makes mutation-during-iteration throw InvalidOperationException identically — an index loop would
+have silently diverged (probe-pinned).
+
+Parity: `ColumnarCodegen_Parity_Collections` — 13 value functions + 3 exception-parity pins
+(ArgumentOutOfRangeException / KeyNotFoundException / mutation InvalidOperationException) + 6
+decline pins (compound indexer, List-of-user-type, List&lt;T&gt;-in-generic-func, dict foreach, HashSet,
+Dictionary.Add — every one oracle-ACCEPTED, flips when its rung lands). 307/307; gate (see commit).
+NEXT: the pinned collection rungs (builder-element rebind, dict foreach, compound indexers) or the
+queue's async/interfaces.
+
+---
+
 ## 2026-06-11 — RECORDS COMPLETION: `with` + the synthesized value members
 
 **PASS 0e** synthesizes the record value members on every NON-GENERIC record whose field types are

@@ -4238,6 +4238,91 @@ class B
         Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: System.FormatException) {\n        return 0 - 1\n    }\n}\n").Ok);
     }
 
+    // COLLECTIONS (Phase D) — List<T>/Dictionary<K,V> over BAKED runtime type args (scalars/string/
+    // nested collections; builder-typed elements decline this rung). TryResolveType closes the runtime
+    // generics AFTER user generics (the Action precedent); construction = newobj .ctor()/(int capacity);
+    // members = Add/RemoveAt/ContainsKey + get_Count + get_Item/set_Item (probe-pinned exception parity:
+    // ArgumentOutOfRangeException, KeyNotFoundException). FOREACH over a List mirrors the ORACLE's exact
+    // lowering — the enumerator comes from the IEnumerable<T> INTERFACE (the struct enumerator is BOXED),
+    // Dispose sits at a dispose label after the loop (break branches to it; NOT try/finally) — which is
+    // what makes mutation-during-iteration throw InvalidOperationException identically (an index loop
+    // would silently diverge; probe-pinned). The 20-probe oracle sweep was ALL green; the unmodeled
+    // remainder declines below.
+    [Fact]
+    public void ColumnarCodegen_Parity_Collections()
+    {
+        var prog =
+            // List core: ctor + Add + Count + index read (probed: 44).
+            "func listCore(): int {\n    lst := new List<int>()\n    lst.Add(10)\n    lst.Add(32)\n    return lst[0] + lst[1] + lst.Count\n}\n\n" +
+            // List<string> — the dominant examples shape (probed: \"ab\").
+            "func listStr(): string {\n    names := new List<string>()\n    names.Add(\"a\")\n    names.Add(\"b\")\n    return names[0] + names[1]\n}\n\n" +
+            // Lists across functions: param + return + construction in arg/return position (probed: 2/0).
+            "func make(): List<string> {\n    l := new List<string>()\n    l.Add(\"x\")\n    return l\n}\n\nfunc countOf(items: List<string>): int {\n    return items.Count\n}\n\nfunc listFlow(): int {\n    return countOf(make()) + make().Count\n}\n\n" +
+            "func mkEmpty(): List<int> {\n    return new List<int>()\n}\n\nfunc argReturnPos(): int {\n    return countOf(new List<string>()) + mkEmpty().Count\n}\n\n" +
+            // index WRITE + RemoveAt (probed: 5 / 21).
+            "func idxWrite(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst[0] = 5\n    return lst[0]\n}\n\n" +
+            "func removeAt(): int {\n    lst := new List<int>()\n    lst.Add(1)\n    lst.Add(2)\n    lst.RemoveAt(0)\n    return lst[0] * 10 + lst.Count\n}\n\n" +
+            // foreach over a List + break/continue through the dispose label (probed: 6 / 4).
+            "func feSum(): int {\n    l := new List<int>()\n    l.Add(1)\n    l.Add(2)\n    l.Add(3)\n    s := 0\n    foreach v in l {\n        s = s + v\n    }\n    return s\n}\n\n" +
+            "func feBreak(): int {\n    l := new List<int>()\n    l.Add(1)\n    l.Add(2)\n    l.Add(3)\n    l.Add(4)\n    s := 0\n    foreach v in l {\n        if v == 2 {\n            continue\n        }\n        if v == 4 {\n            break\n        }\n        s = s + v\n    }\n    return s\n}\n\n" +
+            // Dictionary core: ctor + set_Item + ContainsKey + get_Item + overwrite (probed: 3 / 7).
+            "func dictCore(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    d[\"b\"] = 2\n    if d.ContainsKey(\"a\") {\n        return d[\"a\"] + d[\"b\"]\n    }\n    return 0\n}\n\n" +
+            "func dictOverwrite(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] = 7\n    return d[\"k\"]\n}\n\n" +
+            // capacity ctors (probed: 7).
+            "func capacity(): int {\n    l := new List<int>(8)\n    d := new Dictionary<string, int>(10)\n    l.Add(3)\n    d[\"x\"] = 4\n    return l[0] + d[\"x\"]\n}\n\n" +
+            // NESTED generics compose (probed: \"localhost\" / 8).
+            "func nestedDict(): string {\n    d := new Dictionary<string, Dictionary<string, string>>()\n    d[\"db\"] = new Dictionary<string, string>()\n    d[\"db\"][\"host\"] = \"localhost\"\n    return d[\"db\"][\"host\"]\n}\n\n" +
+            "func nestedList(): int {\n    m := new List<List<int>>()\n    inner := new List<int>()\n    inner.Add(7)\n    m.Add(inner)\n    return m[0].Count + m[0][0]\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("listCore", System.Array.Empty<object>()),
+            ("listStr", System.Array.Empty<object>()),
+            ("listFlow", System.Array.Empty<object>()),
+            ("argReturnPos", System.Array.Empty<object>()),
+            ("idxWrite", System.Array.Empty<object>()),
+            ("removeAt", System.Array.Empty<object>()),
+            ("feSum", System.Array.Empty<object>()),
+            ("feBreak", System.Array.Empty<object>()),
+            ("dictCore", System.Array.Empty<object>()),
+            ("dictOverwrite", System.Array.Empty<object>()),
+            ("capacity", System.Array.Empty<object>()),
+            ("nestedDict", System.Array.Empty<object>()),
+            ("nestedList", System.Array.Empty<object>()));
+
+        // EXCEPTION parity (route-only; exact types — all probe-pinned against the oracle).
+        {
+            var (ok, asm, typeName, _) = RouteColumnarProgram(
+                "func oor(): int {\n    lst := new List<int>()\n    return lst[0]\n}\n\n" +
+                "func missKey(): int {\n    d := new Dictionary<string, int>()\n    return d[\"nope\"]\n}\n\n" +
+                // mutation during foreach — the boxed enumerator's version check MUST fire.
+                "func mutate(): int {\n    l := new List<int>()\n    l.Add(1)\n    s := 0\n    foreach v in l {\n        s = s + v\n        l.Add(99)\n    }\n    return s\n}\n");
+            Assert.True(ok, "columnar must emit the collections exception program");
+            using var scope = CollectibleAssemblyScope.Load(asm!);
+            var progType = scope.Assembly.GetType(typeName!)!;
+            var oor = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("oor")!.Invoke(null, null));
+            Assert.IsType<ArgumentOutOfRangeException>(oor.InnerException);
+            var miss = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("missKey")!.Invoke(null, null));
+            Assert.IsType<System.Collections.Generic.KeyNotFoundException>(miss.InnerException);
+            var mut = Assert.Throws<System.Reflection.TargetInvocationException>(
+                () => progType.GetMethod("mutate")!.Invoke(null, null));
+            Assert.IsType<InvalidOperationException>(mut.InnerException);
+        }
+
+        // DECLINES (every shape oracle-ACCEPTED in the probe sweep — pins flip as later rungs land):
+        // compound indexer assignment (d[k] += v / lst[i] += v — probed working oracle-side, 36).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d[\"k\"] = 1\n    d[\"k\"] += 2\n    return d[\"k\"]\n}\n").Ok);
+        // a List over a USER type (builder-typed element — the TypeBuilderInstantiation rebind rung).
+        Assert.False(RouteColumnarProgram("record Pt {\n    X: int\n}\n\nfunc f(): int {\n    l := new List<Pt>()\n    l.Add(new Pt { X: 9 })\n    return l[0].X + l.Count\n}\n").Ok);
+        // List<T> inside a GENERIC function (open type param element).
+        Assert.False(RouteColumnarProgram("func first<T>(items: List<T>): T {\n    return items[0]\n}\n\nfunc f(): int {\n    l := new List<int>()\n    l.Add(42)\n    return first(l)\n}\n").Ok);
+        // foreach over a DICTIONARY (KeyValuePair binding — probed working oracle-side, 3).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d[\"a\"] = 1\n    s := 0\n    foreach kvp in d {\n        s = s + kvp.Value\n    }\n    return s\n}\n").Ok);
+        // other BCL generics (HashSet) and Dictionary.Add stay out.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    h := new HashSet<int>()\n    h.Add(1)\n    return h.Count\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("func f(): int {\n    d := new Dictionary<string, int>()\n    d.Add(\"k\", 1)\n    return d.Count\n}\n").Ok);
+    }
+
     // RECORDS COMPLETION (Phase D) — `with` expressions + the synthesized VALUE members. PASS 0e
     // synthesizes Equals(object)/GetHashCode()/`<Clone>$` on every NON-GENERIC record whose field types
     // are baked runtime types, mirroring the oracle's EmitRecordEquals/EmitRecordGetHashCode/
