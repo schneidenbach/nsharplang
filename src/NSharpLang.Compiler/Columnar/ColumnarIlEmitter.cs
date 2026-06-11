@@ -3453,6 +3453,43 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 51: // LockStatement [lockee, body] — `Monitor.Enter(obj); try { body } finally
+            {        // { Monitor.Exit(obj) }`, the oracle's EmitLock verbatim. The lockee must be a
+                     // REFERENCE value: the pipeline ACCEPTS value-type lockees and stores the unboxed
+                     // value into the object local — a fake reference that HARD-CRASHES the process in
+                     // Monitor.Enter (defect #21; C# rejects CS0185). One protected region per body
+                     // (nested forms decline), exactly as for try.
+                if (_childCount[idx] != 2 || _inProtectedRegion)
+                    return false;
+                if (!EmitExpression(Child(idx, 0), out var lockeeType))
+                    return false;
+                if (lockeeType.IsValueType || lockeeType == typeof(void))
+                    return false; // value lockees are defect-#21 territory — decline (CS0185 analog).
+                if (_protectedResult == null && _returnType != typeof(void))
+                    _protectedResult = _il.DeclareLocal(_returnType);
+                if (!_protectedDoneCreated)
+                {
+                    _protectedDone = _il.DefineLabel();
+                    _protectedDoneCreated = true;
+                }
+                var lockLocal = _il.DeclareLocal(typeof(object));
+                _il.Emit(OpCodes.Stloc, lockLocal);
+                _il.Emit(OpCodes.Ldloc, lockLocal);
+                _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Enter), new[] { typeof(object) })!);
+                _inProtectedRegion = true;
+                _il.BeginExceptionBlock();
+                if (!EmitStatement(Child(idx, 1)))
+                    return false;
+                _il.BeginFinallyBlock();
+                _inFinallyRegion = true;
+                _il.Emit(OpCodes.Ldloc, lockLocal);
+                _il.Emit(OpCodes.Call, typeof(System.Threading.Monitor).GetMethod(nameof(System.Threading.Monitor.Exit), new[] { typeof(object) })!);
+                _inFinallyRegion = false;
+                _il.EndExceptionBlock();
+                _inProtectedRegion = false;
+                return true;
+            }
+
             case 48: // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The
             {        // expression must produce a System.Exception-derived reference (the whitelisted BCL
                      // exception constructions; anything else declines — the analyzer's type rule stays
@@ -4360,6 +4397,9 @@ public sealed class ColumnarIlEmitter
                 return false;
             case 27: // If [cond, then, else?]
                 return _childCount[idx] == 3 && AlwaysReturns(Child(idx, 1)) && AlwaysReturns(Child(idx, 2));
+            case 51: // Lock [lockee, body] — exits iff the body exits (probe-pinned: `lock s { return 1 }`
+                     // with no trailing return satisfies the analyzer).
+                return AlwaysReturns(Child(idx, 1));
             default:
                 return false;
         }

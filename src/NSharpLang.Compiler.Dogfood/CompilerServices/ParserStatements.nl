@@ -31,14 +31,15 @@
 //   TryStatement                 -> kind 49  ( try/catch.../finally?; children [tryBlock, catch1..catchN,
 //                                             finallyBlock? (a trailing kind-25 block)] )
 //   CatchClause                  -> kind 50  ( one catch; value span = the exception TYPE name token, -1 for
-//                                             a bare catch; children [nameIdent (kind 6)?, block]. 51 is the
-//                                             next free kind. )
+//                                             a bare catch; children [nameIdent (kind 6)?, block] )
+//   LockStatement                -> kind 51  ( lock <expr> { }; children [lockee, body]. 52 is the next
+//                                             free kind. )
 // `:=` (ColonAssign 121) after a BARE identifier is the variable declaration (Kind=Let, Type=null); `=`
 // (Assign 93) is an assignment EXPRESSION wrapped in an ExpressionStatement. Following the C# parser, an
 // if/while body is ANY statement (commonly a `{ }` block, but a single statement is also valid), so the
 // bodies recurse through the statement dispatcher; `else if` chains as a nested if.
 //
-// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/lock/switch/yield/
+// Deferred: parenthesised `foreach (x in y)`, const/readonly declarations, using/switch/yield/
 // print/assert, and statements whose expression parts use a not-yet-supported form (e.g. `alloc`). Block
 // statement-list gathers child node ids on the LIFO `argStack` (recursion is LIFO) and appends the
 // contiguous child run after `}`, exactly as calls/generics do.
@@ -234,6 +235,30 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         }
         st[3] = tryArgBase
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 49, -1, 0, tryChildRun, childTotal, tryStart, tryEnd - tryStart)
+    }
+
+    // `lock <expr> { }` (Lock 80) -- LockStatement kind 51, children [lockee, body]. The lockee parses
+    // as a full expression; the body must be a `{ }` block. `using` (16) stays deferred — the columnar
+    // type surface has no IDisposable values to model.
+    if kind == 80 {
+        lockStart := tokenStarts[start]
+        st[0] = start + 1
+        lockee := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        if lockee < 0 {
+            return -1
+        }
+        if st[0] >= count || tokenKinds[st[0]] != 129 {
+            return -1
+        }
+        lockBody := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if lockBody < 0 {
+            return -1
+        }
+        lockEnd := outSpanStarts[lockBody] + outSpanLengths[lockBody]
+        lockChildRun := st[2]
+        AppendExpressionChild(st, outChildIndices, lockee)
+        AppendExpressionChild(st, outChildIndices, lockBody)
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 51, -1, 0, lockChildRun, 2, lockStart, lockEnd - lockStart)
     }
 
     if kind == 27 {

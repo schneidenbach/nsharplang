@@ -4038,6 +4038,45 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // EXCEPTIONS E5 (Phase D) — the LOCK statement (Lock token 80 — empirically verified; kind 51,
+    // children [lockee, body]). Emit mirrors the oracle's EmitLock verbatim: Monitor.Enter(obj);
+    // try { body } finally { Monitor.Exit(obj) } — so locks ride the whole E2-E4 protected-region
+    // machinery (structured returns, loop-crossing leaves, the body-level tail). Always-returns
+    // propagates the BODY (probe-pinned: `lock s { return 1 }` needs no trailing return) — both mirrors.
+    // The lockee must be a REFERENCE value: the pipeline accepts value-type lockees and emits IL that
+    // HARD-CRASHES the process in Monitor.Enter (defect #21, queued; C# rejects CS0185) — columnar
+    // declines them (the decline pin below must NEVER invoke the oracle side). `using` stays deferred:
+    // the columnar type surface has no IDisposable values to model.
+    [Fact]
+    public void ColumnarCodegen_Parity_LockStatement()
+    {
+        var prog =
+            // lock on a string param (probed: 4).
+            "func lockStr(s: string): int {\n    r := 0\n    lock s {\n        r = s.Length\n    }\n    return r\n}\n\n" +
+            // lock on a user-class instance, body reads a field (a member WRITE through a local —
+            // `b.v = ...` — is a pre-existing unmodeled assignment shape, lock or no lock).
+            "class Box {\n    v: int\n}\n\nfunc lockBox(): int {\n    b := new Box { v: 5 }\n    r := 0\n    lock b {\n        r = b.v * 2\n    }\n    return r\n}\n\n" +
+            // RETURN inside the lock body — the structured return through the lock's finally; the body
+            // satisfies always-returns alone (probed: 2).
+            "func retLock(s: string): int {\n    lock s {\n        return s.Length\n    }\n}\n\n" +
+            // BREAK out of a lock inside a loop — the crossing leave runs Monitor.Exit (probed: 2).
+            "func breakLock(s: string, n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        lock s {\n            if i == 2 {\n                break\n            }\n            total = total + 1\n        }\n        i = i + 1\n    }\n    return total\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("lockStr", new object[] { "abcd" }),
+            ("lockBox", System.Array.Empty<object>()),
+            ("retLock", new object[] { "ab" }),
+            ("breakLock", new object[] { "k", 5 }));
+
+        // DECLINES:
+        // a VALUE-TYPE lockee — pipeline-ACCEPTED but the emitted IL hard-crashes the PROCESS in
+        // Monitor.Enter (defect #21) — route-decline ONLY; never invoke this through the oracle.
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    lock n {\n        return n + 1\n    }\n}\n").Ok);
+        // a lock NESTED inside a try (one protected region per body this rung).
+        Assert.False(RouteColumnarProgram("func f(s: string): int {\n    try {\n        lock s {\n            return 1\n        }\n    } catch {\n        return 2\n    }\n}\n").Ok);
+        // a USING statement (no IDisposable surface modelled — kernel-refused).
+        Assert.False(RouteColumnarProgram("func f(s: string): int {\n    using (s) {\n        return s.Length\n    }\n    return 0\n}\n").Ok);
+    }
+
     // EXCEPTIONS E4 (Phase D) — FINALLY + the try-inside-loop revisit. The finally parses as a trailing
     // kind-25 BLOCK child of kind 49 (distinguishable from kind-50 catches by kind); zero catches are
     // valid WITH a finally. Emit: BeginFinallyBlock + statements + EndExceptionBlock — leaves through the

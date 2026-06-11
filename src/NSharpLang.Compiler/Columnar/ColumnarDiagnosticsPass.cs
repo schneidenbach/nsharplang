@@ -105,6 +105,7 @@ public sealed class ColumnarDiagnosticsPass
             }
 
             case 26: // While [condition, body] — recurse into the body (the condition has no statements).
+            case 51: // Lock [lockee, body] — recurse into the body (the lockee has no statements).
                 CollectUnreachable(Child(idx, 1), diagnostics);
                 break;
 
@@ -183,6 +184,10 @@ public sealed class ColumnarDiagnosticsPass
                 return _childCount[idx] > 2
                     && StatementAlwaysReturns(Child(idx, 1))
                     && StatementAlwaysReturns(Child(idx, 2));
+
+            case 51: // Lock [lockee, body] — exits iff the body exits (probe-pinned: `lock s { return 1 }`
+                     // with no trailing return satisfies the analyzer).
+                return StatementAlwaysReturns(Child(idx, 1));
 
             default: // 21 Break, 22 Continue, 23 ExpressionStatement, 24 VariableDeclaration, 26 While.
                 return false;

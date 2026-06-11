@@ -11,6 +11,35 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — EXCEPTIONS E5: the lock statement — THE EXCEPTIONS ARC's MAIN LADDER CLOSES
+
+`lock <expr> { }` (Lock token **80** — empirically verified) parses as **kind 51** [lockee, body]
+(52 next free). The emit mirrors the oracle's EmitLock verbatim — `Monitor.Enter(obj); try { body }
+finally { Monitor.Exit(obj) }` — so locks ride the whole E2–E4 protected-region machinery for free:
+structured returns through the lock's finally, loop-crossing leaves (break out of a lock runs
+Monitor.Exit), the body-level tail. Always-returns propagates the BODY in both mirrors
+(probe-pinned: `lock s { return 1 }` needs no trailing return).
+
+**Probe-found oracle defect #21 (queued, PROCESS-KILLING):** a value-type lockee (`lock n` on int)
+compiles — no CS0185 analog — and the emitted IL stores the unboxed value into the object local: a
+fake reference that HARD-CRASHES the process (segfault, no managed exception) in Monitor.Enter.
+Columnar declines value lockees; the decline pin is route-only and must never invoke the oracle.
+`using` stays deferred — the columnar type surface has no IDisposable values to model (kernel-refused,
+pinned). Also noted pre-existing: member WRITES through locals (`b.v = ...`) are unmodeled in
+top-level bodies (lock or no lock) — the parity shape reads instead.
+
+Parity: `ColumnarCodegen_Parity_LockStatement` (string/class lockees, return-in-lock,
+break-out-of-lock-in-loop) + 3 decline pins (#21 value lockee, lock-nested-in-try, using). 305/305;
+gate (see commit).
+
+**THE EXCEPTIONS ARC IS COMPLETE** — E1 throw `4358d24c`, E2 try+bare-catch `d02f30c2` (+E2b invalid-
+IL twin fix `6774728d`/`eaed17b1`), E3 typed catches `c3367729`, E4 finally + loop-crossing
+`a91112ed`/`a77116b0`, E5 lock — seven gated commits, FOUR new oracle defects found (#18 fixed, #19
+fixed, #16/#17/#20/#21 queued), one cardinal NL316 class closed. NEXT (retirement-map queue): records
+completion, collections, async, interfaces — toward route-all (Arc 2).
+
+---
+
 ## 2026-06-11 — EXCEPTIONS E4: finally + the try-inside-loop revisit — and oracle defect #19
 
 The `finally` parses as a trailing kind-25 BLOCK child of kind 49 (distinguishable from kind-50
