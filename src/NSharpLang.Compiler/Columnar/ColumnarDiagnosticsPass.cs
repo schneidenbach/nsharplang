@@ -112,6 +112,11 @@ public sealed class ColumnarDiagnosticsPass
                     CollectUnreachable(Child(idx, 2), diagnostics);
                 break;
 
+            case 49: // Try [tryBlock, catchBlock] — recurse into both regions.
+                CollectUnreachable(Child(idx, 0), diagnostics);
+                CollectUnreachable(Child(idx, 1), diagnostics);
+                break;
+
             // 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement, 24 VariableDeclaration,
             // 48 Throw: no nested statement lists.
         }
@@ -131,6 +136,10 @@ public sealed class ColumnarDiagnosticsPass
             case 20: // Return (with or without a value) — on kernel-accepted input there are no error placeholders.
             case 48: // Throw — always exits, exactly like the analyzer's StatementAlwaysReturns throw arm.
                 return true;
+
+            case 49: // Try [tryBlock, catchBlock] — exits iff the try AND every catch exit (the analyzer's
+                // TryStatement arm; E2's single bare catch makes that both children).
+                return StatementAlwaysReturns(Child(idx, 0)) && StatementAlwaysReturns(Child(idx, 1));
 
             case 25: // Block — exits if any statement exits.
                 for (var n = 0; n < _childCount[idx]; n++)

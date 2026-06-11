@@ -11,6 +11,41 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — EXCEPTIONS E2: try + bare catch — protected regions enter the emitter
+
+`try { } catch { }` (Try **38** / Catch **39** / Finally **40** — empirically verified) parses as
+**statement kind 49** (children [tryBlock, catchBlock]; 50 next free), in ParseStatementCoreNode — the
+branch needs `depth` for its block recursions, which the simple-statement entry doesn't carry. The
+kernel models exactly the BARE single-catch form: a non-`{` token after `catch` (BOTH typed forms —
+parenthesized `catch (e: T)` and the pipeline's paren-less `catch e: T`, Parser.cs:3046), a second
+`catch`, or a `finally` refuse.
+
+**The spike-pinned IL rules** (a /tmp Reflection.Emit spike, green first run): (1) `ret` is INVALID
+inside a protected region — a protected `return` lowers to `stloc result; leave done` with ONE
+body-level `done: ldloc result; ret` tail (value-less returns just `leave`; the tail emits only when
+some protected return used it); (2) `BeginCatchBlock(Type)` implicitly ends the try and PUSHES the
+exception object (`Pop` — the bare catch), `EndExceptionBlock` implicitly leaves the catch. The
+oracle's bare catch is `BeginCatchBlock(typeof(Exception)) + Pop` (ILCompiler.EmitTry) — matched
+exactly. Declines: NESTED try (one level this rung) and try-inside-LOOP (`_loopLabels.Count > 0` — a
+break/continue in the region would branch out of it; E4 revisits with the leave-through-region rules).
+
+**Faithfulness, again in-slice:** both AlwaysReturns mirrors grew the kind-49 arm — a try exits iff
+the try block AND the (single bare) catch exit, the analyzer's TryStatement rule restricted to this
+rung — and CollectUnreachable recurses both regions. So `try {return} catch {} return d` keeps its
+trailing return reachable (no NL312) while `try {return} catch {return}` satisfies NL305 alone.
+
+**Probe-found lexer truth:** a function literally named `partial` declines — the lexer tokenizes
+`partial` as a keyword token, not Identifier(0), so the kernel's name check refuses it (pre-existing,
+not E2; surfaced because the test's fall-through function was named `partial`). Under-accept, safe.
+
+Parity: `ColumnarCodegen_Parity_TryBareCatch` — 5 shapes × 10 invocations (runtime-fault catch,
+user-throw catch, both-regions-fall-through, try-returns/catch-empty + trailing return, VOID body
+with value-less protected return) + 7 pipeline-valid decline pins (typed catch ×2 forms, second
+catch, finally, try-only-finally, nested try, try-inside-loop). 299/299; gate (see commit). NEXT:
+E3 typed catches + exception binding, E4 finally, E5 using/lock.
+
+---
+
 ## 2026-06-11 — EXCEPTIONS E1: the `throw` statement
 
 The exceptions arc opens (probed: typed catches, bare catch, finally, throw all work oracle-side —

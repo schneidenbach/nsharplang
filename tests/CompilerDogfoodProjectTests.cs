@@ -4020,6 +4020,60 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // EXCEPTIONS E2 (Phase D) — try + BARE catch (Try 38 / Catch 39 — empirically verified; statement
+    // kind 49, children [tryBlock, catchBlock]). Spike-pinned IL rules: `ret` is INVALID inside a
+    // protected region, so a protected `return` lowers to `stloc result; leave done` with ONE
+    // body-level `done: ldloc result; ret` tail (value-less returns just `leave`);
+    // BeginCatchBlock(Type) implicitly ends the try and PUSHES the exception object (Pop — the bare
+    // catch), EndExceptionBlock implicitly leaves the catch. The oracle's bare catch is
+    // BeginCatchBlock(typeof(Exception)) + Pop (ILCompiler.EmitTry:13650) — matched exactly. Both
+    // AlwaysReturns mirrors grew the kind-49 arm (try AND catch must exit — the analyzer's
+    // TryStatement rule restricted to one bare catch) in this same slice, per the faithfulness
+    // discipline. Typed catches (parenthesized AND paren-less) are E3; multi-catch/finally are E4;
+    // nested try and try-inside-loop (break/continue would branch out of the region) decline.
+    [Fact]
+    public void ColumnarCodegen_Parity_TryBareCatch()
+    {
+        var prog =
+            // catch entered via a RUNTIME fault (DivideByZeroException); both regions return, so the
+            // try satisfies NL305 by itself.
+            "func safe(n: int): int {\n    try {\n        return 100 / n\n    } catch {\n        return 0 - 1\n    }\n}\n\n" +
+            // catch entered via a USER throw from a callee.
+            "func mayThrow(n: int): int {\n    if n == 0 {\n        throw new InvalidOperationException(\"zero\")\n    }\n    return n * 2\n}\n\n" +
+            "func guarded(n: int): int {\n    try {\n        return mayThrow(n)\n    } catch {\n        return 0 - 5\n    }\n}\n\n" +
+            // BOTH regions fall through (mutation only) — the return lives after the region.
+            "func sideEffect(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } catch {\n        r = 0 - 1\n    }\n    return r\n}\n\n" +
+            // try RETURNS, catch falls through EMPTY — the trailing return is reachable only via the
+            // catch path (and the try does NOT always-return, so no NL312 on the trailing return).
+            "func lateReturn(n: int): int {\n    try {\n        return 100 / n\n    } catch {\n    }\n    return 0 - 7\n}\n\n" +
+            // VOID body: a value-less protected `return` (leave with no stloc) + fall-through tail.
+            "func punt(n: int) {\n    try {\n        if n == 0 {\n            return\n        }\n    } catch {\n    }\n}\n\n" +
+            "func viaPunt(n: int): int {\n    punt(n)\n    return 9\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("safe", new object[] { 5 }), ("safe", new object[] { 0 }),
+            ("guarded", new object[] { 3 }), ("guarded", new object[] { 0 }),
+            ("sideEffect", new object[] { 4 }), ("sideEffect", new object[] { 0 }),
+            ("lateReturn", new object[] { 5 }), ("lateReturn", new object[] { 0 }),
+            ("viaPunt", new object[] { 0 }), ("viaPunt", new object[] { 3 }));
+
+        // DECLINES (all pipeline-VALID programs — these pins flip to coverage as E3/E4 land):
+        // a TYPED catch, parenthesized (E3).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch (e: InvalidOperationException) {\n        return 0 - 1\n    }\n}\n").Ok);
+        // a TYPED catch, paren-less — the pipeline's SECOND accepted form (Parser.cs:3046), refused by
+        // the same next-token-must-be-`{` check (E3).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch e: InvalidOperationException {\n        return 0 - 1\n    }\n}\n").Ok);
+        // a SECOND catch clause (E3 multi-clause).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        return 100 / n\n    } catch {\n        return 0 - 1\n    } catch {\n        return 0 - 2\n    }\n}\n").Ok);
+        // a FINALLY after the catch (E4).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } catch {\n        r = 0 - 1\n    } finally {\n        r = r + 1\n    }\n    return r\n}\n").Ok);
+        // try with ONLY a finally — no catch at all (E4).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    r := 0\n    try {\n        r = 100 / n\n    } finally {\n        r = r + 1\n    }\n    return r\n}\n").Ok);
+        // a NESTED try (one level this rung).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    try {\n        try {\n            return 100 / n\n        } catch {\n            return 0 - 1\n        }\n    } catch {\n        return 0 - 2\n    }\n}\n").Ok);
+        // try inside a LOOP — a break/continue in the region would branch OUT of it (E4 revisits).
+        Assert.False(RouteColumnarProgram("func f(n: int): int {\n    total := 0\n    i := 0\n    while i < n {\n        try {\n            total = total + 1\n        } catch {\n            total = total + 0\n        }\n        i = i + 1\n    }\n    return total\n}\n").Ok);
+    }
+
     // EXCEPTIONS E1 (Phase D) — the THROW statement (Throw token 37, statement kind 48, one child).
     // Throw ALWAYS EXITS: both AlwaysReturns mirrors (the emitter's and ColumnarDiagnosticsPass's) grew
     // the kind-48 arm IN THIS SLICE — the diagnostics pass's faithfulness is by construction ("the

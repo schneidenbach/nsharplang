@@ -98,6 +98,40 @@ func ParseStatementCoreNode(tokenKinds: int[], tokenStarts: int[], tokenValueLen
         return ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth)
     }
 
+    // `try { } catch { }` (Try 38 / Catch 39) -- TryStatement kind 49, children [tryBlock, catchBlock].
+    // E2 models the BARE single-catch form: a `(` after `catch` (typed binding, E3), a second `catch`,
+    // or a `finally` (40, E4) refuse (-1). Both bodies must be `{ }` BLOCKS.
+    if kind == 38 {
+        tryStart := tokenStarts[start]
+        st[0] = start + 1
+        if st[0] >= count || tokenKinds[st[0]] != 129 {
+            return -1
+        }
+        tryBlock := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if tryBlock < 0 {
+            return -1
+        }
+        if st[0] >= count || tokenKinds[st[0]] != 39 {
+            return -1
+        }
+        st[0] = st[0] + 1
+        if st[0] >= count || tokenKinds[st[0]] != 129 {
+            return -1
+        }
+        catchBlock := ParseBlockStatementNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, depth + 1)
+        if catchBlock < 0 {
+            return -1
+        }
+        if st[0] < count && (tokenKinds[st[0]] == 39 || tokenKinds[st[0]] == 40) {
+            return -1
+        }
+        tryEnd := outSpanStarts[catchBlock] + outSpanLengths[catchBlock]
+        tryChildRun := st[2]
+        AppendExpressionChild(st, outChildIndices, tryBlock)
+        AppendExpressionChild(st, outChildIndices, catchBlock)
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 49, -1, 0, tryChildRun, 2, tryStart, tryEnd - tryStart)
+    }
+
     if kind == 27 {
         whileStart := tokenStarts[start]
         st[0] = start + 1

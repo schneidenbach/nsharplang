@@ -420,6 +420,15 @@ public sealed class ColumnarIlEmitter
     private readonly Dictionary<string, string?[]> _tupleNamesByVariable = new(StringComparer.Ordinal);
     // Sibling functions' RETURN tuple element names (for `mk().x` and `t := mk()` name derivation).
     private readonly IReadOnlyDictionary<string, string?[]>? _siblingReturnTupleNames;
+    // Exceptions E2: while emitting INSIDE a protected region (try/catch bodies), `return` may not emit
+    // `ret` — it stores the value into ProtectedResult (value functions) and `leave`s to ProtectedDone;
+    // EmitBody appends the single `done: [ldloc result;] ret` tail when any leave-return occurred. One
+    // shared pair per body (every try in the body leaves to the same tail). Spike-proven (/tmp/try-spike).
+    private LocalBuilder? _protectedResult;
+    private Label _protectedDone;
+    private bool _protectedDoneCreated;
+    private bool _protectedReturnUsed;
+    private bool _inProtectedRegion;
     private readonly ILGenerator _il;
     // Sibling top-level functions callable from this body, by name -> (declared method, param types, return
     // type). All are declared (pass 1) before any body is emitted (pass 2), so a forward/self call resolves to
@@ -3189,13 +3198,30 @@ public sealed class ColumnarIlEmitter
             }
         }
         if (!isVoid)
-            return AlwaysReturns(bodyRoot) && EmitStatement(bodyRoot);
+        {
+            if (!AlwaysReturns(bodyRoot) || !EmitStatement(bodyRoot))
+                return false;
+            EmitProtectedReturnTail(isVoid: false);
+            return true;
+        }
         var fallsThrough = !AlwaysReturns(bodyRoot);
         if (!EmitStatement(bodyRoot))
             return false;
         if (fallsThrough)
             _il.Emit(OpCodes.Ret);
+        EmitProtectedReturnTail(isVoid: true);
         return true;
+    }
+
+    // The single body-level tail every protected-region `return` leaves to (E2): `done: [ldloc result;] ret`.
+    private void EmitProtectedReturnTail(bool isVoid)
+    {
+        if (!_protectedReturnUsed)
+            return;
+        _il.MarkLabel(_protectedDone);
+        if (!isVoid)
+            _il.Emit(OpCodes.Ldloc, _protectedResult!);
+        _il.Emit(OpCodes.Ret);
     }
 
     private bool EmitStatement(int idx)
@@ -3244,6 +3270,38 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 49: // TryStatement [tryBlock, catchBlock] — `try { } catch { }` (E2: the BARE single-catch
+            {        // form; typed catches/finally are E3/E4). BeginCatchBlock(Exception) implicitly leaves
+                     // the try and pushes the exception (popped — bare catch); EndExceptionBlock implicitly
+                     // leaves the catch (spike-proven). Returns inside the regions go through the body's
+                     // leave tail. NESTED try declines (one level this rung); break/continue crossing the
+                     // region boundary would emit invalid branches — loops inside are fine, but a try inside
+                     // a LOOP whose body breaks out declines via the loop-label check below.
+                if (_childCount[idx] != 2 || _inProtectedRegion)
+                    return false;
+                if (_loopLabels.Count > 0)
+                    return false; // a `break`/`continue` inside the region would branch OUT of it — decline
+                                  // try-inside-loop wholesale this rung (under-accept; E4 revisits).
+                if (_protectedResult == null && _returnType != typeof(void))
+                    _protectedResult = _il.DeclareLocal(_returnType);
+                if (!_protectedDoneCreated)
+                {
+                    _protectedDone = _il.DefineLabel();
+                    _protectedDoneCreated = true;
+                }
+                _inProtectedRegion = true;
+                _il.BeginExceptionBlock();
+                if (!EmitStatement(Child(idx, 0)))
+                    return false;
+                _il.BeginCatchBlock(typeof(Exception));
+                _il.Emit(OpCodes.Pop); // bare catch discards the exception object.
+                if (!EmitStatement(Child(idx, 1)))
+                    return false;
+                _il.EndExceptionBlock();
+                _inProtectedRegion = false;
+                return true;
+            }
+
             case 48: // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The
             {        // expression must produce a System.Exception-derived reference (the whitelisted BCL
                      // exception constructions; anything else declines — the analyzer's type rule stays
@@ -3267,6 +3325,12 @@ public sealed class ColumnarIlEmitter
                 {
                     if (_childCount[idx] != 0)
                         return false;
+                    if (_inProtectedRegion)
+                    {
+                        _il.Emit(OpCodes.Leave, _protectedDone);
+                        _protectedReturnUsed = true;
+                        return true;
+                    }
                     _il.Emit(OpCodes.Ret);
                     return true;
                 }
@@ -3300,6 +3364,14 @@ public sealed class ColumnarIlEmitter
                 }
                 if (!TypesEquivalent(retType, _returnType) && !TryEmitImplicitWidening(retType, _returnType))
                     return false; // exact or implicitly-widenable (`return n` on a long function) only.
+                if (_inProtectedRegion)
+                {
+                    // E2: `ret` is invalid inside try/catch — store + leave to the body tail (spike rule 1).
+                    _il.Emit(OpCodes.Stloc, _protectedResult!);
+                    _il.Emit(OpCodes.Leave, _protectedDone);
+                    _protectedReturnUsed = true;
+                    return true;
+                }
                 _il.Emit(OpCodes.Ret);
                 return true;
             }
@@ -4095,6 +4167,8 @@ public sealed class ColumnarIlEmitter
             case 20: // Return
             case 48: // Throw — always exits (E1; mirrored in ColumnarDiagnosticsPass).
                 return true;
+            case 49: // Try — exits iff the TRY block AND the CATCH block both exit (the analyzer's rule).
+                return AlwaysReturns(Child(idx, 0)) && AlwaysReturns(Child(idx, 1));
             case 25: // Block
                 for (var n = 0; n < _childCount[idx]; n++)
                 {
