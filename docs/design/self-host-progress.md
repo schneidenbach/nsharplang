@@ -11,6 +11,28 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — EXCEPTIONS E1: the `throw` statement
+
+The exceptions arc opens (probed: typed catches, bare catch, finally, throw all work oracle-side —
+20/-1/1025 pinned). E1: `throw <expr>` (Throw token 37) parses as **statement kind 48** (one child; a
+bare rethrow is the catch rung's shape, unparsed); the emit checks Exception-assignability and emits
+`throw`. The kind-15 BCL ctor whitelist gained the 1-arg-string exception constructions
+(Exception/InvalidOperationException/ArgumentException/FormatException/NotSupportedException — the
+identical ctors the pipeline binds).
+
+**The faithfulness discipline, applied:** ColumnarDiagnosticsPass's correctness was BY CONSTRUCTION
+("the kernel refuses throw/try/switch") — so BOTH AlwaysReturns mirrors (the emitter's and the
+diagnostics pass's) grew the kind-48 always-exits arm IN THIS SLICE, keeping NL305 (`throwOnly` needs
+no return) and NL312 (code after throw is unreachable) exact. Every future kernel statement addition
+must extend the pass the same way.
+
+Parity: `ColumnarCodegen_Parity_ThrowStatement` (+ the route-only throw pin with exact exception
+type/message) + 3 decline pins (unreachable-after-throw NL312, non-exception operands, bare rethrow).
+298/298; gate (see commit). NEXT exception rungs: E2 try + bare catch (BeginExceptionBlock machinery +
+the diagnostics try/catch reachability rules), E3 typed catches + binding, E4 finally, E5 using/lock.
+
+---
+
 ## 2026-06-11 — NULL & NULLABLE N4: `is`/`as` type tests — the null arc's main ladder closes
 
 `is` (token **47**) / `as` (**48**) parse as kernel kinds **46/47** (children [value, typeRoot] — the

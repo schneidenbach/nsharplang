@@ -3244,6 +3244,18 @@ public sealed class ColumnarIlEmitter
                 return true;
             }
 
+            case 48: // Throw [exception] — `throw <expr>`: emit the exception REFERENCE and `throw`. The
+            {        // expression must produce a System.Exception-derived reference (the whitelisted BCL
+                     // exception constructions; anything else declines — the analyzer's type rule stays
+                     // with the C# path).
+                if (_childCount[idx] != 1 || !EmitExpression(Child(idx, 0), out var thrownType))
+                    return false;
+                if (!typeof(Exception).IsAssignableFrom(thrownType))
+                    return false;
+                _il.Emit(OpCodes.Throw);
+                return true;
+            }
+
             case 20: // Return [value?] — in a VOID function a value-less `return` emits a bare `ret`; in a VALUE
             {        // function a value is REQUIRED (a value-less `ret` with an empty stack is invalid IL) and its
                      // type must match the declared return type (TypesEquivalent — two closed instantiations of one
@@ -4081,6 +4093,7 @@ public sealed class ColumnarIlEmitter
         switch (_kinds[idx])
         {
             case 20: // Return
+            case 48: // Throw — always exits (E1; mirrored in ColumnarDiagnosticsPass).
                 return true;
             case 25: // Block
                 for (var n = 0; n < _childCount[idx]; n++)
@@ -5085,6 +5098,25 @@ public sealed class ColumnarIlEmitter
                             return false;
                         _il.Emit(OpCodes.Newobj, sbCtor);
                         type = typeof(System.Text.StringBuilder);
+                        return true;
+                    }
+                    // WHITELISTED BCL EXCEPTION constructions (E1): `new <Exception>(message)` — the
+                    // 1-arg string ctor of the common exception types (the same set the pipeline resolves;
+                    // identical ctors bind on both sides).
+                    if (newTypeName is "Exception" or "InvalidOperationException" or "ArgumentException" or "FormatException" or "NotSupportedException")
+                    {
+                        var exceptionType = newTypeName switch
+                        {
+                            "Exception" => typeof(Exception),
+                            "InvalidOperationException" => typeof(InvalidOperationException),
+                            "ArgumentException" => typeof(ArgumentException),
+                            "FormatException" => typeof(FormatException),
+                            _ => typeof(NotSupportedException),
+                        };
+                        if (_childCount[idx] != 2 || !EmitArg(idx, 1, typeof(string)))
+                            return false;
+                        _il.Emit(OpCodes.Newobj, exceptionType.GetConstructor(new[] { typeof(string) })!);
+                        type = exceptionType;
                         return true;
                     }
                     // A user type with a positional constructor: `new T(args)`. The type names a registered

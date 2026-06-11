@@ -112,7 +112,8 @@ public sealed class ColumnarDiagnosticsPass
                     CollectUnreachable(Child(idx, 2), diagnostics);
                 break;
 
-            // 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement, 24 VariableDeclaration: no nested lists.
+            // 20 Return, 21 Break, 22 Continue, 23 ExpressionStatement, 24 VariableDeclaration,
+            // 48 Throw: no nested statement lists.
         }
     }
 
@@ -128,6 +129,7 @@ public sealed class ColumnarDiagnosticsPass
         switch (_kinds[idx])
         {
             case 20: // Return (with or without a value) — on kernel-accepted input there are no error placeholders.
+            case 48: // Throw — always exits, exactly like the analyzer's StatementAlwaysReturns throw arm.
                 return true;
 
             case 25: // Block — exits if any statement exits.

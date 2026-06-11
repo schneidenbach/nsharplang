@@ -4020,6 +4020,45 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // EXCEPTIONS E1 (Phase D) — the THROW statement (Throw token 37, statement kind 48, one child).
+    // Throw ALWAYS EXITS: both AlwaysReturns mirrors (the emitter's and ColumnarDiagnosticsPass's) grew
+    // the kind-48 arm IN THIS SLICE — the diagnostics pass's faithfulness is by construction ("the
+    // kernel refuses throw"), so every kernel statement addition must extend it in the same slice.
+    // The kind-15 BCL ctor whitelist gained the 1-arg-string exception constructions
+    // (Exception/InvalidOperationException/ArgumentException/FormatException/NotSupportedException) —
+    // the identical ctors the pipeline binds.
+    [Fact]
+    public void ColumnarCodegen_Parity_ThrowStatement()
+    {
+        var prog =
+            "func risky(n: int): int {\n    if n == 0 {\n        throw new InvalidOperationException(\"zero\")\n    }\n    return 100 / n\n}\n\n" +
+            // throw as the ONLY exit on a VALUE function — NL305 must NOT fire (always-exits via throw).
+            "func throwOnly(msg: string): int {\n    throw new ArgumentException(msg)\n}\n\n" +
+            "func viaRisky(n: int): int {\n    return risky(n)\n}\n";
+        AssertColumnarProgramMatchesCSharp(prog,
+            ("viaRisky", new object[] { 5 }), ("viaRisky", new object[] { -4 }));
+
+        // The THROW path: route-only — exact exception type + message parity.
+        var (ok, asm, typeName, _) = RouteColumnarProgram(
+            "func risky(n: int): int {\n    if n == 0 {\n        throw new InvalidOperationException(\"zero\")\n    }\n    return 100 / n\n}\n");
+        Assert.True(ok, "columnar must emit the throw program");
+        using var scope = CollectibleAssemblyScope.Load(asm!);
+        var progType = scope.Assembly.GetType(typeName!)!;
+        var thrown = Assert.Throws<System.Reflection.TargetInvocationException>(
+            () => progType.GetMethod("risky")!.Invoke(null, new object[] { 0 }));
+        var inner = Assert.IsType<InvalidOperationException>(thrown.InnerException);
+        Assert.Equal("zero", inner.Message);
+
+        // DECLINES:
+        // UNREACHABLE code after a throw — the pipeline's NL312; the diagnostics mirror reports the same.
+        Assert.False(RouteColumnarProgram("func f(): int {\n    throw new Exception(\"x\")\n    return 1\n}\n").Ok);
+        // a NON-exception throw operand (`throw 5` — the pipeline rejects; the emitter's
+        // Exception-assignability gate declines).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    throw 5\n}\n").Ok);
+        // a BARE rethrow outside any catch (the catch rung's shape — unparsed).
+        Assert.False(RouteColumnarProgram("func f(): int {\n    throw\n}\n").Ok);
+    }
+
     // NULL & NULLABLE N4 (Phase D) — `is` / `as` TYPE TESTS (Is 47 / As 48 — empirically verified;
     // kernel kinds 46/47, children [value, typeRoot] with the TYPE subtree in child 1 — every name scan
     // walks the VALUE child only). `is` emits isinst/ldnull/cgt.un -> bool; `as` keeps the target type

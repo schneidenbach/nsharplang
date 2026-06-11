@@ -266,6 +266,26 @@ func ParseSimpleStatementNode(tokenKinds: int[], tokenStarts: int[], tokenValueL
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 20, -1, 0, -1, 0, returnStart, returnEnd - returnStart)
     }
 
+    // `throw <expr>` (Throw 37) -- ThrowStatement kind 48, ONE child [the exception expression].
+    // A bare `throw` (rethrow, catch-only) is unmodeled (-1) until the catch rung lands. Throw
+    // ALWAYS EXITS: both AlwaysReturns mirrors (the emitter's and ColumnarDiagnosticsPass's) treat
+    // kind 48 like Return -- added in the SAME slice (the pass's faithfulness is by construction).
+    if kind == 37 {
+        throwStart := tokenStarts[start]
+        st[0] = start + 1
+        if st[0] >= count || tokenKinds[st[0]] == 130 || tokenKinds[st[0]] == 135 || tokenKinds[st[0]] == 136 {
+            return -1
+        }
+        throwValue := ParseAssignmentExpressionNode(tokenKinds, tokenStarts, tokenValueLengths, count, st, argStack, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outChildIndices, outSpanStarts, outSpanLengths, 0)
+        if throwValue < 0 {
+            return -1
+        }
+        throwEnd := outSpanStarts[throwValue] + outSpanLengths[throwValue]
+        throwChildRun := st[2]
+        AppendExpressionChild(st, outChildIndices, throwValue)
+        return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 48, -1, 0, throwChildRun, 1, throwStart, throwEnd - throwStart)
+    }
+
     if kind == 35 {
         st[0] = start + 1
         return EmitExpressionNode(st, outNodeKinds, outValueStarts, outValueLengths, outChildStart, outChildCount, outSpanStarts, outSpanLengths, 21, -1, 0, -1, 0, tokenStarts[start], tokenValueLengths[start])
