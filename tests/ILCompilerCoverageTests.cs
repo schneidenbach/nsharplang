@@ -29,6 +29,23 @@ public class ILCompilerCoverageTests : ILCompilerTestBase
     // CLR ValueTuple<> (which only has ItemN fields) and threw "Member x not found on type ValueTuple`2".
     // The emitter now retains declared element names per variable (_tupleElementNamesByVariable) and
     // rewrites named members to their positional ItemN spelling at the member-resolution tails.
+    // Interpolated-string TEXT segments decode the shared escape set (they historically emitted RAW
+    // while plain strings decoded — the IL path diverged from the transpile path; strings slice 3).
+    [Fact]
+    public void ILCompiler_InterpolatedStringTextSegmentsDecodeEscapes()
+    {
+        var source = @"
+func main(): int {
+    n := 42
+    withHole := $""a\nb{n}c\td""
+    pure := $""x\ny""
+    return withHole.Length * 100 + pure.Length
+}";
+        // a, \n, b, 4, 2, c, \t, d = 8 chars; x, \n, y = 3 chars.
+        var result = CompileAndInvoke(source);
+        Assert.Equal(803, Assert.IsType<int>(result));
+    }
+
     [Fact]
     public void ILCompiler_NamedTupleMemberAccess_AllReceiverShapes()
     {

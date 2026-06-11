@@ -25,7 +25,15 @@ public static class StringLiteralDecoder
     {
         var start = tokenText.Length > 0 && tokenText[0] == '"' ? 1 : 0;
         var end = tokenText.Length > start && tokenText[^1] == '"' ? tokenText.Length - 1 : tokenText.Length;
-        var body = tokenText.Substring(start, end - start);
+        return DecodeBody(tokenText.Substring(start, end - start));
+    }
+
+    /// <summary>
+    /// Decodes a literal BODY (no delimiting quotes — e.g. an interpolated string's TEXT segment, whose
+    /// escape pairs the parser keeps verbatim). The token-text overload strips delimiters then calls this.
+    /// </summary>
+    public static string DecodeBody(string body)
+    {
         if (body.IndexOf('\\') < 0)
             return body;
 

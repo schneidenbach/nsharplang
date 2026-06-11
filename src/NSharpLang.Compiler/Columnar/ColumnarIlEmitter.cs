@@ -792,10 +792,14 @@ public sealed class ColumnarIlEmitter
                 il.Emit(OpCodes.Ldc_I4, (int)charValue[0]);
                 return true;
             }
-            case 4: // StringLiteral: RAW (Trim('"'), no escape decode — the N#/C#-path semantics).
+            case 4: // StringLiteral — decodes the shared escape set (the strings slice changed PLAIN string
+                    // semantics; the oracle's static-init path routes through the rewired literal sites, so
+                    // keeping Trim here would diverge). An INTERPOLATED initializer ($-prefixed) declines.
                 if (fieldType != typeof(string))
                     return false;
-                il.Emit(OpCodes.Ldstr, text.Trim('"'));
+                if (text.Length > 0 && text[0] == '$')
+                    return false;
+                il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(text));
                 return true;
             case 44: // true
                 if (fieldType != typeof(bool))
@@ -4302,7 +4306,13 @@ public sealed class ColumnarIlEmitter
             {       // set via the SHARED StringLiteralDecoder (the exact rule the C# path's
                     // GetStringLiteralRuntimeValue applies — both pipelines materialize byte-identically;
                     // the transpile path always decoded via Roslyn, so all three now agree).
-                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(Text(idx)));
+                    // An INTERPOLATED literal ($"...{x}...") lexes as the SAME token kind with the `$` in
+                    // the span (production parity) and would otherwise emit the mangled raw text — DECLINE
+                    // it here until the interpolation slice lands (probe-confirmed live wrong-codegen).
+                var stringText = Text(idx);
+                if (stringText.Length > 0 && stringText[0] == '$')
+                    return false;
+                _il.Emit(OpCodes.Ldstr, NSharpLang.Compiler.StringLiteralDecoder.Decode(stringText));
                 type = typeof(string);
                 return true;
             }

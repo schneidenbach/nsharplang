@@ -171,6 +171,13 @@ public sealed class ColumnarDiagnosticsPass
     {
         switch (_kinds[idx])
         {
+            case 3: // StringLiteral — an INTERPOLATED literal ($-prefixed token) holds identifier USES the
+                // kind-6 walk cannot see (probe-confirmed FALSE NL001: a local used only in a hole reported
+                // unused). Throw so the adapter's catch declines the analysis to the production linter.
+                if (_valueLengths[idx] > 0 && _source[_valueStarts[idx]] == '$')
+                    throw new System.InvalidOperationException("interpolated string — unused-local analysis declines");
+                return;
+
             case 6: // Identifier expression — a use of its name, recorded in traversal order. A value-less
                 // node (nameStart -1) is a TYPE-kernel tuple node masquerading as kind 6 — never a name use
                 // (and Text() on it would throw; type subtrees are also skipped wholesale below).

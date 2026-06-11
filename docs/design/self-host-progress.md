@@ -11,6 +11,33 @@ language/runtime/compiler limitation found plus the principled change made to re
 
 ---
 
+## 2026-06-11 — STRINGS slice 3: the interpolation DECLINE GUARD + interpolated-text escapes
+
+The interpolation machinery map (2-agent workflow) found **live soundness bugs, probe-verified**: an
+interpolated literal lexes as the SAME token kind as a plain string with the `$` in the span (production
+parity — there is no separate TokenType), the expression kernel parses it as a plain kind-3 literal, and
+the columnar emitter **silently emitted the mangled raw text** (`$"hello {name}` — wrong codegen, not a
+decline); the unused-locals analysis produced a **FALSE NL001** for locals used only in holes. The two
+"the kernel refuses them" comments were factually wrong — protection was only the corpus containing zero
+$-strings. FIXED: $-prefixed literals now DECLINE at both consumption sites (the kind-3 emit and
+static-field initializers) and the diagnostics walk throws-to-decline — until the full interpolation
+slice (node kind 45) lands.
+
+**Oracle escape divergence FIXED (the #16 family, found by the same map):** interpolated TEXT segments
+bypassed the strings-slice decoder (emitted RAW at the constant-fold and AppendLiteral sites, with the
+UNDECODED literalLength — the IL path diverged from the transpile path on `$"a\nb"`). The decoder gained
+a body-level entry (`StringLiteralDecoder.DecodeBody`) and all three sites decode. ALSO fixed a latent
+slice-1 gap: columnar **static-field string initializers** kept `Trim` while the oracle's rewired path
+decoded — escaped static initializers would have diverged; both now decode + parity-pinned.
+
+Tests: `ILCompiler_InterpolatedStringTextSegmentsDecodeEscapes` (oracle),
+`ColumnarCodegen_InterpolationDeclinesAndStaticInitEscapes` (decline pins + static-init escape parity).
+**The full 4001-test suite green.** Remaining strings rung: the real columnar interpolation surface
+(expression node kind 45, handler-mirror lowering — the corpus has ZERO $-strings so this is
+examples/route-all coverage, not self-host-blocking).
+
+---
+
 ## 2026-06-11 — STRINGS slice 2: the BCL string-method whitelist widened
 
 Parameterless **ToString() on every value scalar** (int/long/ulong/uint/short/ushort/byte/sbyte/double/

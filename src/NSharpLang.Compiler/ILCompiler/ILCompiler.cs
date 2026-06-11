@@ -14897,7 +14897,10 @@ public partial class ILCompiler
         // and skip the handler entirely so we never allocate a builder for a literal.
         if (!parts.OfType<InterpolatedStringHole>().Any())
         {
-            var literal = string.Concat(parts.OfType<InterpolatedStringText>().Select(t => t.Text));
+            // TEXT segments carry escape pairs verbatim (the parser keeps them) — decode with the same
+            // shared rule plain strings use, so $"a\nb" matches "a\nb" and the transpile path (the
+            // IL path historically emitted them RAW — the strings-slice escape divergence).
+            var literal = string.Concat(parts.OfType<InterpolatedStringText>().Select(t => StringLiteralDecoder.DecodeBody(t.Text)));
             _currentIL.Emit(OpCodes.Ldstr, literal);
             return;
         }
@@ -14927,7 +14930,7 @@ public partial class ILCompiler
             switch (part)
             {
                 case InterpolatedStringText text:
-                    literalLength += text.Text.Length;
+                    literalLength += StringLiteralDecoder.DecodeBody(text.Text).Length; // the DECODED length (Roslyn's constant).
                     break;
                 case InterpolatedStringHole:
                     formattedCount++;
@@ -14991,7 +14994,8 @@ public partial class ILCompiler
             {
                 case InterpolatedStringText text:
                     _currentIL.Emit(OpCodes.Ldloca, handlerLocal);
-                    _currentIL.Emit(OpCodes.Ldstr, text.Text);
+                    // Escape pairs decode with the shared plain-string rule (see the constant-fold path).
+                    _currentIL.Emit(OpCodes.Ldstr, StringLiteralDecoder.DecodeBody(text.Text));
                     _currentIL.Emit(OpCodes.Call, appendLiteral);
                     break;
 

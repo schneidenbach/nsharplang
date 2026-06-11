@@ -4019,6 +4019,28 @@ class B
         Assert.False(RouteColumnarProgram("union Opt<T> {\n    Some { value: T }\n    None { }\n}\n\nclass Holder {\n    v: int\n    constructor(o: Opt<int>) {\n        v = 1\n    }\n    constructor(p: Opt<int>) {\n        v = 2\n    }\n}\n\nfunc f(): int { return 1 }\n").Ok);
     }
 
+    // STRINGS slice 3 (Phase D) — the INTERPOLATION DECLINE GUARD + static-init escape decode. An
+    // interpolated literal lexes as the SAME token kind as a plain string with the `$` in the span
+    // (production parity), and columnar previously PARSED it as a plain literal and silently emitted the
+    // mangled raw text (probe-confirmed live wrong-codegen) while the unused-locals analysis produced a
+    // FALSE NL001 for locals used only in holes. Both consumption sites now DECLINE $-prefixed literals
+    // (the kind-3 emit, static-field initializers) and the diagnostics walk declines the analysis — until
+    // the full interpolation slice (node kind 45) lands. Static-field STRING initializers also decode the
+    // shared escape set now (the slice-1 rewire covered the oracle's path; columnar kept Trim — a latent
+    // divergence for escaped initializers, fixed here).
+    [Fact]
+    public void ColumnarCodegen_InterpolationDeclinesAndStaticInitEscapes()
+    {
+        // $-strings DECLINE wholesale (expression position and static-field initializer position).
+        Assert.False(RouteColumnarProgram("func f(name: string): string {\n    return $\"hello {name}\"\n}\n").Ok);
+        Assert.False(RouteColumnarProgram("class C {\n    static tag: string = $\"v{1}\"\n}\n\nfunc f(): int { return 1 }\n").Ok);
+
+        // a static-field initializer WITH escapes decodes identically on both pipelines.
+        AssertColumnarProgramMatchesCSharp(
+            "class C {\n    static sep: string = \"a\\nb\"\n}\n\nfunc f(): int {\n    return C.sep.Length\n}\n",
+            ("f", System.Array.Empty<object>()));
+    }
+
     // STRINGS slice 2 (Phase D) — the BCL string-method WHITELIST widened: parameterless ToString() on
     // every value scalar (spill + ldloca + call the type's OWN overload — the exact C# binding, culture
     // and all), string.Substring(int), ToUpper/ToLower/ToString on string, Contains/StartsWith/EndsWith
